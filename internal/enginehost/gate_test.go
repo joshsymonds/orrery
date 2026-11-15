@@ -22,6 +22,10 @@ func gateEnv(extra ...string) []string {
 	return append([]string{"PATH=" + os.Getenv("PATH")}, extra...)
 }
 
+// gateHeldScript writes running to $MARKER, waits until $RELEASE exists, prints done and exits 0, so a test acts on the
+// running gate and then lets it end.
+const gateHeldScript = `echo running > "$MARKER"; until [ -e "$RELEASE" ]; do sleep 0.01; done; echo done; exit 0`
+
 // gateWaitFile polls until path exists with content and returns the trimmed content.
 func gateWaitFile(t *testing.T, path string) string {
 	t.Helper()
@@ -208,22 +212,17 @@ func TestGateErrorsWhenItCannotStart(t *testing.T) {
 	}
 }
 
+// TestGateKeepsTheLastEightKiB runs a gate that names no tail and writes one byte less than 8 KiB over many lines. The
+// default tail keeps all of it, so nothing is cut and the first line stays. It proves the default from below, as
+// TestGateRedactTailCutInsideTokenDropsItsLineOnBothStreams proves it from above.
 func TestGateKeepsTheLastEightKiB(t *testing.T) {
 	t.Parallel()
-	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", `head -c 20000 /dev/zero | tr '\0' a; printf END`},
-		Dir:     t.TempDir(),
-		Limit:   time.Minute,
-		Environ: gateEnv(),
-	})
-	if err != nil {
-		t.Fatalf("runGrantedGate: %v", err)
+	out := gateTailLines(0, 818) + "line-final\n"
+	if len(out) != 8<<10-1 {
+		t.Fatalf("output is %d bytes, want one byte less than 8 KiB", len(out))
 	}
-	if len(result.Stdout) != 8*1024 {
-		t.Fatalf("len(Stdout) = %d, want %d", len(result.Stdout), 8*1024)
-	}
-	if !strings.HasSuffix(result.Stdout, "END") {
-		t.Fatalf("Stdout does not end with the last bytes written: %q", result.Stdout[len(result.Stdout)-16:])
+	if got := runGateScript(t, gateRedactHeredoc(out, false), 0).Stdout; got != out {
+		t.Fatalf("len(Stdout) = %d, want the whole %d-byte output with its first line", len(got), len(out))
 	}
 }
 
@@ -520,26 +519,29 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 	}
 	done := make(chan outcome, 1)
 	marker := filepath.Join(t.TempDir(), "running")
+	release := filepath.Join(t.TempDir(), "release")
+	launched := make(chan struct{})
 	go func() {
 		result, err := runGrantedGate(ctx, pools, gateGrantRequest(), gateRun{
-			Argv:     []string{"/bin/sh", "-c", `echo running > "$MARKER"; sleep 1; echo done; exit 0`},
+			Argv:     []string{"/bin/sh", "-c", gateHeldScript},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,
 			Name:     "detached",
 			StateDir: gateShortStateDir(t),
-			Environ:  gateEnv("MARKER=" + marker),
+			Environ:  gateEnv("MARKER="+marker, "RELEASE="+release),
 			Started: func(_ context.Context, _, dir string) error {
 				started <- dir
 				return nil
 			},
+			launched: func() { close(launched) },
 		})
 		done <- outcome{result, err}
 	}()
 
 	dir := gateWaitStarted(t, started)
-	// The detach follows the gate's start, and the holder's handshake follows its start by milliseconds.
-	gateWaitFile(t, marker)
-	time.Sleep(200 * time.Millisecond)
+	// The detach comes once the holder is attached and the gate is watched. The gate runs until the test releases it,
+	// after the attempt has returned.
+	<-launched
 	cancel(errGateDetach)
 	var got outcome
 	select {
@@ -554,6 +556,9 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 	case <-released:
 		t.Fatal("the grant ended on detach: the holder keeps its grant")
 	default:
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatalf("release the gate: %v", err)
 	}
 	exit := gateWaitExit(t, dir)
 	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {

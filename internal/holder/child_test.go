@@ -67,11 +67,7 @@ func startChildUnderCleanup(t *testing.T, spool *Spool, cfg ChildConfig) *Child 
 		if fake, ok := cfg.Clock.(*fakeClock); ok {
 			fake.Advance(time.Hour)
 		}
-		select {
-		case <-child.Done():
-		case <-time.After(waitArmedTimeout):
-			t.Errorf("child not reaped within %v of Stop", waitArmedTimeout)
-		}
+		<-child.Done()
 	})
 	return child
 }
@@ -100,32 +96,24 @@ func childSpooled(t *testing.T, spool *Spool) []byte {
 	return out.Bytes()
 }
 
-// awaitChildSpool waits until ready reports true, failing the test after waitArmedTimeout. The change channel is taken
-// before ready runs, so no change between the two checks is missed.
-func awaitChildSpool(t *testing.T, spool *Spool, what string, ready func() bool) {
+// awaitChildSpool waits until ready reports true; what names the state it waits for. The change channel is taken
+// before ready runs, so no change between the two checks is missed. The wait has no deadline: the child's pace is the
+// machine's, and the test binary's timeout ends a wait that never ends.
+func awaitChildSpool(t *testing.T, spool *Spool, _ string, ready func() bool) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		changed := spool.Changed()
 		if ready() {
 			return
 		}
-		select {
-		case <-changed:
-		case <-timeout:
-			t.Fatalf("spool never reached %s within %v; it holds %q", what, waitArmedTimeout, childSpooled(t, spool))
-		}
+		<-changed
 	}
 }
 
-// awaitChildDone waits for the child to be reaped and its stdout spooled, failing the test after waitArmedTimeout.
+// awaitChildDone waits for the child to be reaped and its stdout spooled. It has no deadline of its own.
 func awaitChildDone(t *testing.T, child *Child) {
 	t.Helper()
-	select {
-	case <-child.Done():
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("child not done within %v", waitArmedTimeout)
-	}
+	<-child.Done()
 }
 
 // requireChildGroupGone fails the test when any process of process group pgid is still alive.
@@ -217,16 +205,12 @@ func readChildPid(t *testing.T, name string) int {
 	return pid
 }
 
-// awaitPidGone waits until process pid no longer exists, failing the test after waitArmedTimeout.
-func awaitPidGone(t *testing.T, pid int, what string) {
+// awaitPidGone waits until process pid no longer exists; its last argument names the process. It has no deadline of
+// its own.
+func awaitPidGone(t *testing.T, pid int, _ string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for processLive(t, pid) {
-		select {
-		case <-timeout:
-			t.Fatalf("%s: process %d still alive %v after Stop", what, pid, waitArmedTimeout)
-		case <-time.After(10 * time.Millisecond):
-		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

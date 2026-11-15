@@ -339,12 +339,10 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			writeFile(t, transcript, exampleTranscript, 0o600)
 			since := time.Now().Unix()
 
-			started := time.Now()
+			// The notice waits out route.JudgeDelay before the judge runs; route's own tests check that wait on fake
+			// timers, so this test checks only what the judged notice carries.
 			sendHook(t, socket, pane, project, stopHook(transcript))
 			line := nextDeskLine(t, conn, r, judgedLimit)
-			if elapsed := time.Since(started); elapsed < route.JudgeDelay {
-				t.Fatalf("desk notice after %v, want no sooner than the judge delay %v", elapsed, route.JudgeDelay)
-			}
 			if line.Kind != deskstream.KindNotice || line.State != string(protocol.StateDone) ||
 				line.Title != exampleTitle || line.Body != exampleSummary || line.Quiet != tc.quiet {
 				t.Fatalf("desk line %+v, want a done notice titled %q with body %q, quiet %t",

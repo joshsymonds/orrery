@@ -49,25 +49,16 @@ func startHolder(ctx context.Context, t *testing.T, cfg Config) *running {
 		close(run.done)
 	}()
 	t.Cleanup(func() {
-		select {
-		case <-run.done:
-		case <-time.After(waitArmedTimeout):
-			t.Errorf("holder still running %v after its test ended", waitArmedTimeout)
-		}
+		<-run.done
 	})
 	return run
 }
 
-// wait returns Run's error once Run has returned, failing the test after waitArmedTimeout.
+// wait returns Run's error once Run has returned. It has no deadline of its own.
 func (run *running) wait(t *testing.T) error {
 	t.Helper()
-	select {
-	case <-run.done:
-		return run.err
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("holder did not return within %v", waitArmedTimeout)
-		return nil
-	}
+	<-run.done
+	return run.err
 }
 
 // shortRoot creates a temporary directory whose path is short enough for a socket path. A t.TempDir path carries the
@@ -136,7 +127,6 @@ type client struct {
 // retries until the socket accepts. It fails at once if Run returns first.
 func dialHolder(t *testing.T, run *running, sock string) *client {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
 		if err == nil {
@@ -149,9 +139,7 @@ func dialHolder(t *testing.T, run *running, sock string) *client {
 		}
 		select {
 		case <-run.done:
-			t.Fatalf("holder returned %v before its socket accepted", run.err)
-		case <-timeout:
-			t.Fatalf("socket %s did not accept within %v: %v", sock, waitArmedTimeout, err)
+			t.Fatalf("holder returned %v before its socket %s accepted: %v", run.err, sock, err)
 		case <-time.After(holderPoll):
 		}
 	}
@@ -165,7 +153,8 @@ func (c *client) send(frame Frame) {
 	}
 }
 
-// read returns the next frame the holder sends, failing the test when none arrives within waitArmedTimeout.
+// read returns the next frame the holder sends. It sets no deadline: the holder's pace is the machine's, and the test
+// binary's timeout ends a read that never returns.
 func (c *client) read() Frame {
 	c.t.Helper()
 	c.setDeadline()
@@ -197,10 +186,11 @@ func (c *client) hello(version int) Frame {
 	return answer
 }
 
-// setDeadline bounds the next read so a holder that never answers fails the test instead of hanging it.
+// setDeadline clears any read deadline, such as the one expectSilent sets, so the next read waits for the holder. A
+// holder that never answers is the test binary's timeout to end.
 func (c *client) setDeadline() {
 	c.t.Helper()
-	if err := c.conn.SetReadDeadline(time.Now().Add(waitArmedTimeout)); err != nil {
+	if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
 		c.t.Fatalf("set read deadline: %v", err)
 	}
 }
@@ -210,16 +200,11 @@ func (c *client) setDeadline() {
 func awaitChildPid(t *testing.T, childDir string) int {
 	t.Helper()
 	name := filepath.Join(childDir, fakePidName)
-	timeout := time.After(waitArmedTimeout)
 	for {
 		if _, err := os.Stat(name); err == nil {
 			return readChildPid(t, name)
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("fake child wrote no pid to %s within %v", name, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
@@ -245,14 +230,12 @@ func requireChildGroupAlive(t *testing.T, pgid int) {
 	}
 }
 
-// awaitLockFree fails unless the session lock in dir becomes free to take within waitArmedTimeout. A process forked
-// while the lock is open holds a copy of its descriptor until that process execs, so a parallel test's fork can keep
-// the lock busy for a moment after the holder has closed it. A lock the holder never released stays busy past the
-// timeout.
+// awaitLockFree waits until the session lock in dir is free to take. A process forked while the lock is open holds a
+// copy of its descriptor until that process execs, so a parallel test's fork can keep the lock busy for a moment after
+// the holder has closed it. A lock the holder never released keeps the wait going until the test binary's timeout.
 func awaitLockFree(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, LockName)
-	timeout := time.After(waitArmedTimeout)
 	for {
 		lock, err := Lock(path)
 		if err == nil {
@@ -261,11 +244,7 @@ func awaitLockFree(t *testing.T, dir string) {
 			}
 			return
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("session lock still held after %v: %v", waitArmedTimeout, err)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
@@ -297,13 +276,12 @@ func heldLockID(t *testing.T, dir string) string {
 }
 
 // awaitLockUnheld waits until the kernel's lock table holds no lock on the file it names id, as heldLockID returns it,
-// failing the test after waitArmedTimeout. It never opens the lock file, so unlike awaitLockFree it leaves no
+// with no deadline of its own. It never opens the lock file, so unlike awaitLockFree it leaves no
 // descriptor that a parallel test's fork could copy and so keep the lock held. Stop takes and releases the lock in this
 // process, and a fork in that window holds the lock for a moment after Stop returns, so a test that next probes the
 // lock waits here first.
 func awaitLockUnheld(t *testing.T, id string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		held := false
 		for _, fields := range lockTable(t) {
@@ -315,11 +293,7 @@ func awaitLockUnheld(t *testing.T, id string) {
 		if !held {
 			return
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("lock %s still held after %v", id, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 

@@ -224,12 +224,29 @@ func TestStopKillsChildThatIgnoresSIGINT(t *testing.T) {
 	if got := readLine(t, out); got != "ready\n" {
 		t.Fatalf("first line = %q, want ready", got)
 	}
-	start := time.Now()
-	if err := p.Stop(); err != nil {
-		t.Fatalf("Stop: %v", err)
+	// Stop's wait after the interrupt runs on a timer the test fires, so the kill can come only once the test lets the
+	// StopTimeout pass.
+	armed := make(chan time.Duration, 1)
+	fire := make(chan time.Time)
+	p.stopTimer = func(d time.Duration) <-chan time.Time {
+		armed <- d
+		return fire
 	}
-	if elapsed := time.Since(start); elapsed < timeout {
-		t.Errorf("Stop returned after %v, before the %v StopTimeout", elapsed, timeout)
+	stopped := make(chan error, 1)
+	go func() { stopped <- p.Stop() }()
+	if d := <-armed; d != timeout {
+		t.Fatalf("Stop waited on a %v timer, want the %v StopTimeout", d, timeout)
+	}
+	select {
+	case err := <-stopped:
+		t.Fatalf("Stop returned (%v) before its StopTimeout passed", err)
+	case <-p.Done():
+		t.Fatal("the child that ignores SIGINT ended before its StopTimeout passed")
+	default:
+	}
+	fire <- time.Time{}
+	if err := <-stopped; err != nil {
+		t.Fatalf("Stop: %v", err)
 	}
 	if err := p.Wait(); !killedBy(err, syscall.SIGKILL) {
 		t.Errorf("Wait = %v, want an exit by SIGKILL", err)

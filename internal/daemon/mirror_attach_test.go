@@ -15,14 +15,6 @@ import (
 // mirrorSyncDroppedMsg is the log message a dropped pane sync writes.
 const mirrorSyncDroppedMsg = "mirror sync dropped"
 
-// attachLockWait is the longest a sync or tidy waits for a store that is still opening. A timer never fires early,
-// so a dropped tidy has waited at least this long.
-const attachLockWait = 200 * time.Millisecond
-
-// attachStartWait is how long a test lets a sync reach its wait before it attaches the store. It leaves most of
-// attachLockWait for the attach to arrive in time.
-const attachStartWait = 25 * time.Millisecond
-
 // attachLogs collects the mirror's log output. The daemon's connection goroutines write it while the test reads it.
 type attachLogs struct {
 	mu  sync.Mutex
@@ -79,6 +71,12 @@ func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
 	st, db := openFrameStore(t)
 	_, logger := newAttachLogs()
 	m := daemon.NewPendingMirror(time.Now, logger)
+	// The sync's wait for the store never expires, and armed reports that the sync has reached it.
+	armed := make(chan struct{}, 1)
+	daemon.SetMirrorLockWait(m, func() <-chan time.Time {
+		armed <- struct{}{}
+		return nil
+	})
 	if err := srv.client.SetPaneOption(t.Context(), srv.pane, protocol.OptionState, "waiting"); err != nil {
 		t.Fatalf("SetPaneOption: %v", err)
 	}
@@ -88,7 +86,7 @@ func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
 		defer close(synced)
 		m.SyncPane(t.Context(), srv.server, srv.pane)
 	}()
-	time.Sleep(attachStartWait)
+	<-armed
 	m.Attach(st)
 	select {
 	case <-synced:
@@ -124,12 +122,28 @@ func TestMirrorAttachTidyBeforeOpenWaitsThenDrops(t *testing.T) {
 	srv := startServer(t)
 	logs, logger := newAttachLogs()
 	m := daemon.NewPendingMirror(time.Now, logger)
+	// The tidy's wait for the store runs on a channel the test closes, so it drops only once the test lets the wait
+	// expire.
+	armed := make(chan struct{}, 1)
+	expire := make(chan time.Time)
+	daemon.SetMirrorLockWait(m, func() <-chan time.Time {
+		armed <- struct{}{}
+		return expire
+	})
 
-	start := time.Now()
-	m.Tidy(t.Context(), srv.server)
-	if elapsed := time.Since(start); elapsed < attachLockWait {
-		t.Fatalf("Tidy before Attach took %v, want at least %v", elapsed, attachLockWait)
+	tidied := make(chan struct{})
+	go func() {
+		m.Tidy(t.Context(), srv.server)
+		close(tidied)
+	}()
+	<-armed
+	select {
+	case <-tidied:
+		t.Fatal("Tidy before Attach returned before its wait for the store expired")
+	default:
 	}
+	close(expire)
+	<-tidied
 	if dropped := tidyLogMessages(t, logs.snapshot(), tidyDroppedMsg); len(dropped) != 1 {
 		t.Fatalf("%q records = %d, want 1", tidyDroppedMsg, len(dropped))
 	}

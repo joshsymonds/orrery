@@ -50,8 +50,7 @@ func TestRunRefusedReclaimStopsCommandWithGrace(t *testing.T) {
 	case <-time.After(runTimeout):
 		t.Fatal("the grace never started after orreryd refused the reclaim")
 	}
-	// CMD ignores SIGTERM, so it runs on while the grace has not passed on the test's clock.
-	time.Sleep(stopWatch)
+	// CMD ignores SIGTERM, and the grace runs on the test's clock, so CMD is still running once the grace is armed.
 	if processExited(t, pid) {
 		t.Fatal("CMD exited before the grace passed")
 	}

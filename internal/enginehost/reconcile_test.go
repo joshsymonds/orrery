@@ -407,9 +407,6 @@ func eventCounts(t *testing.T, path string, ids []string) map[string]int {
 // reconcileMixedRows is how many rows the mixed-rows reconcile test seeds.
 const reconcileMixedRows = 10_000
 
-// reconcileGuard bounds the one Reconcile call of the mixed-rows test. It is a hang guard, never a timing assumption.
-const reconcileGuard = time.Minute
-
 // mixedRow is one row of the mixed-rows test: its id, kind, and the state, question and reason it is seeded with, and
 // whether it holds one unfinished text block.
 type mixedRow struct {
@@ -585,9 +582,9 @@ func TestReconcileSettlesMixedRowsInOneWrite(t *testing.T) {
 			}
 			eventsBefore := eventCounts(t, path, skippedIDs)
 
-			ctx, cancel := context.WithTimeout(t.Context(), reconcileGuard)
-			defer cancel()
-			if err := m.Reconcile(ctx); err != nil {
+			// Reconcile has no deadline: settling 10,000 rows is real store work whose time is the machine's, and the
+			// test binary's timeout ends a Reconcile that never returns.
+			if err := m.Reconcile(t.Context()); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}
 

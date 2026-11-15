@@ -778,6 +778,25 @@ test("the log is a crust block that scrolls and keeps its line breaks and long w
   assert.match(log, /overflow-wrap:\s*anywhere;/);
 });
 
+test("a step's gate tails wrap onto a full row, and their log takes the run log's declarations", () => {
+  assert.match(declarationsFor(css, ".epic-view .step:has(> .tails)"), /flex-wrap:\s*wrap;/);
+  const tails = declarationsFor(css, ".epic-view .step .tails");
+  assert.match(tails, /flex-basis:\s*100%;/);
+  assert.match(tails, /(?<![-\w])min-width:\s*0;/);
+  const log = declarationsFor(css, ".epic-view .step .tails .log");
+  assert.match(log, /(?<![-\w])margin:\s*0;/);
+  assert.match(log, /max-height:\s*240px;/);
+  assert.match(log, /overflow:\s*auto;/);
+  assert.match(log, /(?<![-\w])padding:\s*6px 8px;/);
+  assert.match(log, /border-radius:\s*6px;/);
+  assert.match(log, /background:\s*var\(--crust\);/);
+  assert.match(log, /font:\s*11px\/16px var\(--mono\);/);
+  assert.match(log, /(?<![-\w])color:\s*var\(--subtext1\);/);
+  assert.match(log, /white-space:\s*pre-wrap;/);
+  assert.match(log, /overflow-wrap:\s*anywhere;/);
+  assert.match(declarationsFor(css, ".epic-view .step .tail-label"), /(?<![-\w])color:\s*var\(--overlay1\);/);
+});
+
 test("the loading line is overlay0 and the unavailable line is red", () => {
   assert.match(declarationsFor(css, ".epic-view .run .pending"), /(?<![-\w])color:\s*var\(--overlay0\);/);
   assert.match(declarationsFor(css, ".epic-view .run .unavailable"), /(?<![-\w])color:\s*var\(--red\);/);
