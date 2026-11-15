@@ -3,6 +3,7 @@ package integration_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,13 +24,18 @@ const limitKillPrompt = "LIMIT"
 // limitKillResets is the reset, in unix seconds, of the seven_day limit the LIMIT turn reports.
 const limitKillResets = 1900000000
 
+// limitKillDueAt is the --due-at both orreryds run with, an hour before limitKillResets, so their due passes never find
+// the limit reset and resume the step: the test resumes it itself.
+const limitKillDueAt = limitKillResets - 3600
+
 // TestStepLimitSigkillKeepsLimitedStepAndResumesDone proves that a writing step whose turn ends at a usage limit stays
 // limited across a SIGKILL and restart of orreryd, with its limit's kind and reset, and that a resume after the restart
 // ends the step done with its gate run once.
 func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 	t.Parallel()
 	r := newStepReadoptRig(t)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	dueAt := strconv.Itoa(limitKillDueAt)
+	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope, "--due-at", dueAt)
 	id := r.startLimitKillStep(t)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 	t.Cleanup(func() { clearHolder(t, r.gateHolder(t, id)) })
@@ -39,7 +45,7 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 	waitGone(t, fakeClaudePID(t, r.worktree))
 
 	killOrreryd(t, daemon)
-	restarted := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	restarted := r.f.startOrreryd(t, true, "--holder-scope", r.scope, "--due-at", dueAt)
 	step := r.step(t, id)
 	if end := step.GetEnd(); end != "" {
 		t.Fatalf("step %s ended %q after the restart, want it open", id, end)

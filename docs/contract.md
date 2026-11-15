@@ -463,7 +463,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR] [--flow-ticks PATH] [--judge-delay DURATION]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR] [--flow-ticks PATH] [--judge-delay DURATION] [--due-at SECONDS]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -479,6 +479,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
 - `--metrics-listen ADDR` serves `/metrics` on ADDR, a loopback IP literal with a port, and takes Alertmanager's webhook at `POST /alerts` (see [Alert intake](#alert-intake)). Without the flag, `orreryd` records and serves no metrics and takes no alerts. [Metrics](#metrics) gives the listener, the series and the alert rules.
 - `--flow-ticks PATH` is a test seam. With it, the flow passes once at start and once per `SIGUSR1` in place of its five-second ticks, and appends one line to PATH after each pass. Without it, the flow passes every five seconds and `SIGUSR1` keeps its default action (`cmd/orreryd.flowSeam`, `cmd/orreryd.forwardSignals`, `cmd/orreryd.appendPassLine`).
+- `--due-at SECONDS` is a test seam. With it, the due pass that resumes limited steps reads the time as the unix second SECONDS, so a step whose reset is after it is never due, whatever the date. Without it, or with zero, the due pass reads the system clock. A negative value exits 2 (`cmd/orreryd.dueClock`, `cmd/orreryd.sessionHost.startDue`).
 - `--judge-delay DURATION` is a test seam. It replaces the 10-second wait of an unwatched pane's `done` before its judge (see [Notice routing](#notice-routing)) with DURATION, a Go duration of zero or more; zero judges at once. Without it, the wait is 10 seconds (`route.JudgeDelay`, `route.Config.JudgeDelay`, `route.NoJudgeDelay`). A negative value exits 2.
 
 `orreryd` listens on unix sockets only, apart from the loopback listener that `--metrics-listen` adds, which serves `/metrics` and `POST /alerts` ([Metrics](#metrics), [Alert intake](#alert-intake)). `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.

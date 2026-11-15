@@ -298,6 +298,15 @@ func report(stderr io.Writer, err error) int {
 	}
 }
 
+// dueClock is the due pass's clock for the --due-at test seam: nil, which is time.Now, for zero, and otherwise a clock
+// stopped at unix second at.
+func dueClock(at int64) func() time.Time {
+	if at == 0 {
+		return nil
+	}
+	return func() time.Time { return time.Unix(at, 0) }
+}
+
 // routeJudgeDelay is the route.Config.JudgeDelay of the --judge-delay wait d: d itself, or route.NoJudgeDelay for zero,
 // which route.Config reads as its default.
 func routeJudgeDelay(d time.Duration) time.Duration {
@@ -340,7 +349,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
-	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of an unwatched done before its judge")
+	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
+	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -355,6 +365,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	}
 	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay); err != nil {
 		return options{}, err
+	}
+	if *dueAt < 0 {
+		return options{}, usagef("--due-at must not be negative, got %d", *dueAt)
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
@@ -389,6 +402,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		judgeDelay:    *judgeDelay,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
+		dueNow:        dueClock(*dueAt),
 	}, nil
 }
 
