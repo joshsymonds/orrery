@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +56,17 @@ type Notices struct {
 	rows               Rows
 	tails              map[Key]chan struct{}
 	sends              sync.WaitGroup
+	// unstored holds, for each key whose last row write the store refused or answered late, the write to store again:
+	// a later write of the same key replaces it, and a write the store takes removes it. retrying marks the keys whose
+	// retry is queued.
+	unstored map[Key]rowWrite
+	retrying map[Key]bool
+}
+
+// rowWrite is one row write of a key: put writes its row with time at, and a delete removes it.
+type rowWrite struct {
+	put bool
+	at  int64
 }
 
 // New returns a Notices for host that posts through sender, reads the time from now, and logs with logger.
@@ -66,6 +80,8 @@ func New(host string, sender Sender, now func() time.Time, logger *slog.Logger) 
 		pushedBeforeAttach: make(map[Key]bool),
 		keptSeens:          make(map[Key]int64),
 		tails:              make(map[Key]chan struct{}),
+		unstored:           make(map[Key]rowWrite),
+		retrying:           make(map[Key]bool),
 	}
 }
 
@@ -233,18 +249,69 @@ func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context
 	}
 }
 
-// putRow writes key's row with time at, bounded and logged on failure.
+// putRow writes key's row with time at, bounded. A failure is logged, and the write is kept to be stored again (see
+// stored).
 func (n *Notices) putRow(ctx context.Context, rows Rows, key Key, at int64) {
 	row := store.PushedRow{
 		Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert, Time: at,
 	}
 	if err := bounded(ctx, func(ctx context.Context) error { return rows.PutPushed(ctx, row) }); err != nil {
 		n.logger.ErrorContext(ctx, "put pushed notice", "key", key, "error", err)
+		n.unstoredWrite(key, rowWrite{put: true, at: at})
+		return
+	}
+	n.stored(ctx, rows, key)
+}
+
+// unstoredWrite keeps write as key's row write to store again, in place of any earlier one.
+func (n *Notices) unstoredWrite(key Key, write rowWrite) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.unstored[key] = write
+}
+
+// stored records that the store took key's row write, and queues a retry of every other key's unstored write: the
+// store took a write, so it may take theirs now. Each retry runs in its key's own order of sends, after the sends
+// already queued for that key, so it never overtakes a later write of the key. A retry the store refuses again stays
+// unstored until the next write the store takes.
+func (n *Notices) stored(ctx context.Context, rows Rows, key Key) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.unstored, key)
+	for _, other := range slices.SortedFunc(maps.Keys(n.unstored), compareKeys) {
+		if n.retrying[other] {
+			continue
+		}
+		n.retrying[other] = true
+		n.enqueueLocked(ctx, other, func(ctx context.Context) { n.retryRow(ctx, rows, other) })
 	}
 }
 
-// deleteRow deletes key's row, bounded and logged on failure. An epic key's row is deleted by its epic, a limit
-// key's by its limit, and an alert key's by its alert.
+// retryRow stores key's unstored row write again, when it still has one.
+func (n *Notices) retryRow(ctx context.Context, rows Rows, key Key) {
+	n.mu.Lock()
+	delete(n.retrying, key)
+	write, ok := n.unstored[key]
+	n.mu.Unlock()
+	switch {
+	case !ok:
+	case write.put:
+		n.putRow(ctx, rows, key, write.at)
+	default:
+		n.deleteRow(ctx, rows, key)
+	}
+}
+
+// compareKeys orders keys by their fields, so retries are queued in one order.
+func compareKeys(a, b Key) int {
+	return strings.Compare(
+		strings.Join([]string{a.Pane, a.Session, a.Epic, a.Limit, a.Alert}, "\x00"),
+		strings.Join([]string{b.Pane, b.Session, b.Epic, b.Limit, b.Alert}, "\x00"),
+	)
+}
+
+// deleteRow deletes key's row, bounded. An epic key's row is deleted by its epic, a limit key's by its limit, and an
+// alert key's by its alert. A failure is logged, and the delete is kept to be stored again (see stored).
 func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 	if err := bounded(ctx, func(ctx context.Context) error {
 		if key.Epic != "" {
@@ -259,7 +326,10 @@ func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 		return rows.DeletePushed(ctx, key.Pane, key.Session)
 	}); err != nil {
 		n.logger.ErrorContext(ctx, "delete pushed notice", "key", key, "error", err)
+		n.unstoredWrite(key, rowWrite{})
+		return
 	}
+	n.stored(ctx, rows, key)
 }
 
 // enqueueLocked starts send in the background after the last send queued for key has finished. The caller holds
