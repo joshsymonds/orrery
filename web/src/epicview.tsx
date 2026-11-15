@@ -15,6 +15,7 @@ import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskRea
 import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
 import { clock } from "./reader";
 import { taskStateOf } from "./taskstatus";
+import { OutputTails, Workflow } from "./workflow";
 
 // The empty state's five orbits, as radii about the middle of a 132 unit square, from the outside in.
 const emptyOrbits = [62, 51, 40, 29, 18];
@@ -26,12 +27,12 @@ const markOf: Record<Exclude<StripTone, "now">, string> = { passed: "✓", held:
 const secondsToMillis = 1000;
 
 // EpicView draws the right column for one epic: its head, with the slug, repository, outcome and done count, any
-// problem and the task strip; the Requirements of an orreryd epic, each with its conclusion and evidence runs; a chart
-// of its slices, or the orbits and the line that it has none; the task rows, each with its mark, agent, pips and line;
-// a card for the cursor's step while it runs; and the steps, folded behind a line that counts them and their ends. The
-// fold opens to the steps started on now's day, oldest first, each with a pip per stored check, its end kind, and the
-// tails of its failed checks. The cursor's step and its task are marked. loadArtifact reads a run's log and artifacts
-// for the runs' toggles and images.
+// problem and the task strip; the Requirements of an orreryd epic, each with its conclusion and evidence runs; its
+// WORKFLOW, the node runs it pins, each with the rows its kind holds; a chart of its slices, or the orbits and the line
+// that it has none; the task rows, each with its mark, agent, pips and line; a card for the cursor's step while it runs;
+// and the steps, folded behind a line that counts them and their ends. The fold opens to the steps started on now's
+// day, oldest first, each with a pip per stored check, its end kind, and the tails of its failed checks. The cursor's
+// step and its task are marked. loadArtifact reads a run's log and artifacts for the runs' toggles and images.
 // Every text is a child of its element, so no markup in a slug, status, label or check name becomes an element.
 export function EpicView(props: {
   detail: EpicsGetResponse;
@@ -40,7 +41,7 @@ export function EpicView(props: {
   loadArtifact: LoadArtifact;
 }): JSX.Element {
   const { detail, cursorStep, now, loadArtifact } = props;
-  const { epic, tasks, slices, steps, requirements } = detail;
+  const { epic, tasks, slices, steps, requirements, nodes } = detail;
   const [open, setOpen] = useState(false);
   const cursor = cursorStep === "" ? undefined : steps.find((step) => step.id === cursorStep);
   const cursorTask = cursor === undefined || cursor.task === "" ? undefined : cursor.task;
@@ -66,6 +67,7 @@ export function EpicView(props: {
         </header>
       )}
       {requirements.length > 0 && <Requirements requirements={requirements} loadArtifact={loadArtifact} />}
+      {nodes.length > 0 && <Workflow nodes={nodes} loadArtifact={loadArtifact} />}
       {slices.length === 0 ? (
         <NoSteps />
       ) : (
@@ -131,7 +133,7 @@ export function EpicView(props: {
                 </span>
                 <span class="end">{endKind(step)}</span>
                 {step.checks.filter(carriesTails).map((check, index) => (
-                  <CheckTails key={index} check={check} />
+                  <OutputTails key={index} stdout={check.stdout} stderr={check.stderr} />
                 ))}
               </li>
             ))}
@@ -377,28 +379,6 @@ function endKind(step: EpicStep): string {
 // carriesTails is whether a check failed with a tail to show. A passed check shows none, whatever it carries.
 function carriesTails(check: EpicStepCheck): boolean {
   return !check.ok && (check.stdout !== "" || check.stderr !== "");
-}
-
-// CheckTails is a failed gate check's tails under its step: each non-empty tail under its label, preformatted. Each
-// text is a child of its element, so no markup in a tail becomes an element.
-function CheckTails(props: { check: EpicStepCheck }): JSX.Element {
-  const { check } = props;
-  return (
-    <div class="tails">
-      {check.stdout !== "" && (
-        <>
-          <span class="tail-label">stdout</span>
-          <pre class="log">{check.stdout}</pre>
-        </>
-      )}
-      {check.stderr !== "" && (
-        <>
-          <span class="tail-label">stderr</span>
-          <pre class="log">{check.stderr}</pre>
-        </>
-      )}
-    </div>
-  );
 }
 
 // startedToday is whether a step started on the local calendar day of now.
