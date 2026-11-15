@@ -961,7 +961,7 @@ An integrate run is not decided by these rules. Its end is its batch, and a fail
 
 **The check.** `Check` refuses an expanded workflow that has an include left, an id held by more than one node anywhere in the workflow, or a loop whose `until` does not name a direct child of its body whose kind reports that outcome. It returns the first refusal (`workflow.Check`, `workflow.checkNodes`, `workflow.checkUntil`).
 
-**The built-in `epic`.** The built-in is a `red` node, an `evidence` node at `base`, then a `plan` holding a `build` and an `integrate` (`workflow.epicText`). Its canonical text is:
+**The built-in `epic`.** The built-in is a `red` node, an `evidence` node at `base`; then a `plan` holding a `build` and an `integrate`; then a `review`; then a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) whose body is a `plan` `fix` holding a `rebuild` and a `reintegrate`, then a `closure`; then a `conclude` and a `release` (`workflow.epicText`). Its canonical text is:
 
 ```yaml
 name: epic
@@ -976,9 +976,30 @@ nodes:
         kind: build
       - id: integrate
         kind: integrate
+  - id: review
+    kind: review
+  - id: correct
+    loop:
+      max: 2
+      until: closure.passed
+      spent: continue
+    body:
+      - id: fix
+        kind: plan
+        body:
+          - id: rebuild
+            kind: build
+          - id: reintegrate
+            kind: integrate
+      - id: closure
+        kind: closure
+  - id: conclude
+    kind: conclude
+  - id: release
+    kind: release
 ```
 
-Its sha256 is `c1e3aa00af4e050003c2ba37afc2c9ca346233cbaed0dcab92df836c370ddf7b`. An epic created before this text keeps the text it pinned, a `plan` holding a `build` alone with sha256 `8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e`, as **Storage** gives.
+Its sha256 is `635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba`. An epic created before this text keeps the text it pinned, a `plan` holding a `build` alone with sha256 `8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e`, as **Storage** gives.
 
 **Canonical text.** `Load` returns the expanded workflow in canonical form, and the lowercase hex sha256 of that text (`workflow.Load`). The text is indented two spaces. Its keys come in a fixed order: `name`, then `nodes`. A node's keys come in the order `id`, then `kind`, or `loop` with `max`, `until` and `spent` (which is always written), then `body`. A check kind's settings come after `kind`, in the order `at`, `gate`, `argv`, `limit`, `needs`, `paths`, `agent`, `prompt` and `schema`, and only the settings the kind takes are written (`workflow.canonDoc`, `workflow.canonNode`, `workflow.canonSettingsOf`, `workflow.canonLoop`, `workflow.canonical`, `workflow.canonNodes`).
 
@@ -3014,7 +3035,7 @@ The phone's pane screen (`android/app/src/main/kotlin/io/github/joshsymonds/orre
 
 **Build tasks.** For an epic that `Get` reads from orreryd's database, `build_tasks` holds each task of its plan, in plan order. A record epic answers it empty (`server.epicBuildTaskMessages`; `proto/orrery/v1/epics.proto: EpicBuildTask`). Each build task has `id`, `title`, `status`, `stage`, `requirements`, `red`, `green` and `reviews`. `stage` is empty before the task's first unit, then `red`, `implement`, `green`, `review` or `verify`. `requirements` are the requirement ids the task covers. `red` and `green` are the evidence runs its build names, absent until it names one. `reviews` are in attempt then position order, and each has `attempt`, `gate`, `step`, `verdict` and `findings`. Each finding has `id`, `claim`, `location`, `step`, `result` and `reason`. Its `result` is `confirmed`, `dropped` or `undecided`, and is empty until the finding is verified (`server.epicTaskReviewMessages`).
 
-The web page lists an epic's `build_tasks` in place of the record's tasks when the epic has any, and its TASKS heading counts them. Each row shows the task's `id`, `stage`, `status` and `title`, and its `red` and `green` runs under it, drawn with the run views of the Requirements, images inline. A task is passed when its `status` is `done` (`web/src/epicview.tsx: EpicView`, `web/src/epicview.tsx: BuildTaskRow`; `web/src/evidence.tsx: EvidenceRuns`). An epic with no build tasks lists its record's tasks as before.
+The web page lists an epic's `build_tasks` in place of the record's tasks when the epic has any, and its TASKS heading counts them. Each row shows the task's `id`, `stage`, `status` and `title`, and its `red` and `green` runs under it, drawn with the run views of the Requirements, images inline. A task is passed when its `status` is `done` (`web/src/epicview.tsx: EpicView`, `web/src/epicview.tsx: BuildTaskRow`; `web/src/evidence.tsx: EvidenceRuns`). An epic with no build tasks lists its record's tasks as before. The phone's epic screen does the same: its Tasks list shows each build task's `id`, `title`, `status` and `stage` with its `red` and `green` runs under it, drawn with the Requirements' run views, images inline, and the record's tasks when the epic has no build tasks (`android/app/src/main/kotlin/io/github/joshsymonds/orrery/api/OrreryClient.kt: EpicBuildTaskRow`; `android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/EpicScreen.kt: BuildTaskRow`; `android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/EvidenceRuns.kt: EvidenceRuns`).
 
 **Redaction.** `serve` redacts each new free-text field on read with `redact.Text`. The redacted fields are each check's `detail`, `tail_stdout` and `tail_stderr`; the step's `summary`; each judge verdict's `reason`; and, in `build_tasks`, each task's `title`, each red and green run's `judge_reason` and `not_captured`, and each finding's `id`, `claim`, `location` and `reason` (`server.epicStepMessage`, `server.epicStepVerdictMessages`, `server.epicBuildTaskMessages`, `server.epicBuildRunMessage`, `server.epicTaskReviewMessages`). The other new fields are names and identifiers that serve passes unchanged: `stage`, `gate_name`, `limit_kind`, `role`, the `verdict`, `result` and `status` words, `gate`, `step`, `id`, and the requirement ids. The `stdout` and `stderr` of a failed `gate` check keep their meaning. They are the engine's redacted tails of that check, and serve passes them unchanged (`server.epicStepMessage`).
 

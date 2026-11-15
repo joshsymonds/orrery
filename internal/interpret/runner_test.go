@@ -125,6 +125,14 @@ func builtinPin(t *testing.T) store.EpicWorkflow {
 			{ID: "plan", Kind: "plan"},
 			{ID: "build", Parent: "plan", Kind: "build"},
 			{ID: "integrate", Parent: "plan", Kind: "integrate"},
+			{ID: "review", Kind: "review"},
+			{ID: "correct", Kind: "loop"},
+			{ID: "fix", Parent: "correct", Kind: "plan"},
+			{ID: "rebuild", Parent: "fix", Kind: "build"},
+			{ID: "reintegrate", Parent: "fix", Kind: "integrate"},
+			{ID: "closure", Parent: "correct", Kind: "closure"},
+			{ID: "conclude", Kind: "conclude"},
+			{ID: "release", Kind: "release"},
 		},
 	}
 }
@@ -200,21 +208,23 @@ func runAt(t *testing.T, s *store.Store, path string) store.NodeRun {
 	return store.NodeRun{}
 }
 
+// runTask returns a planner's task titled title, on file, that carries Requirement R1 and its evidence item.
+func runTask(title, file string) store.EpicTaskInput {
+	return store.EpicTaskInput{
+		Title: title, Deliverable: "the runner", Files: []string{file}, Requirements: []string{"R1"}, Gate: "check",
+		Evidence: evidence.Item{
+			Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
+			Conclusion: "the runner runs", Judge: "a judge",
+		},
+	}
+}
+
 // runPlan returns a planner return of two tasks, the first on runner.go and the second on decide.go, with outcome.
 func runPlan(outcome string) store.EpicPlan {
-	task := func(title, file string) store.EpicTaskInput {
-		return store.EpicTaskInput{
-			Title: title, Deliverable: "the runner", Files: []string{file}, Requirements: []string{"R1"}, Gate: "check",
-			Evidence: evidence.Item{
-				Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
-				Conclusion: "the runner runs", Judge: "a judge",
-			},
-		}
-	}
 	return store.EpicPlan{
 		Decisions: []string{},
 		Tasks: []store.EpicTaskInput{
-			task("first", "internal/interpret/runner.go"), task("second", "internal/interpret/decide.go"),
+			runTask("first", "internal/interpret/runner.go"), runTask("second", "internal/interpret/decide.go"),
 		},
 		Outline: "two tasks", Outcome: outcome,
 	}

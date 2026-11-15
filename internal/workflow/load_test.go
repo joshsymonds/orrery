@@ -8,12 +8,43 @@ import (
 	"testing"
 )
 
-// epicLiteral is the built-in epic's canonical text, exactly as decision E2 freezes it, and epicDigest is its sha256.
-const (
-	epicLiteral = "name: epic\nnodes:\n  - id: red\n    kind: evidence\n    at: base\n  - id: plan\n    kind: plan\n" +
-		"    body:\n      - id: build\n        kind: build\n      - id: integrate\n        kind: integrate\n"
-	epicDigest = "c1e3aa00af4e050003c2ba37afc2c9ca346233cbaed0dcab92df836c370ddf7b"
-)
+// epicLiteral is the built-in epic's canonical text, exactly as decision E41 freezes it, and epicDigest is its sha256.
+const epicLiteral = `name: epic
+nodes:
+  - id: red
+    kind: evidence
+    at: base
+  - id: plan
+    kind: plan
+    body:
+      - id: build
+        kind: build
+      - id: integrate
+        kind: integrate
+  - id: review
+    kind: review
+  - id: correct
+    loop:
+      max: 2
+      until: closure.passed
+      spent: continue
+    body:
+      - id: fix
+        kind: plan
+        body:
+          - id: rebuild
+            kind: build
+          - id: reintegrate
+            kind: integrate
+      - id: closure
+        kind: closure
+  - id: conclude
+    kind: conclude
+  - id: release
+    kind: release
+`
+
+const epicDigest = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
 
 // repoPath is the repository path Load reads a workflow name from.
 func repoPath(name string) string {
@@ -94,9 +125,23 @@ func TestLoadBuiltInEpic(t *testing.T) {
 	want := []Node{
 		{ID: "red", Kind: "evidence", Settings: &Settings{At: "base"}},
 		{ID: "plan", Kind: "plan", Body: []Node{{ID: "build", Kind: "build"}, {ID: "integrate", Kind: "integrate"}}},
+		{ID: "review", Kind: "review"},
+		{
+			ID:   "correct",
+			Loop: &Loop{Max: 2, Until: Outcome{Node: "closure", Name: "passed"}, Spent: "continue"},
+			Body: []Node{
+				{ID: "fix", Kind: "plan", Body: []Node{
+					{ID: "rebuild", Kind: "build"}, {ID: "reintegrate", Kind: "integrate"},
+				}},
+				{ID: "closure", Kind: "closure"},
+			},
+		},
+		{ID: "conclude", Kind: "conclude"},
+		{ID: "release", Kind: "release"},
 	}
 	if !reflect.DeepEqual(stripOrigin(got.Workflow.Nodes), want) {
-		t.Fatalf("nodes = %+v, want red at base, then plan holding build and integrate", got.Workflow.Nodes)
+		t.Fatalf("nodes = %+v, want red at base, plan holding build and integrate, review, the correct loop, conclude "+
+			"and release", got.Workflow.Nodes)
 	}
 	checkPin(t, got, "built-in epic")
 }
@@ -134,7 +179,16 @@ func TestLoadExpandsIncludesInPlace(t *testing.T) {
 		"  - id: second", "    kind: plan", "    body:", "      - id: two", "        kind: build",
 		"  - id: red", "    kind: evidence", "    at: base",
 		"  - id: plan", "    kind: plan", "    body:", "      - id: build", "        kind: build",
-		"      - id: integrate", "        kind: integrate")
+		"      - id: integrate", "        kind: integrate",
+		"  - id: review", "    kind: review",
+		"  - id: correct", "    loop:", "      max: 2", "      until: closure.passed", "      spent: continue",
+		"    body:",
+		"      - id: fix", "        kind: plan", "        body:",
+		"          - id: rebuild", "            kind: build",
+		"          - id: reintegrate", "            kind: integrate",
+		"      - id: closure", "        kind: closure",
+		"  - id: conclude", "    kind: conclude",
+		"  - id: release", "    kind: release")
 	if got.Text != want {
 		t.Fatalf("Text = %q, want %q", got.Text, want)
 	}
