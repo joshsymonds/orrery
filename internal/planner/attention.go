@@ -59,11 +59,12 @@ type Router interface {
 }
 
 // AttentionConfig configures an Attention. A Tick that is not positive means five seconds, and a nil Now means
-// time.Now. A nil Logger discards.
+// time.Now. A nil Logger discards. Ticks, when not nil, is where Run takes its ticks in place of a ticker every Tick.
 type AttentionConfig struct {
 	Store  AttentionStore
 	Router Router
 	Tick   time.Duration
+	Ticks  <-chan time.Time
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -74,6 +75,7 @@ type Attention struct {
 	store  AttentionStore
 	router Router
 	tick   time.Duration
+	ticks  <-chan time.Time
 	now    func() time.Time
 	logger *slog.Logger
 }
@@ -81,7 +83,7 @@ type Attention struct {
 // NewAttention returns an Attention for cfg.
 func NewAttention(cfg AttentionConfig) *Attention {
 	attention := &Attention{
-		store: cfg.Store, router: cfg.Router, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		store: cfg.Store, router: cfg.Router, tick: cfg.Tick, ticks: cfg.Ticks, now: cfg.Now, logger: cfg.Logger,
 	}
 	if attention.tick <= 0 {
 		attention.tick = defaultTick
@@ -97,14 +99,18 @@ func NewAttention(cfg AttentionConfig) *Attention {
 
 // Run passes at once, then once per tick, until ctx ends.
 func (a *Attention) Run(ctx context.Context) {
-	ticker := time.NewTicker(a.tick)
-	defer ticker.Stop()
+	ticks := a.ticks
+	if ticks == nil {
+		ticker := time.NewTicker(a.tick)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
 	for {
 		a.pass(ctx)
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticks:
 		}
 	}
 }

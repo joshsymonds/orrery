@@ -25,9 +25,6 @@ const (
 	limitWiringBefore = "limit-before"
 	limitWiringAfter  = "limit-after"
 	limitWiringStamp  = 1_700_000_000
-	// limitWiringHold is how long stop is given to return while a notice is still routing. A stop that waited for the
-	// notice would not return within it.
-	limitWiringHold = 200 * time.Millisecond
 )
 
 // limitWiringReset is the usage reset of the step limited before start, and limitWiringLaterReset the reset of the step
@@ -68,17 +65,32 @@ func (r *recordingRouter) received() []route.Notice {
 }
 
 // holdingRouter is a recordingRouter whose Notify returns only once release is closed. Its first Notify closes entered
-// before it waits.
+// before it waits, and closes canceled if its context ends while it waits: the limit notices route with their loop's
+// context, which stop cancels just before it waits for the loop.
 type holdingRouter struct {
 	recordingRouter
-	release chan struct{}
-	entered chan struct{}
-	once    sync.Once
+	release      chan struct{}
+	entered      chan struct{}
+	canceled     chan struct{}
+	enteredOnce  sync.Once
+	canceledOnce sync.Once
+}
+
+// newHoldingRouter returns a holdingRouter whose channels are open.
+func newHoldingRouter() *holdingRouter {
+	return &holdingRouter{
+		release: make(chan struct{}), entered: make(chan struct{}), canceled: make(chan struct{}),
+	}
 }
 
 // Notify waits for release, then keeps n.
 func (r *holdingRouter) Notify(ctx context.Context, n route.Notice) {
-	r.once.Do(func() { close(r.entered) })
+	r.enteredOnce.Do(func() { close(r.entered) })
+	select {
+	case <-ctx.Done():
+		r.canceledOnce.Do(func() { close(r.canceled) })
+	case <-r.release:
+	}
 	<-r.release
 	r.recordingRouter.Notify(ctx, n)
 }
@@ -368,7 +380,7 @@ func TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart(t *testing.T) {
 func TestSessionsHostStopWaitsForLimitNotices(t *testing.T) {
 	t.Parallel()
 	st, getenv := openLimitStore(t)
-	router := &holdingRouter{release: make(chan struct{}), entered: make(chan struct{})}
+	router := newHoldingRouter()
 	host := startLimitHost(t, st, getenv, router)
 
 	// The check at start finds no limited step, so it routes nothing. A later check routes the new limit's notice,
@@ -384,13 +396,16 @@ func TestSessionsHostStopWaitsForLimitNotices(t *testing.T) {
 		}
 	}
 
+	// Stop cancels the limit notices' context and then waits for their loop, which is held in Notify. Once the held
+	// Notify sees the cancel, stop is at that wait, so it must not have returned.
 	stopped := make(chan error, 1)
 	go func() { stopped <- host.stop() }()
+	<-router.canceled
 	select {
 	case err := <-stopped:
 		close(router.release)
 		t.Fatalf("stop returned (%v) while a notice was still routing", err)
-	case <-time.After(limitWiringHold):
+	default:
 	}
 
 	close(router.release)

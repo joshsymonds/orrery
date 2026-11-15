@@ -29,9 +29,6 @@ const (
 	attentionWiringBody   = "parked: synthetic reason"
 	attentionWiringStamp  = int64(1_700_000_000)
 	attentionWiringPrefix = "parked: "
-	// attentionWiringWait bounds the wait for the parked epic's notice. The runner parks on its first pass and the
-	// attention loop passes every 5 seconds, so a loaded machine needs several ticks.
-	attentionWiringWait = 30 * time.Second
 )
 
 // recordRoute is the Router the wiring test gives the host for its notices. It records each notice it is given.
@@ -121,10 +118,12 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	st := openPaneStore(t, path)
 	createAttentionEpic(t, st)
 
+	ticks := make(chan time.Time)
 	opts := options{
-		socket:     filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap: defaultSessionCap,
-		stepCap:    defaultStepCap,
+		socket:         filepath.Join(t.TempDir(), "orreryd.sock"),
+		sessionCap:     defaultSessionCap,
+		stepCap:        defaultStepCap,
+		attentionTicks: ticks,
 	}
 	routed := &recordRoute{}
 	logger := slog.New(slog.DiscardHandler)
@@ -133,13 +132,23 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	deadline := time.Now().Add(attentionWiringWait)
-	for !parkedNoticeRouted(t, routed) {
-		if time.Now().After(deadline) {
-			t.Fatalf("no notice keyed by epic %s with a summary starting %q was routed",
-				attentionWiringEpic, attentionWiringPrefix)
+	// The runner parks the epic on its first pass. Once the park is stored, two ticks to the attention loop make a
+	// whole pass that began after it: the loop takes the second tick only when the first tick's pass is done.
+	for {
+		epic, err := st.Epic(ctx, attentionWiringEpic)
+		if err != nil {
+			t.Fatalf("read epic: %v", err)
+		}
+		if epic.Parked != "" {
+			break
 		}
 		time.Sleep(plannerWiringPoll)
+	}
+	ticks <- time.Time{}
+	ticks <- time.Time{}
+	if !parkedNoticeRouted(t, routed) {
+		t.Fatalf("no notice keyed by epic %s with a summary starting %q was routed",
+			attentionWiringEpic, attentionWiringPrefix)
 	}
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
