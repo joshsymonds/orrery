@@ -16,6 +16,7 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
@@ -146,6 +147,9 @@ func (e epicsServer) Get(
 			id, stored.GetPhase(), stored.GetChanged(), recordProblems(rec, taskProblems), labeled,
 		)
 		runs := e.listEvidence(ctx, id)
+		roles := storedStepRoles(stored, runs)
+		applyStoredRoles(resp.GetSteps(), roles)
+		applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
 		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
@@ -451,15 +455,20 @@ func epicStepMessages(steps []*enginev1.Step) []*orreryv1.EpicStep {
 	return out
 }
 
-// epicStepMessage converts step to its EpicStep. A check's detail is not carried, so the phone never shows it. The two
-// tails are carried only for a failed gate check, and a check that is not a gate check carries none.
+// epicStepMessage converts step to its EpicStep. Each check's detail and its two tails are carried, redacted. Stdout and
+// stderr are carried only for a failed gate check, and a check that is not a gate check carries none of the four. The
+// summary is the latest result's string summary. The verdicts are the step's judge verdicts. The role is implementer
+// for a writing step; a read-only step's role comes from its stored epic, through applyStoredRoles.
 func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 	checks := make([]*orreryv1.EpicStepCheck, 0, len(step.GetChecks()))
 	for _, check := range step.GetChecks() {
 		out := &orreryv1.EpicStepCheck{
-			Round: check.GetRound(),
-			Name:  check.GetName(),
-			Ok:    check.GetOk(),
+			Round:      check.GetRound(),
+			Name:       check.GetName(),
+			Ok:         check.GetOk(),
+			Detail:     redact.Text(check.GetDetail()),
+			TailStdout: redact.Text(check.GetStdout()),
+			TailStderr: redact.Text(check.GetStderr()),
 		}
 		if check.GetName() == epicGateCheck && !check.GetOk() {
 			out.Stdout = check.GetStdout()
@@ -467,18 +476,84 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 		}
 		checks = append(checks, out)
 	}
+	role := ""
+	if !step.GetReadOnly() {
+		role = epicRoleImplementer
+	}
 	return &orreryv1.EpicStep{
-		Id:      step.GetId(),
-		Task:    step.GetTask(),
-		Agent:   step.GetAgent(),
-		End:     step.GetEnd(),
-		Status:  step.GetStatus(),
-		Held:    step.GetHeld(),
-		Started: step.GetStarted(),
-		Ended:   step.GetEnded(),
-		Doing:   step.GetDoing(),
-		Checks:  checks,
-		Reason:  step.GetReason(),
+		Id:           step.GetId(),
+		Task:         step.GetTask(),
+		Agent:        step.GetAgent(),
+		End:          step.GetEnd(),
+		Status:       step.GetStatus(),
+		Held:         step.GetHeld(),
+		Started:      step.GetStarted(),
+		Ended:        step.GetEnded(),
+		Doing:        step.GetDoing(),
+		Checks:       checks,
+		Reason:       step.GetReason(),
+		Stage:        step.GetStage(),
+		StageStarted: step.GetStageStarted(),
+		GateName:     step.GetGateName(),
+		GateLimit:    step.GetGateLimitSeconds(),
+		Limited:      step.GetLimited(),
+		LimitKind:    step.GetLimitKind(),
+		LimitResets:  step.GetLimitResets(),
+		ReadOnly:     step.GetReadOnly(),
+		Role:         role,
+		Summary:      redact.Text(stepResultSummary(step.GetResult())),
+		Verdicts:     epicStepVerdictMessages(step.GetVerdicts()),
+	}
+}
+
+// epicStepVerdictMessages converts each judge verdict of verdicts to its EpicStepVerdict, in order. A monitor's verdict
+// is left out, and each reason is redacted.
+func epicStepVerdictMessages(verdicts []*enginev1.StepVerdict) []*orreryv1.EpicStepVerdict {
+	out := make([]*orreryv1.EpicStepVerdict, 0, len(verdicts))
+	for _, verdict := range verdicts {
+		if verdict.GetKind() != epicVerdictJudge {
+			continue
+		}
+		out = append(out, &orreryv1.EpicStepVerdict{
+			Round:   verdict.GetRound(),
+			Verdict: verdict.GetVerdict(),
+			Reason:  redact.Text(verdict.GetDetail()),
+		})
+	}
+	return out
+}
+
+// storedStepRoles maps the id of each step that stored holds to its role: planner for a planner turn's step, reviewer
+// for a task review's step, and evidence for an evidence run's judge step. An empty id is no step and is left out.
+func storedStepRoles(stored *enginev1.StoredEpic, runs []*enginev1.EvidenceRun) map[string]string {
+	roles := make(map[string]string)
+	for _, turn := range stored.GetTurns() {
+		if id := turn.GetStep(); id != "" {
+			roles[id] = epicRolePlanner
+		}
+	}
+	for _, task := range stored.GetTasks() {
+		for _, review := range task.GetReviews() {
+			if id := review.GetStep(); id != "" {
+				roles[id] = epicRoleReviewer
+			}
+		}
+	}
+	for _, run := range runs {
+		if id := run.GetJudgeStep(); id != "" {
+			roles[id] = epicRoleEvidence
+		}
+	}
+	return roles
+}
+
+// applyStoredRoles sets the role of each step that has none from roles, by step id. A writing step already has its role,
+// implementer, and keeps it.
+func applyStoredRoles(steps []*orreryv1.EpicStep, roles map[string]string) {
+	for _, step := range steps {
+		if step.GetRole() == "" {
+			step.Role = roles[step.GetId()]
+		}
 	}
 }
 
@@ -490,6 +565,15 @@ const (
 	epicEndChecksFailed = "checks_failed"
 	epicEndGoalUnmet    = "goal_unmet"
 	epicGateCheck       = "gate"
+)
+
+// The roles an EpicStep plays, as the proto names them, and the kind of a step's judge verdict.
+const (
+	epicRoleImplementer = "implementer"
+	epicRoleReviewer    = "reviewer"
+	epicRolePlanner     = "planner"
+	epicRoleEvidence    = "evidence"
+	epicVerdictJudge    = "judge"
 )
 
 // epicSlices returns a slice per task label among the writing steps of steps, oldest first, in order of each label's
@@ -580,14 +664,28 @@ func epicFirstOpenRing(redTest, testsPass, checks, gateAccepted bool) int32 {
 	return 0
 }
 
-// stepResultFields parses a writing step's result as a JSON object. A result that does not parse, or is not an object,
-// has no fields.
+// stepResultFields parses a step's result as a JSON object. A result that does not parse, or is not an object, has no
+// fields.
 func stepResultFields(result string) map[string]json.RawMessage {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(result), &fields); err != nil {
 		return nil
 	}
 	return fields
+}
+
+// stepResultSummary returns the string summary of a step's result. A result with no summary, or one whose summary is not
+// a string, has none.
+func stepResultSummary(result string) string {
+	raw, ok := stepResultFields(result)["summary"]
+	if !ok {
+		return ""
+	}
+	var summary string
+	if err := json.Unmarshal(raw, &summary); err != nil {
+		return ""
+	}
+	return summary
 }
 
 // stepResultEvidence reports whether fields holds key as a string that, trimmed, is non-empty and does not start with
