@@ -18,6 +18,7 @@ import {
 import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
+import type { Pane } from "./gen/orrery/v1/orrery_pb";
 import { Mark } from "./mark";
 import { NoticeBanner } from "./notices";
 import { type ParsedQuestion, parseQuestion } from "./question";
@@ -656,6 +657,7 @@ export function App({
               <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
                 <Composer
                   label={row.label}
+                  state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
@@ -711,6 +713,7 @@ export function App({
               <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
                 <Composer
                   label={row.label}
+                  state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
@@ -833,6 +836,12 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
   }
   const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
   return unchanged ? previous : kept;
+}
+
+// headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
+// own state.
+function headState(row: Row, pane: Pane | undefined): string {
+  return pane?.state ?? row.state;
 }
 
 // composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added

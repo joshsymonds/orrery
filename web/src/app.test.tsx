@@ -378,6 +378,14 @@ function composerSendButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
+const composerEdgeNames = ["edge-working", "edge-waiting", "edge-idle"];
+
+// edgesOf names the edge classes the composer around a reply box carries, in the order of composerEdgeNames.
+function edgesOf(box: HTMLTextAreaElement): string[] {
+  const root = box.closest(".composer");
+  return composerEdgeNames.filter((edge) => root?.classList.contains(edge) === true);
+}
+
 function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
@@ -1894,6 +1902,63 @@ test("the pinned column draws the note and the pill of its own stream while the 
     assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
     assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
+  }));
+
+test("the reader's composer on a working row has the working edge and says it queues", () =>
+  withApp({}, async (container) => {
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "b");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
+    assert.equal(composer(container).placeholder, "Queue for web; it lands at Claude's next step");
+  }));
+
+test("a working pane turns a waiting row's composer from answering to queueing", () =>
+  withApp({}, async (container, fake) => {
+    assert.deepEqual(edgesOf(composer(container)), ["edge-waiting"]);
+    assert.equal(composer(container).placeholder, "Answer api");
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
+    assert.equal(composer(container).placeholder, "Queue for api; it lands at Claude's next step");
+  }));
+
+test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream on a");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const stream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
+    assert.ok(stream, "the cursor's stream on c is open");
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
+    assert.equal(composer(container).placeholder, "Queue for docs; it lands at Claude's next step");
+    const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
+    const api = hidden.find((box) => box.placeholder === "Answer api");
+    assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
+    assert.deepEqual(api === undefined ? [] : edgesOf(api), ["edge-waiting"]);
+  }));
+
+test("the pinned composer follows its own stream's pane while the cursor rests on another row", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    assert.equal(pinnedStream.body.pane, "a");
+    fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
+    assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
+    assert.equal(pinnedComposer(container).placeholder, "Queue for api; it lands at Claude's next step");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
+    assert.equal(composer(container).placeholder, "Reply to docs");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>

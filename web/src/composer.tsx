@@ -13,18 +13,45 @@ interface FailedSend {
   promptId: string;
 }
 
+// edgeClass is the edge a composer shows for its conversation's state: working, waiting, or idle for any other state.
+function edgeClass(state: string): string {
+  switch (state) {
+    case "working":
+      return "edge-working";
+    case "waiting":
+      return "edge-waiting";
+    default:
+      return "edge-idle";
+  }
+}
+
+// placeholderFor says what sending does in a state: working queues the text for Claude's next step, waiting answers,
+// and any other state replies.
+function placeholderFor(state: string, label: string): string {
+  switch (state) {
+    case "working":
+      return `Queue for ${label}; it lands at Claude's next step`;
+    case "waiting":
+      return `Answer ${label}`;
+    default:
+      return `Reply to ${label}`;
+  }
+}
+
 // Composer is the send box under the reader. Enter and the send button send the text once; a failed send keeps the
 // draft and its prompt id and is never resent by the composer. Up in an empty box pulls the newest queued text back.
-// The queued messages draw above the box, oldest first, each as a tag and its text.
+// The queued messages draw above the box, oldest first, each as a tag and its text. Its edge and placeholder follow
+// the conversation's state.
 export function Composer(props: {
-  label: string; // placeholder "Reply to <label>"
+  label: string; // the row's label, named in the placeholder
+  state: string; // the conversation's state: working, waiting, or any other
   send: (text: string, promptId: string) => Promise<void>;
   pull: (() => Promise<string>) | null; // null: no pull for this row (sessions)
   newPromptId: () => string;
   inputRef?: Ref<HTMLTextAreaElement>; // the page focuses it on `i`
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
 }): JSX.Element {
-  const { label, send, pull, newPromptId, inputRef, queued = [] } = props;
+  const { label, state, send, pull, newPromptId, inputRef, queued = [] } = props;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const inFlight = useRef(false);
@@ -93,10 +120,10 @@ export function Composer(props: {
           ))}
         </ol>
       )}
-      <div class={flashing ? "composer flash" : "composer"}>
+      <div class={`composer ${edgeClass(state)}${flashing ? " flash" : ""}`}>
         <textarea
           ref={inputRef}
-          placeholder={`Reply to ${label}`}
+          placeholder={placeholderFor(state, label)}
           rows={1}
           value={text}
           onInput={(event) => setText(event.currentTarget.value)}
