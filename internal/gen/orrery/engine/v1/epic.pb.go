@@ -2941,11 +2941,13 @@ func (x *StopEpicResponse) GetEpic() *StoredEpic {
 	return nil
 }
 
-// RetryEpicRequest names the epic to retry.
+// RetryEpicRequest names the epic to retry, and the node to rerun when node is set.
 type RetryEpicRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epic's id.
-	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The workflow node id whose parked run reruns under its next attempt. Empty retries the epic's park instead.
+	Node          string `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2983,6 +2985,13 @@ func (*RetryEpicRequest) Descriptor() ([]byte, []int) {
 func (x *RetryEpicRequest) GetId() string {
 	if x != nil {
 		return x.Id
+	}
+	return ""
+}
+
+func (x *RetryEpicRequest) GetNode() string {
+	if x != nil {
+		return x.Node
 	}
 	return ""
 }
@@ -3597,9 +3606,10 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x0fStopEpicRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
 	"\x10StopEpicResponse\x120\n" +
-	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"\"\n" +
+	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"6\n" +
 	"\x10RetryEpicRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"E\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04node\x18\x02 \x01(\tR\x04node\"E\n" +
 	"\x11RetryEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"n\n" +
 	"\x12RunEvidenceRequest\x12\x12\n" +

@@ -38,6 +38,7 @@ type EpicCommands interface {
 	ResumeEpic(ctx context.Context, epic string) error
 	StopEpic(ctx context.Context, epic string) (string, error)
 	RetryEpic(ctx context.Context, epic string) error
+	RetryNode(ctx context.Context, epic, node string) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -380,7 +381,8 @@ func (s *epicService) StopEpic(
 	return connect.NewResponse(&v1.StopEpicResponse{Epic: message}), nil
 }
 
-// RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused.
+// RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused. When the
+// request names a node, the node's parked run reruns under its next attempt instead, and the epic is unparked with it.
 func (s *epicService) RetryEpic(
 	ctx context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -392,7 +394,7 @@ func (s *epicService) RetryEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.epics.RetryEpic(ctx, id); err != nil {
+	if err := s.retryPark(ctx, id, req.Msg.GetNode()); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	stored, err := s.epics.Epic(ctx, id)
@@ -404,6 +406,24 @@ func (s *epicService) RetryEpic(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
+}
+
+// retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
+// of an unknown epic as it refuses an unparked node, so the epic is read first to make an unknown epic ErrNoEpic.
+func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
+	if node == "" {
+		if err := s.epics.RetryEpic(ctx, epic); err != nil {
+			return fmt.Errorf("retry epic %s: %w", epic, err)
+		}
+		return nil
+	}
+	if _, err := s.epics.Epic(ctx, epic); err != nil {
+		return fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	if err := s.epics.RetryNode(ctx, epic, node); err != nil {
+		return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
+	}
+	return nil
 }
 
 // epicControlError maps an error from an epic control on id to its Connect error: an unknown epic is NotFound, a

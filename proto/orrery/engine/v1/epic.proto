@@ -681,10 +681,13 @@ message StopEpicResponse {
   StoredEpic epic = 1;
 }
 
-// RetryEpicRequest names the epic to retry.
+// RetryEpicRequest names the epic to retry, and the node to rerun when node is set.
 message RetryEpicRequest {
   // The epic's id.
   string id = 1;
+
+  // The workflow node id whose parked run reruns under its next attempt. Empty retries the epic's park instead.
+  string node = 2;
 }
 
 // RetryEpicResponse carries the retried epic.
