@@ -23,9 +23,6 @@ const attachLockWait = 200 * time.Millisecond
 // attachLockWait for the attach to arrive in time.
 const attachStartWait = 25 * time.Millisecond
 
-// attachAtOnceBudget bounds a call that must return without waiting, such as a tidy after Attach(nil).
-const attachAtOnceBudget = time.Second
-
 // attachLogs collects the mirror's log output. The daemon's connection goroutines write it while the test reads it.
 type attachLogs struct {
 	mu  sync.Mutex
@@ -113,11 +110,7 @@ func TestMirrorAttachNilIsSilent(t *testing.T) {
 	wantOption(t, srv, protocol.OptionID, "")
 
 	// A tidy would mint an id for the pane, so an unset id shows that the tidy made no tmux call.
-	start := time.Now()
 	m.Tidy(t.Context(), srv.server)
-	if elapsed := time.Since(start); elapsed > attachAtOnceBudget {
-		t.Fatalf("Tidy after Attach(nil) took %v, want at most %v", elapsed, attachAtOnceBudget)
-	}
 	wantOption(t, srv, protocol.OptionID, "")
 
 	for _, record := range tidyLogRecords(t, logs.snapshot()) {

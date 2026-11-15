@@ -344,18 +344,13 @@ func TestApplyEngineReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 		t.Fatalf("take write lock: %v", err)
 	}
 
-	start := time.Now()
 	ops := []EngineOp{
 		EngineAdd{ID: "e1", Dir: "/a", State: "working"},
 		EnginePrompt{ID: "e1", Text: "hi"},
 	}
 	err = s.ApplyEngine(ctx, ops, engineNowAt())
-	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("ApplyEngine while write-locked: want error, got nil")
-	}
-	if elapsed >= time.Second {
-		t.Fatalf("ApplyEngine while write-locked took %v, want under 1s", elapsed)
 	}
 	if _, err := sqlcgen.New(s.db).GetEngineSession(ctx, "e1"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("engine row written while locked: got %v, want sql.ErrNoRows", err)

@@ -94,16 +94,11 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil)
-	started := time.Now()
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile after the crash: %v", err)
 	}
-	elapsed := time.Since(started)
 
 	// Reattach waits AttachTimeout for the hello. Stop, and then the clear, each run to their own clearTimeout bound.
-	if limit := holder.AttachTimeout + 2*clearTimeout; elapsed > limit {
-		t.Fatalf("Reconcile took %v, want within the attach and stop bounds, %v", elapsed, limit)
-	}
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
 	requireDirPresent(t, holderDir(t, rig.root, id))

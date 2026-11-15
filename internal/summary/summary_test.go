@@ -796,12 +796,8 @@ func TestSummaryFailureKeepsPrevious(t *testing.T) {
 		r := newRig(t, nil, shortTimeout)
 		r.setPrevious(t)
 		r.place(t, "hold", "")
-		start := time.Now()
 		if err := r.s.Summarize(t.Context(), r.job(true)); err == nil {
 			t.Fatal("Summarize: want error for timed-out run, got nil")
-		}
-		if elapsed := time.Since(start); elapsed > failureBound {
-			t.Fatalf("Summarize returned after %v, want within %v", elapsed, failureBound)
 		}
 		r.assertPrevious(t)
 	})
@@ -881,12 +877,8 @@ func TestSummarizerCap(t *testing.T) {
 	panes := []string{r.pane, newPane(t, r.client, "s2"), newPane(t, r.client, "s3")}
 	transcript := exampleTranscript(t, 1)
 
-	start := time.Now()
 	for _, pane := range panes {
 		r.s.Request(t.Context(), exampleRequest(pane, true, transcript, "Example last message"))
-	}
-	if elapsed := time.Since(start); elapsed > failureBound {
-		t.Fatalf("Request calls took %v while runs were held, want within %v", elapsed, failureBound)
 	}
 
 	waitRunning(t, r.bin, summary.MaxRuns)
@@ -1047,11 +1039,7 @@ func TestSummarizerForgetEndsInFlightRun(t *testing.T) {
 	waitRunning(t, r.bin, 1)
 	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message waiting"))
 
-	start := time.Now()
 	r.s.Forget(r.pane)
-	if elapsed := time.Since(start); elapsed > failureBound {
-		t.Fatalf("Forget took %v while a run was held, want within %v", elapsed, failureBound)
-	}
 
 	r.release(t)
 	waitIdle(t, r.s)

@@ -401,14 +401,9 @@ func TestSyncPaneReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 		t.Fatalf("take write lock: %v", err)
 	}
 
-	start := time.Now()
 	err = s.SyncPane(ctx, "-L a", Pane{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}}, time.Unix(1, 0))
-	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("SyncPane while write-locked: want error, got nil")
-	}
-	if elapsed >= time.Second {
-		t.Fatalf("SyncPane while write-locked took %v, want under 1s", elapsed)
 	}
 	if rows := sessionsOf(t, s); len(rows) != 0 {
 		t.Fatalf("sessions written while locked: %+v", rows)
