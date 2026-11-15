@@ -49,6 +49,15 @@ class PaneListScreenTest {
         const val HEADLESS_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
         const val HEADLESS_LABEL = "alpha-agent · a1b2c3d4"
         const val HEADLESS_SUMMARY = "Waiting on a synthetic plan."
+        const val FAILED_SEEN_DIR = "/home/user/alpha-archive"
+        const val STOPPED_DIR = "/home/user/alpha-old"
+        const val WORKING_ID = "00000000000000000000000000000001"
+        const val WAITING_ID = "00000000000000000000000000000002"
+        const val IDLE_ID = "00000000000000000000000000000003"
+        const val INTERRUPTED_ID = "00000000000000000000000000000004"
+        const val FAILED_UNSEEN_ID = "00000000000000000000000000000005"
+        const val FAILED_SEEN_ID = "00000000000000000000000000000006"
+        const val STOPPED_ID = "00000000000000000000000000000007"
     }
 
     @get:Rule
@@ -100,6 +109,33 @@ class PaneListScreenTest {
                 .setQuestion("Proceed with the synthetic plan?")
                 .setNewestReply(NOW - 60),
         )
+        .build()
+
+    private fun headlessSession(id: String, dir: String, state: String, changed: Long, seen: Long): HeadlessSession =
+        HeadlessSession.newBuilder()
+            .setId(id)
+            .setDir(dir)
+            .setLabel("synthetic · ${id.take(8)}")
+            .setState(state)
+            .setChanged(changed)
+            .setSeen(seen)
+            .setSummary("Synthetic $state session.")
+            .setNewestReply(changed)
+            .build()
+
+    /**
+     * One headless session in each state the pane list tells apart. The working, waiting, idle, interrupted and
+     * unseen failed ones are tree rows. The seen failed one (changed equal to seen) and the stopped one are ended,
+     * each in a folder of its own that sorts between alpha and beta, so the idle session in beta is the last tree row.
+     */
+    private fun headlessStatesBody(): ListHeadlessResponse = ListHeadlessResponse.newBuilder()
+        .addSessions(headlessSession(WORKING_ID, ALPHA, "working", changed = NOW - 30, seen = NOW - 300))
+        .addSessions(headlessSession(WAITING_ID, ALPHA, "waiting", changed = NOW - 60, seen = 0))
+        .addSessions(headlessSession(INTERRUPTED_ID, ALPHA, "interrupted", changed = NOW - 120, seen = NOW - 120))
+        .addSessions(headlessSession(FAILED_UNSEEN_ID, ALPHA, "failed", changed = NOW - 90, seen = NOW - 600))
+        .addSessions(headlessSession(FAILED_SEEN_ID, FAILED_SEEN_DIR, "failed", changed = NOW - 400, seen = NOW - 400))
+        .addSessions(headlessSession(STOPPED_ID, STOPPED_DIR, "stopped", changed = NOW - 900, seen = 0))
+        .addSessions(headlessSession(IDLE_ID, BETA, "idle", changed = NOW - 7200, seen = NOW - 7200))
         .build()
 
     private fun pickerRowsResponse(): AskResponse = AskResponse.newBuilder()
@@ -326,6 +362,67 @@ class PaneListScreenTest {
                 1,
                 countNodes(hasContentDescription("unseen") and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))),
             )
+        }
+    }
+
+    @Test
+    fun endedSessionsLeaveTheTreeAndFoldIntoOneLineThatOpensToThem() {
+        FakeOrreryServer().use { server ->
+            // One working pane in alpha and one idle pane in beta; with the seven headless sessions the list is short
+            // enough that every row, the last tree row included, is composed when the absence checks run.
+            server.respond(
+                PANES_LIST,
+                PanesListResponse.newBuilder()
+                    .addPanes(pane("%1", ALPHA, "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 300, NOW - 400))
+                    .addPanes(pane("%3", BETA, "beta-tests", "idle", "Tests finished.", NOW - 7200, NOW - 7200, NOW - 7200))
+                    .build(),
+            )
+            server.respond(LIST_HEADLESS, headlessStatesBody())
+            setScreen(server)
+            // The idle session is the last tree row, so once it is composed every tree row above it is too; the
+            // absence checks below would otherwise pass for rows the lazy list never drew.
+            awaitRow(IDLE_ID)
+
+            for (id in listOf(WORKING_ID, WAITING_ID, IDLE_ID, INTERRUPTED_ID, FAILED_UNSEEN_ID)) {
+                assertEquals("$id is a tree row", 1, countNodes(hasTestTag("pane-row:$id")))
+            }
+            assertEquals("seen failed is not a tree row", 0, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
+            assertEquals("stopped is not a tree row", 0, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
+            assertEquals("the archive folder holds only an ended session", 0, countNodes(hasTestTag("folder:$FAILED_SEEN_DIR")))
+            assertEquals("the old folder holds only an ended session", 0, countNodes(hasTestTag("folder:$STOPPED_DIR")))
+            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
+            assertEquals(1, countNodes(hasTestTag("folder:$BETA")))
+            assertEquals(1, countNodes(hasText("2 ended")))
+
+            composeRule.onNodeWithTag("ended-toggle").performClick()
+
+            assertEquals(1, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
+            assertEquals(1, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
+            assertEquals(1, countNodes(hasText("alpha-archive") and hasAnyAncestor(hasTestTag("pane-row:$FAILED_SEEN_ID"))))
+            assertEquals(1, countNodes(hasText("alpha-old") and hasAnyAncestor(hasTestTag("pane-row:$STOPPED_ID"))))
+            for (id in listOf(WORKING_ID, WAITING_ID, IDLE_ID, INTERRUPTED_ID, FAILED_UNSEEN_ID)) {
+                assertEquals("$id stays a tree row", 1, countNodes(hasTestTag("pane-row:$id")))
+            }
+            assertEquals(0, countNodes(hasTestTag("folder:$FAILED_SEEN_DIR")))
+            assertEquals(1, countNodes(hasText("2 ended")))
+
+            composeRule.onNodeWithTag("ended-toggle").performClick()
+
+            assertEquals(0, countNodes(hasTestTag("pane-row:$FAILED_SEEN_ID")))
+            assertEquals(0, countNodes(hasTestTag("pane-row:$STOPPED_ID")))
+            assertEquals(1, countNodes(hasText("2 ended")))
+        }
+    }
+
+    @Test
+    fun endedLineIsAbsentWhileNoSessionHasEnded() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.respond(LIST_HEADLESS, headlessBody())
+            setScreen(server)
+            awaitRow(HEADLESS_ID)
+
+            assertEquals(0, countNodes(hasTestTag("ended-toggle")))
         }
     }
 
