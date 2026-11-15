@@ -32,9 +32,9 @@ type Config struct {
 	Dir string
 	// Env replaces the environment when non-nil, and is inherited when nil.
 	Env []string
-	// MergeOutput writes the child's stdout into the same tail as its stderr, in the order the child
-	// writes them. Stdout then reads EOF at once.
-	MergeOutput bool
+	// StdoutCapacity is the number of stdout bytes kept in a tail of their own, which StdoutTail returns. Zero leaves
+	// stdout to the caller, who reads it from Stdout.
+	StdoutCapacity int
 	// StderrCapacity is the number of stderr bytes kept. Zero takes 64 KiB.
 	StderrCapacity int
 	// StopTimeout is how long Stop waits after the interrupt before the kill. Zero takes 2 s.
@@ -46,10 +46,9 @@ type Process struct {
 	cmd         *exec.Cmd
 	stdin       *os.File
 	stdout      io.ReadCloser
+	stdoutTail  *tail // nil unless the stdout is kept in a tail
 	stderr      *tail
-	stderrRead  *os.File
-	stderrDone  chan struct{}
-	copyErr     error
+	captures    []*capture
 	stopTimeout time.Duration
 	done        chan struct{}
 	waitErr     error
@@ -57,8 +56,16 @@ type Process struct {
 	stopErr     error
 }
 
-// Start runs the configured binary in a new process group with piped stdin and stdout, and captures
-// its stderr into a bounded tail. With MergeOutput the stdout is captured into that tail too. The
+// capture is one of the child's output pipes, copied into a tail until every writer closes the pipe.
+type capture struct {
+	read *os.File
+	tail *tail
+	done chan struct{}
+	err  error // read by run only after done closes
+}
+
+// Start runs the configured binary in a new process group with piped stdin, and captures its stderr into a bounded
+// tail. With StdoutCapacity its stdout is captured into a tail of its own too, and otherwise the caller reads it. The
 // process is stopped with Stop.
 func Start(cfg Config) (*Process, error) {
 	if !filepath.IsAbs(cfg.Path) {
@@ -75,17 +82,12 @@ func Start(cfg Config) (*Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("proc: open stdin pipe: %w", err)
 	}
-	// Without MergeOutput the child's stdout has its own pipe. With it, the child's stdout is the
-	// stderr pipe, so both streams share one write end and reach the tail in write order.
-	var parentStdout, childStdout *os.File
-	if !cfg.MergeOutput {
-		parentStdout, childStdout, err = os.Pipe()
-		if err != nil {
-			return nil, errors.Join(
-				fmt.Errorf("proc: open stdout pipe: %w", err),
-				closeFiles(childStdin, parentStdin),
-			)
-		}
+	parentStdout, childStdout, err := os.Pipe()
+	if err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("proc: open stdout pipe: %w", err),
+			closeFiles(childStdin, parentStdin),
+		)
 	}
 	parentStderr, childStderr, err := os.Pipe()
 	if err != nil {
@@ -94,10 +96,6 @@ func Start(cfg Config) (*Process, error) {
 			closeFiles(childStdin, parentStdin, parentStdout, childStdout),
 		)
 	}
-	childOut := childStderr
-	if !cfg.MergeOutput {
-		childOut = childStdout
-	}
 
 	cmd := &exec.Cmd{
 		Path:        cfg.Path,
@@ -105,7 +103,7 @@ func Start(cfg Config) (*Process, error) {
 		Dir:         cfg.Dir,
 		Env:         cfg.Env,
 		Stdin:       childStdin,
-		Stdout:      childOut,
+		Stdout:      childStdout,
 		Stderr:      childStderr,
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
@@ -125,23 +123,25 @@ func Start(cfg Config) (*Process, error) {
 		)
 	}
 
-	// With MergeOutput the output is in the stderr tail, so the caller's stdout is an empty reader.
-	stdout := io.NopCloser(strings.NewReader(""))
-	if !cfg.MergeOutput {
-		stdout = parentStdout
-	}
-
 	process := &Process{
 		cmd:         cmd,
 		stdin:       parentStdin,
-		stdout:      stdout,
+		stdout:      parentStdout,
 		stderr:      newTail(cfg.StderrCapacity),
-		stderrRead:  parentStderr,
-		stderrDone:  make(chan struct{}),
 		stopTimeout: cfg.StopTimeout,
 		done:        make(chan struct{}),
 	}
-	go process.copyStderr()
+	process.captures = []*capture{{read: parentStderr, tail: process.stderr, done: make(chan struct{})}}
+	if cfg.StdoutCapacity > 0 {
+		// The stdout is kept in its own tail, so the caller's stdout is an empty reader.
+		process.stdoutTail = newTail(cfg.StdoutCapacity)
+		process.stdout = io.NopCloser(strings.NewReader(""))
+		process.captures = append(process.captures,
+			&capture{read: parentStdout, tail: process.stdoutTail, done: make(chan struct{})})
+	}
+	for _, c := range process.captures {
+		go c.copy()
+	}
 	go process.run()
 	return process, nil
 }
@@ -156,14 +156,22 @@ func (p *Process) Stdin() io.WriteCloser {
 	return p.stdin
 }
 
-// Stdout returns the read end of the child's stdout. The caller closes it. Under MergeOutput it is
-// already at EOF.
+// Stdout returns the read end of the child's stdout. The caller closes it. With StdoutCapacity it is already at EOF,
+// as the output is kept in StdoutTail.
 func (p *Process) Stdout() io.ReadCloser {
 	return p.stdout
 }
 
-// Stderr returns the last bytes the child wrote to stderr, up to the configured capacity. Under
-// MergeOutput it holds the child's stdout and stderr, in write order.
+// StdoutTail returns the last bytes the child wrote to stdout, up to StdoutCapacity. It is empty without
+// StdoutCapacity.
+func (p *Process) StdoutTail() string {
+	if p.stdoutTail == nil {
+		return ""
+	}
+	return p.stdoutTail.String()
+}
+
+// Stderr returns the last bytes the child wrote to stderr, up to the configured capacity.
 func (p *Process) Stderr() string {
 	return p.stderr.String()
 }
@@ -210,32 +218,35 @@ func (p *Process) stop() error {
 func (p *Process) run() {
 	waitErr := p.cmd.Wait()
 	killErr := signalGroup(p.Pid(), syscall.SIGKILL)
-	var unblockErr error
-	timer := time.NewTimer(p.stopTimeout)
+	expired := make(chan struct{})
+	timer := time.AfterFunc(p.stopTimeout, func() { close(expired) })
 	defer timer.Stop()
-	select {
-	case <-p.stderrDone:
-	case <-timer.C:
-		// A process that left the group still holds the stderr pipe open. Closing the read end
-		// unblocks the copy.
-		unblockErr = ignoreClosed(p.stderrRead.Close())
-		<-p.stderrDone
+	var unblockErr, copyErr error
+	for _, pipe := range p.captures {
+		select {
+		case <-pipe.done:
+		case <-expired:
+			// A process that left the group still holds the pipe open. Closing the read end unblocks the copy.
+			unblockErr = errors.Join(unblockErr, ignoreClosed(pipe.read.Close()))
+			<-pipe.done
+		}
+		copyErr = errors.Join(copyErr, pipe.err)
 	}
-	p.waitErr = errors.Join(waitErr, killErr, unblockErr, p.copyErr)
+	p.waitErr = errors.Join(waitErr, killErr, unblockErr, copyErr)
 	close(p.done)
 }
 
-// copyStderr keeps the child's stderr in the bounded tail until every writer closes the pipe, then
-// closes the read end. Its error is read by run only after stderrDone closes.
-func (p *Process) copyStderr() {
-	defer close(p.stderrDone)
-	_, copyErr := io.Copy(p.stderr, p.stderrRead)
-	p.copyErr = errors.Join(ignoreClosed(copyErr), ignoreClosed(p.stderrRead.Close()))
+// copy keeps the pipe's bytes in the tail until every writer closes the pipe, then closes the read end. Its error is
+// read by run only after done closes.
+func (c *capture) copy() {
+	defer close(c.done)
+	_, copyErr := io.Copy(c.tail, c.read)
+	c.err = errors.Join(ignoreClosed(copyErr), ignoreClosed(c.read.Close()))
 }
 
-// ignoreClosed drops the closed-file error that closing the stderr read end causes. run and copyStderr
-// both close that end, so the copy's read fails with it when run unblocks the copy, and whichever closes
-// second gets it. It says nothing about how the child exited.
+// ignoreClosed drops the closed-file error that closing a read end causes. run and capture.copy both close
+// that end, so the copy's read fails with it when run unblocks the copy, and whichever closes second gets it.
+// It says nothing about how the child exited.
 func ignoreClosed(err error) error {
 	if errors.Is(err, os.ErrClosed) {
 		return nil
@@ -252,14 +263,10 @@ func signalGroup(pgid int, sig syscall.Signal) error {
 	return nil
 }
 
-// closeFiles closes every file and joins the errors. A nil file was never opened, as the stdout pipe is
-// not under MergeOutput, and is skipped.
+// closeFiles closes every file and joins the errors.
 func closeFiles(files ...*os.File) error {
 	var closeErr error
 	for _, file := range files {
-		if file == nil {
-			continue
-		}
 		if err := file.Close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("proc: close pipe: %w", err))
 		}

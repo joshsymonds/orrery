@@ -109,6 +109,21 @@ func TestGateRunsArgvInDirAndReportsExitAndOutput(t *testing.T) {
 	}
 }
 
+func TestGateOutputJoinsStdoutAndStderrWithANewline(t *testing.T) {
+	t.Parallel()
+	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Argv:  []string{"/bin/sh", "-c", `printf out; printf err >&2`},
+		Dir:   t.TempDir(),
+		Limit: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("runGrantedGate: %v", err)
+	}
+	if want := "out\nerr"; result.Output != want {
+		t.Fatalf("Output = %q, want %q", result.Output, want)
+	}
+}
+
 func TestGateEnvironDropsTmuxMarkers(t *testing.T) {
 	t.Parallel()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
@@ -556,7 +571,7 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 	default:
 	}
 	exit := gateWaitExit(t, dir)
-	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stderr, "done") {
+	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {
 		t.Fatalf("exit record = %+v, want the gate's own exit 0 with its output", exit)
 	}
 }
@@ -593,7 +608,7 @@ func TestGateDetachDuringLaunchLeavesHolderRunning(t *testing.T) {
 	default:
 	}
 	exit := gateWaitExit(t, dir)
-	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stderr, "done") {
+	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {
 		t.Fatalf("exit record = %+v, want the gate's own exit 0 with its output", exit)
 	}
 }

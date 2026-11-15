@@ -32,12 +32,12 @@ type ChildConfig struct {
 	Dir string
 	// Grace is how long Stop waits after SIGTERM before SIGKILL. Zero takes DefaultGrace.
 	Grace time.Duration
-	// GateLimit makes the child a gate when positive: its stdin is closed at start, its stdout and stderr share one
-	// newest-tail carried in the exit record's Stderr, and nothing is spooled. Once GateLimit has passed on Clock from
-	// the child's start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no limit.
+	// GateLimit makes the child a gate when positive: its stdin is closed at start, its stdout and stderr each keep a
+	// newest-tail carried in the exit record's Stdout and Stderr, and nothing is spooled. Once GateLimit has passed on
+	// Clock from the child's start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no limit.
 	GateLimit time.Duration
-	// GateTail is the number of newest output bytes a gate keeps in its exit record, from 1 to MaxGateTail. Zero takes
-	// 8 KiB. It is read only when GateLimit is positive.
+	// GateTail is the number of newest bytes a gate keeps of each of its stdout and stderr in its exit record, from 1 to
+	// MaxGateTail. Zero takes 8 KiB. It is read only when GateLimit is positive.
 	GateTail int
 	// Clock times the grace and the gate limit. Nil takes SystemClock{}.
 	Clock Clock
@@ -60,7 +60,7 @@ type Child struct {
 }
 
 // StartChild starts the child in its own process group with its stdout spooled into spool. A positive GateLimit makes
-// the child a gate, which spools nothing and keeps its output in the exit record's tail.
+// the child a gate, which spools nothing and keeps its output in the exit record's tails.
 func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	if cfg.Grace == 0 {
 		cfg.Grace = DefaultGrace
@@ -71,11 +71,12 @@ func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	gate := cfg.GateLimit > 0
 	procCfg := proc.Config{Path: cfg.Path, Args: cfg.Args, Dir: cfg.Dir}
 	if gate {
-		procCfg.MergeOutput = true
-		procCfg.StderrCapacity = gateTailBytes
+		tail := gateTailBytes
 		if cfg.GateTail > 0 {
-			procCfg.StderrCapacity = cfg.GateTail
+			tail = cfg.GateTail
 		}
+		procCfg.StdoutCapacity = tail
+		procCfg.StderrCapacity = tail
 	}
 	started, err := proc.Start(procCfg)
 	if err != nil {
@@ -155,6 +156,7 @@ func (c *Child) Exit(reason string) Exit {
 		exit.Reason = ReasonLimit
 	}
 	c.mu.Unlock()
+	exit.Stdout = c.proc.StdoutTail()
 	exit.Stderr = stderrWith(c.proc.Stderr(), faults)
 	return exit
 }

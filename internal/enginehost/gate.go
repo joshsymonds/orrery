@@ -496,12 +496,17 @@ func gateEndedOnItsOwn(exit holder.Exit) bool {
 }
 
 // gateExitResult returns the result of a gate that ended on its own with exit, under the grant held in plan's holder
-// directory.
+// directory. Its Output is the stdout tail, then the stderr tail, with a newline between them when stdout does not end
+// in one.
 func gateExitResult(held grants.Grant, plan gatePlan, exit holder.Exit) gateResult {
+	output := exit.Stdout
+	if output != "" && exit.Stderr != "" && !strings.HasSuffix(output, "\n") {
+		output += "\n"
+	}
 	return gateResult{
 		Exit:     exit.Code,
 		TimedOut: exit.Reason == holder.ReasonLimit,
-		Output:   exit.Stderr,
+		Output:   output + exit.Stderr,
 		Members:  held.Members,
 		Holder:   plan.dir,
 	}
