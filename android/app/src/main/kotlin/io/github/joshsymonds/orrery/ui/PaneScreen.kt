@@ -361,6 +361,8 @@ fun PaneScreen(
             hint = when {
                 current == null -> ""
                 current.state.isEmpty() -> "Type a command…"
+                current.state == "working" -> "Queue for Claude…"
+                current.state == "waiting" -> "Answer Claude…"
                 else -> "Message Claude…"
             },
             onDraftPresent = { draftPresent = it },

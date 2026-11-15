@@ -75,6 +75,8 @@ private const val STATUS_LINE_TAG = "status-line"
 private const val SYNTHETIC_DRAFT = "synthetic draft"
 private const val CLAUDE_HINT = "Message Claude…"
 private const val SHELL_HINT = "Type a command…"
+private const val WORKING_HINT = "Queue for Claude…"
+private const val WAITING_HINT = "Answer Claude…"
 private const val GOAL_LINE_TAG = "goal-line"
 private const val COMPOSER_TAG = "composer"
 private const val NO_CONVERSATION_TAG = "no-conversation"
@@ -500,29 +502,45 @@ class PaneScreenTest {
         }
     }
 
-    @Test
-    fun claudePaneHintNamesClaude() {
+    /** Opens a pane in [state] and asserts the composer's hint once the pane has loaded. */
+    private fun assertPaneHint(state: String, expected: String) {
         FakeOrreryServer().use { server ->
-            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            servePane(
+                server,
+                state = state,
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(PANE_HEADER_TAG), TIMEOUT_MILLIS)
             composeRule.waitForIdle()
 
-            assertEquals(CLAUDE_HINT, editField().hint?.toString())
+            assertEquals(expected, editField().hint?.toString())
         }
     }
 
     @Test
-    fun shellPaneHintNamesACommand() {
+    fun noPaneHintIsEmpty() {
         FakeOrreryServer().use { server ->
-            servePane(server, state = "")
+            server.respond(PANES_PATH, PanesListResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) >= 1 }
             composeRule.waitForIdle()
 
-            assertEquals(SHELL_HINT, editField().hint?.toString())
+            assertEquals("", editField().hint?.toString().orEmpty())
         }
     }
+
+    @Test
+    fun donePaneHintMessagesClaude() = assertPaneHint(state = "done", expected = CLAUDE_HINT)
+
+    @Test
+    fun workingPaneHintQueuesForClaude() = assertPaneHint(state = "working", expected = WORKING_HINT)
+
+    @Test
+    fun waitingPaneHintAnswersClaude() = assertPaneHint(state = "waiting", expected = WAITING_HINT)
+
+    @Test
+    fun shellPaneHintNamesACommand() = assertPaneHint(state = "", expected = SHELL_HINT)
 
     @Test
     fun shellPaneDrawsNoStatusLine() {
