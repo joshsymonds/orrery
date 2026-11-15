@@ -102,6 +102,9 @@ private val PICKER_MAX_HEIGHT = 320.dp
 /** The indent of one folder level, in dp. */
 private const val INDENT_DP = 16
 
+/** Panes in a tmux session with this prefix are internal to orrery and are not listed. */
+private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
+
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
  * button at the top opens the picker above the filters; a run it answers opens that pane through
@@ -132,7 +135,11 @@ fun PaneListScreen(
     LaunchedEffect(client, generation) {
         load = PaneLoad.Loading
         load = try {
-            PaneLoad.Loaded(withContext(Dispatchers.IO) { client.panes() + client.headless() })
+            PaneLoad.Loaded(
+                withContext(Dispatchers.IO) {
+                    client.panes().filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) } + client.headless()
+                },
+            )
         } catch (error: IOException) {
             PaneLoad.Failed
         }

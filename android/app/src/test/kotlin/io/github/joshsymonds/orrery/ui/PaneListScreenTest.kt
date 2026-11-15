@@ -67,10 +67,11 @@ class PaneListScreenTest {
         changed: Long,
         seen: Long,
         newestReply: Long,
+        session: String = "example-session",
     ): PaneProto = PaneProto.newBuilder()
         .setId(id)
         .setHost("example-host")
-        .setSession("example-session")
+        .setSession(session)
         .setWindow(1)
         .setPane(0)
         .setCwd(cwd)
@@ -266,6 +267,30 @@ class PaneListScreenTest {
             composeRule.onNodeWithTag("filter-all").performClick()
 
             assertRowsShown("%1", "%2", "%3", "%4", "%5")
+        }
+    }
+
+    @Test
+    fun shellSessionPanesAreHiddenInEveryFilter() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                PANES_LIST,
+                panesBody().toBuilder()
+                    .addPanes(pane("%6", ALPHA, "shell-pane", "waiting", "Internal shell.", NOW - 30, NOW - 300, NOW - 60, session = "_orrery-shell-1"))
+                    .addPanes(pane("%7", ALPHA, "ordinary-pane", "waiting", "Waiting on a reply.", NOW - 30, NOW - 300, NOW - 60))
+                    .addPanes(pane("%8", ALPHA, "near-miss-pane", "waiting", "Waiting on a reply.", NOW - 30, NOW - 300, NOW - 60, session = "orrery-shell-2"))
+                    .build(),
+            )
+            setScreen(server)
+            awaitRow("%7")
+
+            for (filter in listOf("filter-all", "filter-new", "filter-waiting")) {
+                composeRule.onNodeWithTag(filter).performClick()
+
+                assertEquals("$filter hides the shell pane", 0, countNodes(hasTestTag("pane-row:%6")))
+                assertEquals("$filter shows the ordinary pane", 1, countNodes(hasTestTag("pane-row:%7")))
+                assertEquals("$filter shows the near-miss pane", 1, countNodes(hasTestTag("pane-row:%8")))
+            }
         }
     }
 
