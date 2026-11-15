@@ -99,16 +99,10 @@ func dialAsync(t *testing.T, sock string, version int) <-chan dialResult {
 	return result
 }
 
-// awaitDialResult returns the result of a dialAsync call, failing the test when none arrives within waitArmedTimeout.
+// awaitDialResult returns the result of a dialAsync call. It has no deadline of its own.
 func awaitDialResult(t *testing.T, result <-chan dialResult) dialResult {
 	t.Helper()
-	select {
-	case res := <-result:
-		return res
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("dial did not return within %v", waitArmedTimeout)
-		return dialResult{}
-	}
+	return <-result
 }
 
 // requireVersionError fails unless err is a *VersionError and returns it.

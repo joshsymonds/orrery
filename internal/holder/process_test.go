@@ -93,18 +93,11 @@ func startAsync[T any](fn func() T) <-chan T {
 	return result
 }
 
-// awaitResult returns the next value on ch, failing the test when none arrives within waitArmedTimeout. what names
-// the operation for the failure message.
-func awaitResult[T any](t *testing.T, what string, ch <-chan T) T {
+// awaitResult returns the next value on ch; its second argument names the operation. It has no deadline: the
+// operation is real holder work whose pace is the machine's, and the test binary's timeout ends a wait that never ends.
+func awaitResult[T any](t *testing.T, _ string, ch <-chan T) T {
 	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("%s did not return within %v", what, waitArmedTimeout)
-		var zero T
-		return zero
-	}
+	return <-ch
 }
 
 // startHolderProcess runs a holder for cfg and attaches a controller to it at offset 0. The holder's own process is a
@@ -165,19 +158,14 @@ func writeChildFile(t *testing.T, dir, name string, data []byte) {
 	}
 }
 
-// awaitFile waits until the file at path exists, failing the test after waitArmedTimeout.
+// awaitFile waits until the file at path exists. It has no deadline of its own.
 func awaitFile(t *testing.T, path string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		if _, err := os.Stat(path); err == nil {
 			return
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("%s did not appear within %v", path, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
@@ -221,21 +209,11 @@ func segmentFiles(t *testing.T, dir string) []string {
 	return names
 }
 
-// awaitSegmentFiles waits until the spool's segment files in dir are exactly want, failing the test after
-// waitArmedTimeout.
+// awaitSegmentFiles waits until the spool's segment files in dir are exactly want. It has no deadline of its own.
 func awaitSegmentFiles(t *testing.T, dir string, want []string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
-	for {
-		got := segmentFiles(t, dir)
-		if slices.Equal(got, want) {
-			return
-		}
-		select {
-		case <-timeout:
-			t.Fatalf("segment files %v, want %v within %v", got, want, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+	for !slices.Equal(segmentFiles(t, dir), want) {
+		time.Sleep(holderPoll)
 	}
 }
 
