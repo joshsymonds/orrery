@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
-	"github.com/joshsymonds/orrery/internal/mcp"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -240,8 +239,8 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 	if err := json.Unmarshal(initResult, &initialized); err != nil {
 		t.Fatalf("decode initialize result: %v", err)
 	}
-	if initialized.ProtocolVersion != mcp.ProtocolVersion {
-		t.Fatalf("protocolVersion = %q, want %q", initialized.ProtocolVersion, mcp.ProtocolVersion)
+	if initialized.ProtocolVersion != "2025-11-25" {
+		t.Fatalf("protocolVersion = %q, want %q", initialized.ProtocolVersion, "2025-11-25")
 	}
 
 	var listed struct {
@@ -256,11 +255,11 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 	for _, tool := range listed.Tools {
 		names = append(names, tool.Name)
 	}
+	slices.Sort(names)
 	want := []string{
-		"step_start", "step_status", "step_stop", "step_resume", "step_wait",
-		"epic_create", "epic_get", "epic_list", "epic_answer",
-		"epic_pause", "epic_resume", "epic_stop", "epic_retry",
-		"evidence_run", "evidence_list", "evidence_get",
+		"epic_answer", "epic_create", "epic_get", "epic_list", "epic_pause", "epic_resume", "epic_retry", "epic_stop",
+		"evidence_get", "evidence_list", "evidence_run",
+		"step_resume", "step_start", "step_status", "step_stop", "step_wait",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tool names = %v, want %v", names, want)

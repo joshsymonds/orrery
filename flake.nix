@@ -56,7 +56,7 @@
             version = "0.0.0";
             src = ./.;
             go = pkgs.go_1_26;
-            vendorHash = "sha256-QGsnMlZK5nEnOR+9dgEV3NoUw+y0u+HLtTN25+F0HdI=";
+            vendorHash = "sha256-UaRu+AvKdBDUyn7oMtE5SQxFWffFuT6OBxy3KncHBr4=";
             subPackages = [
               "cmd/orrery"
               "cmd/orreryd"

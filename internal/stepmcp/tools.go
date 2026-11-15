@@ -15,7 +15,6 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
-	"github.com/joshsymonds/orrery/internal/mcp"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
@@ -54,29 +53,32 @@ func NewServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
 	evidence enginev1connect.EvidenceClient,
-) (*mcp.Server, error) {
+) (*Server, error) {
 	return newServer(steps, epics, evidence, rpcretry.SystemClock{})
 }
 
 // newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, whose epic
-// tools call epics and whose evidence tools call evidence.
+// tools call epics and whose evidence tools call evidence. A tool name that two tools share is an error.
 func newServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
 	evidence enginev1connect.EvidenceClient,
 	clock rpcretry.Clock,
-) (*mcp.Server, error) {
+) (*Server, error) {
 	tools := slices.Concat(stepTools(steps, clock), epicTools(epics), evidenceTools(evidence))
-	server, err := mcp.NewServer("orrery", "1", tools...)
-	if err != nil {
-		return nil, fmt.Errorf("new orrery server: %w", err)
+	names := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		if names[tool.Name] {
+			return nil, fmt.Errorf("new orrery server: duplicate tool name %q", tool.Name)
+		}
+		names[tool.Name] = true
 	}
-	return server, nil
+	return &Server{tools: tools}, nil
 }
 
 // stepTools returns the step tools, each calling steps and timing its retries on clock.
-func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) []mcp.Tool {
-	return []mcp.Tool{
+func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) []Tool {
+	return []Tool{
 		{
 			Name:        "step_start",
 			Description: "Start a step: an agent working in a workspace. Returns the step id.",
@@ -168,25 +170,25 @@ func schemaText(raw json.RawMessage) (string, error) {
 
 // toolFailure is the tool error for a failed daemon call. Its text is the error's own text,
 // which for a Connect error reads as its code and message.
-func toolFailure(err error) mcp.ToolResult {
-	return mcp.ToolResult{Content: []mcp.Content{{Type: "text", Text: err.Error()}}, IsError: true}
+func toolFailure(err error) ToolResult {
+	return ToolResult{Content: []Content{{Type: textContentType, Text: err.Error()}}, IsError: true}
 }
 
-func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var args startArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		if err := requireString("prompt", args.Prompt); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		if err := requireString("workspace", args.Workspace); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		schema, err := schemaText(args.Schema)
 		if err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		// A start is retried only when no connection was made, so a start cut mid-call never runs twice.
 		var started *connect.Response[v1.StartStepResponse]
@@ -215,14 +217,14 @@ func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.T
 	}
 }
 
-func statusHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func statusHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var args idArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		if err := requireString("id", args.ID); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		var status *connect.Response[v1.StepStatusResponse]
 		err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
@@ -239,14 +241,14 @@ func statusHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.
 
 // idCallHandler returns the handler of a tool that takes a step id and makes one call for it. The call is retried on
 // Unavailable, and a call that succeeds answers the id with outcome set to true.
-func idCallHandler(clock rpcretry.Clock, outcome string, call func(context.Context, string) error) mcp.ToolHandler {
-	return func(ctx context.Context, tool mcp.Call) (mcp.ToolResult, error) {
+func idCallHandler(clock rpcretry.Clock, outcome string, call func(context.Context, string) error) ToolHandler {
+	return func(ctx context.Context, tool Call) (ToolResult, error) {
 		var args idArgs
 		if err := decodeArguments(tool.Arguments, &args); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		if err := requireString("id", args.ID); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
 			return errors.Join(call(callCtx, args.ID))
@@ -258,14 +260,14 @@ func idCallHandler(clock rpcretry.Clock, outcome string, call func(context.Conte
 	}
 }
 
-func stopHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
+func stopHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
 	return idCallHandler(clock, "stopped", func(ctx context.Context, id string) error {
 		_, err := steps.StopStep(ctx, connect.NewRequest(&v1.StopStepRequest{Id: id}))
 		return errors.Join(err)
 	})
 }
 
-func resumeHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
+func resumeHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
 	return idCallHandler(clock, "resumed", func(ctx context.Context, id string) error {
 		_, err := steps.ResumeStep(ctx, connect.NewRequest(&v1.ResumeStepRequest{Id: id}))
 		return errors.Join(err)
@@ -334,21 +336,21 @@ func roundUpSeconds(d time.Duration) uint32 {
 	return uint32(math.Ceil(d.Seconds()))
 }
 
-func waitHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func waitHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var args waitArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		if len(args.IDs) == 0 {
-			return mcp.ToolResult{}, errors.New("ids is required")
+			return ToolResult{}, errors.New("ids is required")
 		}
 		if slices.Contains(args.IDs, "") {
-			return mcp.ToolResult{}, errors.New("ids must not contain an empty id")
+			return ToolResult{}, errors.New("ids must not contain an empty id")
 		}
 		timeout, err := waitSeconds(args.TimeoutSeconds)
 		if err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		waited, err := waitSteps(ctx, steps, clock, args.IDs, timeout)
 		if err != nil {
@@ -425,10 +427,10 @@ func stepFromProto(step *v1.Step) stepJSON {
 }
 
 // textResult returns value as the JSON text of a single text content block.
-func textResult(value any) (mcp.ToolResult, error) {
+func textResult(value any) (ToolResult, error) {
 	text, err := json.Marshal(value)
 	if err != nil {
-		return mcp.ToolResult{}, fmt.Errorf("encode result: %w", err)
+		return ToolResult{}, fmt.Errorf("encode result: %w", err)
 	}
-	return mcp.ToolResult{Content: []mcp.Content{{Type: "text", Text: string(text)}}}, nil
+	return ToolResult{Content: []Content{{Type: textContentType, Text: string(text)}}}, nil
 }

@@ -11,7 +11,6 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
-	"github.com/joshsymonds/orrery/internal/mcp"
 )
 
 const (
@@ -35,8 +34,8 @@ const (
 )
 
 // epicTools returns the epic tools, each calling epics.
-func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
-	return []mcp.Tool{
+func epicTools(epics enginev1connect.EpicsClient) []Tool {
+	return []Tool{
 		{
 			Name: "epic_create",
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
@@ -103,17 +102,17 @@ func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
 // is not an epic tool is an error.
 func CallEpicTool(
 	ctx context.Context, epics enginev1connect.EpicsClient, name string, args json.RawMessage,
-) (mcp.ToolResult, error) {
+) (ToolResult, error) {
 	for _, tool := range epicTools(epics) {
 		if tool.Name == name {
-			result, err := tool.Handler(ctx, mcp.Call{Arguments: args})
+			result, err := tool.Handler(ctx, Call{Arguments: args})
 			if err != nil {
-				return mcp.ToolResult{}, fmt.Errorf("run %s: %w", name, err)
+				return ToolResult{}, fmt.Errorf("run %s: %w", name, err)
 			}
 			return result, nil
 		}
 	}
-	return mcp.ToolResult{}, fmt.Errorf("unknown epic tool %q", name)
+	return ToolResult{}, fmt.Errorf("unknown epic tool %q", name)
 }
 
 // decodeProto decodes a tool's arguments into msg with protojson, refusing unknown keys.
@@ -126,19 +125,19 @@ func decodeProto(raw json.RawMessage, msg proto.Message) error {
 
 // protoResult returns msg as the protobuf JSON text of a single text content block. Unpopulated fields are emitted,
 // so an empty repeated field reads as an empty array.
-func protoResult(msg proto.Message) (mcp.ToolResult, error) {
+func protoResult(msg proto.Message) (ToolResult, error) {
 	text, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(msg)
 	if err != nil {
-		return mcp.ToolResult{}, fmt.Errorf("encode result: %w", err)
+		return ToolResult{}, fmt.Errorf("encode result: %w", err)
 	}
 	return textResult(json.RawMessage(text))
 }
 
-func epicCreateHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicCreateHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.CreateEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		created, err := epics.CreateEpic(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -148,11 +147,11 @@ func epicCreateHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicGetHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicGetHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.GetEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		got, err := epics.GetEpic(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -162,11 +161,11 @@ func epicGetHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicListHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicListHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.ListEpicsRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		listed, err := epics.ListEpics(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -176,11 +175,11 @@ func epicListHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicAnswerHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicAnswerHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.AnswerEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		answered, err := epics.AnswerEpic(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -190,11 +189,11 @@ func epicAnswerHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicPauseHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicPauseHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.PauseEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		paused, err := epics.PauseEpic(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -204,11 +203,11 @@ func epicPauseHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicResumeHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicResumeHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.ResumeEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		resumed, err := epics.ResumeEpic(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -218,11 +217,11 @@ func epicResumeHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicStopHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicStopHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.StopEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		stopped, err := epics.StopEpic(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -232,11 +231,11 @@ func epicStopHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 	}
 }
 
-func epicRetryHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func epicRetryHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.RetryEpicRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		retried, err := epics.RetryEpic(ctx, connect.NewRequest(&req))
 		if err != nil {

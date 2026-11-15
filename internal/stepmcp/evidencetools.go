@@ -8,7 +8,6 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
-	"github.com/joshsymonds/orrery/internal/mcp"
 )
 
 const (
@@ -27,8 +26,8 @@ const (
 )
 
 // evidenceTools returns the evidence tools, each calling evidence.
-func evidenceTools(evidence enginev1connect.EvidenceClient) []mcp.Tool {
-	return []mcp.Tool{
+func evidenceTools(evidence enginev1connect.EvidenceClient) []Tool {
+	return []Tool{
 		{
 			Name: "evidence_run",
 			Description: "Run an item's evidence at a revision for one phase, red or green. Returns the evidence run. " +
@@ -52,11 +51,11 @@ func evidenceTools(evidence enginev1connect.EvidenceClient) []mcp.Tool {
 	}
 }
 
-func evidenceRunHandler(evidence enginev1connect.EvidenceClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func evidenceRunHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.RunEvidenceRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		ran, err := evidence.RunEvidence(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -66,11 +65,11 @@ func evidenceRunHandler(evidence enginev1connect.EvidenceClient) mcp.ToolHandler
 	}
 }
 
-func evidenceListHandler(evidence enginev1connect.EvidenceClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func evidenceListHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.ListEvidenceRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		listed, err := evidence.ListEvidence(ctx, connect.NewRequest(&req))
 		if err != nil {
@@ -80,11 +79,11 @@ func evidenceListHandler(evidence enginev1connect.EvidenceClient) mcp.ToolHandle
 	}
 }
 
-func evidenceGetHandler(evidence enginev1connect.EvidenceClient) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+func evidenceGetHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.GetEvidenceArtifactRequest
 		if err := decodeProto(call.Arguments, &req); err != nil {
-			return mcp.ToolResult{}, err
+			return ToolResult{}, err
 		}
 		got, err := evidence.GetEvidenceArtifact(ctx, connect.NewRequest(&req))
 		if err != nil {
