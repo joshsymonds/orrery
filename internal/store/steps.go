@@ -69,6 +69,7 @@ type StepAdd struct {
 	DoneValue    string
 	ReadOnly     bool
 	Owned        []string
+	Unowned      bool
 	Gate         []string
 	GateName     string
 	GateSource   string
@@ -163,6 +164,7 @@ type StepRow struct {
 	DoneValue       string
 	ReadOnly        bool
 	Owned           []string
+	Unowned         bool
 	Gate            []string
 	GateName        string
 	GateSource      string
@@ -213,13 +215,32 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		return fmt.Errorf("encode gate needs of step %s: %w", op.ID, err)
 	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
-		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
-		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
-		DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
-		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
-		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
-		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
-		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(),
+		ID:           op.ID,
+		Agent:        op.Agent,
+		Prompt:       op.Prompt,
+		OutputSchema: op.Schema,
+		Workspace:    op.Workspace,
+		Revision:     op.Revision,
+		Worktree:     op.Worktree,
+		CheckoutHead: op.CheckoutHead,
+		CheckoutHash: op.CheckoutHash,
+		DoneValue:    op.DoneValue,
+		ReadOnly:     op.ReadOnly,
+		Owned: string(
+			owned,
+		),
+		Unowned:       boolInt(op.Unowned),
+		Gate:          string(gate),
+		GateName:      op.GateName,
+		GateSource:    op.GateSource,
+		GateNeeds:     string(gateNeeds),
+		GateLimit:     int64(op.GateLimit),
+		ModelLimit:    int64(op.ModelLimit),
+		Started:       now.Unix(),
+		Epic:          op.Epic,
+		Task:          op.Task,
+		LoopStage:     StepStageTurn,
+		LoopStageFrom: now.Unix(),
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -453,20 +474,53 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		stageFrom = time.Unix(row.LoopStageFrom, 0)
 	}
 	return StepRow{
-		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
-		Revision: row.Revision, Worktree: row.Worktree, CheckoutHead: row.CheckoutHead, CheckoutHash: row.CheckoutHash,
-		DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
-		Owned: owned, Gate: gate, GateName: row.GateName, GateSource: row.GateSource, GateNeeds: gateNeeds,
-		GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
-		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,
-		Result: row.Result, Status: row.Status, End: row.EndValue, Reason: row.Reason, Ended: ended,
-		Epic: row.Epic, Task: row.Task,
-		LoopRound: int(row.LoopRound), LoopContinues: int(row.LoopContinues), LoopNudge: row.LoopNudge,
-		LoopOwnerNudge: row.LoopOwnerNudge, LoopNudged: row.LoopNudged, LoopHeld: row.LoopHeld,
-		LoopJudgeSent: row.LoopJudgeSent, LoopSeq: row.LoopSeq,
-		GateGrant: row.GateGrant, GateHolder: row.GateHolder, GateRound: int(row.GateRound),
-		LoopLimited: row.LoopLimited, LoopLimitKind: row.LoopLimitKind, LoopLimitResets: limitResets,
-		LoopGateFrom: gateFrom, LoopStage: row.LoopStage, LoopStageFrom: stageFrom,
+		ID:              row.ID,
+		Agent:           row.Agent,
+		Prompt:          row.Prompt,
+		Schema:          row.OutputSchema,
+		Workspace:       row.Workspace,
+		Revision:        row.Revision,
+		Worktree:        row.Worktree,
+		CheckoutHead:    row.CheckoutHead,
+		CheckoutHash:    row.CheckoutHash,
+		DoneValue:       row.DoneValue,
+		ReadOnly:        row.ReadOnly,
+		Owned:           owned,
+		Unowned:         row.Unowned != 0,
+		Gate:            gate,
+		GateName:        row.GateName,
+		GateSource:      row.GateSource,
+		GateNeeds:       gateNeeds,
+		GateLimit:       time.Duration(row.GateLimit),
+		ModelLimit:      time.Duration(row.ModelLimit),
+		Started:         time.Unix(row.Started, 0),
+		Checks:          checks,
+		Doing:           row.Doing,
+		Verdicts:        verdicts,
+		Result:          row.Result,
+		Status:          row.Status,
+		End:             row.EndValue,
+		Reason:          row.Reason,
+		Ended:           ended,
+		Epic:            row.Epic,
+		Task:            row.Task,
+		LoopRound:       int(row.LoopRound),
+		LoopContinues:   int(row.LoopContinues),
+		LoopNudge:       row.LoopNudge,
+		LoopOwnerNudge:  row.LoopOwnerNudge,
+		LoopNudged:      row.LoopNudged,
+		LoopHeld:        row.LoopHeld,
+		LoopJudgeSent:   row.LoopJudgeSent,
+		LoopSeq:         row.LoopSeq,
+		GateGrant:       row.GateGrant,
+		GateHolder:      row.GateHolder,
+		GateRound:       int(row.GateRound),
+		LoopLimited:     row.LoopLimited,
+		LoopLimitKind:   row.LoopLimitKind,
+		LoopLimitResets: limitResets,
+		LoopGateFrom:    gateFrom,
+		LoopStage:       row.LoopStage,
+		LoopStageFrom:   stageFrom,
 	}, nil
 }
 

@@ -1,4 +1,6 @@
 -- +goose Up
+ALTER TABLE steps ADD COLUMN unowned INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE epic_release_runs (
     epic TEXT NOT NULL,
     part TEXT NOT NULL,
@@ -24,3 +26,4 @@ CREATE TABLE epic_release_slots (
 -- +goose Down
 DROP TABLE epic_release_slots;
 DROP TABLE epic_release_runs;
+ALTER TABLE steps DROP COLUMN unowned;

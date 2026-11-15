@@ -523,6 +523,7 @@ type Step struct {
 	CheckoutHash    string
 	LoopStage       string
 	LoopStageFrom   int64
+	Unowned         int64
 }
 
 type ToldLimitStep struct {

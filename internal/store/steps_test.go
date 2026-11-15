@@ -563,3 +563,40 @@ func TestLabelledStepsOrdersByStartedThenID(t *testing.T) {
 		t.Fatalf("LabelledSteps order: got %v, want %v (started, then id)", got, want)
 	}
 }
+
+func TestStepUnownedReadsBackWithItsRowAndDefaultsFalse(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+	unowned := stepAddOf("s1")
+	unowned.ReadOnly = false
+	unowned.Unowned = true
+	owned := stepAddOf("s2")
+	owned.ReadOnly = false
+	if err := s.ApplyEngine(ctx, []EngineOp{unowned, owned}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step s1: %v", err)
+	}
+	if !got.Unowned {
+		t.Fatalf("Step s1: Unowned = false, want true for a step added with Unowned")
+	}
+	other, err := s.Step(ctx, "s2")
+	if err != nil {
+		t.Fatalf("Step s2: %v", err)
+	}
+	if other.Unowned {
+		t.Fatalf("Step s2: Unowned = true, want false for a step added without Unowned")
+	}
+
+	open, err := s.OpenSteps(ctx)
+	if err != nil {
+		t.Fatalf("OpenSteps: %v", err)
+	}
+	if len(open) != 2 || !reflect.DeepEqual(open[0], got) || open[1].Unowned {
+		t.Fatalf("OpenSteps: got %+v, want s1 read as Step read it and s2 with Unowned false", open)
+	}
+}
