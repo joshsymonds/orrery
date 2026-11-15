@@ -83,6 +83,8 @@ private const val STATUS_LINE_TAG = "status-line"
 private const val SYNTHETIC_DRAFT = "synthetic draft"
 private const val CLAUDE_HINT = "Message Claude…"
 private const val SHELL_HINT = "Type a command…"
+private const val WORKING_HINT = "Queue for Claude…"
+private const val WAITING_HINT = "Answer Claude…"
 private const val GOAL_LINE_TAG = "goal-line"
 private const val COMPOSER_TAG = "composer"
 private const val NO_CONVERSATION_TAG = "no-conversation"
@@ -308,11 +310,11 @@ class PaneScreenTest {
             composeRule.awaitExactlyOne(hasTestTag("new-divider"))
             assertDividerBeforeRow(below = 2)
 
-            // The later poll also turns the pane to working. Its working mark is drawn from the same
-            // state write that would move the seen time, so the mark shows the later poll has landed.
+            // The later poll also turns the pane to working. Its composer edge is drawn from the same
+            // state write that would move the seen time, so the edge shows the later poll has landed.
             server.respond(PANES_PATH, paneList(state = "working", seen = SEEN_AFTER_REPLIES))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.awaitExactlyOne(hasTestTag("working-mark"))
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:working"))
 
             assertDividerBeforeRow(below = 2)
         }
@@ -385,7 +387,7 @@ class PaneScreenTest {
 
             server.respond(PANES_PATH, paneList(state = "working"))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.awaitExactlyOne(hasTestTag("working-mark"))
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:working"))
         }
     }
 
@@ -535,29 +537,45 @@ class PaneScreenTest {
         }
     }
 
-    @Test
-    fun claudePaneHintNamesClaude() {
+    /** Opens a pane in [state] and asserts the composer's hint once the pane has loaded. */
+    private fun assertPaneHint(state: String, expected: String) {
         FakeOrreryServer().use { server ->
-            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            servePane(
+                server,
+                state = state,
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
             setScreen(server)
-            composeRule.awaitExactlyOne(hasText("synthetic reply"))
+            composeRule.awaitExactlyOne(hasTestTag(PANE_HEADER_TAG))
             composeRule.waitForIdle()
 
-            assertEquals(CLAUDE_HINT, editField().hint?.toString())
+            assertEquals(expected, editField().hint?.toString())
         }
     }
 
     @Test
-    fun shellPaneHintNamesACommand() {
+    fun noPaneHintIsEmpty() {
         FakeOrreryServer().use { server ->
-            servePane(server, state = "")
+            server.respond(PANES_PATH, PanesListResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
+            composeRule.awaitUntil { paneListRequests(server) >= 1 }
             composeRule.waitForIdle()
 
-            assertEquals(SHELL_HINT, editField().hint?.toString())
+            assertEquals("", editField().hint?.toString().orEmpty())
         }
     }
+
+    @Test
+    fun donePaneHintMessagesClaude() = assertPaneHint(state = "done", expected = CLAUDE_HINT)
+
+    @Test
+    fun workingPaneHintQueuesForClaude() = assertPaneHint(state = "working", expected = WORKING_HINT)
+
+    @Test
+    fun waitingPaneHintAnswersClaude() = assertPaneHint(state = "waiting", expected = WAITING_HINT)
+
+    @Test
+    fun shellPaneHintNamesACommand() = assertPaneHint(state = "", expected = SHELL_HINT)
 
     @Test
     fun shellPaneDrawsNoStatusLine() {
@@ -927,7 +945,7 @@ class PaneScreenTest {
     }
 
     @Test
-    fun workingPaneShowsWorkingMarkThenWaitingRowsBelowTheLastItem() {
+    fun workingPaneDrawsNoWorkingMarkAndWaitingRowsSitBelowTheLastItem() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -940,19 +958,18 @@ class PaneScreenTest {
             setClockedScreen(server)
 
             composeRule.awaitExactlyOne(hasText("synthetic queued message"))
-            composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+            composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(1)
             composeRule.onNodeWithTag("waiting-row").assertIsDisplayed()
             composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
             val reply = composeRule.onNodeWithText("synthetic reply").fetchSemanticsNode().boundsInRoot
-            val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
             val waiting = composeRule.onNodeWithTag("waiting-row").fetchSemanticsNode().boundsInRoot
-            assertTrue(mark.top >= reply.bottom - EDGE_TOLERANCE_PX)
-            assertTrue(waiting.top >= mark.bottom - EDGE_TOLERANCE_PX)
+            assertTrue(waiting.top >= reply.bottom - EDGE_TOLERANCE_PX)
         }
     }
 
     @Test
-    fun donePaneShowsNoWorkingMark() {
+    fun donePaneDrawsNoWorkingMarkAndCarriesTheIdleEdge() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -962,7 +979,23 @@ class PaneScreenTest {
             setClockedScreen(server)
 
             composeRule.awaitExactlyOne(hasText("synthetic reply"))
-            composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+            composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("composer-edge:idle").assertCountEquals(1)
+        }
+    }
+
+    @Test
+    fun waitingPaneCarriesTheWaitingComposerEdge() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "waiting",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
+            composeRule.onAllNodesWithTag("composer-edge:waiting").assertCountEquals(1)
         }
     }
 

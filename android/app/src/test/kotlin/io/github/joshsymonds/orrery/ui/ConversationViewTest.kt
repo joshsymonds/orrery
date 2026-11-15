@@ -91,12 +91,11 @@ class ConversationViewTest {
     private fun setList(
         entries: List<ConvoEntry>,
         footer: (@Composable () -> Unit)? = null,
-        working: Boolean = false,
         waiting: List<WaitingItem> = emptyList(),
     ) {
         composeRule.setContent {
             MaterialTheme {
-                ConversationView(entries = entries, footer = footer, working = working, waiting = waiting)
+                ConversationView(entries = entries, footer = footer, waiting = waiting)
             }
         }
     }
@@ -619,53 +618,18 @@ class ConversationViewTest {
     }
 
     @Test
-    fun workingMarkShowsBelowTheLastEntryAndAboveTheFooter() {
+    fun conversationDrawsNoWorkingMarkWithEntriesAndAFooter() {
         composeRule.setContent {
             MaterialTheme {
                 ConversationView(
                     entries = listOf(ConvoEntry.Reply("synthetic last reply")),
-                    working = true,
                     footer = { Text("synthetic footer") },
                 )
             }
         }
 
-        composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
-        val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
-        val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
-        val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
-        assertTrue(mark.top >= replyBottom)
-        assertTrue(footerTop >= mark.bottom)
-    }
-
-    @Test
-    fun noWorkingMarkWhenNotWorking() {
-        setList(listOf(ConvoEntry.Reply("synthetic last reply")))
-
         composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
-    }
-
-    @Test
-    fun atTheBottomTheWorkingMarkComesIntoView() {
-        val working = mutableStateOf(false)
-        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
-        composeRule.setContent {
-            MaterialTheme {
-                val state = rememberLazyListState()
-                list = state
-                ConversationView(entries = entries.value, listState = state, working = working.value)
-            }
-        }
-        assertEndOfReplyInView(tallReply("synthetic tall A"))
-
-        composeRule.runOnIdle { working.value = true }
-
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
-        assertFalse("the list can still scroll forward", list.canScrollForward)
-        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
-        val markBottom = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot.bottom
-        assertTrue("the mark's end is below the list's end", markBottom <= listBottom + 1f)
+        composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
     }
 
     private fun waitingRow(text: String, label: String): SemanticsNodeInteraction =
@@ -674,11 +638,10 @@ class ConversationViewTest {
         )
 
     @Test
-    fun waitingRowsDrawInOrderBelowTheWorkingMarkAndAboveTheFooter() {
+    fun waitingRowsDrawInOrderBelowTheLastEntryAndAboveTheFooter() {
         setList(
             listOf(ConvoEntry.Reply("synthetic last reply")),
             footer = { Text("synthetic footer") },
-            working = true,
             waiting = listOf(
                 WaitingItem("synthetic first queued", 300L, false),
                 WaitingItem("synthetic second queued", 301L, false),
@@ -687,31 +650,13 @@ class ConversationViewTest {
 
         composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(2)
         composeRule.onAllNodesWithText("waiting").assertCountEquals(2)
-        val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
-        val first = waitingRow("synthetic first queued", "waiting").fetchSemanticsNode().boundsInRoot
-        val second = waitingRow("synthetic second queued", "waiting").fetchSemanticsNode().boundsInRoot
-        val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
-        assertTrue(first.top >= mark.bottom)
-        assertTrue(second.top >= first.bottom)
-        assertTrue(footerTop >= second.bottom)
-    }
-
-    @Test
-    fun waitingRowsWithNoWorkingMarkSitBelowTheLastEntry() {
-        setList(
-            listOf(ConvoEntry.Reply("synthetic last reply")),
-            waiting = listOf(
-                WaitingItem("synthetic first queued", 300L, false),
-                WaitingItem("synthetic second queued", 301L, false),
-            ),
-        )
-
-        composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
         val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
         val first = waitingRow("synthetic first queued", "waiting").fetchSemanticsNode().boundsInRoot
         val second = waitingRow("synthetic second queued", "waiting").fetchSemanticsNode().boundsInRoot
+        val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
         assertTrue(first.top >= replyBottom)
         assertTrue(second.top >= first.bottom)
+        assertTrue(footerTop >= second.bottom)
     }
 
     @Test

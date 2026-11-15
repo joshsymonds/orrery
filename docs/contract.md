@@ -612,10 +612,11 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 | `Interrupt` | `id` | the session is live |
 | `Stop` | `id` | the session is live |
 | `Seen` | `id` | the session has a row |
+| `Resume` | `id` | the session has a row in state `interrupted` and a Claude session. The call sends `Resume working.` as the session's next prompt, through `Say`, so the turn continues on that Claude session |
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
-`Say`, `Answer`, `Interrupt` and `Stop` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
+`Say`, `Answer`, `Interrupt`, `Stop` and `Resume` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`, `enginehost.service.Resume`). `Resume` is refused as `failed_precondition` when its row is not `interrupted`, or has no Claude session; the message names which, as `resume session <id>: session cannot be resumed: its state is <state>, not interrupted` or `resume session <id>: session cannot be resumed: it has no Claude session` (`enginehost.Manager.Resume`, `enginehost.ErrNotResumable`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
 
 Errors are Connect codes:
 
@@ -625,7 +626,7 @@ Errors are Connect codes:
 | `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
 | `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
 | `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, a `model` or `id` that does not fit its rule, or an answer that does not fit the open request |
-| `failed_precondition` | `Say`, `Answer`, `Interrupt` or `Stop` names a step id (see the paragraph above the table) |
+| `failed_precondition` | `Say`, `Answer`, `Interrupt`, `Stop` or `Resume` names a step id (see the paragraph above the table), or `Resume` names a session that is not `interrupted` or has no Claude session |
 | `internal` | any other failure, including a call made while `orreryd` is shutting down |
 
 #### Lifecycle rules
@@ -1899,9 +1900,9 @@ Each sync writes in one transaction. Three things start a sync:
 
 A sync reads the pane's `@orrery_id` and mirrored options from tmux in one command. When the pane has no `@orrery_id`, the sync mints one and writes the row. It sets `@orrery_id` in tmux only after the store write commits.
 
-One lock covers each sync's tmux read, id mint and store write. A sync waits at most 200 ms for the lock, and a sync that waits longer is logged and dropped. The store write waits at most 200 ms for SQLite's write lock. A write that does not get it fails, rolls back, and is logged.
+One lock covers each sync's tmux read, id mint and store write. A sync waits at most 200 ms for a store still opening and then at most 200 ms for the lock, so a hook never waits on the store longer. A sync that waits longer is deferred: orreryd logs `mirror sync deferred` (warning, with `pane` and `reason`, `store still opening` or `lock wait exceeded`), the hook returns, and the pane is marked. One background drain syncs every marked pane once the store is open and the lock is free, reading the pane's options from tmux as they are then. A pane marked again before the drain reaches it is synced once. At shutdown, orreryd waits for the drain after its hook socket and summaries stop and before it closes the store, so every deferred sync and tidy lands. After a failed open, a sync returns at once, silently, and the marks are discarded.
 
-A dropped sync writes no row or event and sets no id. tmux keeps its options as they were set. The next sync or tidy of the pane writes the difference from the stored row. Events for the values the dropped sync carried are not written. A pane whose id was minted by a dropped sync gets another id on its next sync.
+The store write waits at most 200 ms for SQLite's write lock. A write that does not get it fails, rolls back, and is logged as `mirror sync dropped`, as is a sync whose tmux read fails. A dropped sync writes no row or event and sets no id. tmux keeps its options as they were set. The next sync or tidy of the pane writes the difference from the stored row. Events for the values the dropped sync carried are not written, and a deferred sync writes one event for the difference it finds, not one for each hook it stood for. A pane whose id was minted by a dropped sync gets another id on its next sync.
 
 The tidy runs at orreryd start and every 10 s. The first tidy runs once the store is open and, with `--sessions`, the sessions have started, so it follows the `store open` log line. Opening a new store applies every migration, and under heavy disk load that can take seconds. It tidies:
 
@@ -1920,7 +1921,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost;
 - deletes each engine row (`kind` `engine`) that has no event at or after the same 14-day cutoff and is not live, with its unfinished text and its `engine_prompt_failed` rows, and appends no event. Step rows are not deleted (see [Steps in the store](#steps-in-the-store)). See [Engine sessions in the store](#engine-sessions-in-the-store).
 
-A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
+A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. A tidy that waits more than 200 ms for a store still opening or for the lock is deferred as a sync is: orreryd logs `mirror tidy deferred` (warning, with `server` and `reason`), and the drain runs the server's tidy once the store is open and the lock is free. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
 
 #### Engine sessions in the store
 
@@ -2449,7 +2450,7 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the six phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker`, `orrery.v1.Pools` and `orrery.v1.Presence`, with seventeen calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with two calls, `orrery.v1.Steps`, with three calls, and `orrery.v1.Evidence`, with one call, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps). The service `orrery.v1.Notices`, with two calls, `Watch` and `Seen`, serves the web page's in-app notices, which [In-app notices](#in-app-notices) describes. Its schema is `proto/orrery/v1/notice.proto`.
+The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with seven calls, which [Control API](#control-api) describes, and the six phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker`, `orrery.v1.Pools` and `orrery.v1.Presence`, with seventeen calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with two calls, `orrery.v1.Steps`, with three calls, and `orrery.v1.Evidence`, with one call, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps). The service `orrery.v1.Notices`, with two calls, `Watch` and `Seen`, serves the web page's in-app notices, which [In-app notices](#in-app-notices) describes. Its schema is `proto/orrery/v1/notice.proto`.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
@@ -2463,6 +2464,7 @@ The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` 
 | `Control.Interrupt` | `POST /orrery.v1.Control/Interrupt` | `InterruptRequest` | `InterruptResponse` |
 | `Control.Stop` | `POST /orrery.v1.Control/Stop` | `StopRequest` | `StopResponse` |
 | `Control.Seen` | `POST /orrery.v1.Control/Seen` | `SeenRequest` | `SeenResponse` |
+| `Control.Resume` | `POST /orrery.v1.Control/Resume` | `ResumeRequest` | `ResumeResponse` |
 | `Panes.List` | `POST /orrery.v1.Panes/List` | `PanesListRequest`, empty | `PanesListResponse` |
 | `Panes.Screen` | `POST /orrery.v1.Panes/Screen` | `ScreenRequest` | `ScreenResponse` |
 | `Panes.Conversation` | `POST /orrery.v1.Panes/Conversation` | `ConversationRequest` | `ConversationResponse` |
@@ -2626,7 +2628,7 @@ The request and response messages are these:
 - `StartRequest`: `dir`, `prompt`, `model`, `id`. `StartResponse`: `id`.
 - `SayRequest`: `id`, `text`, `prompt_id`. `SayResponse` has no fields.
 - `AnswerRequest`: `id`, `request_id`, `answer`. `AnswerResponse` has no fields.
-- `InterruptRequest`, `StopRequest` and `SeenRequest`: `id`. Their responses have no fields.
+- `InterruptRequest`, `StopRequest`, `SeenRequest` and `ResumeRequest`: `id`. Their responses have no fields.
 
 Rules:
 
@@ -2634,7 +2636,7 @@ Rules:
 - **Client-chosen ids.** `StartRequest.id` names the new session's id, 32 lowercase hex digits. Empty lets orreryd mint one. A start that names an existing session's id returns that id and starts nothing. `SayRequest.prompt_id` names the prompt. A say whose `prompt_id` an `engine_prompt` event of the session already carries succeeds and sends nothing. A call that names a key with a running attempt waits for that attempt and returns its result. A say whose send failed returns that failure to every later call with its key and sends nothing, also after a restart, because the failure is stored in `engine_prompt_failed`. Any other key whose attempt failed after storing its record returns that attempt's error to every later call with the key, and does nothing else, while `orreryd` runs. A key whose attempt failed before storing its record is free, so a retry runs, unless the record cannot be read after the failure, which keeps the error as a stored record does. Empty means no id and no check.
 - **Model.** `StartRequest.model` is the model alias the started session's process runs, passed to claude as `--model`. Empty runs claude's default. A model outside the rule of [Session control socket](#session-control-socket) is refused with `invalid_argument`. A process that a later `Say` resumes runs claude's default model.
 - **Forward.** Each call that passes the home rule is forwarded to the engine under a deadline. The deadline is 10 seconds, the default for `serve`, which sets no other. The forward reaches the session socket through a unix-socket transport, `sessions.sock` beside the daemon socket. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` without dialing.
-- **Step ids.** `Say`, `Answer`, `Interrupt` and `Stop` ask orreryd's `StepStatus` about their `id` before they forward. When the id names a step, the call answers `failed_precondition` and nothing is forwarded, so a session command cannot drive a step around its own loop. A `not_found` from `StepStatus` forwards as before, and any other `StepStatus` error answers as the forward's errors do. `Seen` and `Start` do not ask. With no step client, every call forwards as before.
+- **Step ids.** `Say`, `Answer`, `Interrupt`, `Stop` and `Resume` ask orreryd's `StepStatus` about their `id` before they forward. When the id names a step, the call answers `failed_precondition` and nothing is forwarded, so a session command cannot drive a step around its own loop. A `not_found` from `StepStatus` forwards as before, and any other `StepStatus` error answers as the forward's errors do. `Seen` and `Start` do not ask. With no step client, every call forwards as before.
 - **Body bound.** A request body over 1 MiB (1048576 bytes) is refused with `resource_exhausted` before it reaches the engine.
 
 Errors are Connect codes. The messages marked fixed are the same whatever orreryd said:
@@ -2646,7 +2648,7 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 | `deadline_exceeded` | `session command timed out` (fixed) | the forward outlives the 10-second deadline, or the client's own deadline ends the call first |
 | `internal` | `session command failed` (fixed) | orreryd answers `internal` or `unknown`, or the forward fails with an error that is not a Connect error |
 | `resource_exhausted` | the Connect library's message | the request body is over 1 MiB |
-| `failed_precondition` | `<id> is a step: drive it through Steps`, where `<id>` is the id given | `Say`, `Answer`, `Interrupt` or `Stop` names a step (see Step ids above) |
+| `failed_precondition` | `<id> is a step: drive it through Steps`, where `<id>` is the id given, or orreryd's message | `Say`, `Answer`, `Interrupt`, `Stop` or `Resume` names a step (see Step ids above), or `Resume` names a session that orreryd refuses, which it does when the session is not `interrupted` or has no Claude session |
 | other codes | orreryd's message, passed through | `invalid_argument` (a bad `model`, `id`, `prompt` or `text`), `not_found` (no row, or an answer whose request is not open), `resource_exhausted` (the session cap) |
 
 ### Phone API

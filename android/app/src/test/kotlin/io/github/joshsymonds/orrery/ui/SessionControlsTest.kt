@@ -22,6 +22,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
@@ -44,13 +46,16 @@ private const val OPTION_TWO = "Synthetic two"
 private const val ANSWER_PATH = "/orrery.v1.Control/Answer"
 private const val INTERRUPT_PATH = "/orrery.v1.Control/Interrupt"
 private const val STOP_PATH = "/orrery.v1.Control/Stop"
+private const val RESUME_PATH = "/orrery.v1.Control/Resume"
 private const val NOT_ANSWERABLE = "not answerable"
 private const val STOPPED = "stopped"
 private const val NOT_SENT = "not sent"
+private const val REFUSAL = "synthetic refusal reason"
 private const val REQUEST_TAG = "session-request"
 private const val INTERRUPT_TAG = "session-interrupt"
 private const val STOP_TAG = "session-stop"
 private const val CONFIRM_TAG = "session-stop-confirm"
+private const val RESUME_TAG = "session-resume"
 private const val FLASH_MILLIS = 300L
 
 @RunWith(RobolectricTestRunner::class)
@@ -131,6 +136,7 @@ class SessionControlsTest {
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).assertIsDisplayed()
         composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
+        assertFalse(shown(RESUME_TAG))
     }
 
     @Test
@@ -139,6 +145,70 @@ class SessionControlsTest {
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).assertIsDisplayed()
         composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
+        assertFalse(shown(RESUME_TAG))
+    }
+
+    @Test
+    fun interruptedShowsResumeOnly() {
+        setActions("interrupted")
+
+        composeRule.onNodeWithTag(RESUME_TAG).assertIsDisplayed()
+        assertFalse(shown(INTERRUPT_TAG))
+        assertFalse(shown(STOP_TAG))
+    }
+
+    @Test
+    fun resumePostsResumeThenCallsBack() {
+        server.respond(RESUME_PATH, ResumeResponse.getDefaultInstance())
+        val changed = AtomicInteger()
+        val taken = mutableListOf<LiveCall>()
+        setActions("interrupted", onTaken = { taken += it }) { changed.incrementAndGet() }
+
+        composeRule.onNodeWithTag(RESUME_TAG).performClick()
+        composeRule.awaitUntil { changed.get() == 1 }
+
+        assertEquals(1, server.requests.size)
+        val request = server.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals(RESUME_PATH, request.rawPath)
+        assertEquals(
+            ResumeRequest.newBuilder().setId(SESSION_ID).build(),
+            ResumeRequest.parseFrom(request.body),
+        )
+        assertEquals(listOf(LiveCall.RESUME), taken)
+        assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
+    }
+
+    @Test
+    fun resumeRefusalShowsTheServerReason() {
+        server.fail(RESUME_PATH, Code.FAILED_PRECONDITION, REFUSAL)
+        val changed = AtomicInteger()
+        setActions("interrupted") { changed.incrementAndGet() }
+
+        composeRule.onNodeWithTag(RESUME_TAG).performClick()
+        composeRule.awaitUntil {
+            composeRule.onAllNodesWithText(REFUSAL).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(1, server.requests.size)
+        assertEquals(0, changed.get())
+        assertTrue(shown(RESUME_TAG))
+        assertTrue(composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun resumeOtherFailureShowsNotSent() {
+        server.fail(RESUME_PATH, Code.INTERNAL_ERROR, "synthetic failure")
+        val changed = AtomicInteger()
+        setActions("interrupted") { changed.incrementAndGet() }
+
+        composeRule.onNodeWithTag(RESUME_TAG).performClick()
+        composeRule.awaitUntil {
+            composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(1, server.requests.size)
+        assertEquals(0, changed.get())
     }
 
     @Test
@@ -186,18 +256,19 @@ class SessionControlsTest {
     }
 
     @Test
-    fun otherStatesShowNeitherInterruptNorStop() {
+    fun otherStatesShowNoControls() {
         val state = mutableStateOf("done")
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             MaterialTheme { SessionActions(SESSION_ID, state.value, client, {}) }
         }
-        for (other in listOf("done", "stopped", "failed", "interrupted")) {
+        for (other in listOf("done", "stopped", "failed", "")) {
             composeRule.runOnIdle { state.value = other }
             composeRule.waitForIdle()
 
             assertTrue(composeRule.onAllNodesWithTag(INTERRUPT_TAG).fetchSemanticsNodes().isEmpty())
             assertTrue(composeRule.onAllNodesWithTag(STOP_TAG).fetchSemanticsNodes().isEmpty())
+            assertTrue(composeRule.onAllNodesWithTag(RESUME_TAG).fetchSemanticsNodes().isEmpty())
         }
     }
 
@@ -370,12 +441,12 @@ class SessionControlsTest {
         }
     }
 
-    private fun setActions(state: String, onChanged: () -> Unit = {}) {
+    private fun setActions(state: String, onTaken: (LiveCall) -> Unit = {}, onChanged: () -> Unit = {}) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             CompositionLocalProvider(LocalHapticFeedback provides haptic) {
                 MaterialTheme {
-                    SessionActions(SESSION_ID, state, client, onChanged)
+                    SessionActions(SESSION_ID, state, client, onChanged, onTaken)
                 }
             }
         }

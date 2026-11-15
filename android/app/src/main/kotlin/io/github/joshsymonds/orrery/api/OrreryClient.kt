@@ -52,6 +52,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
@@ -703,6 +704,12 @@ class OrreryClient(
     fun interrupt(sessionId: String) {
         val request = InterruptRequest.newBuilder().setId(sessionId).build()
         call(write = true) { standard.control.interrupt(request, CLIENT_HEADERS) }
+    }
+
+    /** Resumes an interrupted headless session's turn. A refused resume answers failed_precondition with the reason. */
+    fun resume(sessionId: String) {
+        val request = ResumeRequest.newBuilder().setId(sessionId).build()
+        call(write = true) { standard.control.resume(request, CLIENT_HEADERS) }
     }
 
     /** Stops a headless session. */

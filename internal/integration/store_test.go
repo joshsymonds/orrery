@@ -155,16 +155,16 @@ func (f *storeFixture) paneRow(t *testing.T, db *sql.DB, pane string) (got, want
 	return got, want, true
 }
 
-// waitForRow polls until the store row for pane equals the pane's mirrored options. It has no deadline of its own.
-// The daemon syncs a pane after its hook is applied, and the hook client returns before that sync, so the row can
-// trail the options for a moment.
+// waitForRow polls until the store row for pane equals the pane's mirrored options. The daemon syncs a pane after its
+// hook is applied, and the hook client returns before that sync, so the row can trail the options; a sync that cannot
+// take the mirror's lock in time is deferred and lands once the lock frees. The wait has no deadline of its own: the
+// row converges at the machine's pace, and the test binary's timeout ends a wait that never does.
 func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
-		got, want, ok := f.paneRow(t, db, pane)
-		if ok && got == want {
+		if got, want, ok := f.paneRow(t, db, pane); ok && got == want {
 			return
 		}
 		<-ticker.C
@@ -267,8 +267,7 @@ func TestStoreMirrorsHooksIntoRowsAndEvents(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
 	daemon := f.startOrreryd(t)
-	// A hook's sync waits at most 200 ms for a store still opening and is then dropped, so the hooks follow the
-	// store-open line.
+	// The inspection connection reads the store's tables, so the hooks follow the store-open line.
 	daemon.waitForStoreOpen(t)
 
 	f.hook(t, f.userPromptHook())

@@ -80,6 +80,9 @@ private const val REQUEST_TAG = "session-request"
 private const val RESULT_TAG = "session-result"
 private const val RESULT_TEXT = "Interrupted"
 private const val COMPOSER_TAG = "composer"
+private const val QUEUE_HINT = "Queue for Claude…"
+private const val ANSWER_HINT = "Answer Claude…"
+private const val MESSAGE_HINT = "Message Claude…"
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -88,10 +91,10 @@ class SessionScreenTest {
     @get:Rule
     val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
-    private fun setScreen(server: FakeOrreryServer) {
+    private fun setScreen(server: FakeOrreryServer, step: StepMode? = null) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
-            MaterialTheme { SessionScreen(SESSION_ID, client) }
+            MaterialTheme { SessionScreen(SESSION_ID, client, step = step) }
         }
     }
 
@@ -252,12 +255,13 @@ class SessionScreenTest {
     }
 
     @Test
-    fun sendPostsTheDraftAsAPromptToTheSession() {
+    fun doneSessionHintsMessageAndSendPostsTheDraftAsAPrompt() {
         FakeOrreryServer().use { server ->
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.respond(SAY_PATH, SayResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag("composer"))
+            composeRule.awaitExactlyOne(hasTestTag("pane-header"))
+            assertEquals(MESSAGE_HINT, editField().hint.toString())
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
@@ -289,7 +293,7 @@ class SessionScreenTest {
 
     @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
     @Test
-    fun waitingRequestCardAnswersThroughAnswer() {
+    fun waitingSessionHintsAnswerAndItsRequestCardAnswersThroughAnswer() {
         FakeOrreryServer().use { server ->
             val request = OpenRequest.newBuilder()
                 .setId(REQUEST_ID)
@@ -302,6 +306,7 @@ class SessionScreenTest {
             setScreen(server)
 
             composeRule.awaitExactlyOne(hasTestTag(REQUEST_TAG))
+            assertEquals(ANSWER_HINT, editField().hint.toString())
             composeRule.onNodeWithTag("session-option:$OPTION_TWO").performClick()
             composeRule.awaitUntil { countPosts(server, ANSWER_PATH) == 1 }
 
@@ -326,6 +331,43 @@ class SessionScreenTest {
             composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
             composeRule.onNodeWithTag(INTERRUPT_TAG).assertIsDisplayed()
             composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun workingSessionHintsQueueDrawsNoWorkingMarkAndCarriesTheWorkingEdge() {
+        FakeOrreryServer().use { server ->
+            serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
+            setScreen(server)
+
+            composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
+            assertEquals(QUEUE_HINT, editField().hint.toString())
+            composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(1)
+        }
+    }
+
+    @Test
+    fun heldStepCarriesTheHeldComposerEdgeWhileItsSessionWorks() {
+        FakeOrreryServer().use { server ->
+            serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
+            setScreen(server, step = StepMode(held = true))
+
+            // The header draws only once the working delta has landed, so the edge is read after the state arrives.
+            composeRule.awaitExactlyOne(hasTestTag("pane-header"))
+            composeRule.onAllNodesWithTag("composer-edge:held").assertCountEquals(1)
+            composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun unheldStepCarriesTheEdgeOfItsSessionState() {
+        FakeOrreryServer().use { server ->
+            serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("waiting"))))
+            setScreen(server, step = StepMode(held = false))
+
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:waiting"))
+            composeRule.onAllNodesWithTag("composer-edge:held").assertCountEquals(0)
         }
     }
 

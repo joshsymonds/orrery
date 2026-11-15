@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,7 +18,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.Pane
@@ -28,62 +26,47 @@ import io.github.joshsymonds.orrery.ui.theme.Mocha
 
 /**
  * What a Claude pane is doing right now. Working shows the current tool in plain words with its
- * elapsed time, and a second row on when a message sent now lands; a background wait reads
- * "background" instead of "working". Waiting shows its age; done shows its age. Any other state
- * draws nothing. While working or waiting the line is tinted with its state's colour, so an
- * assistant in flight, or one waiting on the reader, shows at a glance.
+ * elapsed time; a background wait reads "background" instead of "working". Waiting shows its age;
+ * done shows its age. Any other state draws nothing. While working or waiting the line is tinted
+ * with its state's colour, so an assistant in flight, or one waiting on the reader, shows at a glance.
  */
 @Composable
 fun StatusLine(pane: Pane, nowSeconds: Long, modifier: Modifier = Modifier) {
     val status = statusOf(pane, nowSeconds) ?: return
-    Column(
+    Row(
         modifier = modifier
             .testTag("status-line")
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(if (status.tinted) status.colour.copy(alpha = TINT_ALPHA) else Color.Transparent)
             .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(status.colour))
+        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(status.colour))
+        Text(
+            text = status.label,
+            color = status.labelColour,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.5.sp,
+            maxLines = 1,
+        )
+        if (status.tool.isNotEmpty()) {
             Text(
-                text = status.label,
-                color = status.labelColour,
+                text = status.tool,
+                color = Mocha.Blue,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.5.sp,
                 maxLines = 1,
             )
-            if (status.tool.isNotEmpty()) {
-                Text(
-                    text = status.tool,
-                    color = Mocha.Blue,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.5.sp,
-                    maxLines = 1,
-                )
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = status.time,
-                color = Mocha.Subtext1,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-            )
         }
-        if (status.note.isNotEmpty()) {
-            Text(
-                text = status.note,
-                color = Mocha.Subtext0,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = status.time,
+            color = Mocha.Subtext1,
+            fontSize = 12.5.sp,
+            maxLines = 1,
+        )
     }
 }
 
@@ -95,7 +78,6 @@ private class StatusText(
     val time: String,
     val tinted: Boolean,
     val tool: String = "",
-    val note: String = "",
     val labelColour: Color = colour,
 )
 
@@ -110,7 +92,6 @@ private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.sta
             tool = words.text,
             time = clock(nowSeconds - (tool?.start ?: pane.changed)),
             tinted = true,
-            note = landsNote(pane, nowSeconds),
         )
     }
     "waiting" -> StatusText(
@@ -126,16 +107,6 @@ private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.sta
         tinted = false,
     )
     else -> null
-}
-
-/** Where a message sent now lands, and when the last turn ended once the pane has one. */
-private fun landsNote(pane: Pane, nowSeconds: Long): String {
-    val lands = "a message sent now lands at Claude's next step"
-    return if (pane.lastTurnEnd > 0L) {
-        "$lands · last turn ended ${age(nowSeconds - pane.lastTurnEnd)} ago"
-    } else {
-        lands
-    }
 }
 
 /** Elapsed time as m:ss, or h:mm:ss from an hour. */
