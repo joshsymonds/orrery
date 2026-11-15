@@ -170,6 +170,25 @@ func (c controlServer) Seen(
 	return connect.NewResponse(&orreryv1.SeenResponse{}), nil
 }
 
+// Resume forwards a resume to the engine, unless its id names a step. orreryd sends the session its resume prompt, or
+// refuses one that is not interrupted or has no Claude session, and the refusal's message passes through.
+func (c controlServer) Resume(
+	ctx context.Context,
+	req *connect.Request[orreryv1.ResumeRequest],
+) (*connect.Response[orreryv1.ResumeResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
+	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
+		_, err := engine.Resume(ctx, connect.NewRequest(&enginev1.ResumeRequest{Id: req.Msg.GetId()}))
+		return wrapEngine("resume", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.ResumeResponse{}), nil
+}
+
 // forward runs call against the engine under the control timeout. A nil engine answers unavailable. Any engine
 // error answers as translateError does.
 func (c controlServer) forward(

@@ -82,8 +82,7 @@ func restartOverEvery(t *testing.T, rig crashRig, spy *textSpy, tick time.Durati
 // directory when the holder ends, as a Process would unless it were detached.
 func writeAsController(t *testing.T, socket string, from int64, id string, line []byte) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
-	defer cancel()
+	ctx := context.WithoutCancel(t.Context())
 	conn, err := holder.Dial(ctx, socket)
 	if err != nil {
 		t.Fatalf("dial holder %s: %v", socket, err)

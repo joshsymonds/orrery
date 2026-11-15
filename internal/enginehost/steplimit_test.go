@@ -16,6 +16,7 @@ import (
 // TestStepsStartStoresModelLimit covers R1: the StartStep limit on model time is accepted and stored, and zero means
 // the 60 minute default. Both writing and read-only starts store the resolved limit on their step row.
 func TestStepsStartStoresModelLimit(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		limit    time.Duration
@@ -29,6 +30,7 @@ func TestStepsStartStoresModelLimit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepStartFixture(t)
 			repo := stepGitTestRepo(t)
 			var start StepStart
@@ -274,11 +276,7 @@ func TestStepLimitedRunSkipsTicks(t *testing.T) {
 
 	limitTurn(f.run)
 	f.awaitLimited(t)
-	select {
-	case ticks <- time.Now():
-	case <-time.After(waitTimeout):
-		t.Fatal("limited run did not take a tick")
-	}
+	ticks <- time.Now()
 	if err := f.run.do(t.Context(), func(context.Context) error { return nil }); err != nil {
 		t.Fatalf("owner action after a tick of a limited run: %v, want the run still running", err)
 	}

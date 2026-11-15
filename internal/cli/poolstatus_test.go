@@ -60,6 +60,7 @@ func poolStatusClient(t *testing.T, fake *poolStatusFake) enginev1connect.PoolsC
 }
 
 func TestPoolStatusRendersPoolsAndOutsideHolds(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1_800_000_000, 0)
 	ago := func(d time.Duration) int64 { return now.Add(-d).Unix() }
 	fake := &poolStatusFake{resp: &v1.PoolsStatusResponse{
@@ -154,6 +155,7 @@ func TestPoolStatusRendersPoolsAndOutsideHolds(t *testing.T) {
 }
 
 func TestPoolStatusEmptyPrintsNoPoolsInUse(t *testing.T) {
+	t.Parallel()
 	fake := &poolStatusFake{resp: &v1.PoolsStatusResponse{}}
 	now := time.Unix(1_800_000_000, 0)
 
@@ -167,6 +169,7 @@ func TestPoolStatusEmptyPrintsNoPoolsInUse(t *testing.T) {
 }
 
 func TestPoolStatusErrorNamesPoolStatus(t *testing.T) {
+	t.Parallel()
 	fake := &poolStatusFake{err: connect.NewError(connect.CodeUnavailable, errors.New("orreryd has no store"))}
 
 	var buf bytes.Buffer

@@ -52,6 +52,7 @@ func requireSlices(t *testing.T, got, want []*orreryv1.EpicSlice) {
 }
 
 func TestEpicSlicesRingCells(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		step *enginev1.Step
@@ -97,6 +98,7 @@ func TestEpicSlicesRingCells(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			requireSlices(t, epicSlicesOf(t, tc.step), []*orreryv1.EpicSlice{tc.want})
 		})
 	}
@@ -106,6 +108,7 @@ func TestEpicSlicesRingCells(t *testing.T) {
 // booleans, at, held and error_at. Working is true for every listed step, so the table's "none" rows are the steps whose
 // result carries no evidence, and the table's working-only rows are the steps whose result has no more than that.
 func TestEpicSlicesRingRows(t *testing.T) {
+	t.Parallel()
 	gate := sliceCheck(1, "gate", true)
 	gateFailed := sliceCheck(1, "gate", false)
 	cases := []struct {
@@ -238,6 +241,7 @@ func TestEpicSlicesRingRows(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			step := sliceStep(tc.end, tc.result, tc.checks...)
 			step.Held = tc.held
 			requireSlices(t, epicSlicesOf(t, step), []*orreryv1.EpicSlice{tc.want})
@@ -246,6 +250,7 @@ func TestEpicSlicesRingRows(t *testing.T) {
 }
 
 func TestEpicSlicesChecksReadTheLastRoundOnly(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		end          string
@@ -296,6 +301,7 @@ func TestEpicSlicesChecksReadTheLastRoundOnly(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := epicSlicesOf(t, sliceStep(tc.end, sliceRedGreen, tc.checks...))
 			if len(got) != 1 {
 				t.Fatalf("slices = %v, want one", got)
@@ -311,6 +317,7 @@ func TestEpicSlicesChecksReadTheLastRoundOnly(t *testing.T) {
 }
 
 func TestEpicSlicesEvidenceCountsForNothing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		result string
@@ -324,6 +331,7 @@ func TestEpicSlicesEvidenceCountsForNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := epicSlicesOf(t, sliceStep("", tc.result))
 			want := &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 1}
 			requireSlices(t, got, []*orreryv1.EpicSlice{want})
@@ -332,6 +340,7 @@ func TestEpicSlicesEvidenceCountsForNothing(t *testing.T) {
 }
 
 func TestEpicSlicesHueAndRing(t *testing.T) {
+	t.Parallel()
 	gate := sliceCheck(1, "gate", true)
 	cases := []struct {
 		name string
@@ -349,6 +358,7 @@ func TestEpicSlicesHueAndRing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			step := sliceStep(tc.end, sliceRedGreen, gate)
 			step.Held = tc.held
 			got := epicSlicesOf(t, step)
@@ -363,6 +373,7 @@ func TestEpicSlicesHueAndRing(t *testing.T) {
 }
 
 func TestEpicSlicesSkipReadOnlyAndUntasked(t *testing.T) {
+	t.Parallel()
 	gate := sliceCheck(1, "gate", true)
 	got := epicSlicesOf(t,
 		&enginev1.Step{
@@ -379,6 +390,7 @@ func TestEpicSlicesSkipReadOnlyAndUntasked(t *testing.T) {
 }
 
 func TestEpicSlicesOrderByFirstStartAndCellsFromLatest(t *testing.T) {
+	t.Parallel()
 	gate := sliceCheck(1, "gate", true)
 	// The steps arrive out of order. Label b starts first, and its latest writing step is the one that ended done;
 	// label a's latest writing step is its only one, since the read-only step between them adds nothing.

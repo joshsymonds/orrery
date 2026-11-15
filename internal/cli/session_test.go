@@ -150,6 +150,7 @@ func sessionServe(t *testing.T, fake *sessionFake) string {
 }
 
 func TestSessionVerbsSendTheirRequest(t *testing.T) {
+	t.Parallel()
 	const rel = "sub/dir"
 	absDir, err := filepath.Abs(rel)
 	if err != nil {
@@ -193,6 +194,7 @@ func TestSessionVerbsSendTheirRequest(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &sessionFake{}
 			socket := sessionServe(t, fake)
 			var out strings.Builder
@@ -219,6 +221,7 @@ func TestSessionVerbsSendTheirRequest(t *testing.T) {
 }
 
 func TestSessionRPCErrorReportsItsMessage(t *testing.T) {
+	t.Parallel()
 	const message = "no session s9 to say to"
 	fake := &sessionFake{sayErr: connect.NewError(connect.CodeNotFound, errors.New(message))}
 	socket := sessionServe(t, fake)
@@ -235,6 +238,7 @@ func TestSessionRPCErrorReportsItsMessage(t *testing.T) {
 }
 
 func TestSessionMissingSocketNamesSessionsFlag(t *testing.T) {
+	t.Parallel()
 	socket := protocol.SessionSocketPath(filepath.Join(t.TempDir(), "orreryd.sock"))
 	err := cli.Session(t.Context(), socket, []string{"seen", "s1"}, &strings.Builder{}, nil)
 	if err == nil {
@@ -249,6 +253,7 @@ func TestSessionMissingSocketNamesSessionsFlag(t *testing.T) {
 }
 
 func TestSessionWrongFormsMatchErrUsage(t *testing.T) {
+	t.Parallel()
 	forms := [][]string{
 		{},
 		{"bogus"},
@@ -274,6 +279,7 @@ func TestSessionWrongFormsMatchErrUsage(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "sessions.sock")
 	for _, args := range forms {
 		t.Run(fmt.Sprint(args), func(t *testing.T) {
+			t.Parallel()
 			err := cli.Session(t.Context(), socket, args, &strings.Builder{}, func(string) string { return "" })
 			if !errors.Is(err, cli.ErrUsage) {
 				t.Errorf("Session(%v) = %v, want an error matching ErrUsage", args, err)

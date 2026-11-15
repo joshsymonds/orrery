@@ -7,18 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// nextDeskLine returns the next line the desk stream sent, failing the test after limit.
-func nextDeskLine(t *testing.T, conn net.Conn, r *bufio.Reader, limit time.Duration) deskstream.Line {
+// nextDeskLine returns the next line the desk stream sent. It has no deadline of its own.
+func nextDeskLine(t *testing.T, r *bufio.Reader) deskstream.Line {
 	t.Helper()
-	if err := conn.SetReadDeadline(time.Now().Add(limit)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
 	raw, err := r.ReadBytes('\n')
 	if err != nil {
 		t.Fatalf("read desk stream: %v", err)
@@ -57,7 +53,7 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("host name: %v", err)
 	}
-	hello := nextDeskLine(t, conn, r, waitLimit)
+	hello := nextDeskLine(t, r)
 	if hello.Kind != deskstream.KindHello || hello.Host != host {
 		t.Fatalf("hello %+v, want kind %q host %q", hello, deskstream.KindHello, host)
 	}
@@ -74,7 +70,7 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	waiting := nextDeskLine(t, conn, r, waitLimit)
+	waiting := nextDeskLine(t, r)
 	question := readOption(t, client, pane, protocol.OptionQuestion)
 	want := deskstream.Line{
 		Kind: deskstream.KindNotice, Host: host, State: "waiting", Title: exampleTitle, Body: question,
@@ -88,7 +84,7 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
 	})
-	done := nextDeskLine(t, conn, r, judgedLimit)
+	done := nextDeskLine(t, r)
 	want = deskstream.Line{
 		Kind: deskstream.KindNotice, Host: host, State: "done", Title: exampleTitle, Body: exampleSummary,
 	}

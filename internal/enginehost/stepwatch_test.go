@@ -224,6 +224,7 @@ func TestWatchOvertimeEndsAtLimit(t *testing.T) {
 // Silent steps: the first silent trip nudges whatever the verdict, and the second ends the step with the
 // verdict's kind when it is looping or wedged, else silent.
 func TestWatchSilentPolicy(t *testing.T) {
+	t.Parallel()
 	nudge := watchAction{Kind: watchActNudge}
 	end := func(e watchEnd) watchAction { return watchAction{Kind: watchActEnd, End: e} }
 	cases := []struct {
@@ -240,6 +241,7 @@ func TestWatchSilentPolicy(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := watchNewAt(time.Hour)
 			watchStart(w, 0)
 			trip := watchWantDue(t, w, 10*time.Minute, watchTripSilent)
@@ -265,6 +267,7 @@ func TestWatchSilentPolicy(t *testing.T) {
 // Periodic checks do nothing on progressing and long_command, and a looping or wedged verdict nudges once
 // and ends with its kind when it repeats.
 func TestWatchPeriodicPolicy(t *testing.T) {
+	t.Parallel()
 	none := watchAction{Kind: watchActNone}
 	nudge := watchAction{Kind: watchActNudge}
 	end := func(e watchEnd) watchAction { return watchAction{Kind: watchActEnd, End: e} }
@@ -282,6 +285,7 @@ func TestWatchPeriodicPolicy(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := watchNewAt(time.Hour)
 			watchStart(w, 0)
 			// A notice before each check keeps silence from tripping on the same ticks.
@@ -305,6 +309,7 @@ func TestWatchPeriodicPolicy(t *testing.T) {
 // tool_stuck: long_command extends, and every other verdict, including a failed call, ends the step with
 // tool_stuck. A looping verdict follows the same once-then-end rule as the other trips.
 func TestWatchToolStuckPolicy(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		verdict string
@@ -316,6 +321,7 @@ func TestWatchToolStuckPolicy(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := watchNewAt(time.Hour)
 			watchStart(w, 0)
 			watchOpen(w, 0)
@@ -341,8 +347,10 @@ func TestWatchFailedCallIsMechanical(t *testing.T) {
 
 // A trip whose turn ended during its monitor call acts as none, and so does a tool_stuck whose call closed.
 func TestWatchStaleTripActsNone(t *testing.T) {
+	t.Parallel()
 	none := watchAction{Kind: watchActNone}
 	t.Run("turn ended and a new turn began", func(t *testing.T) {
+		t.Parallel()
 		w := watchNewAt(time.Hour)
 		watchStart(w, 0)
 		trip := watchWantDue(t, w, 5*time.Minute, watchTripPeriodic)
@@ -354,6 +362,7 @@ func TestWatchStaleTripActsNone(t *testing.T) {
 		watchWantDue(t, w, 12*time.Minute, watchTripPeriodic)
 	})
 	t.Run("tool call closed during the monitor call", func(t *testing.T) {
+		t.Parallel()
 		w := watchNewAt(time.Hour)
 		watchStart(w, 0)
 		watchOpen(w, 0)
@@ -382,7 +391,9 @@ func TestWatchPendingTripBlocksDue(t *testing.T) {
 
 // recent keeps the last forty blocks and notices, oldest first, each with its age and its text cut to 300 bytes.
 func TestWatchRecentWindowAndCuts(t *testing.T) {
+	t.Parallel()
 	t.Run("window", func(t *testing.T) {
+		t.Parallel()
 		w := watchNewAt(time.Hour)
 		for i := range 45 {
 			w.event(
@@ -402,6 +413,7 @@ func TestWatchRecentWindowAndCuts(t *testing.T) {
 		}
 	})
 	t.Run("cut at 300 bytes", func(t *testing.T) {
+		t.Parallel()
 		w := watchNewAt(time.Hour)
 		w.event(watchAt(0), session.Block{Kind: session.BlockText, Text: strings.Repeat("a", 400)})
 		want := "0s ago text: " + strings.Repeat("a", 300)
@@ -410,6 +422,7 @@ func TestWatchRecentWindowAndCuts(t *testing.T) {
 		}
 	})
 	t.Run("cut never splits a rune", func(t *testing.T) {
+		t.Parallel()
 		w := watchNewAt(time.Hour)
 		// The é is two bytes at 299 and 300, so a 300 byte cut would split it; the cut backs off to 299.
 		w.event(watchAt(0), session.Block{Kind: session.BlockText, Text: strings.Repeat("a", 299) + "é"})

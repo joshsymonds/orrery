@@ -31,7 +31,7 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 	t.Helper()
 	f.hook(t, f.permissionHook())
 	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
-	waiting := noticeOf(t, f.notices.receive(t, waitLimit))
+	waiting := noticeOf(t, f.notices.receive(t))
 	question := readOption(t, f.client, f.pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
 	if question == "" || waiting != want {

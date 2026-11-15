@@ -18,7 +18,7 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 	dir := r.stepDir(id)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
-	r.awaitStep(t, daemon, id)
+	r.awaitStep(t, id)
 	row := r.stepRow(t, id)
 	if got := row.GetAgent(); got != buildRigAgent {
 		t.Errorf("agent of %s = %q, want %q from the roles file", id, got, buildRigAgent)
@@ -40,9 +40,10 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 	}
 
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
-	waitUntil(t, "the fake claude to read the brief", func() bool {
+	waitUntil(t, func() bool {
 		return fileContains(t, stdin, "Change only these files:")
 	})
+
 	if !fileContains(t, filepath.Join(dir, "fakeclaude.args"), "--agent "+buildRigAgent) {
 		t.Errorf("fake claude was not started with --agent %s", buildRigAgent)
 	}

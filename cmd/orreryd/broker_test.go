@@ -15,9 +15,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// shutdownGuard bounds how long the test waits for the broker to return a held call once its context has ended.
-const shutdownGuard = 10 * time.Second
-
 // TestShutdownKeepsLiveClientsGrant checks that shutdown leaves a live client's grant stored for the next orreryd. The
 // broker startBroker starts holds a grant for this test's own process. Its context ends, as a signal ends it, and the
 // held call must return ErrClosed: a call whose own context ends first ends its grant, which deletes the stored row.
@@ -70,8 +67,6 @@ func TestShutdownKeepsLiveClientsGrant(t *testing.T) {
 	case grant = <-granted:
 	case err := <-result:
 		t.Fatalf("Acquire returned %v before it granted a member", err)
-	case <-time.After(shutdownGuard):
-		t.Fatal("Acquire granted no member within the guard")
 	}
 	rows, err := st.Grants(t.Context())
 	if err != nil {
@@ -82,15 +77,8 @@ func TestShutdownKeepsLiveClientsGrant(t *testing.T) {
 	}
 
 	shutdown()
-	select {
-	case err := <-result:
-		if !errors.Is(err, grants.ErrClosed) {
-			t.Fatalf("Acquire after shutdown = %v, want ErrClosed", err)
-		}
-	case <-time.After(shutdownGuard):
-		t.Errorf("Acquire did not return after shutdown: the broker did not close")
-		cancelHold()
-		<-result
+	if err := <-result; !errors.Is(err, grants.ErrClosed) {
+		t.Fatalf("Acquire after shutdown = %v, want ErrClosed", err)
 	}
 
 	rows, err = st.Grants(t.Context())

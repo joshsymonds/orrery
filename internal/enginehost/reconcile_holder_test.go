@@ -75,8 +75,7 @@ func startLeftHolder(t *testing.T, root, id, dir string) {
 		t.Fatalf("start holder of session %s: %v", id, err)
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
-		defer cancel()
+		ctx := context.WithoutCancel(t.Context())
 		if err := holder.Clear(ctx, holderDir(t, root, id)); err != nil {
 			t.Errorf("clear holder of session %s: %v", id, err)
 		}

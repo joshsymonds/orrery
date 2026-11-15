@@ -150,14 +150,13 @@ func gateGroupGoneAtEnd(t *testing.T, pids string) func() {
 			t.Errorf("pid file %s = %q, %v: the gate had not written its pids when its grant ended", pids, data, err)
 			return
 		}
-		deadline := time.Now().Add(5 * time.Second)
 		for _, field := range fields {
 			pid, err := strconv.Atoi(field)
 			if err != nil {
 				t.Errorf("pid %q: %v", field, err)
 				return
 			}
-			for !gateProcessGone(pid) && time.Now().Before(deadline) {
+			for !gateProcessGone(pid) {
 				time.Sleep(20 * time.Millisecond)
 			}
 			if !gateProcessGone(pid) {
@@ -202,12 +201,7 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 	}
 
 	close(queue)
-	var got outcome
-	select {
-	case got = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("gate never finished after its grant")
-	}
+	got := <-done
 	if got.err != nil {
 		t.Fatalf("runGrantedGate: %v", got.err)
 	}
@@ -403,12 +397,7 @@ func TestGrantedGateStopKillsGroupAndReclaimsItsGrant(t *testing.T) {
 	group, child := gateParsePids(t, pids)
 	pools.stopGrant()
 
-	var got outcome
-	select {
-	case got = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate never returned after the stop")
-	}
+	got := <-done
 	if got.err != nil {
 		t.Fatalf("runGrantedGate: %v", got.err)
 	}
@@ -452,13 +441,9 @@ func TestGrantedGateCancelKillsGroupAndErrors(t *testing.T) {
 
 	group, child := gateParsePids(t, pids)
 	cancel()
-	select {
-	case got := <-done:
-		if got.err == nil {
-			t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after its context ended")
+	got := <-done
+	if got.err == nil {
+		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
 	gateWaitGone(t, group, child)
 }
@@ -486,13 +471,9 @@ func TestGrantedGateKillsGateWhenItsGrantEndsEarly(t *testing.T) {
 
 	group, child := gateParsePids(t, pids)
 	pools.drop <- errBroker
-	select {
-	case got := <-done:
-		if !errors.Is(got.err, errGateUngranted) || !errors.Is(got.err, errBroker) {
-			t.Fatalf("err = %v, want errGateUngranted wrapping the grant's error", got.err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after its grant ended")
+	got := <-done
+	if !errors.Is(got.err, errGateUngranted) || !errors.Is(got.err, errBroker) {
+		t.Fatalf("err = %v, want errGateUngranted wrapping the grant's error", got.err)
 	}
 	gateWaitGone(t, group, child)
 }

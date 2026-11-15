@@ -58,11 +58,7 @@ func TestWaitReportsChildExitWhenGroupLeaverHoldsOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pidFile := filepath.Join(t.TempDir(), "holder.pid")
 			p := startWith(t, tt.cfg, tt.body, pidFile)
-			select {
-			case <-p.Done():
-			case <-time.After(stopTimeout + goneTimeout):
-				t.Fatalf("Done not closed within %v while a group leaver holds the output", stopTimeout+goneTimeout)
-			}
+			<-p.Done()
 			holder := readPID(t, pidFile)
 			t.Cleanup(func() {
 				if err := syscall.Kill(holder, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {

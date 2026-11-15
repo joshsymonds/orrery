@@ -308,6 +308,7 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 }
 
 func TestStartStepRefusesGateArgvAndGateLimit(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		gate  []string
@@ -318,6 +319,7 @@ func TestStartStepRefusesGateArgvAndGateLimit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeStepCommands{startID: "0123456789abcdef0123456789abcdef"}
 			path, stop := startServerWithSteps(t, nil, fake)
 			client := newStepClient(t, path)

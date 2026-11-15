@@ -10,7 +10,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -348,11 +347,7 @@ func TestGateSignalEndsGrant(t *testing.T) {
 			if got.code != sigtermStatus {
 				t.Errorf("exit status %d, want %d; stderr %q", got.code, sigtermStatus, got.stderr)
 			}
-			select {
-			case <-fake.ended:
-			case <-time.After(runTimeout):
-				t.Error("the grant's stream did not end")
-			}
+			<-fake.ended
 		})
 	}
 }

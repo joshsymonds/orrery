@@ -26,7 +26,6 @@ class StatusLineTest {
 
     private val now = 1_000_000L
     private val toolInput = "go test ./internal/tui/..."
-    private val landsRow = "a message sent now lands at Claude's next step"
 
     private fun pane(state: String, changed: Long, tool: String = "", lastTurnEnd: Long = 0L): Pane = Pane(
         id = "%3",
@@ -109,24 +108,20 @@ class StatusLineTest {
     }
 
     @Test
-    fun workingShowsTheLandsAtNextStepRow() {
-        setLine(pane("working", changed = now - 5_000, tool = toolStartedAt(now - 12)))
-
-        composeRule.onNodeWithText(landsRow).assertIsDisplayed()
-    }
-
-    @Test
-    fun workingRowEndsWithLastTurnAgeWhenLastTurnEndIsSet() {
-        setLine(pane("working", changed = now - 5_000, tool = toolStartedAt(now - 12), lastTurnEnd = now - 180))
-
-        composeRule.onNodeWithText("$landsRow · last turn ended 3m ago").assertIsDisplayed()
-    }
-
-    @Test
-    fun workingRowHasNoLastTurnTextWhenLastTurnEndIsZero() {
+    fun workingShowsNoLandsNoteWhenLastTurnEndIsUnknown() {
         setLine(pane("working", changed = now - 5_000, tool = toolStartedAt(now - 12), lastTurnEnd = 0L))
 
-        composeRule.onNodeWithText(landsRow).assertIsDisplayed()
+        composeRule.onNodeWithText("working").assertIsDisplayed()
+        composeRule.onAllNodesWithText("lands at Claude", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("last turn", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun workingShowsNoLandsNoteWhenLastTurnEndIsSet() {
+        setLine(pane("working", changed = now - 5_000, tool = toolStartedAt(now - 12), lastTurnEnd = now - 180))
+
+        composeRule.onNodeWithText("working").assertIsDisplayed()
+        composeRule.onAllNodesWithText("lands at Claude", substring = true).assertCountEquals(0)
         composeRule.onAllNodesWithText("last turn", substring = true).assertCountEquals(0)
     }
 

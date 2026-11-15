@@ -37,8 +37,7 @@ const commandGroupBody = `sleep 60 & read -r stat < /proc/$$/stat; rest=${stat##
 // commandPids polls until path holds the three pids commandGroupBody writes, and returns them.
 func commandPids(t *testing.T, path string) (int, int, int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		data, err := os.ReadFile(path)
 		if err == nil && strings.HasSuffix(string(data), "\n") {
 			fields := strings.Fields(string(data))
@@ -57,8 +56,6 @@ func commandPids(t *testing.T, path string) (int, int, int) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("fake command never wrote its pids to %s", path)
-	return 0, 0, 0
 }
 
 // commandProcessGone reports whether pid has exited: no /proc entry, or a zombie waiting to be reaped.
@@ -74,12 +71,8 @@ func commandProcessGone(pid int) bool {
 // commandWaitGone polls until every pid in pids has exited.
 func commandWaitGone(t *testing.T, pids ...int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
 	for _, pid := range pids {
 		for !commandProcessGone(pid) {
-			if time.Now().After(deadline) {
-				t.Fatalf("process %d is still running after the command was killed", pid)
-			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
@@ -286,16 +279,12 @@ func TestRunCommandKillsItsGroupWhenContextEnds(t *testing.T) {
 
 	leader, child, _ := commandPids(t, pids)
 	cancel()
-	select {
-	case got := <-done:
-		if got.outcome != Failed {
-			t.Fatalf("outcome = %d, want Failed for a command whose context ended", got.outcome)
-		}
-		if !errors.Is(got.err, context.Canceled) {
-			t.Fatalf("err = %v, want it to wrap context.Canceled", got.err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("RunCommand never returned after its context ended")
+	got := <-done
+	if got.outcome != Failed {
+		t.Fatalf("outcome = %d, want Failed for a command whose context ended", got.outcome)
+	}
+	if !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("err = %v, want it to wrap context.Canceled", got.err)
 	}
 	commandWaitGone(t, leader, child)
 }

@@ -29,7 +29,9 @@ func probeShell(t *testing.T, name string) string {
 }
 
 // paneStub writes a claude stand-in named claude and returns its path. Each run records its environment, then its
-// argv NUL-separated so that an argument with a newline stays exact, then writes done last.
+// argv NUL-separated so that an argument with a newline stays exact, then writes done last. It then sleeps until
+// the test's server is killed, so its pane outlives the call that created it: on a cold server that pane is the
+// only one, and its exit would end the server while the call still talks to it.
 func paneStub(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude")
@@ -38,6 +40,7 @@ D=$(dirname "$0")
 env > "$D/env"
 printf '%s\000' "$@" > "$D/argv"
 : > "$D/done"
+exec sleep 300
 `
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("write claude stand-in: %v", err)
@@ -51,11 +54,11 @@ type paneRun struct {
 	marker bool
 }
 
-// waitPaneRun waits for the paneStub beside claude to finish its run and returns what it recorded.
+// waitPaneRun waits, with no deadline of its own, for the paneStub beside claude to record its run and returns what
+// it recorded.
 func waitPaneRun(t *testing.T, claude string) paneRun {
 	t.Helper()
 	dir := filepath.Dir(claude)
-	deadline := time.Now().Add(10 * time.Second)
 	for {
 		_, err := os.Stat(filepath.Join(dir, "done"))
 		if err == nil {
@@ -63,9 +66,6 @@ func waitPaneRun(t *testing.T, claude string) paneRun {
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("stat claude done: %v", err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("claude did not finish within 10s")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

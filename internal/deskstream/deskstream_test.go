@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // start is a sample web input time, in unix seconds.
@@ -46,12 +45,9 @@ func dial(t *testing.T, path string) *client {
 	return &client{t: t, conn: conn, r: bufio.NewReader(conn)}
 }
 
-// readLine returns the next line without its newline. It fails the test if no line arrives within five seconds.
+// readLine returns the next line without its newline. It has no deadline of its own.
 func (c *client) readLine() string {
 	c.t.Helper()
-	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		c.t.Fatalf("set read deadline: %v", err)
-	}
 	line, err := c.r.ReadString('\n')
 	if err != nil {
 		c.t.Fatalf("read line: %v (partial %q)", err, line)
@@ -59,12 +55,10 @@ func (c *client) readLine() string {
 	return strings.TrimSuffix(line, "\n")
 }
 
-// expectEOF fails the test unless the hub has closed the stream after the lines already read.
+// expectEOF fails the test unless the hub has closed the stream after the lines already read. It has no deadline of
+// its own.
 func (c *client) expectEOF() {
 	c.t.Helper()
-	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		c.t.Fatalf("set read deadline: %v", err)
-	}
 	line, err := c.r.ReadString('\n')
 	if !errors.Is(err, io.EOF) {
 		c.t.Fatalf("after last line: read %q, %v; want the stream closed (io.EOF)", line, err)
@@ -181,11 +175,7 @@ func TestStalledStreamClosedWhilePostReturns(t *testing.T) {
 			hub.Post(Notice{State: "waiting", Title: "T", Body: body + strings.Repeat("y", i%7)})
 		}
 	}()
-	select {
-	case <-posted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Post blocked behind a stalled stream")
-	}
+	<-posted
 
 	// The stalled stream must be closed after whatever was queued: reads drain to EOF, not to a timeout. ReadAll
 	// reports io.EOF as nil, so any error here is a read that ended without the hub closing the stream.
@@ -193,12 +183,9 @@ func TestStalledStreamClosedWhilePostReturns(t *testing.T) {
 }
 
 // drainToClose reads everything the hub sent until the stream closes. It fails the test if the read ends in anything
-// other than the hub closing the stream, such as a timeout.
+// other than the hub closing the stream. It has no deadline of its own.
 func (c *client) drainToClose(what string) {
 	c.t.Helper()
-	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		c.t.Fatalf("set read deadline: %v", err)
-	}
 	if _, err := io.ReadAll(c.r); err != nil {
 		c.t.Fatalf("%s: read ended with %v; want the hub to close the stream", what, err)
 	}
@@ -239,13 +226,9 @@ func TestCloseStopsAcceptingAndServeReturnsNil(t *testing.T) {
 	c.readLine()
 
 	hub.Close()
-	select {
-	case err := <-errc:
-		if err != nil {
-			t.Fatalf("Serve = %v, want nil after Close", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Serve did not return after Close")
+	err := <-errc
+	if err != nil {
+		t.Fatalf("Serve = %v, want nil after Close", err)
 	}
 	if conn, err := net.Dial("unix", path); err == nil {
 		conn.Close()

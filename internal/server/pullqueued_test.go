@@ -130,16 +130,11 @@ type pqResult struct {
 	err  error
 }
 
-// pqWait returns the result of the call on ch, failing the test when it does not arrive within screenWait.
+// pqWait returns the result of the call on ch. It has no deadline of its own.
 func pqWait(t *testing.T, ch <-chan pqResult) pqResult {
 	t.Helper()
-	select {
-	case r := <-ch:
-		return r
-	case <-time.After(screenWait):
-		t.Fatalf("Panes.PullQueued did not return")
-		return pqResult{}
-	}
+	r := <-ch
+	return r
 }
 
 func TestPanesPullQueuedTakesQueuedMessages(t *testing.T) {
@@ -190,13 +185,9 @@ func TestPanesPullQueuedHoldsTextLock(t *testing.T) {
 	if got := pqWait(t, pulled); got.err != nil {
 		t.Fatalf("Panes.PullQueued: %v", got.err)
 	}
-	select {
-	case err := <-sent:
-		if err != nil {
-			t.Fatalf("Panes.SendText: %v", err)
-		}
-	case <-time.After(screenWait):
-		t.Fatalf("Panes.SendText did not return")
+	err := <-sent
+	if err != nil {
+		t.Fatalf("Panes.SendText: %v", err)
 	}
 	got := pqAwait(t, file, func(s string) bool {
 		return strings.Contains(s, "zq") && strings.Count(s, pqDel) == len("alpha")

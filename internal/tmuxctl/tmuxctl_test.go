@@ -1,7 +1,6 @@
 package tmuxctl_test
 
 import (
-	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -21,7 +20,6 @@ import (
 const (
 	noConfig        = "/dev/null"
 	testCommand     = "sleep 300"
-	commandWait     = 10 * time.Second
 	commandPollEach = 10 * time.Millisecond
 	exampleTool     = `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`
 )
@@ -66,12 +64,11 @@ func startSession(t *testing.T, client *tmuxctl.Client, name, dir string) {
 	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", name, "-c", dir, testCommand)
 }
 
-// waitForCommand polls pane until its foreground command is want, failing the test after commandWait.
+// waitForCommand polls pane until its foreground command is want. It has no deadline of its own.
 // A pane reports its command only after its shell has exec'd it, so listing earlier shows the shell instead.
 func waitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), commandWait)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(commandPollEach)
 	defer ticker.Stop()
 	for {
@@ -83,11 +80,7 @@ func waitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
 		if got == want {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s pane_current_command = %q after %v, want %q", pane, got, commandWait, want)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 

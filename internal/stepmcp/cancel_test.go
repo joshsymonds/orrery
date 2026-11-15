@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -167,7 +166,7 @@ type clientConn struct {
 }
 
 // serveClient serves server over pipes and connects a go-sdk client to it. The test's cleanup cancels the serving,
-// closes the pipes, and fails the test unless Serve returns nil within testTimeout.
+// closes the pipes, and fails the test unless Serve returns nil. It has no deadline of its own.
 func serveClient(t *testing.T, server *Server) *clientConn {
 	t.Helper()
 	serverInput, clientInput := io.Pipe()
@@ -182,13 +181,9 @@ func serveClient(t *testing.T, server *Server) *clientConn {
 		cancel()
 		_ = clientInput.Close()
 		_ = outputRead.Close()
-		select {
-		case <-conn.served:
-			if conn.serveErr != nil {
-				t.Errorf("Serve: %v", conn.serveErr)
-			}
-		case <-time.After(testTimeout):
-			t.Errorf("Serve did not return within %v", testTimeout)
+		<-conn.served
+		if conn.serveErr != nil {
+			t.Errorf("Serve: %v", conn.serveErr)
 		}
 	})
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)

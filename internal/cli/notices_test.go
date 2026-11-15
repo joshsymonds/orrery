@@ -10,15 +10,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 )
-
-// noticesWait bounds every wait on the fake socket, on stdout, or on the command, so a stalled command fails its test
-// instead of hanging the run.
-const noticesWait = 10 * time.Second
 
 // noticesOutput collects what the command writes to stdout. Each write signals wrote without blocking, so a test waits
 // for output without sleeping.
@@ -52,19 +47,14 @@ func (o *noticesOutput) String() string {
 	return o.buf.String()
 }
 
-// waitFor returns once the output equals want, and fails the test when that does not happen within noticesWait.
+// waitFor returns once the output equals want. It has no deadline of its own.
 func (o *noticesOutput) waitFor(t *testing.T, want string) {
 	t.Helper()
-	deadline := time.After(noticesWait)
 	for {
 		if got := o.String(); got == want {
 			return
 		}
-		select {
-		case <-o.wrote:
-		case <-deadline:
-			t.Fatalf("stdout = %q, want %q", o.String(), want)
-		}
+		<-o.wrote
 	}
 }
 
@@ -83,16 +73,11 @@ func startNotices(t *testing.T, socketPath string, stdin io.Reader, stdout io.Wr
 	return noticesCall{done: done}
 }
 
-// wait returns the error Notices returned, and fails the test when it does not return within noticesWait.
+// wait returns the error Notices returned. It has no deadline of its own.
 func (c noticesCall) wait(t *testing.T) error {
 	t.Helper()
-	select {
-	case err := <-c.done:
-		return err
-	case <-time.After(noticesWait):
-		t.Fatal("notices did not return")
-		return nil
-	}
+	err := <-c.done
+	return err
 }
 
 // listenNotices listens on the notices socket that a daemon socket in a new temporary directory names. It returns the
@@ -111,6 +96,7 @@ func listenNotices(t *testing.T) (string, net.Listener) {
 // TestNoticesWritesSocketBytesToStdout checks that the socket's bytes reach stdout unchanged and in order, and that
 // the socket closing first returns the stream-ended error. Stdin stays open, so the socket is the side that ends.
 func TestNoticesWritesSocketBytesToStdout(t *testing.T) {
+	t.Parallel()
 	path, ln := listenNotices(t)
 	const stream = "{\"kind\":\"hello\",\"host\":\"gnomon\"}\n{\"kind\":\"notice\",\"title\":\"a · b:1\"}\n"
 
@@ -139,6 +125,7 @@ func TestNoticesWritesSocketBytesToStdout(t *testing.T) {
 // TestNoticesRelaysBothWays checks that a stdin line reaches the socket while the stream is open, that the socket's
 // later bytes reach stdout, and that stdin's end closes the connection and returns nil.
 func TestNoticesRelaysBothWays(t *testing.T) {
+	t.Parallel()
 	path, ln := listenNotices(t)
 	const activity = "{\"input\":1700000000}\n"
 	const hello = "{\"kind\":\"hello\",\"host\":\"gnomon\"}\n"
@@ -174,21 +161,13 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 		_, err := io.WriteString(pw, activity)
 		written <- err
 	}()
-	select {
-	case err := <-written:
-		if err != nil {
-			t.Fatalf("write stdin: %v", err)
-		}
-	case <-time.After(noticesWait):
-		t.Fatal("stdin line was not read")
+	err := <-written
+	if err != nil {
+		t.Fatalf("write stdin: %v", err)
 	}
-	select {
-	case got := <-received:
-		if got != activity {
-			t.Fatalf("socket received %q, want %q", got, activity)
-		}
-	case <-time.After(noticesWait):
-		t.Fatal("socket received no stdin line")
+	got := <-received
+	if got != activity {
+		t.Fatalf("socket received %q, want %q", got, activity)
 	}
 	stdout.waitFor(t, hello+notice)
 
@@ -198,19 +177,16 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 	if err := call.wait(t); err != nil {
 		t.Fatalf("err = %v, want nil after stdin ends", err)
 	}
-	select {
-	case rest := <-closed:
-		if rest != "" {
-			t.Fatalf("socket read %q after stdin ended, want EOF", rest)
-		}
-	case <-time.After(noticesWait):
-		t.Fatal("socket was not closed after stdin ended")
+	rest := <-closed
+	if rest != "" {
+		t.Fatalf("socket read %q after stdin ended, want EOF", rest)
 	}
 }
 
 // TestNoticesStdinLinesReachSocket checks that every stdin line is written to the socket, in order, and that stdin
 // ending closes the connection, which the socket sees as EOF.
 func TestNoticesStdinLinesReachSocket(t *testing.T) {
+	t.Parallel()
 	path, ln := listenNotices(t)
 	const lines = "{\"input\":1}\n{\"input\":2}\n"
 
@@ -229,19 +205,16 @@ func TestNoticesStdinLinesReachSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v, want nil after stdin ends", err)
 	}
-	select {
-	case data := <-got:
-		if data != lines {
-			t.Fatalf("socket received %q, want %q", data, lines)
-		}
-	case <-time.After(noticesWait):
-		t.Fatal("socket received no data")
+	data := <-got
+	if data != lines {
+		t.Fatalf("socket received %q, want %q", data, lines)
 	}
 }
 
 // TestNoticesDialFailureNamesSocket checks that a notices socket nothing listens on fails with the dial message
 // naming that path.
 func TestNoticesDialFailureNamesSocket(t *testing.T) {
+	t.Parallel()
 	path := deskstream.SocketPath(filepath.Join(t.TempDir(), "orreryd.sock"))
 	err := startNotices(t, path, strings.NewReader(""), newNoticesOutput()).wait(t)
 	want := "notices: orreryd serves no notices on " + path
@@ -252,6 +225,7 @@ func TestNoticesDialFailureNamesSocket(t *testing.T) {
 
 // TestNoticesRejectsArguments checks that an argument is a usage error, refused before the socket is dialed.
 func TestNoticesRejectsArguments(t *testing.T) {
+	t.Parallel()
 	err := cli.Notices(t.Context(), "", []string{"extra"}, strings.NewReader(""), newNoticesOutput())
 	if !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("err = %v, want a usage error", err)

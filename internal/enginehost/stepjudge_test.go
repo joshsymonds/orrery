@@ -206,6 +206,7 @@ func TestParseStepJudgeUnmet(t *testing.T) {
 }
 
 func TestParseStepJudgeRejectsBadReplies(t *testing.T) {
+	t.Parallel()
 	for name, raw := range map[string]string{
 		"not json":           `{"verdict":`,
 		"verdict not enum":   `{"verdict":"maybe","reason":"unsure"}`,
@@ -217,6 +218,7 @@ func TestParseStepJudgeRejectsBadReplies(t *testing.T) {
 		"empty input":        ``,
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			_, _, err := parseStepJudge(json.RawMessage(raw))
 			if err == nil {
 				t.Fatalf("parseStepJudge(%s) returned no error", raw)

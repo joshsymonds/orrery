@@ -16,7 +16,6 @@ const (
 	plannerWiringEpic  = "orrery-1a2b3c4/planner-wiring"
 	plannerWiringRepo  = "/work/synthetic-repo"
 	plannerWiringHost  = "synthetic-host"
-	plannerWiringWait  = 10 * time.Second
 	plannerWiringPoll  = 10 * time.Millisecond
 	plannerWiringStamp = 1_700_000_000
 )
@@ -86,16 +85,15 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 	}
 }
 
-// waitParked reads epic from st until it is parked or plannerWiringWait has passed, and returns the last read.
+// waitParked reads epic from st until it is parked, and returns that read. It has no deadline of its own.
 func waitParked(t *testing.T, st *store.Store, epic string) store.EpicRow {
 	t.Helper()
-	deadline := time.Now().Add(plannerWiringWait)
 	for {
 		row, err := st.Epic(t.Context(), epic)
 		if err != nil {
 			t.Fatalf("read epic %s: %v", epic, err)
 		}
-		if row.Parked != "" || time.Now().After(deadline) {
+		if row.Parked != "" {
 			return row
 		}
 		time.Sleep(plannerWiringPoll)

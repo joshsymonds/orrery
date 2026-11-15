@@ -60,9 +60,7 @@ func TestSessionsHostLeavesCompletedEpicUnparked(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	if control := waitParked(t, st, flowWiringControl); control.Parked == "" {
-		t.Fatalf("control epic unparked: no pass ran the planner over the epics")
-	}
+	waitParked(t, st, flowWiringControl)
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
 	}

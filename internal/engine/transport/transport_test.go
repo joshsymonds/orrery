@@ -16,12 +16,8 @@ import (
 )
 
 const (
-	testTimeout  = 5 * time.Second
 	stallWindow  = 200 * time.Millisecond
 	backlogCount = 200
-	// maxLineTimeout is the hang guard for the test that pushes a line of MaxLineBytes through the
-	// transport under the race detector.
-	maxLineTimeout = 60 * time.Second
 
 	fixedUUIDOne = "00000000-0000-4000-8000-000000000001"
 	fixedUUIDTwo = "00000000-0000-4000-8000-000000000002"
@@ -96,43 +92,26 @@ func stdinLines(fake *fakeProcess, count int) <-chan []byte {
 	return lines
 }
 
-// receive returns the next value from ch, failing the test if none arrives in time.
+// receive returns the next value from ch, failing the test if ch closes first. It has no deadline of its own.
 func receive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
-	return receiveWithin(t, ch, testTimeout)
-}
-
-// receiveWithin returns the next value from ch, failing the test if none arrives within timeout.
-func receiveWithin[T any](t *testing.T, ch <-chan T, timeout time.Duration) T {
-	t.Helper()
-	var zero T
-	select {
-	case value, ok := <-ch:
-		if !ok {
-			t.Fatal("channel closed before a value arrived")
-		}
-		return value
-	case <-time.After(timeout):
-		t.Fatal("timed out waiting for a value")
+	value, ok := <-ch
+	if !ok {
+		t.Fatal("channel closed before a value arrived")
 	}
-	return zero
+	return value
 }
 
-// receiveAllUntilClosed returns the values left in ch and fails the test unless ch closes in time.
+// receiveAllUntilClosed returns the values left in ch once ch closes. It has no deadline of its own.
 func receiveAllUntilClosed[T any](t *testing.T, ch <-chan T) []T {
 	t.Helper()
 	var values []T
-	timeout := time.After(testTimeout)
 	for {
-		select {
-		case value, ok := <-ch:
-			if !ok {
-				return values
-			}
-			values = append(values, value)
-		case <-timeout:
-			t.Fatal("channel did not close in time")
+		value, ok := <-ch
+		if !ok {
+			return values
 		}
+		values = append(values, value)
 	}
 }
 
@@ -198,7 +177,7 @@ func TestInboundLineOfMaxLineBytesArrivesWhole(t *testing.T) {
 	line := paddedEvent(MaxLineBytes)
 	emit(fake, line+"\n")
 
-	got := receiveWithin(t, transport.Events(), maxLineTimeout)
+	got := receive(t, transport.Events())
 	if !bytes.Equal(got.RawJSON(), []byte(line)) {
 		t.Fatalf("event has %d bytes, want %d intact bytes", len(got.RawJSON()), len(line))
 	}

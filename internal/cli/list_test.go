@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -27,7 +26,6 @@ const (
 	listGoldenHost     = "example-host"
 	listGoldenCwd      = "/home/user/project"
 	listGoldenActivity = "1700000300"
-	listCommandWait    = 10 * time.Second
 	listPollEvery      = 10 * time.Millisecond
 	listExampleTool    = `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`
 )
@@ -74,28 +72,20 @@ func listPaneIDs(t *testing.T, client *tmuxctl.Client, session string) []string 
 	return strings.Fields(out)
 }
 
-// listWaitForCommand polls pane until its foreground command is want, failing the test after listCommandWait.
+// listWaitForCommand polls pane until its foreground command is want. It has no deadline of its own: tmux and the
+// shell run at the machine's pace, and the test binary's timeout ends a wait that never ends.
 // A pane reports its command only after its shell has exec'd it, so listing earlier shows the shell instead.
 func listWaitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), listCommandWait)
-	defer cancel()
-	ticker := time.NewTicker(listPollEvery)
-	defer ticker.Stop()
 	for {
-		out, err := client.Run(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_current_command}")
 		if err != nil {
 			t.Fatalf("pane %s pane_current_command: %v", pane, err)
 		}
-		got := strings.TrimSpace(out)
-		if got == want {
+		if strings.TrimSpace(out) == want {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s pane_current_command = %q after %v, want %q", pane, got, listCommandWait, want)
-		case <-ticker.C:
-		}
+		time.Sleep(listPollEvery)
 	}
 }
 
@@ -107,6 +97,7 @@ func listSetOption(t *testing.T, client *tmuxctl.Client, pane, name, value strin
 }
 
 func TestListJSON(t *testing.T) {
+	t.Parallel()
 	client := listNewServer(t)
 	dir := filepath.Join(t.TempDir(), "example dir")
 	if err := os.Mkdir(dir, 0o700); err != nil {
@@ -192,6 +183,7 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestListNotRunningPrintsEmptyArray(t *testing.T) {
+	t.Parallel()
 	client, err := tmuxctl.New(tmuxctl.Server{Socket: filepath.Join(t.TempDir(), "never-started.sock")})
 	if err != nil {
 		t.Fatalf("New(Socket): %v", err)
@@ -207,6 +199,7 @@ func TestListNotRunningPrintsEmptyArray(t *testing.T) {
 }
 
 func TestListReturnsOtherTmuxErrors(t *testing.T) {
+	t.Parallel()
 	// A socket path under a regular file makes tmux fail with "(Not a directory)", which is not a server
 	// that is not running. (A regular file at the socket path itself makes tmux report "no server running".)
 	parent := filepath.Join(t.TempDir(), "not-a-directory")
@@ -232,6 +225,7 @@ func TestListReturnsOtherTmuxErrors(t *testing.T) {
 }
 
 func TestListRejectsBadArguments(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		args    []string
@@ -243,6 +237,7 @@ func TestListRejectsBadArguments(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client, err := tmuxctl.New(tmuxctl.Server{Socket: filepath.Join(t.TempDir(), "unused.sock")})
 			if err != nil {
 				t.Fatalf("New(Socket): %v", err)

@@ -17,6 +17,7 @@ import {
   type EpicsGetResponse,
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
+import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -52,6 +53,7 @@ interface Props {
   clients: Clients;
   seen: Seen;
   epics?: EpicsView;
+  host?: HostStatusResponse | null;
 }
 
 // One request the fake server received. A unary call has no controller; a stream call has one until it ends.
@@ -296,7 +298,7 @@ function fixture(): Row[] {
 // fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
 const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -309,6 +311,7 @@ async function mount(container: HTMLElement, props: Props): Promise<void> {
         seenClock={props.seen.clock}
         seenWindow={props.seen.window}
         epics={props.epics}
+        host={props.host}
       />,
       container,
     );
@@ -378,6 +381,15 @@ function composerSendButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
+// composerEdgeNames are the edge classes a composer or a step box carries.
+const composerEdgeNames = ["edge-working", "edge-waiting", "edge-idle", "edge-held"];
+
+// edgesOf names the edge classes the composer around a reply box carries, in the order of composerEdgeNames.
+function edgesOf(box: HTMLTextAreaElement): string[] {
+  const root = box.closest(".composer");
+  return composerEdgeNames.filter((edge) => root?.classList.contains(edge) === true);
+}
+
 function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
@@ -395,6 +407,12 @@ function pinnedHead(container: HTMLElement): Element | null {
 // readerNote is the working note under the cursor's reader, or null when that column draws none.
 function readerNote(container: HTMLElement): Element | null {
   return container.querySelector('[aria-label="reader"] .work-note');
+}
+
+// noteWords is true when a reader section's text holds the working note's words, which no reader draws now.
+function noteWords(section: Element | null): boolean {
+  const text = section?.textContent ?? "";
+  return text.includes("lands at Claude's next step") || text.includes("last turn ended");
 }
 
 // sectionChildren names each child of a reader section as its tag and first class, in order: a head, a conversation
@@ -544,6 +562,54 @@ function countTexts(container: HTMLElement): string[] {
 // hostTexts names the hosts the footer lists, in order.
 function hostTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".lfoot > .host")].map((element) => element.textContent ?? "");
+}
+
+// hostStatus is the host's status the footer's meters read: its host and three stats, two of them with a percent.
+function hostStatus(): HostStatusResponse {
+  return create(HostStatusResponseSchema, {
+    host: "den",
+    stats: [
+      { label: "cpu", value: "12%", percent: 12, level: "ok" },
+      { label: "uptime", value: "3d", level: "warn" },
+      { label: "mem", value: "7.1 GB", percent: 88, level: "crit" },
+    ],
+  });
+}
+
+// footerChildren names the children of the footer in order, by class.
+function footerChildren(container: HTMLElement): string[] {
+  const footer = container.querySelector(".lfoot");
+  assert.ok(footer !== null, "the footer is rendered");
+  return [...footer.children].map((element) => element.getAttribute("class") ?? "");
+}
+
+// meterButtonShown is whether the footer draws the meters button.
+function meterButtonShown(container: HTMLElement): boolean {
+  return container.querySelector(".lfoot > .meters") !== null;
+}
+
+// meterText is the text of the element the selector picks inside the footer's meters button, or null when none is.
+function meterText(container: HTMLElement, selector: string): string | null {
+  return container.querySelector(`.lfoot > .meters ${selector}`)?.textContent ?? null;
+}
+
+// meterPanelShown is whether the panel of the host's stats is open.
+function meterPanelShown(container: HTMLElement): boolean {
+  return container.querySelector(".meters-panel") !== null;
+}
+
+// meterLabels is the label of each stat the open panel draws, in order.
+function meterLabels(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".meters-panel .meter-label")].map((element) => element.textContent ?? "");
+}
+
+// clickMeterButton clicks the footer's meters button, which the footer must draw.
+async function clickMeterButton(container: HTMLElement): Promise<void> {
+  const button = container.querySelector(".lfoot > .meters");
+  assert.ok(button, "the footer draws the meters button");
+  await act(() => {
+    button.dispatchEvent(new Event("click", { bubbles: true }));
+  });
 }
 
 // newCount is the text of the brand's new count, or null when the brand shows none.
@@ -728,6 +794,54 @@ test("a session row's empty host adds nothing to the footer", () =>
       assert.deepEqual(hostTexts(container), ["laptop"]);
     },
   ));
+
+test("the footer's meters button follows the host names and reads the status's host and first stat", () =>
+  withApp({ host: hostStatus() }, (container) => {
+    assert.deepEqual(footerChildren(container), ["host", "host", "meters", "keys-hint"]);
+    assert.equal(meterText(container, ".meters-host"), "den");
+    assert.equal(meterText(container, ".meter-label"), "cpu");
+  }));
+
+test("m opens a panel with every stat, and a second m closes it", () =>
+  withApp({ host: hostStatus() }, async (container) => {
+    assert.equal(meterPanelShown(container), false);
+    await press("m");
+    assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
+    await press("m");
+    assert.equal(meterPanelShown(container), false);
+  }));
+
+test("a click on the meters button opens the panel, and a second click closes it", () =>
+  withApp({ host: hostStatus() }, async (container) => {
+    await clickMeterButton(container);
+    assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
+    await clickMeterButton(container);
+    assert.equal(meterPanelShown(container), false);
+  }));
+
+test("with a null status the footer draws no meters button, and m opens no panel, even once a status arrives", () =>
+  withApp({ host: null }, async (container, fake) => {
+    assert.equal(meterButtonShown(container), false);
+    await press("m");
+    assert.equal(meterPanelShown(container), false);
+    await mount(container, {
+      rows: fixture(),
+      error: "",
+      now,
+      clients: fake.clients,
+      seen: fake.seen,
+      host: hostStatus(),
+    });
+    assert.equal(meterButtonShown(container), true);
+    assert.equal(meterPanelShown(container), false);
+  }));
+
+test("with no status given the footer draws no meters button, and m opens no panel", () =>
+  withApp({}, async (container) => {
+    assert.equal(meterButtonShown(container), false);
+    await press("m");
+    assert.equal(meterPanelShown(container), false);
+  }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
   withApp({}, async (container, fake) => {
@@ -1080,38 +1194,51 @@ test("a held step's head pill reads held with no clock", () => {
   });
 });
 
-test("a working pane's delta puts its tool and time in the head's pill, and its note under the reader", () =>
+test("each step box takes its own step's held flag, and a box the cursor left keeps its own", () => {
+  const epics = epicsView(
+    [makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { held: true }), makeStep("s2")] })],
+    new Map(),
+  );
+  return withApp({ epics }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-held"]);
+    assert.equal(cursorStepInput(container).placeholder, "Nudge s1: it resumes the step with your text");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-working"]);
+    assert.equal(cursorStepInput(container).placeholder, "Nudge s2: it interrupts the turn, then prompts");
+    assert.deepEqual(edgesOf(stepInputNamed(container, "s1")), ["edge-held"], "s1's hidden box keeps its held edge");
+  });
+});
+
+test("a working pane's delta puts its tool and time in the head's pill, and draws no note under the reader", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerNote(container) !== null, "the working note");
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
+    await until(() => readerHead(container)?.querySelector(".pill .word")?.textContent === "working", "the working pill");
     assert.equal(readerHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
     assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
-    const note = readerNote(container);
-    assert.equal(note?.textContent, "a message sent now lands at Claude's next step · last turn ended 5m ago");
-    assert.equal(note?.parentElement?.classList.contains("send"), true, "the note is in the foot");
-    assert.equal(note?.previousElementSibling === null, true, "the note is the foot's first child");
-    assert.equal(note?.nextElementSibling?.classList.contains("reply"), true, "the note is above the reply boxes");
+    assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
+    assert.equal(noteWords(container.querySelector('section[aria-label="reader"]')), false, "the reader's text names no note");
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
   }));
 
-test("a later delta whose pane is done removes the working note and the pill's tool", () =>
+test("a later delta whose pane is done drops the pill's tool and draws no working note", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerNote(container) !== null, "the working note");
+    await until(() => readerHead(container)?.querySelector(".pill .tool")?.textContent === "Bash", "the working tool");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(() => readerNote(container) === null, "the working note removed");
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "done");
+    await until(() => readerHead(container)?.querySelector(".pill .word")?.textContent === "done", "the done pill");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
+    assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
   }));
 
 test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
@@ -1872,7 +1999,7 @@ test("the pinned head names the pinned row while the cursor rests on another, an
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
 
-test("the pinned column draws the note and the pill of its own stream while the cursor rests on another pane", () =>
+test("the pinned column draws the pill of its own stream and no note while the cursor rests on another pane", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
@@ -1889,11 +2016,74 @@ test("the pinned column draws the note and the pill of its own stream while the 
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(() => pinnedNote(container) !== null, "the pinned working note");
+    await until(() => pinnedHead(container)?.querySelector(".pill .word")?.textContent === "working", "the pinned pill");
     assert.equal(pinnedHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
     assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    assert.equal(pinnedNote(container) === null, true, "the pinned reader draws no working note");
+    assert.equal(
+      noteWords(container.querySelector('section[aria-label="pinned reader"]')),
+      false,
+      "the pinned reader's text names no note",
+    );
     assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
+  }));
+
+test("the reader's composer on a working row has the working edge and says it queues", () =>
+  withApp({}, async (container) => {
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "b");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
+    assert.equal(composer(container).placeholder, "Queue for web; it lands at Claude's next step");
+  }));
+
+test("a working pane turns a waiting row's composer from answering to queueing", () =>
+  withApp({}, async (container, fake) => {
+    assert.deepEqual(edgesOf(composer(container)), ["edge-waiting"]);
+    assert.equal(composer(container).placeholder, "Answer api");
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
+    assert.equal(composer(container).placeholder, "Queue for api; it lands at Claude's next step");
+  }));
+
+test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream on a");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const stream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
+    assert.ok(stream, "the cursor's stream on c is open");
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
+    assert.equal(composer(container).placeholder, "Queue for docs; it lands at Claude's next step");
+    const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
+    const api = hidden.find((box) => box.placeholder === "Answer api");
+    assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
+    assert.deepEqual(api === undefined ? [] : edgesOf(api), ["edge-waiting"]);
+  }));
+
+test("the pinned composer follows its own stream's pane while the cursor rests on another row", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    assert.equal(pinnedStream.body.pane, "a");
+    fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
+    assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
+    assert.equal(pinnedComposer(container).placeholder, "Queue for api; it lands at Claude's next step");
+    assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
+    assert.equal(composer(container).placeholder, "Reply to docs");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
@@ -2750,6 +2940,22 @@ function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
   );
   assert.ok(button, `the step box has a ${label} button`);
   return button;
+}
+
+// cursorStepInput is the textarea of the cursor's step box.
+function cursorStepInput(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .stepbox textarea");
+  assert.ok(box, "the cursor's step box has an input");
+  return box;
+}
+
+// stepInputNamed is the textarea of the step box for the step with the given label, shown or hidden.
+function stepInputNamed(container: HTMLElement, label: string): HTMLTextAreaElement {
+  const box = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .stepbox textarea')].find(
+    (element) => element.placeholder.startsWith(`Nudge ${label}:`),
+  );
+  assert.ok(box, `the step box for ${label} has an input`);
+  return box;
 }
 
 // sendButton is the send button of the cursor's step box.

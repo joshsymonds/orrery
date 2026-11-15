@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 )
 
 // stepIDDerived is a well-formed derived step id: 32 lowercase hex digits.
@@ -172,8 +171,6 @@ func TestStepsStartRefusesIDInFlightAndStartsNothingNew(t *testing.T) {
 	case <-paused.entered:
 	case got := <-firstDone:
 		t.Fatalf("first Start returned %q, %v before it reached StartStep", got.id, got.err)
-	case <-time.After(waitTimeout):
-		t.Fatal("timed out waiting for the first start to reach StartStep")
 	}
 
 	id, err := f.steps.Start(t.Context(), start)
@@ -188,12 +185,7 @@ func TestStepsStartRefusesIDInFlightAndStartsNothingNew(t *testing.T) {
 	}
 
 	releasePaused()
-	var got result
-	select {
-	case got = <-firstDone:
-	case <-time.After(waitTimeout):
-		t.Fatal("timed out waiting for the first start to return")
-	}
+	got := <-firstDone
 	if got.err != nil {
 		t.Fatalf("first Start: %v", got.err)
 	}

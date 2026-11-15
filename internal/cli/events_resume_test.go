@@ -23,9 +23,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
-// resumeWait bounds one Events call, so a call that never returns fails its test instead of hanging the run.
-const resumeWait = 10 * time.Second
-
 // watchStep is one scripted Watch call. It sends a message for each seq it is given, then returns its end error.
 type watchStep func(stream *connect.ServerStream[orreryv1.WatchResponse]) error
 
@@ -128,11 +125,10 @@ func serveResume(t *testing.T, newest int64, events *scriptedEvents, cuts int32)
 	return srv.URL
 }
 
-// runResume runs Events with args, writing to out, under a context that ends after resumeWait.
+// runResume runs Events with args, writing to out. The call has no deadline of its own.
 func runResume(t *testing.T, out io.Writer, args ...string) error {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), resumeWait)
-	defer cancel()
+	ctx := t.Context()
 	return Events(ctx, args, out)
 }
 
@@ -180,6 +176,7 @@ func EventsOnSteppedClock(ctx context.Context, step time.Duration, args []string
 }
 
 func TestEventsResumesAfterUnavailableFromLastSeq(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{
 		sendThen(unavailableError(), 5),
 		sendThen(nil, 6, 7),
@@ -200,6 +197,7 @@ func TestEventsResumesAfterUnavailableFromLastSeq(t *testing.T) {
 }
 
 func TestEventsRetriesStreamCutBeforeMessage(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{sendThen(nil, 5)}}
 	url := serveResume(t, 5, events, 1)
 
@@ -237,6 +235,7 @@ func (c *reopenClock) After(time.Duration) <-chan time.Time {
 }
 
 func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{sendThen(nil, 5)}}
 	first, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -268,8 +267,7 @@ func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
 		go func() { _ = again.Serve(second) }()
 		t.Cleanup(func() { _ = again.Close() })
 	}}
-	ctx, cancel := context.WithTimeout(t.Context(), resumeWait)
-	defer cancel()
+	ctx := t.Context()
 	var out bytes.Buffer
 	if err := eventsWithClock(ctx, clock, []string{"--url", "http://" + addr, "--after", "4"}, &out); err != nil {
 		t.Fatalf("Events: %v", err)
@@ -287,6 +285,7 @@ func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
 }
 
 func TestEventsEndWithOtherCodeFailsWithoutResume(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{
 		sendThen(connect.NewError(connect.CodeInternal, errors.New("store broke")), 5),
 		sendThen(nil, 6, 7),
@@ -307,6 +306,7 @@ func TestEventsEndWithOtherCodeFailsWithoutResume(t *testing.T) {
 }
 
 func TestEventsRetryWindowRunsFromLastMessage(t *testing.T) {
+	t.Parallel()
 	// Each wait moves the clock half the window. The window measured from the start of the call ends after the third
 	// message, so only a window measured from the last message lets the fourth message through.
 	events := &scriptedEvents{steps: []watchStep{
@@ -317,8 +317,7 @@ func TestEventsRetryWindowRunsFromLastMessage(t *testing.T) {
 	}}
 	url := serveResume(t, 4, events, 0)
 
-	ctx, cancel := context.WithTimeout(t.Context(), resumeWait)
-	defer cancel()
+	ctx := t.Context()
 	var out bytes.Buffer
 	err := EventsOnSteppedClock(ctx, rpcretry.Window/2, []string{"--url", url, "--after", "4", "--follow"}, &out)
 	if connect.CodeOf(err) != connect.CodeUnavailable {

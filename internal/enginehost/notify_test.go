@@ -68,6 +68,7 @@ func TestNotifyChangedHandsRouterSessionKey(t *testing.T) {
 }
 
 func TestNotifyHandsSessionNoticeToRouter(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, state, body string
 		wantBody          string
@@ -134,6 +135,7 @@ func TestNotifyHandsSessionNoticeToRouter(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			router := &fakeRouter{}
 			n := NewNotifier(NotifierConfig{Route: router})
 			event := Notice{
@@ -181,8 +183,10 @@ func TestNotifyHandsSessionNoticeToRouter(t *testing.T) {
 }
 
 func TestNotifyHandsRouterNothingForWorkingAndStopped(t *testing.T) {
+	t.Parallel()
 	for _, state := range []string{"working", "stopped"} {
 		t.Run(state, func(t *testing.T) {
+			t.Parallel()
 			router := &fakeRouter{}
 			n := NewNotifier(NotifierConfig{Route: router})
 			event := Notice{Session: notifierSession, Dir: notifierDir, State: state, Body: "text"}
@@ -333,9 +337,11 @@ func openRestartStore(t *testing.T, path string) *store.Store {
 }
 
 func TestSessionResumes(t *testing.T) {
+	t.Parallel()
 	waiting := Notice{Session: notifierSession, Dir: notifierDir, State: "waiting", Body: "which file?"}
 
 	t.Run("waiting notice escalates once after a restart", func(t *testing.T) {
+		t.Parallel()
 		straight := newRestartRig(t, openRestartStore(t, filepath.Join(t.TempDir(), "orrery.db")))
 		NewNotifier(NotifierConfig{Route: straight.router}).Notify(t.Context(), waiting)
 		straight.router.Wait()
@@ -379,6 +385,7 @@ func TestSessionResumes(t *testing.T) {
 	})
 
 	t.Run("done notice still deciding posts its desk text after a restart", func(t *testing.T) {
+		t.Parallel()
 		done := Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "all tests pass"}
 		capture := &fakeRouter{}
 		NewNotifier(NotifierConfig{Route: capture}).Notify(t.Context(), done)

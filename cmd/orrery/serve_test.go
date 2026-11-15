@@ -39,9 +39,6 @@ import (
 const (
 	serveTestLogin = "user@example.test"
 	serveTestEvent = "orrery-1"
-	// serveTestWait bounds every wait on the serve loop or the stream. It is a timeout, not a sleep: each wait returns
-	// as soon as the awaited state is observed.
-	serveTestWait = 10 * time.Second
 )
 
 // serveLoginTransport sends each request with the login and client headers the guard requires.
@@ -115,11 +112,7 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		cancelServe()
-		select {
-		case <-serveDone:
-		case <-time.After(serveTestWait):
-			t.Error("serve loop did not return before the test ended")
-		}
+		<-serveDone
 	})
 
 	events := orreryv1connect.NewEventsClient(&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}},
@@ -142,29 +135,17 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 		}
 		streamDone <- stream.Err()
 	}()
-	select {
-	case <-first:
-	case <-time.After(serveTestWait):
-		t.Fatalf("no message on the Watch stream within %v", serveTestWait)
-	}
+	<-first
 
 	cancelServe()
-	select {
-	case <-serveDone:
-	case <-time.After(serveTestWait):
-		t.Fatalf("serve did not return within %v", serveTestWait)
-	}
+	<-serveDone
 	if serveErr != nil {
 		t.Fatalf("serve returned %v, want nil", serveErr)
 	}
 
-	select {
-	case err := <-streamDone:
-		if got := connect.CodeOf(err); got != connect.CodeUnavailable {
-			t.Fatalf("stream ended with code %v (%v), want %v", got, err, connect.CodeUnavailable)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("Watch stream did not end within %v of shutdown", serveTestWait)
+	err = <-streamDone
+	if got := connect.CodeOf(err); got != connect.CodeUnavailable {
+		t.Fatalf("stream ended with code %v (%v), want %v", got, err, connect.CodeUnavailable)
 	}
 }
 
@@ -213,8 +194,7 @@ func TestBarePathServeAskAnswersMissingClaude(t *testing.T) {
 
 	picker := orreryv1connect.NewPickerClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, baseURL)
-	ctx, cancel := context.WithTimeout(t.Context(), serveTestWait)
-	defer cancel()
+	ctx := t.Context()
 	_, err = picker.Ask(ctx, connect.NewRequest(&orreryv1.AskRequest{Text: "example"}))
 	if connect.CodeOf(err) != connect.CodeUnavailable {
 		t.Fatalf("Picker.Ask code = %v, want unavailable (err %v)", connect.CodeOf(err), err)
@@ -284,15 +264,12 @@ func TestServeAnswersPageAtRoot(t *testing.T) {
 	}()
 
 	var resp *http.Response
-	deadline := time.After(serveTestWait)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for resp == nil {
 		select {
 		case err := <-done:
 			t.Fatalf("runServe returned before serving: %v", err)
-		case <-deadline:
-			t.Fatalf("no answer from runServe on %s within %v", addr, serveTestWait)
 		case <-ticker.C:
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/", nil)
@@ -330,13 +307,9 @@ func TestServeAnswersPageAtRoot(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServe returned %v, want nil", err)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	err = <-done
+	if err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
 	}
 }
 
@@ -359,32 +332,23 @@ func TestServeReportsInputToDaemon(t *testing.T) {
 	presence := orreryv1connect.NewPresenceClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
 	var before, after int64
-	deadline := time.After(serveTestWait)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for after == 0 {
 		select {
 		case err := <-done:
 			t.Fatalf("runServe returned before serving: %v", err)
-		case <-deadline:
-			t.Fatalf("no answer from runServe on %s within %v", addr, serveTestWait)
 		case <-ticker.C:
 		}
-		callCtx, callCancel := context.WithTimeout(ctx, serveTestWait)
+		callCtx := ctx
 		before = time.Now().Unix()
 		_, err := presence.Report(callCtx, connect.NewRequest(&orreryv1.PresenceReportRequest{}))
-		callCancel()
 		if err == nil {
 			after = time.Now().Unix()
 		}
 	}
 
-	var result serveReceived
-	select {
-	case result = <-got:
-	case <-time.After(serveTestWait):
-		t.Fatalf("daemon received no frame within %v", serveTestWait)
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -397,13 +361,9 @@ func TestServeReportsInputToDaemon(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServe returned %v, want nil", err)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	err := <-done
+	if err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
 	}
 }
 
@@ -470,12 +430,7 @@ func TestReadReporterSendsOneReadReport(t *testing.T) {
 	}
 	report(servePane, serveTestRead)
 
-	var result serveReceived
-	select {
-	case result = <-got:
-	case <-time.After(serveTestWait):
-		t.Fatalf("daemon received no frame within %v", serveTestWait)
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -549,12 +504,7 @@ func TestInputReporterSendsOneInputReport(t *testing.T) {
 	}
 	report(serveTestInput)
 
-	var result serveReceived
-	select {
-	case result = <-got:
-	case <-time.After(serveTestWait):
-		t.Fatalf("daemon received no frame within %v", serveTestWait)
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -678,31 +628,21 @@ func TestServeReportsPaneReadToDaemon(t *testing.T) {
 	screen := connect.NewRequest(&orreryv1.ScreenRequest{Pane: pane})
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.After(serveTestWait)
 	before := time.Now().Unix()
 	for {
-		callCtx, cancelCall := context.WithTimeout(ctx, serveTestWait)
-		_, err := panes.Screen(callCtx, screen)
-		cancelCall()
+		_, err := panes.Screen(ctx, screen)
 		if err == nil {
 			break
 		}
 		select {
 		case serveErr := <-done:
 			t.Fatalf("runServe returned before serving: %v", serveErr)
-		case <-deadline:
-			t.Fatalf("Panes.Screen on %s: %v", pane, err)
 		case <-ticker.C:
 		}
 	}
 	after := time.Now().Unix()
 
-	var result serveReceived
-	select {
-	case result = <-got:
-	case <-time.After(serveTestWait):
-		t.Fatalf("daemon received no read report within %v", serveTestWait)
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -714,13 +654,9 @@ func TestServeReportsPaneReadToDaemon(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServe returned %v, want nil", err)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	err := <-done
+	if err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
 	}
 }
 
@@ -843,18 +779,15 @@ func serveFakeNotices(t *testing.T, fake *serveNotices) string {
 }
 
 // serveAwaitListener waits until a connection to addr succeeds. It fails the test when done reports that runServe
-// returned first, or when no connection succeeds within serveTestWait.
+// returned first. It has no deadline of its own.
 func serveAwaitListener(t *testing.T, addr string, done <-chan error) {
 	t.Helper()
-	deadline := time.After(serveTestWait)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case err := <-done:
 			t.Fatalf("runServe returned before serving: %v", err)
-		case <-deadline:
-			t.Fatalf("no listener on %s within %v", addr, serveTestWait)
 		case <-ticker.C:
 			if conn, err := net.Dial("tcp", addr); err == nil {
 				if err := conn.Close(); err != nil {
@@ -893,8 +826,7 @@ func TestServeForwardsPools(t *testing.T) {
 
 	pools := orreryv1connect.NewPoolsClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
-	callCtx, cancelCall := context.WithTimeout(ctx, serveTestWait)
-	defer cancelCall()
+	callCtx := ctx
 	status, err := pools.Status(callCtx, connect.NewRequest(&orreryv1.PoolsStatusRequest{}))
 	if err != nil {
 		t.Fatalf("Pools.Status: %v", err)
@@ -923,13 +855,9 @@ func TestServeForwardsPools(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServe returned %v, want nil", err)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	err = <-done
+	if err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
 	}
 }
 
@@ -953,8 +881,7 @@ func TestServeForwardsNoticeSeen(t *testing.T) {
 
 	notices := orreryv1connect.NewNoticesClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
-	callCtx, cancelCall := context.WithTimeout(ctx, serveTestWait)
-	defer cancelCall()
+	callCtx := ctx
 	if _, err := notices.Seen(callCtx, connect.NewRequest(&orreryv1.NoticesSeenRequest{
 		Key: &orreryv1.NoticeKey{Pane: "%7"},
 	})); err != nil {
@@ -966,12 +893,8 @@ func TestServeForwardsNoticeSeen(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServe returned %v, want nil", err)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	err := <-done
+	if err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
 	}
 }

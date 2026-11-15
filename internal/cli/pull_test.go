@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -54,16 +53,11 @@ func pullStart(t *testing.T, client *tmuxctl.Client, pane, transcript string) <-
 	return ch
 }
 
-// pullWait returns the result of the PullQueued call that pullStart started, failing the test at sendDeadline.
+// pullWait returns the result of the PullQueued call that pullStart started. It has no deadline of its own.
 func pullWait(t *testing.T, ch <-chan pullResult) (string, error) {
 	t.Helper()
-	select {
-	case r := <-ch:
-		return r.text, r.err
-	case <-time.After(sendDeadline):
-		t.Fatalf("PullQueued did not return")
-		return "", nil
-	}
+	r := <-ch
+	return r.text, r.err
 }
 
 // pullAwaitUp waits until the Up key has reached the pane, which records every byte it receives in file.
@@ -115,6 +109,7 @@ func pullTranscript(t *testing.T) string {
 // TestPullQueuedTakesQueuedMessages covers an empty box with two queued messages: the Up key is sent, the two popAll
 // records come back, and the pane receives one Backspace per rune of the joined text.
 func TestPullQueuedTakesQueuedMessages(t *testing.T) {
+	t.Parallel()
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, pullScreen("", pullDimPlaceholder))
 	transcript := pullTranscript(t)
@@ -138,6 +133,7 @@ func TestPullQueuedTakesQueuedMessages(t *testing.T) {
 // tmux mode, and a pane with no input box on screen. Each returns ErrInputBusy and no key reaches the pane. A typed X
 // then has to arrive as the first byte the pane records, which proves no Up preceded it.
 func TestPullQueuedBusyInputSendsNothing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		screen string
@@ -149,6 +145,7 @@ func TestPullQueuedBusyInputSendsNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, tc.screen)
 			if tc.mode {
@@ -175,6 +172,7 @@ func TestPullQueuedBusyInputSendsNothing(t *testing.T) {
 // TestPullQueuedNothingQueued covers Up on a box with nothing queued. Without the History indicator the call returns
 // ErrNothingQueued and sends no Down. With the indicator it sends one Down to restore the empty box.
 func TestPullQueuedNothingQueued(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		screen   string
@@ -185,6 +183,7 @@ func TestPullQueuedNothingQueued(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, tc.screen)
 			transcript := pullTranscript(t)

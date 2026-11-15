@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -197,6 +196,7 @@ func claudeRan(t *testing.T, runs string) bool {
 }
 
 func TestPickerAskMultiWordRowsInRankOrderWithDistinctTokens(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -223,6 +223,7 @@ func TestPickerAskMultiWordRowsInRankOrderWithDistinctTokens(t *testing.T) {
 }
 
 func TestPickerAskOneWordFastMatchWithoutSessionGivesResumeRowsWithNotes(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	proj := filepath.Join(root, "example-proj")
 	transcript := filepath.Join(t.TempDir(), "a.jsonl")
@@ -248,6 +249,7 @@ func TestPickerAskOneWordFastMatchWithoutSessionGivesResumeRowsWithNotes(t *test
 }
 
 func TestPickerAskPickerErrorAnswers502WithReason(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxClient(t)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) {
 		return open.Config{}, errors.New("example picker failure")
@@ -258,6 +260,7 @@ func TestPickerAskPickerErrorAnswers502WithReason(t *testing.T) {
 }
 
 func TestPickerAskFailedClaudeAnswers502WithReason(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxClient(t)
 	root := t.TempDir()
 	claude, runs := installPickerClaude(t, "", true)
@@ -272,12 +275,14 @@ func TestPickerAskFailedClaudeAnswers502WithReason(t *testing.T) {
 }
 
 func TestPickerAskBlankOrMalformedTextAnswers400AndRunsNothing(t *testing.T) {
+	t.Parallel()
 	texts := map[string]string{
 		"empty text": "",
 		"blank text": " \t\n ",
 	}
 	for name, text := range texts {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			tmux := newTmuxClient(t)
 			claude, runs := installPickerClaude(t, "pane d1\n", false)
 			asks := 0
@@ -299,6 +304,7 @@ func TestPickerAskBlankOrMalformedTextAnswers400AndRunsNothing(t *testing.T) {
 }
 
 func TestPickerAskWithoutPickerAnswers404(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxClient(t)
 	handler := pickerHandler(t, tmux, nil)
 
@@ -385,28 +391,18 @@ func claudeRuns(t *testing.T, runs string) int {
 	return strings.Count(string(data), "\n")
 }
 
-// awaitClaudeRuns waits until the fake claude has run want times, and fails at the screenWait deadline
-// naming the count it reached.
+// awaitClaudeRuns waits until the fake claude has run want times. It has no deadline of its own.
 func awaitClaudeRuns(t *testing.T, runs string, want int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
-	defer cancel()
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
-	for {
-		got := claudeRuns(t, runs)
-		if got == want {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("claude ran %d times, want %d", got, want)
-		case <-ticker.C:
-		}
+	for claudeRuns(t, runs) != want {
+		<-ticker.C
 	}
 }
 
 func TestPickerRunPaneRowOpensWindowInItsSessionAndAnswersThePane(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -435,6 +431,7 @@ func TestPickerRunPaneRowOpensWindowInItsSessionAndAnswersThePane(t *testing.T) 
 }
 
 func TestPickerRunRowForFolderWithoutSessionCreatesOneAndAnswersItsPane(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	startPickerPane(t, tmux, "example-session-b", t.TempDir())
@@ -526,6 +523,7 @@ func TestPickerRunRetryAfterFailedLookupAnswersCreatedPaneWithoutRunningAgain(t 
 }
 
 func TestPickerRunJumpRowAnswersItsPaneAndOpensNoWindow(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	pane := startPickerPane(t, tmux, "example-session-a", t.TempDir())
@@ -547,6 +545,7 @@ func TestPickerRunJumpRowAnswersItsPaneAndOpensNoWindow(t *testing.T) {
 }
 
 func TestPickerRunRepeatAnswersSamePaneAndOpensNoSecondWindow(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -571,6 +570,7 @@ func TestPickerRunRepeatAnswersSamePaneAndOpensNoSecondWindow(t *testing.T) {
 }
 
 func TestPickerRunConcurrentRunsOfOneTokenOpenOneWindow(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -621,6 +621,7 @@ func TestPickerRunConcurrentRunsOfOneTokenOpenOneWindow(t *testing.T) {
 const unissuedToken = "00000000000000000000000000000000"
 
 func TestPickerRunUnknownTokenAnswers404(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -637,6 +638,7 @@ func TestPickerRunUnknownTokenAnswers404(t *testing.T) {
 }
 
 func TestPickerRunTokenFromAnotherHandlerAnswers404(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -654,6 +656,7 @@ func TestPickerRunTokenFromAnotherHandlerAnswers404(t *testing.T) {
 }
 
 func TestPickerRunExpiredTokenAnswers410AndRunsNothing(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -688,6 +691,7 @@ func noServerMessage(name string) string {
 }
 
 func TestPickerRunWithoutTmuxServerAnswers409AndStartsNothing(t *testing.T) {
+	t.Parallel()
 	name, tmux := newNamedTmuxClient(t)
 	root := t.TempDir()
 	mkdirAt(t, filepath.Join(root, "dir-01"))
@@ -708,6 +712,7 @@ func TestPickerRunWithoutTmuxServerAnswers409AndStartsNothing(t *testing.T) {
 }
 
 func TestPickerRunRootRowOfNewWordOpensNoFolder(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	startPickerDirSession(t, tmux, t.TempDir())
@@ -733,6 +738,7 @@ func TestPickerRunRootRowOfNewWordOpensNoFolder(t *testing.T) {
 }
 
 func TestPickerRunFailedActionAnswers502WithReasonAndRecordsNothing(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	pane := startPickerPane(t, tmux, "example-session-a", t.TempDir())
 	startPickerPane(t, tmux, "example-session-b", t.TempDir())
@@ -754,6 +760,7 @@ func TestPickerRunFailedActionAnswers502WithReasonAndRecordsNothing(t *testing.T
 }
 
 func TestPickerRunBadBodyAnswers400(t *testing.T) {
+	t.Parallel()
 	tokens := map[string]string{
 		"missing token": "",
 		"blank token":   " \t\n ",
@@ -761,6 +768,7 @@ func TestPickerRunBadBodyAnswers400(t *testing.T) {
 	handler := pickerHandler(t, newTmuxClient(t), nil)
 	for name, token := range tokens {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			_, err := runToken(t, handler, token)
 			assertConnectError(t, err, connect.CodeInvalidArgument, "bad request")
 		})

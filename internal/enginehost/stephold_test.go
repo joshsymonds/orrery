@@ -286,6 +286,7 @@ func TestStepsHoldUnknownIDErrorsWithErrNoStep(t *testing.T) {
 // TestStepsHeldTurnEndIsNoRound holds a running turn, then ends it, clean or with an error, with a nudge pending or not.
 // The held turn's end stores no return or check, continues nothing and leaves the step held.
 func TestStepsHeldTurnEndIsNoRound(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		isError bool
@@ -297,6 +298,7 @@ func TestStepsHeldTurnEndIsNoRound(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepHoldFixture(t)
 			id := f.start(t)
 			f.beginTurn(t)

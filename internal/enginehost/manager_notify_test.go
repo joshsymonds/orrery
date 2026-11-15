@@ -297,6 +297,7 @@ func TestNoticeStopSendsNothing(t *testing.T) {
 }
 
 func TestEventNoticeMapsEvents(t *testing.T) {
+	t.Parallel()
 	questionInput := json.RawMessage(`{"questions":[{"question":"Which color?"}]}`)
 	cases := []struct {
 		name        string
@@ -350,6 +351,7 @@ func TestEventNoticeMapsEvents(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			state, body, ok := eventNotice(tc.event, tc.reply, tc.interrupted)
 			if state != tc.state || body != tc.body || ok != tc.ok {
 				t.Fatalf("eventNotice = (%q, %q, %v), want (%q, %q, %v)", state, body, ok, tc.state, tc.body, tc.ok)
@@ -359,6 +361,7 @@ func TestEventNoticeMapsEvents(t *testing.T) {
 }
 
 func TestMainTextIsOnlyMainConversationAssistantText(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		event session.Event
@@ -393,6 +396,7 @@ func TestMainTextIsOnlyMainConversationAssistantText(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			text, ok := mainText(tc.event)
 			if text != tc.text || ok != tc.ok {
 				t.Fatalf("mainText = (%q, %v), want (%q, %v)", text, ok, tc.text, tc.ok)
@@ -586,6 +590,7 @@ func TestStopCallsSinkChangedForSession(t *testing.T) {
 }
 
 func TestEndsNoticeMapsEvents(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		event session.Event
@@ -603,6 +608,7 @@ func TestEndsNoticeMapsEvents(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := endsNotice(tc.event); got != tc.want {
 				t.Fatalf("endsNotice = %v, want %v", got, tc.want)
 			}

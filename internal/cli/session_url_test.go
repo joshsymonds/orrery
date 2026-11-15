@@ -102,6 +102,13 @@ func (f *urlFake) Seen(
 	return controlReply(f, req.Msg, &orreryv1.SeenResponse{})
 }
 
+func (f *urlFake) Resume(
+	_ context.Context,
+	req *connect.Request[orreryv1.ResumeRequest],
+) (*connect.Response[orreryv1.ResumeResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.ResumeResponse{})
+}
+
 func (f *urlFake) List(
 	context.Context,
 	*connect.Request[orreryv1.ListRequest],
@@ -194,6 +201,7 @@ func sessionURLCall(t *testing.T, url string, args ...string) (string, error) {
 }
 
 func TestSessionURLVerbsSendTheirRequest(t *testing.T) {
+	t.Parallel()
 	const rel = "sub/dir"
 	tests := []struct {
 		name string
@@ -233,6 +241,7 @@ func TestSessionURLVerbsSendTheirRequest(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &urlFake{}
 			url := serveURLFake(t, fake)
 			out, err := sessionURLCall(t, url, tc.args...)
@@ -258,6 +267,7 @@ func TestSessionURLVerbsSendTheirRequest(t *testing.T) {
 }
 
 func TestSessionURLStartSendsModel(t *testing.T) {
+	t.Parallel()
 	fake := &urlFake{}
 	url := serveURLFake(t, fake)
 	out, err := sessionURLCall(t, url, "start", "--model", "haiku", "sub/dir", "first prompt")
@@ -275,6 +285,7 @@ func TestSessionURLStartSendsModel(t *testing.T) {
 }
 
 func TestSessionLocalStartSendsModel(t *testing.T) {
+	t.Parallel()
 	const rel = "sub/dir"
 	absDir, err := filepath.Abs(rel)
 	if err != nil {
@@ -299,6 +310,7 @@ func TestSessionLocalStartSendsModel(t *testing.T) {
 }
 
 func TestSessionURLRPCErrorReportsItsMessage(t *testing.T) {
+	t.Parallel()
 	const message = "no session s9 to say to"
 	fake := &urlFake{controlErr: connect.NewError(connect.CodeNotFound, errors.New(message))}
 	url := serveURLFake(t, fake)
@@ -315,6 +327,7 @@ func TestSessionURLRPCErrorReportsItsMessage(t *testing.T) {
 }
 
 func TestSessionURLWrongFormsMatchErrUsage(t *testing.T) {
+	t.Parallel()
 	// The URL points at a closed loopback port, so a form that reaches the network would fail with a transport
 	// error instead of a usage error.
 	const url = "http://127.0.0.1:1"
@@ -340,6 +353,7 @@ func TestSessionURLWrongFormsMatchErrUsage(t *testing.T) {
 	}
 	for _, tc := range forms {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			t.Parallel()
 			socket := filepath.Join(t.TempDir(), "sessions.sock")
 			err := cli.Session(t.Context(), socket, tc.args, &strings.Builder{}, nil)
 			if !errors.Is(err, cli.ErrUsage) {
@@ -353,6 +367,7 @@ func TestSessionURLWrongFormsMatchErrUsage(t *testing.T) {
 }
 
 func TestSessionLocalStartWithModelNeedsValue(t *testing.T) {
+	t.Parallel()
 	socket := filepath.Join(t.TempDir(), "sessions.sock")
 	err := cli.Session(t.Context(), socket, []string{"start", "--model"}, &strings.Builder{}, nil)
 	if !errors.Is(err, cli.ErrUsage) {
@@ -409,6 +424,7 @@ func checkWatchLines(t *testing.T, out string, want ...*orreryv1.WatchResponse) 
 }
 
 func TestSessionURLWatchWritesOnlyTheSessionThroughStop(t *testing.T) {
+	t.Parallel()
 	// The newest seq is 2. Seq 3 is past it and stops s1, so watch returns there and never reads seq 4.
 	first := watchAdded(1, "s1")
 	fake := &urlFake{
@@ -432,6 +448,7 @@ func TestSessionURLWatchWritesOnlyTheSessionThroughStop(t *testing.T) {
 }
 
 func TestSessionURLWatchKeepsReadingUntilStopped(t *testing.T) {
+	t.Parallel()
 	// The newest seq is 2. Seq 1 stops s1 before the newest seq, so it does not end watch. Seq 2 is past the newest
 	// seq and leaves s1 running, so watch keeps reading to seq 3, which fails s1.
 	msgs := []*orreryv1.WatchResponse{
@@ -449,6 +466,7 @@ func TestSessionURLWatchKeepsReadingUntilStopped(t *testing.T) {
 }
 
 func TestSessionURLWatchStreamEndingBeforeStopIsError(t *testing.T) {
+	t.Parallel()
 	fake := &urlFake{listSeq: 0, watchMsgs: []*orreryv1.WatchResponse{watchAdded(1, "s1")}}
 	url := serveURLFake(t, fake)
 	out, err := sessionURLCall(t, url, "watch", "s1")
@@ -459,6 +477,7 @@ func TestSessionURLWatchStreamEndingBeforeStopIsError(t *testing.T) {
 }
 
 func TestSessionURLWatchFallsBackToNewestSeqWhenCursorZeroIsOutOfRange(t *testing.T) {
+	t.Parallel()
 	// Seqs 1 to 3 are pruned, so cursor 0 is out of range and serve refuses it. The newest seq is 3, so watch reopens
 	// after 3 and gets seq 4, which stops s1 past the newest seq, and returns there without reading seq 5.
 	stopped := watchState(4, "s1", "stopped")

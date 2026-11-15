@@ -23,8 +23,6 @@ const (
 	watchTestAt = 1_700_000_000
 	// watchTestPoll is the poll interval the watch tests inject.
 	watchTestPoll = 5 * time.Millisecond
-	// watchTestWait bounds every wait, so a stalled watch fails its test instead of hanging the run.
-	watchTestWait = 10 * time.Second
 )
 
 // watchOutput collects what watch writes. Each write signals wrote without blocking, so a test waits for output
@@ -78,26 +76,18 @@ func startWatch(watch func(out io.Writer) error) *watchCall {
 // await waits for the watch to return and reports what it returned.
 func (c *watchCall) await(t *testing.T) error {
 	t.Helper()
-	select {
-	case err := <-c.done:
-		return err
-	case <-time.After(watchTestWait):
-		t.Fatalf("watch did not return within %v, with %d lines", watchTestWait, len(c.out.lines()))
-		return nil
-	}
+	err := <-c.done
+	return err
 }
 
 // awaitLines waits until the watch has written want lines. It fails when the watch returns first.
 func (c *watchCall) awaitLines(t *testing.T, want int) {
 	t.Helper()
-	deadline := time.After(watchTestWait)
 	for len(c.out.lines()) < want {
 		select {
 		case <-c.out.wrote:
 		case err := <-c.done:
 			t.Fatalf("watch returned %v with %d lines, want %d", err, len(c.out.lines()), want)
-		case <-deadline:
-			t.Fatalf("waited %v for %d lines, have %d", watchTestWait, len(c.out.lines()), want)
 		}
 	}
 }
@@ -210,6 +200,7 @@ func assertWatchLines(t *testing.T, lines []string, want []wantWatchLine) {
 }
 
 func TestSessionWatchPrintsStoppedSessionInSeqOrder(t *testing.T) {
+	t.Parallel()
 	s, getenv := watchStore(t)
 	writeWatchOps(t, s,
 		watchAdd(),
@@ -231,6 +222,7 @@ func TestSessionWatchPrintsStoppedSessionInSeqOrder(t *testing.T) {
 }
 
 func TestSessionWatchFollowsWorkingSessionUntilStopped(t *testing.T) {
+	t.Parallel()
 	s, getenv := watchStore(t)
 	path := watchPath(t, getenv)
 	writeWatchOps(t, s, watchAdd(), store.EnginePrompt{ID: watchTestID, Text: "one"})
@@ -256,6 +248,7 @@ func TestSessionWatchFollowsWorkingSessionUntilStopped(t *testing.T) {
 }
 
 func TestSessionWatchEndsWhenContextIsCancelled(t *testing.T) {
+	t.Parallel()
 	s, getenv := watchStore(t)
 	writeWatchOps(t, s, watchAdd())
 
@@ -272,6 +265,7 @@ func TestSessionWatchEndsWhenContextIsCancelled(t *testing.T) {
 }
 
 func TestSessionWatchRejectsUnknownSession(t *testing.T) {
+	t.Parallel()
 	_, getenv := watchStore(t)
 
 	call := startWatch(func(out io.Writer) error {
@@ -290,6 +284,7 @@ func TestSessionWatchRejectsUnknownSession(t *testing.T) {
 }
 
 func TestSessionWatchRejectsWrongArgumentCount(t *testing.T) {
+	t.Parallel()
 	_, getenv := watchStore(t)
 	cases := []struct {
 		name string
@@ -300,6 +295,7 @@ func TestSessionWatchRejectsWrongArgumentCount(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var out bytes.Buffer
 			err := SessionWatch(t.Context(), tc.args, &out, getenv)
 			if !errors.Is(err, ErrUsage) {

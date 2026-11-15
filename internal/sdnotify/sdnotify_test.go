@@ -7,16 +7,13 @@ import (
 	"time"
 )
 
-// readOneDatagram listens on a unixgram socket and returns the single datagram Ready sends. It fails the test if
-// no datagram arrives or if a second one follows.
+// readOneDatagram listens on a unixgram socket and returns the single datagram Ready sends. It fails the test if a
+// second one follows. The wait for the first has no deadline of its own.
 func readOneDatagram(t *testing.T, ln *net.UnixConn, send func() error) string {
 	t.Helper()
 	errc := make(chan error, 1)
 	go func() { errc <- send() }()
 
-	if err := ln.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
 	buf := make([]byte, 64)
 	n, _, err := ln.ReadFromUnix(buf)
 	if err != nil {

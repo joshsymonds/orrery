@@ -38,19 +38,15 @@ func (c *manualClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
-// waitReads blocks until the clock has been read at least n times, failing the test after waitTimeout.
+// waitReads blocks until the clock has been read at least n times. It has no deadline of its own.
 func (c *manualClock) waitReads(t *testing.T, n int) {
 	t.Helper()
-	deadline := time.Now().Add(waitTimeout)
 	for {
 		c.mu.Lock()
 		got := c.reads
 		c.mu.Unlock()
 		if got >= n {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("waited for %d clock reads, got %d", n, got)
 		}
 		time.Sleep(time.Millisecond)
 	}

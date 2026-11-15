@@ -147,13 +147,15 @@ func Probes() []Probe {
 	}
 }
 
-// Command is the isolated invocation of one probe, in the shape proc.Config takes.
+// Command is the isolated invocation of one probe, in the shape proc.Config takes. After is the clock Run
+// arms the command's Timeout and the probe's Linger on; nil uses time.After.
 type Command struct {
 	Path    string
 	Args    []string
 	Env     []string
 	Dir     string
 	Timeout time.Duration
+	After   func(time.Duration) <-chan time.Time
 }
 
 // NewCommand builds the command that runs probe with the binary at binary. The environment keeps only

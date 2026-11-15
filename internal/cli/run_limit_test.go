@@ -113,6 +113,7 @@ func stopThenRerun(t *testing.T, rerun string, fireRerun bool) int {
 // TestRunLimitKillsCommandPastLimit: a sleep that runs past its Limit is SIGKILLed. Its process is gone, RunWithGrant
 // returns ExitLimit, and stderr names the limit.
 func TestRunLimitKillsCommandPastLimit(t *testing.T) {
+	t.Parallel()
 	socket := runServe(t, newPoolsFake(nil, true, grantedWith("grant-limit", poolMembers("builds", "m1"))))
 	r, w := stdoutPipe(t)
 	var stderr bytes.Buffer
@@ -134,6 +135,7 @@ func TestRunLimitKillsCommandPastLimit(t *testing.T) {
 // TestRunLimitLetsCommandEndWithinLimit: a command that ends before its Limit passes returns its own status, not
 // ExitLimit.
 func TestRunLimitLetsCommandEndWithinLimit(t *testing.T) {
+	t.Parallel()
 	socket := runServe(t, newPoolsFake(nil, true, grantedWith("grant-quick", poolMembers("builds", "m1"))))
 	var stderr bytes.Buffer
 	cfg := limitConfig(t, socket, "exit 3", io.Discard, &stderr, nil)
@@ -149,6 +151,7 @@ func TestRunLimitLetsCommandEndWithinLimit(t *testing.T) {
 // TestRunLimitIgnoresQueueTime: the Limit counts from the start of CMD, so time queued for a grant cannot count toward
 // it. While the grant is held queued, no limit is armed; once it is granted, a quick command succeeds.
 func TestRunLimitIgnoresQueueTime(t *testing.T) {
+	t.Parallel()
 	gate := make(chan struct{})
 	granted := grantedWith("grant-late", poolMembers("builds", "m1"))
 	pools := newPoolsFakeSteps(acquireStep{
@@ -181,6 +184,7 @@ func TestRunLimitIgnoresQueueTime(t *testing.T) {
 // TestRunLimitRerunGetsFreshLimit: the rerun after a stop counts from its own start. The first run's limit, fired once
 // the rerun has armed its own, ends nothing, so the rerun finishes with its own status.
 func TestRunLimitRerunGetsFreshLimit(t *testing.T) {
+	t.Parallel()
 	if got := stopThenRerun(t, "exit 3", false); got != 3 {
 		t.Errorf("RunWithGrant = %d, want the rerun's status 3", got)
 	}
@@ -188,6 +192,7 @@ func TestRunLimitRerunGetsFreshLimit(t *testing.T) {
 
 // TestRunLimitRerunIsLimited: the rerun after a stop gets a Limit of its own, so a rerun that runs past it is killed.
 func TestRunLimitRerunIsLimited(t *testing.T) {
+	t.Parallel()
 	if got := stopThenRerun(t, "read -r line", true); got != cli.ExitLimit {
 		t.Errorf("RunWithGrant = %d, want ExitLimit %d", got, cli.ExitLimit)
 	}
@@ -196,6 +201,7 @@ func TestRunLimitRerunIsLimited(t *testing.T) {
 // TestRunLimitKillsStoppedCommandPastLimit: a stopped command that ignores SIGTERM does not run on past its Limit while
 // its stop grace runs. The limit SIGKILLs it, and the run is not rerun.
 func TestRunLimitKillsStoppedCommandPastLimit(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{stopStep("grant-stubborn", ready)}}
 	socket := serveStopPools(t, pools)
@@ -221,6 +227,7 @@ func TestRunLimitKillsStoppedCommandPastLimit(t *testing.T) {
 // TestRunLimitKillsCancelledCommandPastLimit: a command that runs on after the SIGTERM sent when its context ends is
 // SIGKILLed once its Limit passes, and RunWithGrant returns ExitLimit.
 func TestRunLimitKillsCancelledCommandPastLimit(t *testing.T) {
+	t.Parallel()
 	socket := runServe(t, newPoolsFake(nil, true, grantedWith("grant-cancel", poolMembers("builds", "m1"))))
 	r, w := stdoutPipe(t)
 	lines := outputLines(r)
@@ -245,6 +252,7 @@ func TestRunLimitKillsCancelledCommandPastLimit(t *testing.T) {
 // TestRunLimitKillsRefusedCommandPastLimit: a command whose grant orreryd refuses to reclaim, and which ignores the
 // SIGTERM that follows, is SIGKILLed once its Limit passes during the stop grace, and RunWithGrant returns ExitLimit.
 func TestRunLimitKillsRefusedCommandPastLimit(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := newPoolsFakeSteps(grantThenBreak("grant-refused"), refusedAfter(ready, connect.CodeNotFound))
 	socket := runServe(t, pools)

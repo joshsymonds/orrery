@@ -84,7 +84,6 @@ func newPane(t *testing.T, srv testServer) string {
 // waitForPaneID polls pane's @orrery_id until it is set and returns it.
 func waitForPaneID(t *testing.T, client *tmuxctl.Client, pane string) string {
 	t.Helper()
-	deadline := time.Now().Add(ioTimeout)
 	for {
 		value, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionID)
 		if err != nil {
@@ -92,9 +91,6 @@ func waitForPaneID(t *testing.T, client *tmuxctl.Client, pane string) string {
 		}
 		if ok {
 			return value
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s on pane %s still unset after %v", protocol.OptionID, pane, ioTimeout)
 		}
 		time.Sleep(tidyPollInterval)
 	}

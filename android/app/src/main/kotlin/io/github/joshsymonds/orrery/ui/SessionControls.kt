@@ -36,39 +36,63 @@ import kotlinx.coroutines.withContext
 
 internal val LIVE_STATES = setOf("working", "waiting")
 
+/** The one state a Resume is offered in. */
+private const val RESUMABLE_STATE = "interrupted"
+
 /** The control call a tap made. */
-enum class LiveCall { INTERRUPT, STOP }
+enum class LiveCall { INTERRUPT, STOP, RESUME }
 
-/** How a control call ended. [SENT] is the server taking it; the rest are the failures the screen names. */
-private enum class ControlOutcome { SENT, NOT_ANSWERABLE, STOPPED, NOT_SENT }
-
-private fun ControlOutcome.label(): String = when (this) {
-    ControlOutcome.SENT -> ""
-    ControlOutcome.NOT_ANSWERABLE -> "not answerable"
-    ControlOutcome.STOPPED -> "stopped"
-    ControlOutcome.NOT_SENT -> "not sent"
+/**
+ * How a control call ended. [Sent] is the server taking it; the rest are the outcomes the screen names.
+ * [Refused] is a failed_precondition answer, shown as the server's [reason].
+ */
+private sealed interface ControlOutcome {
+    data object Sent : ControlOutcome
+    data object NotAnswerable : ControlOutcome
+    data object Stopped : ControlOutcome
+    data object NotSent : ControlOutcome
+    data class Refused(val reason: String) : ControlOutcome
 }
 
-/** Posts an answer. A refused shape is [ControlOutcome.NOT_ANSWERABLE]; a not_found answer is a failure like any other. */
+private fun ControlOutcome.label(): String = when (this) {
+    ControlOutcome.Sent -> ""
+    ControlOutcome.NotAnswerable -> "not answerable"
+    ControlOutcome.Stopped -> "stopped"
+    ControlOutcome.NotSent -> "not sent"
+    is ControlOutcome.Refused -> reason
+}
+
+/** Posts an answer. A refused shape is [ControlOutcome.NotAnswerable]; a not_found answer is a failure like any other. */
 private fun answerOutcome(client: OrreryClient, sessionId: String, requestId: String, answer: String): ControlOutcome =
     try {
         client.answer(sessionId, requestId, answer)
-        ControlOutcome.SENT
+        ControlOutcome.Sent
     } catch (e: OrreryCallException) {
-        if (e.code == Code.INVALID_ARGUMENT) ControlOutcome.NOT_ANSWERABLE else ControlOutcome.NOT_SENT
+        if (e.code == Code.INVALID_ARGUMENT) ControlOutcome.NotAnswerable else ControlOutcome.NotSent
     } catch (e: IOException) {
-        ControlOutcome.NOT_SENT
+        ControlOutcome.NotSent
     }
 
-/** Runs an Interrupt or Stop call. A not_found answer means the session is not live, so it reads as [ControlOutcome.STOPPED]. */
+/** Runs an Interrupt or Stop call. A not_found answer means the session is not live, so it reads as [ControlOutcome.Stopped]. */
 private inline fun liveCallOutcome(post: () -> Unit): ControlOutcome =
     try {
         post()
-        ControlOutcome.SENT
+        ControlOutcome.Sent
     } catch (e: OrreryCallException) {
-        if (e.code == Code.NOT_FOUND) ControlOutcome.STOPPED else ControlOutcome.NOT_SENT
+        if (e.code == Code.NOT_FOUND) ControlOutcome.Stopped else ControlOutcome.NotSent
     } catch (e: IOException) {
-        ControlOutcome.NOT_SENT
+        ControlOutcome.NotSent
+    }
+
+/** Posts a Resume. A failed_precondition answer is [ControlOutcome.Refused] with the server's reason; any other failure is [ControlOutcome.NotSent]. */
+private fun resumeOutcome(client: OrreryClient, sessionId: String): ControlOutcome =
+    try {
+        client.resume(sessionId)
+        ControlOutcome.Sent
+    } catch (e: OrreryCallException) {
+        if (e.code == Code.FAILED_PRECONDITION) ControlOutcome.Refused(e.message.orEmpty()) else ControlOutcome.NotSent
+    } catch (e: IOException) {
+        ControlOutcome.NotSent
     }
 
 /**
@@ -87,7 +111,7 @@ fun SessionRequestCard(
 ) {
     val scope = rememberCoroutineScope()
     var outcome by remember(requestId) { mutableStateOf<ControlOutcome?>(null) }
-    val shown = if (options.isEmpty()) ControlOutcome.NOT_ANSWERABLE else outcome
+    val shown = if (options.isEmpty()) ControlOutcome.NotAnswerable else outcome
     val cardShape = RoundedCornerShape(14.dp)
     val buttonShape = RoundedCornerShape(10.dp)
 
@@ -110,7 +134,7 @@ fun SessionRequestCard(
                             answerOutcome(client, sessionId, requestId, label)
                         }
                         outcome = result
-                        if (result == ControlOutcome.SENT) onAnswered()
+                        if (result == ControlOutcome.Sent) onAnswered()
                     }
                 },
                 modifier = Modifier.testTag("session-option:$label").fillMaxWidth().padding(top = 8.dp),
@@ -128,11 +152,12 @@ fun SessionRequestCard(
 }
 
 /**
- * Interrupt and Stop for a headless session, shown only while it is working or waiting. Stop
- * asks for a second tap on its confirm button before it posts. A not_found answer to either
- * reads as stopped, and [onChanged] runs after an answer that moved the session. [onTaken] runs
- * with the call a tap made once the server takes it. A tap on any button gives its feedback at
- * once; the confirm button stays on screen until its flash ends.
+ * Interrupt and Stop for a headless session, shown only while it is working or waiting, and Resume
+ * only while it is interrupted. Stop asks for a second tap on its confirm button before it posts.
+ * A not_found answer to Interrupt or Stop reads as stopped, and [onChanged] runs after an answer
+ * that moved the session. A refused Resume shows the server's reason; any other failed Resume reads
+ * as not sent. [onTaken] runs with the call a tap made once the server takes it. A tap on any button
+ * gives its feedback at once; the confirm button stays on screen until its flash ends.
  */
 @Composable
 fun SessionActions(
@@ -148,30 +173,35 @@ fun SessionActions(
     val interruptFeedback = rememberTapFeedback()
     val stopFeedback = rememberTapFeedback()
     val confirmFeedback = rememberTapFeedback()
-    if (state !in LIVE_STATES) return
+    val resumeFeedback = rememberTapFeedback()
+    if (state !in LIVE_STATES && state != RESUMABLE_STATE) return
 
-    fun post(kind: LiveCall, call: (String) -> Unit) {
+    fun post(kind: LiveCall, outcomeOf: () -> ControlOutcome) {
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                liveCallOutcome { call(sessionId) }
-            }
+            val result = withContext(Dispatchers.IO) { outcomeOf() }
             outcome = result
-            if (result == ControlOutcome.SENT) onTaken(kind)
-            if (result == ControlOutcome.SENT || result == ControlOutcome.STOPPED) onChanged()
+            if (result == ControlOutcome.Sent) onTaken(kind)
+            if (result == ControlOutcome.Sent || result == ControlOutcome.Stopped) onChanged()
         }
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ControlButton("Interrupt", "session-interrupt", interruptFeedback) {
-                post(LiveCall.INTERRUPT, client::interrupt)
-            }
-            ControlButton("Stop", "session-stop", stopFeedback) { confirming = true }
-            if (confirming || confirmFeedback.flashing) {
-                ControlButton("Confirm stop", "session-stop-confirm", confirmFeedback) {
-                    if (confirming) {
-                        confirming = false
-                        post(LiveCall.STOP, client::stop)
+            if (state == RESUMABLE_STATE) {
+                ControlButton("Resume", "session-resume", resumeFeedback) {
+                    post(LiveCall.RESUME) { resumeOutcome(client, sessionId) }
+                }
+            } else {
+                ControlButton("Interrupt", "session-interrupt", interruptFeedback) {
+                    post(LiveCall.INTERRUPT) { liveCallOutcome { client.interrupt(sessionId) } }
+                }
+                ControlButton("Stop", "session-stop", stopFeedback) { confirming = true }
+                if (confirming || confirmFeedback.flashing) {
+                    ControlButton("Confirm stop", "session-stop-confirm", confirmFeedback) {
+                        if (confirming) {
+                            confirming = false
+                            post(LiveCall.STOP) { liveCallOutcome { client.stop(sessionId) } }
+                        }
                     }
                 }
             }
