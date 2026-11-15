@@ -225,6 +225,12 @@ private fun EpicList(
                 RequirementRow(index, requirement, loadArtifact)
             }
         }
+        if (detail.nodes.isNotEmpty()) {
+            item("workflow-heading") { SectionHeading("Workflow") }
+            itemsIndexed(detail.nodes, key = { index, _ -> "node:$index" }) { index, node ->
+                WorkflowNodeRow(index, node, loadArtifact)
+            }
+        }
         item("tasks-heading") { SectionHeading("Tasks") }
         itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
             TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
