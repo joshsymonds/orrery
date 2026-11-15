@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/redact"
@@ -38,13 +39,15 @@ const (
 )
 
 // epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, the runs of evidence, and the
-// labeled steps of steps. A nil steps answers unavailable. A nil store lists no database epics, and a nil evidence
-// client attaches no runs. The rpcs it does not answer yet come from the embedded unimplemented handler.
+// labeled steps of steps. A nil steps answers unavailable. A nil store lists no database epics, a nil commands answers
+// the epic commands unavailable, and a nil evidence client attaches no runs. The rpcs it does not answer yet come from
+// the embedded unimplemented handler.
 type epicsServer struct {
 	orreryv1connect.UnimplementedEpicsHandler
 	root     string
 	steps    StepClient
 	store    EpicStoreClient
+	commands enginev1connect.EpicsClient
 	evidence EvidenceClient
 	timeout  time.Duration
 	now      func() time.Time
@@ -863,13 +866,14 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 }
 
 // newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, the
-// runs evidence lists, and the labeled steps of steps, reading at most maxControlBody bytes of each request. A zero
-// timeout is defaultControlTimeout. now dates each record epic's liveness, and clock times the retries of the calls to
-// orreryd.
+// epic commands commands forwards, the runs evidence lists, and the labeled steps of steps, reading at most
+// maxControlBody bytes of each request. A zero timeout is defaultControlTimeout. now dates each record epic's liveness,
+// and clock times the retries of the calls to orreryd.
 func newEpicsHandler(
 	root string,
 	steps StepClient,
 	store EpicStoreClient,
+	commands enginev1connect.EpicsClient,
 	evidence EvidenceClient,
 	timeout time.Duration,
 	now func() time.Time,
@@ -882,8 +886,8 @@ func newEpicsHandler(
 	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewEpicsHandler(
 		epicsServer{
-			root: root, steps: steps, store: store, evidence: evidence, timeout: timeout, now: now, clock: clock,
-			heads: newHeadCache(),
+			root: root, steps: steps, store: store, commands: commands, evidence: evidence, timeout: timeout,
+			now: now, clock: clock, heads: newHeadCache(),
 		},
 		options...,
 	)
