@@ -128,11 +128,13 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 	if got := requirements["R2"].Item; !reflect.DeepEqual(got, wantSupplied) {
 		t.Errorf("supplied requirement item = %+v, want %+v", got, wantSupplied)
 	}
-	if got := textOf(t, s.db.DB, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R3'`, id); got != neither {
-		t.Errorf("neither requirement item after migration = %s, want %s", got, neither)
+	neitherItem := textOf(t, s.db.DB, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R3'`, id)
+	if neitherItem != neither {
+		t.Errorf("neither requirement item after migration = %s, want %s", neitherItem, neither)
 	}
-	if got := textOf(t, s.db.DB, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R4'`, id); got != "" {
-		t.Errorf("no-item requirement item after migration = %q, want empty", got)
+	noItem := textOf(t, s.db.DB, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R4'`, id)
+	if noItem != "" {
+		t.Errorf("no-item requirement item after migration = %q, want empty", noItem)
 	}
 
 	wantTask := evidence.Item{
