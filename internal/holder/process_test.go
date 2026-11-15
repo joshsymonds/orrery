@@ -460,17 +460,96 @@ func TestProcessStdinReachesTheChildOnce(t *testing.T) {
 	}
 }
 
+// stdinGatedChild returns the child that waits for go.flag in its directory, then closes its stdin, makes ready.flag and
+// sleeps. The test reads the child's stdin pipe while the gate holds, before the child closes it.
+func stdinGatedChild(t *testing.T) ChildConfig {
+	t.Helper()
+	return shChild(t, "while [ ! -e go.flag ]; do sleep 0.01; done; exec 0<&-; : > ready.flag; exec sleep 60")
+}
+
+// childStdinLink returns the link of the stdin of the child the holder in cfg runs, pipe:[INODE], read while the child
+// still holds it.
+func childStdinLink(t *testing.T, run *running, cfg Config) string {
+	t.Helper()
+	awaitFile(t, run.done, filepath.Join(cfg.Dir, PidsName))
+	pids, err := ReadPids(cfg.Dir)
+	if err != nil {
+		t.Fatalf("read the holder's pids: %v", err)
+	}
+	link, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/0", pids.Child))
+	if err != nil {
+		t.Fatalf("read the child's stdin: %v", err)
+	}
+	return link
+}
+
+// closeChildStdin lets a stdinGatedChild close its stdin and waits until it has.
+func closeChildStdin(t *testing.T, run *running, cfg Config) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(cfg.Child.Dir, "go.flag"), nil, 0o600); err != nil {
+		t.Fatalf("release the child: %v", err)
+	}
+	awaitFile(t, run.done, filepath.Join(cfg.Child.Dir, "ready.flag"))
+}
+
+// awaitPipeUnshared waits until no child of this process holds the pipe whose link is link. The holder in a test runs
+// in the test's process, so a child another test forks while the child's stdin pipe is still open here copies the
+// pipe's read end, and keeps it until it execs; a write then still has a reader. It has no end but the fork's exec.
+func awaitPipeUnshared(t *testing.T, link string) {
+	t.Helper()
+	waittest.Until(t, nil, "no other process holding "+link, func() bool { return !childHasOpen(t, link) })
+}
+
+// A write to a child that has closed its stdin fails once no process holds the pipe's read end. A process another test
+// forks while the pipe is open here holds it until it execs, so the test waits for every child of this process to let
+// it go before it writes.
 func TestProcessWriteToAChildWhoseStdinIsClosedReturnsAnError(t *testing.T) {
 	t.Parallel()
 
 	cfg := newProcessConfig(t)
-	cfg.Child = shChild(t, "exec 0<&-; : > ready.flag; exec sleep 60")
+	cfg.Child = stdinGatedChild(t)
 	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
 
-	awaitFile(t, run.done, filepath.Join(cfg.Child.Dir, "ready.flag"))
+	link := childStdinLink(t, run, cfg)
+	closeChildStdin(t, run, cfg)
+	awaitPipeUnshared(t, link)
 	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err == nil {
 		t.Fatalf("write to a child with a closed stdin = %d, nil; want an error", got.n)
+	}
+	stopProcess(t, p)
+}
+
+// A write to a child that has closed its stdin still succeeds while another process holds the pipe's read end, as a
+// process forked while the pipe was open does until it execs. The test holds that end itself, through /proc, to force
+// the order: while it holds it the write succeeds, and once it has let go and no child holds it the write fails.
+func TestProcessWriteToAClosedStdinSucceedsWhileAnotherProcessHoldsItsPipe(t *testing.T) {
+	t.Parallel()
+
+	cfg := newProcessConfig(t)
+	cfg.Child = stdinGatedChild(t)
+	run, held, conn := startHolderProcess(t, cfg)
+	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
+
+	link := childStdinLink(t, run, cfg)
+	pids, err := ReadPids(cfg.Dir)
+	if err != nil {
+		t.Fatalf("read the holder's pids: %v", err)
+	}
+	reader, err := os.Open(fmt.Sprintf("/proc/%d/fd/0", pids.Child))
+	if err != nil {
+		t.Fatalf("hold the child's stdin pipe: %v", err)
+	}
+	closeChildStdin(t, run, cfg)
+	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err != nil || got.n != 1 {
+		t.Fatalf("write while another reader holds the pipe = %d, %v; want 1, nil", got.n, got.err)
+	}
+	if err = reader.Close(); err != nil {
+		t.Fatalf("let go of the child's stdin pipe: %v", err)
+	}
+	awaitPipeUnshared(t, link)
+	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err == nil {
+		t.Fatalf("write once no reader holds the pipe = %d, nil; want an error", got.n)
 	}
 	stopProcess(t, p)
 }
