@@ -1,0 +1,280 @@
+package kinds
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/joshsymonds/orrery/internal/store"
+)
+
+// Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
+// release candidate, starts each release step in order, stores each end first, stops on any failure, judges the
+// postconditions, and ends the epic released, or done when it has no release steps.
+type Release struct{}
+
+// The actions a release run takes beyond the ones every kind shares.
+const (
+	ActTake   ActionKind = "take"
+	ActStep   ActionKind = "step"
+	ActJudge  ActionKind = "judge"
+	ActRecord ActionKind = "record"
+	ActStop   ActionKind = "stop"
+	ActEnding ActionKind = "ending"
+	ActFree   ActionKind = "free"
+)
+
+// The phases and outcomes a release run reads and writes beyond those the other kinds name.
+const (
+	phaseReleased   = "released"
+	phaseDone       = "done"
+	outcomeDone     = "done"
+	outcomeReleased = "released"
+)
+
+// releaseResult is the result a release prepare writes to its run: the error that stopped it, and whether the revision
+// it recorded is behind the target.
+type releaseResult struct {
+	Error  string `json:"error"`
+	Behind bool   `json:"behind"`
+}
+
+// Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
+// frees the slot it holds and otherwise ends passed, a clean epic ends done or takes the slot, a releasing epic goes on
+// with its candidate, its release steps and its judge, and any other phase gives none.
+func (Release) Decide(node Node, rows Rows) Action {
+	switch rows.Epic.Phase {
+	case phaseReleased, phaseDone:
+		return releaseEnded(rows)
+	case store.PhaseClean:
+		return releaseClean(rows)
+	case store.PhaseReleasing:
+		return releaseRun(node.Run, rows)
+	default:
+		return Action{Kind: ActNone}
+	}
+}
+
+// releaseEnded frees the release slot an epic that is released or done holds, and ends it passed otherwise.
+func releaseEnded(rows Rows) Action {
+	if holdsSlot(rows) {
+		return Action{Kind: ActFree}
+	}
+	return Action{Kind: ActEnd, Outcome: outcomePassed}
+}
+
+// releaseClean ends a clean epic with no release steps done, gives none while another epic holds the release slot, and
+// takes the slot otherwise.
+func releaseClean(rows Rows) Action {
+	if len(rows.Epic.ReleaseSteps) == 0 {
+		return Action{Kind: ActEnding, Outcome: outcomeDone}
+	}
+	if rows.Slot != "" && !holdsSlot(rows) {
+		return Action{Kind: ActNone}
+	}
+	return Action{Kind: ActTake}
+}
+
+// holdsSlot reports whether the epic holds the release slot of its repository.
+func holdsSlot(rows Rows) bool {
+	return rows.Slot == rows.Epic.ID
+}
+
+// releaseRun decides a releasing epic's run. Its candidate comes first, then its release steps in order, then its judge.
+func releaseRun(run store.NodeRun, rows Rows) Action {
+	candidate, ok := passedCandidate(rows.Releases)
+	if !ok {
+		return candidateAction(run, rows)
+	}
+	return walkSteps(run, rows, candidate)
+}
+
+// passedCandidate returns the head of the candidate that passed at any attempt, and whether one did.
+func passedCandidate(runs []store.ReleaseRun) (string, bool) {
+	candidate, ok := firstMatch(runs, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartCandidate && r.Passed
+	})
+	return candidate.Head, ok
+}
+
+// candidateAction decides a releasing epic whose candidate has not passed. It stops on a candidate that failed at this
+// attempt. Otherwise it prepares the candidate, stops on the error the prepare recorded, records the candidate when its
+// revision is not behind the target, and holds it at its done gates when it is.
+func candidateAction(run store.NodeRun, rows Rows) Action {
+	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartCandidate && !r.Passed && r.Attempt == run.Attempt
+	})
+	if ok {
+		return Action{Kind: ActStop, Output: failed.Reason}
+	}
+	result, err := parseReleaseResult(run.Result)
+	if err != nil {
+		return Action{Kind: ActStop, Output: err.Error()}
+	}
+	if run.Revision == "" {
+		return prepareRelease(result, rows)
+	}
+	if result.Behind {
+		return behindAction(run, rows)
+	}
+	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
+}
+
+// parseReleaseResult decodes the result of a release run, which is empty until its prepare writes one. A result that
+// is not a JSON object is an error.
+func parseReleaseResult(result string) (releaseResult, error) {
+	var parsed releaseResult
+	if result == "" {
+		return parsed, nil
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		return releaseResult{}, fmt.Errorf("release result is not a JSON object: %w", err)
+	}
+	return parsed, nil
+}
+
+// prepareRelease decides a candidate with no revision. It waits while the epic is paused or parked, as prepare does,
+// stops on the error the prepare recorded, and prepares otherwise.
+func prepareRelease(result releaseResult, rows Rows) Action {
+	action := prepare(rows)
+	if action.Kind == ActNone || result.Error == "" {
+		return action
+	}
+	return Action{Kind: ActStop, Output: result.Error}
+}
+
+// behindAction decides a candidate whose revision is behind the target by the epic's Done gates, walked as an integrate
+// run walks them (doneGates). It returns the action a gate that is not decided asks for, a gate lost at a restart twice
+// stops the release with the park's reason, a gate that did not pass stops it, and the candidate is recorded once every
+// gate has passed.
+func behindAction(run store.NodeRun, rows Rows) Action {
+	gate, act, settled := doneGates(run, rows)
+	switch {
+	case !settled && act.Kind == ActPark:
+		return Action{Kind: ActStop, Output: act.Output}
+	case !settled:
+		return act
+	case gate != "":
+		return Action{Kind: ActStop, Output: fmt.Sprintf("done gate %s did not pass at %s", gate, run.Revision)}
+	}
+	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
+}
+
+// walkSteps decides a releasing epic whose candidate passed at candidate. Each release step in order passes at any
+// attempt or is decided by stepAction from the head of the last step before it, and the judge follows the last step.
+func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
+	start := candidate
+	for i, step := range rows.Epic.ReleaseSteps {
+		position := int64(i + 1)
+		passed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+			return r.Part == store.ReleasePartStep && r.Position == position && r.Passed
+		})
+		if !ok {
+			return stepAction(run, rows, position, step, start)
+		}
+		start = passed.Head
+	}
+	return judgeAction(run, rows, candidate)
+}
+
+// stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
+// attempt, and records a step whose end is stored. Otherwise it waits while the step runs, or starts it when it has no
+// row, unless the epic does not hold the slot, is paused, or the step's undo is none after an earlier failure.
+func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep, start string) Action {
+	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
+	})
+	if ok {
+		return Action{
+			Kind:   ActStop,
+			Output: fmt.Sprintf("release step %d (%s) failed: %s", position, step.Step, failed.Reason),
+		}
+	}
+	label := fmt.Sprintf("release %d", position)
+	id := store.NodeWorkID(run.ID, run.Attempt, label)
+	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
+		return recordAction(row, []string{label, start})
+	}
+	if !holdsSlot(rows) {
+		return Action{
+			Kind: ActStop,
+			Output: fmt.Sprintf(
+				"release step %d (%s) did not start: this epic does not hold the release slot",
+				position, step.Step,
+			),
+		}
+	}
+	if rows.Epic.Paused {
+		return Action{Kind: ActNone}
+	}
+	if undoNoneStopped(run, rows, position, step) {
+		return Action{
+			Kind: ActStop,
+			Output: fmt.Sprintf(
+				"release step %d (%s) failed at an earlier attempt with undo none, so it runs again only when named",
+				position, step.Step,
+			),
+		}
+	}
+	return Action{Kind: ActStep, IDs: []string{id}, Items: []string{label, start}}
+}
+
+// undoNoneStopped reports whether step at position has undo none, failed at an earlier attempt, and has no run named at
+// this attempt, so that it must not run again.
+func undoNoneStopped(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep) bool {
+	if !strings.EqualFold(strings.TrimSpace(step.Undo), "none") {
+		return false
+	}
+	_, failed := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt < run.Attempt
+	})
+	_, named := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartNamed && r.Position == position && r.Attempt == run.Attempt
+	})
+	return failed && !named
+}
+
+// judgeAction decides the judge after the last release step, from the candidate. It ends released when the judge of this
+// attempt passed, stops on one that failed, and otherwise starts the judge, waits while it runs, or records it.
+func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
+	judged, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartJudge && r.Attempt == run.Attempt
+	})
+	if ok {
+		if judged.Passed {
+			return Action{Kind: ActEnding, Outcome: outcomeReleased}
+		}
+		return Action{Kind: ActStop, Output: judged.Reason}
+	}
+	id := store.NodeWorkID(run.ID, run.Attempt, store.ReleasePartJudge)
+	items := []string{store.ReleasePartJudge, candidate}
+	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
+		return recordAction(row, items)
+	}
+	if !holdsSlot(rows) {
+		return Action{Kind: ActStop, Output: "the judge did not start: this epic does not hold the release slot"}
+	}
+	if rows.Epic.Paused {
+		return Action{Kind: ActNone}
+	}
+	return Action{Kind: ActJudge, IDs: []string{id}, Items: items}
+}
+
+// recordAction returns none while the work of row runs, and records it with items once it has ended.
+func recordAction(row store.StepRow, items []string) Action {
+	if row.End == "" {
+		return Action{Kind: ActNone}
+	}
+	return Action{Kind: ActRecord, IDs: []string{row.ID}, Items: items}
+}
+
+// firstMatch returns the first of items that matches, and whether one does.
+func firstMatch[T any](items []T, match func(T) bool) (T, bool) {
+	i := slices.IndexFunc(items, match)
+	if i < 0 {
+		var zero T
+		return zero, false
+	}
+	return items[i], true
+}
