@@ -50,6 +50,9 @@ type Config struct {
 	Mirror *Mirror
 	// TidyInterval is how often Serve tidies with Mirror; zero or negative means 10 s.
 	TidyInterval time.Duration
+	// TidyTicks, when non-nil, is where Serve takes the ticks of its later tidies in place of a ticker every
+	// TidyInterval. It is a test seam: production leaves it nil.
+	TidyTicks <-chan time.Time
 	// TidyStart, when non-nil and Mirror is set, holds the first tidy until it is closed; Serve then tidies at once
 	// and every TidyInterval after. Nil tidies at start. Frame syncs never wait for it. If ctx is done before it
 	// closes, Serve tidies nothing.
@@ -319,8 +322,8 @@ func (h *frameHandler) noteServer(server tmuxctl.Server) {
 	h.servers[server] = true
 }
 
-// tidyLoop tidies the servers at start, or when Config.TidyStart closes, and then every TidyInterval until ctx is
-// done. It returns without tidying when ctx is done before TidyStart closes.
+// tidyLoop tidies the servers at start, or when Config.TidyStart closes, and then every TidyInterval, or at each
+// value of Config.TidyTicks, until ctx is done. It returns without tidying when ctx is done before TidyStart closes.
 func (h *frameHandler) tidyLoop(ctx context.Context) {
 	if h.cfg.TidyStart != nil {
 		select {
@@ -329,12 +332,16 @@ func (h *frameHandler) tidyLoop(ctx context.Context) {
 		case <-h.cfg.TidyStart:
 		}
 	}
-	interval := h.cfg.TidyInterval
-	if interval <= 0 {
-		interval = defaultTidyInterval
+	ticks := h.cfg.TidyTicks
+	if ticks == nil {
+		interval := h.cfg.TidyInterval
+		if interval <= 0 {
+			interval = defaultTidyInterval
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		ticks = ticker.C
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	for {
 		for _, server := range h.tidyServers() {
 			h.cfg.Mirror.Tidy(ctx, server)
@@ -342,7 +349,7 @@ func (h *frameHandler) tidyLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticks:
 		}
 	}
 }

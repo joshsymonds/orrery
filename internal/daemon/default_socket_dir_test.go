@@ -23,10 +23,6 @@ import (
 )
 
 const (
-	// defaultSocketTidyInterval is the tidy period these tests serve with.
-	defaultSocketTidyInterval = 20 * time.Millisecond
-	// severalTidies is long enough for the tidy to run about ten times at defaultSocketTidyInterval.
-	severalTidies = 10 * defaultSocketTidyInterval
 	// defaultSocketSkipMsg is the warning the tidy logs when it skips the default socket.
 	defaultSocketSkipMsg = "tmux default socket skipped"
 )
@@ -186,17 +182,29 @@ func hasSocketRow(t *testing.T, db *sql.DB, socket, pane string) bool {
 	return false
 }
 
-// serveDefaultSocket runs Serve with socket as the default server, a mirror on st, and the tidy at
-// defaultSocketTidyInterval. Log output goes to logs.
-func serveDefaultSocket(t *testing.T, st *store.Store, socket string, logs *lockedBuffer) {
+// tidier delivers the ticks of a served daemon's later tidies.
+type tidier chan time.Time
+
+// tidied returns once a whole tidy that began after the call has finished. The tidy loop takes a tick only between
+// tidies, so the first tick starts a tidy and the second is taken once that tidy is done.
+func (ticks tidier) tidied() {
+	ticks <- time.Time{}
+	ticks <- time.Time{}
+}
+
+// serveDefaultSocket runs Serve with socket as the default server and a mirror on st, and returns the tidier its later
+// tidies wait on. The first tidy runs at start. Log output goes to logs.
+func serveDefaultSocket(t *testing.T, st *store.Store, socket string, logs *lockedBuffer) tidier {
 	t.Helper()
+	ticks := make(tidier)
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	serve(t, daemon.Config{
 		DefaultServer: tmuxctl.Server{Socket: socket},
 		Mirror:        daemon.NewMirror(st, tidyClock, logger),
-		TidyInterval:  defaultSocketTidyInterval,
+		TidyTicks:     ticks,
 		Logger:        logger,
 	})
+	return ticks
 }
 
 // TestDefaultSocketAccessibleToOthersSkipped: a directory with other-user access is never contacted, and the skip
@@ -207,10 +215,11 @@ func TestDefaultSocketAccessibleToOthersSkipped(t *testing.T) {
 	pane := startSocketServer(t, socket)
 	st, db := openFrameStore(t)
 	logs := &lockedBuffer{}
-	serveDefaultSocket(t, st, socket, logs)
+	ticks := serveDefaultSocket(t, st, socket, logs)
 
+	ticks.tidied()
+	ticks.tidied()
 	waitSkipRecords(t, logs, 1)
-	time.Sleep(severalTidies)
 
 	if rows := listSessions(t, db); len(rows) != 0 {
 		t.Fatalf("rows = %+v, want none", rows)
@@ -237,10 +246,11 @@ func TestDefaultSocketSymlinkDirSkipped(t *testing.T) {
 	socket := filepath.Join(dir, "default")
 	st, db := openFrameStore(t)
 	logs := &lockedBuffer{}
-	serveDefaultSocket(t, st, socket, logs)
+	ticks := serveDefaultSocket(t, st, socket, logs)
 
+	ticks.tidied()
+	ticks.tidied()
 	waitSkipRecords(t, logs, 1)
-	time.Sleep(severalTidies)
 
 	if rows := listSessions(t, db); len(rows) != 0 {
 		t.Fatalf("rows = %+v, want none", rows)
@@ -262,19 +272,23 @@ func TestDefaultSocketPrivateDirToggles(t *testing.T) {
 	first := startSocketServer(t, socket)
 	st, db := openFrameStore(t)
 	logs := &lockedBuffer{}
-	serveDefaultSocket(t, st, socket, logs)
+	ticks := serveDefaultSocket(t, st, socket, logs)
 
+	ticks.tidied()
 	waitForPaneID(t, mustSocketClient(t, socket), first)
 	if !hasSocketRow(t, db, socket, first) {
 		t.Fatalf("no row for pane %s before the chmod; rows = %+v", first, listSessions(t, db))
 	}
 
 	setMode(t, dir, 0o777)
+	ticks.tidied()
 	waitSkipRecords(t, logs, 1)
-	// The skip record is logged by a tidy that ran after the chmod. Every later tidy checks the directory again,
-	// so no tidy that passed the check before the chmod can still be listing panes when the pane below is created.
+	// The skip record is logged by a tidy that ran after the chmod, and that tidy has finished, so no tidy that passed
+	// the check before the chmod can still be listing panes when the pane below is created. Two more whole tidies
+	// then run with the directory open to others.
 	second := newSocketPane(t, socket)
-	time.Sleep(severalTidies)
+	ticks.tidied()
+	ticks.tidied()
 	assertNoPaneID(t, socket, second)
 	if hasSocketRow(t, db, socket, second) {
 		t.Fatalf("row for pane %s written while the directory is accessible to others", second)
@@ -282,6 +296,7 @@ func TestDefaultSocketPrivateDirToggles(t *testing.T) {
 
 	setMode(t, dir, 0o700)
 	third := newSocketPane(t, socket)
+	ticks.tidied()
 	waitForPaneID(t, mustSocketClient(t, socket), third)
 	if !hasSocketRow(t, db, socket, third) {
 		t.Fatalf("no row for pane %s after the chmod back to 0700; rows = %+v", third, listSessions(t, db))
@@ -312,10 +327,11 @@ func TestDefaultSocketSkipLogsReasonChange(t *testing.T) {
 	})
 	st, _ := openFrameStore(t)
 	logs := &lockedBuffer{}
-	serveDefaultSocket(t, st, socket, logs)
+	ticks := serveDefaultSocket(t, st, socket, logs)
 
+	ticks.tidied()
+	ticks.tidied()
 	waitSkipRecords(t, logs, 1)
-	time.Sleep(severalTidies)
 	if got := len(skipRecords(t, logs)); got != 1 {
 		t.Fatalf("%q records = %d before the reason changed, want 1; logs:\n%s",
 			defaultSocketSkipMsg, got, logs.String())
@@ -324,8 +340,9 @@ func TestDefaultSocketSkipLogsReasonChange(t *testing.T) {
 	if err := os.Rename(dir, moved); err != nil {
 		t.Fatalf("Rename(%s, %s): %v", dir, moved, err)
 	}
+	ticks.tidied()
+	ticks.tidied()
 	waitSkipRecords(t, logs, 2)
-	time.Sleep(severalTidies)
 	records := skipRecords(t, logs)
 	if len(records) != 2 {
 		t.Fatalf("%q records = %d, want 2; logs:\n%s", defaultSocketSkipMsg, len(records), logs.String())
