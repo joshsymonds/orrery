@@ -22,8 +22,13 @@ type presenceServer struct {
 
 // registerPresence routes orrery.v1.Presence on mux, reporting each input to report and dating it by now. It returns
 // the path it routes.
-func registerPresence(mux *http.ServeMux, report InputReporter, now func() time.Time) string {
-	path, handler := orreryv1connect.NewPresenceHandler(presenceServer{report: report, now: now})
+func registerPresence(
+	mux *http.ServeMux,
+	report InputReporter,
+	now func() time.Time,
+	opts ...connect.HandlerOption,
+) string {
+	path, handler := orreryv1connect.NewPresenceHandler(presenceServer{report: report, now: now}, opts...)
 	mux.Handle(path, handler)
 	return path
 }

@@ -17,8 +17,8 @@ type pushServer struct {
 }
 
 // newPushHandler returns the path and handler that serve Push over store.
-func newPushHandler(store *push.Store) (string, http.Handler) {
-	return orreryv1connect.NewPushHandler(pushServer{store: store})
+func newPushHandler(store *push.Store, opts ...connect.HandlerOption) (string, http.Handler) {
+	return orreryv1connect.NewPushHandler(pushServer{store: store}, opts...)
 }
 
 // Register answers Push.Register by storing the subscription registerSubscription stores. The error codes follow

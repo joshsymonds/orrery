@@ -211,6 +211,8 @@ type Config struct {
 	// Web holds the built page, with index.html at its root and its assets beside it, or is nil for no page.
 	// After the login check, GET and HEAD answer a file of Web at its path, and "/" answers index.html.
 	Web fs.FS
+	// HandlerOptions apply to every Connect handler New mounts, or are nil for none.
+	HandlerOptions []connect.HandlerOption
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -251,28 +253,33 @@ func New(cfg Config) (http.Handler, error) {
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	sessionsPath, sessions := newSessionsHandler(
 		cfg.Sessions, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
-	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
+	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
 	mux.Handle(eventsPath, events)
-	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
+	controlPath, control := newControlHandler(
+		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
+	)
 	mux.Handle(controlPath, control)
 	epicsPath, evidencePath := registerEpicServices(mux, cfg, now)
-	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{})
+	stepsPath, stepsService := newStepsHandler(
+		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
 	mux.Handle(stepsPath, stepsService)
-	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
+	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(poolsPath, pools)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
-		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(panesPath, panesService)
-	hostPath, hostService := newHostHandler(cfg.HostStatus)
+	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.HandlerOptions...)
 	mux.Handle(hostPath, hostService)
-	presencePath := registerPresence(mux, cfg.ReportInput, now)
-	pushPath, pushService := newPushHandler(cfg.Push)
+	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
+	pushPath, pushService := newPushHandler(cfg.Push, cfg.HandlerOptions...)
 	mux.Handle(pushPath, pushService)
-	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
+	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now, cfg.HandlerOptions...)
 	mux.Handle(pickerPath, pickerService)
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
@@ -299,9 +306,10 @@ func New(cfg Config) (http.Handler, error) {
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.Evidence, cfg.ControlTimeout, now, rpcretry.SystemClock{},
+		cfg.HandlerOptions...,
 	)
 	mux.Handle(epicsPath, epicsService)
-	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout)
+	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
 	return epicsPath, evidencePath
 }
