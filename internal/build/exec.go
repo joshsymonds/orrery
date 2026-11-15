@@ -58,23 +58,18 @@ func (r *Runner) snapshotRefs(ctx context.Context, epic store.EpicRow, view View
 	return r.written(ctx, epic.ID, seq, "store refs snapshot", r.store.SetTaskBuild(ctx, epic.ID, seq, from, next))
 }
 
-// checkRefs stores the implementer's ref moves as the build no longer checks them. A move that parks stores the build
-// and parks the epic with the reason. Each move that does not park is told to the owner.
+// checkRefs stores the implementer's ref moves as the build no longer checks them, in one write with the tells of the
+// moves that do not park, so the owner is told of each move the build stored. A move that parks stores the build and
+// parks the epic with the reason, and the other tells ride that park.
 func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	var err error
 	if action.Reason != "" {
-		err = r.store.ParkTask(ctx, epic.ID, seq, from, action.Next, action.Reason, r.now())
+		err = r.store.ParkTask(ctx, epic.ID, seq, from, action.Next, action.Reason, r.now(), action.Tells...)
 	} else {
-		err = r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next)
+		err = r.store.SetTaskBuildTelling(ctx, epic.ID, seq, from, action.Next, action.Tells, r.now())
 	}
-	if !r.written(ctx, epic.ID, seq, "check ref moves", err) {
-		return false
-	}
-	for _, text := range action.Tells {
-		r.report(ctx, epic.ID, seq, "tell ref move", r.store.Tell(ctx, epic.ID, text, r.now()))
-	}
-	return true
+	return r.written(ctx, epic.ID, seq, "check ref moves", err)
 }
 
 // startRun starts the evidence run action names. A run the evidence refuses is handled as DecideStartError decides.

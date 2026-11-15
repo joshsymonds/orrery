@@ -139,12 +139,16 @@ type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	SetTaskBuild(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
+	SetTaskBuildTelling(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
+	) error
 	FailTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, at time.Time) error
 	AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error
 	StopTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
-	ParkTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time) error
+	ParkTask(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time, tells ...string,
+	) error
 	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
-	Tell(ctx context.Context, epic, text string, at time.Time) error
 	SetEpicBranch(ctx context.Context, epic, state string) error
 	AddTaskReview(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, review store.TaskReview) error
 	SetFindingResult(
