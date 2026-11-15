@@ -1,8 +1,11 @@
 package enginehost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +19,20 @@ const evidenceJudgeGate = "evidence_judge"
 
 // evidenceJudgeLimit is the longest the judge step may run.
 const evidenceJudgeLimit = 20 * time.Minute
+
+// evidenceJudgeNamespace starts the parts a judge's derived id hashes, so the ids are this package's.
+const evidenceJudgeNamespace = "orrery-evidence-judge"
+
+// evidenceJudgeIDLen is the number of hex digits of a judge step's id, the form StepStart.ID requires.
+const evidenceJudgeIDLen = 32
+
+// evidenceJudgeID returns the id of judge number judge of the evidence run runID. A judge starts under its id, and a restart
+// finds a judge that started but was not recorded by the id of the next number. The same inputs give the same id, so a judge
+// started again under its id is that judge.
+func evidenceJudgeID(runID string, judge int) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{evidenceJudgeNamespace, runID, strconv.Itoa(judge)}, "\x00")))
+	return hex.EncodeToString(sum[:])[:evidenceJudgeIDLen]
+}
 
 // The states an artifact of an evidence run is stored with.
 const (
