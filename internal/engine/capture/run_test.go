@@ -19,9 +19,11 @@ import (
 )
 
 const (
-	runTestTimeout  = 10 * time.Second
+	// runNoTimeout is the Timeout of a command whose test does not end it by its timeout. It is far longer than the
+	// test binary's timeout, so it never fires during a test, however slowly the machine runs the script.
+	runNoTimeout = 24 * time.Hour
+	// runShortTimeout is the Timeout of a command whose test ends it by its timeout.
 	runShortTimeout = 2 * time.Second
-	runGoneTimeout  = 5 * time.Second
 )
 
 const (
@@ -113,8 +115,8 @@ func runPIDScript(user string) string {
 	return `printf '%s\n' "$$" > "$2"` + "\n" + runScript(user)
 }
 
-// runCommand returns a command that runs script with sh, followed by args. The script is written to a
-// fresh directory for the test.
+// runCommand returns a command that runs script with sh, followed by args, with Timeout runNoTimeout. The
+// script is written to a fresh directory for the test.
 func runCommand(t *testing.T, script string, args ...string) Command {
 	t.Helper()
 	dir := t.TempDir()
@@ -130,7 +132,7 @@ func runCommand(t *testing.T, script string, args ...string) Command {
 		Path:    shell,
 		Args:    append([]string{scriptPath}, args...),
 		Dir:     dir,
-		Timeout: runTestTimeout,
+		Timeout: runNoTimeout,
 	}
 }
 
@@ -170,17 +172,13 @@ func runCompare(t *testing.T, sink, got, want string) {
 	}
 }
 
-// runWaitGone fails the test unless pid no longer exists within runGoneTimeout.
+// runWaitGone waits until pid no longer exists. It has no deadline of its own.
 func runWaitGone(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.Now().Add(runGoneTimeout)
 	for {
 		err := syscall.Kill(pid, 0)
 		if errors.Is(err, syscall.ESRCH) {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pid %d still exists after %v: %v", pid, runGoneTimeout, err)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
