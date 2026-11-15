@@ -143,6 +143,8 @@ export function App({
   const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  // Whether the accepted, waiting epics are open under their line. They start closed.
+  const [waitingOpen, setWaitingOpen] = useState(false);
   // loadArtifact reads a run's log or artifact for the epic view. It is stable across renders, so an open log or image
   // is not loaded again on every poll.
   const loadArtifact = useCallback(
@@ -172,7 +174,7 @@ export function App({
     view === "attention"
       ? withEpicsGroup(byAttention(matching), epics)
       : placeEpics(byProject(matching), epics.blocks);
-  const flat = sections.flatMap(entriesOf);
+  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen));
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -569,6 +571,21 @@ export function App({
                     {block.tail !== "" && <div class="b-more">{block.tail}</div>}
                   </Fragment>
                 ))}
+                {section.waiting.length > 0 && (
+                  <div class="b-more" onClick={() => setWaitingOpen((value) => !value)}>
+                    {`${section.waiting.length} accepted, waiting to start`}
+                  </div>
+                )}
+                {waitingOpen &&
+                  section.waiting.map((epic) => (
+                    <EpicEntry
+                      key={epic.key}
+                      epic={epic}
+                      full={false}
+                      current={epic.key === cursorKey}
+                      onSelect={selectItem}
+                    />
+                  ))}
                 {section.rows.map((item) => (
                   <div
                     key={item.key}
@@ -923,9 +940,14 @@ function epicIdOf(entry: EpicItem | StepItem): string {
   return entry.kind === "epic" ? entry.id : entry.epic;
 }
 
-// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the rows.
-function entriesOf(section: EpicSection): Item[] {
-  return [...section.epics.flatMap((block) => [block.epic, ...block.steps]), ...section.rows];
+// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the waiting epics
+// while their line is open, then the rows.
+function entriesOf(section: EpicSection, waitingOpen: boolean): Item[] {
+  return [
+    ...section.epics.flatMap((block) => [block.epic, ...block.steps]),
+    ...(waitingOpen ? section.waiting : []),
+    ...section.rows,
+  ];
 }
 
 // EpicEntry draws an epic's line: its gauge, then its slug, repository and readout. A full epic also draws its strip of
