@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -15,6 +14,7 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -27,7 +27,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class QuestionCardTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val keysPath = "/orrery.v1.Panes/SendKeys"
     private val toolQuestion = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""

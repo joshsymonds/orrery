@@ -12,7 +12,6 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isNotSelected
 import androidx.compose.ui.test.isSelected
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -30,6 +29,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -55,7 +55,7 @@ class EpicScreenTest {
     }
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val openedStep = AtomicReference<StepRow?>(null)
     private var backed = 0

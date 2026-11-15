@@ -2,7 +2,6 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -16,6 +15,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import java.io.IOException
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -46,7 +46,7 @@ private const val WAIT_MS = 5_000L
 @Config(sdk = [35])
 class StepControlsTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val server = FakeOrreryServer()
 

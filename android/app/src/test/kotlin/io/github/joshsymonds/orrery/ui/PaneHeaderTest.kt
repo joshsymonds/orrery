@@ -10,7 +10,6 @@ import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -20,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,7 +38,7 @@ private const val METER_WINDOW = 1_000_000L
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PaneHeaderTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val now = 1_000_000L
     private val cwd = "/home/user/example-project"

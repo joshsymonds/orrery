@@ -16,7 +16,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -45,6 +44,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
+import io.github.joshsymonds.orrery.waitUntilAfterIdle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -99,7 +100,7 @@ private const val EDGE_TOLERANCE_PX = 0.5f
 @Config(sdk = [35])
 class PaneScreenTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private val toolQuestion = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
 
@@ -465,7 +466,7 @@ class PaneScreenTest {
 
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("1 Yes").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
+            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
         }
     }
 

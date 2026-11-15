@@ -8,12 +8,12 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,7 +30,7 @@ private const val GOAL_TEXT_TAG = "goal-text"
 @Config(sdk = [35])
 class GoalLineTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     // Robolectric's text layout does not soft-wrap, so the goal's extra lines are hard breaks.
     private val longGoal = "synthetic goal, first line\nsynthetic goal, second line\nsynthetic goal, third line"
