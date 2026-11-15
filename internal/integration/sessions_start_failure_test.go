@@ -25,7 +25,7 @@ func TestOrrerydExitsWhenSessionSocketIsHeld(t *testing.T) {
 		"-L", f.server, "--socket", f.socket, "--claude", f.fakeClaude,
 		"--sessions", "--session-shell", f.shell,
 	}
-	daemon := startBinary(t, "orreryd", f.env, args...)
+	daemon := startExitingOrreryd(t, f.env, args...)
 	// The sessions start, and so the exit, follows the store open, which has no bound; the exit's wait limit starts
 	// at the store-open line.
 	daemon.waitForStoreOpen(t)

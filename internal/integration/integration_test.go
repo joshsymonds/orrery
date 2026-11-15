@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -209,13 +210,26 @@ func scrubbedEnv(extra ...string) []string {
 }
 
 // orreryProcess is one binary started by a test. done closes once the process has exited, and waitErr is set
-// before done closes.
+// before done closes. asked is set before the test, or its cleanup, makes the process end or waits for it to, and
+// mayExit marks a process the test starts expecting it to exit on its own.
 type orreryProcess struct {
 	name    string
 	cmd     *exec.Cmd
 	stderr  lockedBuffer
 	done    chan struct{}
 	waitErr error
+	asked   atomic.Bool
+	mayExit bool
+}
+
+// stopIfFailed ends the test at once when it has already failed. Every wait that polls with no deadline of its own
+// calls it on each round, so a failure reported from another goroutine, such as an orreryd that exited while the test
+// still needed it, ends the wait in place of a hang until the test binary's timeout.
+func stopIfFailed(t *testing.T) {
+	t.Helper()
+	if t.Failed() {
+		t.FailNow()
+	}
 }
 
 // lockedBuffer is a buffer that a running process's stderr is copied into while a test reads it.
@@ -238,8 +252,23 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
-// startBinary starts the built binary name with args and env and kills it at cleanup if it is still running.
+// startBinary starts the built binary name with args and env and kills it at cleanup if it is still running. An orreryd
+// that exits before the test asks it to fails the test from its watcher, and the test's next poll ends it (see
+// stopIfFailed).
 func startBinary(t *testing.T, name string, env []string, args ...string) *orreryProcess {
+	t.Helper()
+	return startProcess(t, name, env, false, args...)
+}
+
+// startExitingOrreryd is startBinary for an orreryd the test expects to exit on its own, as one refused at start does.
+// Its exit fails nothing.
+func startExitingOrreryd(t *testing.T, env []string, args ...string) *orreryProcess {
+	t.Helper()
+	return startProcess(t, "orreryd", env, true, args...)
+}
+
+// startProcess starts the built binary name with args and env. mayExit is whether it may exit before the test asks.
+func startProcess(t *testing.T, name string, env []string, mayExit bool, args ...string) *orreryProcess {
 	t.Helper()
 	if name == "orreryd" {
 		// Every orreryd a test starts names testHost as its host, so no desk line, notice or pool carries the
@@ -247,9 +276,10 @@ func startBinary(t *testing.T, name string, env []string, args ...string) *orrer
 		args = append([]string{"--host", testHost}, args...)
 	}
 	p := &orreryProcess{
-		name: name,
-		cmd:  exec.Command(filepath.Join(os.Getenv(binDirEnv), name), args...),
-		done: make(chan struct{}),
+		name:    name,
+		cmd:     exec.Command(filepath.Join(os.Getenv(binDirEnv), name), args...),
+		done:    make(chan struct{}),
+		mayExit: mayExit,
 	}
 	p.cmd.Env = env
 	p.cmd.Stderr = &p.stderr
@@ -258,9 +288,13 @@ func startBinary(t *testing.T, name string, env []string, args ...string) *orrer
 	}
 	go func() {
 		p.waitErr = p.cmd.Wait()
+		if name == "orreryd" && !p.mayExit && !p.asked.Load() {
+			t.Errorf("%s exited while the test still needed it: %v; stderr %q", name, p.waitErr, p.stderr.String())
+		}
 		close(p.done)
 	}()
 	t.Cleanup(func() {
+		p.asked.Store(true)
 		select {
 		case <-p.done:
 		default:
@@ -289,6 +323,7 @@ func (p *orreryProcess) waitForListener(t *testing.T, network, address string) {
 		case <-p.done:
 			t.Fatalf("%s exited before listening on %s; stderr %q", p.name, address, p.stderr.String())
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -296,6 +331,7 @@ func (p *orreryProcess) waitForListener(t *testing.T, network, address string) {
 // stop sends SIGTERM and returns the exit outcome. It has no deadline of its own.
 func (p *orreryProcess) stop(t *testing.T) outcome {
 	t.Helper()
+	p.asked.Store(true)
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal %s: %v", p.name, err)
 	}
@@ -319,6 +355,7 @@ func (p *orreryProcess) waitForStoreOpen(t *testing.T) {
 			}
 			t.Fatalf("%s exited before logging %s; stderr %q", p.name, line, p.stderr.String())
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -326,6 +363,7 @@ func (p *orreryProcess) waitForStoreOpen(t *testing.T) {
 // exitOutcome returns the exit outcome once the process exits. It has no deadline of its own.
 func (p *orreryProcess) exitOutcome(t *testing.T) outcome {
 	t.Helper()
+	p.asked.Store(true)
 	<-p.done
 	code := 0
 	var exitErr *exec.ExitError
@@ -471,6 +509,7 @@ func waitForScreen(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for !strings.Contains(screen(t, client, pane), want) {
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -1107,6 +1146,7 @@ func waitForOption(t *testing.T, client *tmuxctl.Client, pane, name, want string
 		if got == want {
 			return
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -1165,6 +1205,7 @@ func waitForRunWithStdin(t *testing.T, dir, text string) string {
 				return run
 			}
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -1179,6 +1220,7 @@ func waitForFinishedRuns(t *testing.T, dir string, n int) {
 		if len(finishedRuns(t, dir)) >= n {
 			return
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -1422,6 +1464,7 @@ func waitUntil(t *testing.T, ok func() bool) {
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for !ok() {
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -3177,7 +3220,16 @@ func startPushDaemon(
 // nextPush returns the next request ep received. It has no deadline of its own.
 func nextPush(t *testing.T, ep *pushEndpoint) pushRequest {
 	t.Helper()
-	return <-ep.requests
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case got := <-ep.requests:
+			return got
+		case <-ticker.C:
+			stopIfFailed(t)
+		}
+	}
 }
 
 // nextNote reads the next request ep received, failing the test unless it is one aes128gcm body, and returns the
@@ -3344,7 +3396,7 @@ func TestOrrerydWithoutPushStoreExitsOne(t *testing.T) {
 		}
 	}
 	socket := filepath.Join(t.TempDir(), "orreryd.sock")
-	daemon := startBinary(t, "orreryd", env, "--socket", socket)
+	daemon := startExitingOrreryd(t, env, "--socket", socket)
 	out := daemon.exitOutcome(t)
 	wantExit(t, out, 1)
 	if !strings.Contains(out.stderr, "push store") {

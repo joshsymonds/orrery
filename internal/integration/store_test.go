@@ -167,6 +167,7 @@ func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 		if got, want, ok := f.paneRow(t, db, pane); ok && got == want {
 			return
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }

@@ -43,17 +43,24 @@ func bindNotifySocket(t *testing.T, dir string) *notifySocket {
 	return &notifySocket{path: path, conn: conn}
 }
 
-// read returns the next datagram. It has no deadline of its own: it clears any deadline a drain left on the socket.
+// read returns the next datagram. It has no deadline of its own, and it ends the test once the test has failed.
 func (s *notifySocket) read(t *testing.T) string {
 	t.Helper()
-	if err := s.conn.SetReadDeadline(time.Time{}); err != nil {
-		t.Fatalf("set notify read deadline: %v", err)
+	for {
+		// The read deadline only paces the loop: a read that finds nothing by then is tried again, after a check that
+		// the test has not failed, as it does when its orreryd exits without sending.
+		if err := s.conn.SetReadDeadline(time.Now().Add(pollEvery)); err != nil {
+			t.Fatalf("set notify read deadline: %v", err)
+		}
+		datagram, err := s.readOne()
+		if err == nil {
+			return datagram
+		}
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("read notify datagram: %v", err)
+		}
+		stopIfFailed(t)
 	}
-	datagram, err := s.readOne()
-	if err != nil {
-		t.Fatalf("read notify datagram: %v", err)
-	}
-	return datagram
 }
 
 // drain returns every datagram still queued on the socket, in arrival order. It stops at the first read that finds
@@ -225,7 +232,7 @@ func TestOrrerydReadyFailedSessionsStartSendsNothing(t *testing.T) {
 		"-L", f.server, "--socket", f.socket, "--claude", f.fakeClaude,
 		"--sessions", "--session-shell", f.shell,
 	}
-	daemon := startBinary(t, "orreryd", f.notifyEnv(notify.path), args...)
+	daemon := startExitingOrreryd(t, f.notifyEnv(notify.path), args...)
 	out := daemon.exitOutcome(t)
 	if out.code == 0 {
 		t.Fatalf("exit 0, want a non-zero exit when the session socket is held; stderr %q", out.stderr)
