@@ -489,14 +489,15 @@ func readLoopFields(here site, pairs []pair) (Loop, error) {
 	return Loop{Max: rounds, Until: until, Spent: spent}, nil
 }
 
-// readMax reads max: an integer of 1 or more, required.
+// readMax reads max: an integer of 1 or more, required. The value must resolve to a YAML integer before it is decoded,
+// because decoding a float such as 2.5 into an int truncates it without an error.
 func readMax(here site, pairs []pair) (int, error) {
 	pr, ok := find(pairs, keyMax)
 	if !ok {
 		return 0, here.refusef(here.line, loopPrefix+keyMax, "required")
 	}
 	var rounds int
-	if err := pr.value.Decode(&rounds); err != nil || rounds < 1 {
+	if pr.value.ShortTag() != "!!int" || pr.value.Decode(&rounds) != nil || rounds < 1 {
 		return 0, here.refusef(pr.line, pr.path, "must be an integer of 1 or more")
 	}
 	return rounds, nil

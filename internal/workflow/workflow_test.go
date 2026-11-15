@@ -231,6 +231,11 @@ func TestParseRefusesLoop(t *testing.T) {
 			want: at(5, "node r: key loop.max: must be an integer of 1 or more"),
 		},
 		{
+			name: "loop max not a whole number",
+			text: loopFile("max: 2.5", "until: a.complete"),
+			want: at(5, "node r: key loop.max: must be an integer of 1 or more"),
+		},
+		{
 			name: "unknown key inside loop",
 			text: loopFile("max: 2", "until: a.complete", "every: 1"),
 			want: at(7, "node r: key loop.every: unknown key"),
