@@ -71,12 +71,8 @@ const (
 // rateLimitRejected is the status of a rate limit that refused a session's request.
 const rateLimitRejected = "rejected"
 
-// stepCapFull is the reason a turn is freed with when the step cap refuses its step, and noStep the reason a running
-// turn with no step is freed with on recovery.
-const (
-	stepCapFull = "step cap full"
-	noStep      = "no step"
-)
+// stepCapFull is the reason a turn is freed with when the step cap refuses its step.
+const stepCapFull = "step cap full"
 
 // taskOpen is the status of a task that is not yet accepted or failed. Only an open task owns its files.
 const taskOpen = "open"
@@ -285,9 +281,10 @@ func (r *Runner) stopIfFlagged(ctx context.Context, epic string, seq int64, id s
 
 // recoverTurns settles each turn a previous orreryd left running, before the first pass. A turn with no recorded step
 // is looked up under the id its step starts under: a step stored under that id is recorded on the turn, and a turn with
-// no such step is freed with noStep. A turn whose step has ended is settled by that end. A turn whose step is still
-// open is waited on in its own goroutine, and stopped first when the turn was flagged to stop. A turn whose step cannot
-// be read stays running and is logged; it still counts as running, so its epic gets no new turn.
+// no such step has its step started under that id, as a claimed turn's is. A turn whose step has ended is settled by
+// that end. A turn whose step is still open is waited on in its own goroutine, and stopped first when the turn was
+// flagged to stop. A turn whose step cannot be read stays running and is logged; it still counts as running, so its
+// epic gets no new turn.
 func (r *Runner) recoverTurns(ctx context.Context) {
 	turns, err := r.store.RunningTurns(ctx)
 	if err != nil {
@@ -303,7 +300,7 @@ func (r *Runner) recoverTurns(ctx context.Context) {
 }
 
 // recoverTurn settles one running turn as recoverTurns describes. A turn with no recorded step reads the step stored
-// under its derived id, and is freed with noStep when there is none.
+// under its derived id, and is restarted when there is none.
 func (r *Runner) recoverTurn(ctx context.Context, turn store.EpicTurn) {
 	id, recorded := turn.Step, turn.Step != ""
 	if !recorded {
@@ -311,7 +308,7 @@ func (r *Runner) recoverTurn(ctx context.Context, turn store.EpicTurn) {
 	}
 	row, err := r.steps.Status(ctx, id)
 	if !recorded && errors.Is(err, store.ErrNoStep) {
-		r.release(ctx, turn.Epic, turn.Seq, store.TurnFree{Reason: noStep})
+		r.restart(ctx, turn)
 		return
 	}
 	if err != nil {
@@ -332,6 +329,26 @@ func (r *Runner) recoverTurn(ctx context.Context, turn store.EpicTurn) {
 	}
 }
 
+// restart starts the planner step of a running turn that has no step and no step stored under its derived id, which a
+// previous orreryd was killed before starting. The agent is read as a pass reads it: a role error parks the epic with
+// its text, as a pass parks it. Otherwise the start settles the turn as runTurn's does, a refused start by refuse and a
+// started step by resume.
+func (r *Runner) restart(ctx context.Context, turn store.EpicTurn) {
+	agent, roleErr := r.agent()
+	if roleErr != nil {
+		reason := roleErr.Error()
+		r.release(ctx, turn.Epic, turn.Seq, store.TurnFree{Reason: reason, Park: reason})
+		return
+	}
+	id, err := r.startStep(ctx, turn.Epic, turn, agent)
+	if err != nil {
+		r.refuse(ctx, turn.Epic, turn.Seq, err)
+		return
+	}
+	r.turns.Add(1)
+	go r.resume(ctx, turn.Epic, turn.Seq, id)
+}
+
 // recordFound records step id on turn seq of epic, a turn with no recorded step whose step was found under its derived
 // id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
 // reports false, after logging, when the step is not recorded; the turn then stays running for the next start.
@@ -347,7 +364,8 @@ func (r *Runner) recordFound(ctx context.Context, epic string, seq int64, id str
 	return true
 }
 
-// resume settles turn seq of epic by the end of step id, which a previous orreryd left open.
+// resume settles turn seq of epic by the end of step id, which is open: a step a previous orreryd left open, or one
+// restart started.
 func (r *Runner) resume(ctx context.Context, epic string, seq int64, id string) {
 	defer r.turns.Done()
 	r.finish(ctx, epic, seq, id)

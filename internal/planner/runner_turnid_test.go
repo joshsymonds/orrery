@@ -137,7 +137,7 @@ func TestRecoveryStopsOpenStepStoredUnderDerivedIDWhenTurnWasFlaggedBeforeRecord
 	}
 }
 
-func TestRecoveryFreesTurnWhoseStoredStepHasAnotherID(t *testing.T) {
+func TestRecoveryStartsStepUnderDerivedIDWhenStoredStepHasAnotherID(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -146,9 +146,9 @@ func TestRecoveryFreesTurnWhoseStoredStepHasAnotherID(t *testing.T) {
 	var reads atomic.Int64
 	runRunner(t, recoverConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	waitFor(t, "turn 1 to be freed", func() bool { return epicOf(t, s).Turns[0].State == "free" })
-	epic := epicOf(t, s)
-	if turn := epic.Turns[0]; turn.Reason != "no step" || turn.Step != "" {
-		t.Errorf("turn 1 = reason %q step %q, want reason no step and no step recorded", turn.Reason, turn.Step)
+	waitForStarts(t, steps, 1)
+	if got := steps.started()[0].ID; got != runnerTurnStepID {
+		t.Errorf("step id = %q, want %q: the step stored under another id is not turn 1's", got, runnerTurnStepID)
 	}
+	waitFor(t, "step-1 recorded on turn 1", func() bool { return epicOf(t, s).Turns[0].Step == "step-1" })
 }
