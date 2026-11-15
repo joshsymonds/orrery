@@ -87,6 +87,8 @@ type Session struct {
 	stopOnce sync.Once
 	stopErr  error
 	pending  *openRequests
+	// unanswered counts the prompts the session sent that no turn has answered.
+	unanswered *unansweredPrompts
 	// translator translates each stdout line in order. The replay and the reader share it, so each line is translated
 	// with the state the lines before it left.
 	translator *translator
@@ -125,6 +127,7 @@ func newSession(process Process, written []string) *Session {
 		stop:       make(chan struct{}),
 		finished:   make(chan struct{}),
 		pending:    newOpenRequests(),
+		unanswered: newUnansweredPrompts(),
 		translator: newTranslator(),
 		written:    make(map[string]bool, len(written)),
 	}
@@ -136,10 +139,12 @@ func newSession(process Process, written []string) *Session {
 
 // ReadoptOptions says where a re-adopted session resumes. From is the stdout offset the process's stdout begins at,
 // Consumed the offset the controller has consumed, and Written the write ids the holder has applied to the process's
-// stdin.
+// stdin. Owed is how many prompts the previous controller wrote to the holder after the session's newest turn end, which
+// no turn has answered yet; it is never negative.
 type ReadoptOptions struct {
 	From, Consumed int64
 	Written        []string
+	Owed           int
 }
 
 // Readopt re-adopts a session whose process's stdout begins at opts.From. It reads and observes the lines from From up
@@ -149,6 +154,7 @@ type ReadoptOptions struct {
 // with Stop when it has no Detach, so that a holder keeps running.
 func Readopt(ctx context.Context, process Process, opts ReadoptOptions) (*Session, []Line, error) {
 	session := newSession(process, opts.Written)
+	session.unanswered.owe(opts.Owed)
 	lines, err := session.replay(ctx, opts)
 	if err != nil {
 		return nil, nil, errors.Join(err, terminate(process, session.transport, true))
@@ -214,14 +220,81 @@ func (s *Session) Lines() <-chan Line {
 	return s.lines
 }
 
-// Prompt writes text as one user message, under a fresh uuid and writeID as its write id.
+// Prompt writes text as one user message, under a fresh uuid and writeID as its write id. The session counts the
+// message as unanswered until a turn lists its uuid as answered.
 func (s *Session) Prompt(writeID, text string) error {
 	return s.write(writeID, func() error {
-		if _, err := s.transport.SendUserMessage(text); err != nil {
+		uuid, err := s.transport.SendUserMessage(text)
+		if err != nil {
 			return fmt.Errorf("session: send prompt: %w", err)
 		}
+		s.unanswered.sent(uuid)
 		return nil
 	})
+}
+
+// UnansweredPrompts returns how many prompts the session sent, or owes as a re-adopted session (see ReadoptOptions.Owed),
+// that no turn has answered. It is safe to call from any goroutine.
+func (s *Session) UnansweredPrompts() int {
+	return s.unanswered.count()
+}
+
+// unansweredPrompts is the set of prompts the session sent that no turn has answered, by uuid, plus the owed prompts a
+// re-adopted session was given: the prompts the previous controller wrote to the holder that no turn has answered, which
+// the session did not send and so holds no uuid for. Prompt records each send and the reader records each turn's end, so
+// every access is guarded by mu. A turn can end before Prompt records the send it answers, because the send is recorded
+// once the write returns. The early set holds those answers, so the send is not counted when it is recorded.
+type unansweredPrompts struct {
+	mu    sync.Mutex
+	open  map[string]bool
+	early map[string]bool
+	owed  int
+}
+
+func newUnansweredPrompts() *unansweredPrompts {
+	return &unansweredPrompts{open: make(map[string]bool), early: make(map[string]bool)}
+}
+
+// owe sets how many owed prompts the session holds, before its reader runs.
+func (u *unansweredPrompts) owe(n int) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.owed = n
+}
+
+// sent records that the session sent the user message uuid, unless a turn already answered it.
+func (u *unansweredPrompts) sent(uuid string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.early[uuid] {
+		delete(u.early, uuid)
+		return
+	}
+	u.open[uuid] = true
+}
+
+// answer records that a turn answered the user messages uuids. A message that was not recorded as sent is one of the
+// owed prompts while owed is above 0, which it lowers. Otherwise it is kept in early.
+func (u *unansweredPrompts) answer(uuids []string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, uuid := range uuids {
+		switch {
+		case u.open[uuid]:
+			delete(u.open, uuid)
+		case u.owed > 0:
+			u.owed--
+		default:
+			u.early[uuid] = true
+		}
+	}
+}
+
+// count returns how many sent user messages no turn has answered, plus the owed prompts no turn has answered.
+func (u *unansweredPrompts) count() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return len(u.open) + u.owed
 }
 
 // Interrupt writes an interrupt request for the turn in progress, under a fresh random id.
@@ -291,8 +364,8 @@ func terminate(process Process, stream *transport.Transport, detach bool) error 
 }
 
 // run is the session's only reader. From offset, the offset of the first line the transport delivers, it translates
-// each stdout line, observes its events and sends it as a Line with the line's offsets. When the stream ends it
-// reports the process exit as the last Line and closes Lines.
+// each stdout line, observes its events, records the prompts its turn ends answer and sends it as a Line with the
+// line's offsets. When the stream ends it reports the process exit as the last Line and closes Lines.
 func (s *Session) run(offset int64) {
 	defer close(s.finished)
 	defer close(s.lines)
@@ -301,6 +374,7 @@ func (s *Session) run(offset int64) {
 		end := offset + int64(len(raw)) + 1
 		events := s.translator.translate(raw)
 		s.observeLine(offset, events)
+		s.answerPrompts(events)
 		if !s.send(Line{Start: offset, End: end, Events: events}) {
 			return
 		}
@@ -312,6 +386,16 @@ func (s *Session) run(offset int64) {
 		return
 	}
 	s.exit(offset)
+}
+
+// answerPrompts records the user messages each turn end in events lists as answered. Only run calls it: a replayed
+// turn answers prompts the previous holder was sent, never one this session sent.
+func (s *Session) answerPrompts(events []Event) {
+	for _, event := range events {
+		if ended, ok := event.(TurnEnded); ok {
+			s.unanswered.answer(ended.Answered)
+		}
+	}
 }
 
 // exit stops the process and waits for it, then sends Exited with the exit error, the stream error and the

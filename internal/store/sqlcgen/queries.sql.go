@@ -117,6 +117,23 @@ func (q *Queries) CountEpicQuestionsOfTurn(ctx context.Context, arg CountEpicQue
 	return column_1, err
 }
 
+const countHolderPromptsAfterTurnEnd = `-- name: CountHolderPromptsAfterTurnEnd :one
+SELECT COUNT(*) FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt' AND events.write_id <> ''
+  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+  AND events.seq > (
+      SELECT CAST(COALESCE(MAX(turns.seq), 0) AS INTEGER) FROM events AS turns
+      WHERE turns.session_id = ?1 AND turns.kind = 'engine_turn_ended'
+  )
+`
+
+func (q *Queries) CountHolderPromptsAfterTurnEnd(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countHolderPromptsAfterTurnEnd, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countMemberGrants = `-- name: CountMemberGrants :one
 SELECT COUNT(*) FROM grant_members WHERE member = ?
 `

@@ -51,7 +51,8 @@ func (r stepRefusedError) Unwrap() error { return r.err }
 // schema, then records and sends its prompt. A step is listed as a step, never as a session, and sends no notice. A
 // step refused before anything is stored, for a bad step, an agent that does not resolve, a closed manager or a full
 // step cap, returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure,
-// records the row failed and returns the error. A step's slot frees when its pump ends.
+// records the row failed and returns the error. A step's slot frees when its pump ends, unless the step is drained at its
+// hand-off and keeps its slot (see retireLocked).
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := checkStep(step); err != nil {
 		return stepRefusedError{err}
@@ -59,7 +60,7 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := m.resolveStepAgent(step); err != nil {
 		return stepRefusedError{err}
 	}
-	if err := m.reserveStep(); err != nil {
+	if err := m.reserveStep(step.ID); err != nil {
 		return stepRefusedError{err}
 	}
 	add := store.EngineAdd{ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep}
@@ -96,12 +97,16 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 // Release stops the live session id's process without ending it, as checkIdle stops an idle session: it records nothing,
 // its observer is told of no exit, and its row stays as it was. Release waits for the session's pump, which frees its
 // slot, so the slot is free when Release returns. A later Continue respawns the step in its claude session with --resume.
-// It returns nil for an id with no live session, or a session Close has begun closing.
+// A drained step with no live session has its kept slot freed (see retireLocked). It returns nil for an id with no live
+// session, or a session Close has begun closing.
 func (m *Manager) Release(ctx context.Context, id string) error {
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	m.mu.Lock()
 	live := m.sessions[id]
+	if live == nil {
+		m.dropKeptLocked(id)
+	}
 	if live == nil || live.closing {
 		m.mu.Unlock()
 		return nil
@@ -148,12 +153,18 @@ func (m *Manager) resolveStepAgent(step StepSession) error {
 	return nil
 }
 
-// reserveStep takes one step slot under StepCap. It refuses when the manager is closed or the step cap is full.
-func (m *Manager) reserveStep() error {
+// reserveStep takes one step slot for the step id under StepCap. A step drained at its hand-off keeps its slot (see
+// retireLocked), which id takes back as it is, with no cap check. It refuses when the manager is closed or the step cap is
+// full.
+func (m *Manager) reserveStep(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return errManagerClosed
+	}
+	if m.kept[id] != nil {
+		delete(m.kept, id)
+		return nil
 	}
 	if m.stepsRunning >= m.stepLimit {
 		return fmt.Errorf("%w: %d live steps, step cap %d", ErrCapReached, m.stepsRunning, m.stepLimit)

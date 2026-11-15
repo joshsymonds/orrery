@@ -169,6 +169,15 @@ WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND eve
   AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
 ORDER BY events.seq;
 
+-- name: CountHolderPromptsAfterTurnEnd :one
+SELECT COUNT(*) FROM events
+WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND events.write_id <> ''
+  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+  AND events.seq > (
+      SELECT CAST(COALESCE(MAX(turns.seq), 0) AS INTEGER) FROM events AS turns
+      WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended'
+  );
+
 -- name: InsertEnginePromptFailed :exec
 INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
 ON CONFLICT (session_id, prompt_id) DO NOTHING;
