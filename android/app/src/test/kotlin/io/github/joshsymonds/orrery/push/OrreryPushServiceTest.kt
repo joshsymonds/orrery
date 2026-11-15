@@ -56,6 +56,8 @@ class OrreryPushServiceTest {
     private val registerPath = "/orrery.v1.Push/Register"
     private val sevenDayLimit = "seven_day@1900000000"
     private val fiveHourLimit = "five_hour@1900000000"
+    private val syntheticAlert = "synthetic-alert"
+    private val otherAlert = "other-alert"
 
     @Before
     fun setUp() {
@@ -111,12 +113,31 @@ class OrreryPushServiceTest {
         .toString()
         .toByteArray(Charsets.UTF_8)
 
+    private fun alertPayload(
+        alert: String = syntheticAlert,
+        summary: String = "Synthetic alert summary.",
+        time: String = noticeTime,
+    ): ByteArray = JSONObject()
+        .put("pane", "")
+        .put("host", "synthetic-host")
+        .put("project", alert)
+        .put("state", "firing")
+        .put("summary", summary)
+        .put("label", "")
+        .put("question", "")
+        .put("question_hash", "qh-synthetic-alert")
+        .put("time", time)
+        .put("alert", alert)
+        .toString()
+        .toByteArray(Charsets.UTF_8)
+
     private fun clearPayload(
         host: String? = "synthetic-host",
         pane: String? = null,
         session: String? = null,
         seen: String? = null,
         limit: String? = null,
+        alert: String? = null,
     ): ByteArray = JSONObject()
         .put("kind", "clear")
         .apply {
@@ -125,6 +146,7 @@ class OrreryPushServiceTest {
             session?.let { put("session", it) }
             seen?.let { put("seen", it) }
             limit?.let { put("limit", it) }
+            alert?.let { put("alert", it) }
         }
         .toString()
         .toByteArray(Charsets.UTF_8)
@@ -134,6 +156,9 @@ class OrreryPushServiceTest {
 
     private fun postedLimit(): Notification =
         checkNotNull(postedFor(sevenDayLimit)) { "expected a notification for limit $sevenDayLimit" }
+
+    private fun postedAlert(alert: String = syntheticAlert): Notification? =
+        postedFor("alert:$alert")
 
     private fun awaitRequests(count: Int): List<RecordedRequest> {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
@@ -390,5 +415,90 @@ class OrreryPushServiceTest {
         service.onMessage(PushMessage(clearPayload(limit = fiveHourLimit, seen = noticeTime), decrypted = true), instance)
 
         assertNotNull(postedFor(sevenDayLimit))
+    }
+
+    @Test
+    fun alertPushWithEmptyPanePostsUnderHostAndAlertWithFiringTitleSummaryAndNoActions() {
+        service.onMessage(PushMessage(alertPayload(), decrypted = true), instance)
+
+        val notification = checkNotNull(postedAlert()) { "expected a notification for alert $syntheticAlert" }
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        assertEquals(
+            "synthetic-alert · firing",
+            notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
+        )
+        assertEquals(
+            "Synthetic alert summary.",
+            notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString(),
+        )
+        assertTrue(notification.actions.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun alertNoticeTapOpensMainScreenWithoutPaneOrSession() {
+        service.onMessage(PushMessage(alertPayload(), decrypted = true), instance)
+
+        val intent = shadowOf(checkNotNull(postedAlert()).contentIntent).savedIntent
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertNull(intent.getStringExtra(EXTRA_PANE))
+        assertNull(intent.getStringExtra(EXTRA_SESSION))
+    }
+
+    @Test
+    fun alertPushBesidePanePushWithSameHostLeavesTwoNotifications() {
+        service.onMessage(PushMessage(payload(time = noticeTime), decrypted = true), instance)
+        service.onMessage(PushMessage(alertPayload(), decrypted = true), instance)
+
+        assertNotNull(postedFor(pane))
+        assertNotNull(postedAlert())
+        assertEquals(2, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun alertNamedLikeSessionDoesNotReplaceSessionNotice() {
+        service.onMessage(PushMessage(payload(pane = "", session = session, time = noticeTime), decrypted = true), instance)
+        service.onMessage(PushMessage(alertPayload(alert = session), decrypted = true), instance)
+
+        assertEquals(2, shadowOf(manager).allNotifications.size)
+        assertEquals(
+            "Synthetic summary.",
+            checkNotNull(postedFor(session)).extras.getCharSequence(Notification.EXTRA_TEXT).toString(),
+        )
+    }
+
+    @Test
+    fun laterAlertPushReplacesEarlierNoticeForSameAlert() {
+        service.onMessage(PushMessage(alertPayload(summary = "First.", time = olderSeen), decrypted = true), instance)
+        service.onMessage(PushMessage(alertPayload(summary = "Second.", time = noticeTime), decrypted = true), instance)
+
+        val notification = checkNotNull(postedAlert())
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        assertEquals("Second.", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+        assertEquals(noticeTime.toLong(), notification.extras.getLong(EXTRA_TIME))
+    }
+
+    @Test
+    fun alertClearWithOlderSeenLeavesAlertNotice() {
+        service.onMessage(PushMessage(alertPayload(time = noticeTime), decrypted = true), instance)
+        service.onMessage(PushMessage(clearPayload(alert = syntheticAlert, seen = olderSeen), decrypted = true), instance)
+
+        assertNotNull(postedAlert())
+    }
+
+    @Test
+    fun alertClearAtNoticeTimeRemovesAlertNotice() {
+        service.onMessage(PushMessage(alertPayload(time = noticeTime), decrypted = true), instance)
+        assertNotNull(postedAlert())
+        service.onMessage(PushMessage(clearPayload(alert = syntheticAlert, seen = noticeTime), decrypted = true), instance)
+
+        assertNull(postedAlert())
+    }
+
+    @Test
+    fun alertClearForAnotherAlertLeavesAlertNotice() {
+        service.onMessage(PushMessage(alertPayload(time = noticeTime), decrypted = true), instance)
+        service.onMessage(PushMessage(clearPayload(alert = otherAlert, seen = noticeTime), decrypted = true), instance)
+
+        assertNotNull(postedAlert())
     }
 }
