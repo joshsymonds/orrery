@@ -84,6 +84,18 @@ func setTriggerState(t *testing.T, raw *sql.DB, epic, id, state string, turn int
 	}
 }
 
+// pendingTriggersOf returns how many triggers of epic are stored pending, read from the table.
+func pendingTriggersOf(t *testing.T, raw *sql.DB, epic string) int {
+	t.Helper()
+	var count int
+	if err := raw.QueryRow(
+		`SELECT COUNT(*) FROM epic_triggers WHERE epic = ? AND state = 'pending'`, epic,
+	).Scan(&count); err != nil {
+		t.Fatalf("count pending triggers of epic %s: %v", epic, err)
+	}
+	return count
+}
+
 // TestStartNodesStoresEveryFieldOrderedByPath checks that NodeRuns returns every run StartNodes stored with each field,
 // running from the start second, ordered by path, and only the runs of the epic asked for.
 func TestStartNodesStoresEveryFieldOrderedByPath(t *testing.T) {
@@ -185,8 +197,8 @@ func TestStartNodesAddsTriggerOnceAndNotAfterItIsClaimed(t *testing.T) {
 	if err := s.StartNodes(ctx, nodeEpic, nil, &trigger, nodeStartedAt()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 1 {
-		t.Fatalf("PendingTriggers after the first start = %d, %v; want 1", pending, err)
+	if got := pendingTriggersOf(t, raw, nodeEpic); got != 1 {
+		t.Fatalf("pending triggers after the first start = %d, want 1", got)
 	}
 	row := triggerRowOf(t, raw, nodeEpic, trigger.ID)
 	if row.state != "pending" || row.turn != 0 || row.cause != trigger.Cause || row.created != nodeStartedAt().Unix() {
@@ -197,16 +209,16 @@ func TestStartNodesAddsTriggerOnceAndNotAfterItIsClaimed(t *testing.T) {
 	if err := s.StartNodes(ctx, nodeEpic, nil, &trigger, nodeEndedAt()); err != nil {
 		t.Fatalf("repeat StartNodes while pending: %v", err)
 	}
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 1 {
-		t.Fatalf("PendingTriggers after a repeat while pending = %d, %v; want 1", pending, err)
+	if got := pendingTriggersOf(t, raw, nodeEpic); got != 1 {
+		t.Fatalf("pending triggers after a repeat while pending = %d, want 1", got)
 	}
 
 	setTriggerState(t, raw, nodeEpic, trigger.ID, "claimed", 5)
 	if err := s.StartNodes(ctx, nodeEpic, nil, &trigger, nodeEndedAt()); err != nil {
 		t.Fatalf("repeat StartNodes after a claim: %v", err)
 	}
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 0 {
-		t.Fatalf("PendingTriggers after a repeat past a claim = %d, %v; want 0", pending, err)
+	if got := pendingTriggersOf(t, raw, nodeEpic); got != 0 {
+		t.Fatalf("pending triggers after a repeat past a claim = %d, want 0", got)
 	}
 	row = triggerRowOf(t, raw, nodeEpic, trigger.ID)
 	if row.state != "claimed" || row.turn != 5 {
@@ -272,44 +284,6 @@ func TestEndNodesEndsOnlyRunningRunsOnce(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotOther, wantOther) {
 		t.Errorf("NodeRuns of epic %s = %+v, want %+v", nodeOther, gotOther, wantOther)
-	}
-}
-
-// TestPendingTriggersCountsPendingOnly checks that PendingTriggers counts the pending triggers of its epic and no
-// claimed or consumed one and no trigger of another epic.
-func TestPendingTriggersCountsPendingOnly(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, raw := openNodeStore(t)
-
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 0 {
-		t.Fatalf("PendingTriggers of an epic with none = %d, %v; want 0", pending, err)
-	}
-
-	first := store.NodeTrigger{ID: "workflow:id-one", Cause: "workflow node one started"}
-	second := store.NodeTrigger{ID: "workflow:id-two", Cause: "workflow node two started"}
-	third := store.NodeTrigger{ID: "workflow:id-three", Cause: "workflow node three started"}
-	if err := s.StartNodes(ctx, nodeEpic, nil, &first, nodeStartedAt()); err != nil {
-		t.Fatalf("StartNodes of first trigger: %v", err)
-	}
-	if err := s.StartNodes(ctx, nodeEpic, nil, &second, nodeStartedAt()); err != nil {
-		t.Fatalf("StartNodes of second trigger: %v", err)
-	}
-	if err := s.StartNodes(ctx, nodeOther, nil, &third, nodeStartedAt()); err != nil {
-		t.Fatalf("StartNodes of other epic's trigger: %v", err)
-	}
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 2 {
-		t.Fatalf("PendingTriggers with two pending = %d, %v; want 2", pending, err)
-	}
-
-	setTriggerState(t, raw, nodeEpic, first.ID, "claimed", 3)
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 1 {
-		t.Fatalf("PendingTriggers with one claimed = %d, %v; want 1", pending, err)
-	}
-
-	setTriggerState(t, raw, nodeEpic, second.ID, "consumed", 3)
-	if pending, err := s.PendingTriggers(ctx, nodeEpic); err != nil || pending != 0 {
-		t.Fatalf("PendingTriggers with none pending = %d, %v; want 0", pending, err)
 	}
 }
 

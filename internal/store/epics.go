@@ -361,7 +361,12 @@ func encodeList[T any](items []T) (string, error) {
 // Epic returns the stored epic with id, every section in order. It returns an error matching ErrNoEpic when no epic
 // has that id.
 func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
-	queries := sqlcgen.New(s.db)
+	return readEpic(ctx, sqlcgen.New(s.db), id)
+}
+
+// readEpic returns the stored epic with id as queries read it, every section in order. It returns an error matching
+// ErrNoEpic when no epic has that id.
+func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow, error) {
 	head, err := queries.GetEpic(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return EpicRow{}, fmt.Errorf("epic %s: %w", id, ErrNoEpic)

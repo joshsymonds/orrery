@@ -60,7 +60,12 @@ func NodeRunID(epic, path string, round int64, cause string) string {
 
 // NodeRuns returns the node runs of epic ordered by path, each with every field it stores.
 func (s *Store) NodeRuns(ctx context.Context, epic string) ([]NodeRun, error) {
-	stored, err := sqlcgen.New(s.db).ListEpicNodeRuns(ctx, epic)
+	return readNodeRuns(ctx, sqlcgen.New(s.db), epic)
+}
+
+// readNodeRuns returns the node runs of epic as queries read them, ordered by path.
+func readNodeRuns(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]NodeRun, error) {
+	stored, err := queries.ListEpicNodeRuns(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list node runs of epic %s: %w", epic, err)
 	}
@@ -78,15 +83,6 @@ func nodeRunOf(run sqlcgen.EpicNodeRun) NodeRun {
 		out.Ended = time.Unix(run.Ended, 0)
 	}
 	return out
-}
-
-// PendingTriggers returns how many triggers of epic are pending.
-func (s *Store) PendingTriggers(ctx context.Context, epic string) (int, error) {
-	count, err := sqlcgen.New(s.db).CountPendingEpicTriggers(ctx, epic)
-	if err != nil {
-		return 0, fmt.Errorf("count pending triggers of epic %s: %w", epic, err)
-	}
-	return int(count), nil
 }
 
 // StartNodes stores each of runs as a running node run started at at, and trigger as a pending trigger created at at,

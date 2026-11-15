@@ -40,12 +40,12 @@ func TestSessionsHostLeavesCompletedEpicUnparked(t *testing.T) {
 	createFlowWiringEpic(t, st, flowWiringEpic, created)
 	createFlowWiringEpic(t, st, flowWiringControl, created)
 	endFlowWiringPlan(t, st, flowWiringEpic, created)
-	pending, err := st.PendingTriggers(ctx, flowWiringEpic)
+	read, err := st.EpicFlow(ctx, flowWiringEpic)
 	if err != nil {
-		t.Fatalf("count pending triggers: %v", err)
+		t.Fatalf("read epic flow: %v", err)
 	}
-	if pending != 1 {
-		t.Fatalf("pending triggers = %d, want 1: the synthetic epic's trigger is pending", pending)
+	if read.Pending != 1 {
+		t.Fatalf("pending triggers = %d, want 1: the synthetic epic's trigger is pending", read.Pending)
 	}
 
 	opts := options{

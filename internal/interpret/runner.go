@@ -17,9 +17,7 @@ import (
 // *store.Store satisfies it.
 type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
-	Epic(ctx context.Context, id string) (store.EpicRow, error)
-	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
-	PendingTriggers(ctx context.Context, epic string) (int, error)
+	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	StartNodes(ctx context.Context, epic string, runs []store.NodeRun, trigger *store.NodeTrigger, at time.Time) error
 	EndNodes(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
@@ -167,21 +165,13 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 	return false
 }
 
-// decide reads the rows of epic and returns the actions flow asks for on them.
+// decide reads the rows of epic in one read and returns the actions flow asks for on them.
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) ([]Action, error) {
-	row, err := r.store.Epic(ctx, epic)
+	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	runs, err := r.store.NodeRuns(ctx, epic)
-	if err != nil {
-		return nil, fmt.Errorf("read node runs of epic %s: %w", epic, err)
-	}
-	pending, err := r.store.PendingTriggers(ctx, epic)
-	if err != nil {
-		return nil, fmt.Errorf("count pending triggers of epic %s: %w", epic, err)
-	}
-	return Decide(flow, kinds.Rows{Epic: row, Runs: runs, Pending: pending}, r.kinds), nil
+	return Decide(flow, kinds.Rows{Epic: read.Epic, Runs: read.Runs, Pending: read.Pending}, r.kinds), nil
 }
 
 // firstStructural returns the first action that changes a node run, and whether acts has one. A run action only hands
