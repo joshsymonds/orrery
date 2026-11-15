@@ -102,7 +102,7 @@ func noticesUnavailable() error {
 // noticeKeyOf returns the notice key that key names. It is an error unless exactly one of key's fields is set.
 func noticeKeyOf(key *v1.NoticeKey) (notice.Key, error) {
 	set := 0
-	for _, field := range []string{key.GetPane(), key.GetSession(), key.GetEpic(), key.GetLimit()} {
+	for _, field := range []string{key.GetPane(), key.GetSession(), key.GetEpic(), key.GetLimit(), key.GetAlert()} {
 		if field != "" {
 			set++
 		}
@@ -110,7 +110,13 @@ func noticeKeyOf(key *v1.NoticeKey) (notice.Key, error) {
 	if set != 1 {
 		return notice.Key{}, fmt.Errorf("notice key sets %d fields, want exactly one", set)
 	}
-	return notice.Key{Pane: key.GetPane(), Session: key.GetSession(), Epic: key.GetEpic(), Limit: key.GetLimit()}, nil
+	return notice.Key{
+		Pane:    key.GetPane(),
+		Session: key.GetSession(),
+		Epic:    key.GetEpic(),
+		Limit:   key.GetLimit(),
+		Alert:   key.GetAlert(),
+	}, nil
 }
 
 // shownResponse is the change that tells a stream the notice n shows now.
@@ -133,5 +139,5 @@ func changeResponse(c inapp.Change) *v1.NoticesWatchResponse {
 
 // keyMessage returns the message for key.
 func keyMessage(key notice.Key) *v1.NoticeKey {
-	return &v1.NoticeKey{Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit}
+	return &v1.NoticeKey{Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert}
 }

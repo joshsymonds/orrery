@@ -278,6 +278,15 @@ func (q *Queries) DeletePendingNotice(ctx context.Context, id int64) error {
 	return err
 }
 
+const deletePushedAlertNotice = `-- name: DeletePushedAlertNotice :exec
+DELETE FROM pushed_alert_notices WHERE alert = ?
+`
+
+func (q *Queries) DeletePushedAlertNotice(ctx context.Context, alert string) error {
+	_, err := q.db.ExecContext(ctx, deletePushedAlertNotice, alert)
+	return err
+}
+
 const deletePushedEpicNotice = `-- name: DeletePushedEpicNotice :exec
 DELETE FROM pushed_epic_notices WHERE epic = ?
 `
@@ -3919,6 +3928,33 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 	return items, nil
 }
 
+const listPushedAlertNotices = `-- name: ListPushedAlertNotices :many
+SELECT alert, time FROM pushed_alert_notices ORDER BY alert
+`
+
+func (q *Queries) ListPushedAlertNotices(ctx context.Context) ([]PushedAlertNotice, error) {
+	rows, err := q.db.QueryContext(ctx, listPushedAlertNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PushedAlertNotice
+	for rows.Next() {
+		var i PushedAlertNotice
+		if err := rows.Scan(&i.Alert, &i.Time); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPushedEpicNotices = `-- name: ListPushedEpicNotices :many
 SELECT epic, time FROM pushed_epic_notices ORDER BY epic
 `
@@ -5273,6 +5309,21 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.Epic,
 		arg.LimitKey,
 	)
+	return err
+}
+
+const upsertPushedAlertNotice = `-- name: UpsertPushedAlertNotice :exec
+INSERT INTO pushed_alert_notices (alert, time) VALUES (?, ?)
+ON CONFLICT (alert) DO UPDATE SET time = excluded.time
+`
+
+type UpsertPushedAlertNoticeParams struct {
+	Alert string
+	Time  int64
+}
+
+func (q *Queries) UpsertPushedAlertNotice(ctx context.Context, arg UpsertPushedAlertNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPushedAlertNotice, arg.Alert, arg.Time)
 	return err
 }
 

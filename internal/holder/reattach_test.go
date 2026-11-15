@@ -283,7 +283,7 @@ func TestReattachOfAHolderThatHasEndedIsGone(t *testing.T) {
 	if err := Stop(t.Context(), dir); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	awaitLockUnheld(t, lockID)
+	awaitLockUnheld(t, dir, lockID)
 	if _, _, err := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(err, ErrGone) {
 		t.Fatalf("Reattach of an ended holder = %v, want ErrGone", err)
 	}
@@ -328,8 +328,9 @@ func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing
 	}
 	dir, _ := startWedged(t)
 	_, _, err := Reattach(t.Context(), dir, 0, WireVersion, WithAttachTimeout(reattachTestBound))
-	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable from the timeout", err)
+	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, ErrNoAnswer) || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable and ErrNoAnswer from the timeout",
+			err)
 	}
 }
 

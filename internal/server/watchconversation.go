@@ -122,6 +122,9 @@ type conversationWatch struct {
 	figure conversation.Context
 	// sent is the state the stream last sent, or nil before its first delta.
 	sent *v1.ConversationState
+	// betweenReads, when set, runs in each step after the transcript's goal and waiting messages are read and before
+	// its delta is. A test sets it to append to the transcript there. It is nil in production.
+	betweenReads func()
 }
 
 // step reads the pane and its transcript once. It returns the delta to send and true, or false when neither the
@@ -133,15 +136,32 @@ func (w *conversationWatch) step(ctx context.Context) (*v1.WatchConversationResp
 	if err != nil {
 		return nil, false, err
 	}
+	return w.stepAt(pane, path)
+}
+
+// stepAt is step for pane, whose live transcript is at path. The goal and the waiting messages are read before the
+// delta, and the transcript only grows, so the seq a delta reaches covers every line its state was read from: a line
+// appended between the two reads moves the seq now and the state at the next step, never the state ahead of its seq.
+func (w *conversationWatch) stepAt(pane *v1.Pane, path string) (*v1.WatchConversationResponse, bool, error) {
+	goal, waiting, err := w.transcriptState(pane, path)
+	if err != nil {
+		return nil, false, err
+	}
+	if w.betweenReads != nil {
+		w.betweenReads()
+	}
 	before := w.seq
 	items, reset, err := w.readDelta(path)
 	if err != nil {
 		return nil, false, err
 	}
 	w.id = filepath.Base(path)
-	state, err := w.state(pane, path)
-	if err != nil {
-		return nil, false, err
+	state := &v1.ConversationState{
+		Origin:  w.origin,
+		Goal:    goal,
+		Waiting: waitingMessages(waiting),
+		Context: &v1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window},
+		Pane:    pane,
 	}
 	stateChanged := reset || w.sent == nil || !proto.Equal(state, w.sent)
 	if !stateChanged && w.seq == before && len(items) == 0 {
@@ -223,25 +243,19 @@ func (w *conversationWatch) reset(path string) ([]conversation.Item, error) {
 	return conv.Items, nil
 }
 
-// state returns the state of the stream at path: its origin and context figure, the goal and waiting messages of the
-// transcript, and pane. The waiting messages are idle when pane is done.
-func (w *conversationWatch) state(pane *v1.Pane, path string) (*v1.ConversationState, error) {
+// transcriptState returns the goal and the waiting messages of the transcript at path. The waiting messages are idle
+// when pane is done.
+func (w *conversationWatch) transcriptState(pane *v1.Pane, path string) (string, []conversation.Waiting, error) {
 	goal, err := w.panes.goals.Goal(path)
 	if err != nil {
-		return nil, transcriptError(err)
+		return "", nil, transcriptError(err)
 	}
 	idle := pane.GetState() == string(protocol.StateDone)
 	waiting, err := w.panes.queues.Waiting(path, idle)
 	if err != nil {
-		return nil, transcriptError(err)
+		return "", nil, transcriptError(err)
 	}
-	return &v1.ConversationState{
-		Origin:  w.origin,
-		Goal:    goal,
-		Waiting: waitingMessages(waiting),
-		Context: &v1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window},
-		Pane:    pane,
-	}, nil
+	return goal, waiting, nil
 }
 
 // livePane returns the Pane message Panes.List gives for the pane with id, and the transcript path of its live

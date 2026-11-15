@@ -3,10 +3,10 @@ import type { JSX } from "preact";
 import type { createClients } from "./client";
 import type { InAppNotice, NoticeKey, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
 
-// noticeKey names a notice's key as one string over all four fields in order, so a key that sets a different field is
+// noticeKey names a notice's key as one string over all five fields in order, so a key that sets a different field is
 // a different notice.
 function noticeKey(key: NoticeKey | undefined): string {
-  return JSON.stringify([key?.pane ?? "", key?.session ?? "", key?.epic ?? "", key?.limit ?? ""]);
+  return JSON.stringify([key?.pane ?? "", key?.session ?? "", key?.epic ?? "", key?.limit ?? "", key?.alert ?? ""]);
 }
 
 // applyNotice applies one change to the notices showing. A shown notice replaces the one under its key in place, or

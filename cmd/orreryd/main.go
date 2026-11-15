@@ -23,6 +23,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/alerts"
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/daemon"
@@ -154,6 +155,8 @@ type options struct {
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
+	webhook         *alerts.Webhook         // the POST /alerts intake, set by startMetrics when metricsListen is set
+	metricsStop     func()                  // stops and waits for the metrics listener; set by startMetrics, nil otherwise
 	notifySocket    string                  // the NOTIFY_SOCKET value orreryd started with, "" when unset
 	// holdReconcile is a test seam: reconcile calls it before it starts, and production leaves it nil.
 	holdReconcile func(ctx context.Context)
@@ -166,6 +169,9 @@ type options struct {
 	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
 	// limitTick, and production leaves it nil.
 	limitTicks <-chan time.Time
+	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
+	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
+	dueNow func() time.Time
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -479,16 +485,14 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Log:        noticeLog,
 		Logger:     logger,
 	}, &relay{
-		claude: opts.claude,
-		models: opts.models,
-		home:   home,
-		logger: logger,
-		judge: donejudge.New(
-			enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
-			opts.models,
-		),
+		claude:      opts.claude,
+		models:      opts.models,
+		home:        home,
+		logger:      logger,
+		judge:       newDoneJudge(opts.claude, opts.models),
 		reads:       newReadTimes(),
 		mirror:      mirror,
+		webhook:     opts.webhook,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	})
 	router := hub.router
@@ -528,6 +532,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		notifyReady(ctx, logger, opts)
 	}
 	serveErr := <-serveDone
+	opts.stopMetricsListener()
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
 		serveErr = fmt.Errorf("serve: %w", serveErr)
@@ -558,9 +563,10 @@ func notifyReady(ctx context.Context, logger *slog.Logger, opts options) {
 	observeFlight(ctx, logger, opts.flight, "start", took)
 }
 
-// startMetrics serves /metrics for a --metrics-listen orreryd until ctx ends. It binds the address, records start as
-// the start time, and sets opts.metrics and opts.metricsHandlers, which the push publisher, the writer, the manager and
-// the session services take. Without the flag it sets nothing.
+// startMetrics serves /metrics and POST /alerts for a --metrics-listen orreryd until ctx ends or serve stops it. It
+// binds the address, records start as the start time, and sets opts.metrics and opts.metricsHandlers, which the push
+// publisher, the writer, the manager and the session services take, and opts.webhook, which serve's relay attaches to
+// the notice router. Without the flag it sets nothing.
 func startMetrics(ctx context.Context, opts *options, start time.Time, logger *slog.Logger) error {
 	if opts.metricsListen == "" {
 		return nil
@@ -577,14 +583,32 @@ func startMetrics(ctx context.Context, opts *options, start time.Time, logger *s
 	if err != nil {
 		return errors.Join(fmt.Errorf("metrics daemon: %w", err), ln.Close())
 	}
+	webhook := alerts.New()
 	opts.metrics = daemon
 	opts.metricsHandlers = provider.HandlerOptions()
+	opts.webhook = webhook
+	listenCtx, stopListen := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
-		if serveErr := provider.Serve(ctx, ln); serveErr != nil {
+		defer close(done)
+		if serveErr := provider.ServeWithAlerts(listenCtx, ln, webhook); serveErr != nil {
 			logger.ErrorContext(ctx, "serve metrics", "error", serveErr)
 		}
 	}()
+	opts.metricsStop = func() {
+		stopListen()
+		<-done
+	}
 	return nil
+}
+
+// stopMetricsListener stops the metrics listener startMetrics started and waits for it to end, so no alert is accepted
+// once serve closes the router. It runs here rather than on the run context, which a failed sessions start leaves
+// running. Without --metrics-listen it does nothing.
+func (opts options) stopMetricsListener() {
+	if opts.metricsStop != nil {
+		opts.metricsStop()
+	}
 }
 
 // serveInBackground runs daemon.Serve on ln with cfg until ctx is done. The returned channel receives Serve's error
@@ -771,7 +795,7 @@ func startSessions(
 		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
-		host.startDue(ctx, st, logger)
+		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
@@ -1124,14 +1148,18 @@ func (h *sessionHost) startIdle(ctx context.Context) {
 	}()
 }
 
-// startDue resumes the due rows over st every limitTick until stop, and once when it starts. Its steps are the host's
-// steps, which startSessions has re-adopted before it starts the pass.
-func (h *sessionHost) startDue(ctx context.Context, st *store.Store, logger *slog.Logger) {
+// startDue resumes the due rows over st every limitTick until stop, and once when it starts, by the clock now, or
+// time.Now when now is nil. Its steps are the host's steps, which startSessions has re-adopted before it starts the
+// pass.
+func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() time.Time, logger *slog.Logger) {
+	if now == nil {
+		now = time.Now
+	}
 	ticker := time.NewTicker(limitTick)
 	due := enginehost.NewDuePass(enginehost.DuePassConfig{
 		Store:  st,
 		Steps:  h.steps,
-		Now:    time.Now,
+		Now:    now,
 		Tick:   ticker.C,
 		Logger: logger,
 	})
@@ -1269,6 +1297,7 @@ type relay struct {
 	judge       *donejudge.Judge // decides whether a plain done needs the user before it routes
 	reads       *readTimes       // each pane's newest read report
 	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
+	webhook     *alerts.Webhook  // the POST /alerts intake that routes to router; nil without --metrics-listen
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 }
 
@@ -1448,10 +1477,15 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	r.router.Notify(ctx, incoming)
 }
 
+// newDoneJudge returns the judge of done notices, which asks claude for each verdict under the per-context models.
+func newDoneJudge(claude string, models map[string]string) *donejudge.Judge {
+	return donejudge.New(enginehost.NewHaiku(enginehost.HaikuConfig{Claude: claude, Environ: os.Environ()}), models)
+}
+
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
 // stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a limit
 // notice through enginehost.RestoreLimitNotice, an epic notice through planner.RestoreNotice, a pane notice through
-// hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
+// hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here. A set webhook attaches to the router.
 func newRelay(cfg route.Config, hub *relay) *relay {
 	cfg.Rebuild = map[string]route.Rebuild{
 		enginehost.SessionSource: enginehost.RestoreNotice,
@@ -1460,6 +1494,9 @@ func newRelay(cfg route.Config, hub *relay) *relay {
 		paneSourceKind:           hub.rebuildPane,
 	}
 	hub.router = route.New(cfg)
+	if hub.webhook != nil {
+		hub.webhook.Attach(hub.router)
+	}
 	return hub
 }
 

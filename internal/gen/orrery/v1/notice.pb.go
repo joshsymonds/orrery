@@ -31,7 +31,9 @@ type NoticeKey struct {
 	// The epic's id.
 	Epic string `protobuf:"bytes,3,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The usage limit, its kind and reset as kind@unix-seconds.
-	Limit         string `protobuf:"bytes,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	Limit string `protobuf:"bytes,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	// The alert's name.
+	Alert         string `protobuf:"bytes,5,opt,name=alert,proto3" json:"alert,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -90,6 +92,13 @@ func (x *NoticeKey) GetEpic() string {
 func (x *NoticeKey) GetLimit() string {
 	if x != nil {
 		return x.Limit
+	}
+	return ""
+}
+
+func (x *NoticeKey) GetAlert() string {
+	if x != nil {
+		return x.Alert
 	}
 	return ""
 }
@@ -376,12 +385,13 @@ var File_orrery_v1_notice_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_notice_proto_rawDesc = "" +
 	"\n" +
-	"\x16orrery/v1/notice.proto\x12\torrery.v1\"c\n" +
+	"\x16orrery/v1/notice.proto\x12\torrery.v1\"y\n" +
 	"\tNoticeKey\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x18\n" +
 	"\asession\x18\x02 \x01(\tR\asession\x12\x12\n" +
 	"\x04epic\x18\x03 \x01(\tR\x04epic\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\tR\x05limit\"u\n" +
+	"\x05limit\x18\x04 \x01(\tR\x05limit\x12\x14\n" +
+	"\x05alert\x18\x05 \x01(\tR\x05alert\"u\n" +
 	"\vInAppNotice\x12&\n" +
 	"\x03key\x18\x01 \x01(\v2\x14.orrery.v1.NoticeKeyR\x03key\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x14\n" +

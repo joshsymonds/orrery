@@ -44,6 +44,33 @@ func Stop(ctx context.Context, dir string) error {
 	return nil
 }
 
+// Kill ends the holder serving dir without asking it, for a holder that has already failed to answer: it SIGKILLs the
+// holder that dir's pids record names, and then the child it records, as Stop does once a holder gives no answer, and
+// returns once the session lock is free. It signals nothing when the lock is free, when dir holds no pids record, or
+// when /proc does not confirm the recorded start of the holder. A dir that does not exist has no holder, so Kill
+// returns nil. When ctx has ended, Kill signals nothing and returns ctx's error; when ctx ends while the lock is still
+// held, it returns an error that wraps ErrLocked.
+func Kill(ctx context.Context, dir string) error {
+	present, err := dirPresent(dir)
+	if err != nil || !present {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return fmt.Errorf("holder: kill %s: %w", dir, err)
+	}
+	if err = killUnattachable(ctx, dir); err != nil {
+		return fmt.Errorf("holder: kill %s: %w", dir, err)
+	}
+	lock, err := awaitLock(ctx, filepath.Join(dir, LockName))
+	if err != nil {
+		return fmt.Errorf("holder: kill %s: %w", dir, err)
+	}
+	if closeErr := lock.Close(); closeErr != nil {
+		return fmt.Errorf("holder: release lock of %s: %w", dir, closeErr)
+	}
+	return nil
+}
+
 // Clear empties the session holder directory dir so a new holder can start there. A holder serving dir's socket is
 // stopped first, as Stop stops it, and the session lock stays held until dir is removed. Once the session lock is free,
 // Clear removes dir with everything in it. A dir that does not exist is already empty, so Clear returns nil. When ctx

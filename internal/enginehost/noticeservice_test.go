@@ -84,13 +84,19 @@ func TestWatchStreamsSnapshotThenChanges(t *testing.T) {
 		t.Fatalf("Watch: %v", err)
 	}
 
-	got := make([]*v1.NoticesWatchResponse, 0, 3)
+	got := make([]*v1.NoticesWatchResponse, 0, 5)
 	got = append(got, nextNoticeChange(t, stream))
 	pages.Show(notice.Key{Session: "0123456789abcdef0123456789abcdef"}, deskstream.Notice{
 		State: "done", Title: "proj · session 01234567", Body: "all done",
 	})
 	got = append(got, nextNoticeChange(t, stream))
 	pages.End(notice.Key{Session: "0123456789abcdef0123456789abcdef"})
+	got = append(got, nextNoticeChange(t, stream))
+	pages.Show(notice.Key{Alert: "synthetic-alert"}, deskstream.Notice{
+		State: "firing", Title: "synthetic alert", Body: "over budget",
+	})
+	got = append(got, nextNoticeChange(t, stream))
+	pages.End(notice.Key{Alert: "synthetic-alert"})
 	got = append(got, nextNoticeChange(t, stream))
 
 	want := []*v1.NoticesWatchResponse{
@@ -104,6 +110,13 @@ func TestWatchStreamsSnapshotThenChanges(t *testing.T) {
 		{Change: &v1.NoticesWatchResponse_Ended{Ended: &v1.NoticeKey{
 			Session: "0123456789abcdef0123456789abcdef",
 		}}},
+		{Change: &v1.NoticesWatchResponse_Shown{Shown: &v1.InAppNotice{
+			Key:   &v1.NoticeKey{Alert: "synthetic-alert"},
+			State: "firing", Title: "synthetic alert", Body: "over budget",
+		}}},
+		{Change: &v1.NoticesWatchResponse_Ended{Ended: &v1.NoticeKey{
+			Alert: "synthetic-alert",
+		}}},
 	}
 	for i := range want {
 		if !proto.Equal(got[i], want[i]) {
@@ -114,19 +127,29 @@ func TestWatchStreamsSnapshotThenChanges(t *testing.T) {
 
 func TestSeenReachesRouterWithClockTime(t *testing.T) {
 	t.Parallel()
-	router := &fakeRouter{}
-	client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, noticeNow))
-
-	ctx := t.Context()
-	if _, err := client.Seen(ctx, connect.NewRequest(&v1.NoticesSeenRequest{
-		Key: &v1.NoticeKey{Pane: "%3"},
-	})); err != nil {
-		t.Fatalf("Seen: %v", err)
+	tests := []struct {
+		name string
+		key  *v1.NoticeKey
+		want notice.Key
+	}{
+		{name: "pane", key: &v1.NoticeKey{Pane: "%3"}, want: notice.Key{Pane: "%3"}},
+		{name: "alert", key: &v1.NoticeKey{Alert: "synthetic-alert"}, want: notice.Key{Alert: "synthetic-alert"}},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			router := &fakeRouter{}
+			client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, noticeNow))
 
-	want := []seenReport{{key: notice.Key{Pane: "%3"}, seen: noticeNow().Unix()}}
-	if !reflect.DeepEqual(router.seens, want) {
-		t.Fatalf("router seen = %+v, want %+v", router.seens, want)
+			if _, err := client.Seen(t.Context(), connect.NewRequest(&v1.NoticesSeenRequest{Key: tc.key})); err != nil {
+				t.Fatalf("Seen: %v", err)
+			}
+
+			want := []seenReport{{key: tc.want, seen: noticeNow().Unix()}}
+			if !reflect.DeepEqual(router.seens, want) {
+				t.Fatalf("router seen = %+v, want %+v", router.seens, want)
+			}
+		})
 	}
 }
 
@@ -139,6 +162,7 @@ func TestSeenRefusesKeyWithoutExactlyOneField(t *testing.T) {
 		{name: "no key", key: nil},
 		{name: "no field", key: &v1.NoticeKey{}},
 		{name: "two fields", key: &v1.NoticeKey{Pane: "%3", Session: "0123456789abcdef0123456789abcdef"}},
+		{name: "alert and pane", key: &v1.NoticeKey{Alert: "synthetic-alert", Pane: "%3"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

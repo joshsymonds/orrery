@@ -194,11 +194,18 @@ web-page:
     scripts/build-web.sh web/build/page
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
+check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
+
+# Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
+# and its -L server runs on as a daemon. Only a server named orrery-test-<pid>-<hex> or orrery-integration-<pid>-<hex>
+# whose test binary <pid> is gone is stopped, with SIGTERM and then SIGKILL (internal/tmuxtest.Reaper). check and
+# check-changed run it first.
+reap-test-tmux:
+    go run ./internal/tmuxtest/cmd/tmuxreap
 
 # The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
 # merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
-check-changed BASE="":
+check-changed BASE="": reap-test-tmux
     scripts/check-changed.sh {{BASE}}
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.

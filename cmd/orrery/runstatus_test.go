@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -69,7 +70,13 @@ func serveStatusPools(t *testing.T, fake *statusPools) string {
 	return daemon
 }
 
-// statusResponse is the status of one pool, builds, with builds-1 granted to a project for a minute and builds-2 free.
+// statusTestNow is the clock run status reads in TestRunStatusPrintsPools.
+func statusTestNow() time.Time {
+	return time.Unix(1_700_000_000, 0)
+}
+
+// statusResponse is the status of one pool, builds, with builds-1 granted to a project 90 seconds before
+// statusTestNow and builds-2 free.
 func statusResponse() *v1.PoolsStatusResponse {
 	return &v1.PoolsStatusResponse{
 		Pools: []*v1.PoolStatus{{
@@ -84,7 +91,7 @@ func statusResponse() *v1.PoolsStatusResponse {
 						Project:   "/work/app",
 						ClientPid: 42,
 						Command:   []string{"make", "all"},
-						Since:     time.Now().Add(-90 * time.Second).Unix(),
+						Since:     statusTestNow().Add(-90 * time.Second).Unix(),
 					},
 				},
 				{Name: "builds-2", State: "free"},
@@ -93,15 +100,16 @@ func statusResponse() *v1.PoolsStatusResponse {
 	}
 }
 
-// TestRunStatusPrintsPools prints each pool and each of its members from orreryd's status, and exits 0.
+// TestRunStatusPrintsPools prints each pool and each of its members from orreryd's status, each grant's age dated on
+// statusTestNow. TestRunStatusReadsNoPoolFiles runs status through run and its exit status.
 func TestRunStatusPrintsPools(t *testing.T) {
 	setupProject(t, "", "")
 	fake := &statusPools{resp: statusResponse()}
 	daemon := serveStatusPools(t, fake)
 	var stdout bytes.Buffer
-	res := awaitOrrery(t, startOrrery(t, &stdout, "--socket", daemon, "run", "status"))
-	if res.code != 0 {
-		t.Fatalf("exit status %d, want 0; stderr %q", res.code, res.stderr)
+	err := runStatus(t.Context(), globals{daemonSocket: daemon}, nil, &stdout, os.Getenv, statusTestNow)
+	if err != nil {
+		t.Fatalf("runStatus: %v", err)
 	}
 	if got := fake.received(); got != 1 {
 		t.Fatalf("pools received %d status calls, want 1", got)
