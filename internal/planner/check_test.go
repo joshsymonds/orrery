@@ -363,9 +363,13 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 	if task == nil {
 		t.Fatalf("Schema has no tasks items")
 	}
-	wantTask := []string{"title", "deliverable", "files", "requirements", "gate", "evidence"}
+	wantTask := []string{"title", "deliverable", "files", "requirements", "contributes", "gate", "evidence"}
 	if !reflect.DeepEqual(task.Required, wantTask) {
 		t.Errorf("task required = %q, want %q", task.Required, wantTask)
+	}
+	contributes := task.Properties["contributes"]
+	if contributes.Type != "array" || contributes.Items == nil || contributes.Items.Type != "string" {
+		t.Errorf("contributes is not an array of strings: type %q", contributes.Type)
 	}
 	if _, ok := task.Properties["check"]; ok {
 		t.Errorf("task still has a check property")

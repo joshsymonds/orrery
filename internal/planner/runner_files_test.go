@@ -11,9 +11,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// filesTaskJSON is a planner return task titled title that plans file alone, under a gate and judge testResolver resolves.
+// filesTaskJSON is a planner return task titled title that plans file alone, under a gate and judge testResolver
+// resolves.
 func filesTaskJSON(title, file string) string {
-	return fmt.Sprintf(`{"title":%q,"deliverable":"d","files":[%q],"requirements":["R1"],`+
+	return fmt.Sprintf(`{"title":%q,"deliverable":"d","files":[%q],"requirements":[],`+
 		`"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],`+
 		`"supplied":[],"conclusion":"c","judge":"a judge"}}`, title, file)
 }
