@@ -66,6 +66,9 @@ type Tool struct {
 // connections, each through its own Serve call.
 type Server struct {
 	tools []Tool
+	// slotFreed is a test seam: when set, it runs each time a tools/call frees its slot under the call ceiling.
+	// Production leaves it nil.
+	slotFreed func()
 }
 
 // Serve runs one newline-delimited JSON-RPC 2.0 MCP connection on input and output until input ends or ctx is
@@ -110,7 +113,7 @@ func (server *Server) sdk(ctx context.Context) *mcp.Server {
 	sdk := mcp.NewServer(&mcp.Implementation{Name: "orrery", Version: "1"}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
-	sdk.AddReceivingMiddleware(limitToolCalls(maxToolCalls))
+	sdk.AddReceivingMiddleware(limitToolCalls(maxToolCalls, server.slotFreed))
 	for _, tool := range server.tools {
 		sdk.AddTool(&mcp.Tool{
 			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
@@ -122,7 +125,7 @@ func (server *Server) sdk(ctx context.Context) *mcp.Server {
 // limitToolCalls returns middleware that lets at most limit tools/call requests run at once on the connection it
 // serves. A request past the limit is refused at once with a JSON-RPC error, is not queued, and never reaches its
 // handler. The SDK runs each call in its own goroutine, so the refusal does not block the reader.
-func limitToolCalls(limit int) mcp.Middleware {
+func limitToolCalls(limit int, freed func()) mcp.Middleware {
 	slots := make(chan struct{}, limit)
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -137,7 +140,12 @@ func limitToolCalls(limit int) mcp.Middleware {
 					Message: fmt.Sprintf("Server already has %d tool calls in flight", limit),
 				}
 			}
-			defer func() { <-slots }()
+			defer func() {
+				<-slots
+				if freed != nil {
+					freed()
+				}
+			}()
 			return next(ctx, method, req)
 		}
 	}

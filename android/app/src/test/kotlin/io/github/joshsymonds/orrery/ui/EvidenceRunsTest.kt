@@ -18,6 +18,7 @@ import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
@@ -48,7 +49,6 @@ class EvidenceRunsTest {
         const val EPIC_ID = "example-repo/example-epic"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EVIDENCE_ARTIFACT = "/orrery.v1.Evidence/Artifact"
-        const val TIMEOUT_MS = 5_000L
         const val CHANGED = 4_102_444_800L
         const val IMAGE_TAG = "evidence-image:1:0:0"
 
@@ -121,11 +121,11 @@ class EvidenceRunsTest {
         countAll(matcher and hasAnyAncestor(hasTestTag(tag)))
 
     private fun awaitAll(matcher: SemanticsMatcher) {
-        composeRule.waitUntil(TIMEOUT_MS) { countAll(matcher) > 0 }
+        composeRule.awaitUntil { countAll(matcher) > 0 }
     }
 
     private fun awaitIn(tag: String, matcher: SemanticsMatcher) {
-        composeRule.waitUntil(TIMEOUT_MS) { countIn(tag, matcher) > 0 }
+        composeRule.awaitUntil { countIn(tag, matcher) > 0 }
     }
 
     private fun clickTag(tag: String) {

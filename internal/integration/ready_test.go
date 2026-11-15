@@ -249,13 +249,15 @@ func TestOrrerydReadyKeepsNotifySocketFromChildren(t *testing.T) {
 	daemon.waitForListener(t, "unix", f.sessions)
 
 	id := f.start(t, dir, "hello")
-	waitUntil(t, "the wrapper to record its environment", func() bool {
-		raw, err := os.ReadFile(recorded)
-		return err == nil && hasEnvVar(string(raw), "HOME")
-	})
+	// The fake claude's reply comes after the wrapper recorded its environment and exec'd it, and after the fake claude
+	// wrote the pid file stopSession reads.
+	f.waitForBlock(t, id, "fake reply 1")
 	raw, err := os.ReadFile(recorded)
 	if err != nil {
 		t.Fatalf("read recorded environment: %v", err)
+	}
+	if !hasEnvVar(string(raw), "HOME") {
+		t.Fatalf("recorded environment %q holds no HOME, want the session claude's whole environment", raw)
 	}
 	if hasEnvVar(string(raw), "NOTIFY_SOCKET") {
 		t.Fatalf("session claude inherited NOTIFY_SOCKET; environment %q", raw)

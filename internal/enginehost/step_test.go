@@ -141,14 +141,11 @@ func stepStartReadOnly(workspace, revision string) StepStart {
 	}
 }
 
-// stepStartAwait fails the test unless ready reports true within waitTimeout.
-func stepStartAwait(t *testing.T, what string, ready func() bool) {
+// stepStartAwait polls until ready reports true; its second argument names the state. It has no deadline of its own:
+// the step's git and store work runs at the machine's pace, and the test binary's timeout ends a wait that never ends.
+func stepStartAwait(t *testing.T, _ string, ready func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(waitTimeout)
 	for !ready() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
 		time.Sleep(5 * time.Millisecond)
 	}
 }
@@ -354,9 +351,12 @@ func TestStepsStartReadOnlyRunsDetachedWorktreeAndRemovesItAtEnd(t *testing.T) {
 	}
 
 	step.Observer.Return(session.TurnEnded{StructuredOutput: []byte(`{"status":"done"}`)})
+	// The end is stored before the worktree is removed, and git removes the worktree's directory before its record of
+	// it, so the removal is done once git no longer lists the worktree.
 	stepStartAwait(t, "the step to end and its worktree to go", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
-		return err == nil && row.End != "" && stepStartGone(wt)
+		return err == nil && row.End != "" && stepStartGone(wt) &&
+			!strings.Contains(stepWorktreeTestWorktrees(t, repo), id)
 	})
 	row, err = f.steps.Status(t.Context(), id)
 	if err != nil {

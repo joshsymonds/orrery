@@ -1,10 +1,12 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -31,6 +33,12 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import com.connectrpc.Code
 import com.google.protobuf.ByteString
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.awaitNone
+import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.awaitUntilAfterIdle
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
@@ -45,7 +53,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
-import io.github.joshsymonds.orrery.waitUntilAfterIdle
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -63,7 +71,7 @@ private const val KEYS_PATH = "/orrery.v1.Panes/SendKeys"
 private const val SEND_PATH = "/orrery.v1.Panes/SendText"
 private const val CONVERSATION_PATH = "/orrery.v1.Panes/Conversation"
 private const val HOST_PATH = "/orrery.v1.Host/Status"
-private const val TIMEOUT_MILLIS = 5_000L
+private const val STREAM_PATH = "/orrery.v1.Panes/WatchConversation"
 private const val FIXED_NOW_SECONDS = 1_800_000_000L
 private const val FIXTURE_SEEN = 4102444900L
 // Made-up unix seconds for the seen-at-open tests: the pane's seen time sits between the two replies.
@@ -141,6 +149,12 @@ class PaneScreenTest {
     }
 
     private fun setScreen(server: FakeOrreryServer) {
+        // These tests cover the polled screen. The stream is answered as orreryd answers a pane it does not stream, so
+        // the screen polls at once; an unanswered stream would be retried three times a second apart first, and the
+        // first render would wait out those reconnect delays.
+        server.route(STREAM_PATH) {
+            Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, "synthetic pane has no stream"))
+        }
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             MaterialTheme { PaneScreen(PANE_ID, client) }
@@ -239,7 +253,7 @@ class PaneScreenTest {
             servePane(server, state = "done", conversation = body)
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag("context-meter"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("context-meter"))
             composeRule.onNodeWithTag("context-meter").assertTextEquals("▰▰▱▱▱ 40%")
         }
     }
@@ -250,7 +264,7 @@ class PaneScreenTest {
             serve(server)
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.waitForIdle()
 
             composeRule.onNodeWithTag(NO_CONVERSATION_TAG).assertIsDisplayed()
@@ -279,7 +293,7 @@ class PaneScreenTest {
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag("new-divider"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("new-divider"))
             assertDividerBeforeRow(below = 2)
             composeRule.onNodeWithTag("entry-row:2")
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "new"))
@@ -293,14 +307,14 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("new-divider"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("new-divider"))
             assertDividerBeforeRow(below = 2)
 
             // The later poll also turns the pane to working. Its composer edge is drawn from the same
             // state write that would move the seen time, so the edge shows the later poll has landed.
             server.respond(PANES_PATH, paneList(state = "working", seen = SEEN_AFTER_REPLIES))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer-edge:working"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:working"))
 
             assertDividerBeforeRow(below = 2)
         }
@@ -312,7 +326,7 @@ class PaneScreenTest {
             servePane(server, seen = NEWER_REPLY_TIME, conversation = twoReplies())
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic newer reply"))
             composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
         }
     }
@@ -322,10 +336,10 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic newer reply"))
 
             composeRule.mainClock.advanceTimeBy(2_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 1 }
+            composeRule.awaitUntil { readMarks(server).size == 1 }
 
             assertEquals(listOf(NEWER_REPLY_TIME), readMarks(server))
             val firstPaneRead = server.requests.indexOfFirst { it.method == "POST" && it.rawPath == PANES_PATH }
@@ -343,14 +357,14 @@ class PaneScreenTest {
                 conversation = conversationBody(timedReply(OLDER_REPLY_TIME, "synthetic older reply")),
             )
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic older reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic older reply"))
             composeRule.mainClock.advanceTimeBy(2_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 1 }
+            composeRule.awaitUntil { readMarks(server).size == 1 }
 
             server.respond(CONVERSATION_PATH, twoReplies())
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic newer reply"))
             composeRule.mainClock.advanceTimeBy(2_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 2 }
+            composeRule.awaitUntil { readMarks(server).size == 2 }
 
             assertEquals(listOf(OLDER_REPLY_TIME, NEWER_REPLY_TIME), readMarks(server))
         }
@@ -362,10 +376,10 @@ class PaneScreenTest {
             servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
             server.fail(SEEN_PATH, Code.INTERNAL_ERROR)
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic newer reply"))
 
             composeRule.mainClock.advanceTimeBy(2_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 1 }
+            composeRule.awaitUntil { readMarks(server).size == 1 }
             composeRule.waitForIdle()
             assertEquals(listOf(NEWER_REPLY_TIME), readMarks(server))
             composeRule.onNodeWithText("synthetic newer reply").assertIsDisplayed()
@@ -373,7 +387,7 @@ class PaneScreenTest {
 
             server.respond(PANES_PATH, paneList(state = "working"))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer-edge:working"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer-edge:working"))
         }
     }
 
@@ -381,18 +395,38 @@ class PaneScreenTest {
     fun paneRefreshesEverySecondWhileVisible() {
         FakeOrreryServer().use { server ->
             serve(server)
-            setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            // The read's last call is the host's status; the main thread's first state write after that call arrives
+            // is the read's result, and the refresh's one-second timer starts in that same main-thread step.
+            val main = Looper.getMainLooper()
+            val mainWrites = AtomicInteger()
+            val writesWhenTheReadEnded = AtomicInteger(-1)
+            server.route(HOST_PATH) {
+                if (paneListRequests(server) == 1) writesWhenTheReadEnded.compareAndSet(-1, mainWrites.get())
+                Reply.Failure(Code.NOT_FOUND, "", 0L)
+            }
+            val countMainWrites = Snapshot.registerGlobalWriteObserver {
+                if (Looper.myLooper() == main) mainWrites.incrementAndGet()
+            }
+            try {
+                // Only the test moves the clock, from before the screen starts, so the timer starts at the time the
+                // test then advances from.
+                composeRule.mainClock.autoAdvance = false
+                setScreen(server)
+                composeRule.awaitUntilAfterIdle {
+                    writesWhenTheReadEnded.get() >= 0 && mainWrites.get() > writesWhenTheReadEnded.get()
+                }
+            } finally {
+                countMainWrites.dispose()
+            }
             assertEquals(1, paneListRequests(server))
 
-            // Only the test moves the clock from here, so the refresh comes at exactly one second.
-            composeRule.mainClock.autoAdvance = false
             composeRule.mainClock.advanceTimeBy(999)
             composeRule.waitForIdle()
+            composeRule.onNodeWithTag(NO_CONVERSATION_TAG).assertExists()
             assertEquals(1, paneListRequests(server))
 
             composeRule.mainClock.advanceTimeBy(1)
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
+            composeRule.awaitUntilAfterIdle { paneListRequests(server) == 2 }
         }
     }
 
@@ -401,7 +435,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             serve(server)
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
 
             composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
             composeRule.waitForIdle()
@@ -411,7 +445,7 @@ class PaneScreenTest {
             assertEquals(stoppedAt, paneListRequests(server))
 
             composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) > stoppedAt }
+            composeRule.awaitUntil { paneListRequests(server) > stoppedAt }
         }
     }
 
@@ -420,16 +454,16 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             serve(server)
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
 
             server.fail(PANES_PATH, Code.INTERNAL_ERROR)
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasText("could not refresh"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("could not refresh"))
             composeRule.onNodeWithTag(NO_CONVERSATION_TAG).assertIsDisplayed()
 
             server.respond(PANES_PATH, paneList(state = "waiting"))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilDoesNotExist(hasText("could not refresh"), TIMEOUT_MILLIS)
+            composeRule.awaitNone(hasText("could not refresh"))
             composeRule.onNodeWithTag(NO_CONVERSATION_TAG).assertIsDisplayed()
         }
     }
@@ -440,7 +474,7 @@ class PaneScreenTest {
             serve(server, question = toolQuestion)
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("1 Yes"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("1 Yes"))
             composeRule.onNodeWithText("Bash: echo synthetic").assertIsDisplayed()
             composeRule.onNodeWithText("2 Yes, don't ask again").assertIsDisplayed()
             composeRule.onNodeWithText("3 No").assertIsDisplayed()
@@ -453,7 +487,7 @@ class PaneScreenTest {
             serve(server)
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithText("1 Yes").assertDoesNotExist()
             composeRule.onNodeWithText("3 No").assertDoesNotExist()
         }
@@ -465,12 +499,12 @@ class PaneScreenTest {
             serve(server, question = toolQuestion)
             server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("1 Yes"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("1 Yes"))
             assertEquals(1, paneListRequests(server))
 
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("1 Yes").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
+            composeRule.awaitUntilAfterIdle { paneListRequests(server) == 2 }
         }
     }
 
@@ -480,7 +514,7 @@ class PaneScreenTest {
             serve(server)
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithText("Send").assertIsDisplayed()
             composeRule.onNodeWithText("Esc").assertExists()
         }
@@ -491,14 +525,14 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             serve(server)
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithText("Esc").assertExists()
 
             setDraft(SYNTHETIC_DRAFT)
-            composeRule.waitUntilDoesNotExist(hasText("Esc"), TIMEOUT_MILLIS)
+            composeRule.awaitNone(hasText("Esc"))
 
             setDraft("")
-            composeRule.waitUntilExactlyOneExists(hasText("Esc"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("Esc"))
         }
     }
 
@@ -511,7 +545,7 @@ class PaneScreenTest {
                 conversation = conversationBody(conversationItem("reply", "synthetic reply")),
             )
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(PANE_HEADER_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(PANE_HEADER_TAG))
             composeRule.waitForIdle()
 
             assertEquals(expected, editField().hint?.toString())
@@ -523,7 +557,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             server.respond(PANES_PATH, PanesListResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) >= 1 }
+            composeRule.awaitUntil { paneListRequests(server) >= 1 }
             composeRule.waitForIdle()
 
             assertEquals("", editField().hint?.toString().orEmpty())
@@ -547,7 +581,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, state = "")
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithTag(PANE_HEADER_TAG).assertExists()
 
             composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
@@ -588,7 +622,7 @@ class PaneScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onNodeWithText("synthetic prompt").assertIsDisplayed()
             composeRule.onAllNodesWithTag(NO_CONVERSATION_TAG).assertCountEquals(0)
             assertEquals(0, screenRequests(server))
@@ -605,7 +639,7 @@ class PaneScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithTag("pane-header").assertExists()
             composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
             assertEquals(0, conversationRequests(server))
@@ -619,10 +653,10 @@ class PaneScreenTest {
             server.respond(SCREEN_PATH, screenOf("synthetic terminal body"))
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithTag(NO_CONVERSATION_TAG).assertTextEquals("no conversation")
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) >= 2 }
+            composeRule.awaitUntil { paneListRequests(server) >= 2 }
 
             assertEquals(0, screenRequests(server))
             composeRule.onAllNodesWithText("synthetic terminal body").assertCountEquals(0)
@@ -635,16 +669,16 @@ class PaneScreenTest {
             val replyBody = conversationBody(conversationItem("reply", "synthetic reply"))
             servePane(server, conversation = replyBody)
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
 
             server.fail(CONVERSATION_PATH, Code.NOT_FOUND)
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             composeRule.onNodeWithText("synthetic reply").assertDoesNotExist()
 
             server.respond(CONVERSATION_PATH, replyBody)
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onAllNodesWithTag(NO_CONVERSATION_TAG).assertCountEquals(0)
         }
     }
@@ -663,7 +697,7 @@ class PaneScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("1 Yes"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("1 Yes"))
             val reply = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot
             val card = composeRule.onNodeWithText("1 Yes").fetchSemanticsNode().boundsInRoot
             assertTrue(card.top >= reply.bottom)
@@ -683,7 +717,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onNodeWithText("0:12", useUnmergedTree = true).assertExists()
         }
     }
@@ -693,11 +727,11 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
             setClockedScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
 
             server.fail(CONVERSATION_PATH, Code.INTERNAL_ERROR)
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasText("could not refresh"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("could not refresh"))
             composeRule.onNodeWithText("synthetic reply").assertIsDisplayed()
             composeRule.onAllNodesWithTag(NO_CONVERSATION_TAG).assertCountEquals(0)
         }
@@ -710,7 +744,7 @@ class PaneScreenTest {
             server.respond(HOST_PATH, HOST_BODY)
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(HOST_METERS_TAG))
         }
     }
 
@@ -720,11 +754,11 @@ class PaneScreenTest {
             servePane(server)
             server.respond(HOST_PATH, HOST_BODY)
             setClockedScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(HOST_METERS_TAG))
 
             server.fail(HOST_PATH, Code.NOT_FOUND)
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilDoesNotExist(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitNone(hasTestTag(HOST_METERS_TAG))
         }
     }
 
@@ -734,15 +768,15 @@ class PaneScreenTest {
             servePane(server)
             server.respond(HOST_PATH, HOST_BODY)
             setClockedScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(HOST_METERS_TAG))
 
             server.fail(HOST_PATH, Code.INTERNAL_ERROR)
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
+            composeRule.awaitUntil { paneListRequests(server) == 2 }
             // A read starts only after the read before it has returned its host call, so the third
             // read means the failed host call has been handled.
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) == 3 }
+            composeRule.awaitUntil { paneListRequests(server) == 3 }
             composeRule.onAllNodesWithTag(HOST_METERS_TAG).assertCountEquals(1)
             composeRule.onNodeWithText("could not refresh").assertDoesNotExist()
         }
@@ -781,7 +815,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
 
             composeRule.onNodeWithTag(PANE_HEADER_TAG).assertIsDisplayed()
         }
@@ -793,7 +827,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
 
             val list = composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).fetchSemanticsNode().boundsInRoot
             assertEquals(headerBounds().top, list.top, EDGE_TOLERANCE_PX)
@@ -806,7 +840,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
 
             drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
             drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
@@ -821,7 +855,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
 
             drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
             drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
@@ -839,7 +873,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
             drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
             drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
             assertHeaderHidden()
@@ -857,7 +891,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
             drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
             drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
             assertHeaderHidden()
@@ -875,7 +909,7 @@ class PaneScreenTest {
         FakeOrreryServer().use { server ->
             servePane(server, conversation = numberedReplies(SHORT_REPLY_COUNT))
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply 1"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply 1"))
 
             val header = headerBounds()
             val first = composeRule.onNodeWithText("synthetic reply 1").fetchSemanticsNode().boundsInRoot
@@ -899,7 +933,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(GOAL_LINE_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(GOAL_LINE_TAG))
             composeRule.onNodeWithText("synthetic goal text", useUnmergedTree = true).assertIsDisplayed()
             val goal = composeRule.onNodeWithTag(GOAL_LINE_TAG).fetchSemanticsNode().boundsInRoot
             val status = composeRule.onNodeWithTag(STATUS_LINE_TAG).fetchSemanticsNode().boundsInRoot
@@ -922,7 +956,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic queued message"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic queued message"))
             composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
             composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(1)
             composeRule.onNodeWithTag("waiting-row").assertIsDisplayed()
@@ -943,7 +977,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
             composeRule.onAllNodesWithTag("composer-edge:idle").assertCountEquals(1)
         }
@@ -959,7 +993,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onAllNodesWithTag("composer-edge:waiting").assertCountEquals(1)
         }
     }
@@ -977,7 +1011,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("not delivered"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("not delivered"))
             composeRule.onNodeWithText("synthetic dropped message").assertIsDisplayed()
         }
     }
@@ -992,7 +1026,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
             composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
         }
@@ -1008,7 +1042,7 @@ class PaneScreenTest {
             )
             setClockedScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
         }
     }
@@ -1027,7 +1061,7 @@ class PaneScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("3 tool calls"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("3 tool calls"))
             composeRule.onNodeWithTag("notice:task").assertIsDisplayed()
             composeRule.onNodeWithText("synthetic task notice").assertIsDisplayed()
             composeRule.onAllNodesWithTag("tool-row:synthetic-tool-1").assertCountEquals(0)
@@ -1060,7 +1094,7 @@ class PaneScreenTest {
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             server.respond(SEND_PATH, SendTextResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
             composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(0)
             composeRule.waitForIdle()
             assertFalse(replyInView("synthetic reply $REPLY_COUNT"))
@@ -1068,7 +1102,7 @@ class PaneScreenTest {
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
 
-            composeRule.waitUntil(TIMEOUT_MILLIS) { replyInView("synthetic reply $REPLY_COUNT") }
+            composeRule.awaitUntil { replyInView("synthetic reply $REPLY_COUNT") }
         }
     }
 
@@ -1079,16 +1113,16 @@ class PaneScreenTest {
             servePane(server, conversation = numberedReplies(REPLY_COUNT))
             server.respond(SEND_PATH, SendTextResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply $REPLY_COUNT"))
             composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(0)
             composeRule.waitForIdle()
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { replyInView("synthetic reply $REPLY_COUNT") }
+            composeRule.awaitUntil { replyInView("synthetic reply $REPLY_COUNT") }
 
             server.respond(CONVERSATION_PATH, numberedReplies(REPLY_COUNT + 1))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { replyInView("synthetic reply ${REPLY_COUNT + 1}") }
+            composeRule.awaitUntil { replyInView("synthetic reply ${REPLY_COUNT + 1}") }
         }
     }
 }

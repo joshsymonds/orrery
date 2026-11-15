@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,9 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/grants"
 )
+
+// gateGrantPoll is how often a test reads the fake pools while it waits for a request to reach them.
+const gateGrantPoll = 10 * time.Millisecond
 
 // fakeGatePools is a PoolCommands that grants at once. Each Acquire records its request. A grant holds one member for
 // each need, named <pool>-1 up to the need's count, and a reclaim keeps the grant id it names. A value sent to stop makes
@@ -230,22 +234,44 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 
 func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	t.Parallel()
+	// The gate's limit is its holder's, set when the holder launches, so time queued for the grant can count toward it
+	// only if the gate starts before the grant. While the grant is held queued, the gate must not have started and
+	// runGrantedGate must not have returned.
 	queue := make(chan struct{})
 	pools := &fakeGatePools{queue: queue}
-	time.AfterFunc(1500*time.Millisecond, func() { close(queue) })
+	ran := filepath.Join(t.TempDir(), "ran")
 
-	started := time.Now()
-	result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", "exit 0"},
-		Dir:     t.TempDir(),
-		Limit:   time.Second,
-		Environ: gateEnv(),
-	})
+	type outcome struct {
+		result gateResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Argv:    []string{"/bin/sh", "-c", `echo 1 > "$RAN"; exit 0`},
+			Dir:     t.TempDir(),
+			Limit:   time.Second,
+			Environ: gateEnv("RAN=" + ran),
+		})
+		done <- outcome{result, err}
+	}()
+	for len(pools.requested()) == 0 {
+		time.Sleep(gateGrantPoll)
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("runGrantedGate returned (%+v, %v) while its grant was queued", got.result, got.err)
+	default:
+	}
+	if _, err := os.Stat(ran); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the gate ran while its grant was queued: stat %s = %v", ran, err)
+	}
+
+	close(queue)
+	got := <-done
+	result, err := got.result, got.err
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed < 1500*time.Millisecond {
-		t.Fatalf("runGrantedGate returned after %v, before the grant it queued for", elapsed)
 	}
 	if result.TimedOut {
 		t.Fatal("TimedOut = true: the time spent queued counted toward Limit")
@@ -255,46 +281,84 @@ func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	}
 }
 
+// gateHolderLimit returns the --gate-limit argument the running holder of the gate in dir was started with, as its
+// /proc cmdline holds it.
+func gateHolderLimit(t *testing.T, dir string) string {
+	t.Helper()
+	pids := holderPids(t, dir)
+	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pids.Holder), "cmdline"))
+	if err != nil {
+		t.Fatalf("read the cmdline of holder %d: %v", pids.Holder, err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
+	for i, arg := range args {
+		if arg == "--gate-limit" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	t.Fatalf("holder %d argv %q has no --gate-limit", pids.Holder, args)
+	return ""
+}
+
+// TestGrantedGateEachAttemptGetsItsOwnLimit checks that a gate rerun after a stop gets a whole Limit of its own. The
+// limit is its holder's, which counts from the holder's start, so each attempt's holder must be started with the full
+// Limit. The first attempt runs until its grant is stopped, the rerun until the test releases it, and the rerun's
+// result stands with no time out.
 func TestGrantedGateEachAttemptGetsItsOwnLimit(t *testing.T) {
 	t.Parallel()
 	first := filepath.Join(t.TempDir(), "first")
+	second := filepath.Join(t.TempDir(), "second")
+	release := filepath.Join(t.TempDir(), "release")
 	pools := &fakeGatePools{stop: make(chan struct{})}
+	started := make(chan string, 2)
 
 	type outcome struct {
 		result gateResult
 		err    error
 	}
 	done := make(chan outcome, 1)
-	started := time.Now()
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
 			Argv: []string{
 				"/bin/sh",
 				"-c",
-				`if [ -e "$FIRST" ]; then sleep 0.6; else echo 1 > "$FIRST"; sleep 60; fi; exit 0`,
+				`if [ -e "$FIRST" ]; then echo 2 > "$SECOND"; until [ -e "$RELEASE" ]; do sleep 0.01; done; ` +
+					`else echo 1 > "$FIRST"; sleep 60; fi; exit 0`,
 			},
-			Dir:     t.TempDir(),
-			Limit:   time.Second,
-			Environ: gateEnv("FIRST=" + first),
+			Dir:      t.TempDir(),
+			Limit:    time.Second,
+			StateDir: gateShortStateDir(t),
+			Environ:  gateEnv("FIRST="+first, "SECOND="+second, "RELEASE="+release),
+			Started: func(_ context.Context, _, dir string) error {
+				started <- dir
+				return nil
+			},
 		})
 		done <- outcome{result, err}
 	}()
 
+	firstDir := gateWaitStarted(t, started)
 	gateWaitFile(t, first)
-	time.Sleep(600 * time.Millisecond)
+	if got := gateHolderLimit(t, firstDir); got != "1" {
+		t.Fatalf("first attempt's holder --gate-limit = %s, want the whole 1 s Limit", got)
+	}
 	pools.stopGrant()
 
-	var got outcome
-	select {
-	case got = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate never returned after the stop")
+	rerunDir := gateWaitStarted(t, started)
+	gateWaitFile(t, second)
+	if rerunDir == firstDir {
+		t.Fatalf("the rerun ran under the first attempt's holder directory %s, want a holder of its own", rerunDir)
 	}
+	if got := gateHolderLimit(t, rerunDir); got != "1" {
+		t.Fatalf("rerun's holder --gate-limit = %s, want the whole 1 s Limit", got)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatalf("release the rerun: %v", err)
+	}
+
+	got := <-done
 	if got.err != nil {
 		t.Fatalf("runGrantedGate: %v", got.err)
-	}
-	if elapsed := time.Since(started); elapsed < 1200*time.Millisecond {
-		t.Fatalf("runGrantedGate returned after %v: the two attempts must run past one Limit together", elapsed)
 	}
 	if got.result.TimedOut {
 		t.Fatal("TimedOut = true: the first attempt's run time counted toward the rerun's Limit")

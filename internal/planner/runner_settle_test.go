@@ -223,11 +223,8 @@ func TestRunnerStopsRetryingTurnWriteWhenItsContextEnds(t *testing.T) {
 	waitFor(t, "FailTurn to be retried", func() bool { return faulty.calls.Load() >= 2 })
 
 	cancel()
-	select {
-	case <-finished:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after its context ended: the retry of the turn write does not stop")
-	}
+	// A retry of the turn write that never stopped would keep Run from returning, which the test binary's timeout ends.
+	<-finished
 	if got := epicOf(t, s).Turns[0].State; got != "running" {
 		t.Errorf("turn 1 state = %q, want running: the retry wrote nothing", got)
 	}

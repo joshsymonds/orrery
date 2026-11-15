@@ -13,7 +13,6 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
 
 private const val STREAM_CONTENT_TYPE = "application/connect+proto"
 private const val ENVELOPE_MESSAGE_FLAG = 0
@@ -95,9 +94,13 @@ class FakeOrreryServer : AutoCloseable {
         server.start()
     }
 
-    /** Waits up to [timeoutMillis] for a [StreamEnd.Held] stream whose client closed the connection. */
-    fun awaitStreamClosedByClient(timeoutMillis: Long): Boolean =
-        streamsClosedByClient.poll(timeoutMillis, TimeUnit.MILLISECONDS) != null
+    /**
+     * Waits for a [StreamEnd.Held] stream whose client closed the connection. The close is the client's work on its
+     * own threads, so the wait has no deadline of its own; the test task's timeout bounds a close that never comes.
+     */
+    fun awaitStreamClosedByClient() {
+        streamsClosedByClient.take()
+    }
 
     /** Answers [procedure], a path such as `/orrery.v1.Panes/List`, with [message]. */
     fun respond(procedure: String, message: MessageLite, delayMillis: Long = 0L) {

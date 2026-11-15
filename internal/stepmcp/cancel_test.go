@@ -16,10 +16,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 )
 
-// cancelSettle is how long a test waits after it sends a cancel before it checks or releases a held call. The SDK
-// applies a cancel in its own goroutine, so the wait gives that goroutine time to run first.
-const cancelSettle = 50 * time.Millisecond
-
 // heldDaemon is the fake daemon for the cancel tests. Each call it serves reports its key on entered, then holds until
 // release is closed. A call that is released reports its key on finished and returns nil. A call whose context ends
 // first reports its key on ended and returns the context's error. It embeds the three clients, and implements only the
@@ -32,6 +28,8 @@ type heldDaemon struct {
 	finished chan string
 	ended    chan string
 	release  chan struct{}
+	// contexts receives the context of each call, just before its key on entered.
+	contexts chan context.Context
 }
 
 func newHeldDaemon() *heldDaemon {
@@ -40,11 +38,13 @@ func newHeldDaemon() *heldDaemon {
 		finished: make(chan string, 16),
 		ended:    make(chan string, 16),
 		release:  make(chan struct{}),
+		contexts: make(chan context.Context, 16),
 	}
 }
 
 // hold reports key on entered, then returns nil once release is closed, or returns ctx's error once ctx ends first.
 func (d *heldDaemon) hold(ctx context.Context, key string) error {
+	d.contexts <- ctx
 	d.entered <- key
 	select {
 	case <-d.release:
@@ -212,17 +212,10 @@ func (c *clientConn) start(ctx context.Context, name, arguments string) <-chan e
 	return outcome
 }
 
-// receive returns the next value on ch, or fails the test when none arrives within testTimeout.
-func receive[T any](t *testing.T, ch <-chan T, what string) T {
+// receive returns the next value on ch; its last argument names the event. It has no deadline of its own.
+func receive[T any](t *testing.T, ch <-chan T, _ string) T {
 	t.Helper()
-	select {
-	case value := <-ch:
-		return value
-	case <-time.After(testTimeout):
-		t.Fatalf("%s did not happen within %v", what, testTimeout)
-		var zero T
-		return zero
-	}
+	return <-ch
 }
 
 // TestCancelFreesAWaitSlotForANinthCall checks that with eight step_wait calls held on one connection, a cancel for one
@@ -234,6 +227,8 @@ func TestCancelFreesAWaitSlotForANinthCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
+	freed := make(chan struct{}, 16)
+	server.slotFreed = func() { freed <- struct{}{} }
 	conn := serveClient(t, server)
 
 	const ceiling = 8
@@ -256,8 +251,8 @@ func TestCancelFreesAWaitSlotForANinthCall(t *testing.T) {
 	if key := receive(t, daemon.ended, "the canceled step_wait's context ends"); key != canceledStep {
 		t.Fatalf("context ended for %s, want %s", key, canceledStep)
 	}
-	// The handler returns once its context ends, and its slot frees just after. A short fixed delay lets that happen.
-	time.Sleep(cancelSettle)
+	// The handler returns once its context ends, and its slot frees just after, which slotFreed reports.
+	receive(t, freed, "the canceled call's slot frees")
 
 	ninth := conn.start(t.Context(), "step_wait", `{"ids":["step-9"]}`)
 	select {
@@ -267,8 +262,6 @@ func TestCancelFreesAWaitSlotForANinthCall(t *testing.T) {
 		}
 	case err := <-ninth:
 		t.Fatalf("ninth call returned before it reached the daemon: %v", err)
-	case <-time.After(testTimeout):
-		t.Fatal("a ninth step_wait call did not run")
 	}
 }
 
@@ -309,16 +302,17 @@ func TestCancelLeavesAMutatingCallRunning(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			conn.start(ctx, tc.tool, tc.arguments)
+			callCtx := receive(t, daemon.contexts, "the call's context reaches the daemon")
 			receive(t, daemon.entered, "the call reaches the daemon")
 			cancel()
-			// The cancel is sent from the client's own goroutine. A ping's reply, which comes after the cancel on the
-			// wire, and a short fixed delay let the server apply it before the check.
+			// The cancel is sent from the client's own goroutine. A ping's reply comes after the cancel on the wire, and
+			// the server handles a notification before the next message, so once the ping is answered the cancel has
+			// been applied. A context a cancel reaches has ended at once, so the call's context shows it.
 			if err = conn.session.Ping(t.Context(), nil); err != nil {
 				t.Fatalf("%s: ping after the cancel: %v", tc.tool, err)
 			}
-			time.Sleep(cancelSettle)
-			if n := len(daemon.ended); n != 0 {
-				t.Fatalf("%s: the daemon saw its call's context end after a cancel", tc.tool)
+			if err := callCtx.Err(); err != nil {
+				t.Fatalf("%s: the call's context ended after a cancel: %v", tc.tool, err)
 			}
 
 			close(daemon.release)

@@ -14,6 +14,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
@@ -38,7 +39,6 @@ import java.util.concurrent.atomic.AtomicReference
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
 class PickerPanelTest {
     private companion object {
-        const val TIMEOUT_MS = 5_000L
         const val ASK_DELAY_MS = 800L
         const val ASK_PATH = "/orrery.v1.Picker/Ask"
         const val RUN_PATH = "/orrery.v1.Picker/Run"
@@ -140,9 +140,9 @@ class PickerPanelTest {
         server.respond(ASK_PATH, startRowsResponse())
         setPanel(server)
         submit("fix the test")
-        composeRule.waitUntil(TIMEOUT_MS) { rowExists(row) }
+        composeRule.awaitUntil { rowExists(row) }
         composeRule.onNodeWithTag("picker-row:$row").performClick()
-        composeRule.waitUntil(TIMEOUT_MS) { composeRule.onAllNodesWithTag("start-form").fetchSemanticsNodes().isNotEmpty() }
+        composeRule.awaitUntil { composeRule.onAllNodesWithTag("start-form").fetchSemanticsNodes().isNotEmpty() }
     }
 
     private fun submit(text: String) {
@@ -175,7 +175,7 @@ class PickerPanelTest {
             submit("fix the test")
 
             composeRule.onNodeWithTag("picker-working").assertIsDisplayed()
-            composeRule.waitUntil(TIMEOUT_MS) { rowExists(0) }
+            composeRule.awaitUntil { rowExists(0) }
             assertTrue(composeRule.onAllNodesWithTag("picker-working").fetchSemanticsNodes().isEmpty())
 
             val asks = postsTo(server, ASK_PATH)
@@ -202,9 +202,9 @@ class PickerPanelTest {
             setPanel(server)
 
             submit("fix the test")
-            composeRule.waitUntil(TIMEOUT_MS) { rowExists(1) }
+            composeRule.awaitUntil { rowExists(1) }
             composeRule.onNodeWithTag("picker-row:1").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { opened.get() != null }
+            composeRule.awaitUntil { opened.get() != null }
 
             assertEquals("%9", opened.get())
             val runs = postsTo(server, RUN_PATH)
@@ -220,7 +220,7 @@ class PickerPanelTest {
             setPanel(server)
 
             submit("fix the test")
-            composeRule.waitUntil(TIMEOUT_MS) {
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithTag("picker-error").fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithTag("picker-error").assertTextEquals("no answer from the host")
@@ -228,7 +228,7 @@ class PickerPanelTest {
 
             server.respond(ASK_PATH, rowsResponse())
             composeRule.onNodeWithTag("picker-ask").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { rowExists(0) }
+            composeRule.awaitUntil { rowExists(0) }
 
             assertEquals(2, postsTo(server, ASK_PATH).size)
             assertTrue(composeRule.onAllNodesWithTag("picker-error").fetchSemanticsNodes().isEmpty())
@@ -243,9 +243,9 @@ class PickerPanelTest {
             setPanel(server)
 
             submit("fix the test")
-            composeRule.waitUntil(TIMEOUT_MS) { rowExists(0) }
+            composeRule.awaitUntil { rowExists(0) }
             composeRule.onNodeWithTag("picker-row:0").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) {
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithTag("picker-error").fetchSemanticsNodes().isNotEmpty()
             }
 
@@ -319,7 +319,7 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
 
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { started.get() != null }
+            composeRule.awaitUntil { started.get() != null }
 
             val starts = postsTo(server, START_PATH)
             assertEquals(1, starts.size)
@@ -339,7 +339,7 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
 
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) {
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithTag("picker-error").fetchSemanticsNodes().isNotEmpty()
             }
 
@@ -357,9 +357,9 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
 
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.awaitUntil { errorShown() }
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+            composeRule.awaitUntil { startIds(server).size == 2 }
 
             val ids = startIds(server)
             assertTrue(ID_FORM.matches(ids[0]))
@@ -382,9 +382,9 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
 
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.awaitUntil { errorShown() }
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { started.get() != null }
+            composeRule.awaitUntil { started.get() != null }
 
             val ids = startIds(server)
             assertEquals(2, ids.size)
@@ -401,10 +401,10 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
 
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.awaitUntil { errorShown() }
             composeRule.onNodeWithTag("start-message").performTextInput(" now")
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+            composeRule.awaitUntil { startIds(server).size == 2 }
 
             val starts = postsTo(server, START_PATH).map { StartRequest.parseFrom(it.body) }
             assertEquals("start it now", starts[1].prompt)
@@ -420,15 +420,15 @@ class PickerPanelTest {
             server.respond(START_PATH, StartResponse.newBuilder().setId(ANSWERED_ID).build())
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { started.get() != null }
+            composeRule.awaitUntil { started.get() != null }
 
             composeRule.onNodeWithTag("picker-row:1").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) {
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithTag("start-form").fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+            composeRule.awaitUntil { startIds(server).size == 2 }
 
             val ids = startIds(server)
             assertTrue(ID_FORM.matches(ids[0]))
@@ -450,21 +450,21 @@ class PickerPanelTest {
             setPanel(server)
 
             submit("fix the test")
-            composeRule.waitUntil(TIMEOUT_MS) { rowExists(1) }
+            composeRule.awaitUntil { rowExists(1) }
             composeRule.onNodeWithTag("picker-row:0").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) {
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithTag("start-form").fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.awaitUntil { errorShown() }
 
             composeRule.onNodeWithTag("picker-row:1").performClick()
             composeRule.waitForIdle()
             composeRule.onNodeWithTag("start-dir").assertTextEquals(OTHER_FOLDER)
             composeRule.onNodeWithTag("start-message").performTextInput("start it")
             composeRule.onNodeWithTag("start-submit").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+            composeRule.awaitUntil { startIds(server).size == 2 }
 
             val starts = postsTo(server, START_PATH).map { StartRequest.parseFrom(it.body) }
             assertEquals(FULL_FOLDER, starts[0].dir)

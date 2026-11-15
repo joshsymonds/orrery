@@ -324,16 +324,12 @@ func TestRunQCloses(t *testing.T) {
 		})
 		done <- runOutcome{result: res, err: err}
 	}()
-	select {
-	case got := <-done:
-		if got.err != nil {
-			t.Fatalf("Run: %v", got.err)
-		}
-		if got.result.Action != ActionClose {
-			t.Fatalf("Run action = %q, want %q", got.result.Action, ActionClose)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return after q")
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("Run: %v", got.err)
+	}
+	if got.result.Action != ActionClose {
+		t.Fatalf("Run action = %q, want %q", got.result.Action, ActionClose)
 	}
 }
 
@@ -836,6 +832,21 @@ func (r *treeRun) send(keys ...string) {
 	}
 }
 
+// sendRendered sends key and waits until the tree has written output after it. A key the tree reads redraws the
+// frame, so the new output shows the key was read on its own, and a key sent next is not read together with it. Only
+// a key that changes the frame can be sent this way.
+func (r *treeRun) sendRendered(key string) {
+	r.t.Helper()
+	mark := r.out.Len()
+	r.send(key)
+	waitFor(r.t, "tree renders after "+strconv.Quote(key), func() error {
+		if r.out.Len() <= mark {
+			return errors.New("no output since the key")
+		}
+		return nil
+	})
+}
+
 // waitForOutput waits until the tree has rendered text.
 func (r *treeRun) waitForOutput(text string) {
 	r.t.Helper()
@@ -860,30 +871,18 @@ func (r *treeRun) assertOpen() {
 // closed waits for Run to return and returns its result.
 func (r *treeRun) closed() Result {
 	r.t.Helper()
-	select {
-	case got := <-r.done:
-		if got.err != nil {
-			r.t.Fatalf("Run: %v", got.err)
-		}
-		return got.result
-	case <-time.After(10 * time.Second):
-		r.t.Fatalf("Run did not return; output:\n%s", r.out.String())
-		return Result{}
+	got := <-r.done
+	if got.err != nil {
+		r.t.Fatalf("Run: %v", got.err)
 	}
+	return got.result
 }
 
-// waitFor polls cond until it returns nil, and fails the test with its last error at the deadline.
-func waitFor(t *testing.T, what string, cond func() error) {
+// waitFor polls cond until it returns nil; what names the condition. It has no deadline of its own: the tree, tmux and
+// the clients run at the machine's pace, and the test binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, _ string, cond func() error) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		err := cond()
-		if err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: %v", what, err)
-		}
+	for cond() != nil {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
@@ -1083,9 +1082,9 @@ func TestShellDoesNotExpandFormatsInGroupDirectory(t *testing.T) {
 	if got := run.closed(); got.Action != ActionClose {
 		t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 	}
+	// The popup's directory is the name as written: an expansion would turn its "##" into "#", and only an expansion
+	// runs the job. So the exact directory is the proof, and the marker is checked as it stands.
 	waitFor(t, "popup shell attached for directory with formats", func() error { return a.shellPopupErr(a.dir(name)) })
-	// A format job runs asynchronously, so the marker is checked after a short settle.
-	time.Sleep(500 * time.Millisecond)
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("command in group directory ran: stat %s = %v, want not exist", marker, err)
 	}
@@ -1137,10 +1136,6 @@ func TestFailedActionShowsErrorAndStaysOpen(t *testing.T) {
 	run.send("q")
 	run.closed()
 }
-
-// closeSettle is how long a test waits after a key that starts no output, so that the tree has
-// read it, and so that Esc is not read together with the key after it.
-const closeSettle = 300 * time.Millisecond
 
 // assertNothingClosed fails unless every layout session of a is still open, the clients are
 // where they started, and no archive was written.
@@ -1212,8 +1207,7 @@ func TestXCancelKeysCloseNothing(t *testing.T) {
 			run := a.start(a.invoking)
 			run.send("j", "X")
 			run.waitForOutput("Close alpha-tests? y/N")
-			run.send(key)
-			time.Sleep(closeSettle)
+			run.sendRendered(key)
 			run.send("q")
 			run.closed()
 			assertNothingClosed(t, a)
@@ -1261,8 +1255,7 @@ func TestXWorkingPaneSecondPromptNCancels(t *testing.T) {
 	run.waitForOutput("Close beta-build? y/N")
 	run.send("y")
 	run.waitForOutput("beta-build is working")
-	run.send("n")
-	time.Sleep(closeSettle)
+	run.sendRendered("n")
 	run.send("q")
 	run.closed()
 	assertNothingClosed(t, a)
@@ -1306,8 +1299,7 @@ func TestXPromptSaysClientDetachesWhenNoSessionRemains(t *testing.T) {
 	run := a.start(a.invoking)
 	run.send("X")
 	run.waitForOutput("Close alpha-review? The client detaches. y/N")
-	run.send("n")
-	time.Sleep(closeSettle)
+	run.sendRendered("n")
 	run.send("q")
 	run.closed()
 }
@@ -1499,8 +1491,7 @@ func TestDCancelKeysCloseNothing(t *testing.T) {
 			run := a.start(a.invoking)
 			run.send("D")
 			run.waitForOutput("Close these panes? y/N")
-			run.send(key)
-			time.Sleep(closeSettle)
+			run.sendRendered(key)
 			run.send("q")
 			run.closed()
 			assertProjectOpen(t, a, shell.Name(a.dir("alpha")))

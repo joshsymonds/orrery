@@ -66,13 +66,31 @@ func gateWriteLeftoverPids(t *testing.T, dir string, child int, childStart strin
 	}
 }
 
-// gateAssertStillRunning fails the test when pid has ended. A group that gateKillLeftovers signals dies well within the
-// settling time, so a process still alive after it was spared.
+// gateAssertStillRunning fails the test when pid has ended or holds a pending SIGKILL. gateKillLeftovers signals the group
+// it kills and does not wait, so a process it signaled is already gone or still holds the SIGKILL in its pending sets;
+// the kernel's view of the process decides at once, with no settling time.
 func gateAssertStillRunning(t *testing.T, pid int, why string) {
 	t.Helper()
-	time.Sleep(500 * time.Millisecond)
 	if gateProcessGone(pid) {
 		t.Fatalf("process %d was killed, though %s", pid, why)
+	}
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		t.Fatalf("process %d was killed, though %s: read status: %v", pid, why, err)
+	}
+	const killBit = uint64(1) << (syscall.SIGKILL - 1)
+	for line := range strings.Lines(string(raw)) {
+		name, value, found := strings.Cut(strings.TrimSpace(line), ":\t")
+		if !found || (name != "SigPnd" && name != "ShdPnd") {
+			continue
+		}
+		mask, err := strconv.ParseUint(value, 16, 64)
+		if err != nil {
+			t.Fatalf("parse %s of process %d: %v", name, pid, err)
+		}
+		if mask&killBit != 0 {
+			t.Fatalf("process %d holds a pending SIGKILL (%s %s), though %s", pid, name, value, why)
+		}
 	}
 }
 

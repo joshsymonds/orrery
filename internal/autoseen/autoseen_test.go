@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -29,8 +28,6 @@ import (
 const (
 	noConfig    = "/dev/null"
 	testCommand = "sleep 300"
-	// ioTimeout bounds each socket exchange and each wait for tmux to reach the expected state.
-	ioTimeout = 5 * time.Second
 	// pollInterval spaces the checks made while waiting for tmux to reach the expected state.
 	pollInterval = 20 * time.Millisecond
 	// staleOffset puts the observer's clock past the client's last input by more than the 30 s window.
@@ -213,13 +210,10 @@ func latestActivity(out string) int64 {
 	return latest
 }
 
-// waitFor polls check until it reports true, failing the test on its error or when ioTimeout elapses.
+// waitFor polls check until it reports true, failing the test on its error. It has no deadline of its own: tmux and
+// the daemon run at the machine's pace, and the test binary's timeout ends a wait that never ends.
 func waitFor(t *testing.T, what string, check func() (bool, error)) {
 	t.Helper()
-	deadline := time.NewTimer(ioTimeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
 	for {
 		ok, err := check()
 		if err != nil {
@@ -228,11 +222,7 @@ func waitFor(t *testing.T, what string, check func() (bool, error)) {
 		if ok {
 			return
 		}
-		select {
-		case <-ticker.C:
-		case <-deadline.C:
-			t.Fatalf("timed out waiting for %s", what)
-		}
+		time.Sleep(pollInterval)
 	}
 }
 
@@ -250,13 +240,8 @@ func serve(t *testing.T, cfg daemon.Config) string {
 	go func() { done <- daemon.Serve(ctx, ln, cfg) }()
 	t.Cleanup(func() {
 		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Serve: %v", err)
-			}
-		case <-time.After(ioTimeout):
-			t.Errorf("Serve did not return after cancel")
+		if err := <-done; err != nil {
+			t.Errorf("Serve: %v", err)
 		}
 	})
 	return socketPath
@@ -279,10 +264,8 @@ func sendFrame(t *testing.T, socketPath string, frame protocol.HookFrame) {
 	if err := protocol.WriteFrame(&buf, frame); err != nil {
 		t.Fatalf("WriteFrame: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), ioTimeout)
-	defer cancel()
 	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	conn, err := dialer.DialContext(t.Context(), "unix", socketPath)
 	if err != nil {
 		t.Fatalf("dial %s: %v", socketPath, err)
 	}
@@ -294,14 +277,9 @@ func sendFrame(t *testing.T, socketPath string, frame protocol.HookFrame) {
 	if _, err := conn.Write(buf.Bytes()); err != nil {
 		t.Fatalf("write frame: %v", err)
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(ioTimeout)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
-	_, err = conn.Read(make([]byte, 1))
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		t.Fatalf("daemon did not close the connection: %v", err)
-	}
+	// The daemon closes the connection once it has handled the frame, so the read returns at that close. It has no
+	// deadline: handling the frame writes tmux at the machine's pace.
+	_, _ = conn.Read(make([]byte, 1))
 }
 
 // wantOption checks pane-scoped option name on pane; want "" means unset.

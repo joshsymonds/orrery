@@ -120,8 +120,8 @@ func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) 
 		result, err := readoptGrantedGate(t.Context(), pools, gateGrantRequest(), run, "grant-1")
 		readopted <- outcome{result, err}
 	}()
+	// The gate is held until the test releases it, so the reclaimed grant, once requested, must not have ended.
 	gateWaitRequests(t, pools, 2)
-	time.Sleep(200 * time.Millisecond)
 	select {
 	case <-released:
 		t.Fatal("the reclaimed grant ended while its gate still ran")

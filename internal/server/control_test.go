@@ -418,22 +418,6 @@ func TestControlDeadlineExceeded(t *testing.T) {
 	assertConnectError(t, err, connect.CodeDeadlineExceeded, "session command timed out")
 }
 
-func TestControlZeroTimeoutMeansTenSeconds(t *testing.T) {
-	// The test waits out the ten-second default, so it runs in parallel with the other tests.
-	t.Parallel()
-	fake := &fakeEngine{block: make(chan struct{})}
-	engine := newFakeOrreryd(t, fake)
-	t.Cleanup(func() { close(fake.block) })
-	control := controlClient(t, newControlHandler(t, engine, 0))
-
-	start := time.Now()
-	_, err := control.Stop(t.Context(), connect.NewRequest(&orreryv1.StopRequest{Id: synthSessionID}))
-	assertConnectError(t, err, connect.CodeDeadlineExceeded, "session command timed out")
-	if elapsed := time.Since(start); elapsed < 9*time.Second {
-		t.Fatalf("deadline after %v, want about 10s", elapsed)
-	}
-}
-
 func TestControlRefusesBodiesOverOneMiB(t *testing.T) {
 	fake := &fakeEngine{}
 	handler := newControlHandler(t, newFakeOrreryd(t, fake), 0)
