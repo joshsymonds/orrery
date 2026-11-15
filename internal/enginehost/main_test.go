@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holdertest"
 )
 
@@ -66,7 +67,8 @@ func writeFakeClaudeWrapper(dir, script string) (string, error) {
 	body := "#!/bin/sh\nPATH=" + shellQuote(filepath.Dir(git)) + ":\"$PATH\"\nexport PATH\nexec " + shellQuote(script) +
 		" \"$@\"\n"
 	wrapper := filepath.Join(dir, "fakeclaude")
-	if err = os.WriteFile(wrapper, []byte(body), 0o700); err != nil {
+	// The wrapper is a program a parallel test may run, so it is written under the fork lock (see exectest.WriteFile).
+	if err = exectest.Write(wrapper, []byte(body), 0o700); err != nil {
 		return "", fmt.Errorf("write fake claude wrapper: %w", err)
 	}
 	return wrapper, nil

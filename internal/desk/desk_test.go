@@ -11,6 +11,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 const (
@@ -72,9 +73,7 @@ func newDeskRig(t *testing.T) *deskRig {
 // writeTool writes an executable fake.
 func writeTool(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	exectest.WriteFile(t, path, []byte(content), 0o700)
 }
 
 // script writes the stream NAME with body after its directory assignment.
