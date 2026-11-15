@@ -87,13 +87,24 @@ func TestReapStopsOnlyServersOfTestBinariesThatAreGone(t *testing.T) {
 	proc.add(203, serverComm, "/nix/store/x-tmux/bin/tmux", "-Lorrery-integration-400-ff")
 	// A client of a gone binary's server is no server.
 	proc.add(204, "tmux: client", "tmux", "-L", "orrery-test-300-abc123", "attach")
-	// Servers the owner or other tools run: no -L, another name, an uppercase hex, extra fields, a pid of zero.
+	// The other names tests give their servers match too.
+	proc.add(212, serverComm, "tmux", "-L", "orrery-test-send-300-abc")
+	proc.add(213, serverComm, "tmux", "-L", "orrery-summary-test-500-0f")
+	proc.add(214, serverComm, "tmux", "-L", "orrery-panes-600-1a2b")
+	// A live owner's server under a longer name stays.
+	proc.add(215, serverComm, "tmux", "-L", "orrery-test-picker-100-ab")
+	// Servers the owner or other tools run, and near misses: no -L, another name, an uppercase hex, a word in place of
+	// the pid, a pid of zero, no word before the pid, a word with a digit, an empty word, and the last two fields
+	// swapped so they are not <pid>-<hex>.
 	proc.add(205, serverComm, "tmux", "new-session")
 	proc.add(206, serverComm, "tmux", "-L", "default")
-	proc.add(207, serverComm, "tmux", "-L", "orrery-test-send-300-abc")
 	proc.add(208, serverComm, "tmux", "-L", "orrery-test-300-ABC")
 	proc.add(209, serverComm, "tmux", "-L", "orrery-test-300-abc-def")
 	proc.add(210, serverComm, "tmux", "-L", "orrery-test-0-abc")
+	proc.add(216, serverComm, "tmux", "-L", "orrery-300-abc")
+	proc.add(217, serverComm, "tmux", "-L", "orrery-test2-300-abc")
+	proc.add(218, serverComm, "tmux", "-L", "orrery--test-300-abc")
+	proc.add(219, serverComm, "tmux", "-L", "orrery-test-abc-300")
 	// A non-tmux process whose arguments look like a test server's.
 	proc.add(211, serverComm, "sh", "-L", "orrery-test-300-abc")
 
@@ -105,11 +116,18 @@ func TestReapStopsOnlyServersOfTestBinariesThatAreGone(t *testing.T) {
 	want := []Orphan{
 		{PID: 202, Name: "orrery-test-300-abc123", Owner: 300},
 		{PID: 203, Name: "orrery-integration-400-ff", Owner: 400},
+		{PID: 212, Name: "orrery-test-send-300-abc", Owner: 300},
+		{PID: 213, Name: "orrery-summary-test-500-0f", Owner: 500},
+		{PID: 214, Name: "orrery-panes-600-1a2b", Owner: 600},
 	}
 	if !reflect.DeepEqual(reaped, want) {
 		t.Fatalf("reaped %+v, want %+v", reaped, want)
 	}
-	if wantSent := []signal{{202, syscall.SIGTERM}, {203, syscall.SIGTERM}}; !reflect.DeepEqual(sent, wantSent) {
+	wantSent := []signal{
+		{202, syscall.SIGTERM}, {203, syscall.SIGTERM}, {212, syscall.SIGTERM}, {213, syscall.SIGTERM},
+		{214, syscall.SIGTERM},
+	}
+	if !reflect.DeepEqual(sent, wantSent) {
 		t.Fatalf("signals %+v, want SIGTERM to each orphan and nothing else", sent)
 	}
 }

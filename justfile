@@ -197,7 +197,7 @@ web-page:
 check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
 
 # Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
-# and its -L server runs on as a daemon. Only a server named orrery-test-<pid>-<hex> or orrery-integration-<pid>-<hex>
+# and its -L server runs on as a daemon. Only a server named orrery-<word>(-<word>)*-<pid>-<hex>, as tests name theirs,
 # whose test binary <pid> is gone is stopped, with SIGTERM and then SIGKILL (internal/tmuxtest.Reaper). check and
 # check-changed run it first.
 reap-test-tmux:
