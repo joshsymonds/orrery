@@ -163,6 +163,7 @@ func TestStepGitAncestryFailsOffBranch(t *testing.T) {
 }
 
 func TestStepGitCleanFailsAndIgnoresIgnored(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		dirty   func(t *testing.T, dir string)
@@ -216,6 +217,7 @@ func TestStepGitCleanFailsAndIgnoresIgnored(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			dir := stepGitTestRepo(t)
 			start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 			tc.dirty(t, dir)

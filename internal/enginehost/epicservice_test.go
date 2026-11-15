@@ -218,6 +218,7 @@ func TestEpicCreateOfStoredIDIsAlreadyExists(t *testing.T) {
 }
 
 func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(req *v1.CreateEpicRequest)
@@ -251,6 +252,7 @@ func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			st := epicTestStore(t)
 			client := newEpicsClient(t, startEpicServer(t, st))
 			req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)

@@ -137,6 +137,7 @@ func TestStepsStartNamedGateWithNoNeedsGrantsTheDefaultPool(t *testing.T) {
 }
 
 func TestStepsStartNamedGateRefusesUndeclaredPoolAndStoresNothing(t *testing.T) {
+	t.Parallel()
 	shell := stepGateShell(t)
 	cases := []struct {
 		name      string
@@ -153,6 +154,7 @@ func TestStepsStartNamedGateRefusesUndeclaredPoolAndStoresNothing(t *testing.T) 
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepGrantFixture(t, &fakeGatePools{}, tc.poolsText)
 			gatesFile := filepath.Join(t.TempDir(), "gates.toml")
 			stepGateWriteFile(t, gatesFile, stepGrantGatesText(shell, "exit 0", tc.needs))

@@ -10,6 +10,7 @@ import (
 
 // TestInitNamesAgent covers the rule the init event's agents list must meet for a step to run its agent.
 func TestInitNamesAgent(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		agents []string
@@ -27,6 +28,7 @@ func TestInitNamesAgent(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := initNamesAgent(tc.agents, tc.agent); got != tc.want {
 				t.Fatalf("initNamesAgent(%q, %q) = %v, want %v", tc.agents, tc.agent, got, tc.want)
 			}

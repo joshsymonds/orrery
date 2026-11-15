@@ -70,6 +70,7 @@ func TestStepsStartStoresLabelsAndStatusAndListReadThem(t *testing.T) {
 }
 
 func TestStepsListLeavesOutUnlabeledAndNarrowsByLabel(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	repo := stepGitTestRepo(t)
 
@@ -93,6 +94,7 @@ func TestStepsListLeavesOutUnlabeledAndNarrowsByLabel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			rows, err := f.steps.List(t.Context(), tc.epic, tc.task)
 			if err != nil {
 				t.Fatalf("List: %v", err)

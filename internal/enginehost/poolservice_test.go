@@ -255,8 +255,10 @@ func TestAcquireSendsAStopEventAsStop(t *testing.T) {
 }
 
 func TestAcquireRefusesAQueuePositionOutsideInt32AsInternal(t *testing.T) {
+	t.Parallel()
 	for _, position := range []int{math.MaxInt32 + 1, math.MinInt32 - 1} {
 		t.Run(fmt.Sprint(position), func(t *testing.T) {
+			t.Parallel()
 			fake := newFakePools(nil, grants.Event{Position: position})
 			client := newPoolsClient(t, startPoolsServer(t, fake))
 
@@ -276,6 +278,7 @@ func TestAcquireRefusesAQueuePositionOutsideInt32AsInternal(t *testing.T) {
 }
 
 func TestAcquireRefusesWithTheCodeOfItsError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -289,6 +292,7 @@ func TestAcquireRefusesWithTheCodeOfItsError(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := newFakePools(tc.err)
 			client := newPoolsClient(t, startPoolsServer(t, fake))
 
@@ -317,8 +321,10 @@ func TestAcquireWithoutPoolsIsUnavailable(t *testing.T) {
 }
 
 func TestAcquireRefusesAClientPIDBelowOne(t *testing.T) {
+	t.Parallel()
 	for _, pid := range []int32{0, -1} {
 		t.Run(fmt.Sprint(pid), func(t *testing.T) {
+			t.Parallel()
 			fake := newFakePools(nil)
 			client := newPoolsClient(t, startPoolsServer(t, fake))
 			msg := newAcquire()
@@ -339,8 +345,10 @@ func TestAcquireRefusesAClientPIDBelowOne(t *testing.T) {
 }
 
 func TestAcquireRefusesALimitOutsideOneSecondToTheDurationRange(t *testing.T) {
+	t.Parallel()
 	for _, seconds := range []int64{0, -5, maxLimitSeconds + 1} {
 		t.Run(fmt.Sprint(seconds), func(t *testing.T) {
+			t.Parallel()
 			fake := newFakePools(nil)
 			client := newPoolsClient(t, startPoolsServer(t, fake))
 			msg := newAcquire()
@@ -458,6 +466,7 @@ func TestFreeReachesThePoolsWithTheMember(t *testing.T) {
 }
 
 func TestHoldAndFreeMapTheirErrorsToCodes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -484,6 +493,7 @@ func TestHoldAndFreeMapTheirErrorsToCodes(t *testing.T) {
 	for _, rpc := range rpcs {
 		for _, tc := range tests {
 			t.Run(rpc.name+" "+tc.name, func(t *testing.T) {
+				t.Parallel()
 				fake := newFakePools(nil)
 				fake.memberErr = tc.err
 				client := newPoolsClient(t, startPoolsServer(t, fake))

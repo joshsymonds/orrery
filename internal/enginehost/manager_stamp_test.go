@@ -199,6 +199,7 @@ func stampTestRelativeHome(t *testing.T, home string) string {
 }
 
 func TestStartWithoutAbsoluteHomeRefusesBeforeClaude(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		environ func(home string) []string
@@ -211,6 +212,7 @@ func TestStartWithoutAbsoluteHomeRefusesBeforeClaude(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			home := stampTestHome(t)
 			stampTestWrite(t, filepath.Join(home, "work", ".claude", "settings.json"), stampSettings)
 			dir := filepath.Join(home, "work", "child")
