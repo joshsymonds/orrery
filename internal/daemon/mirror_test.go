@@ -348,28 +348,11 @@ func TestMirrorDefersSyncPastTheLockWaitAndSyncsOnceTheLockFrees(t *testing.T) {
 		t.Fatalf("events with the lock held = %+v, want none", events)
 	}
 
-	// Freeing the lock lets the drain sync the pane with no further sync or tidy. The drain takes the lock for the
-	// sync, so once the test holds the lock again with draining cleared, the drain is done.
+	// Freeing the lock lets the drain sync the pane with no further sync or tidy.
 	m.release()
-	awaitDrained(m)
+	m.Wait()
 	if rows := mirrorRows(t, db); len(rows) != 1 || rows[0].State != mirrorValues()[protocol.OptionState] {
 		t.Fatalf("rows after the lock was freed = %+v, want the pane's one row", rows)
-	}
-}
-
-// awaitDrained returns once m has no drain running and nothing deferred. It takes and frees m's lock between checks,
-// so it waits on the drain itself; the pause between checks paces the poll and decides nothing.
-func awaitDrained(m *Mirror) {
-	for {
-		m.lock <- struct{}{}
-		m.deferredMu.Lock()
-		idle := !m.draining && len(m.deferredPanes) == 0 && len(m.deferredServers) == 0
-		m.deferredMu.Unlock()
-		m.release()
-		if idle {
-			return
-		}
-		time.Sleep(time.Millisecond)
 	}
 }
 
