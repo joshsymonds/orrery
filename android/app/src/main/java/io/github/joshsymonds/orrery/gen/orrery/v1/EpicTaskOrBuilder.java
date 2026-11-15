@@ -79,4 +79,45 @@ public interface EpicTaskOrBuilder extends
    */
   com.google.protobuf.ByteString
       getStatusBytes();
+
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @return A list containing the requirements.
+   */
+  java.util.List<java.lang.String>
+      getRequirementsList();
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @return The count of requirements.
+   */
+  int getRequirementsCount();
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param index The index of the element to return.
+   * @return The requirements at the given index.
+   */
+  java.lang.String getRequirements(int index);
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param index The index of the element to return.
+   * @return The requirements at the given index.
+   */
+  com.google.protobuf.ByteString
+      getRequirementsBytes(int index);
 }

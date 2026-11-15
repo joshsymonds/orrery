@@ -211,4 +211,181 @@ public interface EpicStepOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReasonBytes();
+
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   * @return The stage.
+   */
+  java.lang.String getStage();
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   * @return The bytes for stage.
+   */
+  com.google.protobuf.ByteString
+      getStageBytes();
+
+  /**
+   * <pre>
+   * When the step's stage started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+   * @return The stageStarted.
+   */
+  long getStageStarted();
+
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   * @return The gateName.
+   */
+  java.lang.String getGateName();
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   * @return The bytes for gateName.
+   */
+  com.google.protobuf.ByteString
+      getGateNameBytes();
+
+  /**
+   * <pre>
+   * The gate's time limit, in seconds.
+   * </pre>
+   *
+   * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+   * @return The gateLimit.
+   */
+  long getGateLimit();
+
+  /**
+   * <pre>
+   * Whether a usage limit holds the step, so that it waits for a resume.
+   * </pre>
+   *
+   * <code>bool limited = 16 [json_name = "limited"];</code>
+   * @return The limited.
+   */
+  boolean getLimited();
+
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   * @return The limitKind.
+   */
+  java.lang.String getLimitKind();
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   * @return The bytes for limitKind.
+   */
+  com.google.protobuf.ByteString
+      getLimitKindBytes();
+
+  /**
+   * <pre>
+   * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+   * unknown.
+   * </pre>
+   *
+   * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+   * @return The limitResets.
+   */
+  long getLimitResets();
+
+  /**
+   * <pre>
+   * Whether the step is read-only.
+   * </pre>
+   *
+   * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+   * @return The readOnly.
+   */
+  boolean getReadOnly();
+
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   * @return The role.
+   */
+  java.lang.String getRole();
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   * @return The bytes for role.
+   */
+  com.google.protobuf.ByteString
+      getRoleBytes();
+
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   * @return The summary.
+   */
+  java.lang.String getSummary();
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   * @return The bytes for summary.
+   */
+  com.google.protobuf.ByteString
+      getSummaryBytes();
+
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> 
+      getVerdictsList();
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict getVerdicts(int index);
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  int getVerdictsCount();
 }

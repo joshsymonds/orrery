@@ -27,6 +27,12 @@ public  final class EpicStep extends
     doing_ = "";
     checks_ = emptyProtobufList();
     reason_ = "";
+    stage_ = "";
+    gateName_ = "";
+    limitKind_ = "";
+    role_ = "";
+    summary_ = "";
+    verdicts_ = emptyProtobufList();
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -762,6 +768,672 @@ public  final class EpicStep extends
     checkByteStringIsUtf8(value);
     reason_ = value.toStringUtf8();
 
+  }
+
+  public static final int STAGE_FIELD_NUMBER = 12;
+  private java.lang.String stage_;
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   * @return The stage.
+   */
+  @java.lang.Override
+  public java.lang.String getStage() {
+    return stage_;
+  }
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   * @return The bytes for stage.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getStageBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(stage_);
+  }
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   * @param value The stage to set.
+   */
+  private void setStage(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    stage_ = value;
+  }
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   */
+  private void clearStage() {
+
+    stage_ = getDefaultInstance().getStage();
+  }
+  /**
+   * <pre>
+   * The stage the step is in: turn, checks, gate, judge, held or limited.
+   * </pre>
+   *
+   * <code>string stage = 12 [json_name = "stage"];</code>
+   * @param value The bytes for stage to set.
+   */
+  private void setStageBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    stage_ = value.toStringUtf8();
+
+  }
+
+  public static final int STAGE_STARTED_FIELD_NUMBER = 13;
+  private long stageStarted_;
+  /**
+   * <pre>
+   * When the step's stage started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+   * @return The stageStarted.
+   */
+  @java.lang.Override
+  public long getStageStarted() {
+    return stageStarted_;
+  }
+  /**
+   * <pre>
+   * When the step's stage started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+   * @param value The stageStarted to set.
+   */
+  private void setStageStarted(long value) {
+    
+    stageStarted_ = value;
+  }
+  /**
+   * <pre>
+   * When the step's stage started, in unix seconds.
+   * </pre>
+   *
+   * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+   */
+  private void clearStageStarted() {
+
+    stageStarted_ = 0L;
+  }
+
+  public static final int GATE_NAME_FIELD_NUMBER = 14;
+  private java.lang.String gateName_;
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   * @return The gateName.
+   */
+  @java.lang.Override
+  public java.lang.String getGateName() {
+    return gateName_;
+  }
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   * @return The bytes for gateName.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getGateNameBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(gateName_);
+  }
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   * @param value The gateName to set.
+   */
+  private void setGateName(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    gateName_ = value;
+  }
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   */
+  private void clearGateName() {
+
+    gateName_ = getDefaultInstance().getGateName();
+  }
+  /**
+   * <pre>
+   * The name of the gate the step's return is checked against. Empty runs no gate.
+   * </pre>
+   *
+   * <code>string gate_name = 14 [json_name = "gateName"];</code>
+   * @param value The bytes for gateName to set.
+   */
+  private void setGateNameBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    gateName_ = value.toStringUtf8();
+
+  }
+
+  public static final int GATE_LIMIT_FIELD_NUMBER = 15;
+  private long gateLimit_;
+  /**
+   * <pre>
+   * The gate's time limit, in seconds.
+   * </pre>
+   *
+   * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+   * @return The gateLimit.
+   */
+  @java.lang.Override
+  public long getGateLimit() {
+    return gateLimit_;
+  }
+  /**
+   * <pre>
+   * The gate's time limit, in seconds.
+   * </pre>
+   *
+   * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+   * @param value The gateLimit to set.
+   */
+  private void setGateLimit(long value) {
+    
+    gateLimit_ = value;
+  }
+  /**
+   * <pre>
+   * The gate's time limit, in seconds.
+   * </pre>
+   *
+   * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+   */
+  private void clearGateLimit() {
+
+    gateLimit_ = 0L;
+  }
+
+  public static final int LIMITED_FIELD_NUMBER = 16;
+  private boolean limited_;
+  /**
+   * <pre>
+   * Whether a usage limit holds the step, so that it waits for a resume.
+   * </pre>
+   *
+   * <code>bool limited = 16 [json_name = "limited"];</code>
+   * @return The limited.
+   */
+  @java.lang.Override
+  public boolean getLimited() {
+    return limited_;
+  }
+  /**
+   * <pre>
+   * Whether a usage limit holds the step, so that it waits for a resume.
+   * </pre>
+   *
+   * <code>bool limited = 16 [json_name = "limited"];</code>
+   * @param value The limited to set.
+   */
+  private void setLimited(boolean value) {
+    
+    limited_ = value;
+  }
+  /**
+   * <pre>
+   * Whether a usage limit holds the step, so that it waits for a resume.
+   * </pre>
+   *
+   * <code>bool limited = 16 [json_name = "limited"];</code>
+   */
+  private void clearLimited() {
+
+    limited_ = false;
+  }
+
+  public static final int LIMIT_KIND_FIELD_NUMBER = 17;
+  private java.lang.String limitKind_;
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   * @return The limitKind.
+   */
+  @java.lang.Override
+  public java.lang.String getLimitKind() {
+    return limitKind_;
+  }
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   * @return The bytes for limitKind.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getLimitKindBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(limitKind_);
+  }
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   * @param value The limitKind to set.
+   */
+  private void setLimitKind(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    limitKind_ = value;
+  }
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   */
+  private void clearLimitKind() {
+
+    limitKind_ = getDefaultInstance().getLimitKind();
+  }
+  /**
+   * <pre>
+   * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+   * </pre>
+   *
+   * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+   * @param value The bytes for limitKind to set.
+   */
+  private void setLimitKindBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    limitKind_ = value.toStringUtf8();
+
+  }
+
+  public static final int LIMIT_RESETS_FIELD_NUMBER = 18;
+  private long limitResets_;
+  /**
+   * <pre>
+   * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+   * unknown.
+   * </pre>
+   *
+   * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+   * @return The limitResets.
+   */
+  @java.lang.Override
+  public long getLimitResets() {
+    return limitResets_;
+  }
+  /**
+   * <pre>
+   * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+   * unknown.
+   * </pre>
+   *
+   * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+   * @param value The limitResets to set.
+   */
+  private void setLimitResets(long value) {
+    
+    limitResets_ = value;
+  }
+  /**
+   * <pre>
+   * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+   * unknown.
+   * </pre>
+   *
+   * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+   */
+  private void clearLimitResets() {
+
+    limitResets_ = 0L;
+  }
+
+  public static final int READ_ONLY_FIELD_NUMBER = 19;
+  private boolean readOnly_;
+  /**
+   * <pre>
+   * Whether the step is read-only.
+   * </pre>
+   *
+   * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+   * @return The readOnly.
+   */
+  @java.lang.Override
+  public boolean getReadOnly() {
+    return readOnly_;
+  }
+  /**
+   * <pre>
+   * Whether the step is read-only.
+   * </pre>
+   *
+   * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+   * @param value The readOnly to set.
+   */
+  private void setReadOnly(boolean value) {
+    
+    readOnly_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the step is read-only.
+   * </pre>
+   *
+   * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+   */
+  private void clearReadOnly() {
+
+    readOnly_ = false;
+  }
+
+  public static final int ROLE_FIELD_NUMBER = 20;
+  private java.lang.String role_;
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   * @return The role.
+   */
+  @java.lang.Override
+  public java.lang.String getRole() {
+    return role_;
+  }
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   * @return The bytes for role.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRoleBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(role_);
+  }
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   * @param value The role to set.
+   */
+  private void setRole(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    role_ = value;
+  }
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   */
+  private void clearRole() {
+
+    role_ = getDefaultInstance().getRole();
+  }
+  /**
+   * <pre>
+   * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+   * </pre>
+   *
+   * <code>string role = 20 [json_name = "role"];</code>
+   * @param value The bytes for role to set.
+   */
+  private void setRoleBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    role_ = value.toStringUtf8();
+
+  }
+
+  public static final int SUMMARY_FIELD_NUMBER = 21;
+  private java.lang.String summary_;
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   * @return The summary.
+   */
+  @java.lang.Override
+  public java.lang.String getSummary() {
+    return summary_;
+  }
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   * @return The bytes for summary.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSummaryBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(summary_);
+  }
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   * @param value The summary to set.
+   */
+  private void setSummary(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    summary_ = value;
+  }
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   */
+  private void clearSummary() {
+
+    summary_ = getDefaultInstance().getSummary();
+  }
+  /**
+   * <pre>
+   * The step's summary, redacted.
+   * </pre>
+   *
+   * <code>string summary = 21 [json_name = "summary"];</code>
+   * @param value The bytes for summary to set.
+   */
+  private void setSummaryBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    summary_ = value.toStringUtf8();
+
+  }
+
+  public static final int VERDICTS_FIELD_NUMBER = 22;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> verdicts_;
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> getVerdictsList() {
+    return verdicts_;
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdictOrBuilder> 
+      getVerdictsOrBuilderList() {
+    return verdicts_;
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  @java.lang.Override
+  public int getVerdictsCount() {
+    return verdicts_.size();
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict getVerdicts(int index) {
+    return verdicts_.get(index);
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdictOrBuilder getVerdictsOrBuilder(
+      int index) {
+    return verdicts_.get(index);
+  }
+  private void ensureVerdictsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> tmp = verdicts_;
+    if (!tmp.isModifiable()) {
+      verdicts_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  private void setVerdicts(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict value) {
+    java.util.Objects.requireNonNull(value);
+    ensureVerdictsIsMutable();
+    verdicts_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  private void addVerdicts(io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict value) {
+    java.util.Objects.requireNonNull(value);
+    ensureVerdictsIsMutable();
+    verdicts_.add(value);
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  private void addVerdicts(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict value) {
+    java.util.Objects.requireNonNull(value);
+    ensureVerdictsIsMutable();
+    verdicts_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  private void addAllVerdicts(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> values) {
+    ensureVerdictsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, verdicts_);
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  private void clearVerdicts() {
+    verdicts_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The step's done-judge verdicts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+   */
+  private void removeVerdicts(int index) {
+    ensureVerdictsIsMutable();
+    verdicts_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep parseFrom(
@@ -1633,6 +2305,704 @@ public  final class EpicStep extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The stage the step is in: turn, checks, gate, judge, held or limited.
+     * </pre>
+     *
+     * <code>string stage = 12 [json_name = "stage"];</code>
+     * @return The stage.
+     */
+    @java.lang.Override
+    public java.lang.String getStage() {
+      return instance.getStage();
+    }
+    /**
+     * <pre>
+     * The stage the step is in: turn, checks, gate, judge, held or limited.
+     * </pre>
+     *
+     * <code>string stage = 12 [json_name = "stage"];</code>
+     * @return The bytes for stage.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getStageBytes() {
+      return instance.getStageBytes();
+    }
+    /**
+     * <pre>
+     * The stage the step is in: turn, checks, gate, judge, held or limited.
+     * </pre>
+     *
+     * <code>string stage = 12 [json_name = "stage"];</code>
+     * @param value The stage to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStage(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setStage(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage the step is in: turn, checks, gate, judge, held or limited.
+     * </pre>
+     *
+     * <code>string stage = 12 [json_name = "stage"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStage() {
+      copyOnWrite();
+      instance.clearStage();
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage the step is in: turn, checks, gate, judge, held or limited.
+     * </pre>
+     *
+     * <code>string stage = 12 [json_name = "stage"];</code>
+     * @param value The bytes for stage to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStageBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setStageBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * When the step's stage started, in unix seconds.
+     * </pre>
+     *
+     * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+     * @return The stageStarted.
+     */
+    @java.lang.Override
+    public long getStageStarted() {
+      return instance.getStageStarted();
+    }
+    /**
+     * <pre>
+     * When the step's stage started, in unix seconds.
+     * </pre>
+     *
+     * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+     * @param value The stageStarted to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStageStarted(long value) {
+      copyOnWrite();
+      instance.setStageStarted(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When the step's stage started, in unix seconds.
+     * </pre>
+     *
+     * <code>int64 stage_started = 13 [json_name = "stageStarted"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStageStarted() {
+      copyOnWrite();
+      instance.clearStageStarted();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The name of the gate the step's return is checked against. Empty runs no gate.
+     * </pre>
+     *
+     * <code>string gate_name = 14 [json_name = "gateName"];</code>
+     * @return The gateName.
+     */
+    @java.lang.Override
+    public java.lang.String getGateName() {
+      return instance.getGateName();
+    }
+    /**
+     * <pre>
+     * The name of the gate the step's return is checked against. Empty runs no gate.
+     * </pre>
+     *
+     * <code>string gate_name = 14 [json_name = "gateName"];</code>
+     * @return The bytes for gateName.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getGateNameBytes() {
+      return instance.getGateNameBytes();
+    }
+    /**
+     * <pre>
+     * The name of the gate the step's return is checked against. Empty runs no gate.
+     * </pre>
+     *
+     * <code>string gate_name = 14 [json_name = "gateName"];</code>
+     * @param value The gateName to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGateName(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setGateName(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The name of the gate the step's return is checked against. Empty runs no gate.
+     * </pre>
+     *
+     * <code>string gate_name = 14 [json_name = "gateName"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearGateName() {
+      copyOnWrite();
+      instance.clearGateName();
+      return this;
+    }
+    /**
+     * <pre>
+     * The name of the gate the step's return is checked against. Empty runs no gate.
+     * </pre>
+     *
+     * <code>string gate_name = 14 [json_name = "gateName"];</code>
+     * @param value The bytes for gateName to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGateNameBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setGateNameBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The gate's time limit, in seconds.
+     * </pre>
+     *
+     * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+     * @return The gateLimit.
+     */
+    @java.lang.Override
+    public long getGateLimit() {
+      return instance.getGateLimit();
+    }
+    /**
+     * <pre>
+     * The gate's time limit, in seconds.
+     * </pre>
+     *
+     * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+     * @param value The gateLimit to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGateLimit(long value) {
+      copyOnWrite();
+      instance.setGateLimit(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The gate's time limit, in seconds.
+     * </pre>
+     *
+     * <code>int64 gate_limit = 15 [json_name = "gateLimit"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearGateLimit() {
+      copyOnWrite();
+      instance.clearGateLimit();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Whether a usage limit holds the step, so that it waits for a resume.
+     * </pre>
+     *
+     * <code>bool limited = 16 [json_name = "limited"];</code>
+     * @return The limited.
+     */
+    @java.lang.Override
+    public boolean getLimited() {
+      return instance.getLimited();
+    }
+    /**
+     * <pre>
+     * Whether a usage limit holds the step, so that it waits for a resume.
+     * </pre>
+     *
+     * <code>bool limited = 16 [json_name = "limited"];</code>
+     * @param value The limited to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLimited(boolean value) {
+      copyOnWrite();
+      instance.setLimited(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether a usage limit holds the step, so that it waits for a resume.
+     * </pre>
+     *
+     * <code>bool limited = 16 [json_name = "limited"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLimited() {
+      copyOnWrite();
+      instance.clearLimited();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+     * </pre>
+     *
+     * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+     * @return The limitKind.
+     */
+    @java.lang.Override
+    public java.lang.String getLimitKind() {
+      return instance.getLimitKind();
+    }
+    /**
+     * <pre>
+     * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+     * </pre>
+     *
+     * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+     * @return The bytes for limitKind.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getLimitKindBytes() {
+      return instance.getLimitKindBytes();
+    }
+    /**
+     * <pre>
+     * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+     * </pre>
+     *
+     * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+     * @param value The limitKind to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLimitKind(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setLimitKind(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+     * </pre>
+     *
+     * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLimitKind() {
+      copyOnWrite();
+      instance.clearLimitKind();
+      return this;
+    }
+    /**
+     * <pre>
+     * The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+     * </pre>
+     *
+     * <code>string limit_kind = 17 [json_name = "limitKind"];</code>
+     * @param value The bytes for limitKind to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLimitKindBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setLimitKindBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+     * unknown.
+     * </pre>
+     *
+     * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+     * @return The limitResets.
+     */
+    @java.lang.Override
+    public long getLimitResets() {
+      return instance.getLimitResets();
+    }
+    /**
+     * <pre>
+     * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+     * unknown.
+     * </pre>
+     *
+     * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+     * @param value The limitResets to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLimitResets(long value) {
+      copyOnWrite();
+      instance.setLimitResets(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+     * unknown.
+     * </pre>
+     *
+     * <code>int64 limit_resets = 18 [json_name = "limitResets"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLimitResets() {
+      copyOnWrite();
+      instance.clearLimitResets();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Whether the step is read-only.
+     * </pre>
+     *
+     * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+     * @return The readOnly.
+     */
+    @java.lang.Override
+    public boolean getReadOnly() {
+      return instance.getReadOnly();
+    }
+    /**
+     * <pre>
+     * Whether the step is read-only.
+     * </pre>
+     *
+     * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+     * @param value The readOnly to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReadOnly(boolean value) {
+      copyOnWrite();
+      instance.setReadOnly(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the step is read-only.
+     * </pre>
+     *
+     * <code>bool read_only = 19 [json_name = "readOnly"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReadOnly() {
+      copyOnWrite();
+      instance.clearReadOnly();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+     * </pre>
+     *
+     * <code>string role = 20 [json_name = "role"];</code>
+     * @return The role.
+     */
+    @java.lang.Override
+    public java.lang.String getRole() {
+      return instance.getRole();
+    }
+    /**
+     * <pre>
+     * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+     * </pre>
+     *
+     * <code>string role = 20 [json_name = "role"];</code>
+     * @return The bytes for role.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getRoleBytes() {
+      return instance.getRoleBytes();
+    }
+    /**
+     * <pre>
+     * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+     * </pre>
+     *
+     * <code>string role = 20 [json_name = "role"];</code>
+     * @param value The role to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRole(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setRole(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+     * </pre>
+     *
+     * <code>string role = 20 [json_name = "role"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRole() {
+      copyOnWrite();
+      instance.clearRole();
+      return this;
+    }
+    /**
+     * <pre>
+     * The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+     * </pre>
+     *
+     * <code>string role = 20 [json_name = "role"];</code>
+     * @param value The bytes for role to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRoleBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setRoleBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The step's summary, redacted.
+     * </pre>
+     *
+     * <code>string summary = 21 [json_name = "summary"];</code>
+     * @return The summary.
+     */
+    @java.lang.Override
+    public java.lang.String getSummary() {
+      return instance.getSummary();
+    }
+    /**
+     * <pre>
+     * The step's summary, redacted.
+     * </pre>
+     *
+     * <code>string summary = 21 [json_name = "summary"];</code>
+     * @return The bytes for summary.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSummaryBytes() {
+      return instance.getSummaryBytes();
+    }
+    /**
+     * <pre>
+     * The step's summary, redacted.
+     * </pre>
+     *
+     * <code>string summary = 21 [json_name = "summary"];</code>
+     * @param value The summary to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSummary(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSummary(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's summary, redacted.
+     * </pre>
+     *
+     * <code>string summary = 21 [json_name = "summary"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSummary() {
+      copyOnWrite();
+      instance.clearSummary();
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's summary, redacted.
+     * </pre>
+     *
+     * <code>string summary = 21 [json_name = "summary"];</code>
+     * @param value The bytes for summary to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSummaryBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSummaryBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> getVerdictsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getVerdictsList());
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    @java.lang.Override
+    public int getVerdictsCount() {
+      return instance.getVerdictsCount();
+    }/**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict getVerdicts(int index) {
+      return instance.getVerdicts(index);
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder setVerdicts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict value) {
+      copyOnWrite();
+      instance.setVerdicts(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder setVerdicts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict.Builder builderForValue) {
+      copyOnWrite();
+      instance.setVerdicts(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder addVerdicts(io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict value) {
+      copyOnWrite();
+      instance.addVerdicts(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder addVerdicts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict value) {
+      copyOnWrite();
+      instance.addVerdicts(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder addVerdicts(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict.Builder builderForValue) {
+      copyOnWrite();
+      instance.addVerdicts(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder addVerdicts(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict.Builder builderForValue) {
+      copyOnWrite();
+      instance.addVerdicts(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder addAllVerdicts(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict> values) {
+      copyOnWrite();
+      instance.addAllVerdicts(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder clearVerdicts() {
+      copyOnWrite();
+      instance.clearVerdicts();
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's done-judge verdicts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicStepVerdict verdicts = 22 [json_name = "verdicts"];</code>
+     */
+    public Builder removeVerdicts(int index) {
+      copyOnWrite();
+      instance.removeVerdicts(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicStep)
   }
   @java.lang.Override
@@ -1661,11 +3031,24 @@ public  final class EpicStep extends
             "checks_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck.class,
             "reason_",
+            "stage_",
+            "stageStarted_",
+            "gateName_",
+            "gateLimit_",
+            "limited_",
+            "limitKind_",
+            "limitResets_",
+            "readOnly_",
+            "role_",
+            "summary_",
+            "verdicts_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict.class,
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0016\u0000\u0000\u0001\u0016\u0016\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0007\u0007\u0002\b\u0002\t\u0208\n\u001b" +
-              "\u000b\u0208";
+              "\u000b\u0208\f\u0208\r\u0002\u000e\u0208\u000f\u0002\u0010\u0007\u0011\u0208\u0012" +
+              "\u0002\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

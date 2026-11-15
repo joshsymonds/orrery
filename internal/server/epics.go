@@ -575,10 +575,11 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 			return nil, fmt.Errorf("server: effort %d does not fit int32", task.Effort)
 		}
 		out = append(out, &orreryv1.EpicTask{
-			Effort:  int32(task.Effort),
-			Slug:    task.Slug,
-			Subject: task.Subject,
-			Status:  task.Status,
+			Effort:       int32(task.Effort),
+			Slug:         task.Slug,
+			Subject:      task.Subject,
+			Status:       task.Status,
+			Requirements: task.Requirements,
 		})
 	}
 	return out, nil

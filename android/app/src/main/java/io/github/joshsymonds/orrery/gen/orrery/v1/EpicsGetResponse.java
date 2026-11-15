@@ -23,6 +23,7 @@ public  final class EpicsGetResponse extends
     steps_ = emptyProtobufList();
     slices_ = emptyProtobufList();
     requirements_ = emptyProtobufList();
+    buildTasks_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -653,6 +654,144 @@ public  final class EpicsGetResponse extends
   private void removeRequirements(int index) {
     ensureRequirementsIsMutable();
     requirements_.remove(index);
+  }
+
+  public static final int BUILD_TASKS_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> buildTasks_;
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> getBuildTasksList() {
+    return buildTasks_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTaskOrBuilder> 
+      getBuildTasksOrBuilderList() {
+    return buildTasks_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  @java.lang.Override
+  public int getBuildTasksCount() {
+    return buildTasks_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask getBuildTasks(int index) {
+    return buildTasks_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTaskOrBuilder getBuildTasksOrBuilder(
+      int index) {
+    return buildTasks_.get(index);
+  }
+  private void ensureBuildTasksIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> tmp = buildTasks_;
+    if (!tmp.isModifiable()) {
+      buildTasks_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  private void setBuildTasks(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
+    java.util.Objects.requireNonNull(value);
+    ensureBuildTasksIsMutable();
+    buildTasks_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  private void addBuildTasks(io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
+    java.util.Objects.requireNonNull(value);
+    ensureBuildTasksIsMutable();
+    buildTasks_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  private void addBuildTasks(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
+    java.util.Objects.requireNonNull(value);
+    ensureBuildTasksIsMutable();
+    buildTasks_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  private void addAllBuildTasks(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> values) {
+    ensureBuildTasksIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, buildTasks_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  private void clearBuildTasks() {
+    buildTasks_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   */
+  private void removeBuildTasks(int index) {
+    ensureBuildTasksIsMutable();
+    buildTasks_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -1439,6 +1578,156 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> getBuildTasksList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getBuildTasksList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    @java.lang.Override
+    public int getBuildTasksCount() {
+      return instance.getBuildTasksCount();
+    }/**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask getBuildTasks(int index) {
+      return instance.getBuildTasks(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder setBuildTasks(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
+      copyOnWrite();
+      instance.setBuildTasks(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder setBuildTasks(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.setBuildTasks(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder addBuildTasks(io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
+      copyOnWrite();
+      instance.addBuildTasks(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder addBuildTasks(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
+      copyOnWrite();
+      instance.addBuildTasks(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder addBuildTasks(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.addBuildTasks(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder addBuildTasks(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.addBuildTasks(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder addAllBuildTasks(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> values) {
+      copyOnWrite();
+      instance.addAllBuildTasks(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder clearBuildTasks() {
+      copyOnWrite();
+      instance.clearBuildTasks();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     */
+    public Builder removeBuildTasks(int index) {
+      copyOnWrite();
+      instance.removeBuildTasks(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -1465,10 +1754,12 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.class,
             "requirements_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.class,
+            "buildTasks_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.class,
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0004\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0005\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
