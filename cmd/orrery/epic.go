@@ -18,9 +18,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/stepmcp"
 )
 
+// epicRetryForm names the form of `orrery epic retry`.
+const epicRetryForm = "retry ID [NODE]"
+
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
 const epicForms = "create FILE|-, get ID, list, answer EPIC --id ID [--question QN] TEXT, pause ID, resume ID, " +
-	"stop ID, retry ID"
+	"stop ID, " + epicRetryForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
 const epicAnswerForm = "answer EPIC --id ID [--question QN] TEXT"
@@ -31,6 +34,12 @@ const epicListVerb = "list"
 // epicIDArgs is the arguments of an epic tool that takes one id.
 type epicIDArgs struct {
 	ID string `json:"id"`
+}
+
+// epicRetryArgs is the arguments of epic_retry. Node is omitted when the form names none, which ends the epic's park.
+type epicRetryArgs struct {
+	ID   string `json:"id"`
+	Node string `json:"node,omitempty"`
 }
 
 // epicAnswerArgs is the arguments of epic_answer. Question is omitted for a note.
@@ -62,13 +71,28 @@ func epicCommand(
 			return epicForm(verb)
 		}
 		return epicInvoke(ctx, epics, "epic_list", map[string]string{}, stdout)
-	case "get", "pause", "resume", "stop", "retry":
+	case "get", "pause", "resume", "stop":
 		if len(rest) != 1 {
 			return epicForm(verb + " ID")
 		}
 		return epicInvoke(ctx, epics, "epic_"+verb, epicIDArgs{ID: rest[0]}, stdout)
+	case "retry":
+		return epicRetry(ctx, epics, rest, stdout)
 	default:
 		return epicForm(epicForms)
+	}
+}
+
+// epicRetry implements `retry ID [NODE]`. With NODE, the parked run of that node reruns; without it, the epic's park
+// ends. An empty NODE is a usage error, since sending it would silently end the park.
+func epicRetry(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
+	switch {
+	case len(rest) == 1:
+		return epicInvoke(ctx, epics, "epic_retry", epicRetryArgs{ID: rest[0]}, stdout)
+	case len(rest) == 2 && rest[1] != "":
+		return epicInvoke(ctx, epics, "epic_retry", epicRetryArgs{ID: rest[0], Node: rest[1]}, stdout)
+	default:
+		return epicForm(epicRetryForm)
 	}
 }
 

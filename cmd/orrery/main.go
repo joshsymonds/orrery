@@ -108,7 +108,7 @@ subcommands:
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
   epic stop ID                                  pause an epic and stop the step of its running turn
-  epic retry ID                                 end an epic's park
+  epic retry ID [NODE]                          end an epic's park, or rerun its parked NODE
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
