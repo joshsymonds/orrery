@@ -187,6 +187,11 @@ web-page:
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
 check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
 
+# The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
+# merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
+check-changed BASE="":
+    scripts/check-changed.sh {{BASE}}
+
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:
     nix develop .#android -c gradle -p android assembleDebug lintDebug test
