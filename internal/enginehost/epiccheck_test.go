@@ -84,7 +84,6 @@ func epicTestRequest(repo string) *v1.CreateEpicRequest {
 			Base:        epicTestBase(repo),
 			Gates:       epicTestGates(),
 			DoneGates:   []string{"check"},
-			ReviewGates: []string{"review"},
 		},
 		Decisions: []*v1.EpicDecisionInput{{Id: "D1", Text: "Synthetic decision."}},
 	}
@@ -253,7 +252,9 @@ func TestCheckEpicRefusesGates(t *testing.T) {
 	})
 }
 
-func TestCheckEpicRefusesDoneAndReviewGates(t *testing.T) {
+// TestCheckEpicRefusesDoneGatesAndReviewGates asserts the done gates resolve to command gates, and that a contract
+// which sets review gates is refused whatever they name: the reviewers it declares fill the review list.
+func TestCheckEpicRefusesDoneGatesAndReviewGates(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
@@ -273,14 +274,9 @@ func TestCheckEpicRefusesDoneAndReviewGates(t *testing.T) {
 			want:   "done_gates[0]: not a command gate",
 		},
 		{
-			name:   "review gate defined nowhere",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"missing"} },
-			want:   `review_gates[0]: gate "missing": unknown gate: searched the epic's gates`,
-		},
-		{
-			name:   "review gate is a command gate",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"check"} },
-			want:   "review_gates[0]: not an agent gate",
+			name:   "review gates set",
+			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"review"} },
+			want:   "review_gates: refused, the reviewers fill the review list",
 		},
 	})
 }
