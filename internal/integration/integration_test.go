@@ -58,6 +58,8 @@ const (
 	exampleContext  = "http://example.invalid/ctx/example-context"
 	sentinelKey     = "z"
 	pollEvery       = 10 * time.Millisecond
+	// testHost is the host name every orreryd a test starts runs with, through its --host test seam.
+	testHost = "synthetic-host"
 	// judgeDelay is the --judge-delay test seam the daemons of the notice tests run with, so a plain done is judged at
 	// once and not after route.JudgeDelay of real time. route's own tests check that wait on fake timers.
 	judgeDelay = "0s"
@@ -239,6 +241,11 @@ func (b *lockedBuffer) String() string {
 // startBinary starts the built binary name with args and env and kills it at cleanup if it is still running.
 func startBinary(t *testing.T, name string, env []string, args ...string) *orreryProcess {
 	t.Helper()
+	if name == "orreryd" {
+		// Every orreryd a test starts names testHost as its host, so no desk line, notice or pool carries the
+		// machine's own name.
+		args = append([]string{"--host", testHost}, args...)
+	}
 	p := &orreryProcess{
 		name: name,
 		cmd:  exec.Command(filepath.Join(os.Getenv(binDirEnv), name), args...),

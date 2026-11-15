@@ -49,10 +49,7 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 	t.Cleanup(func() { conn.Close() })
 	r := bufio.NewReader(conn)
 
-	host, err := os.Hostname()
-	if err != nil {
-		t.Fatalf("host name: %v", err)
-	}
+	host := testHost
 	hello := nextDeskLine(t, r)
 	if hello.Kind != deskstream.KindHello || hello.Host != host {
 		t.Fatalf("hello %+v, want kind %q host %q", hello, deskstream.KindHello, host)

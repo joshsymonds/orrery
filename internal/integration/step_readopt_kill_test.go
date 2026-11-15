@@ -67,10 +67,7 @@ func newStepReadoptRig(t *testing.T) *stepReadoptRig {
 		t.Fatalf("make home: %v", err)
 	}
 	f.env = append(f.env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	host, err := os.Hostname()
-	if err != nil {
-		t.Fatalf("read host name: %v", err)
-	}
+	host := testHost
 	gateRuns := filepath.Join(f.root, "gate.runs")
 	gateRelease := filepath.Join(f.root, "gate.release")
 	gatesFile := filepath.Join(f.root, "gates.toml")

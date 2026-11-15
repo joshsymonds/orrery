@@ -173,6 +173,9 @@ type options struct {
 	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
 	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
 	dueNow func() time.Time
+	// host is a test seam: the host name the desk stream, the notices and the grants broker use in place of
+	// os.Hostname. Production leaves it "".
+	host string
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -298,6 +301,18 @@ func report(stderr io.Writer, err error) int {
 	}
 }
 
+// hostName is the --host test seam's name when it is set, and os.Hostname otherwise.
+func hostName(seam string) (string, error) {
+	if seam != "" {
+		return seam, nil
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return "", fmt.Errorf("read the machine's host name: %w", err)
+	}
+	return host, nil
+}
+
 // dueClock is the due pass's clock for the --due-at test seam: nil, which is time.Now, for zero, and otherwise a clock
 // stopped at unix second at.
 func dueClock(at int64) func() time.Time {
@@ -350,6 +365,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
+	hostName := flags.String("host", "", "test seam: host name in place of the machine's")
 	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
@@ -403,6 +419,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
 		dueNow:        dueClock(*dueAt),
+		host:          *hostName,
 	}, nil
 }
 
@@ -470,7 +487,7 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 // --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
 // threshold writes a start trace once READY=1 is sent.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
-	host, err := os.Hostname()
+	host, err := hostName(opts.host)
 	if err != nil {
 		return fmt.Errorf("host name: %w", err)
 	}
@@ -1398,11 +1415,12 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 		r.forget(ctx, transition)
 		r.reads.forget(transition.PaneID)
 	}
+	var summarized <-chan struct{}
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
-		r.summarize(ctx, transition)
+		summarized = r.summarize(ctx, transition)
 	}
 	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
-		r.notify(ctx, transition)
+		r.notify(ctx, transition, summarized)
 		return
 	}
 	r.router.Changed(notice.Key{Pane: transition.PaneID})
@@ -1420,17 +1438,18 @@ func (r *relay) forget(ctx context.Context, transition daemon.Transition) {
 }
 
 // summarize requests the summary for the transition's pane. A working request is a periodic refresh; a done
-// request is the Stop run and carries the last assistant message.
-func (r *relay) summarize(ctx context.Context, transition daemon.Transition) {
+// request is the Stop run and carries the last assistant message. It returns the channel that closes once the request
+// has settled (see summary.Summarizer.Request), or nil when no request was made.
+func (r *relay) summarize(ctx context.Context, transition daemon.Transition) <-chan struct{} {
 	transcript, err := hookString(transition.Frame.Hook, keyTranscriptPath)
 	if err != nil {
 		r.logger.WarnContext(ctx, "read transcript path", "pane", transition.PaneID, "error", err)
-		return
+		return nil
 	}
 	summarizer, err := r.summarizerFor(transition.Server)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "create summarizer", "error", err)
-		return
+		return nil
 	}
 	req := summary.Request{
 		PaneID:         transition.PaneID,
@@ -1443,10 +1462,10 @@ func (r *relay) summarize(ctx context.Context, transition daemon.Transition) {
 		req.LastAssistantMessage, err = hookString(transition.Frame.Hook, keyLastAssistantMessage)
 		if err != nil {
 			r.logger.WarnContext(ctx, "read last assistant message", "pane", transition.PaneID, "error", err)
-			return
+			return nil
 		}
 	}
-	summarizer.Request(ctx, req)
+	return summarizer.Request(ctx, req)
 }
 
 // summarizerFor returns the summarizer for the tmux server, creating it on first use.
@@ -1501,8 +1520,8 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 // silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
 // logged. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one never
 // pends, so it needs none.
-func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
-	incoming := r.paneNotice(ctx, transition)
+func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}) {
+	incoming := r.paneNotice(ctx, transition, summarized)
 	if incoming.Silent == "" {
 		if data, err := encodePaneSource(transition); err != nil {
 			r.logger.ErrorContext(ctx, "encode pane notice", "pane", transition.PaneID, "error", err)

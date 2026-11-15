@@ -46,10 +46,7 @@ func readNoticeLog(t *testing.T, path string) []route.Line {
 // this host and pane, and carry a time from since to now.
 func assertNoticeLog(t *testing.T, path string, since int64, pane string, want ...loggedNotice) {
 	t.Helper()
-	host, err := os.Hostname()
-	if err != nil {
-		t.Fatalf("host name: %v", err)
-	}
+	host := testHost
 	got := readNoticeLog(t, path)
 	if len(got) != len(want) {
 		t.Fatalf("notice log %+v, want %d lines %+v", got, len(want), want)
@@ -195,10 +192,7 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 	}
 	t.Cleanup(func() { conn.Close() })
 	r := bufio.NewReader(conn)
-	host, err := os.Hostname()
-	if err != nil {
-		t.Fatalf("host name: %v", err)
-	}
+	host := testHost
 	if hello := nextDeskLine(t, r); hello.Kind != deskstream.KindHello || hello.Host != host {
 		t.Fatalf("hello %+v, want kind %q host %q", hello, deskstream.KindHello, host)
 	}
@@ -330,6 +324,8 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			registerPush(t, stateHome, endpoint)
 			daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
 			writeJudgeReply(t, dir, tc.reply)
+			// Each run reads the fake afresh, so the summary runs from here on wait for summaryReleaseFile.
+			writeFile(t, filepath.Join(dir, "fake-claude.sh"), gatedFakeClaudeScript, 0o700)
 			r := dialDesk(t, socket)
 			project := filepath.Join(dir, exampleProjectName)
 			if err := os.Mkdir(project, 0o700); err != nil {
@@ -340,8 +336,12 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			since := time.Now().Unix()
 
 			// The notice waits out the daemon's --judge-delay before the judge runs; route's own tests check that wait
-			// on fake timers, so this test checks only what the judged notice carries.
+			// on fake timers, so this test checks only what the judged notice carries. The Stop's summary run is held
+			// until the judge has answered, so the notice must wait for the summary it carries as its body: a notice
+			// routed before it would carry "done".
 			sendHook(t, socket, pane, project, stopHook(transcript))
+			waitUntil(t, func() bool { return len(judgeRuns(t, dir)) == 1 })
+			writeFile(t, filepath.Join(dir, summaryReleaseFile), "", 0o600)
 			line := nextDeskLine(t, r)
 			if line.Kind != deskstream.KindNotice || line.State != string(protocol.StateDone) ||
 				line.Title != exampleTitle || line.Body != exampleSummary || line.Quiet != tc.quiet {
