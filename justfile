@@ -194,7 +194,7 @@ web-page:
     scripts/build-web.sh web/build/page
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
+check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test
 
 # Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
 # and its -L server runs on as a daemon. Only a server named orrery-<word>(-<word>)*-<pid>-<hex>, as tests name theirs,
@@ -207,6 +207,29 @@ reap-test-tmux:
 # merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
 check-changed BASE="": reap-test-tmux
     scripts/check-changed.sh {{BASE}}
+
+# Run a gate command on the orrery-gate EC2 box, or here through /tmp/claude-1000/heavy when no box answers; see
+# scripts/gate-remote.sh for the steps, the environment and the exit codes (75 is an environment result, such as a spot
+# interruption, never a test failure). For example: just remote just check, just remote nix flake check.
+[positional-arguments]
+remote *args:
+    scripts/gate-remote.sh "$@"
+
+# `just check` on the orrery-gate box.
+remote-check:
+    scripts/gate-remote.sh just check
+
+# `just android-test` on the orrery-gate box.
+remote-android-test:
+    scripts/gate-remote.sh just android-test
+
+# `nix flake check` on the orrery-gate box.
+remote-flake-check:
+    scripts/gate-remote.sh nix flake check
+
+# Test scripts/gate-remote.sh against a fake box: a directory and a fake ssh, no AWS and no network.
+gate-remote-test:
+    scripts/gate-remote-test.sh
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

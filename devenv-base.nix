@@ -35,6 +35,7 @@ in
     pkgs.protoc-gen-connect-go
     pkgs.protoc-gen-es
     pkgs.protoc-gen-go
+    pkgs.rsync
     pkgs.sqlc
     pkgs.tmux
     pkgs.typescript

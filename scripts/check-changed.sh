@@ -16,6 +16,7 @@
 #   - web-check and web-page when web/ changed (outside web/build).
 #   - alert-check when observability/ changed.
 #   - android-test when android/ or proto/ changed.
+#   - gate-remote-test when scripts/gate-remote.sh or its test changed.
 #   - pin-check always (it is fast).
 set -euo pipefail
 
@@ -90,6 +91,7 @@ if has '^internal/store/.*\.sql$' || has '^sqlc\.yaml$'; then just sqlc-diff; fi
 if has '^proto/'; then just proto-lint proto-breaking gen-diff; fi
 if printf '%s\n' "$changed" | grep -E '^web/' | grep -vqE '^web/build/'; then just web-check web-page; fi
 if has '^observability/'; then just alert-check; fi
+if has '^scripts/gate-remote(-test)?\.sh$'; then just gate-remote-test; fi
 if has '^(android/|proto/)'; then just android-test; else echo "check-changed: Android untouched; android-test skipped"; fi
 
 echo "check-changed: OK"
