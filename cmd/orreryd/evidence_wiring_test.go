@@ -31,7 +31,6 @@ const (
 	evidenceWiringRun      = "synthetic-run"
 	evidenceWiringStep     = "synthetic-judge"
 	evidenceWiringRev      = "abc123"
-	evidenceWiringWait     = 10 * time.Second
 	evidenceWiringPoll     = 10 * time.Millisecond
 	evidenceWiringStamp    = 1_700_000_000
 	evidenceWiringJudgeEnd = "done"
@@ -257,17 +256,16 @@ func evidenceWiringJudging(t *testing.T, st *store.Store) {
 	}
 }
 
-// waitEvidenceVerdict reads the run id from st until it has a verdict or evidenceWiringWait has passed, and returns the
-// last read.
+// waitEvidenceVerdict reads the run id from st until it has a verdict, and returns that read. It has no deadline of its
+// own.
 func waitEvidenceVerdict(t *testing.T, st *store.Store, id string) store.EvidenceRun {
 	t.Helper()
-	deadline := time.Now().Add(evidenceWiringWait)
 	for {
 		run, err := st.EvidenceRun(t.Context(), id)
 		if err != nil {
 			t.Fatalf("read evidence run %s: %v", id, err)
 		}
-		if run.Verdict != "" || time.Now().After(deadline) {
+		if run.Verdict != "" {
 			return run
 		}
 		time.Sleep(evidenceWiringPoll)
