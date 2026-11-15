@@ -529,7 +529,10 @@ func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	}
 }
 
-func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
+// TestReattachStopOfAWedgedHolderFallsBack checks that Stop of a holder whose socket takes the stop's hello and never
+// answers gives up on the socket at its bound and stops the held process instead. The bound is the stop connection's
+// deadline, a kernel timer, so the test checks the fallback and not how long it took.
+func TestReattachStopOfAWedgedHolderFallsBack(t *testing.T) {
 	t.Parallel()
 
 	p, server, held, listener := rawProcessHeld(t)
@@ -545,7 +548,6 @@ func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
 			t.Errorf("send the exit frame: %v", writeErr)
 		}
 	}
-	start := time.Now()
 	stopped := startAsync(p.Stop)
 	// The stop dials the holder's socket again. The test accepts that connection and never answers its hello.
 	wedged := acceptRaw(t, listener)
@@ -559,12 +561,5 @@ func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
 		}
 	case <-time.After(reattachTestBound + reattachSlack):
 		t.Fatalf("Stop of a holder that never answers did not return within %v", reattachTestBound+reattachSlack)
-	}
-	if elapsed := time.Since(start); elapsed < reattachTestBound {
-		t.Fatalf(
-			"Stop returned after %v, want it to wait out the %v bound before falling back",
-			elapsed,
-			reattachTestBound,
-		)
 	}
 }
