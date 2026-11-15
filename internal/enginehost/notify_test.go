@@ -295,6 +295,11 @@ type restartRig struct {
 	after  *fakeAfter
 }
 
+// storeBoundNeverFires is a store-call bound that never fires: the Router's store writes are never read as late.
+func storeBoundNeverFires(time.Duration, func()) func() bool {
+	return func() bool { return true }
+}
+
 // newRestartRig returns a Router attached to rows that restores session notices with RestoreNotice. The owner is at
 // the desk, the phone is subscribed, and the Router's clock is fixedClock.
 func newRestartRig(t *testing.T, rows route.Rows) restartRig {
@@ -308,6 +313,8 @@ func newRestartRig(t *testing.T, rows route.Rows) restartRig {
 		Subscribed: func() (bool, error) { return true, nil },
 		Log:        &fakeRouteLog{},
 		Rebuild:    map[string]route.Rebuild{SessionSource: RestoreNotice},
+		// The store-call bound never fires: a row write slower than the real bound under load would read as failed.
+		StoreAfter: storeBoundNeverFires,
 	})
 	rig.router.Attach(t.Context(), rows)
 	return rig

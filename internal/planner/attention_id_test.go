@@ -88,6 +88,9 @@ func storedRouter(t *testing.T, s *store.Store, desk *postedDesk) *route.Router 
 		Subscribed: func() (bool, error) { return true, nil },
 		Log:        discardLines{},
 		Rebuild:    map[string]route.Rebuild{EpicSource: RestoreNotice},
+		// The store-call bound never fires: a row write slower than the real bound under load would read as failed and
+		// leave no row for the restarted router to restore.
+		StoreAfter: neverFires,
 	})
 	router.Attach(context.Background(), s)
 	return router
