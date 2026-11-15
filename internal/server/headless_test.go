@@ -30,7 +30,7 @@ const (
 func openHeadlessStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	storetest.Seed(t, path)
-	s, err := store.Open(t.Context(), path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

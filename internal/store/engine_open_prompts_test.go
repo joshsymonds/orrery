@@ -17,6 +17,7 @@ func holderPromptsUnanswered(t *testing.T, s *Store, id string) int {
 }
 
 func TestHolderPromptsUnansweredCountsWritesSinceLaunch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -41,6 +42,7 @@ func TestHolderPromptsUnansweredCountsWritesSinceLaunch(t *testing.T) {
 // TestHolderPromptsUnansweredCountsPromptsLaterTurnEndsOmit checks each prompt against the turn ends after it: a prompt
 // a later turn end lists is answered, and a prompt every later turn end omits is owed, even when a turn end sits after it.
 func TestHolderPromptsUnansweredCountsPromptsLaterTurnEndsOmit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -110,6 +112,7 @@ func TestHolderPromptsUnansweredCountsPromptsLaterTurnEndsOmit(t *testing.T) {
 // stored before the column existed. It answers every prompt before it, so only the prompt after it, which the later turn
 // end omits, is owed.
 func TestHolderPromptsUnansweredNullTurnEndAnswersEarlierPrompts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -147,6 +150,7 @@ func TestHolderPromptsUnansweredNullTurnEndAnswersEarlierPrompts(t *testing.T) {
 }
 
 func TestHolderPromptsUnansweredUnknownIDCountsZero(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

@@ -8,6 +8,7 @@ import (
 )
 
 func TestEngineRowsReadEngineRowsOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -61,6 +62,7 @@ func TestEngineRowsReadEngineRowsOnly(t *testing.T) {
 }
 
 func TestEngineTextSessionsNamesEachSessionWithUnfinishedText(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -93,6 +95,7 @@ func TestEngineTextSessionsNamesEachSessionWithUnfinishedText(t *testing.T) {
 }
 
 func TestEngineTextSessionsEmptyStoreIsEmpty(t *testing.T) {
+	t.Parallel()
 	s := openSyncStore(t)
 
 	got, err := s.EngineTextSessions(context.Background())
@@ -105,6 +108,7 @@ func TestEngineTextSessionsEmptyStoreIsEmpty(t *testing.T) {
 }
 
 func TestEngineTextSessionsClosedStoreErrors(t *testing.T) {
+	t.Parallel()
 	s := openSyncStore(t)
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

@@ -389,18 +389,18 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 	return allowed, nil
 }
 
-// listPanes returns the array cli.List writes for tmux, each pane carrying the question_hash of its question, the
+// listPanes returns the panes cli.List writes for tmux, each carrying the question_hash of its question, the
 // newest_reply of its transcript, as paneNewestReply gives it, and the last_turn_end of its @orrery_id session, as
 // paneTurnEnd gives it. Working panes whose transcripts show an interruption after their turn started are ended
-// first, by endInterruptedTurns, so the array shows them as done. newest keeps each transcript's newest time across
-// requests, and reader is the store the turn ends are read from once per listing. With no running server the array
+// first, by endInterruptedTurns, so the listing shows them as done. newest keeps each transcript's newest time across
+// requests, and reader is the store the turn ends are read from once per listing. With no running server the listing
 // is empty. Any failure is a routeError with status 500.
 func listPanes(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
 	reader *store.Reader,
-) ([]map[string]json.RawMessage, error) {
+) ([]listedPane, error) {
 	panes, err := listedPanes(ctx, tmux)
 	if err != nil {
 		return nil, internalError()
@@ -417,7 +417,7 @@ func listPanes(
 	}
 	ends := turnEnds(ctx, reader)
 	for _, pane := range panes {
-		if err = addPaneFields(ctx, tmux, newest, ends, pane); err != nil {
+		if err = addPaneFields(newest, ends, pane); err != nil {
 			return nil, internalError()
 		}
 	}
@@ -437,54 +437,79 @@ func turnEnds(ctx context.Context, reader *store.Reader) map[string]int64 {
 	return ends
 }
 
-// listedPanes returns the pane objects cli.List writes for tmux, each decoded one level deep.
-func listedPanes(ctx context.Context, tmux *tmuxctl.Client) ([]map[string]json.RawMessage, error) {
-	var list bytes.Buffer
-	if err := cli.List(ctx, tmux, []string{"--json"}, &list); err != nil {
+// listedPane is one pane of a listing: its JSON object, with the keys cli.List writes, and the values the listing read
+// for it.
+type listedPane struct {
+	fields map[string]json.RawMessage
+	listed tmuxctl.Listed
+}
+
+// listedPanes returns the panes of one cli.Panes listing for tmux, each with the JSON object cli.List writes for it.
+func listedPanes(ctx context.Context, tmux *tmuxctl.Client) ([]listedPane, error) {
+	listed, err := cli.Panes(ctx, tmux)
+	if err != nil {
 		return nil, fmt.Errorf("server: list panes: %w", err)
 	}
-	var panes []map[string]json.RawMessage
-	if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
-		return nil, fmt.Errorf("server: decode panes: %w", err)
+	panes := make([]listedPane, 0, len(listed))
+	for _, entry := range listed {
+		var fields map[string]json.RawMessage
+		if fields, err = paneObject(entry.Pane); err != nil {
+			return nil, err
+		}
+		panes = append(panes, listedPane{fields: fields, listed: entry})
 	}
 	return panes, nil
 }
 
-// endInterruptedTurns passes each working pane of panes whose @orrery_transcript file exists to
-// state.EndInterruptedTurn, with the newest interruption time of that transcript and now. A transcript file that
-// does not exist is skipped, and any other error is returned. It reports whether any pane's turn ended.
+// paneObject returns the JSON object of pane, decoded one level deep, which cli.List writes for it.
+func paneObject(pane protocol.Pane) (map[string]json.RawMessage, error) {
+	data, err := json.Marshal(pane)
+	if err != nil {
+		return nil, fmt.Errorf("server: encode pane: %w", err)
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(data, &fields); err != nil {
+		return nil, fmt.Errorf("server: decode pane: %w", err)
+	}
+	return fields, nil
+}
+
+// paneObjects returns the JSON object of each pane of panes, in order.
+func paneObjects(panes []listedPane) []map[string]json.RawMessage {
+	objects := make([]map[string]json.RawMessage, 0, len(panes))
+	for _, pane := range panes {
+		objects = append(objects, pane.fields)
+	}
+	return objects
+}
+
+// endInterruptedTurns passes each working pane of panes whose transcript shows an interruption after the pane's turn
+// started to state.EndInterruptedTurn, with that interruption's time and now. The turn started at the later of the
+// listed changed time and turn start, so an interruption that is not later than that is left alone. A transcript file
+// that does not exist is skipped, and any other error is returned. It reports whether any pane's turn ended.
 func endInterruptedTurns(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
-	panes []map[string]json.RawMessage,
+	panes []listedPane,
 ) (bool, error) {
 	now := time.Now()
 	ended := false
 	for _, pane := range panes {
-		var id, paneState string
-		if err := json.Unmarshal(pane["id"], &id); err != nil {
-			return false, fmt.Errorf("server: decode pane id: %w", err)
-		}
-		if err := json.Unmarshal(pane["state"], &paneState); err != nil {
-			return false, fmt.Errorf("server: decode pane state: %w", err)
-		}
-		if protocol.State(paneState) != protocol.StateWorking {
+		id := pane.listed.ID
+		if pane.listed.State != protocol.StateWorking || pane.listed.Transcript == "" {
 			continue
 		}
-		path, ok, err := tmux.PaneOption(ctx, id, protocol.OptionTranscript)
-		if err != nil {
-			return false, fmt.Errorf("server: pane %s transcript option: %w", id, err)
-		}
-		if !ok || path == "" {
-			continue
-		}
-		interrupted, err := newest.Interrupted(path)
+		interrupted, err := newest.Interrupted(pane.listed.Transcript)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return false, fmt.Errorf("server: interruption of pane %s: %w", id, err)
+		}
+		started := max(pane.listed.Changed, pane.listed.TurnStart)
+		if interrupted <= started {
+			continue
 		}
 		done, err := state.EndInterruptedTurn(ctx, tmux, id, interrupted, now)
 		if err != nil {
@@ -497,30 +522,14 @@ func endInterruptedTurns(
 	return ended, nil
 }
 
-// addPaneFields sets the questionHashKey, newestReplyKey and lastTurnEndKey fields of pane, which holds one pane of
-// cli.List. ends holds the turn ends turnEnds reads for the listing.
-func addPaneFields(
-	ctx context.Context,
-	tmux *tmuxctl.Client,
-	newest *conversation.Newest,
-	ends map[string]int64,
-	pane map[string]json.RawMessage,
-) error {
-	var question, id, state string
-	if err := json.Unmarshal(pane["question"], &question); err != nil {
-		return fmt.Errorf("server: decode pane question: %w", err)
-	}
-	if err := json.Unmarshal(pane["id"], &id); err != nil {
-		return fmt.Errorf("server: decode pane id: %w", err)
-	}
-	if err := json.Unmarshal(pane["state"], &state); err != nil {
-		return fmt.Errorf("server: decode pane state: %w", err)
-	}
-	hash, err := json.Marshal(protocol.QuestionHash(question))
+// addPaneFields sets the questionHashKey, newestReplyKey and lastTurnEndKey fields of the JSON object of pane, from the
+// values its listing read. ends holds the turn ends turnEnds reads for the listing.
+func addPaneFields(newest *conversation.Newest, ends map[string]int64, pane listedPane) error {
+	hash, err := json.Marshal(protocol.QuestionHash(pane.listed.Question))
 	if err != nil {
 		return fmt.Errorf("server: encode question hash: %w", err)
 	}
-	at, err := paneNewestReply(ctx, tmux, newest, id, state)
+	at, err := paneNewestReply(newest, pane.listed)
 	if err != nil {
 		return err
 	}
@@ -528,58 +537,38 @@ func addPaneFields(
 	if err != nil {
 		return fmt.Errorf("server: encode newest reply: %w", err)
 	}
-	turnEnd, err := paneTurnEnd(ctx, tmux, ends, id)
-	if err != nil {
-		return err
-	}
-	turnEndJSON, err := json.Marshal(turnEnd)
+	turnEndJSON, err := json.Marshal(paneTurnEnd(ends, pane.listed.OrreryID))
 	if err != nil {
 		return fmt.Errorf("server: encode last turn end: %w", err)
 	}
-	pane[questionHashKey] = hash
-	pane[newestReplyKey] = newestJSON
-	pane[lastTurnEndKey] = turnEndJSON
+	pane.fields[questionHashKey] = hash
+	pane.fields[newestReplyKey] = newestJSON
+	pane.fields[lastTurnEndKey] = turnEndJSON
 	return nil
 }
 
-// paneTurnEnd returns the turn end of the pane with the ID id: its @orrery_id option's entry in ends, or 0 when the
-// pane has no @orrery_id option or ends has no entry for it. A failed read of the option is an error.
-func paneTurnEnd(ctx context.Context, tmux *tmuxctl.Client, ends map[string]int64, id string) (int64, error) {
-	orreryID, ok, err := tmux.PaneOption(ctx, id, protocol.OptionID)
-	if err != nil {
-		return 0, fmt.Errorf("server: pane %s id option: %w", id, err)
+// paneTurnEnd returns the turn end of the session that orreryID names: its entry in ends, or 0 when orreryID is empty,
+// which is a pane with no @orrery_id option, or ends has no entry for it.
+func paneTurnEnd(ends map[string]int64, orreryID string) int64 {
+	if orreryID == "" {
+		return 0
 	}
-	if !ok || orreryID == "" {
-		return 0, nil
-	}
-	return ends[orreryID], nil
+	return ends[orreryID]
 }
 
-// paneNewestReply returns the unix seconds of the newest reply or question in the transcript that the pane
-// id names in its @orrery_transcript option. It returns 0 when the pane has no state, no transcript option, or
-// a transcript file that does not exist. Any other read error is returned.
-func paneNewestReply(
-	ctx context.Context,
-	tmux *tmuxctl.Client,
-	newest *conversation.Newest,
-	id, state string,
-) (int64, error) {
-	if state == "" {
+// paneNewestReply returns the unix seconds of the newest reply or question in the transcript of the pane listed, as
+// its listing gives the pane's state and @orrery_transcript option. It returns 0 when the pane has no state, no
+// transcript, or a transcript file that does not exist. Any other read error is returned.
+func paneNewestReply(newest *conversation.Newest, listed tmuxctl.Listed) (int64, error) {
+	if listed.State == "" || listed.Transcript == "" {
 		return 0, nil
 	}
-	path, ok, err := tmux.PaneOption(ctx, id, protocol.OptionTranscript)
-	if err != nil {
-		return 0, fmt.Errorf("server: pane %s transcript option: %w", id, err)
-	}
-	if !ok || path == "" {
-		return 0, nil
-	}
-	at, err := newest.Time(path)
+	at, err := newest.Time(listed.Transcript)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("server: newest reply of pane %s: %w", id, err)
+		return 0, fmt.Errorf("server: newest reply of pane %s: %w", listed.ID, err)
 	}
 	return at, nil
 }

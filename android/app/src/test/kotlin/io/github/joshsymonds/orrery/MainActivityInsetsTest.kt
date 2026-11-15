@@ -12,7 +12,6 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -63,7 +62,7 @@ private const val IME_PX = 400
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
 class MainActivityInsetsTest {
     @get:Rule
-    val composeRule = createEmptyComposeRule()
+    val composeRule = mainThreadEmptyComposeRule()
 
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer

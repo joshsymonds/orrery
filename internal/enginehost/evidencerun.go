@@ -204,8 +204,9 @@ func (e *Evidence) StderrLog(ctx context.Context, run string) ([]byte, string, e
 }
 
 // readLog returns the log of run stored under hash, redacted, and the sha256 of the bytes returned. Every read redacts,
-// so a log stored before redaction is redacted when shown. A run with no log under hash returns an error matching
-// ErrNoEvidenceArtifact.
+// so a log stored before redaction is redacted when shown. A log of at least evidenceCaptureLogTail bytes filled its
+// capture's tail, so it was cut at its start, and its first line is dropped with redact.CutTail. A run with no log
+// under hash returns an error matching ErrNoEvidenceArtifact.
 func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, error) {
 	if hash == "" {
 		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, ErrNoEvidenceArtifact)
@@ -214,7 +215,13 @@ func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, 
 	if err != nil {
 		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, err)
 	}
-	data := []byte(redact.Text(string(raw)))
+	var redacted string
+	if len(raw) >= evidenceCaptureLogTail {
+		redacted = redact.CutTail(string(raw))
+	} else {
+		redacted = redact.Text(string(raw))
+	}
+	data := []byte(redacted)
 	sum := sha256.Sum256(data)
 	return data, hex.EncodeToString(sum[:]), nil
 }

@@ -43,6 +43,7 @@ func gateStateOf(row StepRow) StepGate {
 }
 
 func TestStepLoopRoundTripsEveryLoopColumn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -76,6 +77,7 @@ func TestStepLoopRoundTripsEveryLoopColumn(t *testing.T) {
 }
 
 func TestStepGateRoundTripsAndEmptyHolderClears(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -106,6 +108,7 @@ func TestStepGateRoundTripsAndEmptyHolderClears(t *testing.T) {
 }
 
 func TestStepReturnSetsLoopSeqToItsSessionNewestEventAndClearsGate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -145,6 +148,7 @@ func TestStepReturnSetsLoopSeqToItsSessionNewestEventAndClearsGate(t *testing.T)
 }
 
 func TestStepTurnReportsLastTurnEndAfterLastPrompt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -168,6 +172,7 @@ func TestStepTurnReportsLastTurnEndAfterLastPrompt(t *testing.T) {
 }
 
 func TestStepTurnReportsErrorTurnEnd(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -188,6 +193,7 @@ func TestStepTurnReportsErrorTurnEnd(t *testing.T) {
 }
 
 func TestStepTurnReturnedOnlyForTurnEndsAtOrBeforeTheLatestReturn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -228,6 +234,7 @@ func TestStepTurnReturnedOnlyForTurnEndsAtOrBeforeTheLatestReturn(t *testing.T) 
 }
 
 func TestStepTurnNoneAfterLaterPrompt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -245,6 +252,7 @@ func TestStepTurnNoneAfterLaterPrompt(t *testing.T) {
 }
 
 func TestStepTurnNoneWithoutTurnEnd(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -258,6 +266,7 @@ func TestStepTurnNoneWithoutTurnEnd(t *testing.T) {
 }
 
 func TestStepTurnNoneWhileBackground(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	addStepSession(t, s)
@@ -293,6 +302,7 @@ func TestStepTurnNoneWhileBackground(t *testing.T) {
 }
 
 func TestAddGrantStoresHolder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})

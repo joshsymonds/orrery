@@ -15,17 +15,34 @@ import (
 // fails must match ErrUnavailable, because a lost store is reported the same way whether the file is gone before
 // the read or disappears during it.
 func TestReadsRacingRemovalAnswerUnavailable(t *testing.T) {
+	t.Parallel()
+	// The 300 rounds run as four groups of 75, each over its own store file and reader, so the rounds of one group
+	// race removal while the other groups' rounds run beside them.
+	const groups = 4
+	const roundsPerGroup = 75
+	for group := range groups {
+		t.Run(strconv.Itoa(group), func(t *testing.T) {
+			t.Parallel()
+			readsRacingRemoval(t, group*roundsPerGroup, roundsPerGroup)
+		})
+	}
+}
+
+// readsRacingRemoval runs rounds numbered first to first+rounds-1. Each round seeds a store file, writes one pane,
+// then removes the file while a reader reads it readsPerRound times; every read that fails must match
+// ErrUnavailable.
+func readsRacingRemoval(t *testing.T, first, rounds int) {
+	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	now := time.Unix(1_700_000_000, 0)
-	const rounds = 300
 	const readsPerRound = 20
 
 	r := NewReader(path)
-	for round := range rounds {
+	for round := first; round < first+rounds; round++ {
 		// Each round's store starts as a copy of the migrated image, so the round costs its reads, not a migration.
 		seedMigrated(t, path)
-		s, err := Open(ctx, path)
+		s, err := Open(ctx, path, noSync())
 		if err != nil {
 			t.Fatalf("round %d Open: %v", round, err)
 		}

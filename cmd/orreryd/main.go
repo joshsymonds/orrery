@@ -33,6 +33,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/inapp"
+	"github.com/joshsymonds/orrery/internal/interpret"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -623,21 +624,19 @@ func shutdownServe(
 // the pools, and nil without a store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop
 // runs.
 type sessionHost struct {
-	manager     *enginehost.Manager
-	steps       *enginehost.Steps
-	writer      *enginehost.Writer
-	broker      *grants.Broker
-	pools       enginehost.PoolCommands
-	evidence    *enginehost.Evidence
-	brokerRun   chan struct{}
-	stopWriter  context.CancelFunc
-	writerDone  chan struct{}
-	stopIdle    context.CancelFunc
-	idleDone    chan struct{}
-	stopPlanner context.CancelFunc
-	plannerDone chan struct{}
-	stopBuild   context.CancelFunc
-	buildDone   chan struct{}
+	manager    *enginehost.Manager
+	steps      *enginehost.Steps
+	writer     *enginehost.Writer
+	broker     *grants.Broker
+	pools      enginehost.PoolCommands
+	evidence   *enginehost.Evidence
+	brokerRun  chan struct{}
+	stopWriter context.CancelFunc
+	writerDone chan struct{}
+	stopIdle   context.CancelFunc
+	idleDone   chan struct{}
+	stopFlow   context.CancelFunc
+	flowDone   chan struct{}
 	// attentionDone is closed when the attention loop returns, and is nil when no loop runs.
 	attentionDone chan struct{}
 	stopLimits    context.CancelFunc
@@ -655,9 +654,9 @@ type sessionHost struct {
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
-// The planner then runs over the store and the steps, and its attention loop routes its epic notices through router
-// when router is not nil. The build runner then runs over the store, the steps and the evidence runner until stop; the
-// limit notices tell router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due
+// The flow then runs over the store until stop, with the planner and the build runner as its planner and builder, and
+// its attention loop routes its epic notices through router when router is not nil. The limit notices tell router which
+// steps a usage limit holds, every limitTick until stop; the due pass resumes each due
 // row whose reset has passed, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
 // serving goes on; a failed restore serves no Pools, which refuse as
 // unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
@@ -673,13 +672,12 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
-		writerDone:  make(chan struct{}),
-		idleDone:    make(chan struct{}),
-		plannerDone: make(chan struct{}),
-		buildDone:   make(chan struct{}),
-		limitsDone:  make(chan struct{}),
-		dueDone:     make(chan struct{}),
-		serveDone:   make(chan error, 1),
+		writerDone: make(chan struct{}),
+		idleDone:   make(chan struct{}),
+		flowDone:   make(chan struct{}),
+		limitsDone: make(chan struct{}),
+		dueDone:    make(chan struct{}),
+		serveDone:  make(chan error, 1),
 	}
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
@@ -744,8 +742,7 @@ func startSessions(
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
-		host.startPlanner(ctx, st, router, opts.attentionTicks, getenv, resolve, logger)
-		host.startBuild(ctx, st, getenv, stateDir, logger)
+		host.startFlow(ctx, st, router, opts.attentionTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startDue(ctx, st, logger)
 		host.startIdle(ctx)
@@ -922,31 +919,43 @@ func (h *sessionHost) startEvidence(
 	}
 }
 
-// startPlanner runs the planner runner over st and the steps until stop. The runner reads the agent from the role
-// file on each pass; without one it parks each epic with pending triggers through a turn that starts no step. Each
-// planned task's gate and judge are resolved by resolve. With a router, the attention loop runs under the same context
-// and routes the epics that need their owner through it, passing at each value of attentionTicks when it is not nil.
-func (h *sessionHost) startPlanner(
+// startFlow runs the interpreter over st until stop, with the planner and the build runner it builds over st and the
+// steps as its planner and builder. The planner reads the agent from the role file on each pass; without one it parks
+// each epic with pending triggers through a turn that starts no step. Each planned task's gate and judge are resolved
+// by resolve. The build runner moves the builds the flow gives it through the steps and the evidence runner. With a
+// router, the attention loop runs under the same context and routes the epics that need their owner through it,
+// passing at each value of attentionTicks when it is not nil.
+func (h *sessionHost) startFlow(
 	ctx context.Context,
 	st *store.Store,
 	router planner.Router,
 	attentionTicks <-chan time.Time,
 	getenv func(string) string,
 	resolve planner.Resolver,
+	stateDir string,
 	logger *slog.Logger,
 ) {
-	runner := planner.New(planner.Config{
+	plannerRun := planner.New(planner.Config{
 		Store:   st,
 		Steps:   h.steps,
 		Agent:   func() (string, error) { return roles.Agent(getenv, "planner") },
 		Logger:  logger,
 		Resolve: resolve,
 	})
-	var plannerCtx context.Context
-	plannerCtx, h.stopPlanner = context.WithCancel(ctx)
+	buildRun := build.New(build.Config{
+		Store:    st,
+		Steps:    h.steps,
+		Evidence: h.evidence,
+		Getenv:   getenv,
+		StateDir: stateDir,
+		Logger:   logger,
+	})
+	flow := interpret.New(interpret.Config{Store: st, Planner: plannerRun, Builder: buildRun, Logger: logger})
+	var flowCtx context.Context
+	flowCtx, h.stopFlow = context.WithCancel(ctx)
 	go func() {
-		runner.Run(plannerCtx)
-		close(h.plannerDone)
+		flow.Run(flowCtx)
+		close(h.flowDone)
 	}()
 	if router == nil {
 		return
@@ -956,33 +965,8 @@ func (h *sessionHost) startPlanner(
 	})
 	h.attentionDone = make(chan struct{})
 	go func() {
-		attention.Run(plannerCtx)
+		attention.Run(flowCtx)
 		close(h.attentionDone)
-	}()
-}
-
-// startBuild runs the build Runner over st, the steps and the evidence runner until stop. Each pass moves the builds of
-// the open tasks of accepted epics, and starts their steps and evidence runs through the steps and the evidence runner.
-func (h *sessionHost) startBuild(
-	ctx context.Context,
-	st *store.Store,
-	getenv func(string) string,
-	stateDir string,
-	logger *slog.Logger,
-) {
-	runner := build.New(build.Config{
-		Store:    st,
-		Steps:    h.steps,
-		Evidence: h.evidence,
-		Getenv:   getenv,
-		StateDir: stateDir,
-		Logger:   logger,
-	})
-	var buildCtx context.Context
-	buildCtx, h.stopBuild = context.WithCancel(ctx)
-	go func() {
-		runner.Run(buildCtx)
-		close(h.buildDone)
 	}()
 }
 
@@ -1048,20 +1032,18 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, logger *slo
 	}()
 }
 
-// shutdown stops the broker, stops the idle check, stops the planner and the build runner and waits for each to return,
-// stops the limit notices and waits for the planner's runner, its attention loop, the limit loop and the due pass to
-// return, closes the evidence runner and waits for its drives, ends every step loop, stops every live session, and ends
-// the writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager
-// and writer it does nothing.
+// shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
+// planner's turns, stops the limit notices and waits for the attention loop, the limit loop and the due pass to return,
+// closes the evidence runner and waits for its drives, ends every step loop, stops every live session, and ends the
+// writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and
+// writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
 		h.stopIdle()
 		<-h.idleDone
-		h.stopPlanner()
-		<-h.plannerDone
-		h.stopBuild()
-		<-h.buildDone
+		h.stopFlow()
+		<-h.flowDone
 		h.evidence.Close()
 		if h.attentionDone != nil {
 			<-h.attentionDone

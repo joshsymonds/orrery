@@ -47,6 +47,7 @@ type epicsServer struct {
 	timeout  time.Duration
 	now      func() time.Time
 	clock    rpcretry.Clock
+	heads    *headCache
 }
 
 // List answers every epic under the record root and every epic orreryd's database holds, live or folded, sorted by id.
@@ -56,7 +57,7 @@ func (e epicsServer) List(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.EpicsListRequest],
 ) (*connect.Response[orreryv1.EpicsListResponse], error) {
-	recs, err := readEpics(e.root)
+	recs, err := readEpics(e.root, e.heads)
 	if err != nil {
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
@@ -76,7 +77,7 @@ func (e epicsServer) List(
 	}
 	epics := make([]*orreryv1.Epic, 0, len(recs)+len(stored))
 	for _, rec := range recs {
-		_, taskProblems, readErr := readTasks(rec.Dir)
+		_, taskProblems, readErr := readTasks(rec.Dir, e.heads)
 		if readErr != nil {
 			return nil, listError(connect.CodeInternal, epicsFailed)
 		}
@@ -110,7 +111,7 @@ func (e epicsServer) Get(
 	if err != nil {
 		return nil, err
 	}
-	rec, found, err := findEpic(e.root, id)
+	rec, found, err := findEpic(e.root, id, e.heads)
 	if err != nil {
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
@@ -124,7 +125,7 @@ func (e epicsServer) Get(
 	var tasks []taskRecord
 	var taskProblems []string
 	if found {
-		tasks, taskProblems, err = readTasks(rec.Dir)
+		tasks, taskProblems, err = readTasks(rec.Dir, e.heads)
 		if err != nil {
 			return nil, listError(connect.CodeInternal, epicsFailed)
 		}
@@ -604,6 +605,7 @@ func newEpicsHandler(
 	return orreryv1connect.NewEpicsHandler(
 		epicsServer{
 			root: root, steps: steps, store: store, evidence: evidence, timeout: timeout, now: now, clock: clock,
+			heads: newHeadCache(),
 		},
 		options...,
 	)

@@ -28,7 +28,7 @@ func TestReadTasksOrdersByEffortNumberThenFileOrder(t *testing.T) {
 	]}`)
 	writeEffortState(t, dir, "1", `{"tasks":[{"slug":"one-a","subject":"One A","status":"dispatched"}]}`)
 
-	got, problems, err := readTasks(dir)
+	got, problems, err := readTasks(dir, newHeadCache())
 	if err != nil {
 		t.Fatalf("readTasks: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestReadTasksKeepsStatusAsWritten(t *testing.T) {
 		{"slug":"d","subject":"D"}
 	]}`)
 
-	got, problems, err := readTasks(dir)
+	got, problems, err := readTasks(dir, newHeadCache())
 	if err != nil {
 		t.Fatalf("readTasks: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestReadTasksSkipsNonEffortEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, problems, err := readTasks(dir)
+	got, problems, err := readTasks(dir, newHeadCache())
 	if err != nil {
 		t.Fatalf("readTasks: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestReadTasksReportsUnreadableEffortsAndKeepsOthers(t *testing.T) {
 	writeEffortState(t, dir, "3", `{"tasks":"pending"}`)
 	writeEffortState(t, dir, "4", `{"tasks":[{"slug":"four","subject":"Four","status":"gap"}]}`)
 
-	got, problems, err := readTasks(dir)
+	got, problems, err := readTasks(dir, newHeadCache())
 	if err != nil {
 		t.Fatalf("readTasks: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestReadTasksReportsUnreadableEffortsAndKeepsOthers(t *testing.T) {
 
 func TestReadTasksWithoutEffortsDirectory(t *testing.T) {
 	for _, dir := range []string{t.TempDir(), filepath.Join(t.TempDir(), "missing")} {
-		got, problems, err := readTasks(dir)
+		got, problems, err := readTasks(dir, newHeadCache())
 		if err != nil {
 			t.Fatalf("readTasks(%s): %v", dir, err)
 		}

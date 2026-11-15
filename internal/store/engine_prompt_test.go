@@ -6,6 +6,7 @@ import (
 )
 
 func TestEnginePromptStoresPromptID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -31,6 +32,7 @@ func TestEnginePromptStoresPromptID(t *testing.T) {
 }
 
 func TestEnginePromptStoresSenderAndRound(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -63,6 +65,7 @@ func TestEnginePromptStoresSenderAndRound(t *testing.T) {
 }
 
 func TestPromptSenderValues(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, got, want string
 	}{
@@ -78,6 +81,7 @@ func TestPromptSenderValues(t *testing.T) {
 }
 
 func TestEnginePromptSent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -104,6 +108,7 @@ func TestEnginePromptSent(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := s.EnginePromptSent(ctx, tc.session, tc.promptID)
 			if err != nil {
 				t.Fatalf("EnginePromptSent(%s, %q): %v", tc.session, tc.promptID, err)
@@ -116,6 +121,7 @@ func TestEnginePromptSent(t *testing.T) {
 }
 
 func TestEnginePromptFailureRecordsFailedPrompt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -145,6 +151,7 @@ func TestEnginePromptFailureRecordsFailedPrompt(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			reason, failed, err := s.EnginePromptFailure(ctx, tc.session, tc.promptID)
 			if err != nil {
 				t.Fatalf("EnginePromptFailure(%s, %q): %v", tc.session, tc.promptID, err)
@@ -158,6 +165,7 @@ func TestEnginePromptFailureRecordsFailedPrompt(t *testing.T) {
 }
 
 func TestEnginePromptFailureKeepsFirstReason(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

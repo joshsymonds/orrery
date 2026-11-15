@@ -10,6 +10,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // storeUnavailableLog is the message orreryd logs when it serves hooks and notifications without its store.
@@ -44,7 +45,8 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 // prepareStore creates a migrated store at path and closes it.
 func prepareStore(t *testing.T, path string) {
 	t.Helper()
-	s, err := store.Open(t.Context(), path)
+	storetest.Seed(t, path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("prepare store: %v", err)
 	}

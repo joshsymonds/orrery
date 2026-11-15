@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -239,4 +240,87 @@ func TestGateRedactPEMBlockCutAtTailStartIsRedactedUpToItsEnd(t *testing.T) {
 		t.Fatalf("Stdout = %q, want %q", result.Stdout, want)
 	}
 	gateRedactAssertNoSecret(t, "PEM tail", result.Stdout)
+}
+
+// gateStraddleToken is a synthetic token that the 8 KiB cut of gateStraddleText falls inside.
+const gateStraddleToken = "ghp_EXAMPLE0123456789abcdefABCDEF0123"
+
+// gateStraddleText returns the output of a gate whose newest 8 KiB begin inside gateStraddleToken, which opens its first
+// line: the line the token is on, then 816 lines of ten bytes. The cut falls inside the token, so the token's first
+// bytes are discarded and its last bytes start the tail.
+func gateStraddleText(t *testing.T) string {
+	t.Helper()
+	text := "token " + gateStraddleToken + " ok\n" + gateTailLines(0, 816)
+	cut := len(text) - 8*1024
+	start := strings.Index(text, gateStraddleToken)
+	if cut <= start || cut >= start+len(gateStraddleToken) {
+		t.Fatalf("the 8 KiB cut at byte %d does not fall inside the token at byte %d", cut, start)
+	}
+	return text
+}
+
+// TestGateRedactTailCutInsideTokenDropsItsLineOnBothStreams runs a gate that writes gateStraddleText to stdout and to
+// stderr, so the newest 8 KiB of each begin inside a token. Each tail begins with the placeholder, holds no fragment of the
+// token, and keeps every later line.
+func TestGateRedactTailCutInsideTokenDropsItsLineOnBothStreams(t *testing.T) {
+	t.Parallel()
+	text := gateStraddleText(t)
+	result := runGateScript(t, gateRedactHeredoc(text, false)+gateRedactHeredoc(text, true), 0)
+	want := "[redacted]\n" + gateTailLines(0, 816)
+	for _, stream := range []struct{ name, got string }{{"Stdout", result.Stdout}, {"Stderr", result.Stderr}} {
+		if stream.got != want {
+			t.Errorf("%s = %d bytes, want the placeholder and the 816 later lines (%d bytes)",
+				stream.name, len(stream.got), len(want))
+		}
+	}
+}
+
+// TestGateRedactTailWithNoNewlineIsPlaceholder runs a gate that writes more than 8 KiB with no newline. The tail is one
+// cut line, so it is the placeholder alone.
+func TestGateRedactTailWithNoNewlineIsPlaceholder(t *testing.T) {
+	t.Parallel()
+	result := runGateScript(t, `head -c 20000 /dev/zero | tr '\0' a`, 0)
+	if want := "[redacted]"; result.Stdout != want {
+		t.Fatalf("Stdout = %d bytes, want %q", len(result.Stdout), want)
+	}
+}
+
+// TestGateRedactShorterTailIsUnchanged runs a gate whose output is shorter than its 8 KiB tail. Nothing is cut, so the
+// first line is kept, and only its credential is redacted.
+func TestGateRedactShorterTailIsUnchanged(t *testing.T) {
+	t.Parallel()
+	text := "token " + gateStraddleToken + " ok\nplain line\n"
+	result := runGateScript(t, gateRedactHeredoc(text, false), 0)
+	if want := "token [redacted] ok\nplain line\n"; result.Stdout != want {
+		t.Fatalf("Stdout = %q, want %q", result.Stdout, want)
+	}
+}
+
+// TestGateRedactCaptureOverfillingLogTailDropsItsFirstLine runs an evidence capture that writes a line longer than its 1 MiB
+// log tail, then a short line. The stored log is the placeholder and the short line, and none of the long line.
+func TestGateRedactCaptureOverfillingLogTailDropsItsFirstLine(t *testing.T) {
+	t.Parallel()
+	repo, head := evidenceCaptureRepo(t)
+	c := evidenceCaptureFor(t, &fakeGatePools{})
+	script := fmt.Sprintf(`head -c %d /dev/zero | tr '\0' a; printf '\nline-after\n'`, evidenceCaptureLogTail+100)
+	item := evidence.Item{Capture: []string{"/bin/sh", "-c", script}, Limit: 60}
+	got, err := c.run(t.Context(), repo, head, "overfill", item, nil)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got.NotCaptured != "" || got.Exit != 0 {
+		t.Fatalf("capture = %+v, want exit 0 and captured", got)
+	}
+	const want = "[redacted]\nline-after\n"
+	if got.LogBytes != int64(len(want)) || got.LogHash != evidenceCaptureHash(want) {
+		t.Fatalf("log = %d bytes hash %s, want the placeholder and the short line (%d bytes)",
+			got.LogBytes, got.LogHash, len(want))
+	}
+	data, readErr := c.blobs.read(got.LogHash + ".log")
+	if readErr != nil {
+		t.Fatalf("read blob %s: %v", got.LogHash, readErr)
+	}
+	if string(data) != want {
+		t.Errorf("blob %s = %q, want %q", got.LogHash, data, want)
+	}
 }

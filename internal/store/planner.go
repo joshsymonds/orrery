@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -369,8 +370,9 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 
 // CompleteTurn stores plan as the return of the running turn seq of epic in one write: its decisions, its tasks with
 // their files and Requirements, its outline, its questions and its outcome. The turn succeeds ended at at, and every
-// trigger the turn claimed is consumed. A turn that is not running, or does not exist, is ErrTurnNotRunning and
-// writes nothing.
+// trigger the turn claimed is consumed. When epic has a running plan run whose pinned workflow holds a build node
+// under the plan, each task also gets a running build child run under that node in the same write. A turn that is not
+// running, or does not exist, is ErrTurnNotRunning and writes nothing.
 func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		rows, err := queries.CompleteEpicTurn(ctx, sqlcgen.CompleteEpicTurnParams{
@@ -389,7 +391,11 @@ func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan 
 		}); err != nil {
 			return fmt.Errorf("decisions of turn %d of epic %s: %w", turn, epic, err)
 		}
-		if err = insertTasks(ctx, queries, epic, turn, plan.Tasks); err != nil {
+		fan, err := planFanOutOf(ctx, queries, epic)
+		if err != nil {
+			return fmt.Errorf("build node of turn %d of epic %s: %w", turn, epic, err)
+		}
+		if err = insertTasks(ctx, queries, epic, turn, plan.Tasks, fan, at); err != nil {
 			return fmt.Errorf("tasks of turn %d of epic %s: %w", turn, epic, err)
 		}
 		if err = insertQuestions(ctx, queries, epic, turn, plan.Questions); err != nil {
@@ -404,9 +410,47 @@ func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan 
 	})
 }
 
+// taskFanOut is the build node a turn's tasks fan out under: the path and Round of the running plan run, and the id of
+// the build node the plan's workflow holds under it. The zero taskFanOut has no build node, and its turn stores no
+// child runs.
+type taskFanOut struct {
+	plan, build string
+	round       int64
+}
+
+// planFanOutOf returns the build node the tasks of a turn on epic fan out under. It is the first build node in
+// position order whose parent is the node of the epic's running plan run, and the zero taskFanOut when the epic has no
+// running plan run or the plan holds no build node.
+func planFanOutOf(ctx context.Context, queries *sqlcgen.Queries, epic string) (taskFanOut, error) {
+	runs, err := queries.ListEpicNodeRuns(ctx, epic)
+	if err != nil {
+		return taskFanOut{}, fmt.Errorf("list node runs of epic %s: %w", epic, err)
+	}
+	index := slices.IndexFunc(runs, func(run sqlcgen.EpicNodeRun) bool {
+		return run.Kind == "plan" && run.Task == 0 && run.State == NodeRunning
+	})
+	if index < 0 {
+		return taskFanOut{}, nil
+	}
+	plan := runs[index]
+	nodes, err := queries.ListEpicWorkflowNodes(ctx, epic)
+	if err != nil {
+		return taskFanOut{}, fmt.Errorf("list workflow nodes of epic %s: %w", epic, err)
+	}
+	for _, node := range nodes {
+		if node.Parent == plan.Node && node.Kind == "build" {
+			return taskFanOut{plan: plan.Path, build: node.ID, round: plan.Round}, nil
+		}
+	}
+	return taskFanOut{}, nil
+}
+
 // insertTasks stores tasks as the next task seqs of epic after its highest, each with its files and Requirements in
-// order.
-func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, tasks []EpicTaskInput) error {
+// order. When fan has a build node, each task also gets a running build child run under the plan run at fan.plan, with
+// an id from its turn and its 1-based position in the turn, started at at.
+func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, tasks []EpicTaskInput,
+	fan taskFanOut, at time.Time,
+) error {
 	highest, err := queries.MaxEpicTaskSeq(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read task count of epic %s: %w", epic, err)
@@ -436,6 +480,17 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 			})
 		}); err != nil {
 			return fmt.Errorf("requirements of task %d of epic %s: %w", seq, epic, err)
+		}
+		if fan.build == "" {
+			return nil
+		}
+		path := fmt.Sprintf("%s/%s/T%d", fan.plan, fan.build, seq)
+		cause := fmt.Sprintf("turn %d task %d", turn, taskPosition)
+		if err = queries.InsertEpicNodeRun(ctx, sqlcgen.InsertEpicNodeRunParams{
+			Epic: epic, Path: path, ID: NodeRunID(epic, path, fan.round, cause), Node: fan.build, Kind: "build",
+			Task: seq, Round: fan.round, State: NodeRunning, Started: at.Unix(),
+		}); err != nil {
+			return fmt.Errorf("build child run of task %d of epic %s: %w", seq, epic, err)
 		}
 		return nil
 	})

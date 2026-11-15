@@ -26,6 +26,7 @@ func countRows(t *testing.T, s *Store, query string) int {
 }
 
 func TestAddGrantStoresGrantAndMembersInAddOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	row := grantRowOf("g1", engineNowAt(),
@@ -43,6 +44,7 @@ func TestAddGrantStoresGrantAndMembersInAddOrder(t *testing.T) {
 }
 
 func TestGrantsOrdersByGrantedThenID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -67,6 +69,7 @@ func TestGrantsOrdersByGrantedThenID(t *testing.T) {
 }
 
 func TestAddGrantRefusesMemberAlreadyGrantedInAnyPool(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -98,6 +101,7 @@ func TestAddGrantRefusesMemberAlreadyGrantedInAnyPool(t *testing.T) {
 }
 
 func TestEndGrantRemovesGrantAndFreesItsMembers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -129,6 +133,7 @@ func TestEndGrantRemovesGrantAndFreesItsMembers(t *testing.T) {
 }
 
 func TestEndGrantUnknownIDReturnsNilAndKeepsOtherGrants(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	live := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
@@ -148,11 +153,13 @@ func TestEndGrantUnknownIDReturnsNilAndKeepsOtherGrants(t *testing.T) {
 }
 
 func TestGrantsSurviveReopeningTheStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
 
-	s, err := Open(ctx, path)
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -163,7 +170,7 @@ func TestGrantsSurviveReopeningTheStore(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reopened, err := Open(ctx, path)
+	reopened, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open after close: %v", err)
 	}
@@ -186,6 +193,7 @@ func TestGrantsSurviveReopeningTheStore(t *testing.T) {
 }
 
 func TestGrantCommandRoundTripsThroughAddGrantAndGrants(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
@@ -207,6 +215,7 @@ func TestGrantCommandRoundTripsThroughAddGrantAndGrants(t *testing.T) {
 }
 
 func TestGrantStoredWithoutCommandReadsBackEmpty(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})

@@ -12,6 +12,7 @@ import (
 )
 
 func TestPathUsesXDGStateHome(t *testing.T) {
+	t.Parallel()
 	env := map[string]string{"XDG_STATE_HOME": "/xdg", "HOME": "/home/user"}
 	got, err := Path(func(k string) string { return env[k] })
 	if err != nil {
@@ -24,6 +25,7 @@ func TestPathUsesXDGStateHome(t *testing.T) {
 }
 
 func TestPathFallsBackToHome(t *testing.T) {
+	t.Parallel()
 	env := map[string]string{"HOME": "/home/user"}
 	got, err := Path(func(k string) string { return env[k] })
 	if err != nil {
@@ -36,6 +38,7 @@ func TestPathFallsBackToHome(t *testing.T) {
 }
 
 func TestPathErrorsWhenNoHomeOrXDG(t *testing.T) {
+	t.Parallel()
 	if _, err := Path(func(string) string { return "" }); err == nil {
 		t.Fatal("Path with neither XDG_STATE_HOME nor HOME: want error, got nil")
 	}
@@ -72,6 +75,7 @@ func tableNames(t *testing.T, s *Store) map[string]bool {
 }
 
 func TestOpenCreatesPrivateStoreAndMigrates(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "state", "orrery")
 	path := filepath.Join(dir, "orrery.db")
@@ -134,6 +138,7 @@ func goodRows(t *testing.T, path string) string {
 }
 
 func TestOpenAlreadyMigratedStoreChangesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -159,6 +164,7 @@ func TestOpenAlreadyMigratedStoreChangesNothing(t *testing.T) {
 }
 
 func TestOpenRejectsNonSQLiteFileUntouched(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	garbage := []byte("this is not a sqlite database, it is plain text kept for the test\n")
@@ -182,6 +188,7 @@ func TestOpenRejectsNonSQLiteFileUntouched(t *testing.T) {
 }
 
 func TestOpenRejectsNewerSchemaWithoutMigrating(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -230,4 +237,61 @@ func fixtureTables(t *testing.T, path string) map[string]bool {
 	}
 	defer db.Close()
 	return tableNames(t, &Store{db: db})
+}
+
+// synchronousOf returns the store connection's PRAGMA synchronous: 0 OFF, 1 NORMAL, 2 FULL.
+func synchronousOf(t *testing.T, s *Store) int {
+	t.Helper()
+	var mode int
+	if err := s.db.QueryRowContext(context.Background(), `PRAGMA synchronous`).Scan(&mode); err != nil {
+		t.Fatalf("PRAGMA synchronous: %v", err)
+	}
+	return mode
+}
+
+func TestOpenKeepsSynchronousFullByDefault(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if got := synchronousOf(t, s); got != 2 {
+		t.Fatalf("synchronous = %d, want 2 (FULL)", got)
+	}
+}
+
+func TestOpenWithSynchronousSetsTheMode(t *testing.T) {
+	t.Parallel()
+	for mode, want := range map[Synchronous]int{SynchronousOff: 0, SynchronousNormal: 1, SynchronousFull: 2} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "orrery.db")
+			seedMigrated(t, path)
+			s, err := Open(context.Background(), path, WithSynchronous(mode))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer s.Close()
+			if got := synchronousOf(t, s); got != want {
+				t.Fatalf("synchronous = %d, want %d (%s)", got, want, mode)
+			}
+		})
+	}
+}
+
+func TestOpenRefusesUnknownSynchronousModeBeforeCreatingTheFile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, "orrery.db")
+	s, err := Open(context.Background(), path, WithSynchronous("SOMETIMES"))
+	if err == nil {
+		s.Close()
+		t.Fatal("Open with synchronous SOMETIMES: want error, got nil")
+	}
+	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("store directory after refused Open: stat err %v, want not exist", statErr)
+	}
 }
