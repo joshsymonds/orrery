@@ -136,6 +136,24 @@ func TestText(t *testing.T) {
 			want:    "[redacted]\nnext line",
 		},
 		{
+			name:    "PGP private key block replaced whole",
+			in:      "before\n-----BEGIN PGP PRIVATE KEY BLOCK-----\nEXAMPLEPGPBODY\n-----END PGP PRIVATE KEY BLOCK-----\nafter\n",
+			secrets: []string{"EXAMPLEPGPBODY"},
+			want:    "before\n[redacted]\nafter\n",
+		},
+		{
+			name:    "PGP private key block with no END line replaced from BEGIN to end of text",
+			in:      "log start\n-----BEGIN PGP PRIVATE KEY BLOCK-----\nEXAMPLEPGPBODYLINE1\nEXAMPLEPGPBODYLINE2",
+			secrets: []string{"EXAMPLEPGPBODYLINE1", "EXAMPLEPGPBODYLINE2"},
+			want:    "log start\n[redacted]",
+		},
+		{
+			name:    "PGP private key block with no BEGIN line replaced from start through END",
+			in:      "EXAMPLEPGPBODYLINE1\nEXAMPLEPGPBODYLINE2\n-----END PGP PRIVATE KEY BLOCK-----\nnext line",
+			secrets: []string{"EXAMPLEPGPBODYLINE1", "EXAMPLEPGPBODYLINE2"},
+			want:    "[redacted]\nnext line",
+		},
+		{
 			name:    "gh token after an underscore",
 			in:      "MY_TOKEN_ghp_EXAMPLE0123456789abcdefABCDEF0123 ok",
 			secrets: []string{"ghp_EXAMPLE0123456789abcdefABCDEF0123"},
@@ -170,6 +188,59 @@ func TestText(t *testing.T) {
 			in:      "MY_Authorization: Bearer EXAMPLEBEARERTOKEN\n",
 			secrets: []string{"EXAMPLEBEARERTOKEN"},
 			want:    "MY_Authorization: [redacted]\n",
+		},
+		{
+			name:    "JSON-quoted authorization value replaced, keeping name and quotes",
+			in:      `{"Authorization": "Bearer EXAMPLEBEARERTOKEN"}`,
+			secrets: []string{"EXAMPLEBEARERTOKEN"},
+			want:    `{"Authorization": "[redacted]"}`,
+		},
+		{
+			name:    "JSON-quoted proxy-authorization value replaced",
+			in:      `{"proxy-authorization": "Basic EXAMPLEBASICCRED=="}`,
+			secrets: []string{"EXAMPLEBASICCRED=="},
+			want:    `{"proxy-authorization": "[redacted]"}`,
+		},
+		{
+			name:    "JSON-quoted X-Api-Key value replaced",
+			in:      `{"X-Api-Key": "EXAMPLEAPIKEY0001"}`,
+			secrets: []string{"EXAMPLEAPIKEY0001"},
+			want:    `{"X-Api-Key": "[redacted]"}`,
+		},
+		{
+			name:    "JSON-quoted authorization with no space around the colon",
+			in:      `{"Authorization":"Bearer EXAMPLEBEARERTOKEN"}`,
+			secrets: []string{"EXAMPLEBEARERTOKEN"},
+			want:    `{"Authorization":"[redacted]"}`,
+		},
+		{
+			name:    "JSON-quoted authorization value with escaped quotes replaced whole",
+			in:      `{"Authorization": "OAuth oauth_token=\"EXAMPLETOKEN\", oauth_signature=\"EXAMPLESIG\""}`,
+			secrets: []string{"EXAMPLETOKEN", "EXAMPLESIG"},
+			want:    `{"Authorization": "[redacted]"}`,
+		},
+		{
+			name:    "JSON-quoted authorization value ends at its closing quote",
+			in:      `{"Authorization": "Bearer EXAMPLEBEARERTOKEN", "Host": "example.test"}`,
+			secrets: []string{"EXAMPLEBEARERTOKEN"},
+			want:    `{"Authorization": "[redacted]", "Host": "example.test"}`,
+		},
+		{
+			name:    "JSON-quoted authorization array value replaced to end of line",
+			in:      `{"Authorization":["Bearer EXAMPLEBEARERTOKEN"]}`,
+			secrets: []string{"EXAMPLEBEARERTOKEN"},
+			want:    `{"Authorization":[redacted]`,
+		},
+		{
+			name:    "JSON-quoted authorization with no closing quote replaced to end of line",
+			in:      `{"Authorization": "Bearer EXAMPLEBEARERTOKEN` + "\nnext line\n",
+			secrets: []string{"EXAMPLEBEARERTOKEN"},
+			want:    `{"Authorization": [redacted]` + "\nnext line\n",
+		},
+		{
+			name: "JSON-quoted authorization_url is untouched",
+			in:   `{"authorization_url": "https://example.com/oauth"}`,
+			want: `{"authorization_url": "https://example.com/oauth"}`,
 		},
 		{
 			name: "build and test lines",
@@ -207,6 +278,16 @@ func TestText(t *testing.T) {
 			name: "CERTIFICATE block is untouched",
 			in:   "-----BEGIN CERTIFICATE-----\nEXAMPLECERTBODY\n-----END CERTIFICATE-----\n",
 			want: "-----BEGIN CERTIFICATE-----\nEXAMPLECERTBODY\n-----END CERTIFICATE-----\n",
+		},
+		{
+			name: "PGP public key block is untouched",
+			in:   "-----BEGIN PGP PUBLIC KEY BLOCK-----\nEXAMPLEPGPPUBBODY\n-----END PGP PUBLIC KEY BLOCK-----\n",
+			want: "-----BEGIN PGP PUBLIC KEY BLOCK-----\nEXAMPLEPGPPUBBODY\n-----END PGP PUBLIC KEY BLOCK-----\n",
+		},
+		{
+			name: "PGP signature block is untouched",
+			in:   "-----BEGIN PGP SIGNATURE-----\nEXAMPLEPGPSIGBODY\n-----END PGP SIGNATURE-----\n",
+			want: "-----BEGIN PGP SIGNATURE-----\nEXAMPLEPGPSIGBODY\n-----END PGP SIGNATURE-----\n",
 		},
 		{
 			name: "multi-line text is untouched",
