@@ -78,6 +78,8 @@ button, input, textarea, select { font-family: var(--mono); }
   .panes > .list, .panes > .read, .panes > .side { grid-row: 1; }
   .panes > .list { grid-column: 1; }
   .panes > .read { grid-column: 2; }
+  /* With no epic column shown and no pin, the reader takes every track right of the list: no track is left empty. */
+  .panes:not(.split):has(> .side[hidden]) > .read { grid-column: 2 / -1; }
   .panes > .read.pinned { grid-column: 3; }
   .panes > .side { grid-column: 3; }
   .panes.split { grid-template-columns: 440px minmax(0, 1fr) minmax(0, 1fr); }

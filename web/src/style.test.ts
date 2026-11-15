@@ -112,6 +112,16 @@ test("from 760px each column keeps its own track, and to 1100px the epic column 
   assert.match(declarationsFor(narrow, ".panes > .side"), /grid-column:\s*2;/);
 });
 
+test("from 760px a conversation with no epic column and no pin spans the tracks right of the list", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  // The epic column follows the reader in the source, so only :has can see that it is hidden.
+  assert.match(
+    declarationsFor(wide, ".panes:not(.split):has(> .side[hidden]) > .read"),
+    /grid-column:\s*2\s*\/\s*-1;/,
+    "the reader runs to the last line when the epic column is hidden and nothing is pinned",
+  );
+});
+
 test("from 760px a pinned epic column takes the reader's track, and a step hides it", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   assert.match(declarationsFor(wide, ".panes.split .side"), /grid-column:\s*2;/);
