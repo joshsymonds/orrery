@@ -108,7 +108,8 @@ type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
 // Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. Rebuild maps
 // each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each Rebuild under
-// the Router's lock, so a Rebuild must not call the Router.
+// the Router's lock, so a Rebuild must not call the Router. StoreDeadline bounds each store call the Router makes, and
+// a StoreDeadline that is not positive means storeDeadline.
 type Config struct {
 	Host       string
 	Now        func() time.Time
@@ -119,6 +120,8 @@ type Config struct {
 	Log        Recorder
 	Logger     *slog.Logger
 	Rebuild    map[string]Rebuild
+	// StoreDeadline is how long one store call may take before it reads as late.
+	StoreDeadline time.Duration
 }
 
 // Router decides where each notice goes and writes one Line per ping or silence.
@@ -132,7 +135,7 @@ type Router struct {
 	running int
 	seq     uint64
 	pending map[notice.Key]*entry
-	// putRow and deleteRow write to the store Attach was given, each under storeDeadline; both are nil until Attach.
+	// putRow and deleteRow write to the store Attach was given, each under cfg.StoreDeadline; both are nil until Attach.
 	// rowID is the highest row id given out.
 	putRow    func(store.NoticeRow) error
 	deleteRow func(int64) error
@@ -170,6 +173,9 @@ func New(cfg Config) *Router {
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	if cfg.StoreDeadline <= 0 {
+		cfg.StoreDeadline = storeDeadline
 	}
 	router := &Router{
 		cfg:          cfg,

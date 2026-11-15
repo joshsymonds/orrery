@@ -12,7 +12,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// storeDeadline bounds each store call the Router makes. A call that outlives it is late, and is retried.
+// storeDeadline bounds each store call the Router makes when its Config names no StoreDeadline. A call that outlives
+// its bound is late, and is retried.
 const storeDeadline = 200 * time.Millisecond
 
 // The phases a row records: the wait its notice is in, or sending once its push was handed to the phone.
@@ -41,7 +42,7 @@ type Rows interface {
 // `not restored`; a sending row has its push sent to the phone again; and the others resume from their phase. A failed
 // floor read is logged and leaves the Router without a store. A failed read of the rows is logged and restores nothing.
 func (r *Router) Attach(ctx context.Context, rows Rows) {
-	floorCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeDeadline)
+	floorCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.cfg.StoreDeadline)
 	floor, err := rows.NoticeIDFloor(floorCtx)
 	cancel()
 	// Every row write and restore runs on ctx without its cancel, so a stopping caller never cuts one short.
@@ -55,10 +56,10 @@ func (r *Router) Attach(ctx context.Context, rows Rows) {
 		return
 	}
 	r.putRow = func(row store.NoticeRow) error {
-		return bounded(base, func(ctx context.Context) error { return rows.PutNotice(ctx, row) })
+		return bounded(base, r.cfg.StoreDeadline, func(ctx context.Context) error { return rows.PutNotice(ctx, row) })
 	}
 	r.deleteRow = func(id int64) error {
-		return bounded(base, func(ctx context.Context) error { return rows.DeleteNotice(ctx, id) })
+		return bounded(base, r.cfg.StoreDeadline, func(ctx context.Context) error { return rows.DeleteNotice(ctx, id) })
 	}
 	r.rowID = floor
 	for _, ent := range r.sortedPendingLocked() {
@@ -71,7 +72,7 @@ func (r *Router) Attach(ctx context.Context, rows Rows) {
 // already pending, so it is not restored. Of the rows of one key, only the highest id resumes: the others end
 // `changed`, as does every row of a key that saw a Notify before Attach. The caller holds r.mu.
 func (r *Router) restoreLocked(ctx context.Context, rows Rows, floor int64, beforeAttach map[notice.Key]bool) {
-	readCtx, cancel := context.WithTimeout(ctx, storeDeadline)
+	readCtx, cancel := context.WithTimeout(ctx, r.cfg.StoreDeadline)
 	stored, err := rows.Notices(readCtx)
 	cancel()
 	if err != nil {
@@ -271,16 +272,16 @@ func (r *Router) deleteLocked(id int64, key notice.Key) {
 	delete(r.rowDeletes, id)
 }
 
-// bounded runs one store write on parent under storeDeadline and returns its error. A write that outlives the
-// deadline reads as failed, even when it succeeded, because it was late.
-func bounded(parent context.Context, write func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(parent, storeDeadline)
+// bounded runs one store write on parent under deadline and returns its error. A write that outlives the deadline
+// reads as failed, even when it succeeded, because it was late.
+func bounded(parent context.Context, deadline time.Duration, write func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
 	if err := write(ctx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("write outlived its %v deadline: %w", storeDeadline, err)
+		return fmt.Errorf("write outlived its %v deadline: %w", deadline, err)
 	}
 	return nil
 }
