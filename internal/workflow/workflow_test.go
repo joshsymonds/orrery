@@ -203,6 +203,30 @@ func TestParseRefusesNode(t *testing.T) {
 			text: lines("name: flow", "nodes:", "  - id: a", "    kind: plan"),
 			want: at(3, "node a: key body: required"),
 		},
+		{
+			name: "integrate at the top level",
+			text: lines("name: flow", "nodes:", "  - id: i", "    kind: integrate"),
+			want: at(4, "node i: key kind: integrate cannot sit at the top level"),
+		},
+		{
+			name: "integrate in a loop body",
+			text: lines("name: flow", "nodes:", "  - id: r", "    loop:", "      max: 2", "      until: i.passed",
+				"    body:", "      - id: i", "        kind: integrate"),
+			want: at(9, "node i: key kind: integrate cannot sit in a loop body"),
+		},
+		{
+			name: "setting on integrate",
+			text: lines("name: flow", "nodes:", "  - id: a", "    kind: plan", "    body:", "      - id: b",
+				"        kind: build", "      - id: i", "        kind: integrate", "        at: base"),
+			want: at(10, "node i: key at: unknown key"),
+		},
+		{
+			name: "body on integrate",
+			text: lines("name: flow", "nodes:", "  - id: a", "    kind: plan", "    body:", "      - id: b",
+				"        kind: build", "      - id: i", "        kind: integrate", "        body:",
+				"          - id: c", "            kind: build"),
+			want: at(10, "node i: key body: unknown key"),
+		},
 	}
 	checkRefusals(t, cases)
 }
@@ -399,6 +423,59 @@ func TestParseLoopOverPlan(t *testing.T) {
 	}
 	if err := Check(got); err != nil {
 		t.Fatalf("Check: %v", err)
+	}
+}
+
+func TestParsePlanHoldsIntegrate(t *testing.T) {
+	t.Parallel()
+	text := lines("name: flow", "nodes:", "  - id: a", "    kind: plan", "    body:", "      - id: b",
+		"        kind: build", "      - id: i", "        kind: integrate")
+	got, err := Parse(testFile, []byte(text))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := Workflow{
+		Name: "flow",
+		File: testFile,
+		Nodes: []Node{{
+			ID: "a", Kind: "plan", File: testFile, Line: 3,
+			Body: []Node{
+				{ID: "b", Kind: "build", File: testFile, Line: 6},
+				{ID: "i", Kind: "integrate", File: testFile, Line: 8},
+			},
+		}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Parse = %+v, want %+v", got, want)
+	}
+	if err := Check(got); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+}
+
+// TestCheckIntegrateReportsPassedAndFailed builds loops whose until names an integrate. Parse would not let an integrate
+// sit in a loop body, so the workflows are made here: Check takes passed and failed and refuses complete.
+func TestCheckIntegrateReportsPassedAndFailed(t *testing.T) {
+	t.Parallel()
+	flow := func(outcome string) Workflow {
+		integrate := Node{ID: "i", Kind: kindIntegrate, File: testFile, Line: 4}
+		loop := Node{
+			ID:   "r",
+			Loop: &Loop{Max: 2, Until: Outcome{Node: "i", Name: outcome}, Spent: spentPark},
+			Body: []Node{integrate},
+			File: testFile,
+			Line: 2,
+		}
+		return Workflow{Name: "flow", File: testFile, Nodes: []Node{loop}}
+	}
+	for _, outcome := range []string{outcomePassed, outcomeFailed} {
+		if err := Check(flow(outcome)); err != nil {
+			t.Errorf("Check until i.%s = %v, want nil", outcome, err)
+		}
+	}
+	want := at(2, `node r: key loop.until: i has no outcome "complete"`)
+	if err := Check(flow(outcomeComplete)); err == nil || err.Error() != want {
+		t.Fatalf("Check until i.complete = %v, want refusal %q", err, want)
 	}
 }
 
