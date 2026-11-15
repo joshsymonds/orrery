@@ -39,7 +39,7 @@ func runCommand(
 	getenv func(string) string,
 ) error {
 	if len(args) > 0 && args[0] == "status" {
-		return runStatus(ctx, opts, args[1:], stdout, getenv)
+		return runStatus(ctx, opts, args[1:], stdout, getenv, time.Now)
 	}
 	needs, argv, err := parseRun(args)
 	if err != nil {
@@ -87,8 +87,15 @@ func runCommand(
 
 // runStatus runs `orrery run status`. It writes orreryd's pool status to stdout: each pool with its members and
 // waiters, then the holds on members of no pool in use. It takes no argument and reads no pool files. An unreachable
-// orreryd returns its reason as an error, which exits 1.
-func runStatus(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
+// orreryd returns its reason as an error, which exits 1. now is the clock each grant's age is dated on.
+func runStatus(
+	ctx context.Context,
+	opts globals,
+	args []string,
+	stdout io.Writer,
+	getenv func(string) string,
+	now func() time.Time,
+) error {
 	if len(args) > 0 {
 		return usagef("run status: unexpected argument %q", args[0])
 	}
@@ -98,7 +105,7 @@ func runStatus(ctx context.Context, opts globals, args []string, stdout io.Write
 	}
 	sessionSocket := protocol.SessionSocketPath(socket)
 	client := enginev1connect.NewPoolsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	if err = cli.PoolStatus(ctx, client, time.Now(), stdout); err != nil {
+	if err = cli.PoolStatus(ctx, client, now(), stdout); err != nil {
 		return fmt.Errorf("run status: %w", err)
 	}
 	return nil
