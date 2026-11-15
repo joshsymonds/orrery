@@ -122,7 +122,7 @@ func (r *Runner) Run(ctx context.Context) {
 	defer ticker.Stop()
 	r.recoverTurns(ctx)
 	for {
-		r.pass(ctx)
+		r.pass(ctx, nil)
 		select {
 		case <-ctx.Done():
 			r.turns.Wait()
@@ -139,7 +139,13 @@ func (r *Runner) Recover(ctx context.Context) {
 
 // Pass decides each epic with pending triggers once, as Run does on each tick.
 func (r *Runner) Pass(ctx context.Context) {
-	r.pass(ctx)
+	r.pass(ctx, nil)
+}
+
+// PassOnly decides, as Pass does, only the epics with pending triggers that open reports true for. Every other epic is
+// left as it is.
+func (r *Runner) PassOnly(ctx context.Context, open func(epic string) bool) {
+	r.pass(ctx, open)
 }
 
 // WaitTurns waits until every turn the runner started has settled, as Run does before it returns.
@@ -147,10 +153,10 @@ func (r *Runner) WaitTurns() {
 	r.turns.Wait()
 }
 
-// pass decides each epic with pending triggers. A park action claims a turn for the epic in its own goroutine and frees
-// it with the park reason, and a claim action claims a turn for the epic in its own goroutine. agent is read once per
-// pass.
-func (r *Runner) pass(ctx context.Context) {
+// pass decides each epic with pending triggers that open reports true for, or each such epic when open is nil. A park
+// action claims a turn for the epic in its own goroutine and frees it with the park reason, and a claim action claims a
+// turn for the epic in its own goroutine. agent is read once per pass.
+func (r *Runner) pass(ctx context.Context, open func(epic string) bool) {
 	states, err := r.store.PlanStates(ctx)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "list planner states", "err", err)
@@ -158,6 +164,9 @@ func (r *Runner) pass(ctx context.Context) {
 	}
 	agent, roleErr := r.agent()
 	for _, state := range states {
+		if open != nil && !open(state.Epic) {
+			continue
+		}
 		action := Decide(State{
 			Paused: state.Paused, Parked: state.Parked != "", Running: state.Running, Pending: state.Pending,
 		}, roleErr)
