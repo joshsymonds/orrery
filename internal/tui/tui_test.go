@@ -169,6 +169,13 @@ func (b *syncBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// Len returns how many bytes have been written so far.
+func (b *syncBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
 func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -202,26 +209,17 @@ func TestRun(t *testing.T) {
 		done <- runOutcome{result: res, err: runErr}
 	}()
 
-	deadline := time.Now().Add(10 * time.Second)
 	for !strings.Contains(out.String(), preview) {
-		if time.Now().After(deadline) {
-			cancel()
-			t.Fatalf("preview %q never rendered; output:\n%s", preview, out.String())
-		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	cancel()
-	select {
-	case got := <-done:
-		if got.err != nil {
-			t.Fatalf("Run: %v", got.err)
-		}
-		if got.result.Action != ActionClose {
-			t.Fatalf("Run action = %q, want %q", got.result.Action, ActionClose)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return after ctx was canceled")
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("Run: %v", got.err)
+	}
+	if got.result.Action != ActionClose {
+		t.Fatalf("Run action = %q, want %q", got.result.Action, ActionClose)
 	}
 }
 

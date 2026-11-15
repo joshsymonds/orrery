@@ -983,8 +983,9 @@ func unwrittenPrompts(prompts []store.HolderPrompt, written []string) []store.Ho
 // each session instead, so its holder and child keep running, and it records nothing for the session: the row keeps the
 // state and unfinished text its events gave it, for a later orreryd to re-adopt where its stored offsets say. Without a
 // holder scope, a session whose turn was running is recorded interrupted, and every session loses its unfinished text.
-// It then cancels any write a pump still has blocked and waits for the pumps to return. Start refuses from the moment
-// Close begins, and later calls to Close return at once.
+// It then cancels any write a pump still has blocked and waits for the pumps to return, and for the stops of the
+// sessions retired before the close, whose holder directories are gone once those stops return. Start refuses from the
+// moment Close begins, and later calls to Close return at once.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -1021,6 +1022,18 @@ func (m *Manager) Close() {
 		live.cancel()
 	}
 	m.pumps.Wait()
+	// A session retired before the close is still being stopped on its own goroutine (stopRetired), and its holder's
+	// directory is removed only once that stop returns. Close waits for those stops too, so no stop of this manager
+	// still touches a holder directory once Close returns.
+	m.mu.Lock()
+	retired := make([]*liveSession, 0, len(m.stopping))
+	for _, live := range m.stopping {
+		retired = append(retired, live)
+	}
+	m.mu.Unlock()
+	for _, live := range retired {
+		<-live.stopped
+	}
 }
 
 // RunIdle stops the sessions that are idle for the idle timeout, checking every 30 s, until ctx ends. See checkIdle.

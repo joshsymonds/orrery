@@ -116,7 +116,13 @@ func clientMove(ctx context.Context, client *tmuxctl.Client, panes []protocol.Pa
 	if session == "" || !closing[session] {
 		return "", false, nil
 	}
+	moveTo := newestOtherSession(panes, closing)
+	return moveTo, moveTo == "", nil
+}
 
+// newestOtherSession returns the most recently active session of panes that closing does not hold and that is not a
+// shell session, or "" when there is none. Of sessions equally recent, the one whose name sorts first is returned.
+func newestOtherSession(panes []protocol.Pane, closing map[string]bool) string {
 	var moveTo string
 	var moveActivity int64
 	for _, pane := range panes {
@@ -129,7 +135,7 @@ func clientMove(ctx context.Context, client *tmuxctl.Client, panes []protocol.Pa
 			moveTo, moveActivity = pane.Session, pane.Activity
 		}
 	}
-	return moveTo, moveTo == "", nil
+	return moveTo
 }
 
 // sessionFieldSeparator splits sessionDirs fields. tmux prints it raw, and it cannot appear in a single-line option value.

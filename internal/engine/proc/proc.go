@@ -50,10 +50,13 @@ type Process struct {
 	stderr      *tail
 	captures    []*capture
 	stopTimeout time.Duration
-	done        chan struct{}
-	waitErr     error
-	stopOnce    sync.Once
-	stopErr     error
+	// stopTimer returns the channel that delivers once Stop has waited d after the interrupt. It is time.After; a test
+	// in this package replaces it.
+	stopTimer func(d time.Duration) <-chan time.Time
+	done      chan struct{}
+	waitErr   error
+	stopOnce  sync.Once
+	stopErr   error
 }
 
 // capture is one of the child's output pipes, copied into a tail until every writer closes the pipe.
@@ -129,6 +132,7 @@ func Start(cfg Config) (*Process, error) {
 		stdout:      parentStdout,
 		stderr:      newTail(cfg.StderrCapacity),
 		stopTimeout: cfg.StopTimeout,
+		stopTimer:   time.After,
 		done:        make(chan struct{}),
 	}
 	process.captures = []*capture{{read: parentStderr, tail: process.stderr, done: make(chan struct{})}}
@@ -202,12 +206,10 @@ func (p *Process) stop() error {
 	}
 	pgid := p.Pid()
 	interruptErr := signalGroup(pgid, syscall.SIGINT)
-	timer := time.NewTimer(p.stopTimeout)
-	defer timer.Stop()
 	select {
 	case <-p.done:
 		return interruptErr
-	case <-timer.C:
+	case <-p.stopTimer(p.stopTimeout):
 	}
 	killErr := signalGroup(pgid, syscall.SIGKILL)
 	<-p.done

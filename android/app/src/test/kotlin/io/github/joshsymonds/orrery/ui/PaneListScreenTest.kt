@@ -16,6 +16,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
@@ -39,7 +40,6 @@ import java.util.concurrent.atomic.AtomicReference
 class PaneListScreenTest {
     private companion object {
         const val NOW = 1_700_000_000L
-        const val TIMEOUT_MS = 5_000L
         const val ALPHA = "/home/user/alpha"
         const val BETA = "/home/user/beta"
         const val PANES_LIST = "/orrery.v1.Panes/List"
@@ -150,11 +150,11 @@ class PaneListScreenTest {
         composeRule.onNode(matcher, useUnmergedTree = true).fetchSemanticsNode()
 
     private fun awaitRow(id: String) {
-        composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag("pane-row:$id")) == 1 }
+        composeRule.awaitUntil { countNodes(hasTestTag("pane-row:$id")) == 1 }
     }
 
     private fun awaitText(text: String) {
-        composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasText(text)) > 0 }
+        composeRule.awaitUntil { countNodes(hasText(text)) > 0 }
     }
 
     private fun assertRowsShown(vararg ids: String) {
@@ -492,9 +492,9 @@ class PaneListScreenTest {
             composeRule.onNodeWithTag("picker-new").performClick()
             composeRule.onNodeWithTag("picker-text").performTextInput("beta")
             composeRule.onNodeWithTag("picker-ask").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag("picker-row:0")) == 1 }
+            composeRule.awaitUntil { countNodes(hasTestTag("picker-row:0")) == 1 }
             composeRule.onNodeWithTag("picker-row:0").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) { openedPaneId.get() != null }
+            composeRule.awaitUntil { openedPaneId.get() != null }
 
             assertEquals("%9", openedPaneId.get())
             assertNull(openedPane)

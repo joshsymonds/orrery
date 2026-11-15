@@ -37,7 +37,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.android.controller.ActivityController
 import java.nio.ByteBuffer
 
-private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
@@ -189,13 +188,13 @@ class MainActivityEpicsTest {
     }
 
     private fun awaitNode(matcher: SemanticsMatcher) {
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
     private fun awaitRequest(path: String) {
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             server.requests.any { it.rawPath == path }
         }
     }

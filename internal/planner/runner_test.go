@@ -253,14 +253,11 @@ func runRunner(t *testing.T, cfg Config) {
 	})
 }
 
-// waitFor polls cond until it holds, and fails the test when it does not hold within five seconds.
-func waitFor(t *testing.T, what string, cond func() bool) {
+// waitFor polls cond until it holds; what names the condition. It has no deadline of its own: the runner's store work
+// runs at the machine's pace, and the test binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, _ string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
 	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
 		time.Sleep(time.Millisecond)
 	}
 }

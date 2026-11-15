@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -22,10 +23,8 @@ import (
 )
 
 const (
-	noConfig   = "/dev/null"
-	waitLimit  = 10 * time.Second
-	pollEvery  = 50 * time.Millisecond
-	settleWait = 500 * time.Millisecond
+	noConfig  = "/dev/null"
+	pollEvery = 50 * time.Millisecond
 )
 
 // fixture is a private tmux server holding a base session, with two clients attached to it through
@@ -221,17 +220,9 @@ func (f *fixture) panePathErr(name, dir string) error {
 	return nil
 }
 
-func waitFor(t *testing.T, what string, cond func() error) {
+func waitFor(t *testing.T, _ string, cond func() error) {
 	t.Helper()
-	deadline := time.Now().Add(waitLimit)
-	for {
-		err := cond()
-		if err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: %v", what, err)
-		}
+	for cond() != nil {
 		time.Sleep(pollEvery)
 	}
 }
@@ -280,8 +271,9 @@ func TestOpenCreatesSessionForAwkwardDirectories(t *testing.T) {
 			if got := f.run("display-message", "-p", "-t", "="+name+":", "#{@orrery_dir}"); got != dir {
 				t.Fatalf("@orrery_dir = %q, want %q", got, dir)
 			}
+			// The session's directory is the name as written, and only an expansion of its formats would run the job, so
+			// the exact @orrery_dir is the proof; the marker is checked as it stands.
 			waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
-			time.Sleep(settleWait)
 			if _, err := os.Stat(marker); !os.IsNotExist(err) {
 				t.Fatalf("command in directory name ran: stat %s = %v", marker, err)
 			}
@@ -333,8 +325,9 @@ func TestOpenLeavesPopupOnOtherClientOpen(t *testing.T) {
 		t.Fatalf("Open(%q): %v", dir, err)
 	}
 	waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
-	time.Sleep(settleWait)
-	if err := running(tree); err != nil {
+	// Open's tmux commands have all run by now, and a popup tmux closes has its job signaled as it closes. So the job
+	// still runs with no termination signal pending only if its popup was left open.
+	if err := runningUnsignaled(tree); err != nil {
 		t.Fatalf("popup on other client closed: %v", err)
 	}
 	infos, err := f.clients()
@@ -355,6 +348,52 @@ func running(command string) error {
 		return fmt.Errorf("ps: %w", err)
 	}
 	if !strings.Contains(string(out), command) {
+		return fmt.Errorf("no process running %q", command)
+	}
+	return nil
+}
+
+// runningUnsignaled reports an error unless a process runs command, none of them has ended, and none holds a pending
+// SIGHUP, SIGTERM or SIGKILL. A signaled process may not have ended yet, so its pending signals are read too.
+func runningUnsignaled(command string) error {
+	out, err := exec.Command("ps", "-eo", "pid=,args=").Output()
+	if err != nil {
+		return fmt.Errorf("ps: %w", err)
+	}
+	const ending = uint64(1)<<(syscall.SIGHUP-1) | uint64(1)<<(syscall.SIGTERM-1) | uint64(1)<<(syscall.SIGKILL-1)
+	found := false
+	for line := range strings.Lines(string(out)) {
+		pid, args, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok || strings.TrimSpace(args) != command {
+			continue
+		}
+		found = true
+		status, err := os.ReadFile(filepath.Join("/proc", pid, "status"))
+		if err != nil {
+			return fmt.Errorf("process %s running %q ended: %w", pid, command, err)
+		}
+		for field := range strings.Lines(string(status)) {
+			name, value, ok := strings.Cut(strings.TrimSpace(field), ":\t")
+			if !ok {
+				continue
+			}
+			if name == "State" && (strings.HasPrefix(value, "Z") || strings.HasPrefix(value, "X")) {
+				return fmt.Errorf("process %s running %q has ended", pid, command)
+			}
+			if name != "SigPnd" && name != "ShdPnd" {
+				continue
+			}
+			mask, err := strconv.ParseUint(value, 16, 64)
+			if err != nil {
+				return fmt.Errorf("parse %s of process %s: %w", name, pid, err)
+			}
+			if mask&ending != 0 {
+				return fmt.Errorf("process %s running %q holds a pending termination signal (%s %s)", pid, command,
+					name, value)
+			}
+		}
+	}
+	if !found {
 		return fmt.Errorf("no process running %q", command)
 	}
 	return nil

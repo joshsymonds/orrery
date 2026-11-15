@@ -57,6 +57,9 @@ type Mirror struct {
 	now    func() time.Time
 	logger *slog.Logger
 	lock   chan struct{}
+	// lockWait returns the channel that delivers once a sync or tidy has waited mirrorLockWait. It is time.After of
+	// mirrorLockWait; a test replaces it.
+	lockWait func() <-chan time.Time
 	// unreachable holds each server whose last list-panes failed, keyed by its store column. Only the lock
 	// holder reads or writes it.
 	unreachable map[string]bool
@@ -80,6 +83,7 @@ func NewPendingMirror(now func() time.Time, logger *slog.Logger) *Mirror {
 		now:         now,
 		logger:      logger,
 		lock:        make(chan struct{}, 1),
+		lockWait:    func() <-chan time.Time { return time.After(mirrorLockWait) },
 		unreachable: map[string]bool{},
 	}
 }
@@ -94,12 +98,16 @@ func (m *Mirror) Attach(st *store.Store) {
 
 // awaitStore waits at most mirrorLockWait for Attach. It reports false when the wait expires.
 func (m *Mirror) awaitStore() bool {
-	timer := time.NewTimer(mirrorLockWait)
-	defer timer.Stop()
 	select {
 	case <-m.opened:
 		return true
-	case <-timer.C:
+	default:
+	}
+	// The wait is armed only once the store is found still opening.
+	select {
+	case <-m.opened:
+		return true
+	case <-m.lockWait():
 		return false
 	}
 }
@@ -129,12 +137,16 @@ func (m *Mirror) SyncPane(ctx context.Context, server tmuxctl.Server, pane strin
 
 // acquire takes the mirror lock, waiting at most mirrorLockWait. It reports false when the wait expires.
 func (m *Mirror) acquire() bool {
-	timer := time.NewTimer(mirrorLockWait)
-	defer timer.Stop()
 	select {
 	case m.lock <- struct{}{}:
 		return true
-	case <-timer.C:
+	default:
+	}
+	// The wait is armed only once the lock is found held.
+	select {
+	case m.lock <- struct{}{}:
+		return true
+	case <-m.lockWait():
 		return false
 	}
 }

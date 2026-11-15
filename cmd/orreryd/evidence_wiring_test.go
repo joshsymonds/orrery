@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -133,7 +136,7 @@ func TestSessionsEngineAnswersListEvidenceUnavailableWithoutStore(t *testing.T) 
 func evidenceWiringEnv(t *testing.T) (func(string) string, string) {
 	t.Helper()
 	env := map[string]string{
-		"XDG_STATE_HOME":  t.TempDir(),
+		"XDG_STATE_HOME":  wiringStateDir(t),
 		"XDG_CONFIG_HOME": t.TempDir(),
 	}
 	getenv := func(key string) string { return env[key] }
@@ -142,6 +145,33 @@ func evidenceWiringEnv(t *testing.T) (func(string) string, string) {
 		t.Fatalf("store path: %v", err)
 	}
 	return getenv, path
+}
+
+// wiringStateDir returns a fresh state directory for a sessions host, removed when the test ends, after the cleanups
+// registered later, such as the store's close. A removal that fails, because something still writes in the directory
+// after the host has stopped, fails the test with what is left there and the stacks of the goroutines then running, so
+// that the writer can be named.
+func wiringStateDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("make state dir: %v", err)
+	}
+	t.Cleanup(func() {
+		removeErr := os.RemoveAll(dir)
+		if removeErr == nil {
+			return
+		}
+		var left []string
+		_ = filepath.WalkDir(dir, func(path string, _ fs.DirEntry, _ error) error {
+			left = append(left, path)
+			return nil
+		})
+		stacks := make([]byte, 1<<20)
+		n := runtime.Stack(stacks, true)
+		t.Errorf("remove state dir %s: %v; still there: %q; goroutines:\n%s", dir, removeErr, left, stacks[:n])
+	})
+	return dir
 }
 
 // evidenceWiringOptions returns options whose daemon socket is in a fresh directory, so the engine socket beside it is too.

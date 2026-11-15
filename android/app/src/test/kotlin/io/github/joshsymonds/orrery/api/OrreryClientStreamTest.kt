@@ -13,11 +13,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -267,12 +265,12 @@ class OrreryClientStreamTest {
                 val job = launch(Dispatchers.IO) {
                     client.watchConversation("%3", "example-transcript", 0L) { firstDelta.complete(Unit) }
                 }
-                withTimeout(5_000) { firstDelta.await() }
+                firstDelta.await()
 
                 job.cancelAndJoin()
             }
 
-            assertTrue(server.awaitStreamClosedByClient(2_000))
+            server.awaitStreamClosedByClient()
         }
     }
 

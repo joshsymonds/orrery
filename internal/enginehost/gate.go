@@ -47,6 +47,9 @@ type gateRun struct {
 	Scope    string
 	Started  func(ctx context.Context, grantID, dir string) error
 	Tail     int
+	// launched is a test seam: when set, it runs once Launch has attached the gate's holder, just before the gate is
+	// watched, so a test acts on the watched gate. Production leaves it nil.
+	launched func()
 }
 
 // gateResult is how a gate ended: its exit status, whether Limit killed it, the last bytes it printed on stdout and on
@@ -296,6 +299,9 @@ func gateHeld(
 			return gateResult{}, nil, endErr
 		}
 		return gateExitResult(held, plan, exit), nil, nil
+	}
+	if run.launched != nil {
+		run.launched()
 	}
 	return gateWaitEnd(ctx, process, call, held, plan)
 }

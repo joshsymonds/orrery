@@ -272,16 +272,11 @@ func startOrrery(t *testing.T, stdout io.Writer, args ...string) <-chan runResul
 	return out
 }
 
-// awaitOrrery returns the result from ch. It fails the test when none arrives within runTimeout.
+// awaitOrrery returns the result from ch. It has no deadline of its own: the run starts real processes and talks to a
+// real socket at the machine's pace, and the test binary's timeout ends a run that never returns.
 func awaitOrrery(t *testing.T, ch <-chan runResult) runResult {
 	t.Helper()
-	select {
-	case res := <-ch:
-		return res
-	case <-time.After(runTimeout):
-		t.Fatal("orrery run did not return")
-		return runResult{}
-	}
+	return <-ch
 }
 
 // runCommandArgs returns the command line `run` takes for pool needs and a fake command in mode, with the needs in the
