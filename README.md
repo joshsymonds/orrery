@@ -94,6 +94,13 @@ nix flake check    # evaluate and check the flake
 nix build          # build the packages
 ```
 
+`just check` and `just check-changed` first run `just reap-test-tmux`. A test
+binary that is killed, times out or panics runs no cleanup, and the tmux
+server it started runs on as a daemon. The reaper stops each tmux server whose
+`-L` name is `orrery-test-<pid>-<hex>` or `orrery-integration-<pid>-<hex>` and
+whose test binary `<pid>` has exited: SIGTERM, then SIGKILL if it is still
+there two seconds later. It reads `/proc` and touches no other tmux server.
+
 ## Android
 
 The Android app lives under `android/`. It is a Kotlin and Jetpack Compose

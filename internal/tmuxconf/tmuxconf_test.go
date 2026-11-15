@@ -35,7 +35,12 @@ const (
 	quietWindow  = 1500 * time.Millisecond
 )
 
+// TestMain first stops the tmux servers that earlier test binaries started and outlived (see tmuxtest.Reaper), then
+// runs the tests.
 func TestMain(m *testing.M) {
+	if _, err := tmuxtest.DefaultReaper().Reap(); err != nil {
+		fmt.Fprintf(os.Stderr, "reap test tmux servers: %v\n", err)
+	}
 	os.Exit(runWithOrrery(m))
 }
 
