@@ -17,7 +17,9 @@ import {
 } from "./epics";
 import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
+import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import { Mark } from "./mark";
+import { NoticeBanner } from "./notices";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
@@ -98,6 +100,7 @@ export function App({
   seenClock,
   seenWindow,
   epics = noEpics,
+  notices = [],
 }: {
   rows: Row[];
   error: string;
@@ -106,6 +109,7 @@ export function App({
   seenClock?: SeenClock;
   seenWindow?: SeenWindow;
   epics?: EpicsView;
+  notices?: InAppNotice[];
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -323,6 +327,16 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
+  // openNotice counts a notice seen and moves the cursor to the entry its key names, when the list shows it. A failed
+  // report is dropped; the notice stays in the banner until it ends.
+  const openNotice = (notice: InAppNotice) => {
+    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+    const entry = noticeEntry(flat, notice.key);
+    if (entry !== undefined) {
+      selectItem(entry);
+    }
+  };
+
   const nextUnseen = () => {
     for (let step = 1; step <= flat.length; step++) {
       const target = (index + step) % flat.length;
@@ -471,6 +485,7 @@ export function App({
 
   return (
     <main class="app">
+      {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} />}
       <div class={panesClass(pinned !== null, cursorStep !== null)}>
         <div class="list">
           <header class="top">
@@ -860,6 +875,23 @@ function resolveIndex(items: Item[], cursor: Cursor): number {
 // isRow tells a row from an epic or step entry by its kind.
 function isRow(item: Item): item is Row {
   return item.kind === "pane" || item.kind === "session";
+}
+
+// noticeEntry finds the entry a notice's key names among the entries the list shows: a pane row by pane id, a session
+// row or a step by session id, or an epic by epic id. A key that names none, such as a limit's, finds nothing.
+function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefined {
+  const pane = key?.pane ?? "";
+  const session = key?.session ?? "";
+  const epic = key?.epic ?? "";
+  return items.find((item) => {
+    if (item.kind === "pane") {
+      return pane !== "" && item.id === pane;
+    }
+    if (item.kind === "epic") {
+      return epic !== "" && item.id === epic;
+    }
+    return session !== "" && item.id === session;
+  });
 }
 
 // epicIdOf is the id of the epic an epic or step entry belongs to, which the epics' details are held by.
