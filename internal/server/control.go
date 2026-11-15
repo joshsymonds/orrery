@@ -283,12 +283,20 @@ func newControlHandler(
 	steps StepClient,
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
+	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
+	return orreryv1connect.NewControlHandler(newControlServer(engine, timeout, home, steps), options...)
+}
+
+// newControlServer returns the Control service over engine and steps for home, each forward bounded by timeout, or by
+// defaultControlTimeout when timeout is zero.
+func newControlServer(
+	engine enginev1connect.EngineClient,
+	timeout time.Duration,
+	home string,
+	steps StepClient,
+) controlServer {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
-	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
-	return orreryv1connect.NewControlHandler(
-		controlServer{engine: engine, timeout: timeout, home: home, steps: steps},
-		options...,
-	)
+	return controlServer{engine: engine, timeout: timeout, home: home, steps: steps}
 }

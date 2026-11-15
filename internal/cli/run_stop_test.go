@@ -30,9 +30,6 @@ import (
 // stopGrace is the grace a stopped command gets before SIGKILL when a run does not set one.
 const stopGrace = 30 * time.Second
 
-// stopWatch is how long a test watches a stopped command that must still be running.
-const stopWatch = 5 * testRetry
-
 // stopScript is the command the stop tests run, under the grant each test names. Under grant-term it exits on SIGTERM.
 // Under grant-stubborn it ignores SIGTERM and runs until killed. Under grant-orphan it exits on SIGTERM and leaves a
 // child in its group that ignores SIGTERM and runs until killed; the child prints a child line once it ignores
@@ -309,8 +306,7 @@ func TestRunStopKillsCommandOnlyAfterGrace(t *testing.T) {
 	case <-time.After(runTimeout):
 		t.Fatal("the grace never started after the stop")
 	}
-	// CMD ignores SIGTERM, so it runs on while the grace has not passed on the test's clock.
-	time.Sleep(stopWatch)
+	// CMD ignores SIGTERM, and the grace runs on the test's clock, so CMD is still running once the grace is armed.
 	if processExited(t, pid) {
 		t.Fatal("CMD exited before the grace passed")
 	}
@@ -365,9 +361,8 @@ func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
 	case <-time.After(runTimeout):
 		t.Fatal("the grace never started after the stop")
 	}
-	// CMD has exited on SIGTERM, but its child ignores SIGTERM and runs on while the grace has not passed on the test's
-	// clock. The grant is not reclaimed while the child lives.
-	time.Sleep(stopWatch)
+	// CMD has exited on SIGTERM, but its child ignores SIGTERM, and the grace runs on the test's clock, so the child is
+	// still running once the grace is armed. The grant is not reclaimed while the child lives.
 	if processExited(t, child) {
 		t.Fatal("the child exited before the grace passed")
 	}

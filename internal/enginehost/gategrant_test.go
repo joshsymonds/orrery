@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,9 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/grants"
 )
+
+// gateGrantPoll is how often a test reads the fake pools while it waits for a request to reach them.
+const gateGrantPoll = 10 * time.Millisecond
 
 // fakeGatePools is a PoolCommands that grants at once. Each Acquire records its request. A grant holds one member for
 // each need, named <pool>-1 up to the need's count, and a reclaim keeps the grant id it names. A value sent to stop makes
@@ -230,22 +234,44 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 
 func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 	t.Parallel()
+	// The gate's limit is its holder's, set when the holder launches, so time queued for the grant can count toward it
+	// only if the gate starts before the grant. While the grant is held queued, the gate must not have started and
+	// runGrantedGate must not have returned.
 	queue := make(chan struct{})
 	pools := &fakeGatePools{queue: queue}
-	time.AfterFunc(1500*time.Millisecond, func() { close(queue) })
+	ran := filepath.Join(t.TempDir(), "ran")
 
-	started := time.Now()
-	result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", "exit 0"},
-		Dir:     t.TempDir(),
-		Limit:   time.Second,
-		Environ: gateEnv(),
-	})
+	type outcome struct {
+		result gateResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Argv:    []string{"/bin/sh", "-c", `echo 1 > "$RAN"; exit 0`},
+			Dir:     t.TempDir(),
+			Limit:   time.Second,
+			Environ: gateEnv("RAN=" + ran),
+		})
+		done <- outcome{result, err}
+	}()
+	for len(pools.requested()) == 0 {
+		time.Sleep(gateGrantPoll)
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("runGrantedGate returned (%+v, %v) while its grant was queued", got.result, got.err)
+	default:
+	}
+	if _, err := os.Stat(ran); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the gate ran while its grant was queued: stat %s = %v", ran, err)
+	}
+
+	close(queue)
+	got := <-done
+	result, err := got.result, got.err
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed < 1500*time.Millisecond {
-		t.Fatalf("runGrantedGate returned after %v, before the grant it queued for", elapsed)
 	}
 	if result.TimedOut {
 		t.Fatal("TimedOut = true: the time spent queued counted toward Limit")

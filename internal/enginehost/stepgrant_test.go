@@ -198,8 +198,8 @@ func TestStepsNamedGateRunsOnlyOnItsGrantAndRecordsItsCheck(t *testing.T) {
 	commit := stepGitTestCommit(t, linked, map[string]string{stepDoneOwned: "owned\n"})
 	f.sessions.first(t).Observer.Return(stepDoneReturn(commit))
 
+	// The gate launches only once its grant holds, so with the request queued it has not run.
 	stepStartAwait(t, "the gate's grant request", func() bool { return len(commands.requested()) == 1 })
-	time.Sleep(300 * time.Millisecond)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("gate ran before its grant")
 	}

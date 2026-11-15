@@ -22,8 +22,8 @@ const (
 	pullUp        = "\x1b[A"
 	pullDown      = "\x1b[B"
 	pullBackspace = "\x7f"
-	// pullQuiet is how long a negative assertion waits for a stray key to reach the pane.
-	pullQuiet = 200 * time.Millisecond
+	// pullMarker is the key a test sends after PullQueued returns, so its arrival shows every earlier key has arrived.
+	pullMarker = "M"
 )
 
 // pullScreen returns a synthetic screen: output, then the optional above line, then an 80-column input box holding
@@ -202,9 +202,10 @@ func TestPullQueuedNothingQueued(t *testing.T) {
 			if tc.wantDown {
 				want += pullDown
 			}
-			sendAwaitInput(t, file, want)
-			time.Sleep(pullQuiet)
-			sendAwaitInput(t, file, want)
+			// The pane reads its input in order, so once a marker sent after PullQueued returned has arrived, every key
+			// PullQueued sent has too, and the pane holds no stray key between them.
+			sendRun(t, client, "send-keys", "-t", pane, "-l", "--", pullMarker)
+			sendAwaitInput(t, file, want+pullMarker)
 		})
 	}
 }
