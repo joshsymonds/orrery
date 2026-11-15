@@ -135,4 +135,30 @@ public interface EpicsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
    */
   int getRequirementsCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> 
+      getNodesList();
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode getNodes(int index);
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  int getNodesCount();
 }
