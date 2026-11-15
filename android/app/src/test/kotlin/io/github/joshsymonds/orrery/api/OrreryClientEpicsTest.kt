@@ -85,12 +85,12 @@ class OrreryClientEpicsTest {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_LIST,
-                EpicsListResponse.newBuilder().addEpics(epicProto).build(),
+                EpicsListResponse.newBuilder().addEpics(epicProto.toBuilder().setWaiting(true)).build(),
             )
 
             val epics = OrreryClient(server.baseUrl).epics()
 
-            assertEquals(listOf(epicRow), epics)
+            assertEquals(listOf(epicRow.copy(waiting = true)), epics)
             assertConnectRequest(EPICS_LIST, server.requests.single())
         }
     }

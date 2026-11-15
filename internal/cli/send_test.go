@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -158,23 +159,46 @@ func sendWaitScreen(t *testing.T, client *tmuxctl.Client, pane, want string) {
 }
 
 // sendAwaitInput waits until the file holds at least len(want) bytes, then requires it to equal want exactly.
-func sendAwaitInput(t *testing.T, file, want string) {
+func sendAwaitInput(t *testing.T, client *tmuxctl.Client, pane, file, want string) {
 	t.Helper()
-	var got []byte
-	sendPollUntil(t, fmt.Sprintf("%d input bytes in %s", len(want), file), func() (bool, error) {
-		data, err := os.ReadFile(file)
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		got = data
-		return len(data) >= len(want), nil
+	got := sendAwaitFile(t, client, pane, file, fmt.Sprintf("%d input bytes", len(want)), func(data []byte) bool {
+		return len(data) >= len(want)
 	})
 	if string(got) != want {
 		t.Fatalf("pane received %q, want %q", got, want)
 	}
+}
+
+// sendAwaitFile polls file, which the cat in pane writes every byte the pane receives to, until complete reports true
+// for its bytes, and returns them. what names what it waits for. It has no deadline of its own. The pane's cat is the
+// file's only writer, so once the pane's process has exited it reads the file once more, then fails.
+func sendAwaitFile(t *testing.T, client *tmuxctl.Client, pane, file, what string, complete func([]byte) bool) []byte {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("pane %s pane_pid: %v", pane, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		t.Fatalf("pane %s pane_pid %q: %v", pane, out, err)
+	}
+	var got []byte
+	sendPollUntil(t, what+" in "+file, func() (bool, error) {
+		exited := processExited(t, pid)
+		data, err := os.ReadFile(file)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		got = data
+		if complete(data) {
+			return true, nil
+		}
+		if exited {
+			return false, fmt.Errorf("the pane's process %d exited with %q in the file", pid, data)
+		}
+		return false, nil
+	})
+	return got
 }
 
 func sendSetQuestion(t *testing.T, client *tmuxctl.Client, pane, question string) {
@@ -197,7 +221,7 @@ func TestSendTextPastesThenEnter(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("Send printed %q, want nothing", out.String())
 	}
-	sendAwaitInput(t, file, "\x1b[200~synthetic text\x1b[201~\r")
+	sendAwaitInput(t, client, pane, file, "\x1b[200~synthetic text\x1b[201~\r")
 }
 
 // sendBoxScreen returns a screen whose empty input box is 80 columns wide, below synthetic output.
@@ -223,7 +247,7 @@ func sendTextAwait(t *testing.T, client *tmuxctl.Client, pane, file, text, want 
 	if out.Len() != 0 {
 		t.Fatalf("Send printed %q, want nothing", out.String())
 	}
-	sendAwaitInput(t, file, want)
+	sendAwaitInput(t, client, pane, file, want)
 }
 
 // TestSendTextTypesIntoInputBox drives a pane in the working and done states whose screen shows the
@@ -409,8 +433,14 @@ func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 		result <- cli.SendWithClock(ctx, clock, client, []string{"--pane", pane, "--text", text}, &bytes.Buffer{})
 	}()
 
-	<-clock.armed
+	// Send waits at its first pause until the gate opens, so its return before then ends both waits as a failure.
+	if _, _, received := receiveUntil(clock.armed, resultQueued(result)); !received {
+		t.Fatalf("Send returned %v before its first pause", <-result)
+	}
 	sendPollUntil(t, "first typed bytes in "+file, func() (bool, error) {
+		if len(result) > 0 {
+			t.Fatalf("Send returned %v before its first typed bytes reached the pane", <-result)
+		}
 		data, err := os.ReadFile(file)
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
@@ -427,7 +457,7 @@ func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send after caller canceled: %v", err)
 	}
-	sendAwaitInput(t, file, text+"\r")
+	sendAwaitInput(t, client, pane, file, text+"\r")
 }
 
 func TestSendKeysDeliversKeys(t *testing.T) {
@@ -443,7 +473,7 @@ func TestSendKeysDeliversKeys(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("Send printed %q, want nothing", out.String())
 	}
-	sendAwaitInput(t, file, "ab\rc")
+	sendAwaitInput(t, client, pane, file, "ab\rc")
 }
 
 func TestSendKeysAcceptsDashKey(t *testing.T) {
@@ -455,7 +485,7 @@ func TestSendKeysAcceptsDashKey(t *testing.T) {
 	if err := cli.Send(t.Context(), client, args, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	sendAwaitInput(t, file, "-")
+	sendAwaitInput(t, client, pane, file, "-")
 }
 
 func TestSendExpectQuestionMatchingSends(t *testing.T) {
@@ -472,7 +502,7 @@ func TestSendExpectQuestionMatchingSends(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("Send printed %q, want nothing", out.String())
 	}
-	sendAwaitInput(t, file, "k\r")
+	sendAwaitInput(t, client, pane, file, "k\r")
 }
 
 // TestSendExpectQuestionFragmentDelivers stores a question shaped like state's @orrery_question value
@@ -545,7 +575,7 @@ func TestSendExpectQuestionFragmentDelivers(t *testing.T) {
 			if out.Len() != 0 {
 				t.Fatalf("Send printed %q, want nothing", out.String())
 			}
-			sendAwaitInput(t, file, "k\r")
+			sendAwaitInput(t, client, pane, file, "k\r")
 		})
 	}
 }
@@ -612,7 +642,7 @@ func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
 			if err := cli.Send(t.Context(), client, sentinel, &out); err != nil {
 				t.Fatalf("sentinel Send: %v", err)
 			}
-			sendAwaitInput(t, file, "ok\r")
+			sendAwaitInput(t, client, pane, file, "ok\r")
 		})
 	}
 }

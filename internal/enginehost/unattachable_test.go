@@ -94,6 +94,8 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil)
+	// The stopped holder answers no attach, so the attach runs out of time however short its bound is.
+	restarted.attachTimeout = time.Millisecond
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile after the crash: %v", err)
 	}

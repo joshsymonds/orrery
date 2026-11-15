@@ -59,15 +59,20 @@ internal enum class PaneFilter(val label: String, val tag: String) {
 }
 
 /**
- * The view and the collapsed folders of the pane list. The caller keeps one above the screens it
- * switches between, so both survive opening a pane and coming back.
+ * The view, the collapsed folders, and whether the ended line is open. The caller keeps one above the screens it
+ * switches between, so all three survive opening a pane and coming back.
  */
 class PaneListState {
     internal var filter by mutableStateOf(PaneFilter.ALL)
     internal var collapsed by mutableStateOf(emptySet<String>())
+    internal var endedOpen by mutableStateOf(false)
 
     internal fun toggleFolder(key: String) {
         collapsed = if (key in collapsed) collapsed - key else collapsed + key
+    }
+
+    internal fun toggleEnded() {
+        endedOpen = !endedOpen
     }
 }
 
@@ -102,12 +107,16 @@ private val PICKER_MAX_HEIGHT = 320.dp
 /** The indent of one folder level, in dp. */
 private const val INDENT_DP = 16
 
+/** Panes in a tmux session with this prefix are internal to orrery and are not listed. */
+private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
+
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
  * button at the top opens the picker above the filters; a run it answers opens that pane through
  * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. The Pools
  * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
- * it. Tapping a row opens that pane.
+ * it. Tapping a row opens that pane. In the All view, the ended headless sessions sit under one
+ * "n ended" line below the tree, which opens to a row per ended session.
  * The Epics group sits above the rows and opens an epic through [onOpenEpic]. An epics load that
  * fails shows no group and leaves the panes as they are.
  */
@@ -132,7 +141,11 @@ fun PaneListScreen(
     LaunchedEffect(client, generation) {
         load = PaneLoad.Loading
         load = try {
-            PaneLoad.Loaded(withContext(Dispatchers.IO) { client.panes() + client.headless() })
+            PaneLoad.Loaded(
+                withContext(Dispatchers.IO) {
+                    client.panes().filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) } + client.headless()
+                },
+            )
         } catch (error: IOException) {
             PaneLoad.Failed
         }
@@ -220,10 +233,12 @@ fun PaneListScreen(
                 epics = epics,
                 filter = state.filter,
                 collapsed = state.collapsed,
+                endedOpen = state.endedOpen,
                 now = now(),
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
                 onToggleFolder = state::toggleFolder,
+                onToggleEnded = state::toggleEnded,
             )
         }
     }
@@ -256,38 +271,44 @@ private fun PaneRows(
     epics: List<EpicRow>,
     filter: PaneFilter,
     collapsed: Set<String>,
+    endedOpen: Boolean,
     now: Long,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
     onToggleFolder: (String) -> Unit,
+    onToggleEnded: () -> Unit,
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item(key = "epics") {
             EpicsGroup(epics = epics, onOpenEpic = onOpenEpic)
         }
         when (filter) {
-            PaneFilter.ALL -> items(
-                treeRows(panes, collapsed),
-                key = { row ->
+            PaneFilter.ALL -> {
+                // Ended sessions are left out of the tree, so a folder holding only them is not built.
+                items(
+                    treeRows(panes.filterNot(::isEnded), collapsed),
+                    key = { row ->
+                        when (row) {
+                            is Folder -> "folder:${row.key}"
+                            is PaneAt -> "pane:${row.pane.id}"
+                        }
+                    },
+                ) { row ->
                     when (row) {
-                        is Folder -> "folder:${row.key}"
-                        is PaneAt -> "pane:${row.pane.id}"
+                        is Folder -> FolderRow(
+                            folder = row,
+                            onToggle = { onToggleFolder(row.key) },
+                        )
+                        is PaneAt -> PaneRow(
+                            pane = row.pane,
+                            depth = row.depth,
+                            project = null,
+                            now = now,
+                            onOpenPane = onOpenPane,
+                        )
                     }
-                },
-            ) { row ->
-                when (row) {
-                    is Folder -> FolderRow(
-                        folder = row,
-                        onToggle = { onToggleFolder(row.key) },
-                    )
-                    is PaneAt -> PaneRow(
-                        pane = row.pane,
-                        depth = row.depth,
-                        project = null,
-                        now = now,
-                        onOpenPane = onOpenPane,
-                    )
                 }
+                endedRows(panes.filter(::isEnded), endedOpen, now, onOpenPane, onToggleEnded)
             }
             PaneFilter.NEW -> flatRows(newPanes(panes), now, onOpenPane)
             PaneFilter.WAITING -> flatRows(waitingPanes(panes), now, onOpenPane)
@@ -295,10 +316,45 @@ private fun PaneRows(
     }
 }
 
+/** A headless session that has ended: stopped, or failed and seen since it failed. */
+private fun isEnded(pane: Pane): Boolean =
+    pane.headless && (pane.state == "stopped" || (pane.state == "failed" && pane.changed <= pane.seen))
+
+/** The ended sessions as one line below the tree, which opens to a row per session; no line when none ended. */
+private fun LazyListScope.endedRows(
+    ended: List<Pane>,
+    open: Boolean,
+    now: Long,
+    onOpenPane: (Pane) -> Unit,
+    onToggle: () -> Unit,
+) {
+    if (ended.isEmpty()) return
+    item(key = "ended") {
+        EndedLine(count = ended.size, open = open, onToggle = onToggle)
+    }
+    if (open) flatRows(ended, now, onOpenPane)
+}
+
 /** The panes as one flat list, each row carrying its project. */
 private fun LazyListScope.flatRows(panes: List<Pane>, now: Long, onOpenPane: (Pane) -> Unit) {
     items(panes, key = { "pane:${it.id}" }) { pane ->
         PaneRow(pane = pane, depth = 0, project = projectOf(pane), now = now, onOpenPane = onOpenPane)
+    }
+}
+
+@Composable
+private fun EndedLine(count: Int, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("ended-toggle")
+            .clickable(onClick = onToggle)
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(if (open) "\u25BE" else "\u25B8", style = MaterialTheme.typography.titleSmall)
+        Text("$count ended", style = MaterialTheme.typography.titleSmall)
     }
 }
 
