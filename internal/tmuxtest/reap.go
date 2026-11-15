@@ -35,8 +35,9 @@ type Orphan struct {
 
 // Reaper stops the tmux servers that tests started and that outlived their test binaries: a binary killed, timed out
 // or ended by a panic runs no cleanup, and a tmux server runs on as a daemon. A server is an orphan only when its
-// command name is a tmux server's, its -L name is a test server's (orrery-test-<pid>-<hex> or
-// orrery-integration-<pid>-<hex>), and that pid is no longer in the process table. No other tmux is touched.
+// command name is a tmux server's, its -L name is a test server's (orrery-<word>(-<word>)*-<pid>-<hex>, such as
+// orrery-test-<pid>-<hex> or orrery-test-send-<pid>-<hex>), and that pid is no longer in the process table. A live
+// owner's server never matches, so no other tmux is touched.
 type Reaper struct {
 	// ProcRoot is the process table, /proc in production.
 	ProcRoot string
@@ -164,25 +165,27 @@ func serverName(argv []string) (string, bool) {
 	return "", false
 }
 
-// testOwner returns the pid of the test binary that named a test server name, when name is one: orrery-test- or
-// orrery-integration-, a decimal pid, a dash, and lowercase hex, and nothing else.
+// testOwner returns the pid of the test binary that named a test server name, when name is one:
+// orrery-<word>(-<word>)*-<pid>-<hex>, each word lowercase letters, the pid decimal and the hex lowercase.
 func testOwner(name string) (int, bool) {
-	for _, prefix := range []string{"orrery-test-", "orrery-integration-"} {
-		rest, ok := strings.CutPrefix(name, prefix)
-		if !ok {
-			continue
-		}
-		pidText, hex, ok := strings.Cut(rest, "-")
-		if !ok || pidText == "" || hex == "" || !allIn(pidText, "0123456789") || !allIn(hex, "0123456789abcdef") {
-			return 0, false
-		}
-		pid, err := strconv.Atoi(pidText)
-		if err != nil || pid <= 0 {
-			return 0, false
-		}
-		return pid, true
+	fields := strings.Split(name, "-")
+	if len(fields) < 4 || fields[0] != "orrery" {
+		return 0, false
 	}
-	return 0, false
+	pidText, hex := fields[len(fields)-2], fields[len(fields)-1]
+	for _, word := range fields[1 : len(fields)-2] {
+		if word == "" || !allIn(word, "abcdefghijklmnopqrstuvwxyz") {
+			return 0, false
+		}
+	}
+	if pidText == "" || hex == "" || !allIn(pidText, "0123456789") || !allIn(hex, "0123456789abcdef") {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(pidText)
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
 }
 
 // allIn reports whether every byte of s is in set.

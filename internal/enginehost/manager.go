@@ -185,13 +185,17 @@ type Manager struct {
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
 	attachTimeout time.Duration
-	limit         int
-	writer        *Writer
-	now           func() time.Time
-	notifier      NoticeSink
-	store         Store
-	logger        *slog.Logger
-	metrics       *telemetry.Daemon
+	// closeWait bounds Close's wait for the pumps in place of the closeWait constant when it is not zero. A test whose
+	// store refuses every write by the close, as a crash leaves it, sets it: a pump blocked on a refused write ends only
+	// when Close cancels it.
+	closeWait time.Duration
+	limit     int
+	writer    *Writer
+	now       func() time.Time
+	notifier  NoticeSink
+	store     Store
+	logger    *slog.Logger
+	metrics   *telemetry.Daemon
 
 	pumps sync.WaitGroup
 
@@ -1037,7 +1041,11 @@ func (m *Manager) Close() {
 			m.logger.Warn("session stop failed on close", "session", live.id, "err", err)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), closeWait)
+	wait := closeWait
+	if m.closeWait != 0 {
+		wait = m.closeWait
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	for _, live := range running {
 		if err := m.recordClosed(ctx, live); err != nil {
