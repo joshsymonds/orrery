@@ -87,7 +87,7 @@ func startIDSession(t *testing.T) (*Session, *idProcess) {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(func() {
-		if stopErr := stopWithin(t, session); stopErr != nil {
+		if stopErr := session.Stop(); stopErr != nil {
 			t.Errorf("Stop in cleanup: %v", stopErr)
 		}
 	})

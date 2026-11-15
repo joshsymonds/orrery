@@ -48,7 +48,7 @@ func readopt(t *testing.T, process Process, opts ReadoptOptions) (*Session, []Li
 	if err != nil {
 		t.Fatalf("Readopt: %v", err)
 	}
-	t.Cleanup(func() { _ = stopWithin(t, session) })
+	t.Cleanup(func() { _ = session.Stop() })
 	return session, lines
 }
 
