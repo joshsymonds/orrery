@@ -47,6 +47,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
+	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -65,6 +66,9 @@ const (
 	// judgeDelay is the --judge-delay test seam the daemons of the notice tests run with, so a plain done is judged at
 	// once and not after route.JudgeDelay of real time. route's own tests check that wait on fake timers.
 	judgeDelay = "0s"
+	// writeTick is the --write-tick test seam every orreryd a test starts runs with, so a wait for a stored engine op
+	// waits milliseconds for the engine writer's tick, not the production 100 ms. A step round waits for several.
+	writeTick = "5ms"
 )
 
 // cleanupGrace is how long a cleanup waits for a process it asked to end before it kills the process. It is a fallback
@@ -93,10 +97,18 @@ func runWithBinaries(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "isolate the tests from the host: %v\n", err)
 		return 1
 	}
+	// The migrated store image every fixture seeds from is made while the binaries build, so the tests that start at
+	// once copy it and do not all wait for its migrations.
+	prepared := make(chan error, 1)
+	go func() { prepared <- storetest.Prepare() }()
 	// One go build builds both commands at once, where two builds ran one after the other. With -o naming a directory,
 	// each binary lands there under its command's name.
 	out, buildErr := exec.Command("go", "build", "-o", dir+string(os.PathSeparator), "../../cmd/orrery", "../../cmd/orreryd").
 		CombinedOutput()
+	if prepareErr := <-prepared; prepareErr != nil {
+		fmt.Fprintf(os.Stderr, "make the migrated store image: %v\n", prepareErr)
+		return 1
+	}
 	if buildErr != nil {
 		fmt.Fprintf(os.Stderr, "build orrery and orreryd: %v\n%s", buildErr, out)
 		return 1
@@ -273,8 +285,8 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 	t.Helper()
 	if name == "orreryd" {
 		// Every orreryd a test starts names testHost as its host, so no desk line, notice or pool carries the
-		// machine's own name.
-		args = append([]string{"--host", testHost}, args...)
+		// machine's own name, and stores its engine ops at writeTick.
+		args = append([]string{"--host", testHost, "--write-tick", writeTick}, args...)
 	}
 	p := &orreryProcess{
 		name:    name,
@@ -990,7 +1002,18 @@ cat > "$R/stdin"
 ` + judgeRunScript + `printf 'summary: example summary\n'
 : > "$R/done"
 `
-	// slowFakeClaudeScript is fakeClaudeScript after a pause, replying with a label line as well as the summary.
+	// labelFakeClaudeScript is fakeClaudeScript replying with a label line as well as the summary.
+	labelFakeClaudeScript = `#!/bin/sh
+D=$(dirname "$0")
+mkdir -p "$D/calls"
+R=$(mktemp -d "$D/calls/run.XXXXXX")
+printf '%s\n' "$@" > "$R/args"
+env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
+cat > "$R/stdin"
+` + judgeRunScript + `printf 'summary: example summary\nlabel: example label\n'
+: > "$R/done"
+`
+	// slowFakeClaudeScript is labelFakeClaudeScript after a pause, so a run is still in flight a second after it starts.
 	slowFakeClaudeScript = `#!/bin/sh
 D=$(dirname "$0")
 mkdir -p "$D/calls"
@@ -1422,7 +1445,7 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
+	daemon, socket, dir := startSummaryDaemon(t, name, labelFakeClaudeScript)
 	long := filepath.Join(dir, "long.jsonl")
 	writeFile(t, long, strings.Repeat(exampleTranscript, exampleExchanges), 0o600)
 	short := filepath.Join(dir, "short.jsonl")
@@ -1487,6 +1510,7 @@ func attachViewer(t *testing.T, inner *tmuxctl.Client, innerName string) viewer 
 	if err != nil {
 		t.Fatalf("outer list-panes: %v", err)
 	}
+	detachFirst(t, inner, outer, strings.TrimSpace(pane))
 	waitUntil(t, func() bool {
 		out, listErr := inner.Run(t.Context(), "list-clients", "-F", "#{client_name}")
 		if listErr != nil {
@@ -1496,6 +1520,32 @@ func attachViewer(t *testing.T, inner *tmuxctl.Client, innerName string) viewer 
 	})
 
 	return viewer{inner: inner, outer: outer, outerPane: strings.TrimSpace(pane)}
+}
+
+// detachFirst makes the viewer's client detach from inner before the outer server's cleanup kills it. Killed first, the
+// outer server takes away the pane of script while its client is still attached, and script takes seconds to exit.
+// The outer pane stays once script exits, so the outer server keeps running until its own cleanup, and the cleanup
+// here returns once script has exited.
+func detachFirst(t *testing.T, inner, outer *tmuxctl.Client, pane string) {
+	t.Helper()
+	if _, err := outer.Run(t.Context(), "set-option", "-w", "-t", pane, "remain-on-exit", "on"); err != nil {
+		t.Fatalf("outer remain-on-exit: %v", err)
+	}
+	pid, err := outer.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("outer pane_pid: %v", err)
+	}
+	pgid, err := strconv.Atoi(strings.TrimSpace(pid))
+	if err != nil {
+		t.Fatalf("outer pane_pid %q: %v", pid, err)
+	}
+	t.Cleanup(func() {
+		if _, detachErr := inner.Run(context.Background(), "detach-client", "-s", "s1"); detachErr != nil {
+			t.Errorf("detach the viewer's client: %v", detachErr)
+			return
+		}
+		waitGroupGone(pgid, nil)
+	})
 }
 
 // clientActivity returns the latest client_activity among the clients of the server behind client, or 0 when none.
