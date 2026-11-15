@@ -49,4 +49,44 @@ public interface EpicStepCheckOrBuilder extends
    * @return The ok.
    */
   boolean getOk();
+
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   * @return The stdout.
+   */
+  java.lang.String getStdout();
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   * @return The bytes for stdout.
+   */
+  com.google.protobuf.ByteString
+      getStdoutBytes();
+
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   * @return The stderr.
+   */
+  java.lang.String getStderr();
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   * @return The bytes for stderr.
+   */
+  com.google.protobuf.ByteString
+      getStderrBytes();
 }

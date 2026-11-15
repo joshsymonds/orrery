@@ -377,6 +377,7 @@ func epicRunMessage(run *enginev1.EvidenceRun) *orreryv1.EvidenceRun {
 		Created:     run.GetCreated(),
 		Ended:       run.GetEnded(),
 		LogBytes:    run.GetLogBytes(),
+		StderrBytes: run.GetStderrBytes(),
 		Artifacts:   artifacts,
 	}
 }
@@ -390,15 +391,21 @@ func epicStepMessages(steps []*enginev1.Step) []*orreryv1.EpicStep {
 	return out
 }
 
-// epicStepMessage converts step to its EpicStep. A check's detail is not carried, so the phone never shows it.
+// epicStepMessage converts step to its EpicStep. A check's detail is not carried, so the phone never shows it. The two
+// tails are carried only for a failed gate check, and a check that is not a gate check carries none.
 func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 	checks := make([]*orreryv1.EpicStepCheck, 0, len(step.GetChecks()))
 	for _, check := range step.GetChecks() {
-		checks = append(checks, &orreryv1.EpicStepCheck{
+		out := &orreryv1.EpicStepCheck{
 			Round: check.GetRound(),
 			Name:  check.GetName(),
 			Ok:    check.GetOk(),
-		})
+		}
+		if check.GetName() == epicGateCheck && !check.GetOk() {
+			out.Stdout = check.GetStdout()
+			out.Stderr = check.GetStderr()
+		}
+		checks = append(checks, out)
 	}
 	return &orreryv1.EpicStep{
 		Id:      step.GetId(),

@@ -557,7 +557,7 @@ func (q *Queries) GetEpicTurnStop(ctx context.Context, arg GetEpicTurnStopParams
 }
 
 const getEvidenceRun = `-- name: GetEvidenceRun :one
-SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended FROM evidence_runs WHERE id = ?
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes FROM evidence_runs WHERE id = ?
 `
 
 func (q *Queries) GetEvidenceRun(ctx context.Context, id string) (EvidenceRun, error) {
@@ -586,6 +586,8 @@ func (q *Queries) GetEvidenceRun(ctx context.Context, id string) (EvidenceRun, e
 		&i.Passed,
 		&i.Created,
 		&i.Ended,
+		&i.StderrHash,
+		&i.StderrBytes,
 	)
 	return i, err
 }
@@ -696,7 +698,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -745,6 +747,8 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.LoopLimitKind,
 		&i.LoopLimitResets,
 		&i.LoopGateFrom,
+		&i.CheckoutHead,
+		&i.CheckoutHash,
 	)
 	return i, err
 }
@@ -1578,10 +1582,10 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 }
 
 const insertStep = `-- name: InsertStep :exec
-INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_name, gate_source, gate_needs, gate_limit, model_limit, started, checks, result, status,
-                   end_value, reason, ended, doing, verdicts, epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?)
+INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
+                   done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
+                   started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?)
 `
 
 type InsertStepParams struct {
@@ -1592,6 +1596,8 @@ type InsertStepParams struct {
 	Workspace    string
 	Revision     string
 	Worktree     string
+	CheckoutHead string
+	CheckoutHash string
 	DoneValue    string
 	ReadOnly     bool
 	Owned        string
@@ -1615,6 +1621,8 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.Workspace,
 		arg.Revision,
 		arg.Worktree,
+		arg.CheckoutHead,
+		arg.CheckoutHash,
 		arg.DoneValue,
 		arg.ReadOnly,
 		arg.Owned,
@@ -2766,7 +2774,7 @@ func (q *Queries) ListEvidenceArtifacts(ctx context.Context, run string) ([]Evid
 }
 
 const listEvidenceRuns = `-- name: ListEvidenceRuns :many
-SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended FROM evidence_runs WHERE epic = ? ORDER BY created, id
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes FROM evidence_runs WHERE epic = ? ORDER BY created, id
 `
 
 func (q *Queries) ListEvidenceRuns(ctx context.Context, epic string) ([]EvidenceRun, error) {
@@ -2801,6 +2809,8 @@ func (q *Queries) ListEvidenceRuns(ctx context.Context, epic string) ([]Evidence
 			&i.Passed,
 			&i.Created,
 			&i.Ended,
+			&i.StderrHash,
+			&i.StderrBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -3052,7 +3062,7 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
 ORDER BY started, id
@@ -3115,6 +3125,8 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.LoopLimitKind,
 			&i.LoopLimitResets,
 			&i.LoopGateFrom,
+			&i.CheckoutHead,
+			&i.CheckoutHash,
 		); err != nil {
 			return nil, err
 		}
@@ -3130,7 +3142,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 }
 
 const listLimitedSteps = `-- name: ListLimitedSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
 `
 
 func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
@@ -3185,6 +3197,8 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 			&i.LoopLimitKind,
 			&i.LoopLimitResets,
 			&i.LoopGateFrom,
+			&i.CheckoutHead,
+			&i.CheckoutHash,
 		); err != nil {
 			return nil, err
 		}
@@ -3233,7 +3247,7 @@ func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]Epi
 }
 
 const listOpenEvidenceRuns = `-- name: ListOpenEvidenceRuns :many
-SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id
 `
 
 func (q *Queries) ListOpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, error) {
@@ -3268,6 +3282,8 @@ func (q *Queries) ListOpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, erro
 			&i.Passed,
 			&i.Created,
 			&i.Ended,
+			&i.StderrHash,
+			&i.StderrBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -3283,7 +3299,7 @@ func (q *Queries) ListOpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, erro
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -3338,6 +3354,8 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.LoopLimitKind,
 			&i.LoopLimitResets,
 			&i.LoopGateFrom,
+			&i.CheckoutHead,
+			&i.CheckoutHash,
 		); err != nil {
 			return nil, err
 		}
@@ -3817,7 +3835,8 @@ func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error 
 }
 
 const recordEvidenceRunCapture = `-- name: RecordEvidenceRunCapture :exec
-UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, state = ?, ended = ?
+UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
+    stderr_bytes = ?, state = ?, ended = ?
 WHERE id = ?
 `
 
@@ -3827,6 +3846,8 @@ type RecordEvidenceRunCaptureParams struct {
 	NotCaptured string
 	LogHash     string
 	LogBytes    int64
+	StderrHash  string
+	StderrBytes int64
 	State       string
 	Ended       int64
 	ID          string
@@ -3839,6 +3860,8 @@ func (q *Queries) RecordEvidenceRunCapture(ctx context.Context, arg RecordEviden
 		arg.NotCaptured,
 		arg.LogHash,
 		arg.LogBytes,
+		arg.StderrHash,
+		arg.StderrBytes,
 		arg.State,
 		arg.Ended,
 		arg.ID,

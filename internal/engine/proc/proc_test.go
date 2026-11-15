@@ -264,8 +264,8 @@ func TestStderrKeepsLastCapacityBytes(t *testing.T) {
 	}
 }
 
-func TestMergeOutputInterleavesStdoutIntoStderrInWriteOrder(t *testing.T) {
-	p := startWith(t, Config{MergeOutput: true}, "printf 'one\\n'\nprintf 'two\\n' >&2\nprintf 'three\\n'\n")
+func TestStdoutCapacityKeepsStdoutApartFromStderr(t *testing.T) {
+	p := startWith(t, Config{StdoutCapacity: 1 << 10}, "printf 'one\\n'\nprintf 'two\\n' >&2\nprintf 'three\\n'\n")
 	stdout := p.Stdout()
 	n, err := stdout.Read(make([]byte, 1))
 	if n != 0 || !errors.Is(err, io.EOF) {
@@ -278,39 +278,43 @@ func TestMergeOutputInterleavesStdoutIntoStderrInWriteOrder(t *testing.T) {
 	if err := p.Wait(); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	if got, want := p.Stderr(), "one\ntwo\nthree\n"; got != want {
-		t.Errorf("Stderr() = %q, want the merged output %q", got, want)
+	if got, want := p.StdoutTail(), "one\nthree\n"; got != want {
+		t.Errorf("StdoutTail() = %q, want the stdout %q", got, want)
+	}
+	if got, want := p.Stderr(), "two\n"; got != want {
+		t.Errorf("Stderr() = %q, want the stderr %q", got, want)
 	}
 }
 
-func TestMergeOutputKeepsLastCapacityBytesOfMergedOutput(t *testing.T) {
+func TestStdoutCapacityKeepsLastCapacityBytesOfStdout(t *testing.T) {
 	const capacity = 16
 	const stderrEnd = "stderr-end"
 	payload := "BEGIN" + strings.Repeat("-", 1000) + "stdout-end"
 	payloadFile := writeFile(t, "stdout.txt", payload)
 	body := "cat \"$1\"\nprintf '" + stderrEnd + "' >&2\n"
-	p := startWith(t, Config{MergeOutput: true, StderrCapacity: capacity}, body, payloadFile)
+	p := startWith(t, Config{StdoutCapacity: capacity}, body, payloadFile)
 	if err := p.Wait(); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	merged := payload + stderrEnd
-	want := merged[len(merged)-capacity:]
-	if got := p.Stderr(); got != want {
-		t.Errorf("Stderr() = %q, want the last %d merged bytes %q", got, capacity, want)
+	if want := payload[len(payload)-capacity:]; p.StdoutTail() != want {
+		t.Errorf("StdoutTail() = %q, want the last %d stdout bytes %q", p.StdoutTail(), capacity, want)
+	}
+	if got := p.Stderr(); got != stderrEnd {
+		t.Errorf("Stderr() = %q, want the whole stderr %q", got, stderrEnd)
 	}
 }
 
-func TestMergeOutputDoesNotHoldDoneForGroupLeaverHoldingOutput(t *testing.T) {
+func TestStdoutCapacityDoesNotHoldDoneForGroupLeaverHoldingStdout(t *testing.T) {
 	const stopTimeout = 300 * time.Millisecond
 	pidFile := filepath.Join(t.TempDir(), "holder.pid")
 	// setsid moves the background sleep into its own session, so it leaves the group yet inherits the
-	// merged output. The shell exits once the sleep has left the group, leaving it holding the pipe.
+	// child's stdout. The shell exits once the sleep has left the group, leaving it holding the pipe.
 	body := leaverStart("") + "echo ready\nexit 0\n"
-	p := startWith(t, Config{MergeOutput: true, StopTimeout: stopTimeout}, body, pidFile)
+	p := startWith(t, Config{StdoutCapacity: 1 << 10, StopTimeout: stopTimeout}, body, pidFile)
 	select {
 	case <-p.Done():
 	case <-time.After(stopTimeout + goneTimeout):
-		t.Fatalf("Done not closed within %v while a group leaver holds the output", stopTimeout+goneTimeout)
+		t.Fatalf("Done not closed within %v while a group leaver holds the stdout", stopTimeout+goneTimeout)
 	}
 	holder := readPID(t, pidFile)
 	t.Cleanup(func() {
@@ -319,10 +323,10 @@ func TestMergeOutputDoesNotHoldDoneForGroupLeaverHoldingOutput(t *testing.T) {
 		}
 	})
 	if err := syscall.Kill(holder, 0); err != nil {
-		t.Fatalf("holder %d is gone after Done, so the test never held the output open: %v", holder, err)
+		t.Fatalf("holder %d is gone after Done, so the test never held the stdout open: %v", holder, err)
 	}
-	if got, want := p.Stderr(), "ready\n"; got != want {
-		t.Errorf("Stderr() = %q, want %q", got, want)
+	if got, want := p.StdoutTail(), "ready\n"; got != want {
+		t.Errorf("StdoutTail() = %q, want %q", got, want)
 	}
 }
 

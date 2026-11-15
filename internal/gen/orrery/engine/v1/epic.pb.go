@@ -810,9 +810,9 @@ type EvidenceRun struct {
 	TimedOut bool `protobuf:"varint,9,opt,name=timed_out,json=timedOut,proto3" json:"timed_out,omitempty"`
 	// Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
 	NotCaptured string `protobuf:"bytes,10,opt,name=not_captured,json=notCaptured,proto3" json:"not_captured,omitempty"`
-	// The sha256 of the run's log; empty until the log is stored.
+	// The sha256 of the run's stdout log; empty until the log is stored.
 	LogHash string `protobuf:"bytes,11,opt,name=log_hash,json=logHash,proto3" json:"log_hash,omitempty"`
-	// The size of the run's log in bytes.
+	// The size of the run's stdout log in bytes.
 	LogBytes int64 `protobuf:"varint,12,opt,name=log_bytes,json=logBytes,proto3" json:"log_bytes,omitempty"`
 	// The artifacts the run kept, each with the state it was kept in.
 	Artifacts []*EvidenceArtifact `protobuf:"bytes,13,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
@@ -827,7 +827,11 @@ type EvidenceRun struct {
 	// When the run was created, in unix seconds.
 	Created int64 `protobuf:"varint,18,opt,name=created,proto3" json:"created,omitempty"`
 	// When the run ended, in unix seconds; 0 while it runs.
-	Ended         int64 `protobuf:"varint,19,opt,name=ended,proto3" json:"ended,omitempty"`
+	Ended int64 `protobuf:"varint,19,opt,name=ended,proto3" json:"ended,omitempty"`
+	// The sha256 of the run's stderr log; empty until the log is stored.
+	StderrHash string `protobuf:"bytes,20,opt,name=stderr_hash,json=stderrHash,proto3" json:"stderr_hash,omitempty"`
+	// The size of the run's stderr log in bytes.
+	StderrBytes   int64 `protobuf:"varint,21,opt,name=stderr_bytes,json=stderrBytes,proto3" json:"stderr_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -991,6 +995,20 @@ func (x *EvidenceRun) GetCreated() int64 {
 func (x *EvidenceRun) GetEnded() int64 {
 	if x != nil {
 		return x.Ended
+	}
+	return 0
+}
+
+func (x *EvidenceRun) GetStderrHash() string {
+	if x != nil {
+		return x.StderrHash
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetStderrBytes() int64 {
+	if x != nil {
+		return x.StderrBytes
 	}
 	return 0
 }
@@ -3232,7 +3250,9 @@ type GetEvidenceArtifactRequest struct {
 	// The evidence run's id.
 	Run string `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
 	// The artifact's repository-relative path; empty for the run's log.
-	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+	Stderr        bool `protobuf:"varint,3,opt,name=stderr,proto3" json:"stderr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3279,6 +3299,13 @@ func (x *GetEvidenceArtifactRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *GetEvidenceArtifactRequest) GetStderr() bool {
+	if x != nil {
+		return x.Stderr
+	}
+	return false
 }
 
 // GetEvidenceArtifactResponse carries one artifact's bytes.
@@ -3408,7 +3435,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x12\n" +
 	"\x04hash\x18\x03 \x01(\tR\x04hash\x12\x12\n" +
-	"\x04size\x18\x04 \x01(\x03R\x04size\"\x97\x04\n" +
+	"\x04size\x18\x04 \x01(\x03R\x04size\"\xdb\x04\n" +
 	"\vEvidenceRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04epic\x18\x02 \x01(\tR\x04epic\x12\x12\n" +
@@ -3430,7 +3457,10 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\fjudge_reason\x18\x10 \x01(\tR\vjudgeReason\x12\x16\n" +
 	"\x06passed\x18\x11 \x01(\bR\x06passed\x12\x18\n" +
 	"\acreated\x18\x12 \x01(\x03R\acreated\x12\x14\n" +
-	"\x05ended\x18\x13 \x01(\x03R\x05ended\"L\n" +
+	"\x05ended\x18\x13 \x01(\x03R\x05ended\x12\x1f\n" +
+	"\vstderr_hash\x18\x14 \x01(\tR\n" +
+	"stderrHash\x12!\n" +
+	"\fstderr_bytes\x18\x15 \x01(\x03R\vstderrBytes\"L\n" +
 	"\vEpicPremise\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x19\n" +
@@ -3582,10 +3612,11 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x13ListEvidenceRequest\x12\x12\n" +
 	"\x04epic\x18\x01 \x01(\tR\x04epic\"I\n" +
 	"\x14ListEvidenceResponse\x121\n" +
-	"\x04runs\x18\x01 \x03(\v2\x1d.orrery.engine.v1.EvidenceRunR\x04runs\"B\n" +
+	"\x04runs\x18\x01 \x03(\v2\x1d.orrery.engine.v1.EvidenceRunR\x04runs\"Z\n" +
 	"\x1aGetEvidenceArtifactRequest\x12\x10\n" +
 	"\x03run\x18\x01 \x01(\tR\x03run\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"E\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06stderr\x18\x03 \x01(\bR\x06stderr\"E\n" +
 	"\x1bGetEvidenceArtifactResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\tR\x04hash2\xb7\x05\n" +

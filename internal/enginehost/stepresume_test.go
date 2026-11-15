@@ -12,7 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// writeResumeFiles writes fakeclaude.next, which makes the resume prompt play STEPDONE, and fakeclaude.release, which
+// writeResumeFiles writes fakeclaude.next, which makes the resume prompt play READDONE, and fakeclaude.release, which
 // lets that turn finish, into dir, the directory the step's fake claude runs in.
 func writeResumeFiles(t *testing.T, dir string) {
 	t.Helper()
@@ -20,16 +20,17 @@ func writeResumeFiles(t *testing.T, dir string) {
 	releaseResumedTurn(t, dir)
 }
 
-// writeResumeNext writes fakeclaude.next into dir, so the resume prompt plays STEPDONE, which holds its turn until
-// releaseResumedTurn lets it finish.
+// writeResumeNext writes fakeclaude.next into dir, so the resume prompt plays READDONE, which holds its turn until
+// releaseResumedTurn lets it finish. The steps these tests resume are read-only, so the resumed turn returns done
+// without a commit: a commit there would move the checkout and end the step checks_failed.
 func writeResumeNext(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.next"), []byte("STEPDONE"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.next"), []byte("READDONE"), 0o600); err != nil {
 		t.Fatalf("write fakeclaude.next: %v", err)
 	}
 }
 
-// releaseResumedTurn writes fakeclaude.release into dir, which lets the resumed STEPDONE turn finish.
+// releaseResumedTurn writes fakeclaude.release into dir, which lets the resumed READDONE turn finish.
 func releaseResumedTurn(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.release"), nil, 0o600); err != nil {
@@ -119,7 +120,7 @@ func TestStepsResumeOfStepNotLimitedRefuses(t *testing.T) {
 	rig := newStepsRig(t, nil)
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
-	id := startLimitProbe(t, rig, repo, revision, "STEPDONE")
+	id := startLimitProbe(t, rig, repo, revision, "READDONE")
 
 	if err := rig.steps.Resume(t.Context(), id); !errors.Is(err, ErrStepNotLimited) {
 		t.Fatalf("Resume of a step not limited = %v, want ErrStepNotLimited", err)
@@ -171,7 +172,7 @@ func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
 	// The loop stores the limit before it releases the process, so the slot is free only once the release finishes.
 	requireGone(t, pid)
 	writeResumeFiles(t, dir)
-	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
+	holder := startLimitProbe(t, rig, repo, revision, "READDONE")
 
 	err := rig.steps.Resume(t.Context(), id)
 	if !errors.Is(err, ErrCapReached) {

@@ -30,14 +30,14 @@ func TestWaitReportsChildExitWhenGroupLeaverHoldsOutput(t *testing.T) {
 		wantSuccess bool
 	}{
 		{
-			name:        "merged output exit 0",
-			cfg:         Config{MergeOutput: true, StopTimeout: stopTimeout},
+			name:        "stdout held exit 0",
+			cfg:         Config{StdoutCapacity: 1 << 10, StopTimeout: stopTimeout},
 			body:        leaverStart("") + "echo ready\nexit 0\n",
 			wantSuccess: true,
 		},
 		{
-			name:       "merged output exit 5",
-			cfg:        Config{MergeOutput: true, StopTimeout: stopTimeout},
+			name:       "stdout held exit 5",
+			cfg:        Config{StdoutCapacity: 1 << 10, StopTimeout: stopTimeout},
 			body:       leaverStart("") + "echo ready\nexit 5\n",
 			wantStatus: 5,
 		},

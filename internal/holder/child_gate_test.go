@@ -10,14 +10,23 @@ import (
 const (
 	// gateTestLimit is the gate limit a test gives its child on the fake clock.
 	gateTestLimit = time.Minute
-	// gateTestTail is the stderr tail a gate keeps, in bytes.
+	// gateTestTail is the tail each stream of a gate keeps by default, in bytes.
 	gateTestTail = 8 << 10
-	// gateTestMarker ends the output the trim test writes, so the kept tail is checkable.
-	gateTestMarker = "gate-tail-end\n"
+	// gateTestStdoutEnd and gateTestStderrEnd end the output a trim test writes to each stream, so the kept tails are
+	// checkable.
+	gateTestStdoutEnd = "stdout-end\n"
+	gateTestStderrEnd = "stderr-end\n"
 )
 
-// startGateChild starts sh running script as a gate child on clock, with gateTestLimit, and returns it with its spool.
+// startGateChild starts sh running script as a gate child on clock, with gateTestLimit and the default tail, and
+// returns it with its spool.
 func startGateChild(t *testing.T, script string, clock Clock) (*Child, *Spool) {
+	t.Helper()
+	return startGateChildTail(t, script, clock, 0)
+}
+
+// startGateChildTail is startGateChild with GateTail set to tail, where zero takes the default.
+func startGateChildTail(t *testing.T, script string, clock Clock, tail int) (*Child, *Spool) {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -29,19 +38,22 @@ func startGateChild(t *testing.T, script string, clock Clock) (*Child, *Spool) {
 		Args:      []string{"-c", script},
 		Dir:       t.TempDir(),
 		GateLimit: gateTestLimit,
+		GateTail:  tail,
 		Clock:     clock,
 	})
 	return child, spool
 }
 
-func TestGateChildMergesStdoutAndStderrInWriteOrder(t *testing.T) {
+func TestGateChildKeepsStdoutAndStderrApart(t *testing.T) {
 	t.Parallel()
 
-	// Both streams share one pipe, so the tail holds the lines in the order the child wrote them.
 	child, spool := startGateChild(t, "echo one; echo two >&2; echo three; echo four >&2", newFakeClock())
 	awaitChildDone(t, child)
 	exit := child.Exit(ReasonExited)
-	if want := "one\ntwo\nthree\nfour\n"; exit.Stderr != want {
+	if want := "one\nthree\n"; exit.Stdout != want {
+		t.Errorf("Stdout = %q, want %q", exit.Stdout, want)
+	}
+	if want := "two\nfour\n"; exit.Stderr != want {
 		t.Errorf("Stderr = %q, want %q", exit.Stderr, want)
 	}
 	if spool.End() != 0 || exit.StdoutEnd != 0 {
@@ -49,20 +61,44 @@ func TestGateChildMergesStdoutAndStderrInWriteOrder(t *testing.T) {
 	}
 }
 
-func TestGateChildTailKeepsNewestEightKiB(t *testing.T) {
+func TestGateChildTailsKeepNewestEightKiBOfEachStream(t *testing.T) {
 	t.Parallel()
 
-	// 20 KiB of stdout then one stderr line: the tail keeps the newest 8 KiB, which ends with that line.
-	child, spool := startGateChild(t, `head -c 20480 /dev/zero | tr '\000' a; echo gate-tail-end >&2`, newFakeClock())
+	// 20 KiB of each stream, then a marker: each tail keeps the newest 8 KiB, which ends with its own marker.
+	script := `head -c 20480 /dev/zero | tr '\000' a; echo stdout-end; ` +
+		`head -c 20480 /dev/zero | tr '\000' b >&2; echo stderr-end >&2`
+	child, spool := startGateChild(t, script, newFakeClock())
 	awaitChildDone(t, child)
 	exit := child.Exit(ReasonExited)
-	want := strings.Repeat("a", gateTestTail-len(gateTestMarker)) + gateTestMarker
-	if exit.Stderr != want {
+	if want := strings.Repeat("a", gateTestTail-len(gateTestStdoutEnd)) + gateTestStdoutEnd; exit.Stdout != want {
+		t.Errorf("Stdout holds %d bytes, want the newest %d: it ends %q", len(exit.Stdout), gateTestTail,
+			exit.Stdout[max(0, len(exit.Stdout)-16):])
+	}
+	if want := strings.Repeat("b", gateTestTail-len(gateTestStderrEnd)) + gateTestStderrEnd; exit.Stderr != want {
 		t.Errorf("Stderr holds %d bytes, want the newest %d: it ends %q", len(exit.Stderr), gateTestTail,
 			exit.Stderr[max(0, len(exit.Stderr)-16):])
 	}
 	if spool.End() != 0 {
 		t.Errorf("spool holds %d bytes, want nothing spooled", spool.End())
+	}
+}
+
+func TestGateChildGateTailHoldsThatManyBytesOfEachStream(t *testing.T) {
+	t.Parallel()
+
+	const tail = 100
+	script := `head -c 300 /dev/zero | tr '\000' a; echo stdout-end; ` +
+		`head -c 300 /dev/zero | tr '\000' b >&2; echo stderr-end >&2`
+	child, _ := startGateChildTail(t, script, newFakeClock(), tail)
+	awaitChildDone(t, child)
+	exit := child.Exit(ReasonExited)
+	stdout := strings.Repeat("a", 300) + gateTestStdoutEnd
+	if want := stdout[len(stdout)-tail:]; exit.Stdout != want {
+		t.Errorf("Stdout = %q, want the newest %d bytes %q", exit.Stdout, tail, want)
+	}
+	stderr := strings.Repeat("b", 300) + gateTestStderrEnd
+	if want := stderr[len(stderr)-tail:]; exit.Stderr != want {
+		t.Errorf("Stderr = %q, want the newest %d bytes %q", exit.Stderr, tail, want)
 	}
 }
 
@@ -76,8 +112,8 @@ func TestGateChildStdinReadsEOFAndWriteFails(t *testing.T) {
 	}
 	awaitChildDone(t, child)
 	exit := child.Exit(ReasonExited)
-	if want := "stdin: eof\n"; exit.Stderr != want {
-		t.Errorf("Stderr = %q, want %q", exit.Stderr, want)
+	if want := "stdin: eof\n"; exit.Stdout != want {
+		t.Errorf("Stdout = %q, want %q", exit.Stdout, want)
 	}
 }
 

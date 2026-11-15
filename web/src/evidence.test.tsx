@@ -42,16 +42,33 @@ const screenshot = run({
 });
 const pngBytes = new Uint8Array([137, 80, 78, 71]);
 
+// capture is a green run whose capture wrote both logs, each with its own text.
+const capture = run({
+  id: "r-capture",
+  phase: "green",
+  source: "captured",
+  state: "ended",
+  verdict: "holds",
+  passed: true,
+  exit: 0,
+  revision,
+  logBytes: 17n,
+  stderrBytes: 14n,
+});
+const stdoutText = "compiling\nlinked\n";
+const stderrText = "warning: slow\n";
+
 type Answer = { data: Uint8Array; mediaType: string };
 
-// answering is a loader that answers the calls keyed by run and name, and rejects every other. It records each call as
-// its run and name, in order.
-function answering(answers: Record<string, Answer>): { load: LoadArtifact; calls: [string, string][] } {
-  const calls: [string, string][] = [];
-  const load: LoadArtifact = (runId, name) => {
-    calls.push([runId, name]);
-    const answer = answers[`${runId}/${name}`];
-    return answer === undefined ? Promise.reject(new Error(`no artifact ${runId}/${name}`)) : Promise.resolve(answer);
+// answering is a loader that answers the calls keyed by run and name, and rejects every other. A stderr log is keyed
+// with a stderr suffix. It records each call as its run, name and stderr flag, in order.
+function answering(answers: Record<string, Answer>): { load: LoadArtifact; calls: [string, string, boolean][] } {
+  const calls: [string, string, boolean][] = [];
+  const load: LoadArtifact = (runId, name, stderr) => {
+    calls.push([runId, name, stderr]);
+    const key = stderr ? `${runId}/${name}/stderr` : `${runId}/${name}`;
+    const answer = answers[key];
+    return answer === undefined ? Promise.reject(new Error(`no artifact ${key}`)) : Promise.resolve(answer);
   };
   return { load, calls };
 }
@@ -147,14 +164,14 @@ test("a run that has not ended reads running, and shows no exit", () => {
   });
 });
 
-test("the log toggle loads the run's log with an empty name on open, shows its text, and closes", async () => {
+test("the stdout toggle loads the stdout log on open, shows its text, and closes", async () => {
   const text = "step one\nstep two\n";
   const { load, calls } = answering({ "r-red/": { data: new TextEncoder().encode(text), mediaType: "text/plain" } });
   await withRuns([redPassed], load, async (container) => {
     assert.equal(container.querySelector(".log-toggle")?.getAttribute("aria-expanded") ?? null, "false");
     container.querySelector<HTMLButtonElement>(".log-toggle")?.click();
     await settled(() => container.querySelector(".log") !== null);
-    assert.deepEqual(calls, [["r-red", ""]]);
+    assert.deepEqual(calls, [["r-red", "", false]]);
     assert.equal(textOf(container, ".log"), text);
     assert.equal(container.querySelector(".log-toggle")?.getAttribute("aria-expanded") ?? null, "true");
     container.querySelector<HTMLButtonElement>(".log-toggle")?.click();
@@ -163,6 +180,37 @@ test("the log toggle loads the run's log with an empty name on open, shows its t
     assert.equal(calls.length, 1, "closing loads nothing");
   });
 });
+
+test("a capture with both logs has a toggle for each, each loading and showing only its own text", async () => {
+  const { load, calls } = answering({
+    "r-capture/": { data: new TextEncoder().encode(stdoutText), mediaType: "text/plain" },
+    "r-capture//stderr": { data: new TextEncoder().encode(stderrText), mediaType: "text/plain" },
+  });
+  await withRuns([capture], load, async (container) => {
+    assert.deepEqual(textsOf(container, ".log-toggle"), ["stdout", "stderr"]);
+    const toggles = container.querySelectorAll<HTMLButtonElement>(".log-toggle");
+    toggles[0]?.click();
+    await settled(() => container.querySelector(".log") !== null);
+    assert.deepEqual(calls, [["r-capture", "", false]]);
+    assert.deepEqual(textsOf(container, ".log"), [stdoutText]);
+    toggles[1]?.click();
+    await settled(() => container.querySelectorAll(".log").length === 2);
+    assert.deepEqual(calls, [
+      ["r-capture", "", false],
+      ["r-capture", "", true],
+    ]);
+    assert.deepEqual(textsOf(container, ".log"), [stdoutText, stderrText]);
+  });
+});
+
+test("only a run with a stderr log has a stderr toggle", () =>
+  withRuns([redPassed, capture], answering({}).load, (container) => {
+    assert.deepEqual(textsOf(container, ".log-toggle"), ["stdout", "stdout", "stderr"]);
+    assert.deepEqual(
+      [...container.querySelectorAll(".run")].map((row) => row.querySelectorAll(".log-toggle").length),
+      [1, 2],
+    );
+  }));
 
 test("a log that does not load says so", async () => {
   await withRuns([redPassed], answering({}).load, async (container) => {
@@ -189,7 +237,7 @@ test("an image artifact is loaded by its path and drawn from an object URL", asy
   const { load, calls } = answering({ "r-shot/shots/after.png": { data: pngBytes, mediaType: "image/png" } });
   await withRuns([screenshot], load, async (container) => {
     await settled(() => container.querySelector("img") !== null);
-    assert.deepEqual(calls, [["r-shot", "shots/after.png"]]);
+    assert.deepEqual(calls, [["r-shot", "shots/after.png", false]]);
     assert.equal(container.querySelectorAll("img").length, 1);
     assert.equal(container.querySelector("img")?.getAttribute("src")?.startsWith("blob:"), true);
     assert.equal(container.querySelector("img")?.getAttribute("alt") ?? null, "shots/after.png");

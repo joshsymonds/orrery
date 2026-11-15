@@ -50,7 +50,7 @@ func briefTask() store.EpicTask {
 func TestBriefRendersEverySectionInOrder(t *testing.T) {
 	t.Parallel()
 	red := store.EvidenceRun{Exit: 1, Verdict: "fails"}
-	got := Brief(briefEpic(), briefTask(), red, []byte("first line\nlast line\n"), "boom")
+	got := Brief(briefEpic(), briefTask(), red, []byte("first line\nlast line\n"), nil, "boom")
 	want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, checked out detached at the task's base.\n" +
 		"Task: Render brief\n" +
 		"Deliverable: brief.go\n" +
@@ -92,7 +92,7 @@ func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) 
 		Evidence:    evidence.Item{Supplied: []string{"a/one.txt", "b/two.txt"}, Conclusion: "the brief renders"},
 	}
 	red := store.EvidenceRun{Exit: 0, Verdict: "holds"}
-	got := Brief(epic, task, red, nil, "")
+	got := Brief(epic, task, red, nil, nil, "")
 	want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, checked out detached at the task's base.\n" +
 		"Task: Render brief\n" +
 		"Deliverable: brief.go\n" +
@@ -121,9 +121,40 @@ func TestBriefCutsRedLogToItsLastEightKiB(t *testing.T) {
 	t.Parallel()
 	tail := strings.Repeat("b", 8192)
 	log := []byte(strings.Repeat("a", 100) + tail)
-	got := Brief(briefEpic(), briefTask(), store.EvidenceRun{}, log, "")
+	got := Brief(briefEpic(), briefTask(), store.EvidenceRun{}, log, nil, "")
 	if want := "Red log (last 8 KiB):\n```\n" + tail + "\n```\n"; !strings.Contains(got, want) {
 		t.Fatalf("red log not cut to its last 8192 bytes; brief:\n%s", got)
+	}
+}
+
+func TestBriefPrintsRedStderrAfterRedLog(t *testing.T) {
+	t.Parallel()
+	red := store.EvidenceRun{Exit: 1, Verdict: "fails"}
+	got := Brief(briefEpic(), briefTask(), red, []byte("first line\nlast line\n"), []byte("panic: boom\n"), "boom")
+	want := "Red log (last 8 KiB):\n```\nfirst line\nlast line\n\n```\n" +
+		"Red stderr (last 8 KiB):\n```\npanic: boom\n\n```\n" +
+		"Your previous attempt failed: boom\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("red stderr not printed after the red log; brief:\n%s", got)
+	}
+}
+
+func TestBriefCutsRedStderrToItsLastEightKiB(t *testing.T) {
+	t.Parallel()
+	tail := strings.Repeat("b", 8192)
+	stderr := []byte(strings.Repeat("a", 100) + tail)
+	got := Brief(briefEpic(), briefTask(), store.EvidenceRun{}, nil, stderr, "")
+	if want := "Red stderr (last 8 KiB):\n```\n" + tail + "\n```\n"; !strings.Contains(got, want) {
+		t.Fatalf("red stderr not cut to its last 8192 bytes; brief:\n%s", got)
+	}
+}
+
+func TestBriefWithoutRedStderrPrintsNoStderrBlock(t *testing.T) {
+	t.Parallel()
+	red := store.EvidenceRun{Exit: 1, Verdict: "fails"}
+	got := Brief(briefEpic(), briefTask(), red, []byte("first line\n"), nil, "")
+	if strings.Contains(got, "Red stderr") {
+		t.Fatalf("brief for a red run with no stderr log prints a stderr block:\n%s", got)
 	}
 }
 

@@ -219,7 +219,7 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	fixture := openStoreAtVersion(t, path, 22)
+	fixture := openStoreAtVersion(t, path, 23)
 	events := []struct {
 		id, kind, payload string
 		sec               int64
@@ -244,7 +244,7 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 
 	s, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("Open at version 22: %v", err)
+		t.Fatalf("Open at version 23: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := s.Close(); err != nil {
@@ -252,7 +252,7 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 		}
 	})
 	if !indexExists(t, s.db, "events_turn_end") {
-		t.Fatalf("events_turn_end after Open at version 22: absent, want present")
+		t.Fatalf("events_turn_end after Open at version 23: absent, want present")
 	}
 
 	want := map[string]int64{"orrery-1": turnTime(20).Unix()}
@@ -275,8 +275,8 @@ func TestLastTurnEndsTurnEndIndexMigrationDownAndUp(t *testing.T) {
 		t.Fatalf("create goose provider: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 22); err != nil {
-		t.Fatalf("DownTo 22: %v", err)
+	if _, err := provider.DownTo(ctx, 23); err != nil {
+		t.Fatalf("DownTo 23: %v", err)
 	}
 	if indexExists(t, s.db, "events_turn_end") {
 		t.Fatalf("events_turn_end after Down: present, want absent")

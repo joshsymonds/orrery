@@ -49,4 +49,14 @@ public interface EvidenceArtifactRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNameBytes();
+
+  /**
+   * <pre>
+   * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+   * </pre>
+   *
+   * <code>bool stderr = 3 [json_name = "stderr"];</code>
+   * @return The stderr.
+   */
+  boolean getStderr();
 }

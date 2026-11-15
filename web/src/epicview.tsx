@@ -3,7 +3,14 @@ import { useState } from "preact/hooks";
 
 import { denseStrip, doneOf, pipsOf, roundOf, type StripTone, stripOf } from "./epics";
 import { EvidenceRuns, type LoadArtifact } from "./evidence";
-import type { EpicRequirement, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
+import type {
+  EpicRequirement,
+  EpicSlice,
+  EpicStep,
+  EpicStepCheck,
+  EpicsGetResponse,
+  EpicTask,
+} from "./gen/orrery/v1/epics_pb";
 import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskReadout, taskReadout } from "./orbitcells";
 import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
 import { clock } from "./reader";
@@ -22,8 +29,9 @@ const secondsToMillis = 1000;
 // problem and the task strip; the Requirements of an orreryd epic, each with its conclusion and evidence runs; a chart
 // of its slices, or the orbits and the line that it has none; the task rows, each with its mark, agent, pips and line;
 // a card for the cursor's step while it runs; and the steps, folded behind a line that counts them and their ends. The
-// fold opens to the steps started on now's day, oldest first, each with a pip per stored check and its end kind. The
-// cursor's step and its task are marked. loadArtifact reads a run's log and artifacts for the runs' toggles and images.
+// fold opens to the steps started on now's day, oldest first, each with a pip per stored check, its end kind, and the
+// tails of its failed checks. The cursor's step and its task are marked. loadArtifact reads a run's log and artifacts
+// for the runs' toggles and images.
 // Every text is a child of its element, so no markup in a slug, status, label or check name becomes an element.
 export function EpicView(props: {
   detail: EpicsGetResponse;
@@ -122,6 +130,9 @@ export function EpicView(props: {
                   ))}
                 </span>
                 <span class="end">{endKind(step)}</span>
+                {step.checks.filter(carriesTails).map((check, index) => (
+                  <CheckTails key={index} check={check} />
+                ))}
               </li>
             ))}
         </ol>
@@ -361,6 +372,33 @@ function endKind(step: EpicStep): string {
     return step.end;
   }
   return step.held ? "held" : "running";
+}
+
+// carriesTails is whether a check failed with a tail to show. A passed check shows none, whatever it carries.
+function carriesTails(check: EpicStepCheck): boolean {
+  return !check.ok && (check.stdout !== "" || check.stderr !== "");
+}
+
+// CheckTails is a failed gate check's tails under its step: each non-empty tail under its label, preformatted. Each
+// text is a child of its element, so no markup in a tail becomes an element.
+function CheckTails(props: { check: EpicStepCheck }): JSX.Element {
+  const { check } = props;
+  return (
+    <div class="tails">
+      {check.stdout !== "" && (
+        <>
+          <span class="tail-label">stdout</span>
+          <pre class="log">{check.stdout}</pre>
+        </>
+      )}
+      {check.stderr !== "" && (
+        <>
+          <span class="tail-label">stderr</span>
+          <pre class="log">{check.stderr}</pre>
+        </>
+      )}
+    </div>
+  );
 }
 
 // startedToday is whether a step started on the local calendar day of now.
