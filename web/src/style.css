@@ -88,10 +88,12 @@ button, input, textarea, select { font-family: var(--mono); }
   .panes.split.with-step .side { display: none; }
   .list, .read, .side { min-height: 0; }
   .list {
-    display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--crust);
+    position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--crust);
     border-right: 1px solid var(--surface0);
   }
   .list > .rows { overflow-y: auto; min-height: 0; padding: 0 6px 10px; }
+  /* The open panel lies over the rows' track, at its foot, so it takes no track: the footer keeps the list's last row. */
+  .list > .meters-panel { position: absolute; left: 0; right: 0; grid-row: 2; align-self: end; max-height: 100%; overflow-y: auto; }
   .top { padding: 12px 14px 10px; }
   /* The reader is three rows: its head, its conversation, which is the one box that scrolls, and its foot. */
   .read { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
@@ -243,6 +245,22 @@ button, input, textarea, select { font-family: var(--mono); }
 }
 .lfoot .host { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lfoot .keys-hint { flex: none; display: flex; gap: 6px; align-items: center; margin-left: auto; }
+
+/* The meters line is the footer's host side: one line in the footer's type, cut with an ellipsis when narrow. Its m cap is
+   the same kbd as the ? cap. The panel lists the host's stats, and a meter's bar is a 2px fill as the phone draws it. */
+.lfoot button.meters {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+}
+.lfoot button.meters > * + * { margin-left: 6px; }
+.meters-panel { margin: 0 8px 8px; padding: 10px 14px; border-radius: 10px; background: var(--mantle); box-shadow: 0 0 0 1px var(--surface1); }
+.meter { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; padding: 3px 0; }
+.meter-label { color: var(--overlay1); }
+.meter > .bar { grid-column: 1 / -1; margin-top: 3px; }
+.bar { display: block; height: 2px; background: var(--lavender); }
+.bar.level-warn { background: var(--peach); }
+.bar.level-crit { background: var(--red); }
 
 /* The key list is a panel centred over the page, above the columns. It scrolls inside itself when the window is shorter
    than it. */

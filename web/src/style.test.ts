@@ -870,3 +870,54 @@ test("the rules E1-D5 drops have no rules: the task's flex row, its mark and sta
   const flexTask = rulesIn(css).filter((rule) => rule.selectors.includes(".epic-view .task") && /display:\s*flex;/.test(rule.declarations));
   assert.deepEqual(flexTask, []);
 });
+
+test("the meters line is one footer line in the footer's type and colour, with no box of its own", () => {
+  const line = declarationsFor(css, ".lfoot button.meters");
+  assert.match(line, /(?<![-\w])font:\s*inherit;/);
+  assert.match(line, /(?<![-\w])color:\s*inherit;/);
+  assert.match(line, /(?<![-\w])background:\s*none;/);
+  assert.match(line, /(?<![-\w])border:\s*0;/);
+});
+
+test("the meters line does not wrap and is cut with an ellipsis when the footer is narrow", () => {
+  const line = declarationsFor(css, ".lfoot button.meters");
+  assert.match(line, /(?<![-\w])white-space:\s*nowrap;/);
+  assert.match(line, /(?<![-\w])overflow:\s*hidden;/);
+  assert.match(line, /(?<![-\w])text-overflow:\s*ellipsis;/);
+  assert.match(line, /(?<![-\w])min-width:\s*0;/);
+});
+
+test("the meters' m cap is the footer's ? cap: no rule restyles a kbd inside the meters", () => {
+  assert.doesNotMatch(css, /meters[^{]*\bkbd\b/);
+});
+
+test("the meters line spaces its host, stat and key cap apart", () => {
+  assert.match(declarationsFor(css, ".lfoot button.meters > * + *"), /margin-left:\s*6px;/);
+});
+
+test("a panel row sets its label and value apart, with its bar across the row below them", () => {
+  assert.match(declarationsFor(css, ".meter"), /grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/);
+  assert.match(declarationsFor(css, ".meter > .bar"), /grid-column:\s*1 \/ -1;/);
+});
+
+test("the meters panel is a mantle box with a surface1 ring", () => {
+  const panel = declarationsFor(css, ".meters-panel");
+  assert.match(panel, /(?<![-\w])background:\s*var\(--mantle\);/);
+  assert.match(panel, /box-shadow:\s*0 0 0 1px var\(--surface1\);/);
+});
+
+test("from 760px the meters panel lies over the rows' row, so it takes no track and the footer keeps the last row", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  const panel = declarationsFor(wide, ".list > .meters-panel");
+  assert.match(declarationsFor(wide, ".list"), /(?<![-\w])position:\s*relative;/, "the list holds the panel's grid area");
+  assert.match(panel, /(?<![-\w])position:\s*absolute;/);
+  assert.match(panel, /grid-row:\s*2;/);
+  assert.match(panel, /align-self:\s*end;/);
+});
+
+test("a meter bar is a 2px fill: lavender, peach at level-warn and red at level-crit, each by its token", () => {
+  assert.match(declarationsFor(css, ".bar"), /(?<![-\w])height:\s*2px;/);
+  assert.match(declarationsFor(css, ".bar"), /(?<![-\w])background:\s*var\(--lavender\);/);
+  assert.match(declarationsFor(css, ".bar.level-warn"), /(?<![-\w])background:\s*var\(--peach\);/);
+  assert.match(declarationsFor(css, ".bar.level-crit"), /(?<![-\w])background:\s*var\(--red\);/);
+});
