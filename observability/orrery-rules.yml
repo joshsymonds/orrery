@@ -1,0 +1,61 @@
+# Prometheus alert rules for orrery (orreryd and orrery serve). Series names are
+# frozen by the telemetry package. Each alert's labels are only the scrape's
+# job and instance plus severity, and each summary is a fixed string.
+groups:
+  - name: orrery
+    rules:
+      # More than 5 push failures, all classes, in the last 10 minutes.
+      - alert: OrreryPushFailing
+        expr: sum by (job, instance) (increase(orrery_push_failures_total[10m])) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5 orrery push failures in 10 minutes."
+
+      # Fires once per start. Ready after more than 10 s, and within 10 minutes of READY, or not READY
+      # more than 10 s after start. The 10-minute bound keeps a slow start from alerting for the life of
+      # the process. The lower bound drops a ready timestamp ahead of the evaluation time.
+      - alert: OrreryStartSlow
+        expr: |
+          (
+            ((orrery_ready_timestamp_seconds - orrery_start_timestamp_seconds) > 10)
+            and ((time() - orrery_ready_timestamp_seconds) >= 0)
+            and ((time() - orrery_ready_timestamp_seconds) < 600)
+          )
+          or
+          (
+            ((time() - orrery_start_timestamp_seconds) > 10)
+            and (orrery_ready_timestamp_seconds == 0)
+          )
+        labels:
+          severity: warning
+        annotations:
+          summary: "orrery took over 10 seconds to become ready, or has not become ready 10 seconds after start."
+
+      # Any holder loss in the last 15 minutes.
+      - alert: OrreryHolderLost
+        expr: sum by (job, instance) (increase(orrery_holder_losses_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "orrery lost its holder within the last 15 minutes."
+
+      # Callers waiting more than half of wall time over 5 minutes, or the oldest unstored op older than 10 s.
+      - alert: OrreryWriterStalled
+        expr: |
+          sum by (job, instance) (rate(orrery_writer_wait_seconds_total[5m])) > 0.5
+          or
+          max by (job, instance) (orrery_writer_backlog_age_seconds) > 10
+        labels:
+          severity: warning
+        annotations:
+          summary: "orrery writer is stalled: callers wait over half of wall time, or the oldest unstored op is over 10 seconds old."
+
+      # A process above 0.3 of a core, averaged over 10 minutes, for 15 minutes.
+      - alert: OrreryCPUHigh
+        expr: sum by (job, instance) (rate(process_cpu_seconds_total[10m])) > 0.3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An orrery process has used over 0.3 of a CPU core for 15 minutes."
