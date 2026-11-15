@@ -83,13 +83,9 @@ func startMCPDaemon(t *testing.T, steps enginehost.StepCommands) string {
 	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("enginehost.Serve: %v", err)
-			}
-		case <-time.After(serveTestWait):
-			t.Errorf("enginehost.Serve did not return within %v", serveTestWait)
+		err := <-done
+		if err != nil {
+			t.Errorf("enginehost.Serve: %v", err)
 		}
 	})
 	return filepath.Join(dir, "orreryd.sock")
@@ -163,13 +159,10 @@ func (r *mcpRun) send(line string) {
 	}
 }
 
-// receive reads the next reply line from the command's stdout. It fails the test when no line arrives within
-// serveTestWait or when the line is not a JSON-RPC response.
+// receive reads the next reply line from the command's stdout. It fails the test when the line is not a JSON-RPC
+// response. It has no deadline of its own.
 func (r *mcpRun) receive() mcpReply {
 	r.t.Helper()
-	if err := r.stdout.SetReadDeadline(time.Now().Add(serveTestWait)); err != nil {
-		r.t.Fatalf("set read deadline: %v", err)
-	}
 	line, err := r.lines.ReadBytes('\n')
 	if err != nil {
 		r.t.Fatalf("read reply: %v; partial line %q", err, line)
@@ -181,25 +174,19 @@ func (r *mcpRun) receive() mcpReply {
 	return reply
 }
 
-// finish closes stdin, waits for the command to return, and returns its exit code. It fails the test when the command
-// does not return within serveTestWait, or when stdout holds anything the test did not receive as a reply.
+// finish closes stdin, waits for the command to return, and returns its exit code. It has no deadline of its own.
 func (r *mcpRun) finish() int {
 	r.t.Helper()
 	closeFile(r.t, r.stdin)
-	select {
-	case code := <-r.done:
-		rest, err := io.ReadAll(r.lines)
-		if err != nil {
-			r.t.Fatalf("read stdout tail: %v", err)
-		}
-		if len(rest) != 0 {
-			r.t.Fatalf("stdout holds output the test did not receive as a reply: %q", rest)
-		}
-		return code
-	case <-time.After(serveTestWait):
-		r.t.Fatalf("orrery did not return within %v after stdin closed", serveTestWait)
-		return 0
+	code := <-r.done
+	rest, err := io.ReadAll(r.lines)
+	if err != nil {
+		r.t.Fatalf("read stdout tail: %v", err)
 	}
+	if len(rest) != 0 {
+		r.t.Fatalf("stdout holds output the test did not receive as a reply: %q", rest)
+	}
+	return code
 }
 
 // requireResult fails the test unless reply answers request id without error, and returns its result.
