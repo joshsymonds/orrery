@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery
 import android.content.Context
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -37,10 +36,13 @@ private const val MEMBER = "example-member-1"
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
 class MainActivityPoolsTest {
     @get:Rule
-    val composeRule = createEmptyComposeRule()
+    val composeRule = mainThreadEmptyComposeRule()
 
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer
+
+    /** Every activity a test launched, destroyed after it so no screen keeps composing into the next test. */
+    private val launched = mutableListOf<ActivityController<MainActivity>>()
 
     @Before
     fun pointSettingsAtFakeServer() {
@@ -67,6 +69,7 @@ class MainActivityPoolsTest {
 
     @After
     fun closeServer() {
+        launched.forEach { it.pause().stop().destroy() }
         server.close()
     }
 
@@ -88,7 +91,7 @@ class MainActivityPoolsTest {
         .build()
 
     private fun launch(): ActivityController<MainActivity> =
-        Robolectric.buildActivity(MainActivity::class.java).setup()
+        Robolectric.buildActivity(MainActivity::class.java).setup().also { launched += it }
 
     private fun awaitNode(matcher: SemanticsMatcher) {
         composeRule.waitUntil(TIMEOUT_MS) {

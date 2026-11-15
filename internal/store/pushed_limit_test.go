@@ -8,10 +8,12 @@ import (
 )
 
 func TestPushedLimitRowsReopen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	s, err := Open(ctx, path)
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -25,7 +27,7 @@ func TestPushedLimitRowsReopen(t *testing.T) {
 		if err := s.Close(); err != nil {
 			t.Fatalf("Close before reopen: %v", err)
 		}
-		reopened, openErr := Open(ctx, path)
+		reopened, openErr := Open(ctx, path, noSync())
 		if openErr != nil {
 			t.Fatalf("Open after close: %v", openErr)
 		}

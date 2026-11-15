@@ -18,7 +18,7 @@ import (
 func openWriterAt(t *testing.T, path string) *Store {
 	t.Helper()
 	seedMigrated(t, path)
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -55,6 +55,7 @@ func assertSnapshot(t *testing.T, got Snapshot, wantSessions []Session, wantSeq 
 }
 
 func TestSnapshotReturnsWrittenRowsAndNewestSeq(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -86,6 +87,7 @@ func TestSnapshotReturnsWrittenRowsAndNewestSeq(t *testing.T) {
 }
 
 func TestSnapshotOmitsEngineRows(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -112,6 +114,7 @@ func TestSnapshotOmitsEngineRows(t *testing.T) {
 }
 
 func TestSnapshotSeqIsZeroWithNoEvents(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	openWriterAt(t, path)
 
@@ -119,6 +122,7 @@ func TestSnapshotSeqIsZeroWithNoEvents(t *testing.T) {
 }
 
 func TestSnapshotIsConsistentWhileWriterWrites(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -169,6 +173,7 @@ func TestSnapshotIsConsistentWhileWriterWrites(t *testing.T) {
 }
 
 func TestSnapshotReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "absent")
 	path := filepath.Join(dir, "orrery.db")
 
@@ -187,7 +192,8 @@ func TestSnapshotReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 func TestSnapshotReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s, err := Open(ctx, path)
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -257,11 +263,13 @@ func TestSnapshotReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 }
 
 func TestSnapshotReopensReplacedStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	now := time.Unix(1_700_000_000, 0)
 
-	old, err := Open(ctx, path)
+	seedMigrated(t, path)
+	old, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open old: %v", err)
 	}
@@ -277,7 +285,8 @@ func TestSnapshotReopensReplacedStore(t *testing.T) {
 
 	// A second store is built elsewhere, closed so its WAL is checkpointed, then renamed over the first.
 	replacementPath := filepath.Join(t.TempDir(), "replacement.db")
-	replacement, err := Open(ctx, replacementPath)
+	seedMigrated(t, replacementPath)
+	replacement, err := Open(ctx, replacementPath, noSync())
 	if err != nil {
 		t.Fatalf("Open replacement: %v", err)
 	}
@@ -301,11 +310,13 @@ func TestSnapshotReopensReplacedStore(t *testing.T) {
 // be the last connection when it closes, so its WAL is checkpointed and removed; a WAL left behind would be replayed
 // onto the new file.
 func TestSnapshotReplacedWhileReaderHasReadAndWriterOpen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	now := time.Unix(1_700_000_000, 0)
 
-	old, err := Open(ctx, path)
+	seedMigrated(t, path)
+	old, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open old: %v", err)
 	}
@@ -316,7 +327,8 @@ func TestSnapshotReplacedWhileReaderHasReadAndWriterOpen(t *testing.T) {
 	assertSnapshot(t, snapshotOf(t, r), []Session{{ID: "orrery-old", Server: "-L a", Pane: "%1"}}, 1)
 
 	replacementPath := filepath.Join(t.TempDir(), "replacement.db")
-	replacement, err := Open(ctx, replacementPath)
+	seedMigrated(t, replacementPath)
+	replacement, err := Open(ctx, replacementPath, noSync())
 	if err != nil {
 		t.Fatalf("Open replacement: %v", err)
 	}
@@ -342,6 +354,7 @@ func TestSnapshotReplacedWhileReaderHasReadAndWriterOpen(t *testing.T) {
 // TestReaderOpenRejectsWrites opens the store the way Snapshot does and asserts that a write through that
 // connection fails and leaves the events unchanged. It fails when the read-only mode is removed from the DSN.
 func TestReaderOpenRejectsWrites(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -369,6 +382,7 @@ func TestReaderOpenRejectsWrites(t *testing.T) {
 }
 
 func TestSnapshotReopensStoreCreatedAfterMissingRead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	r := NewReader(path)
@@ -388,6 +402,7 @@ func TestSnapshotReopensStoreCreatedAfterMissingRead(t *testing.T) {
 }
 
 func TestSnapshotLeavesRowsAndEventsUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)

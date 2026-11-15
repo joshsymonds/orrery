@@ -33,7 +33,7 @@ func openNodeStore(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(context.Background(), path)
+	s, err := store.Open(context.Background(), path, store.NoSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

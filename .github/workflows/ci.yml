@@ -9,8 +9,10 @@ on:
 permissions:
   contents: read
 
+# The three checks run as parallel jobs, so a push waits for the slowest one, not their sum. Android runs only when
+# android/ or proto/ changed since the commit before the push (or the pull request's base).
 jobs:
-  gate:
+  check:
     runs-on: ubuntu-latest
     steps:
       # Full history and tags, so proto-breaking can compare against the newest release tag.
@@ -40,8 +42,58 @@ jobs:
       - name: Run the repository check
         run: TMPDIR=/tmp just check
 
+  flake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
       - name: Run the flake check
         run: nix flake check
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether Android changed
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="${BASE_SHA:-$BEFORE}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "no usable base commit; running Android"
+          elif git diff --name-only "$base" HEAD | grep -qE '^(android/|proto/|flake\.(nix|lock)$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "android/, proto/ and the flake are unchanged since $base; Android lint and unit tests skipped"
+          fi
+
+      - uses: cachix/install-nix-action@v31
+        if: steps.changed.outputs.run == 'true'
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v16
+        if: steps.changed.outputs.run == 'true'
+        with:
+          name: devenv
+
+      - name: Install devenv and just
+        if: steps.changed.outputs.run == 'true'
+        run: nix profile add "github:cachix/devenv/$(jq -er '.nodes.devenv.locked.rev' devenv.lock)" nixpkgs#just
+
       - name: Run the Android lint and unit tests
+        if: steps.changed.outputs.run == 'true'
         run: just android-test

@@ -13,7 +13,6 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -25,6 +24,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.waitUntilAfterIdle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -54,7 +55,7 @@ private val RESULTS = listOf(NOTHING_CHANGED, "now done", "now working", "now wa
 @Config(sdk = [35])
 class QuickKeysTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val haptic = RecordingHaptic()
 
@@ -200,7 +201,7 @@ class QuickKeysTest {
             composeRule.mainClock.autoAdvance = false
 
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { server.requests.size == 1 }
+            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { server.requests.size == 1 }
 
             assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
             assertTrue("Enter flashes although the send failed", flashing("Enter"))

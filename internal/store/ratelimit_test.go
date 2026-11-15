@@ -7,6 +7,7 @@ import (
 )
 
 func TestEngineRateLimitedStoresTheRowAndRateLimitReadsItBack(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -37,6 +38,7 @@ func TestEngineRateLimitedStoresTheRowAndRateLimitReadsItBack(t *testing.T) {
 }
 
 func TestEngineRateLimitedSecondOpReplacesTheRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	later := engineNowAt().Add(time.Minute)
@@ -71,6 +73,7 @@ func TestEngineRateLimitedSecondOpReplacesTheRow(t *testing.T) {
 }
 
 func TestRateLimitOfSessionWithNoneReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -93,6 +96,7 @@ func TestRateLimitOfSessionWithNoneReadsFalse(t *testing.T) {
 }
 
 func TestEngineRateLimitedAppendsNoEvent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

@@ -7,6 +7,7 @@ import (
 )
 
 func TestEngineRateLimitClearedMakesRateLimitAndStepRateLimitReadFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -54,6 +55,7 @@ func TestEngineRateLimitClearedMakesRateLimitAndStepRateLimitReadFalse(t *testin
 }
 
 func TestEngineRateLimitClearedLeavesAnotherSessionsRowUntouched(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -89,6 +91,7 @@ func TestEngineRateLimitClearedLeavesAnotherSessionsRowUntouched(t *testing.T) {
 }
 
 func TestEngineRateLimitClearedOfSessionWithNoRowIsNotAnError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -108,6 +111,7 @@ func TestEngineRateLimitClearedOfSessionWithNoRowIsNotAnError(t *testing.T) {
 }
 
 func TestEngineRateLimitedAfterClearStoresANewRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -144,6 +148,7 @@ func TestEngineRateLimitedAfterClearStoresANewRow(t *testing.T) {
 }
 
 func TestEngineRateLimitClearedAppendsNoEvent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

@@ -7,7 +7,6 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
@@ -25,6 +24,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -59,7 +59,7 @@ class EvidenceRunsTest {
     }
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     /**
      * A loader over [files], keyed by run, name and stderr flag. It records each call and whether one ran on the main

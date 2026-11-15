@@ -98,7 +98,7 @@ func openRunStore(t *testing.T) *store.Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(context.Background(), path)
+	s, err := store.Open(context.Background(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

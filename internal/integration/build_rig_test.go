@@ -17,6 +17,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // The build tests run a planned task's implementer step through the real orreryd, with the fake claude in place of
@@ -114,7 +115,8 @@ func newBuildRig(t *testing.T) *buildRig {
 func (r *buildRig) seed(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
-	st, err := store.Open(ctx, r.f.dbPath)
+	storetest.Seed(t, r.f.dbPath)
+	st, err := store.Open(ctx, r.f.dbPath, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

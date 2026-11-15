@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -111,7 +112,9 @@ func watchStore(t *testing.T) (*store.Store, func(string) string) {
 		}
 		return ""
 	}
-	s, err := store.Open(t.Context(), watchPath(t, getenv))
+	path := watchPath(t, getenv)
+	storetest.Seed(t, path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

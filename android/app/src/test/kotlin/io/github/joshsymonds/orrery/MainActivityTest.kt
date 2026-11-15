@@ -9,7 +9,6 @@ import android.content.pm.PackageManager
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -70,7 +69,7 @@ private const val ENVELOPE_HEADER_BYTES = 5
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
 class MainActivityTest {
     @get:Rule
-    val composeRule = createEmptyComposeRule()
+    val composeRule = mainThreadEmptyComposeRule()
 
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer

@@ -57,6 +57,7 @@ func pageSeqs(events []Event) []int64 {
 }
 
 func TestEventsPageReturnsEventsAfterCursorInSeqOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, path := eventPageStore(t)
 	r := NewReader(path)
@@ -74,6 +75,7 @@ func TestEventsPageReturnsEventsAfterCursorInSeqOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			page, err := r.Events(ctx, tc.after, tc.limit)
 			if err != nil {
 				t.Fatalf("Events(%d, %d): %v", tc.after, tc.limit, err)
@@ -89,6 +91,7 @@ func TestEventsPageReturnsEventsAfterCursorInSeqOrder(t *testing.T) {
 }
 
 func TestEventsPagingByLastSeqReachesEveryEventOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, path := eventPageStore(t)
 	r := NewReader(path)
@@ -122,6 +125,7 @@ func TestEventsPagingByLastSeqReachesEveryEventOnce(t *testing.T) {
 }
 
 func TestEventsDecodesEachKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, path := eventPageStore(t)
 	now := time.Unix(1_700_000_000, 0).Unix()
@@ -147,6 +151,7 @@ func TestEventsDecodesEachKind(t *testing.T) {
 }
 
 func TestEventsReturnsEngineKindsWithTheirStoredPayloads(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -196,6 +201,7 @@ func TestEventsReturnsEngineKindsWithTheirStoredPayloads(t *testing.T) {
 }
 
 func TestEventsSkipsEngineKindsWithoutDecodingPayload(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -216,6 +222,7 @@ func TestEventsSkipsEngineKindsWithoutDecodingPayload(t *testing.T) {
 }
 
 func TestEventsBoundsWithNoEventsAreZero(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	openWriterAt(t, path)
 
@@ -229,6 +236,7 @@ func TestEventsBoundsWithNoEventsAreZero(t *testing.T) {
 }
 
 func TestEventsOldestRisesAfterPrune(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, path := eventPageStore(t)
 	now := time.Unix(1_700_000_000, 0)
@@ -256,6 +264,7 @@ func TestEventsOldestRisesAfterPrune(t *testing.T) {
 }
 
 func TestEventsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "absent")
 	path := filepath.Join(dir, "orrery.db")
 
@@ -272,6 +281,7 @@ func TestEventsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		kind    string
@@ -287,6 +297,7 @@ func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "orrery.db")
 			s := openWriterAt(t, path)
@@ -308,6 +319,7 @@ func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
 }
 
 func TestEventsRejectsNonPositiveLimit(t *testing.T) {
+	t.Parallel()
 	_, path := eventPageStore(t)
 	r := NewReader(path)
 
@@ -319,6 +331,7 @@ func TestEventsRejectsNonPositiveLimit(t *testing.T) {
 }
 
 func TestEventsListsUnfinishedTextOfEverySessionInOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -352,6 +365,7 @@ func TestEventsListsUnfinishedTextOfEverySessionInOrder(t *testing.T) {
 }
 
 func TestEventsUnfinishedDropsFinishedBlocks(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -376,6 +390,7 @@ func TestEventsUnfinishedDropsFinishedBlocks(t *testing.T) {
 }
 
 func TestEventsUnfinishedIsNilWithNoRows(t *testing.T) {
+	t.Parallel()
 	_, path := eventPageStore(t)
 
 	page, err := NewReader(path).Events(context.Background(), 0, 10)

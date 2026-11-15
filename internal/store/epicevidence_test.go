@@ -50,6 +50,7 @@ func evidenceEpic(id string) EpicRow {
 }
 
 func TestCreatedEpicReadsBaseGatesListsAndItemsInOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-evidence"
@@ -67,6 +68,7 @@ func TestCreatedEpicReadsBaseGatesListsAndItemsInOrder(t *testing.T) {
 }
 
 func TestEpicWithoutItemReadsZeroItemAndStoresEmptyColumn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-plain"

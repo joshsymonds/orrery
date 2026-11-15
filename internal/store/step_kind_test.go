@@ -9,6 +9,7 @@ import (
 )
 
 func TestStepKindEngineAddStoresKindStep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -52,6 +53,7 @@ func TestStepKindEngineAddStoresKindStep(t *testing.T) {
 }
 
 func TestStepKindEngineSetChangesStepState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -75,6 +77,7 @@ func TestStepKindEngineSetChangesStepState(t *testing.T) {
 }
 
 func TestStepKindReaderSnapshotListsNoStepRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -100,6 +103,7 @@ func TestStepKindReaderSnapshotListsNoStepRow(t *testing.T) {
 }
 
 func TestStepKindRowSurvivesPruneWhileStaleEngineRowIsRemoved(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)

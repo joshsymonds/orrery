@@ -11,7 +11,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -39,6 +38,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicInteger
@@ -85,7 +85,7 @@ private const val COMPOSER_TAG = "composer"
 @Config(sdk = [35])
 class SessionScreenTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private fun setScreen(server: FakeOrreryServer) {
         val client = OrreryClient(server.baseUrl)

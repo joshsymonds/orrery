@@ -20,7 +20,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -28,6 +27,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.EpicSliceRow
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlin.math.PI
 import kotlin.math.cos
@@ -51,7 +51,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EpicChartTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private val chartSize = 400.dp
 

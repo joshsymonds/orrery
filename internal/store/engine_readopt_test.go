@@ -19,6 +19,7 @@ func boolOf(v bool) *bool {
 }
 
 func TestEngineReadoptNewRowIsUntracked(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -37,6 +38,7 @@ func TestEngineReadoptNewRowIsUntracked(t *testing.T) {
 }
 
 func TestEngineLaunchTracksRowAtZero(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -114,6 +116,7 @@ func TestEngineConsumedMovesOnlySetColumns(t *testing.T) {
 }
 
 func TestEngineHolderPromptsListsLaterPromptsWithWriteIDs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -157,6 +160,7 @@ func TestEngineHolderPromptsListsLaterPromptsWithWriteIDs(t *testing.T) {
 }
 
 func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -175,6 +179,7 @@ func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := s.ApplyEngine(ctx, []EngineOp{tc.op}, engineNowAt())
 			if !errors.Is(err, ErrNoEngineSession) {
 				t.Fatalf("ApplyEngine: got %v, want ErrNoEngineSession", err)
@@ -184,6 +189,7 @@ func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
 }
 
 func TestEngineReadoptMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

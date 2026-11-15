@@ -26,7 +26,7 @@ func newTwoTaskFixture(t *testing.T) *passFixture {
 	setup := newStartSetup(t, readoptCommandGate("check"), readoptReviewGate())
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(ctx, path)
+	s, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

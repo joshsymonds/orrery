@@ -7,7 +7,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -23,6 +22,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.waitUntilAfterIdle
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,7 +57,7 @@ private const val FLASH_MILLIS = 300L
 @Config(sdk = [35])
 class SessionControlsTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val server = FakeOrreryServer()
 
@@ -264,7 +265,7 @@ class SessionControlsTest {
         composeRule.mainClock.autoAdvance = false
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { server.requests.size == 1 }
+        composeRule.waitUntilAfterIdle(WAIT_MS) { server.requests.size == 1 }
 
         assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
         assertTrue("Interrupt flashes although the call failed", flashing(INTERRUPT_TAG))
@@ -323,7 +324,7 @@ class SessionControlsTest {
         composeRule.mainClock.autoAdvance = false
 
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { server.requests.size == 1 }
+        composeRule.waitUntilAfterIdle(WAIT_MS) { server.requests.size == 1 }
 
         assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
         assertTrue("Confirm stop flashes although the call failed", flashing(CONFIRM_TAG))
@@ -344,7 +345,7 @@ class SessionControlsTest {
         composeRule.mainClock.autoAdvance = false
 
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { server.requests.size == 1 }
+        composeRule.waitUntilAfterIdle(WAIT_MS) { server.requests.size == 1 }
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
         composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeBy(FLASH_MILLIS, ignoreFrameDuration = true)

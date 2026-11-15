@@ -11,12 +11,12 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,7 +42,7 @@ class PaneListColorTest {
     }
 
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private fun pane(
         id: String,
