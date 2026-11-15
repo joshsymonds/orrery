@@ -1510,6 +1510,27 @@ func (q *Queries) InsertEpicTask(ctx context.Context, arg InsertEpicTaskParams) 
 	return err
 }
 
+const insertEpicTaskContribute = `-- name: InsertEpicTaskContribute :exec
+INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?)
+`
+
+type InsertEpicTaskContributeParams struct {
+	Epic        string
+	Task        int64
+	Position    int64
+	Requirement string
+}
+
+func (q *Queries) InsertEpicTaskContribute(ctx context.Context, arg InsertEpicTaskContributeParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskContribute,
+		arg.Epic,
+		arg.Task,
+		arg.Position,
+		arg.Requirement,
+	)
+	return err
+}
+
 const insertEpicTaskFile = `-- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?)
 `
@@ -2692,6 +2713,38 @@ func (q *Queries) ListEpicReviewGates(ctx context.Context, epic string) ([]EpicG
 			&i.List,
 			&i.Position,
 			&i.Gate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTaskContributes = `-- name: ListEpicTaskContributes :many
+SELECT epic, task, position, requirement FROM epic_task_contributes WHERE epic = ? ORDER BY task, position
+`
+
+func (q *Queries) ListEpicTaskContributes(ctx context.Context, epic string) ([]EpicTaskContribute, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskContributes, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskContribute
+	for rows.Next() {
+		var i EpicTaskContribute
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Position,
+			&i.Requirement,
 		); err != nil {
 			return nil, err
 		}

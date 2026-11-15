@@ -50,7 +50,8 @@ type EpicTurn struct {
 }
 
 // EpicTask is one task an epic's planner turn planned: its title, its deliverable, the files it touches, the
-// Requirements it covers, its gate, its evidence item and its status. Turn is the seq of the turn that planned it.
+// Requirements it covers, the Requirements it contributes to, its gate, its evidence item and its status. Turn is the
+// seq of the turn that planned it.
 // Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
 // its build names, nil when it names none.
 type EpicTask struct {
@@ -60,6 +61,7 @@ type EpicTask struct {
 	Deliverable  string
 	Files        []string
 	Requirements []string
+	Contributes  []string
 	Gate         string
 	Evidence     evidence.Item
 	Status       string
@@ -98,12 +100,13 @@ type EpicPlan struct {
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
-// it covers, its gate and its evidence item.
+// it covers, the Requirements it contributes to, its gate and its evidence item.
 type EpicTaskInput struct {
 	Title        string
 	Deliverable  string
 	Files        []string
 	Requirements []string
+	Contributes  []string
 	Gate         string
 	Evidence     evidence.Item
 }
@@ -155,7 +158,7 @@ func (s *Store) TurnTriggers(ctx context.Context, epic string, turn int64) ([]Ep
 }
 
 // loadPlanSections fills the turns, tasks and questions of row from the rows stored under row.ID, each in seq order.
-// A task carries its files and Requirements in position order.
+// A task carries its files, Requirements and contributions in position order.
 func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
 	turns, err := queries.ListEpicTurns(ctx, row.ID)
 	if err != nil {
@@ -181,6 +184,10 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list task requirements: %w", err)
 	}
+	contributes, err := queries.ListEpicTaskContributes(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task contributes: %w", err)
+	}
 	reviews, err := queries.ListEpicTaskReviews(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list task reviews: %w", err)
@@ -197,9 +204,14 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	for _, requirement := range requirements {
 		requirementsOf[requirement.Task] = append(requirementsOf[requirement.Task], requirement.Requirement)
 	}
+	contributesOf := make(map[int64][]string)
+	for _, contribute := range contributes {
+		contributesOf[contribute.Task] = append(contributesOf[contribute.Task], contribute.Requirement)
+	}
 	reviewsOf := taskReviewsOf(reviews, findings)
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
-		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], reviewsOf[task.Seq])
+		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], contributesOf[task.Seq],
+			reviewsOf[task.Seq])
 	})
 	if err != nil {
 		return fmt.Errorf("tasks: %w", err)
@@ -213,13 +225,13 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	return nil
 }
 
-// taskOf returns the task a stored row holds, with the files, Requirements and reviews stored under it, its evidence
-// item decoded, its build state, and the evidence runs its build names as red and green.
+// taskOf returns the task a stored row holds, with the files, Requirements, contributions and reviews stored under it,
+// its evidence item decoded, its build state, and the evidence runs its build names as red and green.
 func taskOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	stored sqlcgen.EpicTask,
-	files, requirements []string,
+	files, requirements, contributes []string,
 	reviews []TaskReview,
 ) (EpicTask, error) {
 	item, err := decodeItem(stored.Evidence)
@@ -228,8 +240,8 @@ func taskOf(
 	}
 	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
-		Files: files, Requirements: requirements, Gate: stored.Gate, Evidence: item, Status: stored.Status,
-		Build: buildOf(stored), Reviews: reviews,
+		Files: files, Requirements: requirements, Contributes: contributes, Gate: stored.Gate, Evidence: item,
+		Status: stored.Status, Build: buildOf(stored), Reviews: reviews,
 	}
 	if task.Build.RedRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.RedRun)
@@ -445,9 +457,9 @@ func planFanOutOf(ctx context.Context, queries *sqlcgen.Queries, epic string) (t
 	return taskFanOut{}, nil
 }
 
-// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files and Requirements in
-// order. When fan has a build node, each task also gets a running build child run under the plan run at fan.plan, with
-// an id from its turn and its 1-based position in the turn, started at at.
+// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files, Requirements and
+// contributions in order. When fan has a build node, each task also gets a running build child run under the plan run
+// at fan.plan, with an id from its turn and its 1-based position in the turn, started at at.
 func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, tasks []EpicTaskInput,
 	fan taskFanOut, at time.Time,
 ) error {
@@ -480,6 +492,13 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 			})
 		}); err != nil {
 			return fmt.Errorf("requirements of task %d of epic %s: %w", seq, epic, err)
+		}
+		if err = insertInOrder(task.Contributes, func(position int64, requirement string) error {
+			return queries.InsertEpicTaskContribute(ctx, sqlcgen.InsertEpicTaskContributeParams{
+				Epic: epic, Task: seq, Position: position, Requirement: requirement,
+			})
+		}); err != nil {
+			return fmt.Errorf("contributes of task %d of epic %s: %w", seq, epic, err)
 		}
 		if fan.build == "" {
 			return nil

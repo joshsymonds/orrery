@@ -226,6 +226,13 @@ type EpicTask struct {
 	FindingPos  int64
 }
 
+type EpicTaskContribute struct {
+	Epic        string
+	Task        int64
+	Position    int64
+	Requirement string
+}
+
 type EpicTaskFile struct {
 	Epic     string
 	Task     int64
