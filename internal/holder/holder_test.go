@@ -251,6 +251,11 @@ func awaitLockFree(t *testing.T, dir string) {
 // heldLockID returns how the kernel's lock table names the session lock file in dir, which the live holder that dir's
 // pids record names must hold: the MAJOR:MINOR:INODE field of the holder's line in /proc/locks. The device there need
 // not be the one stat reports, as on btrfs, so it is read from the holder's own line rather than computed.
+//
+// The kernel lists /proc/locks a page at a time and walks its lock lists again, by position, for each page, so a lock
+// released before the holder's line between two pages shifts that line past the next page's start and one read can miss
+// it. The holder holds its lock all along, so heldLockID reads the table again until the line is there, with no
+// deadline of its own.
 func heldLockID(t *testing.T, dir string) string {
 	t.Helper()
 	pids, err := ReadPids(dir)
@@ -266,13 +271,14 @@ func heldLockID(t *testing.T, dir string) string {
 		t.Fatalf("stat of the session lock is %T, want *syscall.Stat_t", info.Sys())
 	}
 	inode := fmt.Sprintf(":%d", stat.Ino)
-	for _, fields := range lockTable(t) {
-		if fields[4] == strconv.Itoa(pids.Holder) && strings.HasSuffix(fields[5], inode) {
-			return fields[5]
+	for {
+		for _, fields := range lockTable(t) {
+			if fields[4] == strconv.Itoa(pids.Holder) && strings.HasSuffix(fields[5], inode) {
+				return fields[5]
+			}
 		}
+		time.Sleep(holderPoll)
 	}
-	t.Fatalf("the kernel's lock table has no lock of holder %d on %s", pids.Holder, filepath.Join(dir, LockName))
-	return ""
 }
 
 // awaitLockUnheld waits until the kernel's lock table holds no lock on the file it names id, as heldLockID returns it,
@@ -280,10 +286,19 @@ func heldLockID(t *testing.T, dir string) string {
 // descriptor that a parallel test's fork could copy and so keep the lock held. Stop takes and releases the lock in this
 // process, and a fork in that window holds the lock for a moment after Stop returns, so a test that next probes the
 // lock waits here first.
-func awaitLockUnheld(t *testing.T, id string) {
+//
+// A read of /proc/locks can miss a line that is there (see heldLockID), so the table alone cannot show the lock gone.
+// Once Stop has returned, the only open files that can still hold the lock are copies of Stop's in children this
+// process forked and has not yet exec'd, so the lock counts as unheld only when, besides, no child of this process has
+// the lock file in dir open.
+func awaitLockUnheld(t *testing.T, dir, id string) {
 	t.Helper()
+	path, err := filepath.EvalSymlinks(filepath.Join(dir, LockName))
+	if err != nil {
+		t.Fatalf("resolve the session lock's path: %v", err)
+	}
 	for {
-		held := false
+		held := childHasOpen(t, path)
 		for _, fields := range lockTable(t) {
 			if fields[5] == id {
 				held = true
@@ -295,6 +310,35 @@ func awaitLockUnheld(t *testing.T, id string) {
 		}
 		time.Sleep(holderPoll)
 	}
+}
+
+// childHasOpen reports whether a child of this process has the file at path open. A child that exits while it is read
+// has nothing open.
+func childHasOpen(t *testing.T, path string) bool {
+	t.Helper()
+	tasks, err := os.ReadDir("/proc/self/task")
+	if err != nil {
+		t.Fatalf("list this process's threads: %v", err)
+	}
+	for _, task := range tasks {
+		raw, err := os.ReadFile(filepath.Join("/proc/self/task", task.Name(), "children"))
+		if err != nil {
+			continue // the thread has exited
+		}
+		for _, child := range strings.Fields(string(raw)) {
+			fds, err := os.ReadDir(filepath.Join("/proc", child, "fd"))
+			if err != nil {
+				continue // the child has exited or exec'd into a process this user cannot read
+			}
+			for _, fd := range fds {
+				target, err := os.Readlink(filepath.Join("/proc", child, "fd", fd.Name()))
+				if err == nil && target == path {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // lockTable returns the fields of each lock line of /proc/locks: number, class, mode, access, pid and

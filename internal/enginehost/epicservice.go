@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/workflow"
 )
 
 // epicUnavailableMessage is the message every epic RPC is refused with when there is no epic store.
@@ -28,6 +30,7 @@ const epicPhaseAccepted = "accepted"
 type EpicCommands interface {
 	CreateEpic(ctx context.Context, row store.EpicRow) error
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
+	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
@@ -38,6 +41,7 @@ type EpicCommands interface {
 	ResumeEpic(ctx context.Context, epic string) error
 	StopEpic(ctx context.Context, epic string) (string, error)
 	RetryEpic(ctx context.Context, epic string) error
+	RetryNode(ctx context.Context, epic, node string) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -90,17 +94,14 @@ func (s *epicService) CreateEpic(
 		}
 		return nil, epicStoreError(err)
 	}
-	stored, err := s.epics.Epic(ctx, row.ID)
-	if err != nil {
-		return nil, epicStoreError(err)
-	}
-	message, err := storedEpicMessage(stored)
+	message, err := s.storedEpic(ctx, row.ID)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
 }
 
+// GetEpic returns the stored epic with its workflow node runs.
 func (s *epicService) GetEpic(
 	ctx context.Context,
 	req *connect.Request[v1.GetEpicRequest],
@@ -108,18 +109,33 @@ func (s *epicService) GetEpic(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	row, err := s.epics.Epic(ctx, req.Msg.GetId())
+	message, err := s.storedEpic(ctx, req.Msg.GetId())
 	if errors.Is(err, store.ErrNoEpic) {
 		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", req.Msg.GetId()))
 	}
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	message, err := storedEpicMessage(row)
-	if err != nil {
-		return nil, epicStoreError(err)
-	}
 	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
+}
+
+// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, all read in one read of the
+// store, so every reply that carries the epic shows the same nodes. It returns an error matching store.ErrNoEpic when no
+// epic has that id.
+func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
+	flow, err := s.epics.EpicFlow(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("read epic %s: %w", id, err)
+	}
+	message, err := storedEpicMessage(flow.Epic)
+	if err != nil {
+		return nil, err
+	}
+	message.Nodes, err = nodeMessages(flow)
+	if err != nil {
+		return nil, err
+	}
+	return message, nil
 }
 
 func (s *epicService) ListEpics(
@@ -262,11 +278,7 @@ func (s *epicService) PauseEpic(
 	if err := s.epics.PauseEpic(ctx, id); err != nil {
 		return nil, epicControlError(id, err)
 	}
-	stored, err := s.epics.Epic(ctx, id)
-	if err != nil {
-		return nil, epicStoreError(err)
-	}
-	message, err := storedEpicMessage(stored)
+	message, err := s.storedEpic(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
@@ -317,11 +329,7 @@ func (s *epicService) ResumeEpic(
 			return nil, epicStoreError(err)
 		}
 	}
-	stored, err := s.epics.Epic(ctx, id)
-	if err != nil {
-		return nil, epicStoreError(err)
-	}
-	message, err := storedEpicMessage(stored)
+	message, err := s.storedEpic(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
@@ -369,18 +377,15 @@ func (s *epicService) StopEpic(
 			return nil, epicStoreError(err)
 		}
 	}
-	stored, err := s.epics.Epic(ctx, id)
-	if err != nil {
-		return nil, epicStoreError(err)
-	}
-	message, err := storedEpicMessage(stored)
+	message, err := s.storedEpic(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.StopEpicResponse{Epic: message}), nil
 }
 
-// RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused.
+// RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused. When the
+// request names a node, the node's parked run reruns under its next attempt instead, and the epic is unparked with it.
 func (s *epicService) RetryEpic(
 	ctx context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -392,18 +397,32 @@ func (s *epicService) RetryEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.epics.RetryEpic(ctx, id); err != nil {
+	if err := s.retryPark(ctx, id, req.Msg.GetNode()); err != nil {
 		return nil, epicControlError(id, err)
 	}
-	stored, err := s.epics.Epic(ctx, id)
-	if err != nil {
-		return nil, epicStoreError(err)
-	}
-	message, err := storedEpicMessage(stored)
+	message, err := s.storedEpic(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
+}
+
+// retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
+// of an unknown epic as it refuses an unparked node, so the epic is read first to make an unknown epic ErrNoEpic.
+func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
+	if node == "" {
+		if err := s.epics.RetryEpic(ctx, epic); err != nil {
+			return fmt.Errorf("retry epic %s: %w", epic, err)
+		}
+		return nil
+	}
+	if _, err := s.epics.Epic(ctx, epic); err != nil {
+		return fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	if err := s.epics.RetryNode(ctx, epic, node); err != nil {
+		return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
+	}
+	return nil
 }
 
 // epicControlError maps an error from an epic control on id to its Connect error: an unknown epic is NotFound, a
@@ -525,6 +544,154 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 // workflowMessage returns the EpicWorkflow message of w: its name, its canonical text and its sha256.
 func workflowMessage(w store.EpicWorkflow) *v1.EpicWorkflow {
 	return &v1.EpicWorkflow{Name: w.Name, Text: w.Text, Sha256: w.SHA256}
+}
+
+// The kinds whose node runs the nodes view reads rows beneath, and the parts a node run's work ids are derived from.
+// They are the names the kinds and the store record, so a row is found under the id its run wrote it.
+const (
+	kindPlan     = "plan"
+	kindBuild    = "build"
+	kindGate     = "gate"
+	kindCommand  = "command"
+	kindEvidence = "evidence"
+	kindAgent    = "agent"
+	checkPart    = "check"
+	stepPart     = "step"
+)
+
+// nodeMessages returns the EpicNode messages of the node runs of flow, ordered by the position of each run's node in the
+// preorder of the workflow the epic runs, then by path. A run whose node that workflow does not hold is still shown,
+// after every node it holds, so the read never hides a stored run.
+func nodeMessages(flow store.EpicFlow) ([]*v1.EpicNode, error) {
+	positions, err := workflowPositions(flow.Epic.Workflow)
+	if err != nil {
+		return nil, err
+	}
+	position := func(node string) int {
+		if at, ok := positions[node]; ok {
+			return at
+		}
+		return len(positions)
+	}
+	runs := slices.Clone(flow.Runs)
+	slices.SortFunc(runs, func(a, b store.NodeRun) int {
+		return cmp.Or(cmp.Compare(position(a.Node), position(b.Node)), strings.Compare(a.Path, b.Path))
+	})
+	out := make([]*v1.EpicNode, 0, len(runs))
+	var message *v1.EpicNode
+	for _, run := range runs {
+		message, err = epicNodeMessage(flow, run)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, message)
+	}
+	return out, nil
+}
+
+// workflowPositions returns the position of each node id in the preorder of the workflow an epic runs: the workflow it
+// pinned, or the built-in epic when it pins no text, as the interpreter runs it.
+func workflowPositions(pin store.EpicWorkflow) (map[string]int, error) {
+	nodes := pin.Nodes
+	if pin.Text == "" {
+		// No repository file is read, so the built-in epic is the workflow that loads.
+		built, err := workflow.Load(defaultWorkflowName, func(string) ([]byte, bool, error) { return nil, false, nil })
+		if err != nil {
+			return nil, fmt.Errorf("workflow %s: %w", defaultWorkflowName, err)
+		}
+		nodes = epicWorkflowOf(built).Nodes
+	}
+	positions := make(map[string]int, len(nodes))
+	for i, node := range nodes {
+		positions[node.ID] = i
+	}
+	return positions, nil
+}
+
+// epicNodeMessage returns the EpicNode message of run. The rows beneath it are read from flow: a plan's turns and tasks
+// above its mark, a build's task, an evidence node's runs of its attempt, a gate's or command's check and an agent's
+// step, each only when the store holds it.
+func epicNodeMessage(flow store.EpicFlow, run store.NodeRun) (*v1.EpicNode, error) {
+	message := &v1.EpicNode{
+		Path: run.Path, Node: run.Node, Kind: run.Kind, State: run.State, Outcome: run.Outcome,
+		Round: run.Round, LoopRound: run.LoopRound, Attempt: run.Attempt, Output: run.Output, Revision: run.Revision,
+	}
+	switch run.Kind {
+	case kindPlan:
+		message.Turns, message.Tasks = planRows(flow.Epic, run.Mark)
+	case kindBuild:
+		message.Tasks = []int64{run.Task}
+	case kindEvidence:
+		message.Runs = evidenceRunIDs(flow, run)
+	case kindGate, kindCommand:
+		check, found := storedCheckOf(flow, run)
+		if !found {
+			break
+		}
+		msg, err := nodeCheckMessage(check)
+		if err != nil {
+			return nil, err
+		}
+		message.Check = msg
+	case kindAgent:
+		id := store.NodeWorkID(run.ID, run.Attempt, stepPart)
+		if slices.ContainsFunc(flow.Steps, func(step store.StepRow) bool { return step.ID == id }) {
+			message.Step = id
+		}
+	}
+	return message, nil
+}
+
+// planRows returns the turn seqs above mark and the task seqs of those turns, each in order. A task belongs to the turn
+// it was planned under.
+func planRows(epic store.EpicRow, mark int64) ([]int64, []int64) {
+	var turns, tasks []int64
+	for _, turn := range epic.Turns {
+		if turn.Seq > mark {
+			turns = append(turns, turn.Seq)
+		}
+	}
+	for _, task := range epic.Tasks {
+		if task.Turn > mark {
+			tasks = append(tasks, task.Seq)
+		}
+	}
+	return turns, tasks
+}
+
+// evidenceRunIDs returns the ids of the evidence runs stored for run's attempt, one per Requirement in the contract's
+// order. An id is derived from run's id, its attempt and the Requirement's id, so only that attempt's runs match.
+func evidenceRunIDs(flow store.EpicFlow, run store.NodeRun) []string {
+	var ids []string
+	for _, requirement := range flow.Epic.Requirements {
+		id := store.NodeWorkID(run.ID, run.Attempt, requirement.ID)
+		if slices.ContainsFunc(flow.Evidence, func(stored store.EvidenceRun) bool { return stored.ID == id }) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// storedCheckOf returns the check stored under run's attempt and whether one is stored.
+func storedCheckOf(flow store.EpicFlow, run store.NodeRun) (store.NodeCheck, bool) {
+	id := store.NodeWorkID(run.ID, run.Attempt, checkPart)
+	i := slices.IndexFunc(flow.Checks, func(check store.NodeCheck) bool { return check.ID == id })
+	if i < 0 {
+		return store.NodeCheck{}, false
+	}
+	return flow.Checks[i], true
+}
+
+// nodeCheckMessage returns the EpicNodeCheck message of check: its state, how it ended, and its output.
+func nodeCheckMessage(check store.NodeCheck) (*v1.EpicNodeCheck, error) {
+	exit, err := int32Of("exit", check.Exit)
+	if err != nil {
+		return nil, fmt.Errorf("check %s: %w", check.ID, err)
+	}
+	return &v1.EpicNodeCheck{
+		State: check.State, Exit: exit, TimedOut: check.TimedOut, NotRun: check.NotRun,
+		Stdout: check.Stdout, Stderr: check.Stderr,
+	}, nil
 }
 
 // contractMessage returns the EpicContract message of row, every section in order.

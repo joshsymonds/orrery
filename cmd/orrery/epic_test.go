@@ -194,6 +194,12 @@ func epicVerbCases() []epicVerbCase {
 			tool:  "epic_retry",
 			input: `{"id":"demo-0a1b2c3/epic-login"}`,
 		},
+		{
+			name:  "retry names a node",
+			args:  []string{"retry", epicTestID, "build"},
+			tool:  "epic_retry",
+			input: `{"id":"demo-0a1b2c3/epic-login","node":"build"}`,
+		},
 	}
 }
 
@@ -371,7 +377,9 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 		{args: []string{"pause"}, form: "pause ID"},
 		{args: []string{"resume", "a", "b"}, form: "resume ID"},
 		{args: []string{"stop"}, form: "stop ID"},
-		{args: []string{"retry"}, form: "retry ID"},
+		{args: []string{"retry"}, form: "retry ID [NODE]"},
+		{args: []string{"retry", epicTestID, "build", "extra"}, form: "retry ID [NODE]"},
+		{args: []string{"retry", epicTestID, ""}, form: "retry ID [NODE]"},
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {

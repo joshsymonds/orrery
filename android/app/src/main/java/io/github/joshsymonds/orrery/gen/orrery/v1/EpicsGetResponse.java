@@ -23,6 +23,7 @@ public  final class EpicsGetResponse extends
     steps_ = emptyProtobufList();
     slices_ = emptyProtobufList();
     requirements_ = emptyProtobufList();
+    nodes_ = emptyProtobufList();
     buildTasks_ = emptyProtobufList();
   }
   private int bitField0_;
@@ -656,14 +657,152 @@ public  final class EpicsGetResponse extends
     requirements_.remove(index);
   }
 
-  public static final int BUILD_TASKS_FIELD_NUMBER = 6;
+  public static final int NODES_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> nodes_;
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> getNodesList() {
+    return nodes_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeOrBuilder> 
+      getNodesOrBuilderList() {
+    return nodes_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  @java.lang.Override
+  public int getNodesCount() {
+    return nodes_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode getNodes(int index) {
+    return nodes_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeOrBuilder getNodesOrBuilder(
+      int index) {
+    return nodes_.get(index);
+  }
+  private void ensureNodesIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> tmp = nodes_;
+    if (!tmp.isModifiable()) {
+      nodes_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  private void setNodes(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNodesIsMutable();
+    nodes_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  private void addNodes(io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNodesIsMutable();
+    nodes_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  private void addNodes(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNodesIsMutable();
+    nodes_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  private void addAllNodes(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> values) {
+    ensureNodesIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, nodes_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  private void clearNodes() {
+    nodes_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+   */
+  private void removeNodes(int index) {
+    ensureNodesIsMutable();
+    nodes_.remove(index);
+  }
+
+  public static final int BUILD_TASKS_FIELD_NUMBER = 7;
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> buildTasks_;
   /**
    * <pre>
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   @java.lang.Override
   public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> getBuildTasksList() {
@@ -674,7 +813,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTaskOrBuilder> 
       getBuildTasksOrBuilderList() {
@@ -685,7 +824,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   @java.lang.Override
   public int getBuildTasksCount() {
@@ -696,7 +835,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   @java.lang.Override
   public io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask getBuildTasks(int index) {
@@ -707,7 +846,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   public io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTaskOrBuilder getBuildTasksOrBuilder(
       int index) {
@@ -726,7 +865,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   private void setBuildTasks(
       int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
@@ -739,7 +878,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   private void addBuildTasks(io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
     java.util.Objects.requireNonNull(value);
@@ -751,7 +890,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   private void addBuildTasks(
       int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
@@ -764,7 +903,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   private void addAllBuildTasks(
       java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> values) {
@@ -777,7 +916,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   private void clearBuildTasks() {
     buildTasks_ = emptyProtobufList();
@@ -787,7 +926,7 @@ public  final class EpicsGetResponse extends
    * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
    * </pre>
    *
-   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   private void removeBuildTasks(int index) {
     ensureBuildTasksIsMutable();
@@ -1580,10 +1719,160 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> getNodesList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getNodesList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    @java.lang.Override
+    public int getNodesCount() {
+      return instance.getNodesCount();
+    }/**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode getNodes(int index) {
+      return instance.getNodes(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder setNodes(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode value) {
+      copyOnWrite();
+      instance.setNodes(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder setNodes(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode.Builder builderForValue) {
+      copyOnWrite();
+      instance.setNodes(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder addNodes(io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode value) {
+      copyOnWrite();
+      instance.addNodes(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder addNodes(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode value) {
+      copyOnWrite();
+      instance.addNodes(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder addNodes(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode.Builder builderForValue) {
+      copyOnWrite();
+      instance.addNodes(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder addNodes(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode.Builder builderForValue) {
+      copyOnWrite();
+      instance.addNodes(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder addAllNodes(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> values) {
+      copyOnWrite();
+      instance.addAllNodes(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder clearNodes() {
+      copyOnWrite();
+      instance.clearNodes();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
+     */
+    public Builder removeNodes(int index) {
+      copyOnWrite();
+      instance.removeNodes(index);
+      return this;
+    }
+
+    /**
+     * <pre>
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     @java.lang.Override
     public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> getBuildTasksList() {
@@ -1595,7 +1884,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     @java.lang.Override
     public int getBuildTasksCount() {
@@ -1605,7 +1894,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     @java.lang.Override
     public io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask getBuildTasks(int index) {
@@ -1616,7 +1905,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder setBuildTasks(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
@@ -1629,7 +1918,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder setBuildTasks(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.Builder builderForValue) {
@@ -1643,7 +1932,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder addBuildTasks(io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
       copyOnWrite();
@@ -1655,7 +1944,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder addBuildTasks(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask value) {
@@ -1668,7 +1957,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder addBuildTasks(
         io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.Builder builderForValue) {
@@ -1681,7 +1970,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder addBuildTasks(
         int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.Builder builderForValue) {
@@ -1695,7 +1984,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder addAllBuildTasks(
         java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> values) {
@@ -1708,7 +1997,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder clearBuildTasks() {
       copyOnWrite();
@@ -1720,7 +2009,7 @@ public  final class EpicsGetResponse extends
      * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
      * </pre>
      *
-     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 6 [json_name = "buildTasks"];</code>
+     * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
      */
     public Builder removeBuildTasks(int index) {
       copyOnWrite();
@@ -1754,12 +2043,14 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.class,
             "requirements_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.class,
+            "nodes_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode.class,
             "buildTasks_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.class,
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0005\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0006\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

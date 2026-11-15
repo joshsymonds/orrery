@@ -126,6 +126,9 @@ func startLimitHost(t *testing.T, st *store.Store, getenv func(string) string, r
 		sessionCap: defaultSessionCap,
 		stepCap:    defaultStepCap,
 		limitTicks: ticks,
+		// The steps' resets are fixed dates, so the due pass reads a clock before them and resumes none, whatever
+		// the real date is.
+		dueNow: func() time.Time { return time.Unix(limitWiringStamp, 0) },
 	}
 	host, err := startSessions(
 		t.Context(), opts, limitWiringHost, st, router, nil, slog.New(slog.DiscardHandler), getenv,

@@ -23,6 +23,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/alerts"
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/daemon"
@@ -154,6 +155,8 @@ type options struct {
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
+	webhook         *alerts.Webhook         // the POST /alerts intake, set by startMetrics when metricsListen is set
+	metricsStop     func()                  // stops and waits for the metrics listener; set by startMetrics, nil otherwise
 	notifySocket    string                  // the NOTIFY_SOCKET value orreryd started with, "" when unset
 	// holdReconcile is a test seam: reconcile calls it before it starts, and production leaves it nil.
 	holdReconcile func(ctx context.Context)
@@ -166,8 +169,14 @@ type options struct {
 	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
 	// limitTick, and production leaves it nil.
 	limitTicks <-chan time.Time
-	flight     *telemetry.Flight // the flight recorder run starts, nil when it could not start
-	started    time.Time         // when run began, the start of the start phase
+	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
+	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
+	dueNow func() time.Time
+	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
+	// place of the flow's five-second ticks. Production leaves it "".
+	flowTicks string
+	flight    *telemetry.Flight // the flight recorder run starts, nil when it could not start
+	started   time.Time         // when run began, the start of the start phase
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -306,6 +315,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
+	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -355,6 +365,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		holderScope:   *holderScope,
 		stepCap:       *stepCap,
 		metricsListen: *metricsListen,
+		flowTicks:     *flowTicks,
 	}, nil
 }
 
@@ -474,16 +485,14 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Log:        noticeLog,
 		Logger:     logger,
 	}, &relay{
-		claude: opts.claude,
-		models: opts.models,
-		home:   home,
-		logger: logger,
-		judge: donejudge.New(
-			enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
-			opts.models,
-		),
+		claude:      opts.claude,
+		models:      opts.models,
+		home:        home,
+		logger:      logger,
+		judge:       newDoneJudge(opts.claude, opts.models),
 		reads:       newReadTimes(),
 		mirror:      mirror,
+		webhook:     opts.webhook,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	})
 	router := hub.router
@@ -523,6 +532,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		notifyReady(ctx, logger, opts)
 	}
 	serveErr := <-serveDone
+	opts.stopMetricsListener()
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
 		serveErr = fmt.Errorf("serve: %w", serveErr)
@@ -553,9 +563,10 @@ func notifyReady(ctx context.Context, logger *slog.Logger, opts options) {
 	observeFlight(ctx, logger, opts.flight, "start", took)
 }
 
-// startMetrics serves /metrics for a --metrics-listen orreryd until ctx ends. It binds the address, records start as
-// the start time, and sets opts.metrics and opts.metricsHandlers, which the push publisher, the writer, the manager and
-// the session services take. Without the flag it sets nothing.
+// startMetrics serves /metrics and POST /alerts for a --metrics-listen orreryd until ctx ends or serve stops it. It
+// binds the address, records start as the start time, and sets opts.metrics and opts.metricsHandlers, which the push
+// publisher, the writer, the manager and the session services take, and opts.webhook, which serve's relay attaches to
+// the notice router. Without the flag it sets nothing.
 func startMetrics(ctx context.Context, opts *options, start time.Time, logger *slog.Logger) error {
 	if opts.metricsListen == "" {
 		return nil
@@ -572,14 +583,32 @@ func startMetrics(ctx context.Context, opts *options, start time.Time, logger *s
 	if err != nil {
 		return errors.Join(fmt.Errorf("metrics daemon: %w", err), ln.Close())
 	}
+	webhook := alerts.New()
 	opts.metrics = daemon
 	opts.metricsHandlers = provider.HandlerOptions()
+	opts.webhook = webhook
+	listenCtx, stopListen := context.WithCancel(ctx)
+	done := make(chan struct{})
 	go func() {
-		if serveErr := provider.Serve(ctx, ln); serveErr != nil {
+		defer close(done)
+		if serveErr := provider.ServeWithAlerts(listenCtx, ln, webhook); serveErr != nil {
 			logger.ErrorContext(ctx, "serve metrics", "error", serveErr)
 		}
 	}()
+	opts.metricsStop = func() {
+		stopListen()
+		<-done
+	}
 	return nil
+}
+
+// stopMetricsListener stops the metrics listener startMetrics started and waits for it to end, so no alert is accepted
+// once serve closes the router. It runs here rather than on the run context, which a failed sessions start leaves
+// running. Without --metrics-listen it does nothing.
+func (opts options) stopMetricsListener() {
+	if opts.metricsStop != nil {
+		opts.metricsStop()
+	}
 }
 
 // serveInBackground runs daemon.Serve on ln with cfg until ctx is done. The returned channel receives Serve's error
@@ -627,8 +656,8 @@ func shutdownServe(
 // store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the listener stops,
 // so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore
 // succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the steps and
-// the pools, and nil without a store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop
-// runs.
+// the pools, and nil without a store. checks is the node checks runner over the store and the pools, and nil without a
+// store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop runs.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
@@ -636,6 +665,7 @@ type sessionHost struct {
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
 	evidence   *enginehost.Evidence
+	checks     *enginehost.NodeChecks
 	brokerRun  chan struct{}
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
@@ -653,6 +683,20 @@ type sessionHost struct {
 	serveDone     chan error
 }
 
+// stateDirOf returns the absolute directory the store file lies in, which the store path getenv resolves names. The
+// worktrees the node checks run in are git worktrees under it, so it must be absolute whatever XDG_STATE_HOME holds.
+func stateDirOf(getenv func(string) string) (string, error) {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return "", fmt.Errorf("state directory: %w", err)
+	}
+	stateDir, err := filepath.Abs(filepath.Dir(storePath))
+	if err != nil {
+		return "", fmt.Errorf("state directory: %w", err)
+	}
+	return stateDir, nil
+}
+
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
 // services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
 // notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
@@ -660,8 +704,9 @@ type sessionHost struct {
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
-// The flow then runs over the store until stop, with the planner and the build runner as its planner and builder, and
-// its attention loop routes its epic notices through router when router is not nil. The limit notices tell router which
+// The node checks are built over the store and the pools the same way, and take up the open checks before the flow
+// starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
+// builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell router which
 // steps a usage limit holds, every limitTick until stop; the due pass resumes each due
 // row whose reset has passed, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
 // serving goes on; a failed restore serves no Pools, which refuse as
@@ -690,11 +735,10 @@ func startSessions(
 	var epics enginehost.EpicCommands
 	var evidence enginehost.EvidenceCommands
 	if st != nil {
-		storePath, err := store.Path(getenv)
+		stateDir, err := stateDirOf(getenv)
 		if err != nil {
 			return nil, fmt.Errorf("step worktrees: %w", err)
 		}
-		stateDir := filepath.Dir(storePath)
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger, Metrics: opts.metrics})
 		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
@@ -748,9 +792,10 @@ func startSessions(
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
-		host.startFlow(ctx, st, router, opts.attentionTicks, getenv, resolve, stateDir, logger)
+		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
+		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
-		host.startDue(ctx, st, logger)
+		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
@@ -925,17 +970,44 @@ func (h *sessionHost) startEvidence(
 	}
 }
 
+// startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
+// gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
+// serving goes on.
+func (h *sessionHost) startNodeChecks(
+	ctx context.Context,
+	st *store.Store,
+	stateDir, holderScope string,
+	logger *slog.Logger,
+) {
+	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
+		Store:        st,
+		Pools:        h.pools,
+		Environ:      os.Environ(),
+		StateDir:     stateDir,
+		GateStateDir: filepath.Join(stateDir, "gates"),
+		GateScope:    holderScope,
+		Logger:       logger,
+	})
+	if err := h.checks.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume node checks, serving anyway", "error", err)
+	}
+}
+
 // startFlow runs the interpreter over st until stop, with the planner and the build runner it builds over st and the
 // steps as its planner and builder. The planner reads the agent from the role file on each pass; without one it parks
 // each epic with pending triggers through a turn that starts no step. Each planned task's gate and judge are resolved
-// by resolve. The build runner moves the builds the flow gives it through the steps and the evidence runner. With a
+// by resolve. The build runner moves the builds the flow gives it through the steps and the evidence runner. The check,
+// evidence and agent nodes of the flow run on the node checks, the evidence runner and the steps, and read the
+// environment through getenv. With a
 // router, the attention loop runs under the same context and routes the epics that need their owner through it,
-// passing at each value of attentionTicks when it is not nil.
+// passing at each value of attentionTicks when it is not nil. With flowTicks set, the flow passes at start and once per
+// SIGUSR1, and logs each pass to the file flowTicks names (flowSeam).
 func (h *sessionHost) startFlow(
 	ctx context.Context,
 	st *store.Store,
 	router planner.Router,
 	attentionTicks <-chan time.Time,
+	flowTicks string,
 	getenv func(string) string,
 	resolve planner.Resolver,
 	stateDir string,
@@ -956,9 +1028,21 @@ func (h *sessionHost) startFlow(
 		StateDir: stateDir,
 		Logger:   logger,
 	})
-	flow := interpret.New(interpret.Config{Store: st, Planner: plannerRun, Builder: buildRun, Logger: logger})
 	var flowCtx context.Context
 	flowCtx, h.stopFlow = context.WithCancel(ctx)
+	ticks, passed := flowSeam(flowCtx, flowTicks, logger)
+	flow := interpret.New(interpret.Config{
+		Store:    st,
+		Planner:  plannerRun,
+		Builder:  buildRun,
+		Checks:   h.checks,
+		Evidence: h.evidence,
+		Steps:    h.steps,
+		Getenv:   getenv,
+		Logger:   logger,
+		Ticks:    ticks,
+		Passed:   passed,
+	})
 	go func() {
 		flow.Run(flowCtx)
 		close(h.flowDone)
@@ -974,6 +1058,52 @@ func (h *sessionHost) startFlow(
 		attention.Run(flowCtx)
 		close(h.attentionDone)
 	}()
+}
+
+// flowSeam returns the test seam of the flow when path is set: the channel the flow passes at, which gets one value per
+// SIGUSR1, and the function the flow calls after each pass, which appends a line to path. The SIGUSR1 handler is
+// installed here, before the flow starts, and it is stopped when ctx ends. Without a path it returns nil and nil, and
+// SIGUSR1 keeps its default action.
+func flowSeam(ctx context.Context, path string, logger *slog.Logger) (<-chan time.Time, func()) {
+	if path == "" {
+		return nil, nil
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGUSR1)
+	ticks := make(chan time.Time)
+	go forwardSignals(ctx, signals, ticks)
+	return ticks, func() { appendPassLine(ctx, logger, path) }
+}
+
+// forwardSignals sends one value on ticks for each signal it receives, until ctx ends. It stops the signals when it
+// returns.
+func forwardSignals(ctx context.Context, signals chan os.Signal, ticks chan<- time.Time) {
+	defer signal.Stop(signals)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-signals:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case ticks <- time.Now():
+		}
+	}
+}
+
+// appendPassLine appends one line to the file at path, which logs each pass of the flow. A failed write is logged, and
+// serving goes on.
+func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
+	file, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, err = file.WriteString("pass\n")
+		err = errors.Join(err, file.Close())
+	}
+	if err != nil {
+		logger.ErrorContext(ctx, "write flow pass line, serving anyway", "path", path, "error", err)
+	}
 }
 
 // startLimits tells router which steps a usage limit holds, checking st every limitTick until stop, or at each value
@@ -1018,14 +1148,18 @@ func (h *sessionHost) startIdle(ctx context.Context) {
 	}()
 }
 
-// startDue resumes the due rows over st every limitTick until stop, and once when it starts. Its steps are the host's
-// steps, which startSessions has re-adopted before it starts the pass.
-func (h *sessionHost) startDue(ctx context.Context, st *store.Store, logger *slog.Logger) {
+// startDue resumes the due rows over st every limitTick until stop, and once when it starts, by the clock now, or
+// time.Now when now is nil. Its steps are the host's steps, which startSessions has re-adopted before it starts the
+// pass.
+func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() time.Time, logger *slog.Logger) {
+	if now == nil {
+		now = time.Now
+	}
 	ticker := time.NewTicker(limitTick)
 	due := enginehost.NewDuePass(enginehost.DuePassConfig{
 		Store:  st,
 		Steps:  h.steps,
-		Now:    time.Now,
+		Now:    now,
 		Tick:   ticker.C,
 		Logger: logger,
 	})
@@ -1040,7 +1174,7 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, logger *slo
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop and the due pass to return,
-// closes the evidence runner and waits for its drives, ends every step loop, stops every live session, and ends the
+// closes the node checks and the evidence runner and waits for their drives, ends every step loop, stops every live session, and ends the
 // writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and
 // writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -1050,6 +1184,7 @@ func (h *sessionHost) shutdown() {
 		<-h.idleDone
 		h.stopFlow()
 		<-h.flowDone
+		h.checks.Close()
 		h.evidence.Close()
 		if h.attentionDone != nil {
 			<-h.attentionDone
@@ -1162,6 +1297,7 @@ type relay struct {
 	judge       *donejudge.Judge // decides whether a plain done needs the user before it routes
 	reads       *readTimes       // each pane's newest read report
 	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
+	webhook     *alerts.Webhook  // the POST /alerts intake that routes to router; nil without --metrics-listen
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 }
 
@@ -1341,10 +1477,15 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	r.router.Notify(ctx, incoming)
 }
 
+// newDoneJudge returns the judge of done notices, which asks claude for each verdict under the per-context models.
+func newDoneJudge(claude string, models map[string]string) *donejudge.Judge {
+	return donejudge.New(enginehost.NewHaiku(enginehost.HaikuConfig{Claude: claude, Environ: os.Environ()}), models)
+}
+
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
 // stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a limit
 // notice through enginehost.RestoreLimitNotice, an epic notice through planner.RestoreNotice, a pane notice through
-// hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
+// hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here. A set webhook attaches to the router.
 func newRelay(cfg route.Config, hub *relay) *relay {
 	cfg.Rebuild = map[string]route.Rebuild{
 		enginehost.SessionSource: enginehost.RestoreNotice,
@@ -1353,6 +1494,9 @@ func newRelay(cfg route.Config, hub *relay) *relay {
 		paneSourceKind:           hub.rebuildPane,
 	}
 	hub.router = route.New(cfg)
+	if hub.webhook != nil {
+		hub.webhook.Attach(hub.router)
+	}
 	return hub
 }
 

@@ -35,6 +35,7 @@ data class PushEvent(
     val session: String = "",
     val epic: String = "",
     val limit: String = "",
+    val alert: String = "",
     val time: Long = 0L,
     val silent: Boolean = false,
 )
@@ -45,7 +46,7 @@ class PushNotifier(private val context: Context) {
     fun show(event: PushEvent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannels()
-        val tag = tagOf(event.epic, event.session, event.pane, event.limit)
+        val tag = tagOf(event.epic, event.session, event.pane, event.limit, event.alert)
         val id = notificationId(event.host, tag)
         val replacedChannelId = manager.activeNotifications.firstOrNull { it.id == id }?.notification?.channelId
         val channelId = if (event.silent) SILENT_CHANNEL_ID else CHANNEL_ID
@@ -80,8 +81,16 @@ class PushNotifier(private val context: Context) {
         manager.notify(notificationId, builder.build())
     }
 
-    fun clear(host: String, pane: String, session: String, seen: Long, epic: String = "", limit: String = "") {
-        val id = notificationId(host, tagOf(epic, session, pane, limit))
+    fun clear(
+        host: String,
+        pane: String,
+        session: String,
+        seen: Long,
+        epic: String = "",
+        limit: String = "",
+        alert: String = "",
+    ) {
+        val id = notificationId(host, tagOf(epic, session, pane, limit, alert))
         val notice = manager.activeNotifications.firstOrNull { it.id == id } ?: return
         if (notice.notification.extras.getLong(EXTRA_TIME) <= seen) manager.cancel(id)
     }
@@ -95,8 +104,14 @@ class PushNotifier(private val context: Context) {
         )
     }
 
-    private fun tagOf(epic: String, session: String, pane: String, limit: String): String =
-        epic.ifEmpty { session.ifEmpty { pane.ifEmpty { limit } } }
+    private fun tagOf(epic: String, session: String, pane: String, limit: String, alert: String): String = when {
+        epic.isNotEmpty() -> epic
+        session.isNotEmpty() -> session
+        pane.isNotEmpty() -> pane
+        limit.isNotEmpty() -> limit
+        alert.isNotEmpty() -> "$ALERT_TAG_PREFIX$alert"
+        else -> ""
+    }
 
     private fun contentIntent(event: PushEvent, tag: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
@@ -163,6 +178,7 @@ class PushNotifier(private val context: Context) {
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"
         const val EXTRA_TIME = "io.github.joshsymonds.orrery.extra.TIME"
         const val REMOTE_INPUT_KEY = "reply"
+        private const val ALERT_TAG_PREFIX = "alert:"
         private val KEYS = listOf("1", "2", "3")
         private val ALERTING_STATES = setOf("waiting", "failed")
         private val SMALL_ICON = android.R.drawable.ic_dialog_info

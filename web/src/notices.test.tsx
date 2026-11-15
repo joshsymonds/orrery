@@ -28,6 +28,14 @@ function notice(pane: string, title: string): InAppNotice {
   return create(InAppNoticeSchema, { key: paneKey(pane), state: "done", title, body: `${title} body` });
 }
 
+function alertKey(alert: string): NoticeKey {
+  return create(NoticeKeySchema, { alert });
+}
+
+function alertNotice(alert: string, title: string): InAppNotice {
+  return create(InAppNoticeSchema, { key: alertKey(alert), state: "done", title, body: `${title} body` });
+}
+
 function shown(item: InAppNotice): NoticesWatchResponse {
   return create(NoticesWatchResponseSchema, { change: { case: "shown", value: item } });
 }
@@ -62,6 +70,23 @@ test("keys that set different fields are different notices, even when the text m
   });
   const after = applyNotice([notice("%1", "pane")], shown(session));
   assert.deepEqual(titles(after), ["pane", "session"]);
+});
+
+test("alert notices with different names are different notices", () => {
+  const first = applyNotice([], shown(alertNotice("backup", "backup")));
+  const second = applyNotice(first, shown(alertNotice("deploy", "deploy")));
+  assert.deepEqual(titles(second), ["backup", "deploy"]);
+});
+
+test("an ended alert key removes only that alert's notice", () => {
+  const before = [notice("%1", "one"), alertNotice("backup", "backup"), alertNotice("deploy", "deploy")];
+  const after = applyNotice(before, ended(alertKey("backup")));
+  assert.deepEqual(titles(after), ["one", "deploy"]);
+});
+
+test("an alert notice beside a pane notice with the same text stays separate", () => {
+  const after = applyNotice([notice("%1", "same")], shown(alertNotice("same", "same")));
+  assert.deepEqual(titles(after), ["same", "same"]);
 });
 
 test("an ended notice leaves the list and the others keep their order", () => {

@@ -182,6 +182,57 @@ func startWedged(t *testing.T) (string, Pids) {
 	return dir, Pids{Holder: holder, HolderStart: holderStart, Child: child, ChildStart: childStart}
 }
 
+// TestKillEndsWedgedHolderAndChildWithoutAsking kills a holder that never answers, under a context with no deadline.
+// Stop would wait for the answer without end there; Kill asks nothing, so it returns once the holder and its child are
+// killed and the lock is free.
+func TestKillEndsWedgedHolderAndChildWithoutAsking(t *testing.T) {
+	t.Parallel()
+
+	dir, pids := startWedged(t)
+	writeRecord(t, dir, pids)
+	if err := Kill(context.Background(), dir); err != nil {
+		t.Fatalf("Kill = %v, want nil", err)
+	}
+	if procRunning(t, pids.Holder, pids.HolderStart) {
+		t.Errorf("holder %d still runs after Kill", pids.Holder)
+	}
+	if procRunning(t, pids.Child, pids.ChildStart) {
+		t.Errorf("child %d still runs after Kill", pids.Child)
+	}
+	awaitLockFree(t, dir)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("Stat(dir) = %v, want the dir kept", err)
+	}
+}
+
+func TestKillMissingDirIsNil(t *testing.T) {
+	t.Parallel()
+
+	if err := Kill(t.Context(), filepath.Join(t.TempDir(), "missing")); err != nil {
+		t.Fatalf("Kill(missing dir) = %v, want nil", err)
+	}
+}
+
+// TestKillWithEndedContextSignalsNothing checks that a Kill whose context has ended returns its error and leaves the
+// holder and its child running, as a stop asked to give up does.
+func TestKillWithEndedContextSignalsNothing(t *testing.T) {
+	t.Parallel()
+
+	dir, pids := startWedged(t)
+	writeRecord(t, dir, pids)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := Kill(ctx, dir); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Kill with an ended context = %v, want context.Canceled", err)
+	}
+	if !procRunning(t, pids.Holder, pids.HolderStart) {
+		t.Errorf("holder %d was killed though Kill's context had ended", pids.Holder)
+	}
+	if !procRunning(t, pids.Child, pids.ChildStart) {
+		t.Errorf("child %d was killed though Kill's context had ended", pids.Child)
+	}
+}
+
 func TestStopMissingDirIsNil(t *testing.T) {
 	t.Parallel()
 

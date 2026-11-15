@@ -89,4 +89,24 @@ public interface NoticeKeyOrBuilder extends
    */
   com.google.protobuf.ByteString
       getLimitBytes();
+
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   * @return The alert.
+   */
+  java.lang.String getAlert();
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   * @return The bytes for alert.
+   */
+  com.google.protobuf.ByteString
+      getAlertBytes();
 }

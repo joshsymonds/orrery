@@ -15,9 +15,9 @@ import (
 // storeDeadline bounds each store call a Notices makes. A call that outlives it reads as failed.
 const storeDeadline = 200 * time.Millisecond
 
-// Key names the pane, session, epic or usage limit a notice belongs to. Exactly one of Pane, Session, Epic and Limit
-// is set.
-type Key struct{ Pane, Session, Epic, Limit string }
+// Key names the pane, session, epic, usage limit or alert a notice belongs to. Exactly one of Pane, Session, Epic,
+// Limit and Alert is set.
+type Key struct{ Pane, Session, Epic, Limit, Alert string }
 
 // Sender posts notices and clears. *push.Publisher satisfies it.
 type Sender interface {
@@ -31,6 +31,7 @@ type Rows interface {
 	DeletePushed(ctx context.Context, pane, session string) error
 	DeletePushedEpic(ctx context.Context, epic string) error
 	DeletePushedLimit(ctx context.Context, limit string) error
+	DeletePushedAlert(ctx context.Context, alert string) error
 	Pushed(context.Context) ([]store.PushedRow, error)
 }
 
@@ -105,6 +106,7 @@ func (n *Notices) Notify(
 		note.Session = key.Session
 		note.Epic = key.Epic
 		note.Limit = key.Limit
+		note.Alert = key.Alert
 		if sendErr := n.sender.Publish(ctx, note); sendErr != nil {
 			n.logger.ErrorContext(ctx, "publish push notice", "error", push.RedactEndpoints(sendErr))
 		}
@@ -184,7 +186,7 @@ func (n *Notices) mergeLocked(ctx context.Context, rows Rows, stored []store.Pus
 		}
 	}
 	for _, row := range stored {
-		key := Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit}
+		key := Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit, Alert: row.Alert}
 		if pushed[key] {
 			continue
 		}
@@ -219,7 +221,8 @@ func bounded(parent context.Context, call func(context.Context) error) error {
 func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context) {
 	return func(ctx context.Context) {
 		c := push.Clear{
-			Host: n.host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Seen: seen,
+			Host: n.host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert,
+			Seen: seen,
 		}
 		if err := n.sender.PublishClear(ctx, c); err != nil {
 			n.logger.ErrorContext(ctx, "publish push clear", "error", push.RedactEndpoints(err))
@@ -232,14 +235,16 @@ func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context
 
 // putRow writes key's row with time at, bounded and logged on failure.
 func (n *Notices) putRow(ctx context.Context, rows Rows, key Key, at int64) {
-	row := store.PushedRow{Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Time: at}
+	row := store.PushedRow{
+		Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert, Time: at,
+	}
 	if err := bounded(ctx, func(ctx context.Context) error { return rows.PutPushed(ctx, row) }); err != nil {
 		n.logger.ErrorContext(ctx, "put pushed notice", "key", key, "error", err)
 	}
 }
 
-// deleteRow deletes key's row, bounded and logged on failure. An epic key's row is deleted by its epic, and a limit
-// key's by its limit.
+// deleteRow deletes key's row, bounded and logged on failure. An epic key's row is deleted by its epic, a limit
+// key's by its limit, and an alert key's by its alert.
 func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 	if err := bounded(ctx, func(ctx context.Context) error {
 		if key.Epic != "" {
@@ -247,6 +252,9 @@ func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 		}
 		if key.Limit != "" {
 			return rows.DeletePushedLimit(ctx, key.Limit)
+		}
+		if key.Alert != "" {
+			return rows.DeletePushedAlert(ctx, key.Alert)
 		}
 		return rows.DeletePushed(ctx, key.Pane, key.Session)
 	}); err != nil {

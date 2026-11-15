@@ -53,7 +53,7 @@ func (s *runningAtStore) runningWhenStored() []bool {
 // is resumed on its Claude session.
 func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	t.Parallel()
-	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
+	rig := newCrashRig(t, stalledTextTrigger(), false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
 	if err != nil {

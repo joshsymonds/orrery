@@ -6,24 +6,59 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
 
-// Store is the store a Runner reads an epic's rows through and writes its node runs, loops and parks through.
-// *store.Store satisfies it.
+// Store is the store a Runner reads an epic's rows through and writes its node runs, loops, parks and check node work
+// through. *store.Store satisfies it.
 type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	StartNodes(ctx context.Context, epic string, runs []store.NodeRun, trigger *store.NodeTrigger, at time.Time) error
 	EndNodes(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
+	EndNodesWaking(
+		ctx context.Context, epic string, ends []store.NodeEnd, trigger store.NodeTrigger, at time.Time,
+	) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
 	ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error
 	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
+	ParkNode(
+		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+	) error
+	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
+	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
+	CheckNodeRefs(
+		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
+	) error
 }
+
+// Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
+type Checks interface {
+	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
+}
+
+// Evidence runs the evidence item of a Requirement once per id. *enginehost.Evidence satisfies it.
+type Evidence interface {
+	RunItem(ctx context.Context, id, epic, item, revision, phase string) (store.EvidenceRun, error)
+}
+
+// Steps starts the read-only step of an agent node run. *enginehost.Steps satisfies it.
+type Steps interface {
+	Start(ctx context.Context, start enginehost.StepStart) (string, error)
+}
+
+// The enginehost services satisfy the interfaces a Config takes for them.
+var (
+	_ Checks   = (*enginehost.NodeChecks)(nil)
+	_ Evidence = (*enginehost.Evidence)(nil)
+	_ Steps    = (*enginehost.Steps)(nil)
+)
 
 // Planner is the planner the interpreter passes plan runs to and waits on at shutdown.
 type Planner interface {
@@ -37,27 +72,43 @@ type Builder interface {
 	PassTasks(ctx context.Context, id string, seqs []int64)
 }
 
-// Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards.
+// Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv
+// means os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner
+// that runs an epic with such nodes needs each of them.
 type Config struct {
-	Store   Store
-	Planner Planner
-	Builder Builder
-	Tick    time.Duration
-	Now     func() time.Time
-	Logger  *slog.Logger
+	Store    Store
+	Planner  Planner
+	Builder  Builder
+	Checks   Checks
+	Evidence Evidence
+	Steps    Steps
+	Getenv   func(string) string
+	Tick     time.Duration
+	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
+	// every Tick. Production leaves it nil.
+	Ticks  <-chan time.Time
+	Now    func() time.Time
+	Logger *slog.Logger
+	// Passed is a test seam: when set, Run calls it after each pass. Production leaves it nil.
+	Passed func()
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
 // hands build runs to the builder and passes the planner for the epics whose plan run is running.
 type Runner struct {
-	store   Store
-	planner Planner
-	builder Builder
-	tick    time.Duration
-	now     func() time.Time
-	logger  *slog.Logger
-	kinds   map[string]kinds.Kind
+	store    Store
+	planner  Planner
+	builder  Builder
+	checks   Checks
+	evidence Evidence
+	steps    Steps
+	getenv   func(string) string
+	tick     time.Duration
+	ticks    <-chan time.Time
+	now      func() time.Time
+	logger   *slog.Logger
+	passed   func()
+	kinds    map[string]kinds.Kind
 }
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
@@ -73,15 +124,22 @@ const builtinEpic = "epic"
 // New returns a Runner for cfg, with the plan and build kinds registered.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, tick: cfg.Tick, now: cfg.Now,
-		logger: cfg.Logger,
-		kinds:  map[string]kinds.Kind{kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}},
+		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
+		steps: cfg.Steps, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		ticks: cfg.Ticks, passed: cfg.Passed,
+		kinds: map[string]kinds.Kind{
+			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
+			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
+		},
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick
 	}
 	if runner.now == nil {
 		runner.now = time.Now
+	}
+	if runner.getenv == nil {
+		runner.getenv = os.Getenv
 	}
 	if runner.logger == nil {
 		runner.logger = slog.New(slog.DiscardHandler)
@@ -90,18 +148,26 @@ func New(cfg Config) *Runner {
 }
 
 // Run recovers the planner's turns a previous orreryd left running, then passes at once, then once per tick, until ctx
-// ends. It then waits for the planner's turns and returns.
+// ends. It then waits for the planner's turns and returns. With Config.Ticks set, the ticks are the values it receives,
+// and Config.Passed is called after each pass.
 func (r *Runner) Run(ctx context.Context) {
-	ticker := time.NewTicker(r.tick)
-	defer ticker.Stop()
+	ticks := r.ticks
+	if ticks == nil {
+		ticker := time.NewTicker(r.tick)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
 	r.planner.Recover(ctx)
 	for {
 		r.Pass(ctx)
+		if r.passed != nil {
+			r.passed()
+		}
 		select {
 		case <-ctx.Done():
 			r.planner.WaitTurns()
 			return
-		case <-ticker.C:
+		case <-ticks:
 		}
 	}
 }
@@ -147,7 +213,7 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 // action, its build runs go to the builder.
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
 	for range maxSteps {
-		acts, err := r.decide(ctx, epic.ID, flow)
+		row, acts, err := r.decide(ctx, epic.ID, flow)
 		if err != nil {
 			r.logger.ErrorContext(ctx, "decide epic", "epic", epic.ID, "err", err)
 			return false
@@ -156,7 +222,7 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 		if !structural {
 			return r.deliver(ctx, epic.ID, acts)
 		}
-		if err = r.carry(ctx, epic.ID, act); err != nil {
+		if err = r.carry(ctx, row, act); err != nil {
 			r.logger.ErrorContext(ctx, "carry out node action", "epic", epic.ID, "action", act.Kind, "err", err)
 			return false
 		}
@@ -165,13 +231,18 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 	return false
 }
 
-// decide reads the rows of epic in one read and returns the actions flow asks for on them.
-func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) ([]Action, error) {
+// decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and the
+// actions flow asks for on the rows.
+func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
-		return nil, fmt.Errorf("read epic %s: %w", epic, err)
+		return store.EpicRow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	return Decide(flow, kinds.Rows{Epic: read.Epic, Runs: read.Runs, Pending: read.Pending}, r.kinds), nil
+	rows := kinds.Rows{
+		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
+		Pending: read.Pending,
+	}
+	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
 
 // firstStructural returns the first action that changes a node run, and whether acts has one. A run action only hands
@@ -185,24 +256,33 @@ func firstStructural(acts []Action) (Action, bool) {
 	return Action{}, false
 }
 
-// carry writes one structural action to the store at the runner's clock.
-func (r *Runner) carry(ctx context.Context, epic string, act Action) error {
+// carry writes one structural action of epic to the store at the runner's clock. Its work is carried out on the epic as
+// the action was decided.
+func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) error {
 	at := r.now()
 	var err error
 	switch act.Kind {
 	case ActStart:
-		err = r.store.StartNodes(ctx, epic, act.Runs, act.Trigger, at)
+		err = r.store.StartNodes(ctx, epic.ID, act.Runs, act.Trigger, at)
 	case ActEnd:
-		err = r.store.EndNodes(ctx, epic, act.Ends, at)
+		if act.Trigger != nil {
+			err = r.store.EndNodesWaking(ctx, epic.ID, act.Ends, *act.Trigger, at)
+		} else {
+			err = r.store.EndNodes(ctx, epic.ID, act.Ends, at)
+		}
 	case ActRound:
-		err = r.store.NextRound(ctx, epic, act.Path, act.Round)
+		err = r.store.NextRound(ctx, epic.ID, act.Path, act.Round)
 	case ActPark:
-		err = r.store.ParkLoop(ctx, epic, act.Path, act.Round, act.Reason, at)
+		err = r.store.ParkLoop(ctx, epic.ID, act.Path, act.Round, act.Reason, at)
+	case ActParkNode:
+		err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+	case ActWork:
+		err = r.work(ctx, epic, act, at)
 	default:
 		return fmt.Errorf("action %s changes no node run", act.Kind)
 	}
 	if err != nil {
-		return fmt.Errorf("%s of epic %s: %w", act.Kind, epic, err)
+		return fmt.Errorf("%s of epic %s: %w", act.Kind, epic.ID, err)
 	}
 	return nil
 }
