@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -33,9 +34,7 @@ func installClaude(t *testing.T, reply string, status int) string {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "claude")
-	if err := os.WriteFile(bin, src, 0o755); err != nil {
-		t.Fatalf("install fake claude: %v", err)
-	}
+	exectest.WriteFile(t, bin, src, 0o755)
 	if reply != "" {
 		writeFile(t, filepath.Join(dir, "reply"), reply)
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 )
 
@@ -23,9 +24,7 @@ func (c *fakeClock) Now() time.Time { return c.now }
 
 func writeFile(t *testing.T, path, content string, mode fs.FileMode) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		t.Fatal(err)
-	}
+	exectest.WriteFile(t, path, []byte(content), mode)
 }
 
 // stubScript writes a shell script that appends a line to a counter file on each run, prints
