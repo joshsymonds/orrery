@@ -22,28 +22,32 @@ const EpicSource = "epic"
 // turnSucceeded is the state of a turn that returned its plan.
 const turnSucceeded = "succeeded"
 
-// attentionNeed is what an epic needs from its owner.
-type attentionNeed int
+// attentionNeed is what an epic needs from its owner. Its name is part of the id of the notice the need routes, and
+// stored ids outlive the process, so a name does not change.
+type attentionNeed string
 
 const (
-	needNone attentionNeed = iota
-	needPark
-	needLimit
-	needQuestions
-	needTell
+	needNone      attentionNeed = "none"
+	needPark      attentionNeed = "park"
+	needLimit     attentionNeed = "limit"
+	needQuestions attentionNeed = "questions"
+	needTell      attentionNeed = "tell"
 )
 
-// epicNotice is the Source data of an epic notice: the epic, its title and the body the owner reads.
+// epicNotice is the Source data of an epic notice: the id of its cause, the epic, its title and the body the owner
+// reads.
 type epicNotice struct {
+	ID    string `json:"id"`
 	Epic  string `json:"epic"`
 	Title string `json:"title"`
 	Body  string `json:"body"`
 }
 
-// AttentionStore is the store an Attention reads what each epic needs through and marks its turns told in.
-// *store.Store satisfies it.
+// AttentionStore is the store an Attention reads what each epic needs through, the notice rows it has stored, and
+// marks its turns and tells told in. *store.Store satisfies it.
 type AttentionStore interface {
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
+	Notices(ctx context.Context) ([]store.NoticeRow, error)
 	MarkTold(ctx context.Context, epic string, seq int64) error
 	MarkTellTold(ctx context.Context, epic string, seq int64) error
 }
@@ -105,54 +109,100 @@ func (a *Attention) Run(ctx context.Context) {
 	}
 }
 
-// pass attends to each epic that has a turn.
+// pass attends to each epic that has a turn. It reads the ids of the epic notices stored before it routes anything, so
+// a notice routed before a restart is not routed again.
 func (a *Attention) pass(ctx context.Context) {
 	entries, err := a.store.Attention(ctx)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "list attention", "err", err)
 		return
 	}
+	stored, err := a.storedIDs(ctx)
+	if err != nil {
+		a.logger.ErrorContext(ctx, "read stored notices", "err", err)
+		return
+	}
 	now := a.now()
 	for _, entry := range entries {
-		a.attend(ctx, entry, now)
+		a.attend(ctx, entry, now, stored)
 	}
+}
+
+// storedIDs returns the ids of the epic notices whose rows are stored now. A row whose data does not decode is logged
+// and skipped, as the Router does not restore it either.
+func (a *Attention) storedIDs(ctx context.Context) (map[string]bool, error) {
+	rows, err := a.store.Notices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list notices: %w", err)
+	}
+	ids := make(map[string]bool)
+	for _, row := range rows {
+		if row.SourceKind != EpicSource {
+			continue
+		}
+		var stored epicNotice
+		if err = json.Unmarshal(row.Source, &stored); err != nil {
+			a.logger.ErrorContext(ctx, "read epic notice row", "row", row.ID, "err", err)
+			continue
+		}
+		ids[stored.ID] = true
+	}
+	return ids, nil
 }
 
 // attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as the
 // epic's notice and marked told. Last, the latest turn, when it has ended and is not told, tells the owner once, if the
-// need is one the owner must answer, and is marked told.
-func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now time.Time) {
+// need is one the owner must answer, and is marked told. stored holds the ids of the epic notices stored at the start of
+// the pass, and a notice whose id is there is not routed again.
+func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now time.Time, stored map[string]bool) {
 	need := needOf(entry)
 	if need == needNone {
 		a.router.Seen(ctx, notice.Key{Epic: entry.Epic}, now.Unix())
 	}
 	for _, tell := range entry.Tells {
-		a.tell(ctx, entry, tell)
+		a.tell(ctx, entry, tell, stored)
 	}
 	if entry.Latest.Seq == 0 || entry.Latest.Told {
 		return
 	}
 	if tellsOwner(need, entry) {
-		a.notify(ctx, entry, bodyOf(need, entry))
+		id := turnNoticeID(entry.Epic, entry.Latest.Seq, need)
+		if !stored[id] {
+			a.notify(ctx, entry, id, bodyOf(need, entry))
+		}
 	}
 	if err := a.store.MarkTold(ctx, entry.Epic, entry.Latest.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark turn told", "epic", entry.Epic, "turn", entry.Latest.Seq, "err", err)
 	}
 }
 
-// tell routes tell of entry as the epic's notice, with the tell's text, and marks it told. It runs before the tell is
-// marked, so a restart between the two repeats the notice rather than losing it. A tell whose mark fails is routed
-// again on the next pass.
-func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell) {
-	a.notify(ctx, entry, tell.Text)
+// tell routes tell of entry as the epic's notice, with the tell's text, unless a stored notice carries its id, and marks
+// it told. It runs before the tell is marked, so a restart between the two finds the notice stored and marks the tell
+// without routing it again. A tell whose mark fails is routed again on the next pass only when its notice is not stored.
+func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
+	id := tellNoticeID(entry.Epic, tell.Seq)
+	if !stored[id] {
+		a.notify(ctx, entry, id, tell.Text)
+	}
 	if err := a.store.MarkTellTold(ctx, entry.Epic, tell.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark tell told", "epic", entry.Epic, "tell", tell.Seq, "err", err)
 	}
 }
 
-// notify routes a notice of body for entry, keyed by its epic.
-func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, body string) {
-	stored := epicNotice{Epic: entry.Epic, Title: entry.Title, Body: body}
+// turnNoticeID is the id of the notice that need of epic's turn seq routes. It names the turn and the need, so a later
+// turn, or a different need of the same turn, has its own notice.
+func turnNoticeID(epic string, seq int64, need attentionNeed) string {
+	return fmt.Sprintf("%s:turn:%d:%s", epic, seq, need)
+}
+
+// tellNoticeID is the id of the notice of epic's tell seq.
+func tellNoticeID(epic string, seq int64) string {
+	return fmt.Sprintf("%s:tell:%d", epic, seq)
+}
+
+// notify routes a notice of body for entry, keyed by its epic, with id in its source data.
+func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, id, body string) {
+	stored := epicNotice{ID: id, Epic: entry.Epic, Title: entry.Title, Body: body}
 	incoming := attentionNotice(stored)
 	data, err := json.Marshal(stored)
 	if err != nil {
