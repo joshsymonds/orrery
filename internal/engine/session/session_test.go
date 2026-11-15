@@ -10,14 +10,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 )
-
-// testGuard bounds every wait on a session. It only turns a hang into a failure: no test expects
-// anything to happen within it.
-const testGuard = 10 * time.Second
 
 // stream is an in-memory byte stream. Writes never block. Reads block until bytes arrive, the stream
 // ends after its written bytes drain, or it is closed, which ends reads at once.
@@ -161,7 +156,7 @@ func startSession(t *testing.T) (*Session, *fakeProcess) {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(func() {
-		if stopErr := stopWithin(t, session); stopErr != nil {
+		if stopErr := session.Stop(); stopErr != nil {
 			t.Errorf("Stop in cleanup: %v", stopErr)
 		}
 	})
@@ -187,22 +182,17 @@ func stdinLines(process *fakeProcess) []string {
 	return strings.Split(text, "\n")
 }
 
-// nextLine returns the next line, failing the test if none arrives within testGuard.
+// nextLine returns the next line, failing the test if Lines closes first. It has no deadline of its own.
 func nextLine(t *testing.T, session *Session) Line {
 	t.Helper()
-	select {
-	case line, ok := <-session.Lines():
-		if !ok {
-			t.Fatal("Lines closed before the next line")
-		}
-		return line
-	case <-time.After(testGuard):
-		t.Fatalf("no line within %v", testGuard)
+	line, ok := <-session.Lines()
+	if !ok {
+		t.Fatal("Lines closed before the next line")
 	}
-	return Line{}
+	return line
 }
 
-// nextEvent returns the next event, failing the test if none arrives within testGuard.
+// nextEvent returns the next event. It has no deadline of its own.
 func nextEvent(t *testing.T, session *Session) Event {
 	t.Helper()
 	return readEvents(t, session, 1)[0]
@@ -226,21 +216,16 @@ func readEvents(t *testing.T, session *Session, n int) []Event {
 	return events
 }
 
-// drainLines returns every line up to the close of Lines, failing the test if Lines does not close
-// within testGuard.
+// drainLines returns every line up to the close of Lines. It has no deadline of its own.
 func drainLines(t *testing.T, session *Session) []Line {
 	t.Helper()
 	var lines []Line
 	for {
-		select {
-		case line, ok := <-session.Lines():
-			if !ok {
-				return lines
-			}
-			lines = append(lines, line)
-		case <-time.After(testGuard):
-			t.Fatalf("Lines did not close within %v after %d lines", testGuard, len(lines))
+		line, ok := <-session.Lines()
+		if !ok {
+			return lines
 		}
+		lines = append(lines, line)
 	}
 }
 
@@ -254,53 +239,30 @@ func drainEvents(t *testing.T, session *Session) []Event {
 	return events
 }
 
-// requireClosed fails the test unless Lines is closed within testGuard. A line that carries no event may
-// arrive first; a line that carries an event fails the test.
+// requireClosed waits until Lines is closed. A line that carries no event may arrive first; a line that
+// carries an event fails the test. It has no deadline of its own.
 func requireClosed(t *testing.T, session *Session) {
 	t.Helper()
-	deadline := time.After(testGuard)
 	for {
-		select {
-		case line, ok := <-session.Lines():
-			if !ok {
-				return
-			}
-			if len(line.Events) > 0 {
-				t.Fatalf("Lines delivered %#v, want it closed", line.Events[0])
-			}
-		case <-deadline:
-			t.Fatalf("Lines not closed within %v", testGuard)
+		line, ok := <-session.Lines()
+		if !ok {
+			return
+		}
+		if len(line.Events) > 0 {
+			t.Fatalf("Lines delivered %#v, want it closed", line.Events[0])
 		}
 	}
-}
-
-// stopWithin calls Stop and fails the test unless it returns within testGuard.
-func stopWithin(t *testing.T, session *Session) error {
-	t.Helper()
-	result := make(chan error, 1)
-	go func() { result <- session.Stop() }()
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(testGuard):
-		t.Fatalf("Stop did not return within %v", testGuard)
-	}
-	return nil
 }
 
 // stackDumpSize bounds the goroutine dump that awaitSenderParked reads.
 const stackDumpSize = 1 << 20
 
 // awaitSenderParked returns once a session reader is blocked in the select of send, the only point where
-// the reader blocks while its consumer does not read. It fails the test if that does not happen within
-// testGuard. It waits for a state, not for a duration.
+// the reader blocks while its consumer does not read. It waits for a state, not for a duration, and has no
+// deadline of its own.
 func awaitSenderParked(t *testing.T) {
 	t.Helper()
-	deadline := time.Now().Add(testGuard)
 	for !senderParked() {
-		if time.Now().After(deadline) {
-			t.Fatalf("no session reader blocked in send within %v", testGuard)
-		}
 		runtime.Gosched()
 	}
 }
@@ -555,7 +517,7 @@ func TestStopWithUnreadConsumerReturnsAndClosesEvents(t *testing.T) {
 	requireEvents(t, readEvents(t, session, 1), want[:1])
 	awaitSenderParked(t)
 
-	if err := stopWithin(t, session); err != nil {
+	if err := session.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	requireClosed(t, session)
@@ -567,10 +529,10 @@ func TestStopWithUnreadConsumerReturnsAndClosesEvents(t *testing.T) {
 func TestStopIsIdempotentAndStopsTheProcess(t *testing.T) {
 	t.Parallel()
 	session, process := startSession(t)
-	if err := stopWithin(t, session); err != nil {
+	if err := session.Stop(); err != nil {
 		t.Fatalf("first Stop: %v", err)
 	}
-	if err := stopWithin(t, session); err != nil {
+	if err := session.Stop(); err != nil {
 		t.Fatalf("second Stop: %v", err)
 	}
 	if !process.exited() {

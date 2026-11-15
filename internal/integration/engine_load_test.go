@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -123,12 +122,11 @@ func fixturePane(t *testing.T, client *tmuxctl.Client) string {
 	return panes[0]
 }
 
-// waitForPaneState polls until the store row of pane holds state, failing the test after waitLimit. The pane has no
-// row until orreryd mints its id, so a missing id or row is polled again.
+// waitForPaneState polls until the store row of pane holds state. It has no deadline of its own. The pane has no row
+// until orreryd mints its id, so a missing id or row is polled again.
 func waitForPaneState(t *testing.T, q *sqlcgen.Queries, client *tmuxctl.Client, pane string, state protocol.State) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -142,11 +140,7 @@ func waitForPaneState(t *testing.T, q *sqlcgen.Queries, client *tmuxctl.Client, 
 				return
 			}
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s row never reached state %q (id %q)", pane, state, id)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 

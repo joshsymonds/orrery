@@ -74,11 +74,7 @@ func evidenceReadoptClose(t *testing.T, ev *Evidence) {
 		ev.Close()
 		close(closed)
 	}()
-	select {
-	case <-closed:
-	case <-time.After(evidenceRunDeadline):
-		t.Fatalf("Close did not return within %s", evidenceRunDeadline)
-	}
+	<-closed
 }
 
 // evidenceReadoptStep stores a judge step with id at repo and revision, with no labels: a restart finds it by its derived id

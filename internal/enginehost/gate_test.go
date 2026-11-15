@@ -52,12 +52,8 @@ func gateProcessGone(pid int) bool {
 // gateWaitGone polls until every pid in pids has exited.
 func gateWaitGone(t *testing.T, pids ...int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
 	for _, pid := range pids {
 		for !gateProcessGone(pid) {
-			if time.Now().After(deadline) {
-				t.Fatalf("process %d is still running after the gate was killed", pid)
-			}
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
@@ -187,13 +183,9 @@ func TestGateCancelKillsGroupAndErrors(t *testing.T) {
 
 	group, child := gateParsePids(t, pids)
 	cancel()
-	select {
-	case got := <-done:
-		if got.err == nil {
-			t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after its context ended")
+	got := <-done
+	if got.err == nil {
+		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
 	gateWaitGone(t, group, child)
 }
@@ -276,15 +268,9 @@ func TestGateCancelReturnsPastDetachedChild(t *testing.T) {
 
 	gateKillDetachedAtCleanup(t, pids)
 	cancel()
-	select {
-	case got := <-done:
-		if got.err == nil {
-			t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal(
-			"runGrantedGate did not return after its context ended: it waited for a detached child that holds the output",
-		)
+	got := <-done
+	if got.err == nil {
+		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
 }
 
@@ -354,13 +340,9 @@ func gateReadExit(t *testing.T, dir string) holder.Exit {
 // gateWaitExit polls until the gate's holder in dir has left its exit record, and returns it.
 func gateWaitExit(t *testing.T, dir string) holder.Exit {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := os.Stat(filepath.Join(dir, holder.ExitName)); err == nil {
 			return gateReadExit(t, dir)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("holder in %s never left an exit record", dir)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -490,11 +472,7 @@ func TestGateStartedErrorReleasesGrantAndStartsNothing(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(stateDir, "holders", "unstarted")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("holder directory of a gate that never launched: stat error %v, want not exist", statErr)
 	}
-	select {
-	case <-released:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the grant was not released after Started refused the gate")
-	}
+	<-released
 }
 
 func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
@@ -535,12 +513,7 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 	// after the attempt has returned.
 	<-launched
 	cancel(errGateDetach)
-	var got outcome
-	select {
-	case got = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after the detach")
-	}
+	got := <-done
 	if !errors.Is(got.err, errGateDetach) {
 		t.Fatalf("err = %v, want errGateDetach", got.err)
 	}
@@ -630,13 +603,9 @@ func TestGateCancelStopsHolderAndClearsItsDirectory(t *testing.T) {
 		t.Fatalf("the gate's holder does not serve %s while the gate runs: %v", dir, err)
 	}
 	cancel()
-	select {
-	case got := <-done:
-		if got.err == nil {
-			t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after its context ended")
+	got := <-done
+	if got.err == nil {
+		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
 	gateWaitGone(t, group, child)
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {

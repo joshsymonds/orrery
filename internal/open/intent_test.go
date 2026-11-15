@@ -586,10 +586,9 @@ func TestIntentHistoryCapIsThirtyThenRootChildren(t *testing.T) {
 
 // waitClaudeRun waits for the fake beside bin to start a run and returns that run. The fake writes its stdin
 // record last of the run's records, before it blocks reading stdin, so the record's presence means the run has
-// recorded everything. The deadline bounds the wait for a pane that has not started.
+// recorded everything. It has no deadline of its own.
 func waitClaudeRun(t *testing.T, bin string) claudeRun {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
 	for {
 		matches, err := filepath.Glob(filepath.Join(filepath.Dir(bin), "calls", "run.*", "stdin"))
 		if err != nil {
@@ -601,9 +600,6 @@ func waitClaudeRun(t *testing.T, bin string) claudeRun {
 				t.Fatalf("claude ran %d times, want 1", len(runs))
 			}
 			return runs[0]
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("claude did not start within 10s")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

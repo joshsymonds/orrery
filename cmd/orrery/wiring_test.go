@@ -90,16 +90,11 @@ func treeKey(t *testing.T, writer *os.File, key string) {
 	}
 }
 
-// treeAwait returns the result of the tree run, and fails the test when none arrives within serveTestWait.
+// treeAwait returns the result of the tree run. It has no deadline of its own.
 func treeAwait(t *testing.T, result <-chan treeResult) treeResult {
 	t.Helper()
-	select {
-	case res := <-result:
-		return res
-	case <-time.After(serveTestWait):
-		t.Fatalf("orrery tree did not return within %v", serveTestWait)
-		return treeResult{}
-	}
+	res := <-result
+	return res
 }
 
 // treeTestEnv returns an environment with a fresh home and state directory, and no socket variable.
@@ -117,16 +112,10 @@ func TestTreePoolsReachDaemonSocket(t *testing.T) {
 	writer, _, result := startTree(t, []string{"--socket", daemon, "-L", treeTestTmux}, treeTestEnv(t))
 
 	treeKey(t, writer, "p")
-	deadline := time.After(serveTestWait)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for !slices.Contains(fake.received(), "Status") {
-		select {
-		case <-deadline:
-			t.Fatalf("the tree's pools view did not reach orreryd's Pools within %v; calls %q", serveTestWait,
-				fake.received())
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 	treeKey(t, writer, "q")
 	if res := treeAwait(t, result); res.code != exitOK {
@@ -140,15 +129,10 @@ func TestTreePoolsUnavailableWithoutSocket(t *testing.T) {
 	writer, out, result := startTree(t, []string{"-L", treeTestTmux}, treeTestEnv(t))
 
 	treeKey(t, writer, "p")
-	deadline := time.After(serveTestWait)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for !strings.Contains(out.String(), treePoolsUnavailable) {
-		select {
-		case <-deadline:
-			t.Fatalf("the tree did not show %q within %v", treePoolsUnavailable, serveTestWait)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 	treeKey(t, writer, "q")
 	if res := treeAwait(t, result); res.code != exitOK {

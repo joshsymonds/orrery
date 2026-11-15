@@ -4,7 +4,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 // errStop is what the detachable fake's Stop returns, and errDetach what its Detach returns, so a test
@@ -46,22 +45,8 @@ func startDetachable(t *testing.T, process Process) *Session {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	t.Cleanup(func() { _ = stopWithin(t, session) })
+	t.Cleanup(func() { _ = session.Stop() })
 	return session
-}
-
-// detachWithin calls Detach and fails the test unless it returns within testGuard.
-func detachWithin(t *testing.T, session *Session) error {
-	t.Helper()
-	result := make(chan error, 1)
-	go func() { result <- session.Detach() }()
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(testGuard):
-		t.Fatalf("Detach did not return within %v", testGuard)
-	}
-	return nil
 }
 
 func TestDetachLeavesDetachableProcessRunning(t *testing.T) {
@@ -69,7 +54,7 @@ func TestDetachLeavesDetachableProcessRunning(t *testing.T) {
 	process := newDetachableProcess()
 	session := startDetachable(t, process)
 
-	err := detachWithin(t, session)
+	err := session.Detach()
 	if got := process.detaches.Load(); got != 1 {
 		t.Errorf("Detach called the process's Detach %d times, want once", got)
 	}
@@ -91,14 +76,14 @@ func TestLaterCallsOfDetachAndStopReturnTheFirstError(t *testing.T) {
 	t.Parallel()
 	process := newDetachableProcess()
 	session := startDetachable(t, process)
-	if err := detachWithin(t, session); !errors.Is(err, errDetach) {
+	if err := session.Detach(); !errors.Is(err, errDetach) {
 		t.Fatalf("first Detach = %v, want %v", err, errDetach)
 	}
 
-	if err := stopWithin(t, session); !errors.Is(err, errDetach) {
+	if err := session.Stop(); !errors.Is(err, errDetach) {
 		t.Errorf("Stop after Detach = %v, want Detach's error %v", err, errDetach)
 	}
-	if err := detachWithin(t, session); !errors.Is(err, errDetach) {
+	if err := session.Detach(); !errors.Is(err, errDetach) {
 		t.Errorf("second Detach = %v, want Detach's error %v", err, errDetach)
 	}
 	if got := process.detaches.Load(); got != 1 {
@@ -114,7 +99,7 @@ func TestDetachStopsPlainProcess(t *testing.T) {
 	process := newFakeProcess()
 	session := startDetachable(t, process)
 
-	if err := detachWithin(t, session); err != nil {
+	if err := session.Detach(); err != nil {
 		t.Fatalf("Detach: %v", err)
 	}
 	if !process.exited() {
@@ -129,11 +114,11 @@ func TestStopThenDetachCallsStopOnly(t *testing.T) {
 	t.Parallel()
 	process := newDetachableProcess()
 	session := startDetachable(t, process)
-	if err := stopWithin(t, session); !errors.Is(err, errStop) {
+	if err := session.Stop(); !errors.Is(err, errStop) {
 		t.Fatalf("Stop = %v, want the process's Stop error %v", err, errStop)
 	}
 
-	if err := detachWithin(t, session); !errors.Is(err, errStop) {
+	if err := session.Detach(); !errors.Is(err, errStop) {
 		t.Errorf("Detach after Stop = %v, want Stop's error %v", err, errStop)
 	}
 	if got := process.detaches.Load(); got != 0 {

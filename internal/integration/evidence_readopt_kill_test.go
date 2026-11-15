@@ -225,11 +225,12 @@ func (r *evidenceKillRig) judgeSteps(t *testing.T, run string) []*v1.Step {
 func (r *evidenceKillRig) awaitJudge(t *testing.T, run string) string {
 	t.Helper()
 	var judge string
-	waitUntil(t, "run "+run+" to judge", func() bool {
+	waitUntil(t, func() bool {
 		stored := r.run(t, run)
 		judge = stored.GetJudgeStep()
 		return stored.GetState() == "judging" && judge != ""
 	})
+
 	return judge
 }
 
@@ -258,7 +259,7 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
 	r.createEpic(t)
 	run := r.runEvidence(t)
-	waitUntil(t, "the capture to start", func() bool { return gateRunCount(t, r.captureRuns) > 0 })
+	waitUntil(t, func() bool { return gateRunCount(t, r.captureRuns) > 0 })
 
 	killOrreryd(t, daemon)
 	daemon = r.f.startOrreryd(t, true, "--holder-scope", r.scope)
@@ -275,9 +276,10 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	if judgeDir == "" {
 		t.Fatalf("judge step %s names no worktree", judge)
 	}
-	waitUntil(t, "the judge to read its prompt", func() bool {
+	waitUntil(t, func() bool {
 		return fileContains(t, filepath.Join(judgeDir, "fakeclaude.stdin"), evidenceKillConclusion)
 	})
+
 	judgePID := fakeClaudePID(t, judgeDir)
 	// The judge is read-only, so its worktree, and the fake's stdin log in it, is removed as soon as its end is stored.
 	// A link to the log outside the worktree keeps every line the fake appends, for the count once the run has ended.
@@ -308,7 +310,7 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	}
 
 	stepReadoptTouch(t, filepath.Join(judgeDir, "fakeclaude.release"))
-	waitUntil(t, "run "+run+" to end", func() bool { return r.run(t, run).GetState() == "ended" })
+	waitUntil(t, func() bool { return r.run(t, run).GetState() == "ended" })
 	stored := r.run(t, run)
 	if stored.GetVerdict() != "holds" || !stored.GetPassed() || stored.GetExit() != 0 {
 		t.Fatalf("run %s verdict %q passed %t exit %d, want holds, passed, exit 0; reason %q",

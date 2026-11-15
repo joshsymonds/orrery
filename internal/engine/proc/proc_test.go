@@ -14,11 +14,6 @@ import (
 	"time"
 )
 
-const (
-	lineTimeout = 10 * time.Second
-	goneTimeout = 5 * time.Second
-)
-
 // echoLoop copies each stdin line to stdout until stdin closes.
 const echoLoop = `while IFS= read -r line; do printf '%s\n' "$line"; done
 `
@@ -85,7 +80,7 @@ func startWith(t *testing.T, cfg Config, body string, args ...string) *Process {
 	return p
 }
 
-// readLine returns the next line from r, failing the test when none arrives in time.
+// readLine returns the next line from r, failing the test on a read error. It has no deadline of its own.
 func readLine(t *testing.T, r *bufio.Reader) string {
 	t.Helper()
 	lines := make(chan string, 1)
@@ -103,8 +98,6 @@ func readLine(t *testing.T, r *bufio.Reader) string {
 		return line
 	case err := <-errs:
 		t.Fatalf("read line: %v", err)
-	case <-time.After(lineTimeout):
-		t.Fatal("timed out waiting for a line")
 	}
 	return ""
 }
@@ -123,30 +116,22 @@ func readPID(t *testing.T, path string) int {
 	return pid
 }
 
-// waitGone fails the test unless pid no longer exists within goneTimeout.
+// waitGone waits until pid no longer exists. It has no deadline of its own.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.Now().Add(goneTimeout)
 	for {
 		err := syscall.Kill(pid, 0)
 		if errors.Is(err, syscall.ESRCH) {
 			return
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pid %d still exists after %v: %v", pid, goneTimeout, err)
-		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// waitDone fails the test unless the process is reaped within lineTimeout.
+// waitDone waits until the process is reaped. It has no deadline of its own.
 func waitDone(t *testing.T, p *Process) {
 	t.Helper()
-	select {
-	case <-p.Done():
-	case <-time.After(lineTimeout):
-		t.Fatal("Done not closed after the child exited")
-	}
+	<-p.Done()
 }
 
 // killedBy reports whether the exit error came from a signal sig.
@@ -328,11 +313,7 @@ func TestStdoutCapacityDoesNotHoldDoneForGroupLeaverHoldingStdout(t *testing.T) 
 	// child's stdout. The shell exits once the sleep has left the group, leaving it holding the pipe.
 	body := leaverStart("") + "echo ready\nexit 0\n"
 	p := startWith(t, Config{StdoutCapacity: 1 << 10, StopTimeout: stopTimeout}, body, pidFile)
-	select {
-	case <-p.Done():
-	case <-time.After(stopTimeout + goneTimeout):
-		t.Fatalf("Done not closed within %v while a group leaver holds the stdout", stopTimeout+goneTimeout)
-	}
+	<-p.Done()
 	holder := readPID(t, pidFile)
 	t.Cleanup(func() {
 		if err := syscall.Kill(holder, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {

@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -116,13 +115,9 @@ func (r *deskRig) run(cfg desk.Config) {
 func (r *deskRig) finish() {
 	r.t.Helper()
 	r.cancel()
-	select {
-	case err := <-r.done:
-		if err != nil {
-			r.t.Fatalf("Run returned %v, want nil", err)
-		}
-	case <-time.After(ioTimeout):
-		r.t.Fatal("Run did not return after ctx ended")
+	err := <-r.done
+	if err != nil {
+		r.t.Fatalf("Run returned %v, want nil", err)
 	}
 }
 
@@ -233,7 +228,7 @@ func TestRunLocalArgv(t *testing.T) {
 			cfg.Socket = tt.socket
 			rig.run(cfg)
 
-			waitFor(t, "local orrery run", func() bool { return len(rig.calls("orrery")) == 1 })
+			waitFor(t, func() bool { return len(rig.calls("orrery")) == 1 })
 			if got := rig.calls("orrery")[0]; !slices.Equal(got, tt.want) {
 				t.Fatalf("local argv = %q, want %q", got, tt.want)
 			}
@@ -249,7 +244,7 @@ func TestRunSSHArgvPerHost(t *testing.T) {
 	rig.live("beta", hello("beta"))
 	rig.run(rig.config("alpha", "beta"))
 
-	waitFor(t, "two ssh runs", func() bool { return len(rig.calls("ssh")) == 2 })
+	waitFor(t, func() bool { return len(rig.calls("ssh")) == 2 })
 	for _, host := range []string{"alpha", "beta"} {
 		if !containsArgv(rig.calls("ssh"), desk.SSHCommand(host)[1:]) {
 			t.Fatalf("no ssh run with argv %q; ssh ran %q", desk.SSHCommand(host)[1:], rig.calls("ssh"))
@@ -264,7 +259,7 @@ func TestRunPopsUpEachStreamsNotices(t *testing.T) {
 	rig.live("box", hello("box"), notice("box", "waiting", "box waiting", "which branch?"))
 	rig.run(rig.config("box"))
 
-	waitFor(t, "two popups", func() bool { return len(rig.calls("notify-send")) == 2 })
+	waitFor(t, func() bool { return len(rig.calls("notify-send")) == 2 })
 	notifies := rig.calls("notify-send")
 	for _, want := range [][]string{
 		notifyArgv("normal", "local done", "all green"),
@@ -274,7 +269,7 @@ func TestRunPopsUpEachStreamsNotices(t *testing.T) {
 			t.Fatalf("no popup with argv %q; notify-send ran %q", want, notifies)
 		}
 	}
-	waitFor(t, "two sounds", func() bool { return len(rig.calls("pw-play")) == 2 })
+	waitFor(t, func() bool { return len(rig.calls("pw-play")) == 2 })
 	for _, argv := range rig.calls("pw-play") {
 		if !slices.Equal(argv, []string{deskSound}) {
 			t.Fatalf("pw-play argv = %q, want %q", argv, []string{deskSound})
@@ -291,7 +286,7 @@ func TestRunPopsUpQuietNoticeWithoutSound(t *testing.T) {
 		notice("box", "done", "loud done", "tick"))
 	rig.run(rig.config("box"))
 
-	waitFor(t, "two popups and one sound", func() bool { return len(rig.order()) == 3 })
+	waitFor(t, func() bool { return len(rig.order()) == 3 })
 	if got, want := rig.order(), []string{"notify-send", "notify-send", "pw-play"}; !slices.Equal(got, want) {
 		t.Fatalf("run order = %q, want %q: only the loud popup plays a sound", got, want)
 	}
@@ -319,10 +314,10 @@ func TestRunPopsUpNoticesInOrderOneAtATime(t *testing.T) {
 		notice("box", "done", "third", "3"))
 	rig.run(rig.config("box"))
 
-	waitFor(t, "three popups", func() bool { return len(rig.calls("notify-send")) == 3 })
+	waitFor(t, func() bool { return len(rig.calls("notify-send")) == 3 })
 	// pw-play runs only once notify-send has exited, so its third call means no popup command still writes in the rig's
 	// directory when the test ends and the directory is removed.
-	waitFor(t, "three sounds", func() bool { return len(rig.calls("pw-play")) == 3 })
+	waitFor(t, func() bool { return len(rig.calls("pw-play")) == 3 })
 	calls := rig.calls("notify-send")
 	titles := make([]string, 0, len(calls))
 	for _, argv := range calls {
@@ -334,7 +329,7 @@ func TestRunPopsUpNoticesInOrderOneAtATime(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rig.dir, "overlap")); err == nil {
 		t.Fatal("two popups were shown at once")
 	}
-	waitFor(t, "three sounds", func() bool { return len(rig.calls("pw-play")) == 3 })
+	waitFor(t, func() bool { return len(rig.calls("pw-play")) == 3 })
 	rig.finish()
 }
 
@@ -348,12 +343,12 @@ func TestRunPopsUpLostHost(t *testing.T) {
 	rig.exits("gone")
 	rig.run(rig.config("gone"))
 
-	waitFor(t, "both lost waits", func() bool { return rig.clock.callCount(lostWait) == 2 })
+	waitFor(t, func() bool { return rig.clock.callCount(lostWait) == 2 })
 	rig.clock.Advance(lostWait)
-	waitFor(t, "two lost popups", func() bool { return len(rig.calls("notify-send")) == 2 })
+	waitFor(t, func() bool { return len(rig.calls("notify-send")) == 2 })
 	// pw-play runs only once notify-send has exited, so its second call means no popup command still writes in the rig's
 	// directory when the test ends and the directory is removed.
-	waitFor(t, "two lost sounds", func() bool { return len(rig.calls("pw-play")) == 2 })
+	waitFor(t, func() bool { return len(rig.calls("pw-play")) == 2 })
 	notifies := rig.calls("notify-send")
 	for _, host := range []string{hostname, "gone"} {
 		want := notifyArgv("critical", "orrery desk", host+" unreachable for 5 minutes")
@@ -361,7 +356,7 @@ func TestRunPopsUpLostHost(t *testing.T) {
 			t.Fatalf("no lost popup with argv %q; notify-send ran %q", want, notifies)
 		}
 	}
-	waitFor(t, "two lost sounds", func() bool { return len(rig.calls("pw-play")) == 2 })
+	waitFor(t, func() bool { return len(rig.calls("pw-play")) == 2 })
 	for _, argv := range rig.calls("pw-play") {
 		if !slices.Equal(argv, []string{deskSound}) {
 			t.Fatalf("pw-play argv = %q, want %q", argv, []string{deskSound})

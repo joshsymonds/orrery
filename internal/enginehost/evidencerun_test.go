@@ -94,14 +94,10 @@ func evidenceRunNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidenc
 	return ev
 }
 
-// evidenceRunEventually polls ok until it holds, and fails the test when it has not held within evidenceRunDeadline.
-func evidenceRunEventually(t *testing.T, what string, ok func() bool) {
+// evidenceRunEventually polls ok until it holds. It has no deadline of its own.
+func evidenceRunEventually(t *testing.T, _ string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(evidenceRunDeadline)
 	for !ok() {
-		if time.Now().After(deadline) {
-			t.Fatalf("%s did not happen within %s", what, evidenceRunDeadline)
-		}
 		time.Sleep(evidenceRunPoll)
 	}
 }

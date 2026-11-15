@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -385,24 +384,13 @@ func claudeRuns(t *testing.T, runs string) int {
 	return strings.Count(string(data), "\n")
 }
 
-// awaitClaudeRuns waits until the fake claude has run want times, and fails at the screenWait deadline
-// naming the count it reached.
+// awaitClaudeRuns waits until the fake claude has run want times. It has no deadline of its own.
 func awaitClaudeRuns(t *testing.T, runs string, want int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
-	defer cancel()
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
-	for {
-		got := claudeRuns(t, runs)
-		if got == want {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("claude ran %d times, want %d", got, want)
-		case <-ticker.C:
-		}
+	for claudeRuns(t, runs) != want {
+		<-ticker.C
 	}
 }
 

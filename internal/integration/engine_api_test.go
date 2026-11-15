@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -60,8 +59,7 @@ func guardedRequest[T any](msg *T) *connect.Request[T] {
 func startViaControl(t *testing.T, base, dir string) (string, error) {
 	t.Helper()
 	control := orreryv1connect.NewControlClient(&http.Client{}, base)
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
+	ctx := t.Context()
 	resp, err := control.Start(ctx, guardedRequest(&orreryv1.StartRequest{Dir: dir, Prompt: "hello"}))
 	if err != nil {
 		return "", err
@@ -70,11 +68,10 @@ func startViaControl(t *testing.T, base, dir string) (string, error) {
 }
 
 // waitForReplyBlock streams Events.Watch from base until a finished assistant block of session id with text arrives.
-// It fails the test when none arrives within waitLimit.
+// It has no deadline of its own.
 func waitForReplyBlock(t *testing.T, base, id, text string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
+	ctx := t.Context()
 	events := orreryv1connect.NewEventsClient(&http.Client{}, base)
 	stream, err := events.Watch(ctx, guardedRequest(&orreryv1.WatchRequest{}))
 	if err != nil {

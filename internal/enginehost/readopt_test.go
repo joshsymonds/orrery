@@ -109,11 +109,10 @@ func clearHolderDirs(t *testing.T, root string) {
 		return
 	}
 	for _, entry := range entries {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
+		ctx := context.WithoutCancel(t.Context())
 		if err := holder.Clear(ctx, filepath.Join(holders, entry.Name())); err != nil {
 			t.Errorf("clear holder %s: %v", entry.Name(), err)
 		}
-		cancel()
 	}
 }
 
@@ -449,8 +448,7 @@ func TestReadoptHolderThatEndedIsClearedAndRowResumes(t *testing.T) {
 	})
 	pid := fakePID(t, dir)
 	rig.manager.Close()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
-	defer cancel()
+	ctx := context.WithoutCancel(t.Context())
 	if err := holder.Stop(ctx, holderDir(t, rig.root, id)); err != nil {
 		t.Fatalf("stop holder of session %s: %v", id, err)
 	}

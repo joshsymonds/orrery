@@ -73,11 +73,13 @@ func Run(ctx context.Context, probe Probe, cmd Command, sinks Sinks) (Outcome, e
 		uuids++
 		return fmt.Sprintf(format, uuids), nil
 	}))
-	session := &runSession{probe: probe, process: process, conn: conn, input: input}
-	timer := time.NewTimer(cmd.Timeout)
-	defer timer.Stop()
+	after := cmd.After
+	if after == nil {
+		after = time.After
+	}
+	session := &runSession{probe: probe, process: process, conn: conn, input: input, after: after}
 
-	playErr := session.play(ctx, timer.C)
+	playErr := session.play(ctx, after(cmd.Timeout))
 	stopErr := process.Stop()
 	closeErr := conn.Close()
 	outcome := Outcome{
@@ -165,6 +167,7 @@ type runSession struct {
 	results     int
 	interrupted bool
 	timedOut    bool
+	after       func(time.Duration) <-chan time.Time
 	linger      <-chan time.Time
 	answered    []string
 	unanswered  []string
@@ -383,7 +386,7 @@ func (session *runSession) endPrompts() error {
 		return session.input.Close()
 	}
 	if session.linger == nil {
-		session.linger = time.After(session.probe.Linger)
+		session.linger = session.after(session.probe.Linger)
 	}
 	return nil
 }

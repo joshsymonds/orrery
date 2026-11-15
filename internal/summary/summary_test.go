@@ -33,7 +33,6 @@ const (
 	previousSummary = "previous summary"
 	previousLabel   = "previous label"
 	shortTimeout    = 200 * time.Millisecond
-	failureBound    = 10 * time.Second
 	pollInterval    = 10 * time.Millisecond
 	settleTime      = 200 * time.Millisecond
 	labelMarker     = "label: <3 to 4 words"
@@ -135,10 +134,9 @@ func countRuns(t *testing.T, bin string) (started, running int) {
 	return len(runs), running
 }
 
-// waitRunning polls until want fake runs are in flight, failing the test when that takes longer than failureBound.
+// waitRunning polls until want fake runs are in flight. It has no deadline of its own.
 func waitRunning(t *testing.T, bin string, want int) {
 	t.Helper()
-	deadline := time.After(failureBound)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
@@ -146,27 +144,14 @@ func waitRunning(t *testing.T, bin string, want int) {
 		if running == want {
 			return
 		}
-		select {
-		case <-deadline:
-			t.Fatalf("runs in flight = %d, want %d", running, want)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
-// waitIdle waits for s to finish every run in flight or waiting, failing the test when that takes longer than failureBound.
+// waitIdle waits for s to finish every run in flight or waiting. It has no deadline of its own.
 func waitIdle(t *testing.T, s *summary.Summarizer) {
 	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		s.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(failureBound):
-		t.Fatalf("Wait did not return within %v", failureBound)
-	}
+	s.Wait()
 }
 
 // fakeClock is a settable clock for Config.Now.

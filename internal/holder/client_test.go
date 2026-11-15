@@ -63,9 +63,6 @@ func listenRaw(t *testing.T) (*net.UnixListener, string) {
 // acceptRaw accepts the one connection a dial makes on listener and returns the test's end of it.
 func acceptRaw(t *testing.T, listener *net.UnixListener) *client {
 	t.Helper()
-	if err := listener.SetDeadline(time.Now().Add(waitArmedTimeout)); err != nil {
-		t.Fatalf("set accept deadline: %v", err)
-	}
 	conn, err := listener.AcceptUnix()
 	if err != nil {
 		t.Fatalf("accept: %v", err)

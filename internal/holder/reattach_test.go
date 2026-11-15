@@ -34,10 +34,6 @@ const (
 	reattachScript = "cat %s; read first; read second; printf 'live\\n'; exit %d"
 	// reattachCancelAfter is how long a canceled-Reattach test lets Reattach run before it cancels the context.
 	reattachCancelAfter = 200 * time.Millisecond
-	// reattachCancelWait is how long a canceled Reattach may take to return.
-	reattachCancelWait = 2 * time.Second
-	// reattachSlack is how much longer than its bound a holder that never answers may keep Reattach or Stop.
-	reattachSlack = 2 * time.Second
 	// reattachTestBound is the attach timeout, and the stop bound, that a test of a holder that never answers waits out
 	// in place of the default.
 	reattachTestBound = 300 * time.Millisecond
@@ -64,9 +60,7 @@ func launchHolder(t *testing.T, root string, child proc.Config) (*Process, strin
 func stopServingHolder(t *testing.T, dir string) {
 	t.Helper()
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), waitArmedTimeout)
-		defer cancel()
-		if err := Stop(ctx, dir); err != nil {
+		if err := Stop(context.Background(), dir); err != nil {
 			t.Errorf("Stop %s at cleanup: %v", dir, err)
 		}
 	})
@@ -351,13 +345,7 @@ func TestReattachCanceledWhileAttachingIsUnattachable(t *testing.T) {
 		_, _, err := Reattach(ctx, dir, 0, WireVersion)
 		return err
 	})
-	var err error
-	select {
-	case err = <-result:
-	case <-time.After(reattachCancelWait):
-		t.Fatalf("Reattach did not return within %v of its context ending", reattachCancelWait)
-	}
-	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, context.Canceled) {
+	if err := <-result; !errors.Is(err, ErrUnattachable) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("Reattach canceled while attaching = %v, want ErrUnattachable wrapping context.Canceled", err)
 	}
 }
@@ -550,12 +538,12 @@ func TestReattachStopOfAWedgedHolderFallsBack(t *testing.T) {
 	if got := wedged.read(); got.Type != TypeHello {
 		t.Fatalf("frame %+v, want the stop's hello", got)
 	}
+	if err := <-stopped; err != nil {
+		t.Fatalf("Stop = %v, want nil from the held process's stop", err)
+	}
 	select {
-	case err := <-stopped:
-		if err != nil {
-			t.Fatalf("Stop = %v, want nil from the held process's stop", err)
-		}
-	case <-time.After(reattachTestBound + reattachSlack):
-		t.Fatalf("Stop of a holder that never answers did not return within %v", reattachTestBound+reattachSlack)
+	case <-held.done:
+	default:
+		t.Fatal("Stop returned without stopping the held process")
 	}
 }

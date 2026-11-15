@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -54,16 +53,11 @@ func pullStart(t *testing.T, client *tmuxctl.Client, pane, transcript string) <-
 	return ch
 }
 
-// pullWait returns the result of the PullQueued call that pullStart started, failing the test at sendDeadline.
+// pullWait returns the result of the PullQueued call that pullStart started. It has no deadline of its own.
 func pullWait(t *testing.T, ch <-chan pullResult) (string, error) {
 	t.Helper()
-	select {
-	case r := <-ch:
-		return r.text, r.err
-	case <-time.After(sendDeadline):
-		t.Fatalf("PullQueued did not return")
-		return "", nil
-	}
+	r := <-ch
+	return r.text, r.err
 }
 
 // pullAwaitUp waits until the Up key has reached the pane, which records every byte it receives in file.

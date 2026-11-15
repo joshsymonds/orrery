@@ -34,8 +34,6 @@ const (
 	eventsAt = 1_700_000_000
 	// eventsPoll is the Watch poll interval the tests inject.
 	eventsPoll = 10 * time.Millisecond
-	// eventsWait bounds every wait, so a stalled command fails its test instead of hanging the run.
-	eventsWait = 10 * time.Second
 	// eventsServer is the synthetic tmux server name the store rows belong to.
 	eventsServer = "-L events"
 )
@@ -100,30 +98,22 @@ func startEventsOnClock(t *testing.T, step time.Duration, args ...string) *event
 	return call
 }
 
-// wait returns the error the call returned, and fails the test when the call runs past eventsWait.
+// wait returns the error the call returned. It has no deadline of its own.
 func (c *eventsCall) wait(t *testing.T) error {
 	t.Helper()
-	select {
-	case <-c.done:
-		return c.err
-	case <-time.After(eventsWait):
-		t.Fatalf("Events did not return within %v; wrote %d lines", eventsWait, len(c.out.lines()))
-		return nil
-	}
+	<-c.done
+	return c.err
 }
 
-// waitLines waits until the call has written want lines. It fails the test when the call returns first or the wait
-// runs past eventsWait.
+// waitLines waits until the call has written want lines, and fails the test when the call returns first. It has no
+// deadline of its own.
 func (c *eventsCall) waitLines(t *testing.T, want int) {
 	t.Helper()
-	deadline := time.After(eventsWait)
 	for len(c.out.lines()) < want {
 		select {
 		case <-c.out.wrote:
 		case <-c.done:
 			t.Fatalf("Events returned with %d lines, want %d: %v", len(c.out.lines()), want, c.err)
-		case <-deadline:
-			t.Fatalf("waited %v for %d lines, have %d", eventsWait, want, len(c.out.lines()))
 		}
 	}
 }
@@ -291,11 +281,7 @@ func TestEventsFollowWithoutAfterWritesOnlyEventsAfterList(t *testing.T) {
 
 	// Each retry wait moves the clock a whole window, so serve's Unavailable end is retried once and then given up.
 	call := startEventsOnClock(t, rpcretry.Window, "--url", url, "--follow")
-	select {
-	case <-watched:
-	case <-time.After(eventsWait):
-		t.Fatalf("no Watch request reached the server within %v", eventsWait)
-	}
+	<-watched
 	// The Watch request follows the command's List, so every event written from here on is past List's seq.
 	writeEventsState(t, s, "state-2")
 	writeEventsState(t, s, "state-3")

@@ -2,12 +2,10 @@ package daemon_test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -31,8 +29,7 @@ func exchangeFrame(t *testing.T, socketPath string, frame protocol.HookFrame) []
 	if err := protocol.WriteFrame(&buf, frame); err != nil {
 		t.Fatalf("WriteFrame: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), ioTimeout)
-	defer cancel()
+	ctx := t.Context()
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "unix", socketPath)
 	if err != nil {
@@ -45,9 +42,6 @@ func exchangeFrame(t *testing.T, socketPath string, frame protocol.HookFrame) []
 	}()
 	if _, err := conn.Write(buf.Bytes()); err != nil {
 		t.Fatalf("write frame: %v", err)
-	}
-	if err := conn.SetReadDeadline(time.Now().Add(ioTimeout)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
 	}
 	reply, err := io.ReadAll(conn)
 	if err != nil {

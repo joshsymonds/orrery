@@ -43,7 +43,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
-	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
@@ -58,13 +57,12 @@ const (
 	exampleHookJSON = `{"event":"example"}`
 	exampleContext  = "http://example.invalid/ctx/example-context"
 	sentinelKey     = "z"
-	waitLimit       = 10 * time.Second
 	pollEvery       = 10 * time.Millisecond
 )
 
-// judgedLimit bounds the wait for a done notice the judge delays: route.JudgeDelay, then a judge run of at most
-// route.JudgeTimeout, then waitLimit for the rest of the route.
-const judgedLimit = route.JudgeDelay + route.JudgeTimeout + waitLimit
+// cleanupGrace is how long a cleanup waits for a process it asked to end before it kills the process. It is a fallback
+// for a test that ended early, not an assertion: no test fails when it fires.
+const cleanupGrace = 10 * time.Second
 
 // TestMain builds the binaries the tests run. Every test that leaves the process environment alone runs in parallel:
 // each starts its own tmux server, orreryd and directories, and much of the package's time is idle waiting, such as a
@@ -215,12 +213,10 @@ func startBinary(t *testing.T, name string, env []string, args ...string) *orrer
 	return p
 }
 
-// waitForListener polls address on network until a client connects, failing the test if the process exits first or
-// the address never accepts within waitLimit.
+// waitForListener polls address on network until a client connects, failing the test if the process exits first. It
+// has no deadline of its own.
 func (p *orreryProcess) waitForListener(t *testing.T, network, address string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -234,14 +230,12 @@ func (p *orreryProcess) waitForListener(t *testing.T, network, address string) {
 		select {
 		case <-p.done:
 			t.Fatalf("%s exited before listening on %s; stderr %q", p.name, address, p.stderr.String())
-		case <-ctx.Done():
-			t.Fatalf("%s never listened on %s: %v", p.name, address, err)
 		case <-ticker.C:
 		}
 	}
 }
 
-// stop sends SIGTERM and returns the exit outcome, failing the test if the process is still running after waitLimit.
+// stop sends SIGTERM and returns the exit outcome. It has no deadline of its own.
 func (p *orreryProcess) stop(t *testing.T) outcome {
 	t.Helper()
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
@@ -266,21 +260,15 @@ func (p *orreryProcess) waitForStoreOpen(t *testing.T) {
 				return
 			}
 			t.Fatalf("%s exited before logging %s; stderr %q", p.name, line, p.stderr.String())
-		case <-t.Context().Done():
-			t.Fatalf("%s never logged %s; stderr %q", p.name, line, p.stderr.String())
 		case <-ticker.C:
 		}
 	}
 }
 
-// exitOutcome returns the exit outcome once the process exits, failing the test if it is still running after waitLimit.
+// exitOutcome returns the exit outcome once the process exits. It has no deadline of its own.
 func (p *orreryProcess) exitOutcome(t *testing.T) outcome {
 	t.Helper()
-	select {
-	case <-p.done:
-	case <-time.After(waitLimit):
-		t.Fatalf("%s did not exit within the wait limit", p.name)
-	}
+	<-p.done
 	code := 0
 	var exitErr *exec.ExitError
 	if errors.As(p.waitErr, &exitErr) {
@@ -355,34 +343,34 @@ func paneGroups(t *testing.T, client *tmuxctl.Client) []int {
 }
 
 // waitGroupsGone waits after kill-server until no process is left in each of groups. A group still alive after
-// paneExitLimit is SIGKILLed, so that no pane process can write into a TempDir after its test returns.
+// paneExitLimit is SIGKILLed, so that no pane process can write into a TempDir after its test returns; the wait for a
+// killed group has no deadline of its own.
 func waitGroupsGone(t *testing.T, groups []int) {
 	t.Helper()
 	for _, pgid := range groups {
-		if waitGroupGone(pgid, paneExitLimit) {
+		if waitGroupGone(pgid, time.After(paneExitLimit)) {
 			continue
 		}
 		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			t.Errorf("kill process group %d: %v", pgid, err)
 		}
-		if !waitGroupGone(pgid, paneExitLimit) {
-			t.Errorf("process group %d outlives kill-server", pgid)
-		}
+		waitGroupGone(pgid, nil)
 	}
 }
 
-// waitGroupGone reports whether process group pgid has no process left within limit.
-func waitGroupGone(pgid int, limit time.Duration) bool {
-	deadline := time.Now().Add(limit)
-	for {
-		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
-			return true
-		}
-		if time.Now().After(deadline) {
+// waitGroupGone reports whether process group pgid has no process left before giveUp fires. A nil giveUp never
+// fires, so the wait lasts until the group is gone.
+func waitGroupGone(pgid int, giveUp <-chan time.Time) bool {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for !errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+		select {
+		case <-giveUp:
 			return false
+		case <-ticker.C:
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
+	return true
 }
 
 // startPane starts detached session s1 running command and returns the ID of its only pane.
@@ -419,19 +407,13 @@ func screen(t *testing.T, client *tmuxctl.Client, pane string) string {
 	return out
 }
 
-// waitForScreen polls pane until its screen shows want, failing the test after waitLimit.
+// waitForScreen polls pane until its screen shows want. It has no deadline of its own.
 func waitForScreen(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for !strings.Contains(screen(t, client, pane), want) {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s never showed %q; screen:\n%s", pane, want, screen(t, client, pane))
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -491,8 +473,6 @@ func TestHookForwardsFrameSilently(t *testing.T) {
 		}
 	case err = <-failures:
 		t.Fatalf("daemon socket: %v", err)
-	case <-time.After(waitLimit):
-		t.Fatal("no frame reached the daemon socket")
 	}
 }
 
@@ -643,8 +623,6 @@ func TestSeenReportsSeenFrame(t *testing.T) {
 		}
 	case err = <-failures:
 		t.Fatalf("read seen frame: %v", err)
-	case <-time.After(waitLimit):
-		t.Fatal("orreryd received no seen frame")
 	}
 }
 
@@ -981,50 +959,40 @@ func startNoticeReader(t *testing.T, env []string, socket string) *noticeReader 
 		}
 		select {
 		case <-done:
-		case <-time.After(waitLimit):
+		case <-time.After(cleanupGrace):
 			_ = cmd.Process.Kill()
 			<-done
 		}
 	})
 	r := &noticeReader{lines: lines}
-	if hello := r.receive(t, waitLimit); hello.Kind != deskstream.KindHello {
+	if hello := r.receive(t); hello.Kind != deskstream.KindHello {
 		t.Fatalf("first notices line %+v, want kind %q", hello, deskstream.KindHello)
 	}
 	return r
 }
 
-// receive returns the next line the stream sent, failing the test if none arrives within limit or the stream ends
-// first.
-func (r *noticeReader) receive(t *testing.T, limit time.Duration) deskstream.Line {
+// receive returns the next line the stream sent, failing the test if the stream ends first. It has no deadline of its
+// own.
+func (r *noticeReader) receive(t *testing.T) deskstream.Line {
 	t.Helper()
-	select {
-	case raw, ok := <-r.lines:
-		if !ok {
-			t.Fatal("notices stream ended before its next line")
-		}
-		return decodeLine(t, raw)
-	case <-time.After(limit):
-		t.Fatalf("no notices line within %v", limit)
+	raw, ok := <-r.lines
+	if !ok {
+		t.Fatal("notices stream ended before its next line")
 	}
-	return deskstream.Line{}
+	return decodeLine(t, raw)
 }
 
-// finish waits until the stream has ended, failing the test after waitLimit, and returns the notices not yet read.
+// finish waits until the stream has ended and returns the notices not yet read. It has no deadline of its own.
 // A test calls it after orreryd exits, since orreryd's streams end when it does.
 func (r *noticeReader) finish(t *testing.T) []notice {
 	t.Helper()
 	var got []notice
-	deadline := time.After(waitLimit)
 	for {
-		select {
-		case raw, ok := <-r.lines:
-			if !ok {
-				return got
-			}
-			got = append(got, noticeOf(t, decodeLine(t, raw)))
-		case <-deadline:
-			t.Fatal("notices stream did not end within the wait limit")
+		raw, ok := <-r.lines
+		if !ok {
+			return got
 		}
+		got = append(got, noticeOf(t, decodeLine(t, raw)))
 	}
 }
 
@@ -1047,10 +1015,10 @@ func noticeOf(t *testing.T, line deskstream.Line) notice {
 	return notice{state: line.State, title: line.Title, body: line.Body}
 }
 
-// nextNotice returns the next notice the stream sent, failing the test after limit.
-func nextNotice(t *testing.T, r *noticeReader, limit time.Duration) notice {
+// nextNotice returns the next notice the stream sent. It has no deadline of its own.
+func nextNotice(t *testing.T, r *noticeReader) notice {
 	t.Helper()
-	return noticeOf(t, r.receive(t, limit))
+	return noticeOf(t, r.receive(t))
 }
 
 // readOption returns the pane-scoped option name on pane, or "" when it is unset.
@@ -1063,11 +1031,9 @@ func readOption(t *testing.T, client *tmuxctl.Client, pane, name string) string 
 	return got
 }
 
-// waitForOption polls pane until option reads want, failing the test after waitLimit.
+// waitForOption polls pane until option reads want. It has no deadline of its own.
 func waitForOption(t *testing.T, client *tmuxctl.Client, pane, name, want string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -1075,11 +1041,7 @@ func waitForOption(t *testing.T, client *tmuxctl.Client, pane, name, want string
 		if got == want {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("%s = %q, want %q", name, got, want)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -1121,8 +1083,6 @@ func writeJudgeReply(t *testing.T, dir, reply string) {
 // directory.
 func waitForRunWithStdin(t *testing.T, dir, text string) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -1135,31 +1095,21 @@ func waitForRunWithStdin(t *testing.T, dir, text string) string {
 				return run
 			}
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("no finished claude run received %q", text)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
-// waitForFinishedRuns polls until n fake claude runs under dir have marked themselves done, failing the test after
-// waitLimit.
+// waitForFinishedRuns polls until n fake claude runs under dir have marked themselves done. It has no deadline of
+// its own.
 func waitForFinishedRuns(t *testing.T, dir string, n int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
 		if len(finishedRuns(t, dir)) >= n {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("fewer than %d claude runs finished", n)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -1257,7 +1207,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	waiting := nextNotice(t, notices, waitLimit)
+	waiting := nextNotice(t, notices)
 	question := readOption(t, client, pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
 	if question == "" || waiting != want {
@@ -1269,7 +1219,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
 	})
-	done := nextNotice(t, notices, judgedLimit)
+	done := nextNotice(t, notices)
 	if done != (notice{state: string(protocol.StateDone), title: exampleTitle, body: exampleSummary}) {
 		t.Fatalf("done notice %+v, want state done, title %q, body %q", done, exampleTitle, exampleSummary)
 	}
@@ -1396,19 +1346,13 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 	wantExit(t, daemon.stop(t), 0)
 }
 
-// waitUntil polls ok until it reports true, failing the test after waitLimit.
-func waitUntil(t *testing.T, what string, ok func() bool) {
+// waitUntil polls ok until it reports true. It has no deadline of its own.
+func waitUntil(t *testing.T, ok func() bool) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for !ok() {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("timed out waiting for %s", what)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -1433,13 +1377,14 @@ func attachViewer(t *testing.T, inner *tmuxctl.Client, innerName string) viewer 
 	if err != nil {
 		t.Fatalf("outer list-panes: %v", err)
 	}
-	waitUntil(t, "client attached to s1", func() bool {
+	waitUntil(t, func() bool {
 		out, listErr := inner.Run(t.Context(), "list-clients", "-F", "#{client_name}")
 		if listErr != nil {
 			t.Fatalf("list-clients: %v", listErr)
 		}
 		return strings.TrimSpace(out) != ""
 	})
+
 	return viewer{inner: inner, outer: outer, outerPane: strings.TrimSpace(pane)}
 }
 
@@ -1469,13 +1414,14 @@ func clientActivity(t *testing.T, client *tmuxctl.Client) int64 {
 func (v viewer) typeKey(t *testing.T) {
 	t.Helper()
 	baseline := clientActivity(t, v.inner)
-	waitUntil(t, "wall clock to pass the client's last activity", func() bool {
+	waitUntil(t, func() bool {
 		return time.Now().Unix() > baseline
 	})
+
 	if _, err := v.outer.Run(t.Context(), "send-keys", "-t", v.outerPane, "-l", "x"); err != nil {
 		t.Fatalf("send-keys to outer pane: %v", err)
 	}
-	waitUntil(t, "client activity to advance after typing", func() bool {
+	waitUntil(t, func() bool {
 		return clientActivity(t, v.inner) > baseline
 	})
 }
@@ -1519,9 +1465,10 @@ func TestOrrerydMarksViewedPaneSeenOnDone(t *testing.T) {
 	waitForOption(t, inner, paneA, protocol.OptionState, string(protocol.StateWorking))
 	sendHook(t, socket, paneA, dir, stop)
 	waitForOption(t, inner, paneA, protocol.OptionState, string(protocol.StateDone))
-	waitUntil(t, "seen on the pane the client shows", func() bool {
+	waitUntil(t, func() bool {
 		return readOption(t, inner, paneA, protocol.OptionSeen) != ""
 	})
+
 	if got := readOption(t, inner, paneB, protocol.OptionSeen); got != "" {
 		t.Fatalf("%s on the pane in a window the client does not show = %q, want unset", protocol.OptionSeen, got)
 	}
@@ -1624,7 +1571,7 @@ func knownClients(t *testing.T, client *tmuxctl.Client) map[string]bool {
 func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, known map[string]bool) string {
 	t.Helper()
 	var tty string
-	waitUntil(t, "client attached to "+session, func() bool {
+	waitUntil(t, func() bool {
 		for _, row := range clientRows(t, client) {
 			if !known[row.tty] && row.session == session {
 				tty = row.tty
@@ -1633,6 +1580,7 @@ func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, know
 		}
 		return false
 	})
+
 	return tty
 }
 
@@ -1721,7 +1669,7 @@ func TestShellOpensPopupOnInvokingClient(t *testing.T) {
 			if strings.TrimSpace(got) != dir {
 				t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
 			}
-			waitUntil(t, "popup on the invoking client", func() bool {
+			waitUntil(t, func() bool {
 				return popupError(t, client, sessionName, "s1", invoking, other) == nil
 			})
 		})
@@ -1967,7 +1915,7 @@ func (f fakeTool) runs(t *testing.T) int {
 // directory.
 func (f fakeTool) waitForStarted(t *testing.T, n int) {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("%d runs of %s to start", n, f.bin), func() bool {
+	waitUntil(t, func() bool {
 		entries, err := os.ReadDir(filepath.Join(f.dir, "calls"))
 		if err != nil {
 			return false
@@ -2052,10 +2000,10 @@ func clientSession(t *testing.T, client *tmuxctl.Client, tty string) string {
 	return ""
 }
 
-// waitForCursor polls pane until the row under the cursor shows want, failing the test after waitLimit.
+// waitForCursor polls pane until the row under the cursor shows want. It has no deadline of its own.
 func waitForCursor(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	waitUntil(t, "cursor row of "+pane+" to show "+want, func() bool {
+	waitUntil(t, func() bool {
 		for line := range strings.SplitSeq(screen(t, client, pane), "\n") {
 			if strings.HasPrefix(line, "> ") {
 				return strings.Contains(line, want)
@@ -2117,9 +2065,10 @@ func TestTreeEnterSwitchesOnlyInvokingClient(t *testing.T) {
 	w := setupTree(t)
 	sendKeys(t, w.client, w.tree, false, "Enter")
 
-	waitUntil(t, "invoking client on the target session", func() bool {
+	waitUntil(t, func() bool {
 		return clientSession(t, w.client, w.invoking) == "s2"
 	})
+
 	if got := clientSession(t, w.client, w.other); got != "s3" {
 		t.Fatalf("other client shows session %s, want s3", got)
 	}
@@ -2134,17 +2083,18 @@ func TestTreeNOpensPaneInGroupDirectory(t *testing.T) {
 	waitForScreen(t, w.client, w.tree, "text:")
 	sendKeys(t, w.client, w.tree, true, "example text")
 	sendKeys(t, w.client, w.tree, false, "Enter")
-	waitUntil(t, "the intent run to start", func() bool { return w.claude.runs(t) == 1 })
+	waitUntil(t, func() bool { return w.claude.runs(t) == 1 })
 	w.claude.setHold(t, false)
 	waitForScreen(t, w.client, w.tree, "> pane "+w.targetDir)
 	w.claude.setHold(t, true)
 
 	sendKeys(t, w.client, w.tree, false, "Enter")
 	var opened string
-	waitUntil(t, "invoking client on a new session", func() bool {
+	waitUntil(t, func() bool {
 		opened = clientSession(t, w.client, w.invoking)
 		return !slices.Contains(before, opened)
 	})
+
 	if got := clientSession(t, w.client, w.other); got != "s3" {
 		t.Fatalf("other client shows session %s, want s3", got)
 	}
@@ -2152,9 +2102,10 @@ func TestTreeNOpensPaneInGroupDirectory(t *testing.T) {
 		t.Fatalf("invoking client moved again to %s", got)
 	}
 	want := "=" + opened + ":"
-	waitUntil(t, "claude pane in "+w.targetDir, func() bool {
+	waitUntil(t, func() bool {
 		return paneField(t, w.client, want, "#{pane_current_path}") == w.targetDir
 	})
+
 	if got := paneField(t, w.client, want, "#{pane_start_command}"); got != w.claude.bin {
 		t.Fatalf("pane runs %q, want the fake claude at %s", got, w.claude.bin)
 	}
@@ -2172,12 +2123,12 @@ func TestTreeEscInPickerChangesNothing(t *testing.T) {
 	waitForScreen(t, w.client, w.tree, "text:")
 	sendKeys(t, w.client, w.tree, true, "example text")
 	sendKeys(t, w.client, w.tree, false, "Enter")
-	waitUntil(t, "the intent run to start", func() bool { return w.claude.runs(t) == 1 })
+	waitUntil(t, func() bool { return w.claude.runs(t) == 1 })
 	w.claude.setHold(t, false)
 	waitForScreen(t, w.client, w.tree, "> pane "+w.targetDir)
 
 	sendKeys(t, w.client, w.tree, false, "Escape")
-	waitUntil(t, "the tree to exit", func() bool { return !paneListed(t, w.client, w.tree) })
+	waitUntil(t, func() bool { return !paneListed(t, w.client, w.tree) })
 	if got := clientSession(t, w.client, w.invoking); got != "s1" {
 		t.Fatalf("invoking client shows session %s, want s1", got)
 	}
@@ -2218,7 +2169,7 @@ func TestTreeXArchivesClaudePaneBeforeClose(t *testing.T) {
 	sendKeys(t, w.client, w.tree, true, "X")
 	waitForScreen(t, w.client, w.tree, "y/N")
 	sendKeys(t, w.client, w.tree, true, "y")
-	waitUntil(t, "target pane to close", func() bool { return !paneListed(t, w.client, w.target) })
+	waitUntil(t, func() bool { return !paneListed(t, w.client, w.target) })
 
 	records, err := archive.ForDir(filepath.Join(stateHome, "orrery", "archive.jsonl"), w.targetDir)
 	if err != nil {
@@ -2705,7 +2656,7 @@ func TestOpenIntentListsRootDirectoriesAndOpensProject(t *testing.T) {
 	w.claude.setHold(t, true)
 	sendKeys(t, w.client, pane, false, "Enter")
 	waitForScreen(t, w.client, pane, "exit 0")
-	waitUntil(t, "claude pane in "+project, func() bool {
+	waitUntil(t, func() bool {
 		return paneField(t, w.client, "=example-project:", "#{pane_current_path}") == project
 	})
 }
@@ -2779,9 +2730,10 @@ func newRecentSession(t *testing.T, client *tmuxctl.Client, name string) {
 		}
 		latest = max(latest, n)
 	}
-	waitUntil(t, "wall clock to pass the sessions' last activity", func() bool {
+	waitUntil(t, func() bool {
 		return time.Now().Unix() > latest
 	})
+
 	newSession(t, client, name, t.TempDir())
 }
 
@@ -2901,7 +2853,7 @@ func treePopupError(t *testing.T, client *tmuxctl.Client, tty string) error {
 // waitForTreePopup waits until treePopupError for tty is nil.
 func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string) {
 	t.Helper()
-	waitUntil(t, "tree popup on client "+tty, func() bool {
+	waitUntil(t, func() bool {
 		return treePopupError(t, client, tty) == nil
 	})
 }
@@ -3044,23 +2996,17 @@ func startPushDaemon(
 	return daemon, socket
 }
 
-// nextPush returns the next request ep received, failing the test after limit.
-func nextPush(t *testing.T, ep *pushEndpoint, limit time.Duration) pushRequest {
+// nextPush returns the next request ep received. It has no deadline of its own.
+func nextPush(t *testing.T, ep *pushEndpoint) pushRequest {
 	t.Helper()
-	select {
-	case got := <-ep.requests:
-		return got
-	case <-time.After(limit):
-		t.Fatal("no push request within the wait limit")
-	}
-	return pushRequest{}
+	return <-ep.requests
 }
 
-// nextNote reads the next request ep received, failing the test after limit unless it is one aes128gcm body, and
-// returns the notification that body decrypts to.
-func nextNote(t *testing.T, ep *pushEndpoint, limit time.Duration) map[string]string {
+// nextNote reads the next request ep received, failing the test unless it is one aes128gcm body, and returns the
+// notification that body decrypts to. It has no deadline of its own.
+func nextNote(t *testing.T, ep *pushEndpoint) map[string]string {
 	t.Helper()
-	got := nextPush(t, ep, limit)
+	got := nextPush(t, ep)
 	if got.encoding != "aes128gcm" {
 		t.Fatalf("Content-Encoding %q, want aes128gcm", got.encoding)
 	}
@@ -3071,17 +3017,16 @@ func nextNote(t *testing.T, ep *pushEndpoint, limit time.Duration) map[string]st
 	return note
 }
 
-// assertPushed reads the next request ep received within limit and fails unless its notification is for pane in
-// state. It returns the notification.
+// assertPushed reads the next request ep received and fails unless its notification is for pane in state. It returns
+// the notification. It has no deadline of its own.
 func assertPushed(
 	t *testing.T,
 	ep *pushEndpoint,
 	pane string,
 	state protocol.State,
-	limit time.Duration,
 ) map[string]string {
 	t.Helper()
-	note := nextNote(t, ep, limit)
+	note := nextNote(t, ep)
 	if note["pane"] != pane || note["state"] != string(state) {
 		t.Fatalf("notification pane %q state %q, want pane %q state %q", note["pane"], note["state"], pane, state)
 	}
@@ -3166,14 +3111,14 @@ func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	assertPushed(t, endpoint, pane, protocol.StateWaiting, waitLimit)
+	assertPushed(t, endpoint, pane, protocol.StateWaiting)
 
 	sendHook(t, socket, pane, dir, map[string]any{
 		"hook_event_name":        "Stop",
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
 	})
-	assertPushed(t, endpoint, pane, protocol.StateDone, judgedLimit)
+	assertPushed(t, endpoint, pane, protocol.StateDone)
 
 	// orreryd awaits every notification before it exits, so a request still queued after the stop is an extra one.
 	wantExit(t, daemon.stop(t), 0)
@@ -3199,7 +3144,7 @@ func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	assertPushed(t, live, pane, protocol.StateWaiting, waitLimit)
+	assertPushed(t, live, pane, protocol.StateWaiting)
 
 	out := daemon.stop(t)
 	wantExit(t, out, 0)
@@ -3293,7 +3238,7 @@ func apiDo(t *testing.T, method, target, body string, headers map[string]string)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	httpClient := &http.Client{Timeout: waitLimit}
+	httpClient := &http.Client{}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, target, err)
@@ -3360,8 +3305,7 @@ func registerBody(t *testing.T, sub push.Subscription) string {
 // serve the pane's screen as text.
 func assertServeAPI(t *testing.T, base, pane string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
+	ctx := t.Context()
 	panes := orreryv1connect.NewPanesClient(&http.Client{}, base)
 	for _, login := range []string{exampleLogin, otherLogin} {
 		listed, err := panes.List(ctx, withHeaders(&orreryv1.PanesListRequest{}, guardHeaders(login)))

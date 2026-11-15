@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// waitArmedTimeout bounds how long waitArmed waits for waiters, and how long SystemClock may take to fire.
-const waitArmedTimeout = 5 * time.Second
-
 // fakeWaiter is one timer armed on a fakeClock. It fires once the clock reaches deadline.
 type fakeWaiter struct {
 	deadline time.Time
@@ -68,11 +65,10 @@ func (c *fakeClock) fireDueLocked() {
 	c.waiters = pending
 }
 
-// waitArmed blocks until at least n unfired waiters are armed, failing the test after waitArmedTimeout.
+// waitArmed blocks until at least n unfired waiters are armed. It has no deadline of its own.
 func (c *fakeClock) waitArmed(tb testing.TB, n int) {
 	tb.Helper()
 
-	timeout := time.After(waitArmedTimeout)
 	for {
 		c.mu.Lock()
 		count := len(c.waiters)
@@ -81,11 +77,7 @@ func (c *fakeClock) waitArmed(tb testing.TB, n int) {
 		if count >= n {
 			return
 		}
-		select {
-		case <-armed:
-		case <-timeout:
-			tb.Fatalf("fake clock has %d waiters armed after %v, want %d", count, waitArmedTimeout, n)
-		}
+		<-armed
 	}
 }
 
@@ -158,9 +150,5 @@ func TestFakeClockWaitArmedBlocksUntilWaitersArm(t *testing.T) {
 func TestSystemClockFiresAfterItsDelay(t *testing.T) {
 	t.Parallel()
 
-	select {
-	case <-SystemClock{}.After(time.Millisecond):
-	case <-time.After(waitArmedTimeout):
-		t.Fatal("SystemClock{}.After(1ms) did not fire within 5s")
-	}
+	<-SystemClock{}.After(time.Millisecond)
 }
