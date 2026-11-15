@@ -78,6 +78,15 @@ type LimitNotices struct {
 	known map[notice.Key][]string
 	// read is set once the marks have been read. Until then a check reads them and reports nothing.
 	read bool
+	// unstored holds each change to a mark that the store refused, by limit. Each check writes them again before it
+	// reads the steps, and a change the store takes leaves the map. known already holds the change.
+	unstored map[notice.Key]markChange
+}
+
+// markChange is one write to a limit's mark: forget removes the mark, and otherwise the mark names ids.
+type markChange struct {
+	ids    []string
+	forget bool
 }
 
 // NewLimitNotices returns a LimitNotices for cfg.
@@ -85,7 +94,9 @@ func NewLimitNotices(cfg LimitNoticesConfig) *LimitNotices {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &LimitNotices{cfg: cfg, known: make(map[notice.Key][]string)}
+	return &LimitNotices{
+		cfg: cfg, known: make(map[notice.Key][]string), unstored: make(map[notice.Key]markChange),
+	}
 }
 
 // Run checks the limited steps at start and at each tick until ctx ends. The check at start reads the marks first, so
@@ -116,11 +127,15 @@ type limitGroup struct {
 	ids    []string
 }
 
-// check reads the marks until they are read, then the limited steps, and reports the changes since the last check. A
-// failed read is logged, and the check changes nothing.
+// check reads the marks until they are read, writes the mark changes the store refused before, then reads the limited
+// steps and reports the changes since the last check. A failed read is logged, and the check changes nothing else.
 func (l *LimitNotices) check(ctx context.Context) {
 	if !l.read && !l.readMarks(ctx) {
 		return
+	}
+	markCtx := context.WithoutCancel(ctx)
+	for _, key := range sortedLimitKeys(l.unstored) {
+		l.storeMark(markCtx, key, l.unstored[key])
 	}
 	rows, err := l.cfg.Steps.LimitedSteps(ctx)
 	if err != nil {
@@ -175,8 +190,8 @@ func resetUnix(resets time.Time) int64 {
 // update brings the marks to groups. A group whose step ids differ from its mark is told as one notice, and marked with
 // its ids. A marked limit with no group has emptied: it is seen, and its mark is forgotten. The Router takes a notice
 // whatever ctx's cancellation, so the mark writes ignore it too: a stop landing after a notice still marks it, and the
-// next start does not tell it again. A failed write of a mark is logged, and the mark is kept in memory either way, so
-// the check does not tell or see the limit again.
+// next start does not tell it again. The mark is kept in memory either way, so the check does not tell or see the
+// limit again, and a write the store refuses is logged and written again at each later check until it is stored.
 func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitGroup) {
 	markCtx := context.WithoutCancel(ctx)
 	for _, key := range sortedLimitKeys(groups) {
@@ -187,9 +202,7 @@ func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitG
 		}
 		l.cfg.Route.Notify(ctx, limitRouted(group))
 		l.known[key] = ids
-		if err := l.cfg.Told.TellLimit(markCtx, key.Limit, ids); err != nil {
-			l.cfg.Logger.ErrorContext(ctx, "mark limit told", "limit", key.Limit, "error", err)
-		}
+		l.storeMark(markCtx, key, markChange{ids: ids})
 	}
 	now := l.cfg.Now().Unix()
 	for _, key := range sortedLimitKeys(l.known) {
@@ -198,10 +211,26 @@ func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitG
 		}
 		delete(l.known, key)
 		l.cfg.Route.Seen(ctx, key, now)
-		if err := l.cfg.Told.ForgetLimit(markCtx, key.Limit); err != nil {
+		l.storeMark(markCtx, key, markChange{forget: true})
+	}
+}
+
+// storeMark writes change to key's mark. A write the store refuses is logged and kept in unstored, replacing any
+// earlier change of the same limit, and a stored write leaves unstored.
+func (l *LimitNotices) storeMark(ctx context.Context, key notice.Key, change markChange) {
+	var err error
+	if change.forget {
+		if err = l.cfg.Told.ForgetLimit(ctx, key.Limit); err != nil {
 			l.cfg.Logger.ErrorContext(ctx, "forget limit told", "limit", key.Limit, "error", err)
 		}
+	} else if err = l.cfg.Told.TellLimit(ctx, key.Limit, change.ids); err != nil {
+		l.cfg.Logger.ErrorContext(ctx, "mark limit told", "limit", key.Limit, "error", err)
 	}
+	if err != nil {
+		l.unstored[key] = change
+		return
+	}
+	delete(l.unstored, key)
 }
 
 // sortedLimitKeys returns the keys of m in order of their limit names.

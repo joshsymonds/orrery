@@ -17,6 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -62,6 +63,13 @@ var pullHistory = regexp.MustCompile(`(?m)^\s*History \d+/\d+`)
 // sends one Down first if Claude Code shows its history indicator. Once Up is sent, the call runs to the end even
 // when ctx is done. If emptying the box fails, the taken text is returned with the error, so the caller can keep it.
 func PullQueued(ctx context.Context, client *tmuxctl.Client, pane, transcript string) (string, error) {
+	return pullQueuedWithClock(ctx, rpcretry.SystemClock{}, client, pane, transcript)
+}
+
+// pullQueuedWithClock is PullQueued with the clock that times the wait for the popAll records.
+func pullQueuedWithClock(
+	ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, transcript string,
+) (string, error) {
 	idle, err := pullBoxIdle(ctx, client, pane)
 	if err != nil {
 		return "", err
@@ -80,7 +88,7 @@ func PullQueued(ctx context.Context, client *tmuxctl.Client, pane, transcript st
 		return "", fmt.Errorf("pull: %w", err)
 	}
 
-	texts, err := pullPopped(keysCtx, transcript, start)
+	texts, err := pullPopped(keysCtx, clock, transcript, start)
 	if err != nil {
 		return "", err
 	}
@@ -216,11 +224,11 @@ func pullSize(path string) (int64, error) {
 	return info.Size(), nil
 }
 
-// pullPopped waits up to pullBound for the first popAll record after from, then waits pullBatchSettle for the rest
-// of its batch. It returns the non-empty contents of the popAll records, oldest first, and nil when none came.
-func pullPopped(ctx context.Context, transcript string, from int64) ([]string, error) {
+// pullPopped waits up to pullBound on clock for the first popAll record after from, then waits pullBatchSettle for
+// the rest of its batch. It returns the non-empty contents of the popAll records, oldest first, and nil when none came.
+func pullPopped(ctx context.Context, clock rpcretry.Clock, transcript string, from int64) ([]string, error) {
 	tail := pullTail{path: filepath.Clean(transcript), offset: from}
-	deadline := time.Now().Add(pullBound)
+	deadline := clock.Now().Add(pullBound)
 	for {
 		if err := tail.read(); err != nil {
 			return nil, err
@@ -228,14 +236,14 @@ func pullPopped(ctx context.Context, transcript string, from int64) ([]string, e
 		if len(tail.texts) > 0 {
 			break
 		}
-		if time.Now().After(deadline) {
+		if clock.Now().After(deadline) {
 			return nil, nil
 		}
-		if err := sendPause(ctx, pullPoll); err != nil {
+		if err := sendPause(ctx, clock, pullPoll); err != nil {
 			return nil, fmt.Errorf("pull: %w", err)
 		}
 	}
-	if err := sendPause(ctx, pullBatchSettle); err != nil {
+	if err := sendPause(ctx, clock, pullBatchSettle); err != nil {
 		return nil, fmt.Errorf("pull: %w", err)
 	}
 	if err := tail.read(); err != nil {

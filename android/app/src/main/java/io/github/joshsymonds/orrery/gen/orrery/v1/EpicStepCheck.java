@@ -22,6 +22,9 @@ public  final class EpicStepCheck extends
     name_ = "";
     stdout_ = "";
     stderr_ = "";
+    detail_ = "";
+    tailStdout_ = "";
+    tailStderr_ = "";
   }
   public static final int ROUND_FIELD_NUMBER = 1;
   private int round_;
@@ -297,6 +300,207 @@ public  final class EpicStepCheck extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     stderr_ = value.toStringUtf8();
+
+  }
+
+  public static final int DETAIL_FIELD_NUMBER = 6;
+  private java.lang.String detail_;
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   * @return The detail.
+   */
+  @java.lang.Override
+  public java.lang.String getDetail() {
+    return detail_;
+  }
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   * @return The bytes for detail.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getDetailBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(detail_);
+  }
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   * @param value The detail to set.
+   */
+  private void setDetail(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    detail_ = value;
+  }
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   */
+  private void clearDetail() {
+
+    detail_ = getDefaultInstance().getDetail();
+  }
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   * @param value The bytes for detail to set.
+   */
+  private void setDetailBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    detail_ = value.toStringUtf8();
+
+  }
+
+  public static final int TAIL_STDOUT_FIELD_NUMBER = 7;
+  private java.lang.String tailStdout_;
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   * @return The tailStdout.
+   */
+  @java.lang.Override
+  public java.lang.String getTailStdout() {
+    return tailStdout_;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   * @return The bytes for tailStdout.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTailStdoutBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tailStdout_);
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   * @param value The tailStdout to set.
+   */
+  private void setTailStdout(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tailStdout_ = value;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   */
+  private void clearTailStdout() {
+
+    tailStdout_ = getDefaultInstance().getTailStdout();
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   * @param value The bytes for tailStdout to set.
+   */
+  private void setTailStdoutBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tailStdout_ = value.toStringUtf8();
+
+  }
+
+  public static final int TAIL_STDERR_FIELD_NUMBER = 8;
+  private java.lang.String tailStderr_;
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   * @return The tailStderr.
+   */
+  @java.lang.Override
+  public java.lang.String getTailStderr() {
+    return tailStderr_;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   * @return The bytes for tailStderr.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTailStderrBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tailStderr_);
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   * @param value The tailStderr to set.
+   */
+  private void setTailStderr(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tailStderr_ = value;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   */
+  private void clearTailStderr() {
+
+    tailStderr_ = getDefaultInstance().getTailStderr();
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   * @param value The bytes for tailStderr to set.
+   */
+  private void setTailStderrBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tailStderr_ = value.toStringUtf8();
 
   }
 
@@ -688,6 +892,213 @@ public  final class EpicStepCheck extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The check's detail, such as the failure it reported, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string detail = 6 [json_name = "detail"];</code>
+     * @return The detail.
+     */
+    @java.lang.Override
+    public java.lang.String getDetail() {
+      return instance.getDetail();
+    }
+    /**
+     * <pre>
+     * The check's detail, such as the failure it reported, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string detail = 6 [json_name = "detail"];</code>
+     * @return The bytes for detail.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getDetailBytes() {
+      return instance.getDetailBytes();
+    }
+    /**
+     * <pre>
+     * The check's detail, such as the failure it reported, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string detail = 6 [json_name = "detail"];</code>
+     * @param value The detail to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDetail(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setDetail(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The check's detail, such as the failure it reported, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string detail = 6 [json_name = "detail"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDetail() {
+      copyOnWrite();
+      instance.clearDetail();
+      return this;
+    }
+    /**
+     * <pre>
+     * The check's detail, such as the failure it reported, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string detail = 6 [json_name = "detail"];</code>
+     * @param value The bytes for detail to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDetailBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setDetailBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+     * @return The tailStdout.
+     */
+    @java.lang.Override
+    public java.lang.String getTailStdout() {
+      return instance.getTailStdout();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+     * @return The bytes for tailStdout.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTailStdoutBytes() {
+      return instance.getTailStdoutBytes();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+     * @param value The tailStdout to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTailStdout(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTailStdout(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTailStdout() {
+      copyOnWrite();
+      instance.clearTailStdout();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+     * @param value The bytes for tailStdout to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTailStdoutBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setTailStdoutBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+     * @return The tailStderr.
+     */
+    @java.lang.Override
+    public java.lang.String getTailStderr() {
+      return instance.getTailStderr();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+     * @return The bytes for tailStderr.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTailStderrBytes() {
+      return instance.getTailStderrBytes();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+     * @param value The tailStderr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTailStderr(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTailStderr(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTailStderr() {
+      copyOnWrite();
+      instance.clearTailStderr();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set for any check.
+     * </pre>
+     *
+     * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+     * @param value The bytes for tailStderr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTailStderrBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setTailStderrBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicStepCheck)
   }
   @java.lang.Override
@@ -709,10 +1120,13 @@ public  final class EpicStepCheck extends
             "ok_",
             "stdout_",
             "stderr_",
+            "detail_",
+            "tailStdout_",
+            "tailStderr_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u000b\u0002\u0208" +
-              "\u0003\u0007\u0004\u0208\u0005\u0208";
+              "\u0000\b\u0000\u0000\u0001\b\b\u0000\u0000\u0000\u0001\u000b\u0002\u0208\u0003\u0007" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

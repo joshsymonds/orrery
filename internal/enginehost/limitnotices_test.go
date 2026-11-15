@@ -78,13 +78,24 @@ type tellCall struct {
 }
 
 // fakeTold is a LimitTold that answers reads from marks. Its first failReads reads fail. Each write fails with writeErr
-// when it is set, and is recorded either way. Marks are not changed by writes, since a check reads them only at start.
+// when it is set, and each of its first failWrites writes fails as a busy store refuses it. A write is recorded either
+// way. Marks are not changed by writes, since a check reads them only at start.
 type fakeTold struct {
-	marks     map[string][]string
-	failReads int
-	writeErr  error
-	tells     []tellCall
-	forgets   []string
+	marks      map[string][]string
+	failReads  int
+	failWrites int
+	writeErr   error
+	tells      []tellCall
+	forgets    []string
+}
+
+// writeResult is the error of the write fakeTold is making: a refusal while failWrites lasts, else writeErr.
+func (f *fakeTold) writeResult() error {
+	if f.failWrites > 0 {
+		f.failWrites--
+		return errors.New("database is locked")
+	}
+	return f.writeErr
 }
 
 func (f *fakeTold) ToldLimits(context.Context) (map[string][]string, error) {
@@ -101,7 +112,7 @@ func (f *fakeTold) TellLimit(ctx context.Context, limit string, steps []string) 
 		return err
 	}
 	f.tells = append(f.tells, tellCall{limit: limit, steps: steps})
-	return f.writeErr
+	return f.writeResult()
 }
 
 // ForgetLimit records the forget. Like the store, it refuses a write on an ended context, which then records nothing.
@@ -110,7 +121,7 @@ func (f *fakeTold) ForgetLimit(ctx context.Context, limit string) error {
 		return err
 	}
 	f.forgets = append(f.forgets, limit)
-	return f.writeErr
+	return f.writeResult()
 }
 
 // stoppingRouter is a fakeRouter that ends the LimitNotices context once it is told a notice or a seen report, as a
@@ -524,6 +535,44 @@ func TestLimitNoticesLogsAFailedMarkWriteAndStillTells(t *testing.T) {
 	}
 	if !strings.Contains(logs, "store is read-only") {
 		t.Fatalf("log = %q, want the failed mark write logged", logs)
+	}
+}
+
+// TestLimitNoticesWritesARefusedMarkAtTheNextCheck checks that a mark the store refuses is written again at the next
+// check, with no second notice, so a restart after that does not tell the limit again.
+func TestLimitNoticesWritesARefusedMarkAtTheNextCheck(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{failWrites: 1}
+	rows := []store.StepRow{usageRow("a"), usageRow("b")}
+	router, logs := runLimitNotices(t, told, limitRead{rows: rows}, limitRead{rows: rows}, limitRead{rows: rows})
+
+	if len(router.notices) != 1 {
+		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
+	}
+	mark := tellCall{limit: resetKey().Limit, steps: []string{"a", "b"}}
+	checkTells(t, told, mark, mark)
+	if !strings.Contains(logs, "database is locked") {
+		t.Fatalf("log = %q, want the refused mark write logged", logs)
+	}
+}
+
+// TestLimitNoticesWritesARefusedForgetAtTheNextCheck checks that a forget the store refuses is written again at the
+// next check, with no second seen report.
+func TestLimitNoticesWritesARefusedForgetAtTheNextCheck(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}, failWrites: 1}
+	router, _ := runLimitNotices(t, told,
+		limitRead{rows: []store.StepRow{usageRow("a")}},
+		limitRead{},
+		limitRead{},
+		limitRead{},
+	)
+
+	if len(router.seens) != 1 {
+		t.Fatalf("seen reports = %+v, want exactly one", router.seens)
+	}
+	if want := []string{resetKey().Limit, resetKey().Limit}; !slices.Equal(told.forgets, want) {
+		t.Fatalf("forgets = %q, want %q: the refused forget and its stored retry", told.forgets, want)
 	}
 }
 

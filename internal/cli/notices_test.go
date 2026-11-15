@@ -98,7 +98,7 @@ func listenNotices(t *testing.T) (string, net.Listener) {
 func TestNoticesWritesSocketBytesToStdout(t *testing.T) {
 	t.Parallel()
 	path, ln := listenNotices(t)
-	const stream = "{\"kind\":\"hello\",\"host\":\"gnomon\"}\n{\"kind\":\"notice\",\"title\":\"a · b:1\"}\n"
+	const stream = "{\"kind\":\"hello\",\"host\":\"synthetic-host\"}\n{\"kind\":\"notice\",\"title\":\"a · b:1\"}\n"
 
 	go func() {
 		conn, err := ln.Accept()
@@ -128,7 +128,7 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 	t.Parallel()
 	path, ln := listenNotices(t)
 	const activity = "{\"input\":1700000000}\n"
-	const hello = "{\"kind\":\"hello\",\"host\":\"gnomon\"}\n"
+	const hello = "{\"kind\":\"hello\",\"host\":\"synthetic-host\"}\n"
 	const notice = "{\"kind\":\"notice\",\"title\":\"a · b:1\"}\n"
 
 	received := make(chan string, 1)

@@ -14,6 +14,16 @@ import (
 // ErrNoStep reports that no step has the id asked for.
 var ErrNoStep = errors.New("no step")
 
+// The stages a step's loop is in. StepAdd starts a step in StepStageTurn, and StepLoop stores the stage it names.
+const (
+	StepStageTurn    = "turn"
+	StepStageChecks  = "checks"
+	StepStageGate    = "gate"
+	StepStageJudge   = "judge"
+	StepStageHeld    = "held"
+	StepStageLimited = "limited"
+)
+
 // StepCheck is one check a step's return ran, in the round it ran in.
 type StepCheck struct {
 	Round  int    `json:"round"`
@@ -97,7 +107,8 @@ type StepEnd struct {
 // with, whether it has been nudged, whether it is held, whether its judge has sent it back, and its usage-limit hold:
 // whether it is limited, the kind of limit and the time it resets, zero when the reset is unknown, and the time an
 // agent gate step's limit counts from after a resume from a usage limit, zero when it counts from the step's start. It
-// sets every loop column, so a field left at its zero value is stored as zero. A limit with a known reset also stores
+// also sets the stage the step's loop is in and the time that stage started, zero when the start is unknown. It sets
+// every loop column, so a field left at its zero value is stored as zero. A limit with a known reset also stores
 // the step's due row in the same write, unless the step has ended or already has a due row for that reset or a later
 // one.
 type StepLoop struct {
@@ -113,6 +124,8 @@ type StepLoop struct {
 	LimitKind   string
 	LimitResets time.Time
 	GateFrom    time.Time
+	Stage       string
+	StageFrom   time.Time
 }
 
 // StepGate sets a step's gate: the grant it holds, its holder and the round it holds in. An empty Holder clears all
@@ -135,7 +148,8 @@ type StepTurnEnd struct {
 }
 
 // StepRow is a step row. Ended is zero while End is empty, LoopLimitResets is zero when the limit's reset is unknown,
-// and LoopGateFrom is zero unless an agent gate step was resumed from a usage limit.
+// LoopGateFrom is zero unless an agent gate step was resumed from a usage limit, and LoopStageFrom is zero when the
+// stage was stored with no start.
 type StepRow struct {
 	ID              string
 	Agent           string
@@ -181,6 +195,8 @@ type StepRow struct {
 	LoopLimitKind   string
 	LoopLimitResets time.Time
 	LoopGateFrom    time.Time
+	LoopStage       string
+	LoopStageFrom   time.Time
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -203,6 +219,7 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
 		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
+		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(),
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -236,18 +253,21 @@ func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ 
 	if err != nil {
 		return err
 	}
-	var resets, gateFrom int64
+	var resets, gateFrom, stageFrom int64
 	if !op.LimitResets.IsZero() {
 		resets = op.LimitResets.Unix()
 	}
 	if !op.GateFrom.IsZero() {
 		gateFrom = op.GateFrom.Unix()
 	}
+	if !op.StageFrom.IsZero() {
+		stageFrom = op.StageFrom.Unix()
+	}
 	if err = queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
 		LoopRound: int64(op.Round), LoopContinues: int64(op.Continues), LoopNudge: op.Nudge,
 		LoopOwnerNudge: op.OwnerNudge, LoopNudged: op.Nudged, LoopHeld: op.Held, LoopJudgeSent: op.JudgeSent,
 		LoopLimited: op.Limited, LoopLimitKind: op.LimitKind, LoopLimitResets: resets, LoopGateFrom: gateFrom,
-		ID: op.ID,
+		LoopStage: op.Stage, LoopStageFrom: stageFrom, ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update loop of step %s: %w", op.ID, err)
 	}
@@ -422,12 +442,15 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	if row.EndValue != "" {
 		ended = time.Unix(row.Ended, 0)
 	}
-	var limitResets, gateFrom time.Time
+	var limitResets, gateFrom, stageFrom time.Time
 	if row.LoopLimitResets != 0 {
 		limitResets = time.Unix(row.LoopLimitResets, 0)
 	}
 	if row.LoopGateFrom != 0 {
 		gateFrom = time.Unix(row.LoopGateFrom, 0)
+	}
+	if row.LoopStageFrom != 0 {
+		stageFrom = time.Unix(row.LoopStageFrom, 0)
 	}
 	return StepRow{
 		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
@@ -443,7 +466,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		LoopJudgeSent: row.LoopJudgeSent, LoopSeq: row.LoopSeq,
 		GateGrant: row.GateGrant, GateHolder: row.GateHolder, GateRound: int(row.GateRound),
 		LoopLimited: row.LoopLimited, LoopLimitKind: row.LoopLimitKind, LoopLimitResets: limitResets,
-		LoopGateFrom: gateFrom,
+		LoopGateFrom: gateFrom, LoopStage: row.LoopStage, LoopStageFrom: stageFrom,
 	}, nil
 }
 

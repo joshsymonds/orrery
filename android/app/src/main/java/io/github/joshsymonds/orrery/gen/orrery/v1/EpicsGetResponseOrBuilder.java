@@ -161,4 +161,30 @@ public interface EpicsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
    */
   int getNodesCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> 
+      getBuildTasksList();
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask getBuildTasks(int index);
+  /**
+   * <pre>
+   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
+   */
+  int getBuildTasksCount();
 }

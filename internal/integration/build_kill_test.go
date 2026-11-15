@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/joshsymonds/orrery/internal/build"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 )
 
@@ -17,18 +16,18 @@ import (
 func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 	t.Parallel()
 	r := newBuildRig(t)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, ack := r.startPassDaemon(t, "first")
 	id := r.stepID()
 	dir := r.stepDir(id)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
-	r.awaitStep(t, id)
+	r.awaitStep(t, daemon, ack, id)
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
 	waitUntil(t, func() bool { return fileContains(t, stdin, buildRigMarker) })
 	pid := fakeClaudePID(t, dir)
 
 	killOrreryd(t, daemon)
-	restarted := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	restarted, restartedAck := r.startPassDaemon(t, "restarted")
 	if end := r.stepRow(t, id).GetEnd(); end != "" {
 		t.Fatalf("step %s ended %q after the restart, want it still running its turn", id, end)
 	}
@@ -46,7 +45,7 @@ func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
 	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, id))
-	waitUntil(t, func() bool { return r.task(t).GetStage() == build.StageGreen })
+	r.awaitGreen(t, restarted, restartedAck)
 	if got := r.task(t).GetRevision(); got != commit {
 		t.Fatalf("revision of task 1 at green = %q, want the fake's commit %s", got, commit)
 	}
