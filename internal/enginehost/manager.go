@@ -1509,10 +1509,11 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 
 // noteEvent tracks the turn of live through event. It reports whether the pump records event, and for a turn's end,
 // whether that turn was interrupted through Interrupt, which clears the mark for the next turn, and whether the turn is
-// handed to the step's observer: a step's turn that ends with no background task live. The hand-off makes the step busy
-// in the same lock hold. A draining session whose turn ends is retired in the same lock hold (see retireLocked). The exit
-// of a session that Close or a retirement is stopping is not recorded here: recordClosed records a closed session's state
-// from its turn instead, and under a holder scope records nothing, and a retired session records nothing.
+// handed to the step's observer: a step's turn that ends with no background task live, or whose structured return is the
+// step's done value while one is live (see StepObserver.Done). The hand-off makes the step busy in the same lock hold. A
+// draining session whose turn ends is retired in the same lock hold (see retireLocked). The exit of a session that Close
+// or a retirement is stopping is not recorded here: recordClosed records a closed session's state from its turn instead,
+// and under a holder scope records nothing, and a retired session records nothing.
 func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted, handed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1533,7 +1534,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 		clear(live.requests)
 		interrupted = live.interrupting
 		live.interrupting = false
-		if live.observer != nil && !live.background {
+		if live.observer != nil && (!live.background || live.observer.Done(ev)) {
 			live.returned = true
 			handed = true
 		}
