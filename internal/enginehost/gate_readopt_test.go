@@ -130,7 +130,7 @@ func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) 
 	if got.err != nil {
 		t.Fatalf("readoptGrantedGate: %v", got.err)
 	}
-	if got.result.Exit != 3 || !strings.Contains(got.result.Output, "done\n") {
+	if got.result.Exit != 3 || !strings.Contains(got.result.Stdout, "done\n") {
 		t.Fatalf("result = %+v, want the gate's exit 3 and its output", got.result)
 	}
 	if want := []grants.Member{{Pool: "gpu", Name: "gpu-1"}}; !slices.Equal(got.result.Members, want) {
@@ -178,7 +178,7 @@ func TestGateReadoptOfGateThatEndedWhileDetachedReturnsItsExitRecord(t *testing.
 	if err != nil {
 		t.Fatalf("readoptGrantedGate: %v", err)
 	}
-	if result.Exit != 3 || !strings.Contains(result.Output, "done\n") {
+	if result.Exit != 3 || !strings.Contains(result.Stdout, "done\n") {
 		t.Fatalf("result = %+v, want the gate's exit 3 and its output", result)
 	}
 	if result.Holder != dir {
@@ -231,7 +231,7 @@ func TestGateReadoptOfStoppedGateRunsItOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readoptGrantedGate: %v", err)
 	}
-	if result.Exit != 3 || !strings.Contains(result.Output, "done\n") {
+	if result.Exit != 3 || !strings.Contains(result.Stdout, "done\n") {
 		t.Fatalf("result = %+v, want the rerun's exit 3 and its output", result)
 	}
 	data, err := os.ReadFile(counter)
@@ -363,7 +363,7 @@ func TestGateReadoptOfEndingHolderReturnsItsExitRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readoptGrantedGate of an ending holder: %v, want its exit record", err)
 	}
-	if result.Exit != 3 || !strings.Contains(result.Output, "done\n") {
+	if result.Exit != 3 || !strings.Contains(result.Stdout, "done\n") {
 		t.Fatalf("result = %+v, want the gate's exit 3 and its output", result)
 	}
 	requests := pools.requested()

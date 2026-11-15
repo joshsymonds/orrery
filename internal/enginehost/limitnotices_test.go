@@ -374,6 +374,51 @@ func TestLimitNoticesSeesAGroupThatEmptiesAndNotifiesANewOne(t *testing.T) {
 	checkTells(t, told, tellCall{limit: otherResetKey().Limit, steps: []string{"c"}})
 }
 
+// TestLimitNoticesTellsALimitAgainAfterAResume checks that a step told on a limit, then resumed at its reset, and then
+// limited again is told again: the resume empties the limit's group, which is seen and forgotten, so the next limit
+// has no mark, whether it resets later or at the same time.
+func TestLimitNoticesTellsALimitAgainAfterAResume(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		again store.StepRow
+		key   notice.Key
+	}{
+		{"a later reset", laterUsageRow("a"), otherResetKey()},
+		{"the same reset", usageRow("a"), resetKey()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			told := &fakeTold{}
+			router, _ := runLimitNotices(t, told,
+				limitRead{rows: []store.StepRow{usageRow("a")}},
+				limitRead{},
+				limitRead{rows: []store.StepRow{tc.again}},
+			)
+
+			if len(router.notices) != 2 {
+				t.Fatalf("got %d notices, want 2: the limit before the resume and the one after it",
+					len(router.notices))
+			}
+			if router.notices[0].Key != resetKey() || router.notices[1].Key != tc.key {
+				t.Fatalf("notice keys = %+v, %+v, want %+v, %+v",
+					router.notices[0].Key, router.notices[1].Key, resetKey(), tc.key)
+			}
+			want := seenReport{key: resetKey(), seen: limitNow().Unix()}
+			if len(router.seens) != 1 || router.seens[0] != want {
+				t.Fatalf("seen reports = %+v, want exactly [%+v]", router.seens, want)
+			}
+			if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
+				t.Fatalf("forgot %v, want the resumed limit %q once", told.forgets, resetKey().Limit)
+			}
+			checkTells(t, told,
+				tellCall{limit: resetKey().Limit, steps: []string{"a"}},
+				tellCall{limit: tc.key.Limit, steps: []string{"a"}},
+			)
+		})
+	}
+}
+
 func TestLimitNoticesSeesAMarkedGroupThatEmptiesOnceAndForgetsIt(t *testing.T) {
 	t.Parallel()
 	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}}

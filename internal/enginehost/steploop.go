@@ -18,11 +18,13 @@ import (
 )
 
 // StepPrompt is a prompt sent to a step session as its next message. Sender is who sent it, which the engine stores with
-// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none.
+// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none. PromptID is the
+// client-chosen id of the prompt, and empty when it carries none.
 type StepPrompt struct {
-	Text   string
-	Sender string
-	Round  int
+	Text     string
+	Sender   string
+	Round    int
+	PromptID string
 }
 
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
@@ -68,13 +70,15 @@ const apiErrorRateLimit = "rate_limit"
 // with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
 // the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under. A read-only
-// step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch
-// reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks
-// checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is the step's first
-// prompt, which the judge is given with each done return. agentGate is the agent gate a step runs, nil for any other
-// step: each schema-valid return is checked against its assertions, and never judged. A tick at or past the limit of
-// wall time from the run's start ends an agent gate step overtime. returnCheck, when set, checks every schema-valid
-// return: its failure lines are stored as the return check and sent back, and a step with one is never judged.
+// step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
+// moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
+// has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
+// time. Each tick on ticks checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls.
+// prompt is the step's first prompt, which the judge is given with each done return. agentGate is the agent gate a step
+// runs, nil for any other step: each schema-valid return is checked against its assertions, and never judged. A tick at
+// or past the limit of wall time from the run's start ends an agent gate step overtime. returnCheck, when set, checks
+// every schema-valid return: its failure lines are stored as the return check and sent back, and a step with one is
+// never judged.
 type stepRunConfig struct {
 	id          string
 	schema      string
@@ -94,6 +98,7 @@ type stepRunConfig struct {
 
 	writing    bool
 	dir        string
+	checkout   stepCheckout
 	start      string
 	owned      []string
 	gate       []string
@@ -342,10 +347,15 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 }
 
 // resumeReturn takes up a step whose latest return is stored and covered by its turn end, so nothing has been sent
-// since that return. Its failed checks go back as retry sends them. A done return is judged as judge judges it, and
-// any other return ends the step returned. It reports whether the run goes on.
+// since that return. A stored failed checkout check ends it checks_failed, as judge would have, and its other failed
+// checks go back as retry sends them. A done return is judged as judge judges it, and any other return ends the step
+// returned. It reports whether the run goes on.
 func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 	checks := stepLoopRoundChecks(row.Checks, row.LoopRound)
+	if check, moved := stepLoopCheckoutFailure(checks); moved {
+		r.finish(ctx, stepLoopEndChecksFailed, "", check.Name+": "+check.Detail)
+		return false
+	}
 	if len(stepLoopFailures(checks)) > 0 {
 		return r.retry(ctx, row.LoopRound, checks)
 	}
@@ -514,11 +524,12 @@ func joinNudges(first, second string) string {
 	return first + "\n" + second
 }
 
-// judge checks the return of round and stores it with its checks and the loop state, in one commit. An agent gate step's
-// schema-valid return is also checked against the gate's assertions, and it ends done or gate_failed without a judge
-// call. A schema-valid return of a step with a return check is checked by it. A done return whose checks all passed is
-// judged, unless the step has a return check, which ends it done without a judge call. Any other return ends the step,
-// or its failed checks are sent back. It reports whether the run goes on.
+// judge checks the return of round and stores it with its checks and the loop state, in one commit. A read-only step whose
+// checkout moved is stored with its failed checkout check and ends checks_failed at once, with nothing sent back and no
+// judge call. An agent gate step's schema-valid return is also checked against the gate's assertions, and it ends done or
+// gate_failed without a judge call. A schema-valid return of a step with a return check is checked by it. A done return
+// whose checks all passed is judged, unless the step has a return check, which ends it done without a judge call. Any
+// other return ends the step, or its failed checks are sent back. It reports whether the run goes on.
 func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) bool {
 	schemaErr := validateReturn(r.schema, value)
 	schema := store.StepCheck{Round: round, Name: stepLoopSchemaName, OK: schemaErr == nil}
@@ -526,6 +537,10 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 		schema.Detail = schemaErr.Error()
 	}
 	checks := []store.StepCheck{schema}
+	if check, moved := r.checkoutMove(ctx, round); moved {
+		r.endCheckoutMoved(ctx, value, append(checks, check), check)
+		return false
+	}
 	var head struct {
 		Status string          `json:"status"`
 		Commit json.RawMessage `json:"commit"`
@@ -571,6 +586,42 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	}
 	r.finish(ctx, stepLoopEndReturned, head.Status, "")
 	return false
+}
+
+// checkoutMove compares a read-only step's checkout with the state it started in. It returns the failed checkout check of
+// round and true when the checkout moved, and nothing otherwise. A step with no before state is never compared.
+func (r *stepRun) checkoutMove(ctx context.Context, round int) (store.StepCheck, bool) {
+	if r.checkout == (stepCheckout{}) {
+		return store.StepCheck{}, false
+	}
+	check := stepGitCheckoutCheck(ctx, r.dir, r.checkout)
+	if check.OK {
+		return store.StepCheck{}, false
+	}
+	return stepLoopRecord(round, check), true
+}
+
+// endCheckoutMoved stores value's return with checks, which end with its failed checkout check, and ends the step
+// checks_failed at once. Nothing is sent back and no judge call runs.
+func (r *stepRun) endCheckoutMoved(
+	ctx context.Context, value json.RawMessage, checks []store.StepCheck, check store.StepCheck,
+) {
+	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
+	if err := r.writer.Commit(ctx, r.id, ret, r.loopState()); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id, err))
+		return
+	}
+	r.finish(ctx, stepLoopEndChecksFailed, "", check.Name+": "+check.Detail)
+}
+
+// stepLoopCheckoutFailure returns the failed checkout check among checks, and whether there is one.
+func stepLoopCheckoutFailure(checks []store.StepCheck) (store.StepCheck, bool) {
+	for _, check := range checks {
+		if check.Name == stepGitCheckoutName && !check.OK {
+			return check, true
+		}
+	}
+	return store.StepCheck{}, false
 }
 
 // valueChecks appends the checks a schema-valid return of round runs on its value to checks: an agent gate step's
@@ -713,16 +764,20 @@ func stepLoopRecord(round int, c stepCheck) store.StepCheck {
 }
 
 // stepLoopGateCheck returns the gate check of round for result. It passes when the gate exits 0 without passing limit.
-// Its detail gives the exit status, or the limit when the gate was killed for it, and the tail of the gate's output.
+// Its detail gives the exit status, or the limit when the gate was killed for it. Its Stdout and Stderr keep the tails of
+// the gate's two streams apart.
 func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.StepCheck {
-	check := store.StepCheck{Round: round, Name: stepLoopGateName, OK: !result.TimedOut && result.Exit == 0}
+	check := store.StepCheck{
+		Round:  round,
+		Name:   stepLoopGateName,
+		OK:     !result.TimedOut && result.Exit == 0,
+		Stdout: result.Stdout,
+		Stderr: result.Stderr,
+	}
 	if result.TimedOut {
 		check.Detail = fmt.Sprintf("gate ran past its limit of %s and was killed", limit)
 	} else {
 		check.Detail = fmt.Sprintf("gate exited %d", result.Exit)
-	}
-	if tail := strings.TrimSpace(result.Output); tail != "" {
-		check.Detail += "; output tail: " + tail
 	}
 	return check
 }
@@ -758,13 +813,21 @@ func stepLoopRoundChecks(checks []store.StepCheck, round int) []store.StepCheck 
 	return out
 }
 
-// stepLoopFailures names each failed check with its detail.
+// stepLoopFailures names each failed check with its detail, and with the stdout and stderr tails it kept, each labeled.
 func stepLoopFailures(checks []store.StepCheck) []string {
 	var failures []string
 	for _, check := range checks {
-		if !check.OK {
-			failures = append(failures, check.Name+": "+check.Detail)
+		if check.OK {
+			continue
 		}
+		failure := check.Name + ": " + check.Detail
+		if tail := strings.TrimSpace(check.Stdout); tail != "" {
+			failure += "; stdout tail: " + tail
+		}
+		if tail := strings.TrimSpace(check.Stderr); tail != "" {
+			failure += "; stderr tail: " + tail
+		}
+		failures = append(failures, failure)
 	}
 	return failures
 }

@@ -15,7 +15,6 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
-	"github.com/joshsymonds/orrery/internal/mcp"
 	"github.com/joshsymonds/orrery/internal/stepmcp"
 )
 
@@ -191,7 +190,7 @@ func epicCall(
 }
 
 // epicText returns the text of each content block of result, joined by newlines.
-func epicText(result mcp.ToolResult) string {
+func epicText(result stepmcp.ToolResult) string {
 	texts := make([]string, 0, len(result.Content))
 	for _, block := range result.Content {
 		texts = append(texts, block.Text)

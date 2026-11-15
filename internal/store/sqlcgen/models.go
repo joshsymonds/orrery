@@ -8,6 +8,14 @@ import (
 	"database/sql"
 )
 
+type DueResume struct {
+	ID     string
+	Kind   string
+	Target string
+	Resets int64
+	State  string
+}
+
 type EnginePromptFailed struct {
 	SessionID string
 	PromptID  string
@@ -32,23 +40,27 @@ type EngineText struct {
 }
 
 type Epic struct {
-	ID          string
-	Repository  string
-	Title       string
-	Approved    string
-	Intent      string
-	Care        string
-	Approach    string
-	ReleaseThen string
-	Checks      string
-	Phase       string
-	Created     int64
-	Changed     int64
-	Paused      int64
-	Parked      string
-	Retried     int64
-	Base        string
-	Branch      string
+	ID             string
+	Repository     string
+	Title          string
+	Approved       string
+	Intent         string
+	Care           string
+	Approach       string
+	ReleaseThen    string
+	Checks         string
+	Phase          string
+	Created        int64
+	Changed        int64
+	Paused         int64
+	Parked         string
+	Retried        int64
+	Base           string
+	Branch         string
+	Workflow       string
+	WorkflowText   string
+	WorkflowSha256 string
+	PauseSource    string
 }
 
 type EpicAddition struct {
@@ -252,6 +264,14 @@ type EpicTurnDecision struct {
 	Text     string
 }
 
+type EpicWorkflowNode struct {
+	Epic     string
+	Position int64
+	ID       string
+	Parent   string
+	Kind     string
+}
+
 type Event struct {
 	Seq       int64
 	SessionID string
@@ -294,6 +314,8 @@ type EvidenceRun struct {
 	Passed      int64
 	Created     int64
 	Ended       int64
+	StderrHash  string
+	StderrBytes int64
 }
 
 type Grant struct {
@@ -424,6 +446,8 @@ type Step struct {
 	LoopLimitKind   string
 	LoopLimitResets int64
 	LoopGateFrom    int64
+	CheckoutHead    string
+	CheckoutHash    string
 }
 
 type ToldLimitStep struct {

@@ -184,6 +184,9 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 	folder := row.Workspace
 	if row.ReadOnly {
 		folder = row.Worktree
+		cfg.dir = row.Worktree
+		// A row started before the checkout was fingerprinted stores no state, so its return is not compared.
+		cfg.checkout = stepCheckout{head: row.CheckoutHead, hash: row.CheckoutHash}
 		cfg.cleanup = func(ctx context.Context) error {
 			return removeStepWorktree(ctx, row.Workspace, row.Worktree)
 		}

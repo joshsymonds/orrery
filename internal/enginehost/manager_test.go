@@ -30,7 +30,8 @@ const pollEvery = 10 * time.Millisecond
 // fixedClock is the clock the manager tests give the manager, so the seen timestamp is known.
 func fixedClock() time.Time { return time.Unix(1_700_000_000, 0) }
 
-// fakeClaudePath returns the absolute path of the scripted fake claude, and checks it is executable.
+// fakeClaudePath returns the path of the wrapper that runs the scripted fake claude with git on its PATH, and checks the
+// fake claude is executable.
 func fakeClaudePath(t *testing.T) string {
 	t.Helper()
 	path, err := filepath.Abs(filepath.Join("testdata", "fakeclaude.sh"))
@@ -44,7 +45,7 @@ func fakeClaudePath(t *testing.T) string {
 	if info.Mode()&0o111 == 0 {
 		t.Fatalf("fake claude %s is not executable: mode %v", path, info.Mode())
 	}
-	return path
+	return os.Getenv(fakeClaudeEnv)
 }
 
 // newTestManager returns a manager with the given cap that runs the claude at claude, backed by a store and a

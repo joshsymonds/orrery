@@ -11,7 +11,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OrreryClientEvidenceTest {
@@ -49,6 +51,7 @@ class OrreryClientEvidenceTest {
         .setCreated(4102444100L)
         .setEnded(4102444200L)
         .setLogBytes(4096L)
+        .setStderrBytes(1024L)
         .addArtifacts(screenshotProto)
         .addArtifacts(reportProto)
         .build()
@@ -91,6 +94,7 @@ class OrreryClientEvidenceTest {
         created = 4102444100L,
         ended = 4102444200L,
         logBytes = 4096L,
+        stderrBytes = 1024L,
         artifacts = listOf(
             EvidenceArtifactRow(path = "example/screenshot.png", state = "kept", size = 2048L, mediaType = "image/png"),
             EvidenceArtifactRow(
@@ -117,6 +121,7 @@ class OrreryClientEvidenceTest {
         created = 4102444300L,
         ended = 0L,
         logBytes = 0L,
+        stderrBytes = 0L,
         artifacts = emptyList(),
     )
 
@@ -191,6 +196,30 @@ class OrreryClientEvidenceTest {
             val sent = EvidenceArtifactRequest.parseFrom(server.requests.single().body)
             assertEquals("example-run-1", sent.run)
             assertEquals("", sent.name)
+            assertFalse(sent.stderr)
+        }
+    }
+
+    @Test
+    fun stderrLogIsFetchedWithAnEmptyNameAndTheStderrFlag() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EVIDENCE_ARTIFACT,
+                EvidenceArtifactResponse.newBuilder()
+                    .setData(ByteString.copyFromUtf8("example stderr line\n"))
+                    .setMediaType("text/plain")
+                    .build(),
+            )
+
+            val file = requireNotNull(OrreryClient(server.baseUrl).artifact("example-run-1", "", stderr = true))
+
+            assertEquals("example stderr line\n", String(file.data, Charsets.UTF_8))
+            val request = server.requests.single()
+            assertConnectRequest(EVIDENCE_ARTIFACT, request)
+            val sent = EvidenceArtifactRequest.parseFrom(request.body)
+            assertEquals("example-run-1", sent.run)
+            assertEquals("", sent.name)
+            assertTrue(sent.stderr)
         }
     }
 

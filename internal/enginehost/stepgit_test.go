@@ -12,10 +12,13 @@ import (
 
 // stepGitTestRepo makes a throwaway repository under t.TempDir() with one commit on main. The owner's git config
 // never applies: TestMain points GIT_CONFIG_GLOBAL at /dev/null and the commands below pass identity and signing flags.
+// The fake claude writes its fakeclaude.* files into the directory of each step it runs, so the repository's
+// .git/info/exclude ignores them: its worktrees share that file, and the files do not change their checkouts.
 func stepGitTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	stepGitTestRun(t, dir, "init", "-q", "-b", "main")
+	stepGitTestWrite(t, dir, ".git/info/exclude", "fakeclaude.*\n")
 	stepGitTestWrite(t, dir, "README", "base\n")
 	stepGitTestRun(t, dir, "add", "README")
 	stepGitTestRun(t, dir, "commit", "-q", "-m", "base")

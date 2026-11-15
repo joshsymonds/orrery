@@ -1320,3 +1320,74 @@ test("the fold opens to the steps started on now's day, oldest first, and closes
     assert.equal(container.querySelector(".steps-fold")?.getAttribute("aria-expanded") ?? null, "false");
     assert.equal(container.querySelectorAll(".steps").length, 0, "the list closes again");
   }));
+
+// tailChecks are a step's checks: a failed unit check that carries both tails, and a passed lint check that carries
+// tails too, which no step shows.
+const tailChecks = [
+  { round: 1, name: "unit", ok: false, stdout: "FAIL unit\n", stderr: "panic: nil map\n" },
+  { round: 1, name: "lint", ok: true, stdout: "lint clean\n", stderr: "lint warned\n" },
+];
+
+test("a failed gate check's stdout and stderr tails show under the step, each under its label and preformatted", () =>
+  withView(
+    {
+      detail: detail({
+        epic,
+        steps: [
+          {
+            id: "s1",
+            task: "1-alpha",
+            agent: "scout",
+            started: onDay(testNow, 9),
+            end: "gate_failed",
+            checks: tailChecks,
+          },
+        ],
+      }),
+      cursorStep: "",
+    },
+    async (container) => {
+      await clickFold(container);
+      assert.equal(
+        container.querySelectorAll(".steps > .step > .tails").length,
+        1,
+        "only the failed check shows tails",
+      );
+      const tails = container.querySelector(".steps > .step > .tails");
+      assert.deepEqual(
+        [...(tails?.children ?? [])].map((child) => child.textContent),
+        ["stdout", "FAIL unit\n", "stderr", "panic: nil map\n"],
+      );
+      assert.deepEqual(
+        [...(tails?.children ?? [])].map((child) => child.tagName === "PRE"),
+        [false, true, false, true],
+      );
+      assert.equal(container.querySelectorAll(".steps .tails pre *").length, 0, "tail text is a child of its element");
+    },
+  ));
+
+test("a step whose checks all passed shows no tails, though a passed check carries them", () =>
+  withView(
+    {
+      detail: detail({
+        epic,
+        steps: [
+          {
+            id: "s1",
+            task: "1-alpha",
+            agent: "scout",
+            started: onDay(testNow, 9),
+            end: "done",
+            checks: [tailChecks[1]],
+          },
+        ],
+      }),
+      cursorStep: "",
+    },
+    async (container) => {
+      await clickFold(container);
+      assert.equal(container.querySelectorAll(".steps > .step").length, 1);
+      assert.equal(container.querySelectorAll(".tails").length, 0);
+      assert.equal(container.querySelectorAll(".steps pre").length, 0);
+    },
+  ));

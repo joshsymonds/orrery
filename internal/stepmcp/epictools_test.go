@@ -255,6 +255,7 @@ func fullCreateRequest() *v1.CreateEpicRequest {
 			{Id: "D1", Text: "Build passkey login."},
 			{Id: "D2", Text: "Keep password login."},
 		},
+		Workflow: "lookdev",
 	}
 }
 

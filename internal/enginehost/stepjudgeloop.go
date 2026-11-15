@@ -83,8 +83,8 @@ func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMess
 }
 
 // judgeCall asks the judge about a done return. A writing step's input carries the diff stat from start to commit and
-// the gate check's detail from checks, and a read-only step's input carries the return alone. It returns the verdict
-// and its reason, or an error when the diff stat, the call or the reply fails.
+// the gate check's stdout and stderr tails from checks, and a read-only step's input carries the return alone. It
+// returns the verdict and its reason, or an error when the diff stat, the call or the reply fails.
 func (r *stepRun) judgeCall(ctx context.Context, value json.RawMessage, commit string,
 	checks []store.StepCheck) (met bool, reason string, err error) {
 	var diffStat string
@@ -94,7 +94,8 @@ func (r *stepRun) judgeCall(ctx context.Context, value json.RawMessage, commit s
 			return false, "", fmt.Errorf("diff stat of step %s: %w", r.id, err)
 		}
 	}
-	input := stepJudgeInput(r.prompt, string(value), diffStat, judgeGateTail(checks))
+	gateStdout, gateStderr := judgeGateTails(checks)
+	input := stepJudgeInput(r.prompt, string(value), diffStat, gateStdout, gateStderr)
 	raw, err := r.haiku.Call(ctx, stepJudgeSchema, input)
 	if err != nil {
 		return false, "", fmt.Errorf("judge call: %w", err)
@@ -115,14 +116,14 @@ func (r *stepRun) judgeDiffStat(ctx context.Context, commit string) (string, err
 	return stepGit(ctx, r.dir, "diff", "--stat", from, to)
 }
 
-// judgeGateTail returns the detail of the gate check among checks, or empty when the round ran no gate.
-func judgeGateTail(checks []store.StepCheck) string {
+// judgeGateTails returns the stdout and stderr tails of the gate check among checks, or empty when the round ran no gate.
+func judgeGateTails(checks []store.StepCheck) (stdout, stderr string) {
 	for _, c := range checks {
 		if c.Name == stepLoopGateName {
-			return c.Detail
+			return c.Stdout, c.Stderr
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // judgeRecord stores verdict on the step and logs it. It reports whether the store succeeded. A failed store ends the

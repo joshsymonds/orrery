@@ -8,7 +8,8 @@
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
-# structured output is that commit as done, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
+# structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
+# structured output is done with no commit, as a read-only step's return is, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
 # exists in its directory, then folds the next line it reads from stdin into its turn: the turn streams one text block
 # and ends with a success result that lists the uuids of both prompts as answered, LIMIT plays a usage-limit turn (a
@@ -220,6 +221,17 @@ stepdone() {
 	turn_close
 }
 
+# readdone starts a turn, waits until fakeclaude.release exists in its directory, and ends the turn with a success result
+# whose structured output is done with no commit. It writes nothing, so a read-only step's checkout stays as it started.
+readdone() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	structured='{"status":"done","summary":"fake done"}'
+	turn_close
+}
+
 # judgeholds waits until fakeclaude.release exists in its directory, then ends the turn with a success result whose
 # structured output holds the one assertion JUDGEHOLDS, as a judge's return does.
 judgeholds() {
@@ -312,6 +324,7 @@ while next; do
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;
 				*PAIR*) pair ;;
+				*READDONE*) readdone ;;
 				*STEPDONE*) stepdone ;;
 				*JUDGEHOLDS*) judgeholds ;;
 				*FOLD*) fold ;;

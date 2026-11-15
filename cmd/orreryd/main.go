@@ -82,7 +82,7 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change.
+	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass runs.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -524,6 +524,8 @@ type sessionHost struct {
 	attentionDone chan struct{}
 	stopLimits    context.CancelFunc
 	limitsDone    chan struct{}
+	stopDue       context.CancelFunc
+	dueDone       chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
 }
@@ -537,8 +539,8 @@ type sessionHost struct {
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
 // The planner then runs over the store and the steps, and its attention loop routes its epic notices through router
 // when router is not nil. The build runner then runs over the store, the steps and the evidence runner until stop; the
-// limit notices tell router which steps a usage limit holds, every limitTick until stop;
-// and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
+// limit notices tell router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due
+// row whose reset has passed, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
 // serving goes on; a failed restore serves no Pools, which refuse as
 // unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
 // unavailable when notices is nil.
@@ -558,6 +560,7 @@ func startSessions(
 		plannerDone: make(chan struct{}),
 		buildDone:   make(chan struct{}),
 		limitsDone:  make(chan struct{}),
+		dueDone:     make(chan struct{}),
 		serveDone:   make(chan error, 1),
 	}
 	var commands enginehost.Commands
@@ -625,12 +628,8 @@ func startSessions(
 		host.startPlanner(ctx, st, router, getenv, resolve, logger)
 		host.startBuild(ctx, st, getenv, stateDir, logger)
 		host.startLimits(ctx, st, router, logger)
-		var idleCtx context.Context
-		idleCtx, host.stopIdle = context.WithCancel(ctx)
-		go func() {
-			host.manager.RunIdle(idleCtx)
-			close(host.idleDone)
-		}()
+		host.startDue(ctx, st, logger)
+		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {
@@ -876,11 +875,41 @@ func (h *sessionHost) startLimits(
 	}()
 }
 
+// startIdle runs the manager's stop of idle sessions until stop.
+func (h *sessionHost) startIdle(ctx context.Context) {
+	var idleCtx context.Context
+	idleCtx, h.stopIdle = context.WithCancel(ctx)
+	go func() {
+		h.manager.RunIdle(idleCtx)
+		close(h.idleDone)
+	}()
+}
+
+// startDue resumes the due rows over st every limitTick until stop, and once when it starts. Its steps are the host's
+// steps, which startSessions has re-adopted before it starts the pass.
+func (h *sessionHost) startDue(ctx context.Context, st *store.Store, logger *slog.Logger) {
+	ticker := time.NewTicker(limitTick)
+	due := enginehost.NewDuePass(enginehost.DuePassConfig{
+		Store:  st,
+		Steps:  h.steps,
+		Now:    time.Now,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var dueCtx context.Context
+	dueCtx, h.stopDue = context.WithCancel(ctx)
+	go func() {
+		defer close(h.dueDone)
+		defer ticker.Stop()
+		due.Run(dueCtx)
+	}()
+}
+
 // shutdown stops the broker, stops the idle check, stops the planner and the build runner and waits for each to return,
-// stops the limit notices and waits for the planner's runner, its attention loop and the limit loop to return, closes
-// the evidence runner and waits for its drives, ends every step loop, stops every live session, and ends the writer
-// after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and writer
-// it does nothing.
+// stops the limit notices and waits for the planner's runner, its attention loop, the limit loop and the due pass to
+// return, closes the evidence runner and waits for its drives, ends every step loop, stops every live session, and ends
+// the writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager
+// and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -896,6 +925,8 @@ func (h *sessionHost) shutdown() {
 		}
 		h.stopLimits()
 		<-h.limitsDone
+		h.stopDue()
+		<-h.dueDone
 		h.steps.Close()
 		h.manager.Close()
 	}

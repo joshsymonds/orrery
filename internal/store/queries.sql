@@ -186,10 +186,10 @@ ON CONFLICT (session_id, prompt_id) DO NOTHING;
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
-INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_name, gate_source, gate_needs, gate_limit, model_limit, started, checks, result, status,
-                   end_value, reason, ended, doing, verdicts, epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
+INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
+                   done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
+                   started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -334,8 +334,9 @@ DELETE FROM told_limit_steps WHERE limit_key = ?;
 SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
-INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,
+    changed, workflow, workflow_text, workflow_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -415,6 +416,12 @@ SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'done' ORDER BY position
 
 -- name: ListEpicReviewGates :many
 SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY position;
+
+-- name: InsertEpicWorkflowNode :exec
+INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicWorkflowNodes :many
+SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
@@ -538,8 +545,11 @@ UPDATE epics SET parked = ? WHERE id = ?;
 -- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?;
 
+-- name: SetEpicPauseSource :exec
+UPDATE epics SET pause_source = ? WHERE id = ?;
+
 -- name: ResumeEpic :exec
-UPDATE epics SET paused = 0 WHERE id = ?;
+UPDATE epics SET paused = 0, pause_source = '' WHERE id = ?;
 
 -- name: RetryEpic :exec
 UPDATE epics SET parked = '', retried = ? WHERE id = ?;
@@ -647,7 +657,8 @@ SELECT state FROM evidence_runs WHERE id = ?;
 UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?;
 
 -- name: RecordEvidenceRunCapture :exec
-UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, state = ?, ended = ?
+UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
+    stderr_bytes = ?, state = ?, ended = ?
 WHERE id = ?;
 
 -- name: InsertEvidenceArtifact :exec
@@ -670,3 +681,24 @@ SELECT * FROM evidence_runs WHERE epic = ? ORDER BY created, id;
 
 -- name: ListOpenEvidenceRuns :many
 SELECT * FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id;
+
+-- name: InsertDueResume :exec
+INSERT INTO due_resumes (id, kind, target, resets, state)
+SELECT sqlc.arg(id), sqlc.arg(kind), sqlc.arg(target), sqlc.arg(resets), 'due'
+WHERE NOT EXISTS (
+    SELECT 1 FROM due_resumes
+    WHERE due_resumes.kind = sqlc.arg(kind) AND due_resumes.target = sqlc.arg(target)
+      AND due_resumes.resets >= sqlc.arg(resets)
+);
+
+-- name: GetDueResume :one
+SELECT * FROM due_resumes WHERE id = ?;
+
+-- name: ListDueResumes :many
+SELECT * FROM due_resumes WHERE state = 'due' ORDER BY resets, id;
+
+-- name: CloseDueResume :exec
+UPDATE due_resumes SET state = 'done' WHERE id = ?;
+
+-- name: CloseDueResumesOf :exec
+UPDATE due_resumes SET state = 'done' WHERE kind = ? AND target = ?;

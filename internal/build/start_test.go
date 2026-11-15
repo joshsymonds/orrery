@@ -1,9 +1,11 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,12 +38,15 @@ func (f *startSteps) Status(_ context.Context, _ string) (store.StepRow, error) 
 	return store.StepRow{}, errors.New("start tests read no step")
 }
 
-// startEvidence is an Evidence whose log artifact is log, or err when it is set. It records the run each artifact is
-// read from.
+// startEvidence is an Evidence whose stdout log is log, or err when it is set, and whose stderr log is stderr, or
+// stderrErr when it is set. It records the run each log is read from.
 type startEvidence struct {
-	log  []byte
-	err  error
-	runs []string
+	log        []byte
+	err        error
+	runs       []string
+	stderr     []byte
+	stderrErr  error
+	stderrRuns []string
 }
 
 func (f *startEvidence) RunTask(
@@ -53,6 +58,11 @@ func (f *startEvidence) RunTask(
 func (f *startEvidence) Artifact(_ context.Context, run, _ string) ([]byte, string, error) {
 	f.runs = append(f.runs, run)
 	return f.log, "", f.err
+}
+
+func (f *startEvidence) StderrLog(_ context.Context, run string) ([]byte, string, error) {
+	f.stderrRuns = append(f.stderrRuns, run)
+	return f.stderr, "", f.stderrErr
 }
 
 // startSetup is the epic, its base commit, the state directory and the environment the start tests run under. The role
@@ -232,6 +242,89 @@ func TestStartImplementerRedLogErrorLeavesLogEmpty(t *testing.T) {
 	}
 	if prompt := onlyStart(t, steps).Prompt; !strings.Contains(prompt, "Red log (last 8 KiB):\n```\n\n```") {
 		t.Errorf("prompt does not carry an empty red log:\n%s", prompt)
+	}
+}
+
+func TestStartImplementerPromptHoldsRedStderrAfterRedLog(t *testing.T) {
+	t.Parallel()
+	setup := newStartSetup(t, readoptCommandGate("check"))
+	task := startTask(setup.base)
+	task.Red.StderrHash = "errhash"
+	id := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)
+	steps := &startSteps{}
+	evidence := &startEvidence{
+		log:    []byte("FAIL TestStartNamesRedLog"),
+		stderr: []byte("panic: TestStartNamesRedStderr"),
+	}
+	if _, err := startRunner(setup, steps, evidence).startStep(
+		context.Background(), setup.epic, View{Task: task},
+		Action{Kind: ActStartStep, Unit: StageImplement, ID: id},
+	); err != nil {
+		t.Fatalf("startStep(implement) = %v, want nil", err)
+	}
+	prompt := onlyStart(t, steps).Prompt
+	want := "Red log (last 8 KiB):\n```\nFAIL TestStartNamesRedLog\n```\n" +
+		"Red stderr (last 8 KiB):\n```\npanic: TestStartNamesRedStderr\n```\n"
+	if !strings.Contains(prompt, want) {
+		t.Errorf("prompt lacks the red stderr after the red log:\n%s", prompt)
+	}
+	if !slices.Equal(evidence.runs, []string{"redrun"}) {
+		t.Errorf("Artifact runs = %v, want the red run [redrun]", evidence.runs)
+	}
+	if !slices.Equal(evidence.stderrRuns, []string{"redrun"}) {
+		t.Errorf("StderrLog runs = %v, want the red run [redrun]", evidence.stderrRuns)
+	}
+}
+
+func TestStartImplementerRedStderrErrorLeavesStderrBlockOut(t *testing.T) {
+	t.Parallel()
+	setup := newStartSetup(t, readoptCommandGate("check"))
+	task := startTask(setup.base)
+	task.Red.StderrHash = "errhash"
+	id := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)
+	steps := &startSteps{}
+	evidence := &startEvidence{log: []byte("FAIL TestStartNamesRedLog"), stderrErr: errors.New("stderr log is gone")}
+	var logs bytes.Buffer
+	runner := New(Config{
+		Steps: steps, Evidence: evidence, Getenv: setup.getenv, StateDir: setup.stateDir,
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	if _, err := runner.startStep(
+		context.Background(), setup.epic, View{Task: task},
+		Action{Kind: ActStartStep, Unit: StageImplement, ID: id},
+	); err != nil {
+		t.Fatalf("startStep(implement) with an unreadable red stderr log = %v, want nil", err)
+	}
+	prompt := onlyStart(t, steps).Prompt
+	if strings.Contains(prompt, "Red stderr") {
+		t.Errorf("prompt carries a red stderr block after its read failed:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "FAIL TestStartNamesRedLog") {
+		t.Errorf("prompt lacks the red log its stdout read returned:\n%s", prompt)
+	}
+	if !strings.Contains(logs.String(), "stderr log is gone") {
+		t.Errorf("failed red stderr read was not logged:\n%s", logs.String())
+	}
+}
+
+func TestStartImplementerRedRunWithoutStderrReadsNoStderr(t *testing.T) {
+	t.Parallel()
+	setup := newStartSetup(t, readoptCommandGate("check"))
+	task := startTask(setup.base)
+	id := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)
+	steps := &startSteps{}
+	evidence := &startEvidence{log: []byte("FAIL TestStartNamesRedLog")}
+	if _, err := startRunner(setup, steps, evidence).startStep(
+		context.Background(), setup.epic, View{Task: task},
+		Action{Kind: ActStartStep, Unit: StageImplement, ID: id},
+	); err != nil {
+		t.Fatalf("startStep(implement) = %v, want nil", err)
+	}
+	if len(evidence.stderrRuns) != 0 {
+		t.Errorf("StderrLog runs = %v for a red run with no stderr log, want none", evidence.stderrRuns)
+	}
+	if prompt := onlyStart(t, steps).Prompt; strings.Contains(prompt, "Red stderr") {
+		t.Errorf("prompt carries a red stderr block for a red run with no stderr log:\n%s", prompt)
 	}
 }
 

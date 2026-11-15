@@ -2,6 +2,8 @@ package enginehost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -24,7 +27,8 @@ var ErrNoEvidenceArtifact = errors.New("no evidence artifact")
 // errEvidenceClosed is what Run returns once Close has been called.
 var errEvidenceClosed = errors.New("evidence runner is closed")
 
-// evidenceJudgeTries is how many judge steps a run starts before it records no verdict. A judge that ends with no verdict
+// evidenceJudgeTries is how many judge attempts a run makes before it records no verdict. An attempt whose judge does not start
+// counts too. A judge that ends with no verdict
 // is followed by another on the same kept output.
 const evidenceJudgeTries = 3
 
@@ -42,7 +46,7 @@ type EvidenceStore interface {
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	EvidenceRuns(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	OpenEvidenceRuns(ctx context.Context) ([]store.EvidenceRun, error)
-	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	Step(ctx context.Context, id string) (store.StepRow, error)
 }
 
 // EvidenceSteps starts judge steps and waits for them to end. *Steps satisfies it.
@@ -165,14 +169,17 @@ func (e *Evidence) Runs(ctx context.Context, epic string) ([]store.EvidenceRun, 
 	return runs, nil
 }
 
-// Artifact returns the bytes of a file of run and the hash they are stored under. The name "" is the run's log, and any
-// other name is the kept artifact with that path. A run that does not exist returns an error matching
-// store.ErrNoEvidenceRun. A file the run does not have, or has but did not keep, returns an error matching
-// ErrNoEvidenceArtifact.
+// Artifact returns the bytes of a file of run and the hash they are stored under. The name "" is the run's stdout log,
+// and any other name is the kept artifact with that path. A log is returned redacted, under the hash of the redacted
+// bytes, and an artifact as it was stored. A run that does not exist returns an error matching store.ErrNoEvidenceRun.
+// A file the run does not have, or has but did not keep, returns an error matching ErrNoEvidenceArtifact.
 func (e *Evidence) Artifact(ctx context.Context, run, name string) ([]byte, string, error) {
 	stored, err := e.store.EvidenceRun(ctx, run)
 	if err != nil {
 		return nil, "", fmt.Errorf("artifact of evidence run %s: %w", run, err)
+	}
+	if name == "" {
+		return e.readLog(stored, stored.LogHash)
 	}
 	blob, hash, err := evidenceRunFile(stored, name)
 	if err != nil {
@@ -183,6 +190,33 @@ func (e *Evidence) Artifact(ctx context.Context, run, name string) ([]byte, stri
 		return nil, "", fmt.Errorf("artifact of evidence run %s: %w", run, err)
 	}
 	return data, hash, nil
+}
+
+// StderrLog returns the stderr log of run, read as Artifact reads a log, and the hash of the bytes returned. A run that
+// does not exist returns an error matching store.ErrNoEvidenceRun, and a run with no stderr log one matching
+// ErrNoEvidenceArtifact.
+func (e *Evidence) StderrLog(ctx context.Context, run string) ([]byte, string, error) {
+	stored, err := e.store.EvidenceRun(ctx, run)
+	if err != nil {
+		return nil, "", fmt.Errorf("stderr log of evidence run %s: %w", run, err)
+	}
+	return e.readLog(stored, stored.StderrHash)
+}
+
+// readLog returns the log of run stored under hash, redacted, and the sha256 of the bytes returned. Every read redacts,
+// so a log stored before redaction is redacted when shown. A run with no log under hash returns an error matching
+// ErrNoEvidenceArtifact.
+func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, error) {
+	if hash == "" {
+		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, ErrNoEvidenceArtifact)
+	}
+	raw, err := e.blobs.read(hash + ".log")
+	if err != nil {
+		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, err)
+	}
+	data := []byte(redact.Text(string(raw)))
+	sum := sha256.Sum256(data)
+	return data, hex.EncodeToString(sum[:]), nil
 }
 
 // Close cancels every drive and waits for each to return. Under a gate scope each drive is canceled with errGateDetach,
@@ -235,15 +269,9 @@ func evidenceRunSource(spec evidence.Item) string {
 	return evidence.SourceSupplied
 }
 
-// evidenceRunFile returns the blob name and hash of the file of run that name asks for: the log for the name "", else the
-// kept artifact with that path. It returns an error matching ErrNoEvidenceArtifact when run has no such file.
+// evidenceRunFile returns the blob name and hash of the kept artifact of run named name. It returns an error matching
+// ErrNoEvidenceArtifact when run lists no artifact of that name, or lists one it did not keep.
 func evidenceRunFile(run store.EvidenceRun, name string) (string, string, error) {
-	if name == "" {
-		if run.LogHash == "" {
-			return "", "", fmt.Errorf("log of evidence run %s: %w", run.ID, ErrNoEvidenceArtifact)
-		}
-		return run.LogHash + ".log", run.LogHash, nil
-	}
 	for _, artifact := range run.Artifacts {
 		if artifact.Path != name {
 			continue
@@ -334,66 +362,79 @@ func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceR
 	return capture, err
 }
 
-// evidenceRunCaptured returns run with the exit, timeout, log and artifacts its capture left, which the judge reads.
+// evidenceRunCaptured returns run with the exit, timeout, logs and artifacts its capture left, which the judge reads.
 func evidenceRunCaptured(run store.EvidenceRun, capture store.EvidenceCapture) store.EvidenceRun {
 	run.Exit = capture.Exit
 	run.TimedOut = capture.TimedOut
 	run.LogHash = capture.LogHash
 	run.LogBytes = capture.LogBytes
+	run.StderrHash = capture.StderrHash
+	run.StderrBytes = capture.StderrBytes
 	run.Artifacts = capture.Artifacts
 	return run
 }
 
-// judgeRun gives run its verdict. A judge that ends with no verdict is followed by another, up to evidenceJudgeTries judges,
-// and the third's end then stands as the reason. The verdict is recorded once.
+// judgeRun gives run its verdict. A judge that ends with no verdict is followed by another, up to evidenceJudgeTries attempts
+// in all, and the last attempt's end then stands as the reason. An attempt whose judge does not start is one too. The verdict
+// is recorded once.
 func (e *Evidence) judgeRun(ctx context.Context, repo string, run store.EvidenceRun) {
-	for judges := 1; ; judges++ {
-		verdict, reason, err := e.judgeOnce(ctx, repo, run)
+	judges := run.Judges
+	for tries := 1; ; tries++ {
+		started, verdict, reason, err := e.judgeOnce(ctx, repo, run, judges+1)
 		if err != nil {
 			e.logger.WarnContext(ctx, "evidence judge stopped", "run", run.ID, "err", err)
 			return
 		}
-		if verdict != "" || judges == evidenceJudgeTries {
+		if started {
+			judges++
+		}
+		if verdict != "" || tries == evidenceJudgeTries {
 			e.recordVerdict(ctx, run, verdict, reason)
 			return
 		}
 	}
 }
 
-// judgeOnce starts one judge step on run's kept output and waits for it to end. It returns the verdict the end gives, or
-// the reason it gives none. A judge that does not start gives no verdict, and the reason is why. An error is returned only
-// when the step cannot be recorded or waited for.
-func (e *Evidence) judgeOnce(ctx context.Context, repo string, run store.EvidenceRun) (string, string, error) {
+// judgeOnce starts judge number judge on run's kept output and waits for it to end. It returns whether the judge started and
+// was recorded as run's judge, and the verdict its end gives, or the reason it gives none. A judge that does not start gives no
+// verdict, and the reason is why. An error is returned only when the step cannot be recorded or waited for.
+func (e *Evidence) judgeOnce(
+	ctx context.Context, repo string, run store.EvidenceRun, judge int,
+) (bool, string, string, error) {
 	if err := ctx.Err(); err != nil {
-		return "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
+		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
 	}
-	step, refusal := e.startJudge(ctx, repo, run)
+	step, refusal := e.startJudge(ctx, repo, run, judge)
 	if refusal != "" {
-		return "", refusal, nil
+		return false, "", refusal, nil
 	}
 	if err := ctx.Err(); err != nil {
-		return "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
+		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
 	}
 	if err := e.store.SetEvidenceJudge(ctx, run.ID, step); err != nil {
-		return "", "", fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
+		return false, "", "", fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
 	}
 	row, err := e.awaitJudge(ctx, step)
 	if err != nil {
-		return "", "", err
+		return true, "", "", err
 	}
 	verdict, reason := judgeVerdict(row)
-	return verdict, reason, nil
+	return true, verdict, reason, nil
 }
 
-// startJudge starts the judge step of run at repo. It returns the step's id, or the reason the step did not start: its
-// prompt could not be built, or Start refused it.
-func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun) (string, string) {
+// startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id, or
+// the reason the step did not start: its prompt could not be built, or Start refused it. Start returns the id of a step whose
+// StartStep failed after its row was written, with that row ended failed, so such a judge returns its id and its end gives the
+// reason; the start's error is that end's reason.
+func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
 	prompt, err := judgePrompt(run, e.blobs)
 	if err != nil {
 		return "", err.Error()
 	}
-	step, err := e.steps.Start(ctx, judgeStart(run, repo, prompt))
-	if err != nil {
+	start := judgeStart(run, repo, prompt)
+	start.ID = evidenceJudgeID(run.ID, judge)
+	step, err := e.steps.Start(ctx, start)
+	if err != nil && step == "" {
 		return "", err.Error()
 	}
 	return step, ""

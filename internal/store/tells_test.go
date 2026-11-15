@@ -31,12 +31,8 @@ func TestAttentionListsUntoldTellsInSeqOrderAndTheLatestTellTime(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openBuildStore(ctx, t)
 	first, second := time.Unix(1700000900, 0), time.Unix(1700000950, 0)
-	if err := s.Tell(ctx, buildEpic, "first tell", first); err != nil {
-		t.Fatalf("Tell first: %v", err)
-	}
-	if err := s.Tell(ctx, buildEpic, "second tell", second); err != nil {
-		t.Fatalf("Tell second: %v", err)
-	}
+	tellBuildEpic(ctx, t, s, "first tell", first)
+	tellBuildEpic(ctx, t, s, "second tell", second)
 
 	got := attentionOfBuildEpic(ctx, t, s)
 	want := []store.EpicTell{{Seq: 1, Text: "first tell", At: first}, {Seq: 2, Text: "second tell", At: second}}
@@ -53,12 +49,8 @@ func TestMarkTellToldDropsTheTellFromAttentionAndKeepsTheLatestTellTime(t *testi
 	ctx := context.Background()
 	s, _ := openBuildStore(ctx, t)
 	first, second := time.Unix(1700000900, 0), time.Unix(1700000950, 0)
-	if err := s.Tell(ctx, buildEpic, "first tell", first); err != nil {
-		t.Fatalf("Tell first: %v", err)
-	}
-	if err := s.Tell(ctx, buildEpic, "second tell", second); err != nil {
-		t.Fatalf("Tell second: %v", err)
-	}
+	tellBuildEpic(ctx, t, s, "first tell", first)
+	tellBuildEpic(ctx, t, s, "second tell", second)
 
 	if err := s.MarkTellTold(ctx, buildEpic, 1); err != nil {
 		t.Fatalf("MarkTellTold of tell 1: %v", err)
@@ -91,9 +83,7 @@ func TestMarkTellToldOfAnUnknownTellIsErrNoTell(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openBuildStore(ctx, t)
-	if err := s.Tell(ctx, buildEpic, "only tell", writtenAt()); err != nil {
-		t.Fatalf("Tell: %v", err)
-	}
+	tellBuildEpic(ctx, t, s, "only tell", writtenAt())
 
 	if err := s.MarkTellTold(ctx, buildEpic, 9); !errors.Is(err, store.ErrNoTell) {
 		t.Errorf("MarkTellTold of a tell that does not exist err = %v, want ErrNoTell", err)

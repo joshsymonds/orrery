@@ -20,6 +20,8 @@ type StepCheck struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail"`
+	Stdout string `json:"stdout,omitempty"`
+	Stderr string `json:"stderr,omitempty"`
 }
 
 // StepVerdict is one Haiku verdict on a step: a monitor call on a trip, or a judge call on a done return. Verdict is
@@ -45,24 +47,26 @@ type StepNeed struct {
 // an empty Epic is never listed by LabelledSteps. Gate and GateLimit are the resolved argv and limit of the gate the
 // step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
 type StepAdd struct {
-	ID         string
-	Agent      string
-	Prompt     string
-	Schema     string
-	Workspace  string
-	Revision   string
-	Worktree   string
-	DoneValue  string
-	ReadOnly   bool
-	Owned      []string
-	Gate       []string
-	GateName   string
-	GateSource string
-	GateNeeds  []StepNeed
-	GateLimit  time.Duration
-	ModelLimit time.Duration
-	Epic       string
-	Task       string
+	ID           string
+	Agent        string
+	Prompt       string
+	Schema       string
+	Workspace    string
+	Revision     string
+	Worktree     string
+	CheckoutHead string
+	CheckoutHash string
+	DoneValue    string
+	ReadOnly     bool
+	Owned        []string
+	Gate         []string
+	GateName     string
+	GateSource   string
+	GateNeeds    []StepNeed
+	GateLimit    time.Duration
+	ModelLimit   time.Duration
+	Epic         string
+	Task         string
 }
 
 // StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
@@ -93,7 +97,9 @@ type StepEnd struct {
 // with, whether it has been nudged, whether it is held, whether its judge has sent it back, and its usage-limit hold:
 // whether it is limited, the kind of limit and the time it resets, zero when the reset is unknown, and the time an
 // agent gate step's limit counts from after a resume from a usage limit, zero when it counts from the step's start. It
-// sets every loop column, so a field left at its zero value is stored as zero.
+// sets every loop column, so a field left at its zero value is stored as zero. A limit with a known reset also stores
+// the step's due row in the same write, unless the step has ended or already has a due row for that reset or a later
+// one.
 type StepLoop struct {
 	ID          string
 	Round       int
@@ -138,6 +144,8 @@ type StepRow struct {
 	Workspace       string
 	Revision        string
 	Worktree        string
+	CheckoutHead    string
+	CheckoutHash    string
 	DoneValue       string
 	ReadOnly        bool
 	Owned           []string
@@ -190,7 +198,8 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
-		Revision: op.Revision, Worktree: op.Worktree, DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
+		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
+		DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
 		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
 		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
@@ -223,7 +232,8 @@ func (op StepReturn) applyEngine(ctx context.Context, queries *sqlcgen.Queries, 
 }
 
 func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
-	if _, err := requireStep(ctx, queries, op.ID); err != nil {
+	row, err := requireStep(ctx, queries, op.ID)
+	if err != nil {
 		return err
 	}
 	var resets, gateFrom int64
@@ -233,13 +243,17 @@ func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ 
 	if !op.GateFrom.IsZero() {
 		gateFrom = op.GateFrom.Unix()
 	}
-	if err := queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
+	if err = queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
 		LoopRound: int64(op.Round), LoopContinues: int64(op.Continues), LoopNudge: op.Nudge,
 		LoopOwnerNudge: op.OwnerNudge, LoopNudged: op.Nudged, LoopHeld: op.Held, LoopJudgeSent: op.JudgeSent,
 		LoopLimited: op.Limited, LoopLimitKind: op.LimitKind, LoopLimitResets: resets, LoopGateFrom: gateFrom,
 		ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update loop of step %s: %w", op.ID, err)
+	}
+	// StepEnd closed the due rows of an ended step, so a limit that arrives after the end stores none.
+	if op.Limited && !op.LimitResets.IsZero() && row.EndValue == "" {
+		return insertDueResume(ctx, queries, dueKindStep, op.ID, op.LimitResets.Unix())
 	}
 	return nil
 }
@@ -297,7 +311,7 @@ func (op StepEnd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	}); err != nil {
 		return fmt.Errorf("update end of step %s: %w", op.ID, err)
 	}
-	return nil
+	return StepDueResumesClosed{ID: op.ID}.applyEngine(ctx, queries, now)
 }
 
 // Step returns the step row with id. It returns an error matching ErrNoStep when no step has that id.
@@ -417,7 +431,8 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	}
 	return StepRow{
 		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
-		Revision: row.Revision, Worktree: row.Worktree, DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
+		Revision: row.Revision, Worktree: row.Worktree, CheckoutHead: row.CheckoutHead, CheckoutHash: row.CheckoutHash,
+		DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
 		Owned: owned, Gate: gate, GateName: row.GateName, GateSource: row.GateSource, GateNeeds: gateNeeds,
 		GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
 		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,

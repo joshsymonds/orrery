@@ -255,10 +255,10 @@ message EvidenceRun {
   // Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
   string not_captured = 10;
 
-  // The sha256 of the run's log; empty until the log is stored.
+  // The sha256 of the run's stdout log; empty until the log is stored.
   string log_hash = 11;
 
-  // The size of the run's log in bytes.
+  // The size of the run's stdout log in bytes.
   int64 log_bytes = 12;
 
   // The artifacts the run kept, each with the state it was kept in.
@@ -281,6 +281,12 @@ message EvidenceRun {
 
   // When the run ended, in unix seconds; 0 while it runs.
   int64 ended = 19;
+
+  // The sha256 of the run's stderr log; empty until the log is stored.
+  string stderr_hash = 20;
+
+  // The size of the run's stderr log in bytes.
+  int64 stderr_bytes = 21;
 }
 
 // EpicPremise is one assumption the contract makes.
@@ -497,6 +503,18 @@ message EpicQuestion {
   string state = 4;
 }
 
+// EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
+message EpicWorkflow {
+  // The workflow's name.
+  string name = 1;
+
+  // The workflow's canonical text, as the epic pinned it.
+  string text = 2;
+
+  // The sha256 of text, in lowercase hex.
+  string sha256 = 3;
+}
+
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
   // The epic's contract as created.
@@ -531,6 +549,9 @@ message StoredEpic {
 
   // The state of the epic's branch: empty before it is created, creating while it is being created, then created.
   string branch = 11;
+
+  // The workflow the epic pinned when it was created.
+  EpicWorkflow workflow = 12;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -561,6 +582,9 @@ message CreateEpicRequest {
 
   // The seed decisions, recorded in order as the epic's first decisions.
   repeated EpicDecisionInput decisions = 2;
+
+  // The name of the workflow the epic pins, read at the contract's base. Empty pins the built-in epic.
+  string workflow = 3;
 }
 
 // CreateEpicResponse carries the stored epic.
@@ -709,6 +733,9 @@ message GetEvidenceArtifactRequest {
 
   // The artifact's repository-relative path; empty for the run's log.
   string name = 2;
+
+  // Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+  bool stderr = 3;
 }
 
 // GetEvidenceArtifactResponse carries one artifact's bytes.

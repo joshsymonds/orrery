@@ -86,12 +86,14 @@ type Source struct {
 }
 
 // Notice is one waiting or done notice to route. A non-empty Silent is the reason it goes nowhere. A nil
-// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store.
+// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store,
+// and a non-nil Told is written into each of those rows, marking its turn or tell told in the same write.
 type Notice struct {
 	Key      notice.Key
 	State    string
 	Silent   string
 	Source   Source
+	Told     *store.ToldMark
 	Watching func(context.Context) (bool, error)
 	Judge    func(context.Context) (Verdict, error)
 	Desk     func(context.Context) (deskstream.Notice, error)
@@ -111,13 +113,15 @@ var (
 // with.
 type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
-// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. A nil Pages shows
-// nothing. Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls
-// each Rebuild under the Router's lock, so a Rebuild must not call the Router.
+// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. StoreAfter arms
+// the bound on each store call the Router makes, and a nil StoreAfter uses time.AfterFunc. A nil Pages shows nothing.
+// Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each
+// Rebuild under the Router's lock, so a Rebuild must not call the Router.
 type Config struct {
 	Host       string
 	Now        func() time.Time
 	After      func(d time.Duration, f func()) (stop func() bool)
+	StoreAfter func(d time.Duration, f func()) (stop func() bool)
 	Desk       DeskSink
 	Phone      PhoneSink
 	Pages      PageSink
@@ -138,7 +142,8 @@ type Router struct {
 	running int
 	seq     uint64
 	pending map[notice.Key]*entry
-	// putRow and deleteRow write to the store Attach was given, each under storeDeadline; both are nil until Attach.
+	// putRow and deleteRow write to the store Attach was given, each under the store-call bound; both are nil until
+	// Attach.
 	// rowID is the highest row id given out.
 	putRow    func(store.NoticeRow) error
 	deleteRow func(int64) error
@@ -174,6 +179,9 @@ type entry struct {
 func New(cfg Config) *Router {
 	if cfg.After == nil {
 		cfg.After = afterFunc
+	}
+	if cfg.StoreAfter == nil {
+		cfg.StoreAfter = afterFunc
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)

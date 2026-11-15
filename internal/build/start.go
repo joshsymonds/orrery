@@ -75,15 +75,15 @@ func (r *Runner) implementerStart(
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
 	path := filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), id)
-	err = AddWorktree(ctx, epic.Repository, path, task.Build.Base)
+	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
 	if err != nil {
-		return enginehost.StepStart{}, err
+		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
 	}
-	red, redLog := r.redEvidence(ctx, task)
+	red, redLog, redStderr := r.redEvidence(ctx, task)
 	return enginehost.StepStart{
 		ID:          id,
 		Agent:       agent,
-		Prompt:      Brief(epic, task, red, redLog, task.Build.Failure),
+		Prompt:      Brief(epic, task, red, redLog, redStderr, task.Build.Failure),
 		Schema:      ImplementerSchema,
 		Workspace:   path,
 		Revision:    task.Build.Base,
@@ -95,21 +95,31 @@ func (r *Runner) implementerStart(
 	}, nil
 }
 
-// redEvidence returns the red run of task and the log the run left. A log that cannot be read is logged and left
-// empty, so the brief carries the run without its log.
-func (r *Runner) redEvidence(ctx context.Context, task store.EpicTask) (store.EvidenceRun, []byte) {
+// redEvidence returns the red run of task, the stdout log the run left, and the stderr log it left. A log the run does
+// not have is not read, and a log that cannot be read is logged and left empty, so the brief carries the run without
+// that log.
+func (r *Runner) redEvidence(ctx context.Context, task store.EpicTask) (store.EvidenceRun, []byte, []byte) {
 	if task.Red == nil {
-		return store.EvidenceRun{}, nil
+		return store.EvidenceRun{}, nil, nil
 	}
-	if task.Red.LogHash == "" {
-		return *task.Red, nil
+	var redLog, redStderr []byte
+	if task.Red.LogHash != "" {
+		data, _, err := r.evidence.Artifact(ctx, task.Red.ID, "")
+		if err != nil {
+			r.logger.WarnContext(ctx, "read red log", "run", task.Red.ID, "err", err)
+		} else {
+			redLog = data
+		}
 	}
-	redLog, _, err := r.evidence.Artifact(ctx, task.Red.ID, "")
-	if err != nil {
-		r.logger.WarnContext(ctx, "read red log", "run", task.Red.ID, "err", err)
-		return *task.Red, nil
+	if task.Red.StderrHash != "" {
+		data, _, err := r.evidence.StderrLog(ctx, task.Red.ID)
+		if err != nil {
+			r.logger.WarnContext(ctx, "read red stderr log", "run", task.Red.ID, "err", err)
+		} else {
+			redStderr = data
+		}
 	}
-	return *task.Red, redLog
+	return *task.Red, redLog, redStderr
 }
 
 // reviewStart returns the start of the review step id for task of epic: the review gate at the task's gate position,

@@ -57,8 +57,9 @@ func (s *epicService) ready() error {
 	return nil
 }
 
-// CreateEpic checks the contract with checkEpic, resolves its base to the full commit the base names, then stores it
-// accepted, with its seed decisions, and returns the stored epic read back.
+// CreateEpic checks the contract with checkEpic, resolves its base to the full commit the base names, pins the workflow
+// the request names at that commit, then stores it accepted, with its seed decisions, and returns the stored epic read
+// back. A workflow that does not load at the base is refused, and nothing is stored.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -78,7 +79,11 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, epicStoreError(fmt.Errorf("resolve base: %w", err))
 	}
-	row := epicRowOf(req.Msg, base, time.Now())
+	workflow, err := pinWorkflow(ctx, contract.GetRepository(), base, req.Msg.GetWorkflow())
+	if err != nil {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "workflow: "+err.Error())
+	}
+	row := epicRowOf(req.Msg, base, workflow, time.Now())
 	if err = s.epics.CreateEpic(ctx, row); err != nil {
 		if errors.Is(err, store.ErrEpicExists) {
 			return nil, refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already in the database", row.ID))
@@ -240,8 +245,9 @@ func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 	return nil
 }
 
-// PauseEpic pauses the epic, so the planner starts no turn for it, and returns the epic read back. An epic already
-// paused is refused.
+// PauseEpic pauses the epic as its owner's, so the planner starts no turn for it and no reset resumes it, and returns
+// the epic read back. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit
+// paused is taken over by the owner.
 func (s *epicService) PauseEpic(
 	ctx context.Context,
 	req *connect.Request[v1.PauseEpicRequest],
@@ -424,14 +430,15 @@ func epicStoreError(err error) error {
 	return errors.Join(connect.NewError(connect.CodeInternal, err))
 }
 
-// epicRowOf returns the store row of the contract req names, based at base and accepted at now, with req's decisions
-// as its seeds.
-func epicRowOf(req *v1.CreateEpicRequest, base string, now time.Time) store.EpicRow {
+// epicRowOf returns the store row of the contract req names, based at base, pinned to workflow and accepted at now, with
+// req's decisions as its seeds.
+func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkflow, now time.Time) store.EpicRow {
 	contract := req.GetContract()
 	return store.EpicRow{
 		ID:          contract.GetId(),
 		Repository:  contract.GetRepository(),
 		Base:        base,
+		Workflow:    workflow,
 		Title:       contract.GetTitle(),
 		Approved:    contract.GetApproved(),
 		Intent:      contract.GetIntent(),
@@ -492,8 +499,8 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 }
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, its paused
-// and parked state with its turns, tasks and questions in order, and its branch state. It fails when a task's messages
-// fail.
+// and parked state with its turns, tasks and questions in order, its branch state, and its pinned workflow. It fails
+// when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
@@ -511,7 +518,13 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Tasks:     tasks,
 		Questions: epicMap(row.Questions, questionMessage),
 		Branch:    row.Branch,
+		Workflow:  workflowMessage(row.Workflow),
 	}, nil
+}
+
+// workflowMessage returns the EpicWorkflow message of w: its name, its canonical text and its sha256.
+func workflowMessage(w store.EpicWorkflow) *v1.EpicWorkflow {
+	return &v1.EpicWorkflow{Name: w.Name, Text: w.Text, Sha256: w.SHA256}
 }
 
 // contractMessage returns the EpicContract message of row, every section in order.

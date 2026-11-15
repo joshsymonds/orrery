@@ -42,8 +42,8 @@ const (
 	mediaTypeOctets = "application/octet-stream"
 )
 
-// Artifact answers the bytes of one artifact of a run, or of the run's log when the name is empty, with the media type
-// artifactMediaType gives the name. The call runs under the timeout and is not retried. A nil client answers
+// Artifact answers the bytes of one artifact of a run, or of the run's log when the name is empty, and of its stderr log
+// when the name is empty and stderr is set, with the media type artifactMediaType gives the name. The call runs under the timeout and is not retried. A nil client answers
 // unavailable, and an orreryd failure answers as translateError answers a failed forward.
 func (e evidenceServer) Artifact(
 	ctx context.Context,
@@ -56,8 +56,9 @@ func (e evidenceServer) Artifact(
 	defer cancel()
 	name := req.Msg.GetName()
 	resp, err := e.client.GetEvidenceArtifact(ctx, connect.NewRequest(&enginev1.GetEvidenceArtifactRequest{
-		Run:  req.Msg.GetRun(),
-		Name: name,
+		Run:    req.Msg.GetRun(),
+		Name:   name,
+		Stderr: req.Msg.GetStderr(),
 	}))
 	if err != nil {
 		return nil, translateError(wrapEngine("evidence artifact", err))

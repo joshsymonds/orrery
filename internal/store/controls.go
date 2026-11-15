@@ -12,6 +12,9 @@ import (
 // ErrNoTurn reports that the epic has no turn with the seq asked for.
 var ErrNoTurn = errors.New("no turn")
 
+// ErrNoDueResume reports that no due row has the id asked for.
+var ErrNoDueResume = errors.New("no due resume")
+
 // RefusalError is the error a control returns when the epic is outside the state the control needs. The control
 // writes nothing, and the text says why.
 type RefusalError string
@@ -21,26 +24,26 @@ func (r RefusalError) Error() string {
 	return string(r)
 }
 
-// PauseEpic pauses epic in one write, so the planner starts no turn for it. An unknown epic is ErrNoEpic, and an epic
-// that is already paused is a RefusalError.
+// PauseEpic pauses epic in one write, so the planner starts no turn for it, and records the owner as its pause source.
+// An epic a usage limit paused is accepted and becomes the owner's pause, and its due rows close in the same write, so
+// no reset resumes it. An unknown epic is ErrNoEpic, and an epic the owner already paused, or paused with no recorded
+// source, is a RefusalError.
 func (s *Store) PauseEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
 		if err != nil {
 			return err
 		}
-		if head.Paused != 0 {
+		if head.Paused != 0 && head.PauseSource != pauseLimit {
 			return RefusalError(fmt.Sprintf("epic %s is already paused", epic))
 		}
-		if err = queries.PauseEpic(ctx, epic); err != nil {
-			return fmt.Errorf("pause epic %s: %w", epic, err)
-		}
-		return nil
+		return pauseAsOwner(ctx, queries, epic)
 	})
 }
 
-// ResumeEpic clears the pause of epic in one write and leaves any park in place. An unknown epic is ErrNoEpic. An
-// epic that is not paused is a RefusalError, and a parked one names retry, since only retry ends a park.
+// ResumeEpic clears the pause of epic and closes its due rows in one write and leaves any park in place. An unknown
+// epic is ErrNoEpic. An epic that is not paused is a RefusalError, and a parked one names retry, since only retry ends
+// a park.
 func (s *Store) ResumeEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -53,16 +56,56 @@ func (s *Store) ResumeEpic(ctx context.Context, epic string) error {
 			}
 			return RefusalError(fmt.Sprintf("epic %s is not paused", epic))
 		}
-		if err = queries.ResumeEpic(ctx, epic); err != nil {
-			return fmt.Errorf("resume epic %s: %w", epic, err)
-		}
-		return nil
+		return resumeEpic(ctx, queries, epic)
 	})
 }
 
-// StopEpic pauses epic and flags its running turn to stop, in one write, and returns the turn's step, empty while the
-// turn has none. The turn keeps its claimed triggers. An unknown epic is ErrNoEpic, and an epic with no running turn is
-// a RefusalError.
+// ResumeDueEpic resumes the epic of the due row id in one write. The row must be a due row of an epic, and an unknown
+// row is ErrNoDueResume. When the row is still due and its epic is paused by a usage limit, the write clears the pause
+// as ResumeEpic does, closes the epic's due rows, and reports true. Otherwise the write marks the row done and reports
+// false.
+func (s *Store) ResumeDueEpic(ctx context.Context, id string) (bool, error) {
+	var resumed bool
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		row, err := queries.GetDueResume(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("due resume %s: %w", id, ErrNoDueResume)
+		}
+		if err != nil {
+			return fmt.Errorf("get due resume %s: %w", id, err)
+		}
+		if row.Kind != dueKindEpic {
+			return fmt.Errorf("due resume %s is of kind %s, not %s", id, row.Kind, dueKindEpic)
+		}
+		if row.State != "due" {
+			return closeDueResume(ctx, queries, id)
+		}
+		head, err := epicHead(ctx, queries, row.Target)
+		if err != nil {
+			return err
+		}
+		if head.Paused == 0 || head.PauseSource != pauseLimit {
+			return closeDueResume(ctx, queries, id)
+		}
+		resumed = true
+		return resumeEpic(ctx, queries, row.Target)
+	})
+	if err != nil {
+		return false, err
+	}
+	return resumed, nil
+}
+
+// CloseDueResume marks the due row id done in one write. It resumes nothing and leaves the pause of its epic as it is.
+func (s *Store) CloseDueResume(ctx context.Context, id string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		return closeDueResume(ctx, queries, id)
+	})
+}
+
+// StopEpic pauses epic as its owner's, closes its due rows, and flags its running turn to stop, in one write, and
+// returns the turn's step, empty while the turn has none. The turn keeps its claimed triggers. An unknown epic is
+// ErrNoEpic, and an epic with no running turn is a RefusalError.
 func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -76,14 +119,11 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 		if err != nil {
 			return fmt.Errorf("read running turn of epic %s: %w", epic, err)
 		}
-		if err = queries.PauseEpic(ctx, epic); err != nil {
-			return fmt.Errorf("pause epic %s: %w", epic, err)
-		}
 		if err = queries.SetEpicTurnStop(ctx, sqlcgen.SetEpicTurnStopParams{Epic: epic, Seq: running.Seq}); err != nil {
 			return fmt.Errorf("stop turn %d of epic %s: %w", running.Seq, epic, err)
 		}
 		step = running.Step
-		return nil
+		return pauseAsOwner(ctx, queries, epic)
 	})
 	if err != nil {
 		return "", err
@@ -137,4 +177,39 @@ func epicHead(ctx context.Context, queries *sqlcgen.Queries, epic string) (sqlcg
 		return sqlcgen.Epic{}, fmt.Errorf("get epic %s: %w", epic, err)
 	}
 	return head, nil
+}
+
+// pauseAsOwner pauses epic with the owner as its pause source and closes its due rows in the caller's write, so no
+// reset that is still due resumes it.
+func pauseAsOwner(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	if err := pauseEpicAs(ctx, queries, epic, pauseOwner); err != nil {
+		return err
+	}
+	return closeEpicDueResumes(ctx, queries, epic)
+}
+
+// resumeEpic clears the pause of epic and closes its due rows in the caller's write, so no reset that is still due
+// resumes it later.
+func resumeEpic(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	if err := queries.ResumeEpic(ctx, epic); err != nil {
+		return fmt.Errorf("resume epic %s: %w", epic, err)
+	}
+	return closeEpicDueResumes(ctx, queries, epic)
+}
+
+// closeEpicDueResumes marks every due row of epic done in the caller's write.
+func closeEpicDueResumes(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	closed := sqlcgen.CloseDueResumesOfParams{Kind: dueKindEpic, Target: epic}
+	if err := queries.CloseDueResumesOf(ctx, closed); err != nil {
+		return fmt.Errorf("close due resumes of epic %s: %w", epic, err)
+	}
+	return nil
+}
+
+// closeDueResume marks the due row id done in the caller's write.
+func closeDueResume(ctx context.Context, queries *sqlcgen.Queries, id string) error {
+	if err := queries.CloseDueResume(ctx, id); err != nil {
+		return fmt.Errorf("close due resume %s: %w", id, err)
+	}
+	return nil
 }

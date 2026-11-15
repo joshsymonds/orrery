@@ -239,7 +239,8 @@ data class PickRow(
     val prompt: Boolean,
 )
 
-data class StepCheckRow(val round: Int, val name: String, val ok: Boolean)
+/** One gate check of a step. [stdout] and [stderr] are the redacted tails of a failed gate check, empty otherwise. */
+data class StepCheckRow(val round: Int, val name: String, val ok: Boolean, val stdout: String, val stderr: String)
 
 /** One labelled step as the epics view shows it. [end] is "" while the step runs. */
 data class StepRow(
@@ -288,7 +289,8 @@ data class EpicRequirementRow(
 
 /**
  * One evidence run of a requirement, for one [phase] (red or green), produced by [source] (captured or supplied).
- * [passed] is whether the run passes its phase, and [artifacts] are the files it kept.
+ * [passed] is whether the run passes its phase, [logBytes] and [stderrBytes] are the sizes of its stdout and stderr logs,
+ * and [artifacts] are the files it kept.
  */
 data class EvidenceRunRow(
     val id: String,
@@ -305,6 +307,7 @@ data class EvidenceRunRow(
     val created: Long,
     val ended: Long,
     val logBytes: Long,
+    val stderrBytes: Long,
     val artifacts: List<EvidenceArtifactRow>,
 )
 
@@ -583,9 +586,12 @@ class OrreryClient(
         )
     }
 
-    /** One artifact of an evidence run, or the run's log when [name] is empty, or null when the server answered not_found. */
-    fun artifact(run: String, name: String): EvidenceArtifactFile? {
-        val request = EvidenceArtifactRequest.newBuilder().setRun(run).setName(name).build()
+    /**
+     * One artifact of an evidence run, or one of its logs when [name] is empty: the stderr log when [stderr] is set,
+     * the stdout log otherwise. Null when the server answered not_found.
+     */
+    fun artifact(run: String, name: String, stderr: Boolean = false): EvidenceArtifactFile? {
+        val request = EvidenceArtifactRequest.newBuilder().setRun(run).setName(name).setStderr(stderr).build()
         val response = notFoundAsNull { call(write = false) { standard.evidence.artifact(request, CLIENT_HEADERS) } }
             ?: return null
         return EvidenceArtifactFile(data = response.data.toByteArray(), mediaType = response.mediaType)
@@ -782,6 +788,7 @@ class OrreryClient(
             created = created,
             ended = ended,
             logBytes = logBytes,
+            stderrBytes = stderrBytes,
             artifacts = artifactsList.map { it.toEvidenceArtifactRow() },
         )
 
@@ -804,7 +811,7 @@ class OrreryClient(
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
-        StepCheckRow(round = round, name = name, ok = ok)
+        StepCheckRow(round = round, name = name, ok = ok, stdout = stdout, stderr = stderr)
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
         EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)

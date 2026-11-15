@@ -1,0 +1,350 @@
+[
+  {
+    "name": "step_start",
+    "description": "Start a step: an agent working in a workspace. Returns the step id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "object",
+          "description": "JSON schema of the step's return value"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "doneValue": {
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "ownedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gateName": {
+          "type": "string"
+        },
+        "gatesFile": {
+          "type": "string"
+        },
+        "epic": {
+          "type": "string"
+        },
+        "task": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt",
+        "workspace"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_status",
+    "description": "Report a step's current state by id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_stop",
+    "description": "Stop a running step by id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_resume",
+    "description": "Resume a step a usage limit holds by id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "step_wait",
+    "description": "Wait until one of the given steps ends, or until timeoutSeconds passes (at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_create",
+    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. A refusal names the field that failed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "object",
+          "description": "the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion and judge."
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "workflow": {
+          "type": "string",
+          "description": "the workflow the epic pins, read at the contract's base: a repository file .orrery/workflows/\u003cname\u003e.yaml, else the built-in of that name; omit it to pin epic"
+        }
+      },
+      "required": [
+        "contract"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_get",
+    "description": "Return a stored epic by id: its contract, the workflow it pins with its name, text and sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner turns, tasks and questions.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_list",
+    "description": "List the stored epics as summaries: id, repository, title, phase, created and changed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_answer",
+    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers; omit it for a note, which answers no question and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns the decision and the warning.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "epicId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "question": {
+          "type": "string",
+          "description": "the Q\u003cn\u003e the answer names; omit for a note"
+        }
+      },
+      "required": [
+        "epicId",
+        "id",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_pause",
+    "description": "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. Returns the stored epic. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit paused is accepted and stays paused past the reset.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_resume",
+    "description": "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. Returns the stored epic, the ids of the steps resumed, and the ids of the steps a full step cap left limited. An epic that is not paused and holds no limited task step is refused. A park stays; epic_retry ends a park.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_stop",
+    "description": "Pause an epic by id and stop the step of its running turn. Returns the stored epic. An epic with no running turn is refused, and nothing is stopped.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_retry",
+    "description": "End the park of an epic by id, so the planner starts its turns again. Returns the stored epic. An epic that is not parked is refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "evidence_run",
+    "description": "Run an item's evidence at a revision for one phase, red or green. Returns the evidence run. A refusal names the field that failed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "epic": {
+          "type": "string"
+        },
+        "item": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epic",
+        "item",
+        "revision",
+        "phase"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "evidence_list",
+    "description": "List an epic's evidence runs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "epic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epic"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "evidence_get",
+    "description": "Return one artifact of an evidence run by its path, or the run's log when name is omitted. The bytes are base64 in the result.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "description": "the artifact's repository-relative path; omitted for the run's log"
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

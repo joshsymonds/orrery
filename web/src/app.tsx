@@ -139,7 +139,10 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // loadArtifact reads a run's log or artifact for the epic view. It is stable across renders, so an open log or image
   // is not loaded again on every poll.
-  const loadArtifact = useCallback((run: string, name: string) => clients.evidence.artifact({ run, name }), [clients]);
+  const loadArtifact = useCallback(
+    (run: string, name: string, stderr: boolean) => clients.evidence.artifact({ run, name, stderr }),
+    [clients],
+  );
   // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
   // waits on the question it answered.
   const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
