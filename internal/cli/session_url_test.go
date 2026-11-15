@@ -102,6 +102,13 @@ func (f *urlFake) Seen(
 	return controlReply(f, req.Msg, &orreryv1.SeenResponse{})
 }
 
+func (f *urlFake) Resume(
+	_ context.Context,
+	req *connect.Request[orreryv1.ResumeRequest],
+) (*connect.Response[orreryv1.ResumeResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.ResumeResponse{})
+}
+
 func (f *urlFake) List(
 	context.Context,
 	*connect.Request[orreryv1.ListRequest],

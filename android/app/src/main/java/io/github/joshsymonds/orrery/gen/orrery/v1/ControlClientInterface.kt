@@ -41,4 +41,9 @@ public interface ControlClientInterface {
    *  Seen records that the user has seen a headless session.
    */
   public suspend fun seen(request: SeenRequest, headers: Headers = emptyMap()): ResponseMessage<SeenResponse>
+
+  /**
+   *  Resume resumes an interrupted headless session's turn by sending its resume prompt.
+   */
+  public suspend fun resume(request: ResumeRequest, headers: Headers = emptyMap()): ResponseMessage<ResumeResponse>
 }

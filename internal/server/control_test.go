@@ -227,7 +227,7 @@ func replyOf[T any, M interface {
 	return M(resp.Msg), nil
 }
 
-// controlCalls returns the six Control calls, each with every request field set. Start sends dir and expects the
+// controlCalls returns the seven Control calls, each with every request field set. Start sends dir and expects the
 // engine to receive resolved, the same directory with its symlinks resolved.
 func controlCalls(dir, resolved string) []controlCall {
 	return []controlCall{
@@ -287,6 +287,14 @@ func controlCalls(dir, resolved string) []controlCall {
 			engine: &enginev1.SeenRequest{Id: synthSessionID},
 			reply:  &orreryv1.SeenResponse{},
 		},
+		{
+			name: "Resume",
+			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
+				return replyOf(c.Resume(ctx, connect.NewRequest(&orreryv1.ResumeRequest{Id: synthSessionID})))
+			},
+			engine: &enginev1.ResumeRequest{Id: synthSessionID},
+			reply:  &orreryv1.ResumeResponse{},
+		},
 	}
 }
 
@@ -299,6 +307,7 @@ func controlPaths() []string {
 		orreryv1connect.ControlInterruptProcedure,
 		orreryv1connect.ControlStopProcedure,
 		orreryv1connect.ControlSeenProcedure,
+		orreryv1connect.ControlResumeProcedure,
 	}
 }
 
@@ -391,6 +400,15 @@ func TestControlAnswersOrreryErrors(t *testing.T) {
 			assertConnectError(t, err, tc.code, tc.message)
 		})
 	}
+	// Resume answers with orreryd's refusal, so the phone can show why a session was not resumed.
+	t.Run("Resume failed_precondition", func(t *testing.T) {
+		refusal := connect.NewError(connect.CodeFailedPrecondition, errors.New("synthetic not interrupted"))
+		fake := &fakeEngine{err: refusal}
+		control := controlClient(t, newControlHandler(t, newFakeOrreryd(t, fake), 0))
+
+		_, err := control.Resume(t.Context(), connect.NewRequest(&orreryv1.ResumeRequest{Id: synthSessionID}))
+		assertConnectError(t, err, connect.CodeFailedPrecondition, "synthetic not interrupted")
+	})
 }
 
 func TestControlUnavailableWithoutEngine(t *testing.T) {
