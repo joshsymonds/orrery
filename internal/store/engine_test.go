@@ -317,7 +317,7 @@ func TestApplyEngineReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedMigrated(t, path)
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

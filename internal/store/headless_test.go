@@ -131,7 +131,7 @@ func TestHeadlessSessionsIgnoresUserTextBlocks(t *testing.T) {
 	t.Parallel()
 	path := headlessStore(t)
 	ctx := context.Background()
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

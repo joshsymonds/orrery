@@ -159,7 +159,7 @@ func TestGrantsSurviveReopeningTheStore(t *testing.T) {
 	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
 
 	seedMigrated(t, path)
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestGrantsSurviveReopeningTheStore(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reopened, err := Open(ctx, path)
+	reopened, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open after close: %v", err)
 	}

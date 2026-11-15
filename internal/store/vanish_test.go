@@ -42,7 +42,7 @@ func readsRacingRemoval(t *testing.T, first, rounds int) {
 	for round := first; round < first+rounds; round++ {
 		// Each round's store starts as a copy of the migrated image, so the round costs its reads, not a migration.
 		seedMigrated(t, path)
-		s, err := Open(ctx, path)
+		s, err := Open(ctx, path, noSync())
 		if err != nil {
 			t.Fatalf("round %d Open: %v", round, err)
 		}

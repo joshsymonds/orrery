@@ -33,7 +33,7 @@ var image = sync.OnceValues(func() ([]byte, error) {
 
 // migrated opens a new store at path, which store.Open migrates, closes it and returns the file's bytes.
 func migrated(path string) ([]byte, error) {
-	s, err := store.Open(context.Background(), path)
+	s, err := store.Open(context.Background(), path, NoSync())
 	if err != nil {
 		return nil, fmt.Errorf("open image store: %w", err)
 	}
@@ -49,6 +49,12 @@ func migrated(path string) ([]byte, error) {
 		return nil, fmt.Errorf("read image store: %w", err)
 	}
 	return raw, nil
+}
+
+// NoSync is the Open option a test store opens with: synchronous OFF, so its commits and checkpoints skip the fsyncs
+// a throwaway file does not need. orreryd opens its store without it.
+func NoSync() store.Option {
+	return store.WithSynchronous(store.SynchronousOff)
 }
 
 // Seed writes a copy of the migrated store image at path, mode 0600, in a directory it creates 0700, unless a file is

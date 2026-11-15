@@ -13,7 +13,7 @@ func TestPushedRowsReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	seedMigrated(t, path)
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestPushedRowsReopen(t *testing.T) {
 		if err := s.Close(); err != nil {
 			t.Fatalf("Close before reopen: %v", err)
 		}
-		reopened, openErr := Open(ctx, path)
+		reopened, openErr := Open(ctx, path, noSync())
 		if openErr != nil {
 			t.Fatalf("Open after close: %v", openErr)
 		}

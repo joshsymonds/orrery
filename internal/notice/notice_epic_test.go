@@ -72,7 +72,7 @@ func TestEpicPushSurvivesRestartAndIsCleared(t *testing.T) {
 	sender := &fakeSender{}
 
 	storetest.Seed(t, path)
-	before, err := store.Open(ctx, path)
+	before, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

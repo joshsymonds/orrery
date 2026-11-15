@@ -29,7 +29,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	first, err := store.Open(ctx, path)
+	first, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 		t.Fatalf("close store before the restart: %v", err)
 	}
 
-	second, err := store.Open(ctx, path)
+	second, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("reopen store after the restart: %v", err)
 	}

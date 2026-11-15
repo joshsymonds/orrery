@@ -26,7 +26,7 @@ func seedTurnEnds(t *testing.T, path string) {
 	t.Helper()
 	ctx := t.Context()
 	storetest.Seed(t, path)
-	s, err := store.Open(ctx, path)
+	s, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

@@ -127,7 +127,7 @@ func (b *logBuffer) String() string {
 func openStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	storetest.Seed(t, path)
-	s, err := store.Open(t.Context(), path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

@@ -203,7 +203,7 @@ func newCrashWorld(t *testing.T) *crashWorld {
 	setup := newStartSetup(t, readoptCommandGate("check"))
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(ctx, path)
+	s, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

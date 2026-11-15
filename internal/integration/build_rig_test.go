@@ -116,7 +116,7 @@ func (r *buildRig) seed(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
 	storetest.Seed(t, r.f.dbPath)
-	st, err := store.Open(ctx, r.f.dbPath)
+	st, err := store.Open(ctx, r.f.dbPath, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

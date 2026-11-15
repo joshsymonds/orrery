@@ -246,7 +246,7 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 		t.Fatalf("close fixture: %v", err)
 	}
 
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open at version 23: %v", err)
 	}

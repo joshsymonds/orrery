@@ -15,7 +15,7 @@ func TestHoldSurvivesReopeningTheStore(t *testing.T) {
 	row := HoldRow{Member: "m1", Since: engineNowAt()}
 
 	seedMigrated(t, path)
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestHoldSurvivesReopeningTheStore(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reopened, err := Open(ctx, path)
+	reopened, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open after close: %v", err)
 	}

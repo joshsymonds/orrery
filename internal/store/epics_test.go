@@ -81,7 +81,7 @@ func openEpicStore(t *testing.T) *Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedMigrated(t, path)
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

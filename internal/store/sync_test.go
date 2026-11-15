@@ -15,7 +15,7 @@ func openSyncStore(t *testing.T) *Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedMigrated(t, path)
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestSyncPaneReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedMigrated(t, path)
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -58,7 +58,7 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 func prepareStore(t *testing.T, path string) {
 	t.Helper()
 	storetest.Seed(t, path)
-	s, err := store.Open(t.Context(), path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("prepare store: %v", err)
 	}

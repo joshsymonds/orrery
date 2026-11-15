@@ -64,7 +64,7 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 	ctx := t.Context()
 	dbPath := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, dbPath)
-	writer, err := store.Open(ctx, dbPath)
+	writer, err := store.Open(ctx, dbPath, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

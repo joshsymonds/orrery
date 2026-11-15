@@ -63,7 +63,7 @@ func openBuildStore(ctx context.Context, t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	store.SeedMigrated(t, path)
-	s, err := store.Open(ctx, path)
+	s, err := store.Open(ctx, path, store.NoSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -238,3 +238,60 @@ func fixtureTables(t *testing.T, path string) map[string]bool {
 	defer db.Close()
 	return tableNames(t, &Store{db: db})
 }
+
+// synchronousOf returns the store connection's PRAGMA synchronous: 0 OFF, 1 NORMAL, 2 FULL.
+func synchronousOf(t *testing.T, s *Store) int {
+	t.Helper()
+	var mode int
+	if err := s.db.QueryRowContext(context.Background(), `PRAGMA synchronous`).Scan(&mode); err != nil {
+		t.Fatalf("PRAGMA synchronous: %v", err)
+	}
+	return mode
+}
+
+func TestOpenKeepsSynchronousFullByDefault(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if got := synchronousOf(t, s); got != 2 {
+		t.Fatalf("synchronous = %d, want 2 (FULL)", got)
+	}
+}
+
+func TestOpenWithSynchronousSetsTheMode(t *testing.T) {
+	t.Parallel()
+	for mode, want := range map[Synchronous]int{SynchronousOff: 0, SynchronousNormal: 1, SynchronousFull: 2} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "orrery.db")
+			seedMigrated(t, path)
+			s, err := Open(context.Background(), path, WithSynchronous(mode))
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer s.Close()
+			if got := synchronousOf(t, s); got != want {
+				t.Fatalf("synchronous = %d, want %d (%s)", got, want, mode)
+			}
+		})
+	}
+}
+
+func TestOpenRefusesUnknownSynchronousModeBeforeCreatingTheFile(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, "orrery.db")
+	s, err := Open(context.Background(), path, WithSynchronous("SOMETIMES"))
+	if err == nil {
+		s.Close()
+		t.Fatal("Open with synchronous SOMETIMES: want error, got nil")
+	}
+	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("store directory after refused Open: stat err %v, want not exist", statErr)
+	}
+}

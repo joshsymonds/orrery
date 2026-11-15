@@ -25,7 +25,7 @@ func TestShutdownKeepsLiveClientsGrant(t *testing.T) {
 	const host = "box"
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	st, err := store.Open(t.Context(), path)
+	st, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

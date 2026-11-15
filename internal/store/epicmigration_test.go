@@ -144,7 +144,7 @@ func seedEpic(t *testing.T, db *sql.DB) {
 func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -337,7 +337,8 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 // the schema a binary from before the epic migration left behind, and returns the open database.
 func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	// The fixture is a throwaway file, so its migrations skip the fsyncs, as noSync's stores do.
+	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
@@ -406,7 +407,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		t.Fatalf("close fixture: %v", err)
 	}
 
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open at version 13: %v", err)
 	}
@@ -450,7 +451,7 @@ func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
 		t.Fatalf("close fixture: %v", err)
 	}
 
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open at version 16: %v", err)
 	}
@@ -496,7 +497,7 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 		t.Fatalf("close fixture: %v", err)
 	}
 
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open at version 16: %v", err)
 	}
@@ -812,7 +813,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 		t.Fatalf("close fixture: %v", err)
 	}
 
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open at version 16: %v", err)
 	}
