@@ -12,6 +12,7 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHold as PoolHoldProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHolder as PoolHolderProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolMemberStatus as PoolMemberStatusProto
@@ -35,7 +36,6 @@ import java.util.concurrent.atomic.AtomicInteger
 class PoolsScreenTest {
     private companion object {
         const val NOW = 1_700_000_000L
-        const val TIMEOUT_MS = 5_000L
         const val POOL = "example-pool"
         const val PROJECT = "/home/user/alpha"
         const val OTHER_PROJECT = "/home/user/beta"
@@ -65,11 +65,11 @@ class PoolsScreenTest {
         countNodes(hasText(text) and hasAnyAncestor(hasTestTag(tag)))
 
     private fun awaitTag(tag: String) {
-        composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag(tag)) == 1 }
+        composeRule.awaitUntil { countNodes(hasTestTag(tag)) == 1 }
     }
 
     private fun awaitText(text: String) {
-        composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasText(text)) > 0 }
+        composeRule.awaitUntil { countNodes(hasText(text)) > 0 }
     }
 
     private fun statusCalls(server: FakeOrreryServer): Int =
@@ -177,7 +177,7 @@ class PoolsScreenTest {
 
             composeRule.onNodeWithTag("member-action:$FREE").performClick()
 
-            composeRule.waitUntil(TIMEOUT_MS) { textUnder("member:$FREE", "held") == 1 }
+            composeRule.awaitUntil { textUnder("member:$FREE", "held") == 1 }
             val hold = server.requests.single { it.rawPath == POOLS_HOLD }
             assertEquals(FREE, PoolsHoldRequest.parseFrom(hold.body).member)
             assertEquals(2, statusCalls(server))
@@ -202,7 +202,7 @@ class PoolsScreenTest {
             composeRule.onNodeWithTag("outside-hold-action:$ORPHAN").performClick()
 
             // The reload shows Loading first, which also hides the hold, so wait for the reloaded members.
-            composeRule.waitUntil(TIMEOUT_MS) { statusCalls(server) == 2 && countNodes(hasTestTag("member:$FREE")) == 1 }
+            composeRule.awaitUntil { statusCalls(server) == 2 && countNodes(hasTestTag("member:$FREE")) == 1 }
             assertEquals(0, countNodes(hasTestTag("outside-hold:$ORPHAN")))
             val free = server.requests.single { it.rawPath == POOLS_FREE }
             assertEquals(ORPHAN, PoolsFreeRequest.parseFrom(free.body).member)
@@ -223,7 +223,7 @@ class PoolsScreenTest {
 
             composeRule.onNodeWithTag("member-action:$HELD").performClick()
 
-            composeRule.waitUntil(TIMEOUT_MS) { textUnder("member:$HELD", "free") == 1 }
+            composeRule.awaitUntil { textUnder("member:$HELD", "free") == 1 }
             val free = server.requests.single { it.rawPath == POOLS_FREE }
             assertEquals(HELD, PoolsFreeRequest.parseFrom(free.body).member)
             assertEquals(2, statusCalls(server))
@@ -242,7 +242,7 @@ class PoolsScreenTest {
             composeRule.onNodeWithTag("member-action:$FREE").performClick()
 
             awaitText("could not hold $FREE")
-            composeRule.waitUntil(TIMEOUT_MS) { statusCalls(server) == 2 }
+            composeRule.awaitUntil { statusCalls(server) == 2 }
             awaitTag("member:$FREE")
             assertEquals(1, textUnder("member:$FREE", "free"))
             assertEquals(0, countNodes(hasText("could not load pools")))

@@ -3,6 +3,7 @@ package io.github.joshsymonds.orrery
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -124,14 +125,43 @@ fun <A : ComponentActivity> mainThreadAndroidComposeRule(activityClass: Class<A>
     )
 }
 
-/**
- * Waits up to [timeoutMillis] for [condition], letting the main thread run its queued continuations before each
- * check, as the app's main looper runs them between frames. Use it when the clock is paused and [condition] reads
- * no Compose state (a fake server's requests): waitUntil then neither advances the clock nor idles the main thread,
- * so a coroutine a tap launched would never start.
+/** How long a wait yields between checks so the threads doing the real work can run, as Compose's waitUntil does. */
+private const val CHECK_PAUSE_MILLIS = 10L
+
+/*
+ * Waits for work on other threads: a fake server's round trip, an IO dispatcher's call, OkHttp's stream. No
+ * test clock moves that work, so a wall-clock deadline per wait only measures how loaded the machine is (a 5 s
+ * deadline timed out PaneScreenTest's first render at load 80). These waits have no deadline of their own; the
+ * test task's timeout in build.gradle.kts bounds a wait that never ends. Each check advances the main clock by a
+ * frame while it auto-advances, as waitUntil does, so a wait on virtual time still ends.
  */
-fun ComposeTestRule.waitUntilAfterIdle(timeoutMillis: Long, condition: () -> Boolean) {
-    waitUntil(timeoutMillis) {
+
+/** Waits for [condition], with no deadline of its own. */
+fun ComposeTestRule.awaitUntil(condition: () -> Boolean) {
+    while (!condition()) {
+        if (mainClock.autoAdvance) mainClock.advanceTimeByFrame()
+        Thread.sleep(CHECK_PAUSE_MILLIS)
+    }
+}
+
+/** Waits until exactly one node matches [matcher], with no deadline of its own. */
+fun ComposeTestRule.awaitExactlyOne(matcher: SemanticsMatcher) {
+    awaitUntil { onAllNodes(matcher).fetchSemanticsNodes().size == 1 }
+}
+
+/** Waits until no node matches [matcher], with no deadline of its own. */
+fun ComposeTestRule.awaitNone(matcher: SemanticsMatcher) {
+    awaitUntil { onAllNodes(matcher).fetchSemanticsNodes().isEmpty() }
+}
+
+/**
+ * Waits for [condition], letting the main thread run its queued continuations before each check, as the app's
+ * main looper runs them between frames, with no deadline of its own. Use it when the clock is paused and
+ * [condition] reads no Compose state (a fake server's requests): a plain wait then neither advances the clock nor
+ * idles the main thread, so a coroutine a tap launched would never start.
+ */
+fun ComposeTestRule.awaitUntilAfterIdle(condition: () -> Boolean) {
+    awaitUntil {
         waitForIdle()
         condition()
     }

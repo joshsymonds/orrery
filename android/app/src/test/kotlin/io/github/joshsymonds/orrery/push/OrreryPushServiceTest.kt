@@ -34,7 +34,6 @@ import org.robolectric.annotation.Config
 import org.unifiedpush.android.connector.data.PublicKeySet
 import org.unifiedpush.android.connector.data.PushEndpoint
 import org.unifiedpush.android.connector.data.PushMessage
-import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -135,9 +134,12 @@ class OrreryPushServiceTest {
     private fun postedLimit(): Notification =
         checkNotNull(postedFor(sevenDayLimit)) { "expected a notification for limit $sevenDayLimit" }
 
+    /**
+     * Waits until the fake server has [count] requests. They come from the service's call on other threads, so the
+     * wait has no deadline of its own; the test task's timeout bounds one that never comes.
+     */
     private fun awaitRequests(count: Int): List<RecordedRequest> {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (server.requests.size < count && System.nanoTime() < deadline) {
+        while (server.requests.size < count) {
             Thread.sleep(10)
         }
         return server.requests

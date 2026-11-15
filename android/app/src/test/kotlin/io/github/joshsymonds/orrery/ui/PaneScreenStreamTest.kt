@@ -11,6 +11,8 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
@@ -20,7 +22,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,7 +40,6 @@ private const val HOST_PATH = "/orrery.v1.Host/Status"
 private const val NO_CONVERSATION_TAG = "no-conversation"
 private const val STREAMED_REPLY = "synthetic streamed reply"
 private const val POLLED_REPLY = "synthetic polled reply"
-private const val TIMEOUT_MILLIS = 5_000L
 // Long enough for the held stream's keepalives to keep it open, short enough that silence fails a stream quickly.
 private const val SHORT_READ_TIMEOUT_MILLIS = 300
 private const val QUIET_MILLIS = 5_000L
@@ -48,7 +48,6 @@ private const val STREAM_PREFIX_BYTES = 5
 private const val UNAVAILABLE_ENDS = 4
 private const val VIRTUAL_STEP_MILLIS = 100L
 private const val REAL_PAUSE_MILLIS = 10L
-private const val NANOS_PER_MILLI = 1_000_000L
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -118,13 +117,12 @@ class PaneScreenStreamTest {
      * Moves the virtual clock [VIRTUAL_STEP_MILLIS] at a time until [condition] holds. The screen's reconnect delays and
      * poll intervals run on that clock, so they pass by these steps rather than by the frames a waitUntil loop must
      * reach them in, and the steps needed do not depend on how fast frames run. The real pause between steps lets the
-     * requests in flight finish; [TIMEOUT_MILLIS] bounds that real wait. Each step then idles the main looper, so the
-     * deltas the screen hops to the main thread are applied before [condition] is checked.
+     * requests in flight finish; that real work has no deadline here, and the test task's timeout bounds a condition
+     * that never holds. Each step then idles the main looper, so the deltas the screen hops to the main thread are
+     * applied before [condition] is checked.
      */
     private fun advanceUntil(condition: () -> Boolean) {
-        val deadline = System.nanoTime() + TIMEOUT_MILLIS * NANOS_PER_MILLI
         while (!condition()) {
-            check(System.nanoTime() < deadline) { "condition not met within $TIMEOUT_MILLIS ms" }
             composeRule.mainClock.advanceTimeBy(VIRTUAL_STEP_MILLIS)
             Thread.sleep(REAL_PAUSE_MILLIS)
             composeRule.waitForIdle()
@@ -139,7 +137,7 @@ class PaneScreenStreamTest {
             }
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText(STREAMED_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(STREAMED_REPLY))
             composeRule.mainClock.advanceTimeBy(QUIET_MILLIS)
             advanceUntil { requestCount(server, HOST_PATH) >= 2 }
 
@@ -168,7 +166,7 @@ class PaneScreenStreamTest {
             val resumed = streamRequests(server)[1]
             assertEquals(TRANSCRIPT, resumed.transcript)
             assertEquals(STREAMED_SEQ, resumed.after)
-            composeRule.waitUntilExactlyOneExists(hasText(STREAMED_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(STREAMED_REPLY))
         }
     }
 
@@ -199,7 +197,7 @@ class PaneScreenStreamTest {
                 assertEquals(TRANSCRIPT, resumed.transcript)
                 assertEquals(STREAMED_SEQ, resumed.after)
             }
-            composeRule.waitUntilExactlyOneExists(hasText(STREAMED_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(STREAMED_REPLY))
         }
     }
 
@@ -210,13 +208,13 @@ class PaneScreenStreamTest {
                 Reply.Stream(listOf(firstDelta("waiting", STREAMED_REPLY)), StreamEnd.HeldWith(keepalive()))
             }
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasText(STREAMED_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(STREAMED_REPLY))
 
             composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
-            assertTrue(server.awaitStreamClosedByClient(TIMEOUT_MILLIS))
+            server.awaitStreamClosedByClient()
 
             composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { streamRequests(server).size == 2 }
+            composeRule.awaitUntil { streamRequests(server).size == 2 }
             assertEquals(STREAMED_SEQ, streamRequests(server)[1].after)
         }
     }
@@ -237,7 +235,7 @@ class PaneScreenStreamTest {
             setScreen(server, client)
 
             advanceUntil { requestCount(server, CONVERSATION_PATH) >= 1 }
-            composeRule.waitUntilExactlyOneExists(hasText(POLLED_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(POLLED_REPLY))
             assertEquals(3, streamRequests(server).size)
 
             composeRule.mainClock.advanceTimeBy(QUIET_MILLIS)
@@ -265,7 +263,7 @@ class PaneScreenStreamTest {
             setScreen(server)
 
             advanceUntil { requestCount(server, CONVERSATION_PATH) >= 1 }
-            composeRule.waitUntilExactlyOneExists(hasText(POLLED_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(POLLED_REPLY))
             assertEquals(3, streamRequests(server).size)
 
             composeRule.mainClock.advanceTimeBy(QUIET_MILLIS)
@@ -285,7 +283,7 @@ class PaneScreenStreamTest {
             server.respond(PANES_PATH, paneList(state = ""))
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(NO_CONVERSATION_TAG))
             assertEquals(1, streamRequests(server).size)
 
             composeRule.mainClock.advanceTimeBy(QUIET_MILLIS)
