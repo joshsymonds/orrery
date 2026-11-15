@@ -65,30 +65,34 @@ func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
 	stateDir := gateShortStateDir(t)
 	scope := fakeSystemdRunPath(t)
 	marker := filepath.Join(t.TempDir(), "running")
+	release := filepath.Join(t.TempDir(), "release")
+	launched := make(chan struct{})
 	pools := &fakeGatePools{drop: make(chan error, 1)}
 	started := make(chan string, 1)
 
 	done := make(chan error, 1)
 	go func() {
 		_, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
-			Argv:     []string{"/bin/sh", "-c", `echo running > "$MARKER"; sleep 1; echo done; exit 0`},
+			Argv:     []string{"/bin/sh", "-c", gateHeldScript},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,
 			Name:     "closed-launch",
 			StateDir: stateDir,
 			Scope:    scope,
-			Environ:  gateEnv("MARKER=" + marker),
+			Environ:  gateEnv("MARKER="+marker, "RELEASE="+release),
 			Started: func(_ context.Context, _, dir string) error {
 				started <- dir
 				return nil
 			},
+			launched: func() { close(launched) },
 		})
 		done <- err
 	}()
 
 	dir := gateWaitStarted(t, started)
-	gateWaitFile(t, marker)
-	time.Sleep(200 * time.Millisecond)
+	// The drop comes once the holder is attached and the gate is watched. The gate runs until the test releases it,
+	// after the attempt has returned.
+	<-launched
 	pools.drop <- grants.ErrClosed
 	var err error
 	select {
@@ -98,6 +102,9 @@ func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
 	}
 	if !errors.Is(err, errGateDetach) {
 		t.Fatalf("err = %v, want errGateDetach", err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatalf("release the gate: %v", err)
 	}
 	exit := gateWaitExit(t, dir)
 	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {
