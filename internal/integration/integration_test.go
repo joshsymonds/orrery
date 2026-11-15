@@ -138,7 +138,7 @@ func isolateFromHost(dir string) (string, error) {
 	log := filepath.Join(dir, "guard.calls")
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\n"+
 		"echo 'claude guard: a test ran claude from PATH' >&2\nexit 97\n", log)
-	if err := os.WriteFile(filepath.Join(guard, "claude"), []byte(script), 0o700); err != nil {
+	if err := exectest.Write(filepath.Join(guard, "claude"), []byte(script), 0o700); err != nil {
 		return "", fmt.Errorf("write the claude guard: %w", err)
 	}
 	for _, entry := range os.Environ() {
@@ -3669,7 +3669,7 @@ func writeFakeClaudeWrapper(dir, script string) (string, error) {
 	body := "#!/bin/sh\nPATH=" + shellQuote(filepath.Dir(git)) + ":\"$PATH\"\nexport PATH\nexec " + shellQuote(script) +
 		" \"$@\"\n"
 	wrapper := filepath.Join(dir, "fakeclaude")
-	if err = os.WriteFile(wrapper, []byte(body), 0o700); err != nil {
+	if err = exectest.Write(wrapper, []byte(body), 0o700); err != nil {
 		return "", fmt.Errorf("write fake claude wrapper: %w", err)
 	}
 	return wrapper, nil
