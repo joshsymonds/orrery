@@ -47,14 +47,18 @@ func (o *noticesOutput) String() string {
 	return o.buf.String()
 }
 
-// waitFor returns once the output equals want. It has no deadline of its own.
-func (o *noticesOutput) waitFor(t *testing.T, want string) {
+// waitFor returns once the output equals want. It has no deadline of its own, and fails at once when call returns first.
+func (o *noticesOutput) waitFor(t *testing.T, call noticesCall, want string) {
 	t.Helper()
 	for {
 		if got := o.String(); got == want {
 			return
 		}
-		<-o.wrote
+		select {
+		case <-o.wrote:
+		case err := <-call.done:
+			t.Fatalf("Notices returned %v with output %q, want %q first", err, o.String(), want)
+		}
 	}
 }
 
@@ -169,7 +173,7 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 	if got != activity {
 		t.Fatalf("socket received %q, want %q", got, activity)
 	}
-	stdout.waitFor(t, hello+notice)
+	stdout.waitFor(t, call, hello+notice)
 
 	if err := pw.Close(); err != nil {
 		t.Fatalf("close stdin: %v", err)

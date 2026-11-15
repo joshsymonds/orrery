@@ -237,11 +237,23 @@ func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
 	return step
 }
 
-// awaitRequests waits until fake has received n requests. It has no deadline of its own.
-func awaitRequests(t *testing.T, fake *poolsFake, n int) {
+// awaitRequests waits until fake has received n requests. It has no deadline of its own, and fails at once when the
+// run that sends the requests returns first, with the status it returned on status.
+func awaitRequests(t *testing.T, fake *poolsFake, n int, status <-chan int) {
 	t.Helper()
 	for len(fake.received()) < n {
-		<-time.After(pollInterval)
+		awaitRunPoll(t, status, len(fake.received()), n)
+	}
+}
+
+// awaitRunPoll waits one poll interval for a run whose result arrives on status, and fails the test when the run
+// returns in that time: it returned after had of the want requests.
+func awaitRunPoll(t *testing.T, status <-chan int, had, want int) {
+	t.Helper()
+	select {
+	case got := <-status:
+		t.Fatalf("RunWithGrant returned %d after %d requests, want %d first", got, had, want)
+	case <-time.After(pollInterval):
 	}
 }
 

@@ -83,7 +83,7 @@ func TestRunLostGrantStopsCommandWhileReclaimWaits(t *testing.T) {
 
 	// The stream ends with no stop, and the reclaim queues at position 1. CMD must exit on SIGTERM while the reclaim
 	// still waits, so the gate stays closed until CMD is gone.
-	awaitStopRequests(t, pools, 2)
+	awaitStopRequests(t, pools, 2, status)
 	waitGone(t, pid)
 	close(gate)
 	if got := awaitStatus(t, status); got != 3 {

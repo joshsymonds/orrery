@@ -209,11 +209,12 @@ func nextLine(t *testing.T, lines <-chan string) string {
 	return line
 }
 
-// awaitStopRequests waits until pools has received n requests. It has no deadline of its own.
-func awaitStopRequests(t *testing.T, pools *stopPools, n int) {
+// awaitStopRequests waits until pools has received n requests. It has no deadline of its own, and fails at once when
+// the run that sends the requests returns first (see awaitRunPoll).
+func awaitStopRequests(t *testing.T, pools *stopPools, n int, status <-chan int) {
 	t.Helper()
 	for len(pools.received()) < n {
-		<-time.After(pollInterval)
+		awaitRunPoll(t, status, len(pools.received()), n)
 	}
 }
 
@@ -355,7 +356,7 @@ func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
 		t.Fatalf("Acquire called %d times before the grace passed, want 1: no reclaim while the child lives", n)
 	}
 	close(fire)
-	awaitStopRequests(t, pools, 2)
+	awaitStopRequests(t, pools, 2, status)
 	if !processExited(t, child) {
 		t.Fatal("the reclaim was sent while the child lives: the group was not killed before the reclaim")
 	}
@@ -427,7 +428,7 @@ func TestRunStopExitsWhenContextEndsWhileWaitingAgain(t *testing.T) {
 	status := runAsync(ctx, stopConfig(t, socket, w, io.Discard, stdinR))
 	nextLine(t, lines)
 	close(ready)
-	awaitStopRequests(t, pools, 2)
+	awaitStopRequests(t, pools, 2, status)
 	cancel()
 	if got := awaitStatus(t, status); got != cli.ExitNoGrant {
 		t.Errorf("RunWithGrant = %d, want ExitNoGrant %d", got, cli.ExitNoGrant)

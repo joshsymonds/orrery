@@ -142,7 +142,7 @@ func TestRunReclaimCommandExitsWhileReconnecting(t *testing.T) {
 	status := runAsync(context.Background(), runConfig(t, socket, "sleep", w, &stderr))
 	pid := readyPID(t, awaitReady(t, ready))
 	// Unavailable is not a refusal, so the run keeps reconnecting while the command runs.
-	awaitRequests(t, fake, 2)
+	awaitRequests(t, fake, 2, status)
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
 		t.Fatalf("kill command: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestRunReclaimContextEndsWhileReconnecting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	status := runAsync(ctx, runConfig(t, socket, "sleep", io.Discard, io.Discard))
-	awaitRequests(t, fake, 2)
+	awaitRequests(t, fake, 2, status)
 	cancel()
 	if got := awaitStatus(t, status); got != stoppedStatus {
 		t.Errorf("RunWithGrant = %d, want the command's SIGTERM status %d", got, stoppedStatus)
