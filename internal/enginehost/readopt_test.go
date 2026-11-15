@@ -93,8 +93,15 @@ func newCrashRig(t *testing.T, trigger func([]store.EngineOp) bool, storeTrigger
 	writer := NewWriter(WriterConfig{Applier: crash, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
 	m := newStateManager(t, s, writer, &fakeSink{}, fakeSystemdRunPath(t), root, nil)
+	m.closeWait = crashCloseWait
 	return crashRig{manager: m, store: s, path: path, root: root, crash: crash}
 }
+
+// crashCloseWait is the closeWait of a crash rig's manager. By the time a test ends that manager, as a crash leaves its
+// sessions, the rig's store refuses every write, so a pump blocked on a refused write ends only when Close cancels it,
+// and the default wait for it would pass in full. Every rig session runs under a holder scope, so Close records nothing
+// once its pump has ended: the wait only orders the cancel, and an expired one costs nothing.
+const crashCloseWait = time.Nanosecond
 
 // clearHolderDirs clears every holder directory under the holders dir of root. A missing holders dir has none.
 func clearHolderDirs(t *testing.T, root string) {

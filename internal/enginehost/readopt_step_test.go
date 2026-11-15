@@ -43,6 +43,7 @@ func newStepCrashRig(t *testing.T, trigger func([]store.EngineOp) bool) crashRig
 		HolderScope: fakeSystemdRunPath(t),
 		StateDir:    root,
 	})
+	m.closeWait = crashCloseWait
 	t.Cleanup(m.Close)
 	return crashRig{manager: m, store: s, path: path, root: root, crash: crash}
 }
