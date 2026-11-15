@@ -9,25 +9,30 @@ import (
 	"github.com/joshsymonds/orrery/internal/daemon"
 )
 
-// tidyStartInterval is the TidyInterval of the TidyStart tests: short enough that several tidies would run
-// within a test, and long enough that a tidy finishes between two of them.
+// tidyStartInterval is the TidyInterval of the cancel test, whose tidy loop never starts.
 const tidyStartInterval = 20 * time.Millisecond
 
-// TestTidyStartHoldsTidyUntilClosed checks that no tidy writes a row while TidyStart is open, however many
-// intervals pass, and that the first tidy after it closes writes the pane's row.
+// TestTidyStartHoldsTidyUntilClosed checks that no tidy writes a row while TidyStart is open, however many ticks are
+// offered, and that the first tidy after it closes writes the pane's row. The tidy loop waits for TidyStart before it
+// takes any tick, so while TidyStart is open a tick it is offered is never taken.
 func TestTidyStartHoldsTidyUntilClosed(t *testing.T) {
 	srv := startTidyServer(t)
 	st, db := openFrameStore(t)
 	tidyStart := make(chan struct{})
+	ticks := make(chan time.Time)
 	serve(t, daemon.Config{
-		Server:       srv.server,
-		Mirror:       daemon.NewMirror(st, tidyClock, nil),
-		TidyInterval: tidyStartInterval,
-		TidyStart:    tidyStart,
+		Server:    srv.server,
+		Mirror:    daemon.NewMirror(st, tidyClock, nil),
+		TidyTicks: ticks,
+		TidyStart: tidyStart,
 	})
 
 	for range 5 {
-		time.Sleep(tidyStartInterval)
+		select {
+		case ticks <- time.Time{}:
+			t.Fatal("the tidy loop took a tick before TidyStart closed")
+		default:
+		}
 		if rows := listSessions(t, db); len(rows) != 0 {
 			t.Fatalf("rows before TidyStart closed = %+v, want none", rows)
 		}
@@ -61,12 +66,8 @@ func TestTidyStartNeverClosedServeReturnsOnCancel(t *testing.T) {
 	}()
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Serve = %v, want nil", err)
-		}
-	case <-time.After(ioTimeout):
-		t.Fatalf("Serve did not return after cancel within %v", ioTimeout)
+	// A tidy loop that kept Serve from returning would hang here, which the test binary's timeout ends.
+	if err := <-done; err != nil {
+		t.Fatalf("Serve = %v, want nil", err)
 	}
 }

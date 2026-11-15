@@ -24,8 +24,8 @@ const (
 	pqDel = "\x7f"
 	// pqDim is the dim placeholder Claude Code shows in an empty input box while messages are queued.
 	pqDim = "\x1b[2mPress up to edit queued messages\x1b[0m"
-	// pqQuiet is how long a negative assertion waits for a stray key to reach the pane.
-	pqQuiet = 200 * time.Millisecond
+	// pqMarker is the key pqAssertQuiet sends after a call, so its arrival shows every key before it has arrived.
+	pqMarker = "M"
 )
 
 // pqRecord is one line of a transcript that the queue rules read: a queue record or a user line.
@@ -80,10 +80,10 @@ func pqPane(t *testing.T, tmux *tmuxctl.Client, session, box, transcript string)
 	return pane, file
 }
 
-// pqAwait polls file until ok reports true for its content, and returns that content. It fails after screenWait.
+// pqAwait polls file until ok reports true for its content, and returns that content. It has no deadline of its own:
+// tmux and the pane run at the machine's pace, and the test binary's timeout ends a wait that never ends.
 func pqAwait(t *testing.T, file string, ok func(string) bool) string {
 	t.Helper()
-	deadline := time.Now().Add(screenWait)
 	for {
 		data, err := os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -92,23 +92,20 @@ func pqAwait(t *testing.T, file string, ok func(string) bool) string {
 		if ok(string(data)) {
 			return string(data)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pane input = %q, never reached the awaited state", data)
-		}
 		time.Sleep(screenPoll)
 	}
 }
 
-// pqAssertQuiet requires that no key reached the pane in file during pqQuiet.
-func pqAssertQuiet(t *testing.T, file string) {
+// pqAssertQuiet requires that no key reached pane, whose input file records. The pane reads its input in order, so it
+// sends pqMarker and waits for it: once the marker has arrived, so has any key sent before it, and the file must hold
+// the marker alone.
+func pqAssertQuiet(t *testing.T, tmux *tmuxctl.Client, pane, file string) {
 	t.Helper()
-	time.Sleep(pqQuiet)
-	data, err := os.ReadFile(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("read input: %v", err)
+	if _, err := tmux.Run(t.Context(), "send-keys", "-t", pane, "-l", "--", pqMarker); err != nil {
+		t.Fatalf("send the marker key: %v", err)
 	}
-	if len(data) != 0 {
-		t.Fatalf("pane received %q, want no key", data)
+	if data := pqAwait(t, file, func(got string) bool { return strings.Contains(got, pqMarker) }); data != pqMarker {
+		t.Fatalf("pane received %q before the marker, want no key", strings.TrimSuffix(data, pqMarker))
 	}
 }
 
@@ -278,7 +275,7 @@ func TestPanesPullQueuedRefusesWithoutTouchingPane(t *testing.T) {
 		if connectErr.Message() != c.message {
 			t.Fatalf("%s: Panes.PullQueued message = %q, want %q", c.name, connectErr.Message(), c.message)
 		}
-		pqAssertQuiet(t, c.file)
+		pqAssertQuiet(t, tmux, c.pane, c.file)
 	}
 }
 
