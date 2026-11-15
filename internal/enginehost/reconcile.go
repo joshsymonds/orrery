@@ -189,7 +189,8 @@ func (m *Manager) readoptable(row store.EngineRow) bool {
 
 // readoptHolder re-adopts the session of row from its holder in dir, bounded by clearTimeout. When the holder has ended, it
 // drains the session instead. A live holder that cannot be attached is stopped, then drained. A step's holder that has
-// ended or cannot be attached is left for the caller to clear, neither drained nor stopped. A failure is logged, and the
+// ended or cannot be attached is left for the caller to clear, neither drained nor stopped; one that gave no answer
+// (holder.ErrNoAnswer) is killed first, so the clear does not ask it to stop and wait out the same silence again. A failure is logged, and the
 // holder is left for the caller to clear. A holder that has ended or cannot be attached counts one holder loss. It
 // reports whether the session was re-adopted, and whether it was drained and its row settled.
 func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir string) (readopted, drained bool) {
@@ -202,6 +203,9 @@ func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir st
 	switch {
 	case err == nil:
 		return true, false
+	case row.Kind == store.KindStep && errors.Is(err, holder.ErrNoAnswer):
+		m.killUnanswered(ctx, row.ID, dir)
+		return false, false
 	case row.Kind == store.KindStep && (errors.Is(err, holder.ErrGone) || errors.Is(err, holder.ErrUnattachable)):
 		return false, false
 	case errors.Is(err, holder.ErrGone):
@@ -256,7 +260,11 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	if err != nil {
 		return err
 	}
-	process, written, err := holder.Reattach(ctx, dir, row.ReplayFrom, m.holderVersion)
+	var opts []holder.ReattachOption
+	if m.attachTimeout != 0 {
+		opts = append(opts, holder.WithAttachTimeout(m.attachTimeout))
+	}
+	process, written, err := holder.Reattach(ctx, dir, row.ReplayFrom, m.holderVersion, opts...)
 	if err != nil {
 		return fmt.Errorf("attach holder of session %s: %w", row.ID, err)
 	}
@@ -328,6 +336,16 @@ func (m *Manager) expectsStep(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.stepObservers[id] != nil
+}
+
+// killUnanswered kills the holder in dir of session id, which gave no answer to its attach, bounded by clearTimeout. A
+// failed kill is logged, and the clear that follows stops the holder as it stops any other.
+func (m *Manager) killUnanswered(ctx context.Context, id, dir string) {
+	killCtx, cancel := context.WithTimeout(ctx, clearTimeout)
+	defer cancel()
+	if err := holder.Kill(killCtx, dir); err != nil {
+		m.logger.WarnContext(ctx, "kill unanswering holder", "session", id, "err", err)
+	}
 }
 
 // clearHolder clears the holder directory dir of session id, bounded by clearTimeout. A failed clear is logged with the

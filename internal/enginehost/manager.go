@@ -183,6 +183,8 @@ type Manager struct {
 	managedDir  string
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
+	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
+	attachTimeout time.Duration
 	limit         int
 	writer        *Writer
 	now           func() time.Time
