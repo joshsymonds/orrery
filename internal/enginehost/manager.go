@@ -502,13 +502,23 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 }
 
 // Continue sends prompt to the step id as its next prompt, which ends the step's hand-off: the step is busy again until
-// this turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
-// prompt is recorded with its sender and round, as Say records one without them, and a failed send records the step
-// failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for
-// empty text.
+// this turn ends. A non-empty prompt.PromptID that an engine_prompt of the step already carries makes Continue return nil
+// and do nothing else, as Say does. A step that is not live, as after an idle stop, is respawned first from its rows (see
+// respawnStep). The prompt is recorded with its PromptID, sender and round, as Say records one without the sender and
+// round, and a failed send records the step failed without a notice. It returns an error wrapping ErrNoSession when id is
+// not a step row, and ErrEmptyPrompt for empty text.
 func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
 	if prompt.Text == "" {
 		return ErrEmptyPrompt
+	}
+	if prompt.PromptID != "" {
+		sent, err := m.store.EnginePromptSent(ctx, id, prompt.PromptID)
+		if err != nil {
+			return fmt.Errorf("check prompt %s of step %s: %w", prompt.PromptID, id, err)
+		}
+		if sent {
+			return nil
+		}
 	}
 	live, err := m.claimStep(id)
 	if errors.Is(err, ErrNoSession) {
@@ -518,7 +528,7 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 		return fmt.Errorf("continue step %s: %w", id, err)
 	}
 	return m.send(ctx, live, store.EnginePrompt{
-		ID: id, Text: prompt.Text, Sender: prompt.Sender, Round: prompt.Round,
+		ID: id, Text: prompt.Text, PromptID: prompt.PromptID, Sender: prompt.Sender, Round: prompt.Round,
 	})
 }
 

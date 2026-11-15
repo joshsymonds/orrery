@@ -2,8 +2,12 @@ package enginehost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -26,6 +30,18 @@ var ErrStepNotLimited = errors.New("step is not limited")
 
 // stepResumePrompt is the owner's prompt a resume sends a limited step once its usage limit has reset.
 const stepResumePrompt = "The usage limit has reset. Carry on with your task from where you stopped."
+
+// resumeIDNamespace starts the parts every automatic resume's PromptID hashes, so the ids are this package's.
+const resumeIDNamespace = "orrery-enginehost-resume"
+
+// resumePromptID returns the PromptID of the automatic resume of the step id for the usage limit that resets at the unix
+// second resets. It is the lowercase hex sha256 of the namespace, id and reset joined with NUL. The same inputs give the
+// same id, so a resume stored under it is found again after a restart.
+func resumePromptID(id string, resets int64) string {
+	parts := []string{resumeIDNamespace, id, strconv.FormatInt(resets, 10)}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
 
 // stepOwnerCall is an owner action handed to a run's loop. The loop runs act in its goroutine and sends act's error on
 // reply, which is buffered so the loop never waits on the caller.
@@ -113,15 +129,31 @@ func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 }
 
 // resumeLimited sends the owner's resume prompt to a limited run, which respawns its released process in its session. It
-// runs in the loop goroutine. A run that no limit holds refuses with ErrStepNotLimited. A Continue the step cap refuses
-// leaves the run limited, and any other failed Continue ends the step failed. A sent resume clears the limit, restarts
-// an agent gate step's limit from now, so the wait for the reset never ends it overtime, and stores the loop state with the
-// step's stored rate limit deleted.
+// runs in the loop goroutine. A run that no limit holds refuses with ErrStepNotLimited. The prompt carries no PromptID.
 func (r *stepRun) resumeLimited(ctx context.Context) error {
 	if !r.limited {
 		return ErrStepNotLimited
 	}
-	prompt := StepPrompt{Text: stepResumePrompt, Sender: store.PromptSenderOwner}
+	return r.resumeWith(ctx, StepPrompt{Text: stepResumePrompt, Sender: store.PromptSenderOwner})
+}
+
+// autoResumeLimited sends the automatic resume to a limited run for the limit that resets at resets. It runs in the loop
+// goroutine. A run that no limit holds, or whose limit resets at another time, refuses with ErrStepNotLimited and sends
+// nothing. The prompt carries the PromptID derived from the step and the reset.
+func (r *stepRun) autoResumeLimited(ctx context.Context, resets time.Time) error {
+	if !r.limited || r.limitResets.Unix() != resets.Unix() {
+		return ErrStepNotLimited
+	}
+	return r.resumeWith(ctx, StepPrompt{
+		Text: stepResumePrompt, Sender: store.PromptSenderEngine, PromptID: resumePromptID(r.id, resets.Unix()),
+	})
+}
+
+// resumeWith sends prompt to a limited run, which respawns its released process in its session. It runs in the loop
+// goroutine. A Continue the step cap refuses leaves the run limited, and any other failed Continue ends the step failed. A
+// sent resume clears the limit, restarts an agent gate step's limit from now, so the wait for the reset never ends it
+// overtime, and stores the loop state with the step's stored rate limit deleted and its due rows closed in one write.
+func (r *stepRun) resumeWith(ctx context.Context, prompt StepPrompt) error {
 	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		err = fmt.Errorf("continue step %s: %w", r.id, err)
 		if !errors.Is(err, ErrCapReached) {
@@ -136,7 +168,9 @@ func (r *stepRun) resumeLimited(ctx context.Context) error {
 	}
 	// The limit's stored rate limit is cleared with the loop state, before the resumed turn's end is handled, so that
 	// turn end does not read the old limit as its own.
-	if err := r.writer.Commit(ctx, r.id, store.EngineRateLimitCleared{ID: r.id}, r.loopState()); err != nil {
+	err := r.writer.Commit(ctx, r.id, store.EngineRateLimitCleared{ID: r.id}, store.StepDueResumesClosed{ID: r.id},
+		r.loopState())
+	if err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record resume of step %s: %v", r.id, err))
 		return err
 	}
@@ -207,14 +241,40 @@ func (s *Steps) Nudge(ctx context.Context, id, text string) error {
 // Continue refused by the step cap returns an error matching ErrCapReached and leaves the step limited. Any other
 // Continue error ends the step failed and is returned.
 func (s *Steps) Resume(ctx context.Context, id string) error {
+	run, err := s.runOf(ctx, id)
+	if err != nil {
+		return err
+	}
+	return run.do(ctx, run.resumeLimited)
+}
+
+// AutoResume resumes the limited step with id for the usage limit that resets at resets, the reset a due row of the step
+// names. It runs in the step's loop as Resume does, and sends the resume prompt under the PromptID derived from the step
+// and resets. It returns ErrStepNotLimited, and sends nothing, when no limit holds the step or its limit resets at another
+// time. A prompt of the step already stored under that PromptID is not sent again: the resume only clears the limit and
+// closes the due rows. Its other errors are Resume's: an error matching ErrCapReached leaves the step limited, and an
+// error matching ErrStepGating, ErrStepNotRunning or store.ErrNoStep is returned as Resume returns it.
+func (s *Steps) AutoResume(ctx context.Context, id string, resets time.Time) error {
+	run, err := s.runOf(ctx, id)
+	if err != nil {
+		return err
+	}
+	return run.do(ctx, func(ctx context.Context) error {
+		return run.autoResumeLimited(ctx, resets)
+	})
+}
+
+// runOf returns the run of the step with id. It returns ErrStepNotRunning when the step has no loop, and an error matching
+// store.ErrNoStep when no row has id.
+func (s *Steps) runOf(ctx context.Context, id string) (*stepRun, error) {
 	s.mu.Lock()
 	run := s.runs[id]
 	s.mu.Unlock()
-	if run == nil {
-		if _, err := s.Status(ctx, id); err != nil {
-			return err
-		}
-		return ErrStepNotRunning
+	if run != nil {
+		return run, nil
 	}
-	return run.do(ctx, run.resumeLimited)
+	if _, err := s.Status(ctx, id); err != nil {
+		return nil, err
+	}
+	return nil, ErrStepNotRunning
 }
