@@ -22,7 +22,7 @@ func getEpicHistoryOK(t *testing.T, client enginev1connect.EpicsClient, history 
 	return got.Msg.GetEpic()
 }
 
-func TestEpicGetAnswersStoredSummary(t *testing.T) {
+func TestEpicGetAnswersSummaryAndHistory(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
@@ -33,18 +33,6 @@ func TestEpicGetAnswersStoredSummary(t *testing.T) {
 	if err := st.SetEpicSummary(t.Context(), epicServiceID, "Synthetic summary."); err != nil {
 		t.Fatalf("SetEpicSummary: %v", err)
 	}
-
-	got := getEpicHistoryOK(t, client, false)
-	if got.GetSummary() != "Synthetic summary." {
-		t.Fatalf("summary = %q, want %q", got.GetSummary(), "Synthetic summary.")
-	}
-}
-
-func TestEpicGetWithHistoryAnswersTriggersAndTells(t *testing.T) {
-	t.Parallel()
-	st := epicTestStore(t)
-	client := newEpicsClient(t, startEpicServer(t, st))
-	created := createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	if err := st.ParkEpic(t.Context(), epicServiceID, "Synthetic first tell.", time.Unix(1700000800, 0)); err != nil {
 		t.Fatalf("ParkEpic first: %v", err)
 	}
@@ -52,7 +40,18 @@ func TestEpicGetWithHistoryAnswersTriggersAndTells(t *testing.T) {
 		t.Fatalf("ParkEpic second: %v", err)
 	}
 
-	got := getEpicHistoryOK(t, client, true)
+	got := getEpicHistoryOK(t, client, false)
+	if got.GetSummary() != "Synthetic summary." {
+		t.Fatalf("summary = %q, want %q", got.GetSummary(), "Synthetic summary.")
+	}
+	if len(got.GetTriggers()) != 0 {
+		t.Fatalf("triggers without history = %v, want none", got.GetTriggers())
+	}
+	if len(got.GetTells()) != 0 {
+		t.Fatalf("tells without history = %v, want none", got.GetTells())
+	}
+
+	got = getEpicHistoryOK(t, client, true)
 	wantTriggers := []*v1.EpicTrigger{
 		{Id: "created", Cause: "epic created", State: "pending", Turn: 0, Created: created.GetCreated()},
 	}
@@ -75,26 +74,5 @@ func TestEpicGetWithHistoryAnswersTriggersAndTells(t *testing.T) {
 		if !proto.Equal(got.GetTells()[i], want) {
 			t.Fatalf("tell %d = %v, want %v", i, got.GetTells()[i], want)
 		}
-	}
-}
-
-func TestEpicGetWithoutHistoryOmitsTriggersAndTells(t *testing.T) {
-	t.Parallel()
-	st := epicTestStore(t)
-	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
-	if err := st.ParkEpic(t.Context(), epicServiceID, "Synthetic tell.", time.Unix(1700000800, 0)); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
-	}
-	if held := getEpicHistoryOK(t, client, true); len(held.GetTriggers()) != 1 || len(held.GetTells()) != 1 {
-		t.Fatalf("with history: triggers = %d, tells = %d, want 1 each", len(held.GetTriggers()), len(held.GetTells()))
-	}
-
-	got := getEpicHistoryOK(t, client, false)
-	if len(got.GetTriggers()) != 0 {
-		t.Fatalf("triggers without history = %v, want none", got.GetTriggers())
-	}
-	if len(got.GetTells()) != 0 {
-		t.Fatalf("tells without history = %v, want none", got.GetTells())
 	}
 }
