@@ -22,6 +22,7 @@ import java.util.Timer
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.schedule
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -39,6 +40,7 @@ private const val PANE_ID = "%3"
 private const val SLOW_ANSWER_MILLIS = 3_000L
 private const val NOW = 1_700_000_000L
 private const val LATE_START_MILLIS = 300L
+private const val LATE_TEXT_MILLIS = 1_000L
 
 /**
  * The waits end when their condition holds and fail as soon as nothing can make it hold, with no clock deadline:
@@ -157,6 +159,34 @@ class QuiescentWaitTest {
             Quiescence.awaitUntil("the late-started work") { counted.count == 0L }
         } finally {
             BackgroundWork.start = previous
+        }
+    }
+
+    @Test
+    fun workAnEarlierTestLeftRunningDoesNotHoldThisTestsClock() {
+        // Work that never ends, as OrreryPushServiceTest's registration did when its server closed before it took
+        // the answer: it retried the closed server for the rest of the JVM.
+        val release = CountDownLatch(1)
+        BackgroundWork.run { release.await() }
+        try {
+            assertEquals("the work counts while its own test runs", 1, Quiescence.backgroundWorkRunning())
+
+            // The next test begins. Counted still, the work held every later wait whose screen needs the clock to
+            // move: they yielded to it forever (PaneScreenStreamTest's silent streams, to the 20-minute timeout).
+            Quiescence.newTest()
+            assertEquals("an earlier test's work no longer counts", null, Quiescence.inFlight())
+            composeRule.setContent {
+                var shown by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    delay(LATE_TEXT_MILLIS)
+                    shown = true
+                }
+                if (shown) Text("synthetic shown a second later")
+            }
+
+            composeRule.awaitExactlyOne(hasText("synthetic shown a second later"))
+        } finally {
+            release.countDown()
         }
     }
 
