@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/grants"
@@ -80,14 +79,10 @@ func evidenceCaptureRepoState(t *testing.T, repo string) string {
 	}, "\n")
 }
 
-// evidenceCaptureWait fails the test unless done closes within a few seconds.
+// evidenceCaptureWait waits for done to close. It has no deadline of its own.
 func evidenceCaptureWait(t *testing.T, done <-chan struct{}) {
 	t.Helper()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("capture did not return")
-	}
+	<-done
 }
 
 // TestEvidenceCaptureKeepsItsExitLogAndArtifacts runs the capture and checks what it kept: the exit, the log's 64 KiB and

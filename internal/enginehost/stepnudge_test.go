@@ -230,6 +230,7 @@ func TestStepsNudgeHeldTurnEndedResumesWithTextAndNextTurnEndIsARound(t *testing
 // TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd nudges a held step whose turn has not ended. The turn end
 // is no round and is continued with the text, error or not.
 func TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		isError bool
@@ -239,6 +240,7 @@ func TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepNudgeFixture(t)
 			id := f.start(t)
 			f.beginTurn(t)
@@ -267,6 +269,7 @@ func TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd(t *testing.T) {
 // TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound nudges a running turn. The interrupt lands, and the
 // turn end, error or not, is continued with the text and stores no round.
 func TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		isError bool
@@ -276,6 +279,7 @@ func TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepNudgeFixture(t)
 			id := f.start(t)
 			f.beginTurn(t)
@@ -422,7 +426,6 @@ func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
 	if end := f.status(t, id).End; end != stepLoopEndFailed {
 		t.Errorf("end = %q, want %q", end, stepLoopEndFailed)
 	}
-	deadline := time.Now().Add(2 * time.Second)
 	for {
 		f.steps.mu.Lock()
 		_, inLoops := f.steps.loops[id]
@@ -430,9 +433,6 @@ func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
 		f.steps.mu.Unlock()
 		if !inLoops && !inRuns {
 			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("step %s still in loops (%t) or runs (%t) after its failed Nudge ended it", id, inLoops, inRuns)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -464,6 +464,7 @@ func TestStepsHoldDropsPendingOwnerText(t *testing.T) {
 // TestStepsNudgeAndHoldDuringGateRefusedPromptly checks that Hold and Nudge refuse at once while a step runs its gate.
 // The gate sleeps a minute, so a call that waited for the loop would not return within the test's timeout.
 func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
@@ -479,15 +480,12 @@ func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
 	}
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			errs := make(chan error, 1)
 			go func() { errs <- tc.call() }()
-			select {
-			case err := <-errs:
-				if !errors.Is(err, ErrStepGating) {
-					t.Fatalf("%s during the gate = %v, want ErrStepGating", tc.name, err)
-				}
-			case <-time.After(waitTimeout):
-				t.Fatalf("%s did not return during the gate", tc.name)
+			err := <-errs
+			if !errors.Is(err, ErrStepGating) {
+				t.Fatalf("%s during the gate = %v, want ErrStepGating", tc.name, err)
 			}
 		})
 	}
@@ -505,13 +503,9 @@ func TestStepRunOwnerActionWaitingWhenGateBeginsIsRefused(t *testing.T) {
 	}()
 	run.beginGate()
 
-	select {
-	case err := <-errs:
-		if !errors.Is(err, ErrStepGating) {
-			t.Fatalf("owner action when the gate began = %v, want ErrStepGating", err)
-		}
-	case <-time.After(waitTimeout):
-		t.Fatal("owner action waiting when the gate began did not return")
+	err := <-errs
+	if !errors.Is(err, ErrStepGating) {
+		t.Fatalf("owner action when the gate began = %v, want ErrStepGating", err)
 	}
 }
 

@@ -108,6 +108,16 @@ func (f *fakeEngine) Interrupt(
 	return connect.NewResponse(&enginev1.InterruptResponse{}), nil
 }
 
+func (f *fakeEngine) Resume(
+	ctx context.Context,
+	req *connect.Request[enginev1.ResumeRequest],
+) (*connect.Response[enginev1.ResumeResponse], error) {
+	if err := f.answer(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.ResumeResponse{}), nil
+}
+
 func (f *fakeEngine) Stop(
 	ctx context.Context,
 	req *connect.Request[enginev1.StopRequest],
@@ -217,7 +227,7 @@ func replyOf[T any, M interface {
 	return M(resp.Msg), nil
 }
 
-// controlCalls returns the six Control calls, each with every request field set. Start sends dir and expects the
+// controlCalls returns the seven Control calls, each with every request field set. Start sends dir and expects the
 // engine to receive resolved, the same directory with its symlinks resolved.
 func controlCalls(dir, resolved string) []controlCall {
 	return []controlCall{
@@ -277,6 +287,14 @@ func controlCalls(dir, resolved string) []controlCall {
 			engine: &enginev1.SeenRequest{Id: synthSessionID},
 			reply:  &orreryv1.SeenResponse{},
 		},
+		{
+			name: "Resume",
+			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
+				return replyOf(c.Resume(ctx, connect.NewRequest(&orreryv1.ResumeRequest{Id: synthSessionID})))
+			},
+			engine: &enginev1.ResumeRequest{Id: synthSessionID},
+			reply:  &orreryv1.ResumeResponse{},
+		},
 	}
 }
 
@@ -289,6 +307,7 @@ func controlPaths() []string {
 		orreryv1connect.ControlInterruptProcedure,
 		orreryv1connect.ControlStopProcedure,
 		orreryv1connect.ControlSeenProcedure,
+		orreryv1connect.ControlResumeProcedure,
 	}
 }
 
@@ -306,10 +325,12 @@ func assertConnectError(t *testing.T, err error, code connect.Code, message stri
 }
 
 func TestControlForwardsEveryCall(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dir, resolved := sessionUnder(t, home)
 	for _, tc := range controlCalls(dir, resolved) {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeEngine{}
 			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
 
@@ -329,6 +350,7 @@ func TestControlForwardsEveryCall(t *testing.T) {
 }
 
 func TestControlAnswersOrreryErrors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		err     error
@@ -374,6 +396,7 @@ func TestControlAnswersOrreryErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeEngine{err: tc.err}
 			control := controlClient(t, newControlHandler(t, newFakeOrreryd(t, fake), 0))
 
@@ -381,9 +404,19 @@ func TestControlAnswersOrreryErrors(t *testing.T) {
 			assertConnectError(t, err, tc.code, tc.message)
 		})
 	}
+	// Resume answers with orreryd's refusal, so the phone can show why a session was not resumed.
+	t.Run("Resume failed_precondition", func(t *testing.T) {
+		refusal := connect.NewError(connect.CodeFailedPrecondition, errors.New("synthetic not interrupted"))
+		fake := &fakeEngine{err: refusal}
+		control := controlClient(t, newControlHandler(t, newFakeOrreryd(t, fake), 0))
+
+		_, err := control.Resume(t.Context(), connect.NewRequest(&orreryv1.ResumeRequest{Id: synthSessionID}))
+		assertConnectError(t, err, connect.CodeFailedPrecondition, "synthetic not interrupted")
+	})
 }
 
 func TestControlUnavailableWithoutEngine(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dir, resolved := sessionUnder(t, home)
 	control := controlClient(t, newHomedControlHandler(t, home, nil, 0))
@@ -394,6 +427,7 @@ func TestControlUnavailableWithoutEngine(t *testing.T) {
 }
 
 func TestControlUnavailableWhenOrreryClosed(t *testing.T) {
+	t.Parallel()
 	_, handler := enginev1connect.NewEngineHandler(&fakeEngine{})
 	srv := httptest.NewServer(handler)
 	engine := enginev1connect.NewEngineClient(http.DefaultClient, srv.URL)
@@ -409,6 +443,7 @@ func TestControlUnavailableWhenOrreryClosed(t *testing.T) {
 }
 
 func TestControlDeadlineExceeded(t *testing.T) {
+	t.Parallel()
 	fake := &fakeEngine{block: make(chan struct{})}
 	engine := newFakeOrreryd(t, fake)
 	t.Cleanup(func() { close(fake.block) })
@@ -419,6 +454,7 @@ func TestControlDeadlineExceeded(t *testing.T) {
 }
 
 func TestControlRefusesBodiesOverOneMiB(t *testing.T) {
+	t.Parallel()
 	fake := &fakeEngine{}
 	handler := newControlHandler(t, newFakeOrreryd(t, fake), 0)
 	body, err := proto.Marshal(&orreryv1.SayRequest{Id: synthSessionID, Text: strings.Repeat("x", 2<<20)})
@@ -443,6 +479,7 @@ func TestControlRefusesBodiesOverOneMiB(t *testing.T) {
 }
 
 func TestControlRequiresLoginAndClientHeaderOnEveryPath(t *testing.T) {
+	t.Parallel()
 	handler := newControlHandler(t, newFakeOrreryd(t, &fakeEngine{}), 0)
 	probes := []struct {
 		name   string
@@ -472,6 +509,7 @@ func TestControlRequiresLoginAndClientHeaderOnEveryPath(t *testing.T) {
 }
 
 func TestControlRefusesNegativeTimeout(t *testing.T) {
+	t.Parallel()
 	_, err := server.New(server.Config{
 		Logins:         []string{allowedLogin},
 		Tmux:           newTmuxClient(t),
@@ -520,6 +558,7 @@ func assertStartForwarded(t *testing.T, home, dir, resolved string) {
 }
 
 func TestControlRefusesStartsOutsideHome(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	outside := t.TempDir()
 	session, _ := sessionUnder(t, home)
@@ -552,6 +591,7 @@ func TestControlRefusesStartsOutsideHome(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeEngine{}
 			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
 
@@ -565,6 +605,7 @@ func TestControlRefusesStartsOutsideHome(t *testing.T) {
 }
 
 func TestControlForwardsStartsUnderHome(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dir, resolved := sessionUnder(t, home)
 	link := filepath.Join(home, "link")
@@ -583,12 +624,14 @@ func TestControlForwardsStartsUnderHome(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assertStartForwarded(t, home, tc.dir, tc.resolved)
 		})
 	}
 }
 
 func TestControlAdmitsHomeThroughSymlink(t *testing.T) {
+	t.Parallel()
 	realHome := t.TempDir()
 	_, resolved := sessionUnder(t, realHome)
 	homeLink := filepath.Join(t.TempDir(), "home")
@@ -606,12 +649,14 @@ func TestControlAdmitsHomeThroughSymlink(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assertStartForwarded(t, homeLink, tc.dir, tc.resolved)
 		})
 	}
 }
 
 func TestControlRefusesStartsWithoutUsableHome(t *testing.T) {
+	t.Parallel()
 	existing := t.TempDir()
 	realHome := t.TempDir()
 	wd, err := os.Getwd()
@@ -634,6 +679,7 @@ func TestControlRefusesStartsWithoutUsableHome(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeEngine{}
 			control := controlClient(t, newHomedControlHandler(t, tc.home, newFakeOrreryd(t, fake), 0))
 
@@ -673,8 +719,10 @@ func writeSettings(t *testing.T, folder, name string) {
 }
 
 func TestControlForwardsStartsBelowStampedFolder(t *testing.T) {
+	t.Parallel()
 	for _, name := range stampFileNames() {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			home := t.TempDir()
 			stamped := makeDir(t, filepath.Join(home, "stamped"))
 			writeSettings(t, stamped, name)
@@ -687,6 +735,7 @@ func TestControlForwardsStartsBelowStampedFolder(t *testing.T) {
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
 					assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 				})
 			}
@@ -695,6 +744,7 @@ func TestControlForwardsStartsBelowStampedFolder(t *testing.T) {
 }
 
 func TestControlForwardsStartsAroundStamps(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeSettings(t, home, "settings.json")
 	stamped := makeDir(t, filepath.Join(home, "stamped"))
@@ -712,12 +762,14 @@ func TestControlForwardsStartsAroundStamps(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
 }
 
 func TestControlForwardsStartsBelowUnreadableStamp(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	parent := makeDir(t, filepath.Join(home, "parent"))
 	child := makeDir(t, filepath.Join(parent, "child"))
@@ -735,6 +787,7 @@ func TestControlForwardsStartsBelowUnreadableStamp(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
@@ -770,8 +823,10 @@ func makeWorktree(t *testing.T, checkout, folder string) string {
 }
 
 func TestControlForwardsStartsInWorktreeOfStampedCheckout(t *testing.T) {
+	t.Parallel()
 	for _, name := range stampFileNames() {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			home := t.TempDir()
 			checkout := makeCheckout(t, filepath.Join(home, "repo"))
 			writeSettings(t, checkout, name)
@@ -785,6 +840,7 @@ func TestControlForwardsStartsInWorktreeOfStampedCheckout(t *testing.T) {
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
 					assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 				})
 			}
@@ -793,6 +849,7 @@ func TestControlForwardsStartsInWorktreeOfStampedCheckout(t *testing.T) {
 }
 
 func TestControlForwardsStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	stamped := makeDir(t, filepath.Join(home, "stamped"))
 	writeSettings(t, stamped, "settings.json")
@@ -807,12 +864,14 @@ func TestControlForwardsStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
 }
 
 func TestControlForwardsStartsInWorktreesOfPlainCheckout(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	plain := makeCheckout(t, filepath.Join(home, "plain"))
 	plainWorktree := makeWorktree(t, plain, filepath.Join(home, "plain-wt"))
@@ -828,6 +887,7 @@ func TestControlForwardsStartsInWorktreesOfPlainCheckout(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}

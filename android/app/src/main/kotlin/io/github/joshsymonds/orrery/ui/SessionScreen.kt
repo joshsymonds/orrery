@@ -35,18 +35,35 @@ private const val RECONNECT_DELAY_MILLIS = 1_000L
 private const val CLOCK_TICK_MILLIS = 1_000L
 private const val REFRESH_FAILED = "could not refresh"
 private const val WORKING_STATE = "working"
+private const val WAITING_STATE = "waiting"
 private const val RESULT_TAG = "session-result"
 private const val RESULT_TEXT = "Interrupted"
 private const val TEXT_KIND = "text"
-private const val COMPOSE_HINT = "Message Claude…"
-private const val NUDGE_HINT = "Nudge the step…"
-private const val NUDGE_NOTE = "A message to a step is a nudge."
+private const val QUEUE_HINT = "Queue for Claude…"
+private const val ANSWER_HINT = "Answer Claude…"
+private const val MESSAGE_HINT = "Message Claude…"
+private const val NUDGE_RUNNING_HINT = "Nudge the step: it interrupts the turn, then prompts"
+private const val NUDGE_HELD_HINT = "Nudge the step: it resumes with your text"
 
 /** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
 private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
     held.unfinished
         .filter { it.parentToolUseId.isEmpty() && it.kind == TEXT_KIND && it.text.isNotEmpty() }
         .map { ConvoEntry.Reply(it.text) }
+
+/**
+ * The composer's hint says what sending does. A step's nudge interrupts a running turn, or resumes a held
+ * step; a session's send queues while it works, answers while it waits, and messages otherwise.
+ */
+private fun composeHint(step: StepMode?, state: String): String = when {
+    step == null -> when (state) {
+        WORKING_STATE -> QUEUE_HINT
+        WAITING_STATE -> ANSWER_HINT
+        else -> MESSAGE_HINT
+    }
+    step.held -> NUDGE_HELD_HINT
+    else -> NUDGE_RUNNING_HINT
+}
 
 private fun currentSeconds(): Long = System.currentTimeMillis() / 1000
 
@@ -142,8 +159,6 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
         content
     }
 
-    val nudgeNote: @Composable () -> Unit = { Text(NUDGE_NOTE) }
-
     Column(modifier = Modifier.fillMaxSize()) {
         if (refreshFailed) {
             Text(REFRESH_FAILED, modifier = Modifier.padding(horizontal = 14.dp))
@@ -161,7 +176,6 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             if (held != null) {
                 ConversationView(
                     entries,
-                    working = pane?.state == WORKING_STATE,
                     waiting = held.conversation.waiting,
                     footer = footer,
                     seen = seenAtOpen,
@@ -198,8 +212,8 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
         ComposeBox(
             sessionId,
             client,
-            hint = if (step != null) NUDGE_HINT else COMPOSE_HINT,
-            status = if (step != null) nudgeNote else null,
+            edge = if (step?.held == true) ComposeEdge.HELD else composeEdgeOf(state),
+            hint = composeHint(step, state),
             send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
         )
     }

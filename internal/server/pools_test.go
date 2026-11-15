@@ -192,6 +192,7 @@ func wantPoolsStatus() *orreryv1.PoolsStatusResponse {
 }
 
 func TestPoolsStatusForwardsAndMapsEveryField(t *testing.T) {
+	t.Parallel()
 	fake := &fakePoolsEngine{status: syntheticPoolsStatus()}
 	pools := poolsClient(t, guardedPoolsHandler(t, newFakePoolsOrreryd(t, fake), 0))
 
@@ -209,6 +210,7 @@ func TestPoolsStatusForwardsAndMapsEveryField(t *testing.T) {
 }
 
 func TestPoolsHoldAndFreeForwardTheMember(t *testing.T) {
+	t.Parallel()
 	fake := &fakePoolsEngine{}
 	pools := poolsClient(t, guardedPoolsHandler(t, newFakePoolsOrreryd(t, fake), 0))
 
@@ -229,6 +231,7 @@ func TestPoolsHoldAndFreeForwardTheMember(t *testing.T) {
 }
 
 func TestPoolsAnswersEngineErrorsAsControlDoes(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		err     error
@@ -256,6 +259,7 @@ func TestPoolsAnswersEngineErrorsAsControlDoes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakePoolsEngine{err: tc.err}
 			pools := poolsClient(t, guardedPoolsHandler(t, newFakePoolsOrreryd(t, fake), 0))
 
@@ -267,6 +271,7 @@ func TestPoolsAnswersEngineErrorsAsControlDoes(t *testing.T) {
 }
 
 func TestPoolsUnavailableWithoutEngine(t *testing.T) {
+	t.Parallel()
 	pools := poolsClient(t, guardedPoolsHandler(t, nil, 0))
 
 	_, err := pools.Status(t.Context(), connect.NewRequest(&orreryv1.PoolsStatusRequest{}))
@@ -278,6 +283,7 @@ func TestPoolsUnavailableWithoutEngine(t *testing.T) {
 }
 
 func TestPoolsDeadlineExceeded(t *testing.T) {
+	t.Parallel()
 	fake := &fakePoolsEngine{block: make(chan struct{})}
 	engine := newFakePoolsOrreryd(t, fake)
 	t.Cleanup(func() { close(fake.block) })
@@ -297,6 +303,7 @@ func poolsPaths() []string {
 }
 
 func TestPoolsRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
+	t.Parallel()
 	fake := &fakePoolsEngine{}
 	handler := guardedPoolsHandler(t, newFakePoolsOrreryd(t, fake), 0)
 	probes := []struct {

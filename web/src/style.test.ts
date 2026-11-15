@@ -112,6 +112,16 @@ test("from 760px each column keeps its own track, and to 1100px the epic column 
   assert.match(declarationsFor(narrow, ".panes > .side"), /grid-column:\s*2;/);
 });
 
+test("from 760px a conversation with no epic column and no pin spans the tracks right of the list", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  // The epic column follows the reader in the source, so only :has can see that it is hidden.
+  assert.match(
+    declarationsFor(wide, ".panes:not(.split):has(> .side[hidden]) > .read"),
+    /grid-column:\s*2\s*\/\s*-1;/,
+    "the reader runs to the last line when the epic column is hidden and nothing is pinned",
+  );
+});
+
 test("from 760px a pinned epic column takes the reader's track, and a step hides it", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   assert.match(declarationsFor(wide, ".panes.split .side"), /grid-column:\s*2;/);
@@ -196,9 +206,8 @@ test("the pill's working glyph turns, and reduced motion holds it still", () => 
   assert.match(declarationsFor(reduced, ".pill .g-working"), /animation:\s*none;/);
 });
 
-test("the send foot's how line is 11.5px over overlay0", () => {
-  assert.match(declarationsFor(css, ".send .how"), /font:\s*11\.5px\/16px var\(--mono\);/);
-  assert.match(declarationsFor(css, ".send .how"), /color:\s*var\(--overlay0\);/);
+test("no rule names the send foot's how line, whose markup left the page", () => {
+  assert.doesNotMatch(css, /\.how\b/);
 });
 
 test("the composer's send button is a 24px mauve square with crust text", () => {
@@ -207,6 +216,41 @@ test("the composer's send button is a 24px mauve square with crust text", () => 
   assert.match(go, /(?<![-\w])height:\s*24px;/);
   assert.match(go, /background:\s*var\(--mauve\);/);
   assert.match(go, /color:\s*var\(--crust\);/);
+});
+
+test("a working composer's edge is a 2px inset line in yellow, and a waiting or held one's is peach", () => {
+  assert.match(declarationsFor(css, ".composer.edge-working"), /inset 2px 0 0 var\(--yellow\)/);
+  for (const selector of [".composer.edge-waiting", ".composer.edge-held"]) {
+    assert.match(declarationsFor(css, selector), /inset 2px 0 0 var\(--peach\)/, selector);
+  }
+});
+
+test("an idle composer keeps the plain surface1 ring and names no edge colour", () => {
+  assert.match(declarationsFor(css, ".composer"), /box-shadow:\s*inset 0 0 0 1px var\(--surface1\);/);
+  assert.equal(declarationsFor(css, ".composer.edge-idle"), "");
+});
+
+test("the composer's focus ring is a 1px inset mauve ring, and a focused edge keeps its colour under it", () => {
+  assert.match(declarationsFor(css, ".composer:focus-within"), /box-shadow:\s*inset 0 0 0 1px var\(--mauve\);/);
+  assert.match(
+    declarationsFor(css, ".composer.edge-working:focus-within"),
+    /box-shadow:\s*inset 2px 0 0 var\(--yellow\), inset 0 0 0 1px var\(--mauve\);/,
+  );
+  for (const selector of [".composer.edge-waiting:focus-within", ".composer.edge-held:focus-within"]) {
+    assert.match(
+      declarationsFor(css, selector),
+      /box-shadow:\s*inset 2px 0 0 var\(--peach\), inset 0 0 0 1px var\(--mauve\);/,
+      selector,
+    );
+  }
+});
+
+test("both composer textareas size to their content, cap at 8 lines of their 1.45 line height, then scroll", () => {
+  const box = declarationsFor(css, ".composer textarea");
+  assert.match(box, /(?<![-\w])field-sizing:\s*content;/);
+  assert.match(box, /font:\s*15\.5px\/1\.45 var\(--mono\);/);
+  assert.match(box, /(?<![-\w])max-height:\s*calc\(8 \* 1\.45em\);/);
+  assert.match(box, /overflow-y:\s*auto;/);
 });
 
 test("the queue docks onto the composer: its top corners and the composer's bottom corners are 10px", () => {
@@ -825,4 +869,55 @@ test("the rules E1-D5 drops have no rules: the task's flex row, its mark and sta
   assert.doesNotMatch(css, /\.ts-[a-z]/);
   const flexTask = rulesIn(css).filter((rule) => rule.selectors.includes(".epic-view .task") && /display:\s*flex;/.test(rule.declarations));
   assert.deepEqual(flexTask, []);
+});
+
+test("the meters line is one footer line in the footer's type and colour, with no box of its own", () => {
+  const line = declarationsFor(css, ".lfoot button.meters");
+  assert.match(line, /(?<![-\w])font:\s*inherit;/);
+  assert.match(line, /(?<![-\w])color:\s*inherit;/);
+  assert.match(line, /(?<![-\w])background:\s*none;/);
+  assert.match(line, /(?<![-\w])border:\s*0;/);
+});
+
+test("the meters line does not wrap and is cut with an ellipsis when the footer is narrow", () => {
+  const line = declarationsFor(css, ".lfoot button.meters");
+  assert.match(line, /(?<![-\w])white-space:\s*nowrap;/);
+  assert.match(line, /(?<![-\w])overflow:\s*hidden;/);
+  assert.match(line, /(?<![-\w])text-overflow:\s*ellipsis;/);
+  assert.match(line, /(?<![-\w])min-width:\s*0;/);
+});
+
+test("the meters' m cap is the footer's ? cap: no rule restyles a kbd inside the meters", () => {
+  assert.doesNotMatch(css, /meters[^{]*\bkbd\b/);
+});
+
+test("the meters line spaces its host, stat and key cap apart", () => {
+  assert.match(declarationsFor(css, ".lfoot button.meters > * + *"), /margin-left:\s*6px;/);
+});
+
+test("a panel row sets its label and value apart, with its bar across the row below them", () => {
+  assert.match(declarationsFor(css, ".meter"), /grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/);
+  assert.match(declarationsFor(css, ".meter > .bar"), /grid-column:\s*1 \/ -1;/);
+});
+
+test("the meters panel is a mantle box with a surface1 ring", () => {
+  const panel = declarationsFor(css, ".meters-panel");
+  assert.match(panel, /(?<![-\w])background:\s*var\(--mantle\);/);
+  assert.match(panel, /box-shadow:\s*0 0 0 1px var\(--surface1\);/);
+});
+
+test("from 760px the meters panel lies over the rows' row, so it takes no track and the footer keeps the last row", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  const panel = declarationsFor(wide, ".list > .meters-panel");
+  assert.match(declarationsFor(wide, ".list"), /(?<![-\w])position:\s*relative;/, "the list holds the panel's grid area");
+  assert.match(panel, /(?<![-\w])position:\s*absolute;/);
+  assert.match(panel, /grid-row:\s*2;/);
+  assert.match(panel, /align-self:\s*end;/);
+});
+
+test("a meter bar is a 2px fill: lavender, peach at level-warn and red at level-crit, each by its token", () => {
+  assert.match(declarationsFor(css, ".bar"), /(?<![-\w])height:\s*2px;/);
+  assert.match(declarationsFor(css, ".bar"), /(?<![-\w])background:\s*var\(--lavender\);/);
+  assert.match(declarationsFor(css, ".bar.level-warn"), /(?<![-\w])background:\s*var\(--peach\);/);
+  assert.match(declarationsFor(css, ".bar.level-crit"), /(?<![-\w])background:\s*var\(--red\);/);
 });

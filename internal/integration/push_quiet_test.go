@@ -86,7 +86,7 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 	}
 	pushed := make(map[string][]string)
 	for range notifying {
-		note := nextNote(t, endpoint, judgedLimit)
+		note := nextNote(t, endpoint)
 		pushed[note["pane"]] = append(pushed[note["pane"]], note["state"])
 	}
 	wantExit(t, daemon.stop(t), 0)

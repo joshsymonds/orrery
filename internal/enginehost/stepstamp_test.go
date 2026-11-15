@@ -87,6 +87,7 @@ func stepStampTestSettings(t *testing.T, dir string) string {
 }
 
 func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		readOnly bool
@@ -100,6 +101,7 @@ func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			home, repo := stepStampTestHome(t, tc.body)
 			dir := haikuDir(t)
 			h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, dir, haikuFake{stdout: stepWireMonitorLine}),
@@ -135,6 +137,7 @@ func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
 }
 
 func TestStepsStartRefusesStepUnderUnparseableStamp(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		readOnly bool
@@ -144,6 +147,7 @@ func TestStepsStartRefusesStepUnderUnparseableStamp(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			home, repo := stepStampTestHome(t, "{")
 			worktrees := filepath.Join(home, "worktrees")
 			if err := os.Mkdir(worktrees, 0o755); err != nil {
@@ -189,6 +193,7 @@ func TestStepsStartRefusesStepUnderUnparseableStamp(t *testing.T) {
 }
 
 func TestStepsStartRefusesWithoutAbsoluteHome(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		readOnly bool
@@ -209,6 +214,7 @@ func TestStepsStartRefusesWithoutAbsoluteHome(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			home, repo := stepStampTestHome(t, stepStampValid)
 			worktrees := filepath.Join(home, "worktrees")
 			if err := os.Mkdir(worktrees, 0o755); err != nil {

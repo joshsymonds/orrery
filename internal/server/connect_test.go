@@ -183,6 +183,7 @@ func lockSessionStore(t *testing.T, path string) {
 }
 
 func TestConnectRequiresAllowedLogin(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
 	handler := newConnectHandler(t, store.NewReader(path))
@@ -199,6 +200,7 @@ func TestConnectRequiresAllowedLogin(t *testing.T) {
 }
 
 func TestConnectRequiresClientHeaderOnEveryMethod(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
 	handler := newConnectHandler(t, store.NewReader(path))
@@ -213,6 +215,7 @@ func TestConnectRequiresClientHeaderOnEveryMethod(t *testing.T) {
 }
 
 func TestConnectAdmitsConnectContentTypes(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
 	handler := newConnectHandler(t, store.NewReader(path))
@@ -234,6 +237,7 @@ func TestConnectAdmitsConnectContentTypes(t *testing.T) {
 }
 
 func TestConnectRejectsOtherContentTypes(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
 	handler := newConnectHandler(t, store.NewReader(path))
@@ -248,6 +252,7 @@ func TestConnectRejectsOtherContentTypes(t *testing.T) {
 }
 
 func TestConnectListThroughGeneratedClient(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seq := seedSessionStore(t, path)
 	sessions := connectClient(t, newConnectHandler(t, store.NewReader(path)), allowedLogin)
@@ -269,6 +274,7 @@ func TestConnectListThroughGeneratedClient(t *testing.T) {
 }
 
 func TestConnectListUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "absent", "orrery.db")
 	handler := newConnectHandler(t, store.NewReader(path))
 
@@ -283,6 +289,7 @@ func TestConnectListUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestConnectListUnavailableWhileStoreIsBusy(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
 	lockSessionStore(t, path)

@@ -5,6 +5,7 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
+import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { loadEpics } from "./loadepics";
 import { loadRows } from "./load";
 import { watchNotices } from "./notices";
@@ -58,10 +59,12 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 // unavailable reopens from the last seq it delivered after retryMs. Once the stream ends or fails any other way, the
 // poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while a reload is
 // in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
-// its own guard: a tick or event that lands while it is in flight is left to the next tick. The page also reports its input: watchPresence
-// sends the age of the newest input through Presence.Report, and a failed report is dropped. The returned function
-// stops reloading, aborts the stream, stops the presence watch, aborts the notices watch and unmounts App. The page also
-// watches the in-app notices its banner shows until each ends; a notices stream that fails reopens after retryMs.
+// its own guard: a tick or event that lands while it is in flight is left to the next tick. The host's status is read
+// at start and on each tick, under its own guard, and a refused read hands App null. The page also reports its input:
+// watchPresence sends the age of the newest input through Presence.Report, and a failed report is dropped. The
+// returned function stops reloading, aborts the stream, stops the presence watch, aborts the notices watch and unmounts
+// App. The page also watches the in-app notices its banner shows until each ends; a notices stream that fails reopens
+// after retryMs.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
@@ -70,10 +73,12 @@ export function start(
 ): () => void {
   let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
   let notices: InAppNotice[] = [];
+  let host: HostStatusResponse | null = null;
   let now = 0;
   let stopped = false;
   let loading = false;
   let epicsLoading = false;
+  let hostLoading = false;
   let rerun = false;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let stream: AbortController | null = null;
@@ -81,9 +86,36 @@ export function start(
   const draw = () => {
     const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
     render(
-      <App rows={loaded.rows} error={error} epics={loaded.epics} now={now} clients={clients} notices={notices} />,
+      <App
+        rows={loaded.rows}
+        error={error}
+        epics={loaded.epics}
+        now={now}
+        clients={clients}
+        notices={notices}
+        host={host}
+      />,
       root,
     );
+  };
+
+  // loadHostStatus reads Host.Status. A refused or failed read hands App null and reports nothing. A read that lands
+  // while the last one is in flight is left to the next tick.
+  const loadHostStatus = async () => {
+    if (hostLoading) {
+      return;
+    }
+    hostLoading = true;
+    try {
+      const status = await clients.host.status({}).catch(() => null);
+      if (stopped) {
+        return;
+      }
+      host = status;
+      draw();
+    } finally {
+      hostLoading = false;
+    }
   };
 
   const loadEpicsView = async () => {
@@ -183,7 +215,9 @@ export function start(
 
   draw();
   void reload();
+  void loadHostStatus();
   const timer = setInterval(() => {
+    void loadHostStatus();
     if (stream === null) {
       void reload();
       return;

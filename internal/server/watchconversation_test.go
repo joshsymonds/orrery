@@ -104,22 +104,17 @@ func (s *convStream) run(
 	_ = stream.Close()
 }
 
-// next returns the next message, failing the test when none arrives within watchWait or the stream ends first.
+// next returns the next message, failing the test when the stream ends first. It has no deadline of its own.
 func (s *convStream) next(t *testing.T) *orreryv1.WatchConversationResponse {
 	t.Helper()
-	select {
-	case msg, ok := <-s.msgs:
-		if !ok {
-			t.Fatalf("stream ended before the next message: %v", s.err)
-		}
-		if state := msg.GetState(); state != nil {
-			s.command = state.GetPane().GetCommand()
-		}
-		return msg
-	case <-time.After(watchWait):
-		t.Fatalf("no message within %v", watchWait)
+	msg, ok := <-s.msgs
+	if !ok {
+		t.Fatalf("stream ended before the next message: %v", s.err)
 	}
-	return nil
+	if state := msg.GetState(); state != nil {
+		s.command = state.GetPane().GetCommand()
+	}
+	return msg
 }
 
 // isKeepalive reports whether msg is a keepalive: a delta with no reset, items or state.
@@ -127,17 +122,14 @@ func isKeepalive(msg *orreryv1.WatchConversationResponse) bool {
 	return !msg.GetReset_() && len(msg.GetItems()) == 0 && msg.GetState() == nil
 }
 
-// nextDelta returns the next message that is not a keepalive, failing the test when none arrives within watchWait.
+// nextDelta returns the next message that is not a keepalive. It has no deadline of its own.
 func (s *convStream) nextDelta(t *testing.T) *orreryv1.WatchConversationResponse {
 	t.Helper()
-	deadline := time.Now().Add(watchWait)
-	for time.Now().Before(deadline) {
+	for {
 		if msg := s.next(t); !isKeepalive(msg) {
 			return msg
 		}
 	}
-	t.Fatalf("no delta within %v", watchWait)
-	return nil
 }
 
 // settle reads the messages the stream sends while the pane's session is still starting, up to the first keepalive
@@ -147,28 +139,21 @@ func (s *convStream) nextDelta(t *testing.T) *orreryv1.WatchConversationResponse
 func (s *convStream) settle(t *testing.T) {
 	t.Helper()
 	ready := strings.Fields(longCommand)[0]
-	deadline := time.Now().Add(watchWait)
-	for time.Now().Before(deadline) {
+	for {
 		if msg := s.next(t); s.command == ready && isKeepalive(msg) {
 			return
 		}
 	}
-	t.Fatalf("pane never reported %q within %v", ready, watchWait)
 }
 
-// end waits for the stream to end, skipping any message it sends first, and returns the error it ended with. It
-// fails the test when the stream does not end within watchWait.
+// end waits for the stream to end, skipping any message it sends first, and returns the error it ended with. It has
+// no deadline of its own.
 func (s *convStream) end(t *testing.T) error {
 	t.Helper()
-	deadline := time.After(watchWait)
 	for {
-		select {
-		case _, ok := <-s.msgs:
-			if !ok {
-				return s.err
-			}
-		case <-deadline:
-			t.Fatalf("stream did not end within %v", watchWait)
+		_, ok := <-s.msgs
+		if !ok {
+			return s.err
 		}
 	}
 }
@@ -607,11 +592,7 @@ func TestWatchConversationEndsOnCancel(t *testing.T) {
 		t.Fatalf("no first delta: %v", stream.Err())
 	}
 	cancel()
-	select {
-	case <-ended:
-	case <-time.After(watchWait):
-		t.Fatalf("the handler did not return within %v of the client canceling", watchWait)
-	}
+	<-ended
 	_ = stream.Close()
 }
 

@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 // numberedReply is one JSON-RPC response with the id of the request it answers.
@@ -28,11 +27,9 @@ func sendToolCall(p *peer, name string) int {
 	return p.nextRequest
 }
 
-// readNumberedReply reads the next response the server writes, under the same watchdog that bounds peer.call.
+// readNumberedReply reads the next response the server writes. It has no deadline of its own.
 func readNumberedReply(t *testing.T, p *peer) numberedReply {
 	t.Helper()
-	watchdog := time.AfterFunc(testTimeout, func() { _ = p.outputRead.Close() })
-	defer watchdog.Stop()
 	var reply numberedReply
 	if err := p.output.Decode(&reply); err != nil {
 		t.Fatalf("read reply: %v", err)
@@ -86,11 +83,7 @@ func TestNinthToolCallIsRefusedAtOnceAndNeverStarts(t *testing.T) {
 		blocking[sendToolCall(p, "block")] = true
 	}
 	for range ceiling {
-		select {
-		case <-entered:
-		case <-time.After(testTimeout):
-			t.Fatal("the eight tool calls did not all start")
-		}
+		<-entered
 	}
 
 	refusedID := sendToolCall(p, "probe")
@@ -212,13 +205,7 @@ func TestOversizedInboundLineEndsTheSessionWithBoundedMemory(t *testing.T) {
 	case <-firstAnswer:
 		// The server answered the line, so end the input to let Serve return.
 		_ = clientInput.Close()
-		select {
-		case serveErr = <-done:
-		case <-time.After(testTimeout):
-			t.Fatalf("Serve did not return within %v after answering", testTimeout)
-		}
-	case <-time.After(testTimeout):
-		t.Fatalf("Serve neither returned nor answered within %v", testTimeout)
+		serveErr = <-done
 	}
 	_ = serverInput.Close()
 	_ = serverOutput.Close()

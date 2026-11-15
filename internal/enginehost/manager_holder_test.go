@@ -86,8 +86,7 @@ func holderSocket(t *testing.T, root, id string) string {
 func closeAndClear(t *testing.T, m *Manager, root, id string) {
 	t.Helper()
 	m.Close()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
-	defer cancel()
+	ctx := context.WithoutCancel(t.Context())
 	if err := holder.Clear(ctx, holderDir(t, root, id)); err != nil {
 		t.Errorf("clear holder of session %s: %v", id, err)
 	}

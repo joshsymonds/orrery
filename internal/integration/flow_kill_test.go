@@ -3,6 +3,7 @@ package integration_test
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -208,12 +209,13 @@ func flowRuns() []flowRun {
 }
 
 // nodeRuns returns the node runs the store holds for the rig's epic, ordered by path. The store file is read through a
-// read-only handle that is closed at once, so orreryd keeps the file it writes.
+// read-only handle that is closed at once, so orreryd keeps the file it writes. The handle's busy timeout is the
+// largest SQLite takes, so a read waits out any lock orreryd holds; the test binary's timeout bounds it.
 func (r *buildRig) nodeRuns(t *testing.T) []sqlcgen.EpicNodeRun {
 	t.Helper()
 	query := url.Values{}
 	query.Set("mode", "ro")
-	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", waitLimit.Milliseconds()))
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", math.MaxInt32))
 	dsn := (&url.URL{Scheme: "file", Path: r.f.dbPath, RawQuery: query.Encode()}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -261,9 +263,9 @@ func TestFlowSigkillRestartStartsEachNodeOnce(t *testing.T) {
 	dir := r.stepDir(id)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
-	r.awaitStep(t, daemon, id)
+	r.awaitStep(t, id)
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
-	waitUntil(t, "the fake claude to read the brief", func() bool { return fileContains(t, stdin, buildRigMarker) })
+	waitUntil(t, func() bool { return fileContains(t, stdin, buildRigMarker) })
 	pid := fakeClaudePID(t, dir)
 	requireFlowRuns(t, r.nodeRuns(t))
 
@@ -287,7 +289,7 @@ func TestFlowSigkillRestartStartsEachNodeOnce(t *testing.T) {
 
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
 	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, id))
-	waitUntil(t, "task 1 to reach green", func() bool { return r.task(t).GetStage() == build.StageGreen })
+	waitUntil(t, func() bool { return r.task(t).GetStage() == build.StageGreen })
 	requireFlowRuns(t, r.nodeRuns(t))
 	if got := r.task(t).GetRevision(); got != commit {
 		t.Fatalf("revision of task 1 at green = %q, want the fake's commit %s", got, commit)

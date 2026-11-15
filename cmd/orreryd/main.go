@@ -612,8 +612,9 @@ func serveInBackground(ctx context.Context, ln net.Listener, cfg daemon.Config) 
 }
 
 // shutdownServe runs once Serve has returned. It closes pages first, so the Watch streams open on it end before the
-// session socket stops serving. It waits for the summaries, stops the sessions, then waits for the router and the
-// notices, since the sessions can post to them, and closes the store. It returns the sessions' stop error.
+// session socket stops serving. It waits for the summaries and then for the mirror's deferred syncs and tidies, stops
+// the sessions, then waits for the router and the notices, since the sessions can post to them, and closes the store.
+// It returns the sessions' stop error.
 func shutdownServe(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -626,6 +627,11 @@ func shutdownServe(
 ) error {
 	pages.Close()
 	hub.wait()
+	// Serve and the summaries have returned, so nothing defers more mirror work, and what was deferred lands before
+	// the store closes.
+	if hub.mirror != nil {
+		hub.mirror.Wait()
+	}
 	var sessionErr error
 	if sessions != nil {
 		sessionErr = sessions.stop()

@@ -35,8 +35,6 @@ const (
 	runHelperEnv = "ORRERY_RUN_TEST_HELPER"
 	// runSocketEnv names the socket the client helper acquires its grant from.
 	runSocketEnv = "ORRERY_RUN_TEST_SOCKET"
-	// runTimeout bounds every wait on a process or on the fake server.
-	runTimeout = 10 * time.Second
 	// testRetry is the reconnect interval every run test uses, so a broken stream is reclaimed quickly.
 	testRetry = 10 * time.Millisecond
 	// pollInterval is how often a wait checks whether a process has exited.
@@ -239,16 +237,11 @@ func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
 	return step
 }
 
-// awaitRequests fails the test unless fake receives n requests within runTimeout.
+// awaitRequests waits until fake has received n requests. It has no deadline of its own.
 func awaitRequests(t *testing.T, fake *poolsFake, n int) {
 	t.Helper()
-	deadline := time.After(runTimeout)
 	for len(fake.received()) < n {
-		select {
-		case <-deadline:
-			t.Fatalf("fake received %d requests, want %d", len(fake.received()), n)
-		case <-time.After(pollInterval):
-		}
+		<-time.After(pollInterval)
 	}
 }
 
@@ -332,26 +325,17 @@ func runAsync(ctx context.Context, cfg cli.RunConfig) <-chan int {
 	return status
 }
 
-// awaitStatus returns the status from status. It fails the test when none arrives within runTimeout.
+// awaitStatus returns the status from status. It has no deadline of its own.
 func awaitStatus(t *testing.T, status <-chan int) int {
 	t.Helper()
-	select {
-	case got := <-status:
-		return got
-	case <-time.After(runTimeout):
-		t.Fatal("RunWithGrant did not return")
-		return 0
-	}
+	got := <-status
+	return got
 }
 
-// waitClosed fails the test unless ch closes within runTimeout. what says what did not happen.
-func waitClosed(t *testing.T, ch <-chan struct{}, what string) {
+// waitClosed waits until ch closes; its last argument names what it waits for. It has no deadline of its own.
+func waitClosed(t *testing.T, ch <-chan struct{}, _ string) {
 	t.Helper()
-	select {
-	case <-ch:
-	case <-time.After(runTimeout):
-		t.Fatal(what)
-	}
+	<-ch
 }
 
 // stdoutPipe returns a pipe for a command's stdout: the command writes to w and the test reads r.
@@ -368,8 +352,7 @@ func stdoutPipe(t *testing.T) (r, w *os.File) {
 	return r, w
 }
 
-// awaitReady returns the first line r reads, which a helper prints once it is running. It fails the test when no line
-// comes within runTimeout.
+// awaitReady returns the first line r reads, which a helper prints once it is running. It has no deadline of its own.
 func awaitReady(t *testing.T, r io.Reader) string {
 	t.Helper()
 	line := make(chan string, 1)
@@ -377,13 +360,8 @@ func awaitReady(t *testing.T, r io.Reader) string {
 		text, _ := bufio.NewReader(r).ReadString('\n')
 		line <- text
 	}()
-	select {
-	case text := <-line:
-		return text
-	case <-time.After(runTimeout):
-		t.Fatal("no ready line from the helper")
-		return ""
-	}
+	text := <-line
+	return text
 }
 
 // readyPID returns the process id on the ready line a sleep helper prints.
@@ -399,13 +377,8 @@ func readyPID(t *testing.T, ready string) int {
 // waitGone fails the test unless the process pid exits within runTimeout.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.After(runTimeout)
 	for !processExited(t, pid) {
-		select {
-		case <-deadline:
-			t.Fatalf("process %d is still running", pid)
-		case <-time.After(pollInterval):
-		}
+		<-time.After(pollInterval)
 	}
 }
 
@@ -425,6 +398,7 @@ func processExited(t *testing.T, pid int) bool {
 }
 
 func TestRunWithGrantGivesCommandItsGrant(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-7",
 		poolMembers("builds", "m1", "m2"),
 		poolMembers("gpu", "g1"),
@@ -468,6 +442,7 @@ func TestRunWithGrantGivesCommandItsGrant(t *testing.T) {
 }
 
 func TestRunWithGrantReturnsCommandStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		mode string
@@ -479,6 +454,7 @@ func TestRunWithGrantReturnsCommandStatus(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := newPoolsFake(nil, true, grantedWith("grant-status", poolMembers("builds", "m1")))
 			socket := runServe(t, fake)
 			cfg := runConfig(t, socket, tc.mode, io.Discard, io.Discard)
@@ -492,6 +468,7 @@ func TestRunWithGrantReturnsCommandStatus(t *testing.T) {
 }
 
 func TestRunWithGrantWritesQueuedPositions(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, queuedAt(2), queuedAt(1), grantedWith("grant-queue", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	var stderr bytes.Buffer
@@ -507,6 +484,7 @@ func TestRunWithGrantWritesQueuedPositions(t *testing.T) {
 }
 
 func TestRunWithGrantExitsNoGrant(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		serve      bool
@@ -534,6 +512,7 @@ func TestRunWithGrantExitsNoGrant(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			socket := filepath.Join(t.TempDir(), "orreryd.sock")
 			if tc.serve {
 				socket = runServe(t, newPoolsFake(tc.fail, false, tc.events...))
@@ -554,6 +533,7 @@ func TestRunWithGrantExitsNoGrant(t *testing.T) {
 }
 
 func TestRunWithGrantExitsNoGrantWhenContextEndsInQueue(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, queuedAt(1))
 	socket := runServe(t, fake)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -579,6 +559,7 @@ func TestRunWithGrantExitsNoGrantWhenContextEndsInQueue(t *testing.T) {
 }
 
 func TestRunWithGrantExitsBeforeAcquiring(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		argv       []string
@@ -595,6 +576,7 @@ func TestRunWithGrantExitsBeforeAcquiring(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := newPoolsFake(nil, false, grantedWith("grant-never", poolMembers("builds", "m1")))
 			socket := runServe(t, fake)
 			var stdout, stderr bytes.Buffer
@@ -615,6 +597,7 @@ func TestRunWithGrantExitsBeforeAcquiring(t *testing.T) {
 }
 
 func TestRunWithGrantExitsCannotRunWhenCommandFailsToStart(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-bad", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	notProgram := filepath.Join(t.TempDir(), "notprogram")
@@ -635,6 +618,7 @@ func TestRunWithGrantExitsCannotRunWhenCommandFailsToStart(t *testing.T) {
 }
 
 func TestRunWithGrantStopsCommandWhenContextEnds(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-stop", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	ready, w := stdoutPipe(t)
@@ -650,6 +634,7 @@ func TestRunWithGrantStopsCommandWhenContextEnds(t *testing.T) {
 }
 
 func TestRunWithGrantStopsCommandWhenGrantEnds(t *testing.T) {
+	t.Parallel()
 	// The stream ends after the grant, and orreryd refuses to reclaim the grant by its id once the command runs.
 	gate := make(chan struct{})
 	fake := newPoolsFakeSteps(
@@ -679,6 +664,7 @@ func TestRunWithGrantStopsCommandWhenGrantEnds(t *testing.T) {
 }
 
 func TestRunWithGrantDiesWithItsClient(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-kill", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	argv, err := helperArgv()

@@ -41,6 +41,9 @@ service Control {
 
   // Seen records that the user has seen a headless session.
   rpc Seen(SeenRequest) returns (SeenResponse);
+
+  // Resume resumes an interrupted headless session's turn by sending its resume prompt.
+  rpc Resume(ResumeRequest) returns (ResumeResponse);
 }
 
 // ListRequest asks for every tracked session. It has no fields.
@@ -368,6 +371,15 @@ message SeenRequest {
 
 // SeenResponse is the reply to a Seen. It has no fields.
 message SeenResponse {}
+
+// ResumeRequest asks for an interrupted headless session's turn to resume.
+message ResumeRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// ResumeResponse is the reply to a Resume. It has no fields.
+message ResumeResponse {}
 
 // EngineAdded carries the placement of a headless session row that was inserted.
 message EngineAdded {

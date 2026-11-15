@@ -20,6 +20,7 @@ func writeEffortState(t *testing.T, dir, effort, body string) {
 }
 
 func TestReadTasksOrdersByEffortNumberThenFileOrder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeEffortState(t, dir, "10", `{"tasks":[{"slug":"ten-a","subject":"Ten A","status":"done"}]}`)
 	writeEffortState(t, dir, "2", `{"tasks":[
@@ -47,6 +48,7 @@ func TestReadTasksOrdersByEffortNumberThenFileOrder(t *testing.T) {
 }
 
 func TestReadTasksKeepsStatusAsWritten(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeEffortState(t, dir, "1", `{"tasks":[
 		{"slug":"a","subject":"A","status":"Pending "},
@@ -74,6 +76,7 @@ func TestReadTasksKeepsStatusAsWritten(t *testing.T) {
 }
 
 func TestReadTasksSkipsNonEffortEntries(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeEffortState(t, dir, "1", `{"tasks":[{"slug":"a","subject":"A","status":"done"}]}`)
 	efforts := filepath.Join(dir, "efforts")
@@ -102,6 +105,7 @@ func TestReadTasksSkipsNonEffortEntries(t *testing.T) {
 }
 
 func TestReadTasksReportsUnreadableEffortsAndKeepsOthers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeEffortState(t, dir, "1", `{"tasks":[{"slug":"one","subject":"One","status":"done"}]}`)
 	writeEffortState(t, dir, "2", `{"tasks":[`)
@@ -129,6 +133,7 @@ func TestReadTasksReportsUnreadableEffortsAndKeepsOthers(t *testing.T) {
 }
 
 func TestReadTasksWithoutEffortsDirectory(t *testing.T) {
+	t.Parallel()
 	for _, dir := range []string{t.TempDir(), filepath.Join(t.TempDir(), "missing")} {
 		got, problems, err := readTasks(dir, newHeadCache())
 		if err != nil {

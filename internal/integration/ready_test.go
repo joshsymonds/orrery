@@ -43,10 +43,10 @@ func bindNotifySocket(t *testing.T, dir string) *notifySocket {
 	return &notifySocket{path: path, conn: conn}
 }
 
-// read returns the next datagram, failing the test unless one arrives within waitLimit.
+// read returns the next datagram. It has no deadline of its own: it clears any deadline a drain left on the socket.
 func (s *notifySocket) read(t *testing.T) string {
 	t.Helper()
-	if err := s.conn.SetReadDeadline(time.Now().Add(waitLimit)); err != nil {
+	if err := s.conn.SetReadDeadline(time.Time{}); err != nil {
 		t.Fatalf("set notify read deadline: %v", err)
 	}
 	datagram, err := s.readOne()
@@ -186,9 +186,10 @@ func TestOrrerydReadyFailedSendServesAnyway(t *testing.T) {
 	missing := filepath.Join(f.root, "no-listener.sock")
 	daemon := f.startReady(t, f.notifyEnv(missing), f.fakeClaude, false)
 
-	waitUntil(t, "the failed READY=1 log", func() bool {
+	waitUntil(t, func() bool {
 		return strings.Contains(daemon.stderr.String(), readyFailedLog)
 	})
+
 	daemon.waitForListener(t, "unix", f.socket)
 	wantExit(t, daemon.stop(t), 0)
 }

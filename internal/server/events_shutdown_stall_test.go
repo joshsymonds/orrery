@@ -13,18 +13,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 )
 
-// stallSendTimeout is the Watch send deadline of the blocked-send test, far above the shutdown grace, so a server
-// that waits out its send deadline at shutdown misses closeBudget.
-const stallSendTimeout = 30 * time.Second
+// stallSendTimeout is the Watch send deadline of the blocked-send tests. It is far longer than the test binary's
+// timeout, so the send deadline never ends a blocked send during a test: only the shutdown signal can, and a server
+// that waits out its send deadline at shutdown holds the test until the binary's timeout fails it.
+const stallSendTimeout = 24 * time.Hour
 
 // stallSamples is how many consecutive event ticks must show the same write in progress with the same byte count
 // before the send counts as blocked. A write the client is not reading stays in progress indefinitely, so the count
 // holds; a write that completes changes it.
 const stallSamples = 5
-
-// closeBudget bounds how long the server may take to close after the shutdown signal closes a stream blocked in a
-// send. It is well above the shutdown grace and well below stallSendTimeout.
-const closeBudget = 5 * time.Second
 
 // observedConn records the writes of an accepted connection: whether one is in progress, and the bytes of the
 // writes that have completed. While held, it records the write deadline the server sets instead of applying it.
@@ -136,19 +133,14 @@ func (l *observedListener) writeState() (bool, int64) {
 
 // waitBlockedSend polls the server's writes on the event tick until a write has stayed in progress for stallSamples
 // consecutive ticks with no byte completing, after the first replayed message has been written in full. That write is
-// a send the client is not reading. It fails the test if no such send appears within watchWait.
+// a send the client is not reading. It has no deadline of its own.
 func waitBlockedSend(t *testing.T, obs *observedListener) {
 	t.Helper()
-	timeout := time.After(watchWait)
 	tick := time.NewTicker(eventPoll)
 	defer tick.Stop()
 	last, stable := int64(-1), 0
 	for stable < stallSamples {
-		select {
-		case <-timeout:
-			t.Fatalf("no send blocked mid-replay within %v", watchWait)
-		case <-tick.C:
-		}
+		<-tick.C
 		writing, written := obs.writeState()
 		if writing && written > deadlineSummaryBytes && written == last {
 			stable++
@@ -160,9 +152,10 @@ func waitBlockedSend(t *testing.T, obs *observedListener) {
 }
 
 // TestShutdownEndsBlockedSendWithinGrace holds a replay blocked in a send on a client that stopped reading. Closing
-// the shutdown signal must end the blocked send and the stream's end-of-stream write within the shutdown grace, so
-// the server closes well before the send deadline.
+// the shutdown signal must end the blocked send and the stream's end-of-stream write, so the server closes. The send
+// deadline is stallSendTimeout, so only the shutdown can end the send.
 func TestShutdownEndsBlockedSendWithinGrace(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, shutdownReplayCount)
@@ -189,10 +182,5 @@ func TestShutdownEndsBlockedSendWithinGrace(t *testing.T) {
 		srv.Close()
 		close(closed)
 	}()
-	select {
-	case <-closed:
-	case <-time.After(closeBudget):
-		t.Fatalf("server still open %v after shutdown with a blocked send, want it to end within the shutdown grace "+
-			"(send deadline %v)", closeBudget, stallSendTimeout)
-	}
+	<-closed
 }

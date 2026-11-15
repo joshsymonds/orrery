@@ -12,6 +12,7 @@ const epicsListPath = "/orrery.v1.Epics/List";
 const epicsGetPath = "/orrery.v1.Epics/Get";
 const presencePath = "/orrery.v1.Presence/Report";
 const noticesWatchPath = "/orrery.v1.Notices/Watch";
+const hostStatusPath = "/orrery.v1.Host/Status";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
@@ -53,6 +54,12 @@ const sessionBody = {
       seen: "30",
     },
   ],
+};
+
+// The host Host.Status answers with: one stat, so the meters button has a value to show.
+const hostBody = {
+  host: "den",
+  stats: [{ label: "cpu", value: "12%", percent: 12, level: "ok" }],
 };
 
 // One live epic with one running step, as Epics.List answers it. The step's task is the label a test can change.
@@ -117,6 +124,11 @@ interface FakeServer {
   epicsListCalls: number;
   epicsInFlight: number;
   maxEpicsInFlight: number;
+  // While set, Host.Status answers with a server error.
+  hostFails: boolean;
+  // While set, Host.Status waits for it before answering.
+  hostGate: Promise<void> | null;
+  hostCalls: number;
   // Every path the page has called.
   paths: Set<string>;
 }
@@ -185,6 +197,19 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         }
         return json(epicDetail(epic));
       }
+      if (path === hostStatusPath) {
+        server.hostCalls++;
+        if (server.hostGate) {
+          await server.hostGate;
+        }
+        if (server.hostFails) {
+          return new Response(JSON.stringify({ code: "internal", message: "host detail" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return json(hostBody);
+      }
       if (path !== panesPath) {
         return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
       }
@@ -217,6 +242,9 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     epicsListCalls: 0,
     epicsInFlight: 0,
     maxEpicsInFlight: 0,
+    hostFails: false,
+    hostGate: null,
+    hostCalls: 0,
     paths: new Set(),
   };
   return server;
@@ -267,6 +295,21 @@ function ageOf(root: HTMLElement, name: string): string {
   const rows = [...root.querySelectorAll("[data-row]")];
   const row = rows.find((element) => element.querySelector(".label")?.textContent === name);
   return row?.querySelector(".age")?.textContent ?? "";
+}
+
+// meterHost is the host the footer's meters button names, or null when the footer draws no button.
+function meterHost(root: HTMLElement): string | null {
+  return root.querySelector(".lfoot > .meters .meters-host")?.textContent ?? null;
+}
+
+// meterButtonShown is whether the footer draws the meters button.
+function meterButtonShown(root: HTMLElement): boolean {
+  return root.querySelector(".lfoot > .meters") !== null;
+}
+
+// errorText is the page's error line, or "" when it shows none.
+function errorText(root: HTMLElement): string {
+  return root.querySelector(".error")?.textContent ?? "";
 }
 
 // withPage runs check with a fresh DOM, a root element for start, and the test's own cleanup.
@@ -583,7 +626,7 @@ test("the page calls only the list, get and watch paths it reads", () =>
       await until(() => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
       assert.deepEqual(
         [...server.paths].sort(),
-        [epicsGetPath, epicsListPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
+        [epicsGetPath, epicsListPath, hostStatusPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
       );
     } finally {
       stop();
@@ -713,6 +756,87 @@ test("a failed Presence.Report leaves the page without an error line and keeps t
       assert.equal(root.querySelector(".error")?.textContent ?? "", "", "a failed report showed an error line");
       assert.ok(labels(root).includes("api"), "the rows went away after a failed report");
     } finally {
+      stop();
+    }
+  }));
+
+test("the start read shows the host in the footer's meters button, before any poll tick", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    // longPollMs means no tick runs, so only the read at start can show the button.
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(() => meterHost(root) === "den", "the meters button for the host");
+    } finally {
+      stop();
+    }
+  }));
+
+test("a refused Host.Status shows no meters button and no error, while the rows, epics and stream load", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    server.hostFails = true;
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(
+        () => labels(root).includes("api") && labels(root).includes("alpha") && server.watches.length === 1,
+        "the rows, the epics and the stream",
+      );
+      // A read starts only once the one before it is handled, so the second read after the stream opens means a refusal
+      // from after it has landed. No reload runs with the stream open, so nothing clears the error line after that.
+      const readsAtOpen = server.hostCalls;
+      await until(() => server.hostCalls >= readsAtOpen + 2, "two refused reads with the stream open");
+      assert.equal(meterButtonShown(root), false, "a refused Host.Status drew a meters button");
+      assert.equal(errorText(root), "", "a refused Host.Status showed in the error line");
+    } finally {
+      stop();
+    }
+  }));
+
+test("a Host.Status that starts failing takes the meters button away", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => meterHost(root) === "den", "the meters button");
+      server.hostFails = true;
+      await until(() => !meterButtonShown(root), "the meters button gone after a refused read");
+    } finally {
+      stop();
+    }
+  }));
+
+test("each poll tick reads Host.Status while the stream is down", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    server.storeSeq = 0n;
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => server.hostCalls >= 2 && server.watches.length === 0, "ticks with the stream down");
+    } finally {
+      stop();
+    }
+  }));
+
+test("a tick during a slow Host.Status starts no second read", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    let release: () => void = () => {};
+    server.hostGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => server.hostCalls === 1, "the first read");
+      // With the stream down every tick reloads the rows, so three Panes.List calls mean at least two ticks ran.
+      const panesAtFirstRead = server.panesCalls;
+      await until(() => server.panesCalls >= panesAtFirstRead + 3, "ticks while the first read is in flight");
+      assert.equal(server.hostCalls, 1, "a tick started a second read while the first was in flight");
+      release();
+      await until(() => meterHost(root) === "den", "the host after release");
+    } finally {
+      release();
       stop();
     }
   }));

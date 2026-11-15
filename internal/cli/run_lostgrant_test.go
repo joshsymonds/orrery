@@ -60,6 +60,7 @@ func stderrFile(t *testing.T) (*os.File, func() string) {
 }
 
 func TestRunLostGrantStopsCommandWhileReclaimWaits(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	gate := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{
@@ -106,6 +107,7 @@ func TestRunLostGrantStopsCommandWhileReclaimWaits(t *testing.T) {
 }
 
 func TestRunLostGrantRerunsUnderNewGrant(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{
 		lostHolderStep(ready, "m1", "m2"),
@@ -140,6 +142,7 @@ func TestRunLostGrantRerunsUnderNewGrant(t *testing.T) {
 }
 
 func TestRunLostGrantReclaimsAgainWhenQueuedStreamEnds(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{
 		lostHolderStep(ready, "m1"),

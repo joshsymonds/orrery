@@ -91,6 +91,7 @@ func seenWantReport(t *testing.T, rec *seenRecorder, pane string, want int64) {
 }
 
 func TestSeen(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, other := seenStartPanes(t, client)
 
@@ -131,9 +132,6 @@ func TestSeen(t *testing.T) {
 	}
 }
 
-// seenWait bounds the wait for a control-mode client to appear in list-clients.
-const seenWait = 5 * time.Second
-
 // seenAttach starts a control-mode client of client's server attached to session, keeps its stdin open until
 // cleanup, and waits until the server lists it. The client connects through the server's socket path.
 func seenAttach(t *testing.T, client *tmuxctl.Client, session string) {
@@ -154,11 +152,7 @@ func seenAttach(t *testing.T, client *tmuxctl.Client, session string) {
 		_ = cmd.Wait()
 	})
 
-	deadline := time.Now().Add(seenWait)
 	for strings.TrimSpace(seenRun(t, client, "list-clients", "-F", "#{client_name}")) == "" {
-		if time.Now().After(deadline) {
-			t.Fatalf("no client listed for session %s after %v", session, seenWait)
-		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -188,6 +182,7 @@ func seenWantUnset(t *testing.T, client *tmuxctl.Client, pane string) {
 }
 
 func TestSeenFocusMarksPaneShownByActiveClient(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, other := seenStartPanes(t, client)
 	seenAttach(t, client, "s1")
@@ -222,6 +217,7 @@ func TestSeenFocusMarksPaneShownByActiveClient(t *testing.T) {
 }
 
 func TestSeenFocusLeavesPaneUnseenWithoutClient(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, _ := seenStartPanes(t, client)
 
@@ -240,6 +236,7 @@ func TestSeenFocusLeavesPaneUnseenWithoutClient(t *testing.T) {
 }
 
 func TestSeenFocusLeavesPaneUnseenWhenClientShowsAnotherWindow(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, _ := seenStartPanes(t, client)
 	seenRun(t, client, "new-window", "-t", "s1", "-c", t.TempDir(), seenCommand)
@@ -260,6 +257,7 @@ func TestSeenFocusLeavesPaneUnseenWhenClientShowsAnotherWindow(t *testing.T) {
 }
 
 func TestSeenRejectsBadArguments(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, _ := seenStartPanes(t, client)
 
@@ -276,6 +274,7 @@ func TestSeenRejectsBadArguments(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var out bytes.Buffer
 			err := cli.Seen(t.Context(), client, nil, tc.args, &out)
 			if err == nil {
@@ -289,6 +288,7 @@ func TestSeenRejectsBadArguments(t *testing.T) {
 }
 
 func TestSeenUnknownPaneWrapsTmuxError(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	seenStartPanes(t, client)
 
@@ -302,6 +302,7 @@ func TestSeenUnknownPaneWrapsTmuxError(t *testing.T) {
 }
 
 func TestSeenWithoutReporterMarks(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, _ := seenStartPanes(t, client)
 
@@ -321,6 +322,7 @@ func TestSeenWithoutReporterMarks(t *testing.T) {
 }
 
 func TestSeenReturnsReportErrorAfterMarking(t *testing.T) {
+	t.Parallel()
 	client := seenServer(t)
 	pane, _ := seenStartPanes(t, client)
 

@@ -33,7 +33,6 @@ const (
 	noticesWiringPane      = "%synthetic"
 	noticesWiringPaneLater = "%synthetic-later"
 	noticesWiringStamp     = 1_700_000_000
-	noticesWiringWait      = 10 * time.Second
 )
 
 // startNoticesHost starts a --sessions host over st that routes its notices to router and serves notices as its in-app
@@ -117,7 +116,7 @@ func TestSessionsHostWatchShowsPagesNotice(t *testing.T) {
 	host, path := startNoticesHost(t, st, getenv, router, enginehost.NewPageNotices(pages, router, time.Now))
 
 	showWiringNotice(pages, noticesWiringPane, "synthetic body before the watch")
-	ctx, cancel := context.WithTimeout(t.Context(), noticesWiringWait)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	stream, err := noticesWiringClient(t, path).Watch(ctx, connect.NewRequest(&enginev1.NoticesWatchRequest{}))
 	if err != nil {
@@ -184,8 +183,7 @@ func TestShutdownEndsWatchBeforeSessionsStop(t *testing.T) {
 	host, path := startNoticesHost(t, st, getenv, router, enginehost.NewPageNotices(pages, router, time.Now))
 
 	showWiringNotice(pages, noticesWiringPane, "synthetic body")
-	ctx, cancel := context.WithTimeout(t.Context(), noticesWiringWait)
-	defer cancel()
+	ctx := t.Context()
 	stream, err := noticesWiringClient(t, path).Watch(ctx, connect.NewRequest(&enginev1.NoticesWatchRequest{}))
 	if err != nil {
 		t.Fatalf("Watch: %v", err)

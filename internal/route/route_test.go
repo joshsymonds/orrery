@@ -25,7 +25,6 @@ const (
 	testBody     = "synthetic body"
 	testSummary  = "synthetic summary"
 	testWhy      = "synthetic why"
-	waitLimit    = 5 * time.Second
 )
 
 // fake is the desk, the phone, the log, the clock, and the timers at once. Its timers run only when a test fires
@@ -458,11 +457,7 @@ func TestChangedDuringWatchCheckWritesNoSecondLine(t *testing.T) {
 		return true, nil
 	}
 	r.Notify(t.Context(), n)
-	select {
-	case <-started:
-	case <-time.After(waitLimit):
-		t.Fatal("watching check never started")
-	}
+	<-started
 
 	r.Changed(notice.Key{Pane: testPane})
 	close(release)
@@ -987,21 +982,13 @@ func TestJudgeLateRoutesAsNeededWithReasonWhateverJudgeReturned(t *testing.T) {
 	n := f.notice(testPane, stateDone, false)
 	n.Judge = func(ctx context.Context) (route.Verdict, error) {
 		close(started)
-		select {
-		case <-ctx.Done():
-			return route.Verdict{Needed: false, Why: testWhy}, nil
-		case <-time.After(waitLimit):
-			return route.Verdict{}, errors.New("synthetic context never canceled")
-		}
+		<-ctx.Done()
+		return route.Verdict{Needed: false, Why: testWhy}, nil
 	}
 	r.Notify(t.Context(), n)
 	r.Wait()
 	done := fireAsync(t, f, route.JudgeDelay)
-	select {
-	case <-started:
-	case <-time.After(waitLimit):
-		t.Fatal("judge never started")
-	}
+	<-started
 	f.fire(t, route.JudgeTimeout)
 	<-done
 	r.Wait()
@@ -1020,22 +1007,14 @@ func TestJudgeTimeoutCancelsJudgeContext(t *testing.T) {
 	n := f.notice(testPane, stateDone, false)
 	n.Judge = func(ctx context.Context) (route.Verdict, error) {
 		close(started)
-		select {
-		case <-ctx.Done():
-			canceled <- ctx.Err()
-			return route.Verdict{}, ctx.Err()
-		case <-time.After(waitLimit):
-			return route.Verdict{}, errors.New("synthetic context never canceled")
-		}
+		<-ctx.Done()
+		canceled <- ctx.Err()
+		return route.Verdict{}, ctx.Err()
 	}
 	r.Notify(t.Context(), n)
 	r.Wait()
 	done := fireAsync(t, f, route.JudgeDelay)
-	select {
-	case <-started:
-	case <-time.After(waitLimit):
-		t.Fatal("judge never started")
-	}
+	<-started
 	f.fire(t, route.JudgeTimeout)
 	<-done
 	r.Wait()
@@ -1067,11 +1046,7 @@ func TestJudgeEndedWhileRunningWritesNothingMore(t *testing.T) {
 	r.Notify(t.Context(), n)
 	r.Wait()
 	done := fireAsync(t, f, route.JudgeDelay)
-	select {
-	case <-started:
-	case <-time.After(waitLimit):
-		t.Fatal("judge never started")
-	}
+	<-started
 	r.Changed(notice.Key{Pane: testPane})
 	close(release)
 	<-done

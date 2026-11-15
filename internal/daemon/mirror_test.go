@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -32,9 +31,6 @@ const mirrorCommand = "sleep 300"
 
 // mirrorIDPattern matches a minted id: 128 random bits in lowercase hex.
 var mirrorIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-
-// mirrorServerExitBudget bounds how long a restart waits for a killed tmux server to stop accepting connections.
-const mirrorServerExitBudget = 5 * time.Second
 
 // mirrorServerExitPoll is how often a restart re-checks a killed tmux server.
 const mirrorServerExitPoll = 10 * time.Millisecond
@@ -85,8 +81,7 @@ func newMirrorSession(t *testing.T, server tmuxctl.Server) mirrorServer {
 // gone, the socket refuses connections, so a server started on the same name cannot reach the old one.
 func awaitMirrorServerGone(t *testing.T, client *tmuxctl.Client) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), mirrorServerExitBudget)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(mirrorServerExitPoll)
 	defer ticker.Stop()
 	for {
@@ -94,12 +89,7 @@ func awaitMirrorServerGone(t *testing.T, client *tmuxctl.Client) {
 		if err != nil && strings.Contains(err.Error(), "no server running") {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("tmux server still accepts connections %v after kill-server; last result: %v",
-				mirrorServerExitBudget, err)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -313,7 +303,7 @@ func TestMirrorReusedPaneGetsNewRow(t *testing.T) {
 	}
 }
 
-func TestMirrorDropsSyncWhenLockWaitExceedsBudget(t *testing.T) {
+func TestMirrorDefersSyncPastTheLockWaitAndSyncsOnceTheLockFrees(t *testing.T) {
 	ms := startMirrorServer(t)
 	setMirrorValues(t, ms)
 	st, path := openMirrorStore(t)
@@ -321,8 +311,8 @@ func TestMirrorDropsSyncWhenLockWaitExceedsBudget(t *testing.T) {
 	logs := &bytes.Buffer{}
 	m := NewMirror(st, mirrorNow, slog.New(slog.NewTextHandler(logs, nil)))
 
-	// The sync's wait for the held lock runs on a channel the test closes, so it drops only once the test lets the
-	// wait expire.
+	// The sync's wait for the held lock runs on a channel the test closes, so it is deferred only once the test lets
+	// the wait expire.
 	armed := make(chan struct{}, 1)
 	expire := make(chan time.Time)
 	m.lockWait = func() <-chan time.Time {
@@ -343,10 +333,10 @@ func TestMirrorDropsSyncWhenLockWaitExceedsBudget(t *testing.T) {
 	}
 	close(expire)
 	<-synced
-	<-m.lock
 
-	if logs.Len() == 0 {
-		t.Fatal("dropped sync was not logged")
+	// SyncPane has returned and the lock is still held, so nothing is written yet.
+	if !strings.Contains(logs.String(), "mirror sync deferred") {
+		t.Fatalf("log %q, want the deferred sync logged", logs.String())
 	}
 	if id := mirrorOption(t, ms, protocol.OptionID); id != "" {
 		t.Fatalf("%s = %q with the lock held, want unset", protocol.OptionID, id)
@@ -358,9 +348,11 @@ func TestMirrorDropsSyncWhenLockWaitExceedsBudget(t *testing.T) {
 		t.Fatalf("events with the lock held = %+v, want none", events)
 	}
 
-	m.SyncPane(t.Context(), ms.server, ms.pane)
-	if rows := mirrorRows(t, db); len(rows) != 1 {
-		t.Fatalf("rows after the lock was released = %+v, want one", rows)
+	// Freeing the lock lets the drain sync the pane with no further sync or tidy.
+	m.release()
+	m.Wait()
+	if rows := mirrorRows(t, db); len(rows) != 1 || rows[0].State != mirrorValues()[protocol.OptionState] {
+		t.Fatalf("rows after the lock was freed = %+v, want the pane's one row", rows)
 	}
 }
 

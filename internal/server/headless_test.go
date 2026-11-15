@@ -74,6 +74,7 @@ func stamp(at time.Time) string {
 }
 
 func TestListHeadlessAnswersRecentEngineRows(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openHeadlessStore(t, path)
 	now := time.Now()
@@ -172,6 +173,7 @@ func insertStepEvent(t *testing.T, path, id string, at time.Time) {
 }
 
 func TestListHeadlessSummaryFollowsStateAndCutsToRunes(t *testing.T) {
+	t.Parallel()
 	type row struct {
 		state, question, reason, reply, want string
 	}
@@ -227,15 +229,18 @@ func TestListHeadlessSummaryFollowsStateAndCutsToRunes(t *testing.T) {
 }
 
 func TestListHeadlessReturnsUnavailableWhenReaderIsNil(t *testing.T) {
+	t.Parallel()
 	expectHeadlessCode(t, sessionsClient(t, nil), connect.CodeUnavailable)
 }
 
 func TestListHeadlessReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "absent", "orrery.db")
 	expectHeadlessCode(t, listHeadlessClient(t, path), connect.CodeUnavailable)
 }
 
 func TestListHeadlessReturnsInternalWhenStampDoesNotParse(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openHeadlessStore(t, path)
 	applyHeadless(t, s, time.Now(), store.EngineAdd{ID: headlessAlphaID, Dir: "/work/alpha", State: "idle"})
@@ -271,6 +276,7 @@ func TestListHeadlessReturnsInternalWhenStampDoesNotParse(t *testing.T) {
 }
 
 func TestListHeadlessReturnsInternalWithoutStoreDetail(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	if err := os.WriteFile(path, []byte("this file is not a sqlite database and has no header"), 0o600); err != nil {
 		t.Fatalf("write garbage store: %v", err)

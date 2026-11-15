@@ -13,19 +13,15 @@ func consumedAt(id string, offset int64) store.EngineConsumed {
 	return store.EngineConsumed{ID: id, Consumed: offset}
 }
 
-// waitQueuedOps blocks until the writer's queue holds exactly ops, failing the test after waitTimeout.
+// waitQueuedOps blocks until the writer's queue holds exactly ops. It has no deadline of its own.
 func waitQueuedOps(t *testing.T, w *Writer, ops ...store.EngineOp) {
 	t.Helper()
-	deadline := time.Now().Add(waitTimeout)
 	for {
 		w.mu.Lock()
 		got := opsOf(w.queue)
 		w.mu.Unlock()
 		if reflect.DeepEqual(got, ops) {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("waited for queued ops %+v, got %+v", ops, got)
 		}
 		time.Sleep(time.Millisecond)
 	}

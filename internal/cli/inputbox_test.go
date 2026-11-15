@@ -21,6 +21,7 @@ func inputBoxTestTitledRule(title string) string {
 }
 
 func TestInputBoxVisible(t *testing.T) {
+	t.Parallel()
 	rule := inputBoxTestRule()
 	shortRule := strings.Repeat("─", inputBoxTestWidth-1)
 	dashed := strings.Repeat("╌", inputBoxTestWidth)
@@ -300,6 +301,7 @@ func TestInputBoxVisible(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := inputBoxVisible(tt.screen, inputBoxTestWidth); got != tt.want {
 				t.Errorf("inputBoxVisible() = %v, want %v", got, tt.want)
 			}

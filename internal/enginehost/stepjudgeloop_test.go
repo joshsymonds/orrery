@@ -238,6 +238,7 @@ func TestJudgeLoopGateInputCarriesStdoutAndStderrSections(t *testing.T) {
 }
 
 func TestJudgeLoopFailedCallEndsDoneWithErrorStored(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		reply     judgeLoopReply
@@ -252,6 +253,7 @@ func TestJudgeLoopFailedCallEndsDoneWithErrorStored(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			haiku := &judgeLoopHaiku{replies: []judgeLoopReply{tc.reply}}
 			f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 			_, done := f.start(t)

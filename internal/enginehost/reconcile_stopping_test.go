@@ -79,8 +79,7 @@ func TestReconcileLeavesStoppingDrainingRowToItsPump(t *testing.T) {
 	restarted := newDrainManager(t, &rowsAfterEntry{Store: rig.store, entered: entered}, writer, sink, rig.root,
 		holder.WireVersion+1)
 
-	ctx, cancel := context.WithTimeout(t.Context(), managerGuard)
-	defer cancel()
+	ctx := t.Context()
 	if err := restarted.Reconcile(ctx); err != nil {
 		t.Fatalf("Reconcile while the turn end's write is held: %v", err)
 	}

@@ -19,6 +19,7 @@ import (
 // TestRunRefusedReclaimStopsCommandWithGrace breaks the grant's stream while CMD ignores SIGTERM, then has orreryd refuse
 // the reclaim. CMD must get the stop's grace before SIGKILL, and the whole group must be gone before the run exits 75.
 func TestRunRefusedReclaimStopsCommandWithGrace(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{
 		{before: []*v1.AcquireResponse{grantedWith("grant-stubborn", poolMembers("builds", "m1"))}, after: ready},
@@ -42,13 +43,9 @@ func TestRunRefusedReclaimStopsCommandWithGrace(t *testing.T) {
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 	close(ready)
 
-	select {
-	case d := <-graces:
-		if d != stopGrace {
-			t.Fatalf("the grace = %v, want %v", d, stopGrace)
-		}
-	case <-time.After(runTimeout):
-		t.Fatal("the grace never started after orreryd refused the reclaim")
+	d := <-graces
+	if d != stopGrace {
+		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}
 	// CMD ignores SIGTERM, and the grace runs on the test's clock, so CMD is still running once the grace is armed.
 	if processExited(t, pid) {

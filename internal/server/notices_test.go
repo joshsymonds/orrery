@@ -155,16 +155,14 @@ func syntheticShown(key *enginev1.NoticeKey) *enginev1.NoticesWatchResponse {
 	}}}
 }
 
-// openNotices starts Watch on notices and returns its stream, failing the test when the call errors. The call's
-// context ends after watchWait, so a stream that never ends fails its test instead of hanging the run.
+// openNotices starts Watch on notices and returns its stream, failing the test when the call errors. It has no
+// deadline of its own.
 func openNotices(
 	t *testing.T,
 	notices orreryv1connect.NoticesClient,
 ) *connect.ServerStreamForClient[orreryv1.NoticesWatchResponse] {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), watchWait)
-	t.Cleanup(cancel)
-	stream, err := notices.Watch(ctx, connect.NewRequest(&orreryv1.NoticesWatchRequest{}))
+	stream, err := notices.Watch(t.Context(), connect.NewRequest(&orreryv1.NoticesWatchRequest{}))
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}
@@ -172,12 +170,10 @@ func openNotices(
 }
 
 // receiveNotices calls Watch on notices and receives until the stream ends. It returns the messages received and the
-// error the call or the stream ended with. The call's context ends after watchWait, so a stream that never ends fails
-// the test that reads the error.
+// error the call or the stream ended with. It has no deadline of its own.
 func receiveNotices(t *testing.T, notices orreryv1connect.NoticesClient) ([]*orreryv1.NoticesWatchResponse, error) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), watchWait)
-	defer cancel()
+	ctx := t.Context()
 	stream, err := notices.Watch(ctx, connect.NewRequest(&orreryv1.NoticesWatchRequest{}))
 	if err != nil {
 		return nil, err
@@ -321,8 +317,7 @@ func TestNoticesStalledPageEndsAtSendTimeout(t *testing.T) {
 
 	dialed := make(chan net.Conn, 1)
 	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
-	ctx, cancel := context.WithTimeout(t.Context(), watchWait)
-	defer cancel()
+	ctx := t.Context()
 	stalled := orreryv1connect.NewNoticesClient(stalledHTTP, srv.URL)
 	if _, err := stalled.Watch(ctx, connect.NewRequest(&orreryv1.NoticesWatchRequest{})); err != nil {
 		t.Fatalf("Watch: %v", err)

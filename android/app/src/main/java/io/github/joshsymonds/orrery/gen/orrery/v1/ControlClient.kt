@@ -106,4 +106,19 @@ public class ControlClient(
     ),
   )
 
+
+  /**
+   *  Resume resumes an interrupted headless session's turn by sending its resume prompt.
+   */
+  override suspend fun resume(request: ResumeRequest, headers: Headers): ResponseMessage<ResumeResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/Resume",
+      io.github.joshsymonds.orrery.gen.orrery.v1.ResumeRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.ResumeResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

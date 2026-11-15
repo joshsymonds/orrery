@@ -56,11 +56,11 @@ func startShutdownServer(t *testing.T, path string, shutdown <-chan struct{}) *h
 }
 
 // startStalledShutdownServer serves the guarded handler as startShutdownServer does, but over connections whose
-// write buffers are deadlineSocketBuffer bytes and with a send deadline of watchWait, so a replay blocks on the
-// client's reads and no send deadline fires while the test holds the stream.
+// write buffers are deadlineSocketBuffer bytes and with a send deadline of stallSendTimeout, so a replay blocks on
+// the client's reads and no send deadline fires while the test holds the stream.
 func startStalledShutdownServer(t *testing.T, path string, shutdown <-chan struct{}) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewUnstartedServer(newShutdownHandler(t, path, shutdown, watchWait))
+	srv := httptest.NewUnstartedServer(newShutdownHandler(t, path, shutdown, stallSendTimeout))
 	srv.Listener = smallBufferListener{Listener: srv.Listener}
 	srv.Start()
 	t.Cleanup(srv.Close)
@@ -83,24 +83,21 @@ func wantShutdownEnd(t *testing.T, w *watch) {
 }
 
 // countUntilEnd receives the messages of w until its stream ends, and returns how many arrived and the error the
-// stream ended with. Each receive waits up to watchWait, so a long replay that keeps sending does not time out.
+// stream ended with. It has no deadline of its own.
 func countUntilEnd(t *testing.T, w *watch) (int, error) {
 	t.Helper()
 	count := 0
 	for {
-		select {
-		case _, ok := <-w.msgs:
-			if !ok {
-				return count, w.err
-			}
-			count++
-		case <-time.After(watchWait):
-			t.Fatalf("no message or end within %v after %d", watchWait, count)
+		_, ok := <-w.msgs
+		if !ok {
+			return count, w.err
 		}
+		count++
 	}
 }
 
 func TestShutdownEndsEveryOpenStream(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, shutdownReplayCount)
@@ -131,6 +128,7 @@ func TestShutdownEndsEveryOpenStream(t *testing.T) {
 // the replay reaches its last event. Without the check before each send, the server would send the rest of the
 // replay once the client drains it, and the stream would deliver every event before the end.
 func TestShutdownEndsReplayBetweenSends(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, shutdownReplayCount)
@@ -157,6 +155,7 @@ func TestShutdownEndsReplayBetweenSends(t *testing.T) {
 }
 
 func TestNilShutdownKeepsFollowing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 2)

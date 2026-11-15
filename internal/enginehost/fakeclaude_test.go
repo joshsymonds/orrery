@@ -204,6 +204,7 @@ func TestFakeClaudePairLine(t *testing.T) {
 // TestFakeClaudeStdinLogsAnswers checks that each line a mode reads after its prompt, an answer, a permission
 // decision or an interrupt, is logged to the fake stdin log as well, so every line the fake receives is counted once.
 func TestFakeClaudeStdinLogsAnswers(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		prompt string
@@ -216,6 +217,7 @@ func TestFakeClaudeStdinLogsAnswers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			input := userLine(tc.prompt) + tc.answer
 			dir, _ := fakeClaudeRun(t, input)
 			stdin, err := os.ReadFile(filepath.Join(dir, "fakeclaude.stdin"))

@@ -36,15 +36,6 @@ function currentTool(pane: Pane): PaneTool | null {
   };
 }
 
-// note says where a message sent now lands, and when the last turn ended once the pane has one.
-function note(pane: Pane, now: number): string {
-  const lands = "a message sent now lands at Claude's next step";
-  if (pane.lastTurnEnd <= 0n) {
-    return lands;
-  }
-  return `${lands} · last turn ended ${age(now - Number(pane.lastTurnEnd))} ago`;
-}
-
 // Tone is a pill's colour: the state it shows, with ended for a run that failed or was stopped.
 type Tone = "working" | "waiting" | "held" | "done" | "interrupted" | "ended" | "idle";
 
@@ -110,14 +101,6 @@ export function Pill({ model, now }: { model: PillModel; now: number }): JSX.Ele
   );
 }
 
-// WorkNote draws a working pane's note, where a message sent now lands. It draws nothing for any other pane.
-export function WorkNote({ pane, now }: { pane: Pane | undefined; now: number }): JSX.Element | null {
-  if (pane === undefined || pane.state !== "working") {
-    return null;
-  }
-  return <p class="how work-note">{note(pane, now)}</p>;
-}
-
 // clock is elapsed time as m:ss, or h:mm:ss from an hour. It never reads negative.
 function clock(seconds: number): string {
   const total = Math.max(seconds, 0);
@@ -126,19 +109,4 @@ function clock(seconds: number): string {
   const secs = total % 60;
   const pad = (value: number): string => String(value).padStart(2, "0");
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${minutes}:${pad(secs)}`;
-}
-
-// age is the largest whole unit: seconds, minutes, hours, then days.
-function age(seconds: number): string {
-  const total = Math.max(seconds, 0);
-  if (total < 60) {
-    return `${total}s`;
-  }
-  if (total < 3_600) {
-    return `${Math.floor(total / 60)}m`;
-  }
-  if (total < 86_400) {
-    return `${Math.floor(total / 3_600)}h`;
-  }
-  return `${Math.floor(total / 86_400)}d`;
 }

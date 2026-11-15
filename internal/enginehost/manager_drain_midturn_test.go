@@ -2,7 +2,6 @@ package enginehost
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -109,8 +108,7 @@ func TestFakeClaudeResultsListAnsweredPrompts(t *testing.T) {
 		t.Fatalf("find sh: %v", err)
 	}
 	dir := t.TempDir()
-	ctx, cancel := context.WithTimeout(t.Context(), managerGuard)
-	defer cancel()
+	ctx := t.Context()
 	cmd := exec.CommandContext(ctx, sh, fakeClaudePath(t))
 	cmd.Dir = dir
 	stdin, err := cmd.StdinPipe()

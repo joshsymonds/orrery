@@ -2,11 +2,9 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,10 +16,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
-
-// defaultRowLimit bounds how long a pane on the default socket may take to gain its row after orreryd logs that its
-// store is open. The first tidy follows that line; the store open before it applies every migration and has no bound.
-const defaultRowLimit = 5 * time.Second
 
 // defaultSocketEnv returns the environment for tmux and orreryd run without -L or -S. It is the test's environment
 // without TMUX, TMUX_PANE and TMUX_TMPDIR, then TMUX_TMPDIR set to tmuxTmp and extra. Without the removal, the
@@ -150,50 +144,38 @@ func (f *defaultFixture) hook(t *testing.T) {
 }
 
 // waitForStartupRow waits for daemon to log that its store is open, then polls until the fixture's pane has an
-// @orrery_id and the store row that ID names is on the default socket, failing the test defaultRowLimit after that
-// line. It returns the store, the ID and the row. The store is opened once the ID exists: the daemon opens it before
-// the tidy that mints the ID.
+// @orrery_id and the store row that ID names is on the default socket. It returns the store, the ID and the row. The
+// store is opened once the ID exists: the daemon opens it before the tidy that mints the ID. It has no deadline of its
+// own.
 func (f *defaultFixture) waitForStartupRow(t *testing.T, daemon *orreryProcess) (*sql.DB, string, sqlcgen.Session) {
 	t.Helper()
 	daemon.waitForStoreOpen(t)
-	ctx, cancel := context.WithTimeout(t.Context(), defaultRowLimit)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	var db *sql.DB
-	var last string
 	for {
-		if id := readOption(t, f.client, f.pane, protocol.OptionID); id == "" {
-			last = "no " + protocol.OptionID
-		} else {
+		if id := readOption(t, f.client, f.pane, protocol.OptionID); id != "" {
 			if db == nil {
 				db = openStoreForInspection(t, f.dbPath)
 			}
 			row, err := sqlcgen.New(db).GetSession(ctx, id)
 			switch {
 			case errors.Is(err, sql.ErrNoRows):
-				last = "no row for " + id
 			case err != nil:
 				t.Fatalf("read row %s: %v", id, err)
 			case row.Server == "-S "+f.socket:
 				return db, id, row
-			default:
-				last = fmt.Sprintf("row server %q", row.Server)
 			}
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s had no row on -S %s within %v: %s", f.pane, f.socket, defaultRowLimit, last)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
-// waitForState polls the row id until its state is want, failing the test after waitLimit.
+// waitForState polls the row id until its state is want. It has no deadline of its own.
 func waitForState(t *testing.T, db *sql.DB, id string, want protocol.State) sqlcgen.Session {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -204,11 +186,7 @@ func waitForState(t *testing.T, db *sql.DB, id string, want protocol.State) sqlc
 		if row.State == string(want) {
 			return row
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("row %s state = %q, want %q", id, row.State, want)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 

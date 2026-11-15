@@ -197,9 +197,5 @@ func TestRunIdleReturnsWhenContextEnds(t *testing.T) {
 		close(returned)
 	}()
 	cancel()
-	select {
-	case <-returned:
-	case <-time.After(managerGuard):
-		t.Fatalf("RunIdle did not return within %v of its context ending", managerGuard)
-	}
+	<-returned
 }

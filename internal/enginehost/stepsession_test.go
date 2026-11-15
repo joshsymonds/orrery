@@ -290,6 +290,7 @@ func TestSayToStepIsRefusedAndNeverResumes(t *testing.T) {
 }
 
 func TestStartStepRefusesBadInputAndStoresNothing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cases := []struct {
 		name string
@@ -305,6 +306,7 @@ func TestStartStepRefusesBadInputAndStoresNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 			err := m.StartStep(t.Context(), tc.step)
 			if !errors.Is(err, tc.want) {

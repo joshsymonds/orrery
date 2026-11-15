@@ -132,6 +132,7 @@ func refusedDial() error {
 // TestNudgeCutMidCallIsSentOnceAndAnswered guards the rule that a nudge cut mid-call is never sent again. Every
 // NudgeStep fails here, so a retry would send the nudge again and the count would show it.
 func TestNudgeCutMidCallIsSentOnceAndAnswered(t *testing.T) {
+	t.Parallel()
 	fake := &stepsFake{forwardErr: restartUnavailable()}
 	client := stepsClient(t, fake)
 	_, err := client.Nudge(t.Context(), connect.NewRequest(&orreryv1.StepsNudgeRequest{
@@ -145,6 +146,7 @@ func TestNudgeCutMidCallIsSentOnceAndAnswered(t *testing.T) {
 
 // TestNudgeNeverConnectedIsRetriedAndSucceeds checks that a nudge whose connection was never made is sent again.
 func TestNudgeNeverConnectedIsRetriedAndSucceeds(t *testing.T) {
+	t.Parallel()
 	inner := &stepsFake{}
 	fake := &retryFake{StepClient: inner, failures: map[string][]error{"nudge": {refusedDial()}}}
 	client := stepsClient(t, fake)
@@ -161,11 +163,13 @@ func TestNudgeNeverConnectedIsRetriedAndSucceeds(t *testing.T) {
 
 // TestHoldAndStopRetryAfterOneUnavailable checks that a hold or a stop answered unavailable once is sent again.
 func TestHoldAndStopRetryAfterOneUnavailable(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		if op.op == "nudge" {
 			continue
 		}
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			inner := &stepsFake{}
 			fake := &retryFake{StepClient: inner, failures: map[string][]error{op.op: {restartUnavailable()}}}
 			client := stepsClient(t, fake)
@@ -181,8 +185,10 @@ func TestHoldAndStopRetryAfterOneUnavailable(t *testing.T) {
 
 // TestStatusLookupRetriesAfterOneUnavailable checks that the StepStatus lookup of each forwarder is asked again.
 func TestStatusLookupRetriesAfterOneUnavailable(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			inner := &stepsFake{}
 			fake := &retryFake{StepClient: inner, failures: map[string][]error{"status": {restartUnavailable()}}}
 			client := stepsClient(t, fake)
@@ -198,6 +204,7 @@ func TestStatusLookupRetriesAfterOneUnavailable(t *testing.T) {
 
 // TestEpicsListRetriesListStepsAfterOneUnavailable checks that the ListSteps call of List is asked again.
 func TestEpicsListRetriesListStepsAfterOneUnavailable(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
 	inner := &epicsFake{steps: []*enginev1.Step{{Id: "run-a", Epic: "repo/epic"}}}
@@ -215,6 +222,7 @@ func TestEpicsListRetriesListStepsAfterOneUnavailable(t *testing.T) {
 // TestStepsRetryAttemptsEachUnderTheTimeout checks that a stalled attempt ends at the forwarder's timeout and the retry
 // runs under a timeout of its own, not the time the first attempt left.
 func TestStepsRetryAttemptsEachUnderTheTimeout(t *testing.T) {
+	t.Parallel()
 	inner := &stepsFake{}
 	fake := &retryFake{StepClient: inner, stalls: map[string]int{"hold": 1}}
 	srv := stepsServer{steps: fake, timeout: 20 * time.Millisecond, clock: newRetryClock()}
@@ -230,6 +238,7 @@ func TestStepsRetryAttemptsEachUnderTheTimeout(t *testing.T) {
 // TestStepsRetryEndedByCallerAnswersTheLastAttempt checks that when the caller's context ends the retries, the answer
 // is the last attempt's, as it is for a single call.
 func TestStepsRetryEndedByCallerAnswersTheLastAttempt(t *testing.T) {
+	t.Parallel()
 	inner := &stepsFake{}
 	fake := &retryFake{StepClient: inner, stalls: map[string]int{"status": 1}}
 	srv := stepsServer{steps: fake, timeout: time.Minute, clock: newRetryClock()}

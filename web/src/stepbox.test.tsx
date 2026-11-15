@@ -30,6 +30,7 @@ const unknowns: [string, unknown][] = [
 function baseProps(init: Partial<Props>): Props {
   return {
     label: "api",
+    held: false,
     nudge: () => Promise.resolve(),
     hold: () => Promise.resolve(),
     stop: () => Promise.resolve(),
@@ -161,7 +162,7 @@ test("Enter sends the nudge text once, shows landed, and clears the draft", asyn
       },
     },
     async (box, container) => {
-      assert.equal(box.placeholder, "Nudge api");
+      assert.equal(box.placeholder, "Nudge api: it interrupts the turn, then prompts");
       await type(box, "check the migration");
       await press(box, "Enter");
       await settle();
@@ -455,12 +456,35 @@ test("Interrupt calls hold once and shows landed, sending nothing else", async (
   );
 });
 
-test("the foot reads the nudge sentence, then Interrupt first on the line, the input, and ⋯", async () => {
+// stepComposer is the composer div the step box wraps its input in; its edge class shows the step's state.
+function stepComposer(container: HTMLElement): HTMLElement {
+  const composer = container.querySelector<HTMLElement>(".stepbox .composer");
+  assert.ok(composer, "the step box has a composer");
+  return composer;
+}
+
+test("a running step's box has the working edge and says a nudge interrupts the turn", async () => {
+  await withBox({ held: false }, async (box, container) => {
+    const composer = stepComposer(container);
+    assert.equal(composer.classList.contains("edge-working"), true, "the edge is working");
+    assert.equal(composer.classList.contains("edge-held"), false, "the edge is not held");
+    assert.equal(box.placeholder, "Nudge api: it interrupts the turn, then prompts");
+  });
+});
+
+test("a held step's box has the held edge and says a nudge resumes the step", async () => {
+  await withBox({ held: true }, async (box, container) => {
+    const composer = stepComposer(container);
+    assert.equal(composer.classList.contains("edge-held"), true, "the edge is held");
+    assert.equal(composer.classList.contains("edge-working"), false, "the edge is not working");
+    assert.equal(box.placeholder, "Nudge api: it resumes the step with your text");
+  });
+});
+
+test("the foot has no nudge sentence, then Interrupt first on the line, the input, and ⋯", async () => {
   await withBox({}, async (_box, container) => {
-    assert.equal(
-      container.querySelector(".how")?.textContent,
-      "A message here is a nudge: it interrupts the turn, then prompts. It does not count as a check round.",
-    );
+    assert.equal(container.querySelector(".how") === null, true, "no nudge sentence is drawn");
+    assert.equal(container.textContent?.includes("A message here is a nudge"), false, "no nudge sentence is drawn");
     assert.equal(container.querySelector(".line button")?.textContent, "Interrupt");
     assert.equal(container.querySelector(".line > .composer > textarea") !== null, true, "the input is on the line");
     assert.equal(container.querySelector(".line > button.more") !== null, true, "⋯ ends the line");

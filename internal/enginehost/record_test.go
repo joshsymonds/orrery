@@ -25,6 +25,7 @@ func strPtr(s string) *string {
 }
 
 func TestRecorderOps(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		steps []step
@@ -548,6 +549,7 @@ func TestRecorderOps(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			r := newRecorder(recorderID)
 			for i, st := range tc.steps {
 				got := r.ops(st.event)
