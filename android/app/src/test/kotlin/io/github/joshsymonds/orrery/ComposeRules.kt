@@ -106,6 +106,7 @@ class MainThreadAndroidComposeRule<A : ComponentActivity> internal constructor(
 @OptIn(ExperimentalTestApi::class)
 fun mainThreadComposeRule(): MainThreadComposeRule {
     Quiescence.install()
+    Quiescence.newTest()
     val scheduler = TestCoroutineScheduler()
     return MainThreadComposeRule(createComposeRule(StandardTestDispatcher(scheduler)), scheduler)
 }
@@ -113,6 +114,7 @@ fun mainThreadComposeRule(): MainThreadComposeRule {
 @OptIn(ExperimentalTestApi::class)
 fun mainThreadEmptyComposeRule(): MainThreadEmptyComposeRule {
     Quiescence.install()
+    Quiescence.newTest()
     val scheduler = TestCoroutineScheduler()
     return MainThreadEmptyComposeRule(createEmptyComposeRule(StandardTestDispatcher(scheduler)), scheduler)
 }
@@ -123,6 +125,7 @@ inline fun <reified A : ComponentActivity> mainThreadAndroidComposeRule(): MainT
 @OptIn(ExperimentalTestApi::class)
 fun <A : ComponentActivity> mainThreadAndroidComposeRule(activityClass: Class<A>): MainThreadAndroidComposeRule<A> {
     Quiescence.install()
+    Quiescence.newTest()
     val scheduler = TestCoroutineScheduler()
     return MainThreadAndroidComposeRule(
         createAndroidComposeRule(activityClass, StandardTestDispatcher(scheduler)),

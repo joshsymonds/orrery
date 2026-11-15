@@ -101,6 +101,8 @@ class FakeOrreryServer : AutoCloseable {
 
     init {
         Quiescence.install()
+        // The first fake server a test opens begins its count; a second one inside the same test keeps it.
+        if (live.isEmpty()) Quiescence.newTest()
         live += this
         server.executor = workers
         server.createContext("/") { exchange -> handle(exchange) }

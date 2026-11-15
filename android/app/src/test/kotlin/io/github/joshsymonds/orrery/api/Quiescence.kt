@@ -12,7 +12,6 @@ import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import javax.net.SocketFactory
 import kotlinx.coroutines.Dispatchers
 import okhttp3.Call
@@ -41,8 +40,33 @@ object Quiescence {
         if (BackgroundWork.start !== countingStart) BackgroundWork.start = countingStart
     }
 
-    /** BackgroundWork asked for and not yet returned: started, or still waiting for its thread to run it. */
-    private val backgroundWork = AtomicInteger()
+    /**
+     * BackgroundWork asked for in the current test and not yet returned, started or still waiting for its thread.
+     * Work an earlier test left running (a push registration retrying a server that test already closed) is not
+     * this test's: counting it would hold every later wait in the JVM, and stopped the test task at 20 minutes.
+     */
+    private var backgroundWork = 0
+
+    /** Which test the count belongs to; [newTest] moves it on, and work from an earlier test no longer counts. */
+    private var generation = 0
+    private val workLock = Any()
+
+    /** A new test begins: work started before now is an earlier test's and no longer counts as in flight. */
+    internal fun newTest() {
+        synchronized(workLock) {
+            generation++
+            backgroundWork = 0
+        }
+    }
+
+    /**
+     * Threads running BackgroundWork. The thread scan skips them: the current test's work is counted above, and an
+     * earlier test's (parked in a retry sleep, say) is not this test's.
+     */
+    private val workThreads: MutableSet<Thread> = Collections.newSetFromMap(ConcurrentHashMap())
+
+    /** The current test's BackgroundWork still running. */
+    internal fun backgroundWorkRunning(): Int = synchronized(workLock) { backgroundWork }
 
     private val countingStart: (Runnable) -> Unit = { work -> countedStart(work) }
 
@@ -51,19 +75,27 @@ object Quiescence {
      * starts before any thread exists, so work whose thread has not run yet is still in flight.
      */
     internal fun countedStart(work: Runnable, launch: (Runnable) -> Unit = { Thread(it).start() }) {
-        backgroundWork.incrementAndGet()
+        val startedIn = synchronized(workLock) {
+            backgroundWork++
+            generation
+        }
+        // Only the test that started the work takes it off the count; a later test's count was reset by newTest.
+        val done = { synchronized(workLock) { if (generation == startedIn) backgroundWork-- } }
         try {
             launch(
                 Runnable {
+                    val thread = Thread.currentThread()
+                    workThreads += thread
                     try {
                         work.run()
                     } finally {
-                        backgroundWork.decrementAndGet()
+                        workThreads -= thread
+                        done()
                     }
                 },
             )
         } catch (e: Throwable) {
-            backgroundWork.decrementAndGet()
+            done()
             throw e
         }
     }
@@ -71,7 +103,7 @@ object Quiescence {
     /** What is still in flight, in a phrase, or null when nothing is: then only the test's thread can change anything. */
     fun inFlight(): String? {
         install()
-        backgroundWork.get().takeIf { it > 0 }?.let { return "$it background work item(s) not finished" }
+        backgroundWorkRunning().takeIf { it > 0 }?.let { return "$it background work item(s) not finished" }
         FakeOrreryServer.busyHandlers().takeIf { it > 0 }?.let { return "$it fake-server handler(s) still answering" }
         pendingCalls.size.takeIf { it > 0 }?.let { return "$it call(s) not yet answered with headers" }
         coroutineTasks()?.let { return it }
@@ -142,6 +174,7 @@ object Quiescence {
         val self = Thread.currentThread()
         for ((thread, frames) in Thread.getAllStackTraces()) {
             if (thread == self || !thread.isAlive || FakeOrreryServer.isServerThread(thread) || frames.isEmpty()) continue
+            if (thread in workThreads) continue
             if (frames.any(::isSocketRead)) continue
             val app = frames.any { it.className.startsWith(APP_PACKAGE) }
             val task = frames.any { it.className == DISPATCHED_TASK && it.methodName == "run" }
