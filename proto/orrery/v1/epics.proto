@@ -102,6 +102,13 @@ message Epic {
 
   // orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
   string source = 10;
+
+  // The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+  string outcome_detail = 11;
+
+  // Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+  // effort task. False for an orreryd epic.
+  bool waiting = 12;
 }
 
 // EpicTask is one task from an effort's state.json.

@@ -30,6 +30,10 @@ class EpicsGroupTest {
         const val LIVE_TWO_ID = "$REPO/$SLUG_TWO"
         const val FOLDED_ID = "other-repo/folded-epic"
         const val FOLDED_TWO_ID = "other-repo/folded-epic-two"
+        const val WAITING_SLUG = "waiting-epic"
+        const val WAITING_TWO_SLUG = "waiting-epic-two"
+        const val WAITING_ID = "other-repo/$WAITING_SLUG"
+        const val WAITING_TWO_ID = "other-repo/$WAITING_TWO_SLUG"
     }
 
     @get:Rule
@@ -64,6 +68,7 @@ class EpicsGroupTest {
         live: Boolean,
         running: List<StepRow> = emptyList(),
         ended: Int = 0,
+        waiting: Boolean = false,
     ): EpicRow = EpicRow(
         id = id,
         repository = repository,
@@ -71,6 +76,7 @@ class EpicsGroupTest {
         outcome = "",
         changed = NOW,
         live = live,
+        waiting = waiting,
         runningSteps = running,
         endedSteps = ended,
         problem = "",
@@ -170,6 +176,35 @@ class EpicsGroupTest {
         assertEquals(1, countNodes(hasTestTag("epic:$FOLDED_ID")))
         assertEquals(1, countNodes(hasTestTag("epic:$FOLDED_TWO_ID")))
         assertEquals(1, countNodes(hasTestTag("epic:$LIVE_ID")))
+    }
+
+    @Test
+    fun waitingLiveEpicsFoldIntoOneLineThatOpensToTheirNames() {
+        setGroup(
+            listOf(
+                epic(LIVE_ID, REPO, SLUG, live = true),
+                epic(WAITING_ID, "other-repo", WAITING_SLUG, live = true, waiting = true),
+                epic(WAITING_TWO_ID, "other-repo", WAITING_TWO_SLUG, live = true, waiting = true),
+            ),
+        )
+
+        composeRule.onNodeWithText("2 accepted, waiting to start").assertIsDisplayed()
+        assertEquals(0, countNodes(hasText(WAITING_SLUG)))
+        assertEquals(0, countNodes(hasText(WAITING_TWO_SLUG)))
+        assertEquals(0, countNodes(hasTestTag("epic:$WAITING_ID")))
+        assertEquals(0, countNodes(hasTestTag("epic:$WAITING_TWO_ID")))
+        assertEquals(1, countNodes(hasTestTag("epic:$LIVE_ID")))
+
+        composeRule.onNodeWithText("2 accepted, waiting to start").performClick()
+
+        composeRule.onNodeWithText(WAITING_SLUG).assertIsDisplayed()
+        composeRule.onNodeWithText(WAITING_TWO_SLUG).assertIsDisplayed()
+        assertEquals(1, countNodes(hasTestTag("epic:$WAITING_ID")))
+        assertEquals(1, countNodes(hasTestTag("epic:$WAITING_TWO_ID")))
+        assertEquals(1, countNodes(hasTestTag("epic:$LIVE_ID")))
+
+        composeRule.onNodeWithTag("epic:$WAITING_TWO_ID").performClick()
+        assertEquals(listOf(WAITING_TWO_ID), opened)
     }
 
     @Test

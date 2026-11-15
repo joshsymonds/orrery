@@ -78,13 +78,13 @@ func (e epicsServer) List(
 	}
 	epics := make([]*orreryv1.Epic, 0, len(recs)+len(stored))
 	for _, rec := range recs {
-		_, taskProblems, readErr := readTasks(rec.Dir, e.heads)
+		tasks, taskProblems, readErr := readTasks(rec.Dir, e.heads)
 		if readErr != nil {
 			return nil, listError(connect.CodeInternal, epicsFailed)
 		}
 		summary, shared := storedByID[rec.ID]
 		if !shared {
-			epics = append(epics, epicMessage(rec, taskProblems, byEpic[rec.ID], now))
+			epics = append(epics, epicMessage(rec, tasks, taskProblems, byEpic[rec.ID], now))
 			continue
 		}
 		epics = append(epics, storedEpicMessage(
@@ -154,7 +154,7 @@ func (e epicsServer) Get(
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
 	} else {
-		resp.Epic = epicMessage(rec, taskProblems, labeled, e.now())
+		resp.Epic = epicMessage(rec, tasks, taskProblems, labeled, e.now())
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -260,21 +260,31 @@ func stepsByEpic(steps []*enginev1.Step) map[string][]*enginev1.Step {
 	return byEpic
 }
 
-// epicMessage returns the Epic for rec, an epic the records alone hold. Its problem is recordProblems. Its running steps
-// are the labeled steps that have not ended, held ones included, and the rest count as ended.
-func epicMessage(rec epicRecord, taskProblems []string, labeled []*enginev1.Step, now time.Time) *orreryv1.Epic {
+// epicMessage returns the Epic for rec, an epic the records alone hold, with the tasks its efforts hold. Its problem is
+// recordProblems. Its running steps are the labeled steps that have not ended, held ones included, and the rest count as
+// ended. It is waiting when it is live, has no outcome, no running step and no task: accepted and yet to start.
+func epicMessage(
+	rec epicRecord,
+	tasks []taskRecord,
+	taskProblems []string,
+	labeled []*enginev1.Step,
+	now time.Time,
+) *orreryv1.Epic {
 	running, ended := epicSteps(labeled)
+	live := epicLive(rec, now, len(running) > 0)
 	return &orreryv1.Epic{
-		Id:           rec.ID,
-		Repository:   rec.Repository,
-		Slug:         rec.Slug,
-		Outcome:      rec.Outcome,
-		Changed:      rec.Changed.Unix(),
-		Live:         epicLive(rec, now, len(running) > 0),
-		RunningSteps: running,
-		EndedSteps:   ended,
-		Problem:      strings.Join(recordProblems(rec, taskProblems), "; "),
-		Source:       epicSourceRecord,
+		Id:            rec.ID,
+		Repository:    rec.Repository,
+		Slug:          rec.Slug,
+		Outcome:       rec.Outcome,
+		OutcomeDetail: rec.OutcomeDetail,
+		Changed:       rec.Changed.Unix(),
+		Live:          live,
+		Waiting:       live && rec.Outcome == "" && len(running) == 0 && len(tasks) == 0,
+		RunningSteps:  running,
+		EndedSteps:    ended,
+		Problem:       strings.Join(recordProblems(rec, taskProblems), "; "),
+		Source:        epicSourceRecord,
 	}
 }
 
