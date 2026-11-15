@@ -21,6 +21,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
 // ErrCapReached reports a Start that would exceed the cap of live sessions.
@@ -103,7 +104,8 @@ type Store interface {
 // sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
 // sessions' holders, or empty for a private directory per session. ManagedDir is the managed settings root that a
 // step's agent resolves under, or empty to read none. HolderVersion is the holder wire version this manager's controller
-// speaks when it re-adopts a holder, or zero for holder.WireVersion.
+// speaks when it re-adopts a holder, or zero for holder.WireVersion. Metrics counts each holder lost in re-adoption, or
+// nil to count none.
 type Config struct {
 	Shell         string
 	Claude        string
@@ -119,6 +121,7 @@ type Config struct {
 	Notifier      NoticeSink
 	Store         Store
 	Logger        *slog.Logger
+	Metrics       *telemetry.Daemon
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -181,6 +184,7 @@ type Manager struct {
 	notifier      NoticeSink
 	store         Store
 	logger        *slog.Logger
+	metrics       *telemetry.Daemon
 
 	pumps sync.WaitGroup
 
@@ -232,6 +236,7 @@ func NewManager(cfg Config) *Manager {
 		notifier:      cfg.Notifier,
 		store:         cfg.Store,
 		logger:        cfg.Logger,
+		metrics:       cfg.Metrics,
 		sessions:      map[string]*liveSession{},
 		stopping:      map[string]*liveSession{},
 		stepObservers: map[string]StepObserver{},
