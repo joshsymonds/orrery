@@ -29,7 +29,7 @@ class ReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (!intent.hasExtra(EXTRA_NOTIFICATION_ID)) return
         val pending = goAsync()
-        BackgroundWork.run {
+        BackgroundWork.run("notification action ${intent.action}") {
             try {
                 deliver(context, intent)
             } finally {
