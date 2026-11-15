@@ -22,7 +22,8 @@ const (
 	// runNoTimeout is the Timeout of a command whose test does not end it by its timeout. It is far longer than the
 	// test binary's timeout, so it never fires during a test, however slowly the machine runs the script.
 	runNoTimeout = 24 * time.Hour
-	// runShortTimeout is the Timeout of a command whose test ends it by its timeout.
+	// runShortTimeout is the Timeout of a command whose test ends it by its timeout. The tests fire it on a fake
+	// clock, so its length only names the timer.
 	runShortTimeout = 2 * time.Second
 )
 
@@ -428,18 +429,36 @@ func TestRunListsMalformedRequestsAndContinues(t *testing.T) {
 	}
 }
 
+// runAwaitPID returns the pid a fake probe writes into path, once the line is complete. It has no deadline of its
+// own.
+func runAwaitPID(t *testing.T, path string) int {
+	t.Helper()
+	for {
+		if data, err := os.ReadFile(path); err == nil && strings.HasSuffix(string(data), "\n") {
+			return runReadPID(t, path)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestRunReturnsOutcomeBesideError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), runShortTimeout)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	pidPath := filepath.Join(t.TempDir(), "pid")
 	cmd := runCommand(t, `printf '%s\n' diag >&2
+printf '%s\n' "$$" > "$1"
 while :; do sleep 0.1; done
-`)
+`, pidPath)
 
-	outcome, err := Run(ctx, Probe{Name: "stalled", Prompts: []string{"ONE"}}, cmd,
-		Sinks{In: io.Discard, Out: io.Discard})
+	probe := Probe{Name: "stalled", Prompts: []string{"ONE"}}
+	done := startRun(ctx, t, probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+	runAwaitPID(t, pidPath)
+	cancel()
+	got := <-done
+	outcome, err := got.outcome, got.err
 
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Run error = %v, want context.DeadlineExceeded", err)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
 	}
 	if outcome.Stderr != "diag\n" {
 		t.Errorf("Stderr = %q, want %q", outcome.Stderr, "diag\n")
@@ -450,20 +469,36 @@ while :; do sleep 0.1; done
 }
 
 func TestRunTimesOutAndStopsProcess(t *testing.T) {
+	clock := newRunFakeClock()
 	pidPath := filepath.Join(t.TempDir(), "pid")
 	cmd := runCommand(t, runSilentScript, pidPath)
 	cmd.Timeout = runShortTimeout
+	cmd.After = clock.After
 
-	outcome, err := Run(t.Context(), Probe{Name: "silent", Prompts: []string{"ONE"}}, cmd,
-		Sinks{In: io.Discard, Out: io.Discard})
+	probe := Probe{Name: "silent", Prompts: []string{"ONE"}}
+	done := startRun(t.Context(), t, probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+	timeout := clock.next(t, runShortTimeout)
+	pid := runAwaitPID(t, pidPath)
+	timeout.fire <- time.Time{}
 
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	if outcome := awaitRun(t, done); !outcome.TimedOut || outcome.Completed {
+		t.Fatalf("outcome = %+v, want TimedOut and not Completed", outcome)
 	}
+	runWaitGone(t, pid)
+}
+
+// TestRunWithoutAfterTimesOutOnTheRealClock checks that a Command with no After arms its Timeout on time.After.
+// The probe never answers, so the timeout firing is the only way Run returns; however late it fires, the outcome
+// is the same.
+func TestRunWithoutAfterTimesOutOnTheRealClock(t *testing.T) {
+	cmd := runCommand(t, runSilentScript, filepath.Join(t.TempDir(), "pid"))
+	cmd.Timeout = time.Millisecond
+
+	probe := Probe{Name: "silent", Prompts: []string{"ONE"}}
+	outcome := runExecute(t, probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
 	if !outcome.TimedOut || outcome.Completed {
 		t.Fatalf("outcome = %+v, want TimedOut and not Completed", outcome)
 	}
-	runWaitGone(t, runReadPID(t, pidPath))
 }
 
 // runRequestBeforeReplyScript answers initialize at once. Before it answers the mode change or a user line,
@@ -564,12 +599,12 @@ type runOutcome struct {
 	err     error
 }
 
-// startRun runs probe on cmd in its own goroutine and returns the channel its result arrives on.
-func startRun(t *testing.T, probe Probe, cmd Command, sinks Sinks) <-chan runOutcome {
+// startRun runs probe on cmd under ctx in its own goroutine and returns the channel its result arrives on.
+func startRun(ctx context.Context, t *testing.T, probe Probe, cmd Command, sinks Sinks) <-chan runOutcome {
 	t.Helper()
 	done := make(chan runOutcome, 1)
 	go func() {
-		outcome, err := Run(t.Context(), probe, cmd, sinks)
+		outcome, err := Run(ctx, probe, cmd, sinks)
 		done <- runOutcome{outcome: outcome, err: err}
 	}()
 	return done
@@ -625,7 +660,7 @@ func TestRunLingerHoldsStdinOpenAfterLastResult(t *testing.T) {
 	cmd := runCommand(t, runScript(runUserResultThenRequest), runWriteFile(t, runWriteRequest))
 	cmd.After = clock.After
 
-	done := startRun(t, probe, cmd, Sinks{In: in, Out: out})
+	done := startRun(t.Context(), t, probe, cmd, Sinks{In: in, Out: out})
 	clock.next(t, runNoTimeout)
 	linger := clock.next(t, runLinger)
 	awaitAnswered(t, done, in)
@@ -651,7 +686,7 @@ func TestRunLingerCountsExtraResultsAndSendsNothing(t *testing.T) {
 	cmd := runCommand(t, runScript(runUserExtraResult), runWriteFile(t, runWriteRequest))
 	cmd.After = clock.After
 
-	done := startRun(t, probe, cmd, Sinks{In: in, Out: out})
+	done := startRun(t.Context(), t, probe, cmd, Sinks{In: in, Out: out})
 	clock.next(t, runNoTimeout)
 	linger := clock.next(t, runLinger)
 	awaitAnswered(t, done, in)
@@ -677,7 +712,7 @@ func TestRunLingerLongerThanTimeoutStopsProcess(t *testing.T) {
 		Linger:         10 * time.Second,
 	}
 
-	done := startRun(t, probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+	done := startRun(t.Context(), t, probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
 	timeout := clock.next(t, runShortTimeout)
 	clock.next(t, probe.Linger)
 	timeout.fire <- time.Time{}
