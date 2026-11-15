@@ -32,6 +32,15 @@ type observedConn struct {
 	written int64
 	held    bool // whether write deadlines are recorded instead of applied
 	armed   bool // whether a deadline recorded while held is in force
+	closed  bool // whether the server has closed the connection
+}
+
+// Close records that the connection is closed, then closes it.
+func (c *observedConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return c.Conn.Close()
 }
 
 // Write writes p to the connection and records the write as in progress until it returns.
@@ -115,25 +124,28 @@ func (l *observedListener) releaseAll() error {
 	return nil
 }
 
-// writeState reports whether any accepted connection has a write in progress, and the total bytes of the writes
-// that have completed on all of them.
-func (l *observedListener) writeState() (bool, int64) {
+// writeState reports whether any accepted connection has a write in progress, the total bytes of the writes that
+// have completed on all of them, and whether the server has closed every one it accepted, at least one. Once all are
+// closed, no write can start, so a wait for one would never end.
+func (l *observedListener) writeState() (bool, int64, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	writing := false
+	writing, allClosed := false, len(l.conns) > 0
 	var written int64
 	for _, c := range l.conns {
 		c.mu.Lock()
 		writing = writing || c.writing
 		written += c.written
+		allClosed = allClosed && c.closed
 		c.mu.Unlock()
 	}
-	return writing, written
+	return writing, written, allClosed
 }
 
 // waitBlockedSend polls the server's writes on the event tick until a write has stayed in progress for stallSamples
 // consecutive ticks with no byte completing, after the first replayed message has been written in full. That write is
-// a send the client is not reading. It has no deadline of its own.
+// a send the client is not reading. It has no deadline of its own, and fails at once if the server closes every
+// connection first.
 func waitBlockedSend(t *testing.T, obs *observedListener) {
 	t.Helper()
 	tick := time.NewTicker(eventPoll)
@@ -141,7 +153,11 @@ func waitBlockedSend(t *testing.T, obs *observedListener) {
 	last, stable := int64(-1), 0
 	for stable < stallSamples {
 		<-tick.C
-		writing, written := obs.writeState()
+		writing, written, allClosed := obs.writeState()
+		if allClosed {
+			t.Fatalf("no send blocked on the unread client: the server closed every connection first, %d bytes written",
+				written)
+		}
 		if writing && written > deadlineSummaryBytes && written == last {
 			stable++
 		} else {

@@ -3,6 +3,7 @@ package enginehost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // gateWaitLockFree polls until the session lock in dir is free, which it is once the holder that served dir has ended.
@@ -44,12 +46,11 @@ func gateTakeLock(t *testing.T, dir string) *os.File {
 	}
 }
 
-// gateWaitRequests polls until pools has been asked for at least n grants.
-func gateWaitRequests(t *testing.T, pools *fakeGatePools, n int) {
+// gateWaitRequests polls until pools has been asked for at least n grants. It fails at once if ended, the end of the
+// run that asks for them, closes first.
+func gateWaitRequests(t *testing.T, pools *fakeGatePools, n int, ended <-chan struct{}) {
 	t.Helper()
-	for len(pools.requested()) < n {
-		time.Sleep(20 * time.Millisecond)
-	}
+	waittest.Until(t, ended, fmt.Sprintf("request for grant %d", n), func() bool { return len(pools.requested()) >= n })
 }
 
 // gateReadoptRun returns the run a re-adoption test gives its gate, named name in stateDir. The gate counts its starts
@@ -81,9 +82,10 @@ func gateDetachedRun(t *testing.T, pools *fakeGatePools, run gateRun, started st
 		_, err := runGrantedGate(ctx, pools, gateGrantRequest(), run)
 		done <- err
 	}()
-	gateWaitFile(t, started)
+	ended, doneResult := waittest.Closed(done)
+	gateWaitFile(t, started, ended)
 	cancel(errGateDetach)
-	err := <-done
+	err := <-doneResult
 	if !errors.Is(err, errGateDetach) {
 		t.Fatalf("runGrantedGate err = %v, want errGateDetach", err)
 	}
@@ -108,8 +110,9 @@ func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) 
 		result, err := readoptGrantedGate(t.Context(), pools, gateGrantRequest(), run, "grant-1")
 		readopted <- outcome{result, err}
 	}()
+	ended, readoptedResult := waittest.Closed(readopted)
 	// The gate is held until the test releases it, so the reclaimed grant, once requested, must not have ended.
-	gateWaitRequests(t, pools, 2)
+	gateWaitRequests(t, pools, 2, ended)
 	select {
 	case <-released:
 		t.Fatal("the reclaimed grant ended while its gate still ran")
@@ -118,7 +121,7 @@ func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) 
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatalf("release the gate: %v", err)
 	}
-	got := <-readopted
+	got := <-readoptedResult
 	if got.err != nil {
 		t.Fatalf("readoptGrantedGate: %v", got.err)
 	}

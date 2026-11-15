@@ -256,7 +256,7 @@ func TestStepsNamedGateStopStoresNoCheckAndRerunStoresItsCheck(t *testing.T) {
 	commit := stepGitTestCommit(t, linked, map[string]string{stepDoneOwned: "owned\n"})
 	f.sessions.first(t).Observer.Return(stepDoneReturn(commit))
 
-	gateWaitFile(t, first)
+	gateWaitFile(t, first, nil)
 	commands.stopGrant()
 	stepStartAwait(t, "the step to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)

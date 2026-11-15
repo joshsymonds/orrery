@@ -368,7 +368,7 @@ func TestStepDoneGateErrorFromEndedCtxStoresNoEnd(t *testing.T) {
 	done := f.runOn(ctx)
 
 	f.run.Return(stepDoneReturn(commit))
-	gateWaitFile(t, started)
+	gateWaitFile(t, started, done)
 	cancel()
 	waitRunEnd(t, done)
 

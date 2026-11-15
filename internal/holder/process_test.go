@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 const (
@@ -158,15 +160,14 @@ func writeChildFile(t *testing.T, dir, name string, data []byte) {
 	}
 }
 
-// awaitFile waits until the file at path exists. It has no deadline of its own.
-func awaitFile(t *testing.T, path string) {
+// awaitFile waits until the file at path exists. It has no deadline of its own, and fails at once if ended, the end of
+// what would write the file, closes first.
+func awaitFile(t *testing.T, ended <-chan struct{}, path string) {
 	t.Helper()
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		time.Sleep(holderPoll)
-	}
+	waittest.Until(t, ended, path+" written", func() bool {
+		_, err := os.Stat(path)
+		return err == nil
+	})
 }
 
 // requireProcessGroupGone fails the test when any process of process group pgid is still alive.
@@ -209,12 +210,13 @@ func segmentFiles(t *testing.T, dir string) []string {
 	return names
 }
 
-// awaitSegmentFiles waits until the spool's segment files in dir are exactly want. It has no deadline of its own.
-func awaitSegmentFiles(t *testing.T, dir string, want []string) {
+// awaitSegmentFiles waits until the spool's segment files in dir are exactly want. It has no deadline of its own, and
+// fails at once if ended, the end of the holder that trims them, closes first.
+func awaitSegmentFiles(t *testing.T, ended <-chan struct{}, dir string, want []string) {
 	t.Helper()
-	for !slices.Equal(segmentFiles(t, dir), want) {
-		time.Sleep(holderPoll)
-	}
+	waittest.Until(t, ended, fmt.Sprintf("segment files %v in %s", want, dir), func() bool {
+		return slices.Equal(segmentFiles(t, dir), want)
+	})
 }
 
 // readResult is what a Read returned.
@@ -380,7 +382,7 @@ func TestProcessAckedOutputLeavesTheSpoolWhenItIsConsumed(t *testing.T) {
 	// The child stays alive after its output, so the holder's directory is still in place when the segments are checked.
 	cfg.Child = gatedChild(t, "cat stdout.txt; exec cat")
 	writeChildFile(t, cfg.Child.Dir, "stdout.txt", spoolBytes(0, size))
-	_, held, conn := startHolderProcess(t, cfg)
+	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
 	// The controller allows the holder to trim below the whole output, so consuming it trims the spool.
 	p.SetReplayFrom(size)
@@ -396,7 +398,7 @@ func TestProcessAckedOutputLeavesTheSpoolWhenItIsConsumed(t *testing.T) {
 	// Ack trims every segment that ends at or below the replay-from, and never the segment still being written, so the
 	// last segment is what remains.
 	lastStart := int64(size) / processSegmentBytes * processSegmentBytes
-	awaitSegmentFiles(t, cfg.Dir, []string{segmentName(lastStart)})
+	awaitSegmentFiles(t, run.done, cfg.Dir, []string{segmentName(lastStart)})
 	stopProcess(t, p)
 }
 
@@ -409,7 +411,7 @@ func TestProcessAckKeepsTheSegmentsFromTheReplayFromOn(t *testing.T) {
 	const replayFrom = 40 << 10
 	cfg.Child = gatedChild(t, "cat stdout.txt; exec cat")
 	writeChildFile(t, cfg.Child.Dir, "stdout.txt", spoolBytes(0, size))
-	_, held, conn := startHolderProcess(t, cfg)
+	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
 	p.SetReplayFrom(replayFrom)
 	release(t, p)
@@ -425,7 +427,7 @@ func TestProcessAckKeepsTheSegmentsFromTheReplayFromOn(t *testing.T) {
 	for start := int64(replayFrom) / processSegmentBytes * processSegmentBytes; start < size; start += processSegmentBytes {
 		want = append(want, segmentName(start))
 	}
-	awaitSegmentFiles(t, cfg.Dir, want)
+	awaitSegmentFiles(t, run.done, cfg.Dir, want)
 	stopProcess(t, p)
 }
 
@@ -463,10 +465,10 @@ func TestProcessWriteToAChildWhoseStdinIsClosedReturnsAnError(t *testing.T) {
 
 	cfg := newProcessConfig(t)
 	cfg.Child = shChild(t, "exec 0<&-; : > ready.flag; exec sleep 60")
-	_, held, conn := startHolderProcess(t, cfg)
+	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
 
-	awaitFile(t, filepath.Join(cfg.Child.Dir, "ready.flag"))
+	awaitFile(t, run.done, filepath.Join(cfg.Child.Dir, "ready.flag"))
 	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err == nil {
 		t.Fatalf("write to a child with a closed stdin = %d, nil; want an error", got.n)
 	}
@@ -478,10 +480,10 @@ func TestProcessWriteCompletesWhileStdoutIsUnreadPastSeveralMiB(t *testing.T) {
 
 	cfg := newProcessConfig(t)
 	cfg.Child = shChild(t, fmt.Sprintf("head -c %d /dev/zero; : > flushed.flag; exec cat", processUnread))
-	_, held, conn := startHolderProcess(t, cfg)
+	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
 
-	awaitFile(t, filepath.Join(cfg.Child.Dir, "flushed.flag"))
+	awaitFile(t, run.done, filepath.Join(cfg.Child.Dir, "flushed.flag"))
 	if got := awaitWrite(t, startWrite(p, []byte("ping\n"))); got.err != nil {
 		t.Fatalf("write while %d bytes of stdout are unread = %v, want nil", processUnread, got.err)
 	}
@@ -502,7 +504,7 @@ func TestProcessStopEndsTheChildAndReturnsOnceTheHolderIsGone(t *testing.T) {
 	cfg := newProcessConfig(t)
 	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	stopProcess(t, p)
 	requireProcessGroupGone(t, pid)
@@ -520,7 +522,7 @@ func TestProcessStopFallsBackToHeldStopWhenTheSocketIsGone(t *testing.T) {
 	cfg := newProcessConfig(t)
 	run, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, filepath.Join(cfg.Dir, "gone.sock"), cfg.Dir)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	stopProcess(t, p)
 	requireProcessGroupGone(t, pid)

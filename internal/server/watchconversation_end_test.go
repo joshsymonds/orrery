@@ -86,7 +86,8 @@ func startConvDeadlineServer(t *testing.T, handler http.Handler) (string, <-chan
 }
 
 // waitStalledWrite fails the test unless a write on obs stays in progress with no byte completing for stallSamples
-// consecutive event ticks. Such a write is a send the client is not reading.
+// consecutive event ticks. Such a write is a send the client is not reading. It fails at once if the server closes
+// every connection first.
 func waitStalledWrite(t *testing.T, obs *observedListener) {
 	t.Helper()
 	tick := time.NewTicker(eventPoll)
@@ -94,7 +95,13 @@ func waitStalledWrite(t *testing.T, obs *observedListener) {
 	last, stable := int64(-1), 0
 	for stable < stallSamples {
 		<-tick.C
-		writing, written := obs.writeState()
+		writing, written, allClosed := obs.writeState()
+		if allClosed {
+			t.Fatalf(
+				"no write stalled on the unread client: the server closed every connection first, %d bytes written",
+				written,
+			)
+		}
 		if writing && written == last {
 			stable++
 		} else {

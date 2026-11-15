@@ -88,7 +88,7 @@ func launchDetachedSpool(t *testing.T) string {
 	if !bytes.Equal(data, spoolBytes(0, reattachSize)) {
 		t.Fatalf("the first controller read bytes other than the child's output")
 	}
-	awaitSegmentFiles(t, dir, []string{segmentName(DefaultSegmentBytes)})
+	awaitSegmentFiles(t, p.ended, dir, []string{segmentName(DefaultSegmentBytes)})
 	if err := p.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
