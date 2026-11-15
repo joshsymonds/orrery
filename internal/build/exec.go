@@ -126,7 +126,7 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, reason
 func (r *Runner) accept(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	ref := refsOrreryPrefix + Slug(epic.ID) + "/" + taskLabel(seq)
-	if err := Pin(ctx, epic.Repository, ref, from.Revision); err != nil {
+	if err := r.git.Pin(ctx, epic.Repository, ref, from.Revision); err != nil {
 		r.report(ctx, epic.ID, seq, "pin accepted task", err)
 		return false
 	}
@@ -141,7 +141,7 @@ func (r *Runner) accept(ctx context.Context, epic store.EpicRow, view View, acti
 // removeWorktrees removes the worktrees of task seq. The task's state is stored before this runs, so a failure is
 // logged and the task stays as it is.
 func (r *Runner) removeWorktrees(ctx context.Context, epic store.EpicRow, seq int64) {
-	err := RemoveWorktrees(ctx, epic.Repository, TaskDir(r.stateDir, epic.ID, seq))
+	err := r.git.RemoveWorktrees(ctx, epic.Repository, TaskDir(r.stateDir, epic.ID, seq))
 	r.report(ctx, epic.ID, seq, "remove task worktrees", err)
 }
 

@@ -109,6 +109,11 @@ func (a *Attention) Run(ctx context.Context) {
 	}
 }
 
+// Pass attends to each epic once, as Run does on each tick.
+func (a *Attention) Pass(ctx context.Context) {
+	a.pass(ctx)
+}
+
 // pass attends to each epic that has a turn. It reads the ids of the epic notices stored before it routes anything, so
 // a notice routed before a restart is not routed again.
 func (a *Attention) pass(ctx context.Context) {

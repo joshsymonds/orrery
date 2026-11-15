@@ -75,9 +75,9 @@ func (r *Runner) implementerStart(
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
 	path := filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), id)
-	err = AddWorktree(ctx, epic.Repository, path, task.Build.Base)
+	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
 	if err != nil {
-		return enginehost.StepStart{}, err
+		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
 	}
 	red, redLog := r.redEvidence(ctx, task)
 	return enginehost.StepStart{

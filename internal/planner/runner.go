@@ -136,6 +136,21 @@ func (r *Runner) Run(ctx context.Context) {
 	}
 }
 
+// Recover settles the turns a previous orreryd left running, as Run does before its first pass.
+func (r *Runner) Recover(ctx context.Context) {
+	r.recoverTurns(ctx)
+}
+
+// Pass decides each epic with pending triggers once, as Run does on each tick.
+func (r *Runner) Pass(ctx context.Context) {
+	r.pass(ctx)
+}
+
+// WaitTurns waits until every turn the runner started has settled, as Run does before it returns.
+func (r *Runner) WaitTurns() {
+	r.turns.Wait()
+}
+
 // pass decides each epic with pending triggers. A park action claims a turn for the epic in its own goroutine and frees
 // it with the park reason, and a claim action claims a turn for the epic in its own goroutine. agent is read once per
 // pass.
