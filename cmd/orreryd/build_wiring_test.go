@@ -11,6 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/planner"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -88,6 +89,10 @@ func createBuildWiringEpic(t *testing.T, st *store.Store, repo, base string) {
 			},
 			{Name: "review", Agent: "reviewer", Limit: 60, Must: []string{"the diff is correct"}},
 		},
+		Reviewers: []reviewers.Reviewer{{
+			Name: "review", Enabled: true, Stage: []string{reviewers.StageTask}, Agent: "reviewer", Limit: 60,
+			Must: []string{"the diff is correct"}, Verify: true,
+		}},
 		Requirements: []store.EpicRequirement{
 			{ID: "R1", Text: "the build runs", Evidence: "wiring test", Kind: "test"},
 		},
@@ -224,7 +229,7 @@ func TestReadoptGateComposesEvidenceThenBuild(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add evidence run: %v", err)
 	}
-	gate := readoptGate(st, func(string) string { return "" })
+	gate := readoptGate(st)
 	rows := []struct {
 		name  string
 		row   store.StepRow
