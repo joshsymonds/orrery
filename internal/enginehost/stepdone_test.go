@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,9 +23,7 @@ const stepDoneOwned = "pkg/owned.txt"
 func stepDoneScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "gate.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
-		t.Fatalf("write gate script: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte("#!/bin/sh\n"+body+"\n"), 0o755)
 	return path
 }
 

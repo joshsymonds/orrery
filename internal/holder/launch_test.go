@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/engine/proc"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holdertest"
 )
 
@@ -113,9 +114,7 @@ func neverServingOrrery(t *testing.T) (string, string) {
 	orrery := filepath.Join(dir, "orrery")
 	// The pid lands under a temporary name and is renamed into place, so the file appears only with its contents.
 	script := "#!/bin/sh\necho $$ > " + pidFile + ".tmp\nmv " + pidFile + ".tmp " + pidFile + "\nexec sleep 3600\n"
-	if err := os.WriteFile(orrery, []byte(script), 0o700); err != nil {
-		t.Fatalf("write %s: %v", orrery, err)
-	}
+	exectest.WriteFile(t, orrery, []byte(script), 0o700)
 	return orrery, pidFile
 }
 

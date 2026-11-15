@@ -1,10 +1,11 @@
 package enginehost
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 // TestFakeClaudeWrapperPutsGitOnPathAndRunsTheScript runs the wrapper under an environment whose PATH holds no git, as a
@@ -14,9 +15,7 @@ func TestFakeClaudeWrapperPutsGitOnPathAndRunsTheScript(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "probe.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\ncommand -v git\nprintf '%s\\n' \"$@\"\n"), 0o700); err != nil {
-		t.Fatalf("write probe: %v", err)
-	}
+	exectest.WriteFile(t, script, []byte("#!/bin/sh\ncommand -v git\nprintf '%s\\n' \"$@\"\n"), 0o700)
 	wrapper, err := writeFakeClaudeWrapper(t.TempDir(), script)
 	if err != nil {
 		t.Fatalf("writeFakeClaudeWrapper: %v", err)

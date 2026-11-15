@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -52,9 +53,7 @@ cat "$dir/stderr" >&2
 exit %d
 `, dir, f.extra, f.status)
 	path := filepath.Join(dir, "claude")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
 }
 
@@ -125,17 +124,48 @@ func haikuWantArgv(settings string) string {
 	return strings.Join(argv, "\n") + "\n"
 }
 
-// haikuAwaitFile waits up to 5 seconds for path to exist and fails the test with failMsg when it does not.
-// The haiku tests run serially, unlike the rest of the package, so a loaded parallel run does not eat into this
-// wait for a fake claude to start.
-func haikuAwaitFile(t *testing.T, path, _ string) {
+// haikuAwaitFile waits until path exists, the mark the fake claude of a call leaves once it runs. It has no deadline
+// of its own, but it fails the test with failMsg at once when ended closes first: the call that would have run the
+// fake has returned, so the mark can no longer appear.
+func haikuAwaitFile(t *testing.T, path, failMsg string, ended <-chan struct{}) {
 	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		if _, err := os.Stat(path); err == nil {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ended:
+			if _, err := os.Stat(path); err == nil {
+				return
+			}
+			t.Fatalf("%s: the call returned before %s appeared", failMsg, path)
+		case <-ticker.C:
+		}
 	}
+}
+
+// haikuHoldTimeout is the Timeout of a Haiku whose test holds its only slot with a hung call. It is far longer than
+// the test binary's timeout, so the hung call ends only when the test cancels it, however slowly the machine starts
+// the fake claude.
+const haikuHoldTimeout = 24 * time.Hour
+
+// haikuHold starts a call on h under a context that only release ends, and waits until its fake claude has left
+// $dir/started. It returns the channel the call's error arrives on, closed once the call has returned, and release.
+func haikuHold(t *testing.T, h *Haiku, dir string) (<-chan error, context.CancelFunc) {
+	t.Helper()
+	holdCtx, release := context.WithCancel(context.Background())
+	t.Cleanup(release)
+	held := make(chan error, 1)
+	ended := make(chan struct{})
+	go func() {
+		_, err := h.Call(holdCtx, haikuSchema, "hold")
+		held <- err
+		close(ended)
+	}()
+	haikuAwaitFile(t, filepath.Join(dir, "started"), "holding call never started claude", ended)
+	return held, release
 }
 
 func TestHaikuCallRunsClaudeWithArgvEnvCwdAndStdin(t *testing.T) {
@@ -294,16 +324,8 @@ func TestHaikuCallCapWaitsForSlot(t *testing.T) {
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
 sleep 30`, status: 0})
-	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: 10 * time.Second})
-
-	holdCtx, releaseHold := context.WithCancel(context.Background())
-	defer releaseHold()
-	held := make(chan error, 1)
-	go func() {
-		_, err := h.Call(holdCtx, haikuSchema, "hold")
-		held <- err
-	}()
-	haikuAwaitFile(t, filepath.Join(dir, "started"), "holding call never started claude")
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: haikuHoldTimeout})
+	held, releaseHold := haikuHold(t, h, dir)
 
 	waitCtx, cancelWait := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelWait()
@@ -443,16 +465,8 @@ func TestHaikuWithEnvSharesCallSlots(t *testing.T) {
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
 sleep 30`, status: 0})
-	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: 10 * time.Second})
-
-	holdCtx, releaseHold := context.WithCancel(context.Background())
-	defer releaseHold()
-	held := make(chan error, 1)
-	go func() {
-		_, err := h.Call(holdCtx, haikuSchema, "hold")
-		held <- err
-	}()
-	haikuAwaitFile(t, filepath.Join(dir, "started"), "holding call never started claude")
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: haikuHoldTimeout})
+	held, releaseHold := haikuHold(t, h, dir)
 
 	waitCtx, cancelWait := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelWait()

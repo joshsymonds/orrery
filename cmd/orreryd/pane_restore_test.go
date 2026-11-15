@@ -492,7 +492,7 @@ func resumeHeld(t *testing.T) {
 
 	first := newPaneSinks(paneClock, false)
 	hub := startProcess(t, first, s, home, caller)
-	hub.notify(ctx, transition)
+	hub.notify(ctx, transition, nil)
 	hub.router.Wait()
 	first.check(t, []route.Line{expectedLine(paneClock, fx.pane, protocol.StateWaiting, route.None, reasonWatching)},
 		nil, nil)
@@ -530,7 +530,7 @@ func resumeDelayed(t *testing.T) {
 
 	first := newPaneSinks(paneClock, false)
 	hub := startProcess(t, first, s, home, caller)
-	hub.notify(ctx, transition)
+	hub.notify(ctx, transition, nil)
 	hub.router.Wait()
 	first.check(t, nil, nil, nil)
 	checkRows(t, s, delayServed(paneRow(pane, protocol.StateDone, phaseDelayed,
@@ -580,7 +580,7 @@ func resumeDesk(t *testing.T) {
 
 	first := newPaneSinks(paneClock, true)
 	hub := startProcess(t, first, s, home, &paneJudgeCaller{})
-	hub.notify(ctx, transition)
+	hub.notify(ctx, transition, nil)
 	hub.router.Wait()
 	first.check(t, []route.Line{expectedLine(paneClock, pane, protocol.StateWaiting, route.Desk, reasonAtDesk)},
 		[]deskstream.Notice{expectedPost(protocol.StateWaiting, paneQuestion)}, nil)

@@ -76,8 +76,12 @@ func decodePaneSource(data []byte) (daemon.Transition, error) {
 
 // paneNotice is the notice transition makes, with the closures that route it: Watching, Desk and Push, and Judge for a
 // done that is not silent and not a StopFailure. notify and rebuildPane both build it, so a restored notice is the
-// notice notify built. A StopFailure done names its API error as its desk body and push summary.
-func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition) route.Notice {
+// notice notify built. A StopFailure done names its API error as its desk body and push summary. Any other notice's
+// Desk and Push first wait for summarized to close, or for their ctx to end, so a done's body is the summary of the
+// turn it ends, written by the Stop's summary run, and not the summary before it. A nil summarized waits for nothing:
+// a waiting notice's body is the question its hook wrote, and a restored notice's summary run ended with the orreryd
+// that started it.
+func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}) route.Notice {
 	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
 	if err != nil {
 		r.logger.WarnContext(ctx, "decide notice push", "pane", transition.PaneID, "error", err)
@@ -93,6 +97,9 @@ func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition) ro
 		Silent:   silent,
 		Watching: func(ctx context.Context) (bool, error) { return r.watching(ctx, transition) },
 		Desk: func(ctx context.Context) (deskstream.Notice, error) {
+			if !failed {
+				awaitSummary(ctx, summarized)
+			}
 			desk, err := r.deskNotice(ctx, transition)
 			if err == nil && failed {
 				desk.Body = failure
@@ -100,6 +107,9 @@ func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition) ro
 			return desk, err
 		},
 		Push: func(ctx context.Context) (push.Notification, error) {
+			if !failed {
+				awaitSummary(ctx, summarized)
+			}
 			note, err := r.pushNotification(ctx, transition)
 			if err == nil && failed {
 				note.Summary = failure
@@ -138,6 +148,17 @@ func (r *relay) stopFailureText(ctx context.Context, transition daemon.Transitio
 	return "API error: " + apiError, true
 }
 
+// awaitSummary returns once summarized has closed or ctx has ended. A nil summarized returns at once.
+func awaitSummary(ctx context.Context, summarized <-chan struct{}) {
+	if summarized == nil {
+		return
+	}
+	select {
+	case <-summarized:
+	case <-ctx.Done():
+	}
+}
+
 // rebuildPane is the route.Rebuild of paneSourceKind. It decodes the transition that notify stored, checks the pane
 // the notice is about, and builds the notice for the transition. at is the row's recorded time, unix seconds.
 func (r *relay) rebuildPane(ctx context.Context, data []byte, at int64) (route.Notice, error) {
@@ -149,7 +170,7 @@ func (r *relay) rebuildPane(ctx context.Context, data []byte, at int64) (route.N
 	if err != nil {
 		return route.Notice{}, err
 	}
-	return r.paneNotice(ctx, transition), nil
+	return r.paneNotice(ctx, transition, nil), nil
 }
 
 // checkPane reads transition's pane from its tmux server once. It returns route.ErrChanged when the pane is gone or in

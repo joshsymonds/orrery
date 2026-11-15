@@ -152,6 +152,33 @@ func (h limitHost) checked() {
 	h.tick()
 }
 
+// awaitNotices ticks the limit notices until router holds at least n notices, and returns them. A check whose store
+// read fails changes nothing and the next check reads again, so the wait has no deadline of its own.
+func (h limitHost) awaitNotices(router *recordingRouter, n int) []route.Notice {
+	for {
+		if got := router.received(); len(got) >= n {
+			return got
+		}
+		h.checked()
+	}
+}
+
+// awaitMarks ticks the limit notices until st's told limits are want. A mark write the store refuses is written again
+// at the next check, so the wait has no deadline of its own.
+func (h limitHost) awaitMarks(t *testing.T, st *store.Store, want map[string][]string) {
+	t.Helper()
+	for {
+		marks, err := st.ToldLimits(t.Context())
+		if err != nil {
+			t.Fatalf("read told limits: %v", err)
+		}
+		if maps.EqualFunc(marks, want, slices.Equal[[]string]) {
+			return
+		}
+		h.checked()
+	}
+}
+
 // limitWiringKey is the key of the usage limit that resets at resets, as the limit notices and their marks name it.
 func limitWiringKey(resets time.Time) string {
 	return fmt.Sprintf("usage@%d", resets.Unix())
@@ -181,8 +208,7 @@ func TestSessionsHostTellsStepLimitedBeforeStartOnce(t *testing.T) {
 
 	router := &recordingRouter{}
 	host := startLimitHost(t, st, getenv, router)
-	host.tick()
-	got := router.received()
+	got := host.awaitNotices(router, 1)
 	if len(got) != 1 {
 		t.Fatalf("got %d notices for the step limited before start, want 1", len(got))
 	}
@@ -195,16 +221,9 @@ func TestSessionsHostTellsStepLimitedBeforeStartOnce(t *testing.T) {
 		t.Errorf("notice body = %q, want %q", desk.Body, want)
 	}
 
-	host.checked()
+	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringReset()): {limitWiringBefore}})
 	if got := router.received(); len(got) != 1 {
-		t.Fatalf("got %d notices after a tick, want 1: the told step is not told again", len(got))
-	}
-	marks, err := st.ToldLimits(ctx)
-	if err != nil {
-		t.Fatalf("read told limits: %v", err)
-	}
-	if steps := marks[limitWiringKey(limitWiringReset())]; !slices.Equal(steps, []string{limitWiringBefore}) {
-		t.Fatalf("marked steps = %v, want [%s]", steps, limitWiringBefore)
+		t.Fatalf("got %d notices once the mark is stored, want 1: the told step is not told again", len(got))
 	}
 
 	if err := host.stop(); err != nil {
@@ -221,10 +240,11 @@ func TestSessionsHostTellsNothingAfterRestartForStepTold(t *testing.T) {
 
 	first := &recordingRouter{}
 	host := startLimitHost(t, st, getenv, first)
-	host.tick()
-	if got := first.received(); len(got) != 1 {
+	if got := host.awaitNotices(first, 1); len(got) != 1 {
 		t.Fatalf("got %d notices before the restart, want 1", len(got))
 	}
+	// The step counts as told before the restart once its mark is stored.
+	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringReset()): {limitWiringBefore}})
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
 	}
@@ -251,8 +271,7 @@ func TestSessionsHostTellsAStepLimitedAgainAfterItsResume(t *testing.T) {
 
 	first := &recordingRouter{}
 	host := startLimitHost(t, st, getenv, first)
-	host.tick()
-	if got := first.received(); len(got) != 1 {
+	if got := host.awaitNotices(first, 1); len(got) != 1 {
 		t.Fatalf("got %d notices before the resume, want 1", len(got))
 	}
 	// A resume stores the step's loop state with no limit and closes its due rows, as resumeWith writes it.
@@ -269,8 +288,7 @@ func TestSessionsHostTellsAStepLimitedAgainAfterItsResume(t *testing.T) {
 	}, time.Unix(limitWiringStamp+2, 0)); err != nil {
 		t.Fatalf("limit step again: %v", err)
 	}
-	host.checked()
-	got := first.received()
+	got := host.awaitNotices(first, 2)
 	if len(got) != 2 {
 		t.Fatalf("got %d notices after the step was limited again, want 2", len(got))
 	}
@@ -282,16 +300,9 @@ func TestSessionsHostTellsAStepLimitedAgainAfterItsResume(t *testing.T) {
 	if desk.Body != want {
 		t.Errorf("notice body after the resume = %q, want %q", desk.Body, want)
 	}
-	// The check that routed the notice wrote the limit's mark after it (see LimitNotices.update), and checked returned
-	// only once that check had finished.
-	marks, err := st.ToldLimits(ctx)
-	if err != nil {
-		t.Fatalf("read told limits: %v", err)
-	}
-	if wantMarks := map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringBefore}}; !maps.EqualFunc(
-		marks, wantMarks, slices.Equal[[]string]) {
-		t.Fatalf("told limits = %v, want %v", marks, wantMarks)
-	}
+	// The check that routed the notice writes the limit's mark after it, and a check after a refused write writes it
+	// again (see LimitNotices.update), so the marks come to name only the second limit.
+	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringBefore}})
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
 	}
@@ -359,8 +370,7 @@ func TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart(t *testing.T) {
 	}
 
 	addLimitedStep(t, st, limitWiringAfter, limitWiringLaterReset())
-	host.checked()
-	got := router.received()
+	got := host.awaitNotices(router, 1)
 	if len(got) != 1 {
 		t.Fatalf("got %d notices after the new limit, want 1", len(got))
 	}

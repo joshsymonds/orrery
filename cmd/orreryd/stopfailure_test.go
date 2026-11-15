@@ -54,7 +54,7 @@ func TestStopFailureNoticeIsNotJudged(t *testing.T) {
 	r := &relay{logger: slog.New(slog.DiscardHandler)}
 
 	transition := paneTransition(server, pane, protocol.StateDone, cwd, stopFailureHook)
-	checkDoneText(t, r.paneNotice(t.Context(), transition), false, stopFailureBody)
+	checkDoneText(t, r.paneNotice(t.Context(), transition, nil), false, stopFailureBody)
 }
 
 // TestStopFailureWithoutErrorNamesUnknown checks that a StopFailure whose error field is absent or empty names the API
@@ -68,7 +68,7 @@ func TestStopFailureWithoutErrorNamesUnknown(t *testing.T) {
 
 	for _, hook := range []string{stopFailureNoError, stopFailureEmpty} {
 		transition := paneTransition(server, pane, protocol.StateDone, cwd, hook)
-		checkDoneText(t, r.paneNotice(t.Context(), transition), false, stopFailureUnknown)
+		checkDoneText(t, r.paneNotice(t.Context(), transition, nil), false, stopFailureUnknown)
 	}
 }
 
@@ -81,7 +81,7 @@ func TestStopDoneIsStillJudged(t *testing.T) {
 	r := &relay{logger: slog.New(slog.DiscardHandler)}
 
 	transition := paneTransition(server, pane, protocol.StateDone, cwd, stopHook)
-	checkDoneText(t, r.paneNotice(t.Context(), transition), true, paneSummary)
+	checkDoneText(t, r.paneNotice(t.Context(), transition, nil), true, paneSummary)
 }
 
 // TestRestoredStopFailureNoticeIsNotJudged checks that the notice rebuildPane restores from a stored StopFailure done is

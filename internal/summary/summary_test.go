@@ -1051,3 +1051,64 @@ func TestSummarizerForgetEndsInFlightRun(t *testing.T) {
 		t.Errorf("run after Forget (1 exchange) stdin lacks label marker; stdin = %q", got.stdin)
 	}
 }
+
+// settled reports whether ch has closed, without waiting.
+func settled(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestSummarizerRequestSettlesOnceItsRunEnds checks the channel Request returns. A request that is running or waiting
+// has not settled. The running request settles once its run has written the pane's summary, and a waiting request
+// settles with the run of the later request that replaced it. A working request the throttle drops settles at once,
+// and so does a waiting request that Forget drops.
+func TestSummarizerRequestSettlesOnceItsRunEnds(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+	r.hold(t)
+	transcript := exampleTranscript(t, 1)
+
+	running := r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message A"))
+	waitRunning(t, r.bin, 1)
+	replaced := r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message B"))
+	waiting := r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message C"))
+	// The working request comes right after the held run's start, inside the throttle.
+	throttled := r.s.Request(t.Context(), exampleRequest(r.pane, false, transcript, ""))
+	if !settled(throttled) {
+		t.Fatal("a throttled working request has not settled, want it settled at once")
+	}
+	for name, ch := range map[string]<-chan struct{}{"running": running, "replaced": replaced, "waiting": waiting} {
+		if settled(ch) {
+			t.Fatalf("the %s request settled while the run is held", name)
+		}
+	}
+
+	r.release(t)
+	<-running
+	value, _, err := r.client.PaneOption(t.Context(), r.pane, protocol.OptionSummary)
+	if err != nil {
+		t.Fatalf("PaneOption: %v", err)
+	}
+	if want := "example session summary"; value != want {
+		t.Fatalf("%s when the running request settled = %q, want %q", protocol.OptionSummary, value, want)
+	}
+	<-replaced
+	<-waiting
+	waitIdle(t, r.s)
+
+	r.hold(t)
+	inFlight := r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message D"))
+	waitRunning(t, r.bin, 1)
+	dropped := r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message E"))
+	r.s.Forget(r.pane)
+	if !settled(dropped) {
+		t.Fatal("a waiting request Forget dropped has not settled, want it settled at once")
+	}
+	r.release(t)
+	<-inFlight
+	waitIdle(t, r.s)
+}

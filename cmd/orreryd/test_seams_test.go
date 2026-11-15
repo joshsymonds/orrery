@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -76,5 +77,31 @@ func TestDueAtFlag(t *testing.T) {
 	}
 	if strings.Contains(usageText, "due-at") {
 		t.Errorf("usage text lists the --due-at test seam:\n%s", usageText)
+	}
+}
+
+// TestHostFlag checks the --host test seam: without it the host name is the machine's, with it the name it gives, and
+// the usage text does not list the seam.
+func TestHostFlag(t *testing.T) {
+	opts, err := parseFlags(nil, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	machine, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("os.Hostname: %v", err)
+	}
+	if got, err := hostName(opts.host); err != nil || got != machine {
+		t.Errorf("host name without the flag = %q, %v; want the machine's %q", got, err, machine)
+	}
+	opts, err = parseFlags([]string{"--host", "synthetic-host"}, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags(--host synthetic-host): %v", err)
+	}
+	if got, err := hostName(opts.host); err != nil || got != "synthetic-host" {
+		t.Errorf("host name with --host synthetic-host = %q, %v; want synthetic-host", got, err)
+	}
+	if strings.Contains(usageText, "--host ") {
+		t.Errorf("usage text lists the --host test seam:\n%s", usageText)
 	}
 }

@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -64,22 +66,46 @@ func startSession(t *testing.T, client *tmuxctl.Client, name, dir string) {
 	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", name, "-c", dir, testCommand)
 }
 
-// waitForCommand polls pane until its foreground command is want. It has no deadline of its own.
-// A pane reports its command only after its shell has exec'd it, so listing earlier shows the shell instead.
-func waitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+// waitForExec polls pane until the pane's own process has exec'd want, and so runs it: its /proc comm is want. It has
+// no deadline of its own. The pane's foreground command, which tmux reports, is no such test: while the pane's shell
+// starts, tmux can report want and then the shell again before the exec, so a wait that saw want once could see the
+// shell next. An exec does not go back, and after it the pane's foreground command is want and stays so.
+func waitForExec(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	ctx := t.Context()
 	ticker := time.NewTicker(commandPollEach)
 	defer ticker.Stop()
-	for {
-		out, err := client.Run(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}")
-		if err != nil {
-			t.Fatalf("pane %s pane_current_command: %v", pane, err)
-		}
-		got := strings.TrimSpace(out)
-		if got == want {
-			return
-		}
+	for !paneExeced(t, client, pane, want) {
+		<-ticker.C
+	}
+}
+
+// paneExeced reports whether the process tmux started for pane has exec'd want: its /proc comm is want.
+func paneExeced(t *testing.T, client *tmuxctl.Client, pane, want string) bool {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("pane %s pane_pid: %v", pane, err)
+	}
+	comm, err := os.ReadFile(filepath.Join("/proc", strings.TrimSpace(out), "comm"))
+	return err == nil && strings.TrimSpace(string(comm)) == want
+}
+
+// currentCommand returns the foreground command tmux reports for pane.
+func currentCommand(t *testing.T, client *tmuxctl.Client, pane string) string {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_current_command}")
+	if err != nil {
+		t.Fatalf("pane %s pane_current_command: %v", pane, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// awaitCurrentCommand polls pane until tmux reports want as its foreground command. It has no deadline of its own.
+func awaitCurrentCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	ticker := time.NewTicker(commandPollEach)
+	defer ticker.Stop()
+	for currentCommand(t, client, pane) != want {
 		<-ticker.C
 	}
 }
@@ -245,7 +271,7 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionTool, exampleTool)
 
 	for _, pane := range append(s1, s2...) {
-		waitForCommand(t, client, pane, "sleep")
+		waitForExec(t, client, pane, "sleep")
 	}
 	s1Activity := sessionActivity(t, client, "s1")
 	s2Activity := sessionActivity(t, client, "s2")
@@ -328,7 +354,7 @@ func TestListCarriesOrreryOptions(t *testing.T) {
 	setPaneOption(t, client, panes[0], protocol.OptionTranscript, "/example/transcript.jsonl")
 	setPaneOption(t, client, panes[0], protocol.OptionTurnStart, "1700000200")
 	for _, pane := range panes {
-		waitForCommand(t, client, pane, "sleep")
+		waitForExec(t, client, pane, "sleep")
 	}
 
 	listed, err := client.List(t.Context())
@@ -385,5 +411,61 @@ func TestListRejectsNonNumericTurnStart(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), pane) {
 		t.Fatalf("List error %q does not name pane %s", err, pane)
+	}
+}
+
+// TestPaneCommandCanReadTheCommandBeforeTheShell forces the order a busy machine can give a starting pane: tmux reports
+// the pane's command as sleep, then as the shell, then as sleep again. The pane's process first runs a shell that
+// calls itself sleep, then a plain shell, then execs sleep, each step held on a fifo the test writes. Seeing sleep
+// once is no proof the pane runs it; its process's exec is, and only the last step makes it.
+func TestPaneCommandCanReadTheCommandBeforeTheShell(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	gates := [2]string{filepath.Join(dir, "gate1"), filepath.Join(dir, "gate2")}
+	for _, gate := range gates {
+		if err := syscall.Mkfifo(gate, 0o600); err != nil {
+			t.Fatalf("make fifo %s: %v", gate, err)
+		}
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Fatalf("find bash: %v", err)
+	}
+	// Step one is a bash whose argv[0] is sleep; step two a bash; step three sleep itself.
+	script := fmt.Sprintf(
+		`exec -a sleep %[1]s -c 'read -r go < %[2]s; exec %[1]s -c "read -r go < %[3]s; exec sleep 300"'`,
+		bash, gates[0], gates[1])
+	client := newServer(t)
+	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", "s1", "-c", dir, bash+" -c "+strconv.Quote(script))
+	pane := paneIDs(t, client, "s1")[0]
+
+	awaitCurrentCommand(t, client, pane, "sleep")
+	if paneExeced(t, client, pane, "sleep") {
+		t.Fatal("pane counts as running sleep while its process is a shell named sleep")
+	}
+	releaseGate(t, gates[0])
+	awaitCurrentCommand(t, client, pane, "bash")
+	if paneExeced(t, client, pane, "sleep") {
+		t.Fatal("pane counts as running sleep while its process is bash")
+	}
+	releaseGate(t, gates[1])
+	waitForExec(t, client, pane, "sleep")
+	if got := currentCommand(t, client, pane); got != "sleep" {
+		t.Fatalf("pane command after the exec = %q, want sleep", got)
+	}
+}
+
+// releaseGate writes one line to the fifo at path, which releases the pane step that reads it.
+func releaseGate(t *testing.T, path string) {
+	t.Helper()
+	gate, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open gate %s: %v", path, err)
+	}
+	if _, err = gate.WriteString("go\n"); err != nil {
+		t.Fatalf("release gate %s: %v", path, err)
+	}
+	if err = gate.Close(); err != nil {
+		t.Fatalf("close gate %s: %v", path, err)
 	}
 }

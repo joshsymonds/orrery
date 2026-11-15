@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
@@ -658,9 +659,7 @@ func writeHostStatusScript(t *testing.T, output string, status int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "host-status")
 	body := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", output, status)
-	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
-		t.Fatalf("write host status script: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(body), 0o700)
 	return path
 }
 
@@ -709,12 +708,33 @@ func conversationPane(t *testing.T, tmux *tmuxctl.Client, options map[string]str
 	t.Helper()
 	startSession(t, tmux, "s1", longCommand)
 	pane := paneID(t, tmux, "s1")
+	awaitPaneExec(t, tmux, pane, strings.Fields(longCommand)[0])
 	for name, value := range options {
 		if err := tmux.SetPaneOption(t.Context(), pane, name, value); err != nil {
 			t.Fatalf("SetPaneOption(%s, %s): %v", pane, name, err)
 		}
 	}
 	return pane
+}
+
+// awaitPaneExec waits until the process tmux started for pane has exec'd program: its /proc comm is program. It has no
+// deadline of its own. Until then tmux can report the pane's command as program and then as the shell again, so a
+// stream opened earlier could see the command change twice; an exec does not go back.
+func awaitPaneExec(t *testing.T, tmux *tmuxctl.Client, pane, program string) {
+	t.Helper()
+	out, err := tmux.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("pane %s pane_pid: %v", pane, err)
+	}
+	commPath := filepath.Join("/proc", strings.TrimSpace(out), "comm")
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		if comm, err := os.ReadFile(commPath); err == nil && strings.TrimSpace(string(comm)) == program {
+			return
+		}
+		<-ticker.C
+	}
 }
 
 // synthGoal is the synthetic goal condition of the goal fixtures.

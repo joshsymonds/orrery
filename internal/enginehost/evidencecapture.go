@@ -40,6 +40,17 @@ type evidenceCapture struct {
 	gateStateDir string
 	gateScope    string
 	blobs        evidenceBlobs
+	// logTail is the number of newest output bytes a capture keeps, and the size at which a log read back counts as
+	// cut, in place of evidenceCaptureLogTail when it is not zero. Tests set it to keep their logs small.
+	logTail int
+}
+
+// tail returns the number of newest output bytes a capture keeps: logTail, or evidenceCaptureLogTail when it is zero.
+func (c evidenceCapture) tail() int {
+	if c.logTail != 0 {
+		return c.logTail
+	}
+	return evidenceCaptureLogTail
 }
 
 // run captures item at revision of repo as run id. It adds a detached worktree, runs the capture under a grant of the
@@ -160,7 +171,7 @@ func (c evidenceCapture) captureGate(
 		StateDir: c.gateStateDir,
 		Scope:    c.gateScope,
 		Started:  started,
-		Tail:     evidenceCaptureLogTail,
+		Tail:     c.tail(),
 	}
 }
 

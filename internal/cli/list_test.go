@@ -72,21 +72,27 @@ func listPaneIDs(t *testing.T, client *tmuxctl.Client, session string) []string 
 	return strings.Fields(out)
 }
 
-// listWaitForCommand polls pane until its foreground command is want. It has no deadline of its own: tmux and the
-// shell run at the machine's pace, and the test binary's timeout ends a wait that never ends.
-// A pane reports its command only after its shell has exec'd it, so listing earlier shows the shell instead.
-func listWaitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+// listWaitForExec polls pane until the pane's own process has exec'd want, and so runs it: its /proc comm is want. It
+// has no deadline of its own: tmux and the shell run at the machine's pace, and the test binary's timeout ends a wait
+// that never ends. The pane's foreground command, which tmux reports, is no such test: while the pane's shell starts,
+// tmux can report want and then the shell again before the exec, so a wait that saw want once could list the shell
+// next. An exec does not go back, and after it the pane's foreground command is want and stays so.
+func listWaitForExec(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	for {
-		out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_current_command}")
-		if err != nil {
-			t.Fatalf("pane %s pane_current_command: %v", pane, err)
-		}
-		if strings.TrimSpace(out) == want {
-			return
-		}
+	for !listPaneExeced(t, client, pane, want) {
 		time.Sleep(listPollEvery)
 	}
+}
+
+// listPaneExeced reports whether the process tmux started for pane has exec'd want: its /proc comm is want.
+func listPaneExeced(t *testing.T, client *tmuxctl.Client, pane, want string) bool {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("pane %s pane_pid: %v", pane, err)
+	}
+	comm, err := os.ReadFile(filepath.Join("/proc", strings.TrimSpace(out), "comm"))
+	return err == nil && strings.TrimSpace(string(comm)) == want
 }
 
 func listSetOption(t *testing.T, client *tmuxctl.Client, pane, name, value string) {
@@ -120,7 +126,7 @@ func TestListJSON(t *testing.T) {
 		t.Fatalf("pane IDs example-a=%v example-b=%v, want 2 and 1", panesA, panesB)
 	}
 	for _, pane := range append(panesA, panesB...) {
-		listWaitForCommand(t, client, pane, "sleep")
+		listWaitForExec(t, client, pane, "sleep")
 	}
 
 	listSetOption(t, client, panesA[0], protocol.OptionState, string(protocol.StateWaiting))
