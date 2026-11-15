@@ -51,7 +51,7 @@ func Listen(socketPath string) (net.Listener, error) {
 // and returns nil. A nil commands refuses every engine RPC as unavailable, a nil steps refuses every step RPC as
 // unavailable, a nil epics refuses every epic RPC as unavailable, a nil pools refuses every Acquire as unavailable, and a
 // nil evidence refuses every evidence RPC as unavailable. With steps served, the engine refuses Say, Answer, Interrupt
-// and Stop on a step id, since a step is driven only through the Steps service.
+// and Stop on a step id, since a step is driven only through the Steps service. opts apply to each of the five handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -60,12 +60,13 @@ func Serve(
 	epics EpicCommands,
 	pools PoolCommands,
 	evidence EvidenceCommands,
+	opts ...connect.HandlerOption,
 ) error {
-	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps})
-	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps})
-	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps})
-	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools})
-	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence})
+	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
+	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps}, opts...)
+	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps}, opts...)
+	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)
+	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
