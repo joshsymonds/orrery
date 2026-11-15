@@ -3,8 +3,11 @@ package enginehost
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -25,6 +28,16 @@ const (
 	stepGitCleanName    = "clean"
 	stepGitOwnedName    = "owned"
 )
+
+// stepGitCheckoutName is the name of the check a read-only step's return stores when its checkout moved.
+const stepGitCheckoutName = "checkout"
+
+// stepCheckout is the state of a read-only step's checkout at one moment: its HEAD, and a sha256 over git status and
+// git diff HEAD. Ignored files are in neither, so they never change it. The zero value is no recorded state.
+type stepCheckout struct {
+	head string
+	hash string
+}
 
 // stepGit runs git in dir and returns its trimmed stdout. On failure the error carries git's stderr. Like proc and
 // the gate runner, it builds the argument vector itself: git runs with argv and no shell.
@@ -159,4 +172,94 @@ func stepGitListPaths(prefix string, entries []string) string {
 		detail += fmt.Sprintf(" and %d more", left)
 	}
 	return detail
+}
+
+// stepGitCheckout returns the state of the checkout at dir. It reads with no optional locks, so git does not refresh the
+// index of the step's worktree.
+func stepGitCheckout(ctx context.Context, dir string) (stepCheckout, error) {
+	head, err := stepGitResolve(ctx, dir, "HEAD")
+	if err != nil {
+		return stepCheckout{}, err
+	}
+	status, err := stepGit(
+		ctx,
+		dir,
+		"--no-optional-locks",
+		"status",
+		"--porcelain=v1",
+		"-z",
+		"--untracked-files=all",
+		"--no-renames",
+	)
+	if err != nil {
+		return stepCheckout{}, err
+	}
+	diff, err := stepGit(ctx, dir, "--no-optional-locks", "diff", "HEAD")
+	if err != nil {
+		return stepCheckout{}, err
+	}
+	sum := sha256.Sum256([]byte(status + "\x00" + diff))
+	return stepCheckout{head: head, hash: hex.EncodeToString(sum[:])}, nil
+}
+
+// stepGitCheckoutCheck returns the checkout check of a read-only step's return. It passes when the checkout at dir is still
+// the state before records. Otherwise it fails with a detail that names the move, and a git error fails it closed.
+func stepGitCheckoutCheck(ctx context.Context, dir string, before stepCheckout) stepCheck {
+	now, err := stepGitCheckout(ctx, dir)
+	if err != nil {
+		return stepCheck{Name: stepGitCheckoutName, Detail: fmt.Sprintf("read the checkout: %v", err)}
+	}
+	if now == before {
+		return stepCheck{Name: stepGitCheckoutName, OK: true, Detail: "checkout is as the step started it"}
+	}
+	detail, err := stepGitCheckoutMove(ctx, dir, before, now)
+	if err != nil {
+		return stepCheck{Name: stepGitCheckoutName, Detail: fmt.Sprintf("read the checkout: %v", err)}
+	}
+	return stepCheck{Name: stepGitCheckoutName, Detail: detail}
+}
+
+// stepGitCheckoutMove returns the detail of a checkout at dir that moved from before to now: HEAD's move when HEAD moved,
+// and the paths changed since before. Those are the paths the commits since before changed and the paths that differ from
+// HEAD now, sorted and capped by stepGitListPaths.
+func stepGitCheckoutMove(ctx context.Context, dir string, before, now stepCheckout) (string, error) {
+	var parts, paths []string
+	if now.head != before.head {
+		parts = append(parts, fmt.Sprintf("HEAD moved from %s to %s", before.head, now.head))
+		committed, err := stepGit(ctx, dir, "diff", "--name-only", "-z", "--no-renames", before.head, now.head)
+		if err != nil {
+			return "", err
+		}
+		paths = append(paths, stepGitNULRecords(committed)...)
+	}
+	tracked, err := stepGit(ctx, dir, "--no-optional-locks", "diff", "--name-only", "-z", "--no-renames", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	untracked, err := stepGit(ctx, dir, "--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return "", err
+	}
+	paths = append(paths, stepGitNULRecords(tracked)...)
+	paths = append(paths, stepGitNULRecords(untracked)...)
+	slices.Sort(paths)
+	paths = slices.Compact(paths)
+	if len(paths) > 0 {
+		parts = append(parts, stepGitListPaths("changed paths: ", paths))
+	}
+	if len(parts) == 0 {
+		return "working tree differs from the state it started in", nil
+	}
+	return strings.Join(parts, "; "), nil
+}
+
+// stepGitNULRecords returns the NUL-terminated records of out, without the empty ones.
+func stepGitNULRecords(out string) []string {
+	var records []string
+	for _, rec := range strings.Split(out, "\x00") {
+		if rec != "" {
+			records = append(records, rec)
+		}
+	}
+	return records
 }
