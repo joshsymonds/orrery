@@ -61,6 +61,7 @@ type Epic struct {
 	WorkflowText   string
 	WorkflowSha256 string
 	PauseSource    string
+	Summary        string
 }
 
 type EpicAddition struct {

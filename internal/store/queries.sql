@@ -376,6 +376,12 @@ UPDATE epics SET changed = ? WHERE id = ?;
 -- name: SetEpicBranch :exec
 UPDATE epics SET branch = ? WHERE id = ?;
 
+-- name: ListUnsummarizedEpics :many
+SELECT * FROM epics WHERE summary = '' ORDER BY id;
+
+-- name: SetEpicSummary :exec
+UPDATE epics SET summary = ? WHERE id = ? AND summary = '';
+
 -- name: InsertEpicFailure :exec
 INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);
 
@@ -672,6 +678,9 @@ UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
+
+-- name: ListEpicTriggers :many
+SELECT * FROM epic_triggers WHERE epic = ? ORDER BY created, id;
 
 -- name: ListEpicsWithTurns :many
 SELECT * FROM epics
