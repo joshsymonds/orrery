@@ -131,8 +131,8 @@ func TestParseRefusesNode(t *testing.T) {
 	cases := []refusalCase{
 		{
 			name: "unknown kind",
-			text: lines("name: flow", "nodes:", "  - id: a", "    kind: review"),
-			want: at(4, `node a: key kind: unknown kind "review"`),
+			text: lines("name: flow", "nodes:", "  - id: a", "    kind: survey"),
+			want: at(4, `node a: key kind: unknown kind "survey"`),
 		},
 		{
 			name: "unknown key in a kind node",

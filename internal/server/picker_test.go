@@ -24,6 +24,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // pickerLabel is the label set on the synthetic pane a jump row names.
@@ -391,13 +392,18 @@ func claudeRuns(t *testing.T, runs string) int {
 	return strings.Count(string(data), "\n")
 }
 
-// awaitClaudeRuns waits until the fake claude has run want times. It has no deadline of its own.
-func awaitClaudeRuns(t *testing.T, runs string, want int) {
+// awaitClaudeRuns waits until the fake claude has run want times, the last of them in panes. It has no deadline of its
+// own, and fails at once if the process of every pane in panes exits first.
+func awaitClaudeRuns(t *testing.T, tmux *tmuxctl.Client, runs string, want int, panes ...string) {
 	t.Helper()
-	ticker := time.NewTicker(screenPoll)
-	defer ticker.Stop()
-	for claudeRuns(t, runs) != want {
-		<-ticker.C
+	exits := make([]<-chan struct{}, 0, len(panes))
+	for _, pane := range panes {
+		exits = append(exits, paneExited(t, tmux, pane))
+	}
+	what := fmt.Sprintf("fake claude run %d in panes %v", want, panes)
+	waittest.Until(t, waittest.All(exits...), what, func() bool { return claudeRuns(t, runs) >= want })
+	if got := claudeRuns(t, runs); got != want {
+		t.Fatalf("fake claude ran %d times, want %d", got, want)
 	}
 }
 
@@ -417,7 +423,7 @@ func TestPickerRunPaneRowOpensWindowInItsSessionAndAnswersThePane(t *testing.T) 
 	}
 	before := serverPaneIDs(t, tmux)
 	pane := runPane(t, handler, rows[0].GetToken())
-	awaitClaudeRuns(t, runs, 2)
+	awaitClaudeRuns(t, tmux, runs, 2, pane)
 	after := serverPaneIDs(t, tmux)
 	if !slices.Contains(after, pane) {
 		t.Fatalf("answered pane %s is not on the server: %v", pane, after)
@@ -448,7 +454,7 @@ func TestPickerRunRowForFolderWithoutSessionCreatesOneAndAnswersItsPane(t *testi
 		t.Fatalf("rows = %d, want a pane row for %s first", len(rows), folder)
 	}
 	pane := runPane(t, handler, rows[0].GetToken())
-	awaitClaudeRuns(t, runs, 2)
+	awaitClaudeRuns(t, tmux, runs, 2, pane)
 	if got := paneSession(t, tmux, pane); got != "example-dir-c" {
 		t.Errorf("answered pane %s is in session %q, want the new session example-dir-c", pane, got)
 	}
@@ -513,7 +519,7 @@ func TestPickerRunRetryAfterFailedLookupAnswersCreatedPaneWithoutRunningAgain(t 
 		t.Fatalf("after the failed lookup session example-dir-c has panes %v, want the one the action created", created)
 	}
 	pane := runPane(t, handler, rows[0].GetToken())
-	awaitClaudeRuns(t, runs, 2)
+	awaitClaudeRuns(t, tmux, runs, 2, pane)
 	if pane != created[0] {
 		t.Errorf("retry answered pane %s, want the pane the first run created, %s", pane, created[0])
 	}
@@ -557,7 +563,7 @@ func TestPickerRunRepeatAnswersSamePaneAndOpensNoSecondWindow(t *testing.T) {
 	rows := askRows(t, handler, "example text")
 	token := rows[0].GetToken()
 	first := runPane(t, handler, token)
-	awaitClaudeRuns(t, runs, 2)
+	awaitClaudeRuns(t, tmux, runs, 2, first)
 	afterFirst := serverPaneIDs(t, tmux)
 	second := runPane(t, handler, token)
 	afterSecond := serverPaneIDs(t, tmux)
@@ -603,12 +609,12 @@ func TestPickerRunConcurrentRunsOfOneTokenOpenOneWindow(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
-	awaitClaudeRuns(t, runsFile, 2)
 	for i, err := range errs {
 		if err != nil {
 			t.Fatalf("concurrent Picker.Run %d: %v", i, err)
 		}
 	}
+	awaitClaudeRuns(t, tmux, runsFile, 2, panes...)
 	if panes[0] != panes[1] {
 		t.Errorf("concurrent runs answered %q and %q, want one pane", panes[0], panes[1])
 	}
@@ -631,8 +637,8 @@ func TestPickerRunUnknownTokenAnswers404(t *testing.T) {
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
 	rows := askRows(t, handler, "example text")
-	runPane(t, handler, rows[0].GetToken())
-	awaitClaudeRuns(t, runs, 2)
+	answered := runPane(t, handler, rows[0].GetToken())
+	awaitClaudeRuns(t, tmux, runs, 2, answered)
 	_, err := runToken(t, handler, unissuedToken)
 	assertConnectError(t, err, connect.CodeNotFound, "unknown token")
 }
@@ -651,8 +657,8 @@ func TestPickerRunTokenFromAnotherHandlerAnswers404(t *testing.T) {
 	rows := askRows(t, asked, "example text")
 	_, err := runToken(t, restarted, rows[0].GetToken())
 	assertConnectError(t, err, connect.CodeNotFound, "unknown token")
-	runPane(t, asked, rows[0].GetToken())
-	awaitClaudeRuns(t, runs, 2)
+	answered := runPane(t, asked, rows[0].GetToken())
+	awaitClaudeRuns(t, tmux, runs, 2, answered)
 }
 
 func TestPickerRunExpiredTokenAnswers410AndRunsNothing(t *testing.T) {
@@ -672,8 +678,8 @@ func TestPickerRunExpiredTokenAnswers410AndRunsNothing(t *testing.T) {
 	expired := askRows(t, handler, "example text")
 
 	clock = issued.Add(5*time.Minute - time.Second)
-	runPane(t, handler, live[0].GetToken())
-	awaitClaudeRuns(t, runs, 3)
+	answered := runPane(t, handler, live[0].GetToken())
+	awaitClaudeRuns(t, tmux, runs, 3, answered)
 
 	before := serverPaneIDs(t, tmux)
 	clock = issued.Add(5 * time.Minute)
@@ -730,8 +736,8 @@ func TestPickerRunRootRowOfNewWordOpensNoFolder(t *testing.T) {
 	if rootRow == nil {
 		t.Fatalf("rows = %d, want a pane row for the root %s", len(rows), root)
 	}
-	runPane(t, handler, rootRow.GetToken())
-	awaitClaudeRuns(t, runs, 2)
+	answered := runPane(t, handler, rootRow.GetToken())
+	awaitClaudeRuns(t, tmux, runs, 2, answered)
 	if _, err := os.Stat(filepath.Join(root, "foo")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("stat foo in root: %v, want no such folder", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -52,9 +53,7 @@ func newStoreFixture(t *testing.T) *storeFixture {
 		stateHome:  stateHome,
 		dbPath:     filepath.Join(stateHome, "orrery", "orrery.db"),
 	}
-	if err := os.WriteFile(f.fakeClaude, []byte(fakeClaudeScript), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, f.fakeClaude, []byte(fakeClaudeScript), 0o700)
 	if err := os.Mkdir(f.project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
 	}
@@ -167,6 +166,7 @@ func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 		if got, want, ok := f.paneRow(t, db, pane); ok && got == want {
 			return
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }

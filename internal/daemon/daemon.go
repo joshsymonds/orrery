@@ -57,6 +57,9 @@ type Config struct {
 	// and every TidyInterval after. Nil tidies at start. Frame syncs never wait for it. If ctx is done before it
 	// closes, Serve tidies nothing.
 	TidyStart <-chan struct{}
+	// AfterTidy, when set and Mirror is set, runs on the tidy loop's goroutine after each tidy pass. It must return
+	// quickly, since the next pass waits for it. orreryd retries the notice row writes the store refused with it.
+	AfterTidy func(context.Context)
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
 	// Seen receives each seen report whose pane is set, in the connection's goroutine. Nil drops seen reports.
@@ -323,7 +326,8 @@ func (h *frameHandler) noteServer(server tmuxctl.Server) {
 }
 
 // tidyLoop tidies the servers at start, or when Config.TidyStart closes, and then every TidyInterval, or at each
-// value of Config.TidyTicks, until ctx is done. It returns without tidying when ctx is done before TidyStart closes.
+// value of Config.TidyTicks, until ctx is done, running Config.AfterTidy after each pass. It returns without tidying
+// when ctx is done before TidyStart closes.
 func (h *frameHandler) tidyLoop(ctx context.Context) {
 	if h.cfg.TidyStart != nil {
 		select {
@@ -345,6 +349,9 @@ func (h *frameHandler) tidyLoop(ctx context.Context) {
 	for {
 		for _, server := range h.tidyServers() {
 			h.cfg.Mirror.Tidy(ctx, server)
+		}
+		if h.cfg.AfterTidy != nil {
+			h.cfg.AfterTidy(ctx)
 		}
 		select {
 		case <-ctx.Done():

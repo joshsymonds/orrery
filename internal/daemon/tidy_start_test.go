@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
 // tidyStartInterval is the TidyInterval of the cancel test, whose tidy loop never starts.
@@ -70,4 +71,32 @@ func TestTidyStartNeverClosedServeReturnsOnCancel(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Serve = %v, want nil", err)
 	}
+}
+
+// TestAfterTidyRunsAfterEachTidyPass checks that AfterTidy runs once per tidy pass, at start and at each tick, and only
+// after the pass: the tidy loop waits in AfterTidy until the test takes its signal, and by then the pass has written
+// the pane's row.
+func TestAfterTidyRunsAfterEachTidyPass(t *testing.T) {
+	srv := startTidyServer(t)
+	st, db := openFrameStore(t)
+	ticks := make(chan time.Time)
+	passes := make(chan struct{})
+	serve(t, daemon.Config{
+		Server:    srv.server,
+		Mirror:    daemon.NewMirror(st, tidyClock, nil),
+		TidyTicks: ticks,
+		AfterTidy: func(context.Context) { passes <- struct{}{} },
+	})
+
+	<-passes
+	// The loop waits in AfterTidy, so no tidy runs while the test reads: the pass before it must have stamped the pane.
+	id, ok, err := srv.client.PaneOption(t.Context(), srv.pane, protocol.OptionID)
+	if err != nil || !ok {
+		t.Fatalf("pane %s id at the first AfterTidy = %q, %v, %v: AfterTidy ran before the pass", srv.pane, id, ok, err)
+	}
+	if row := mustSession(t, db, id); row.Pane != srv.pane {
+		t.Fatalf("row at the first AfterTidy = pane %q, want %q", row.Pane, srv.pane)
+	}
+	ticks <- time.Time{}
+	<-passes
 }

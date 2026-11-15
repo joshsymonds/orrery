@@ -52,7 +52,7 @@ func TestHolderIdleStopsChildAfterTimeoutWithNoController(t *testing.T) {
 
 	cfg, clock := newIdleConfig(t)
 	run := startHolder(t.Context(), t, cfg)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 	// A connection that only says hello is not a controller, so it holds nothing off.
 	dialHolder(t, run, socketOf(t, cfg.Dir)).hello(WireVersion)
 
@@ -68,7 +68,7 @@ func TestHolderIdleIsHeldOffWhileAControllerIsAttached(t *testing.T) {
 
 	cfg, clock := newIdleConfig(t)
 	run := startHolder(t.Context(), t, cfg)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 	conn := dialHolder(t, run, socketOf(t, cfg.Dir))
 	conn.hello(WireVersion)
 	conn.attachAt(0)
@@ -82,7 +82,7 @@ func TestHolderDetachRestartsTheIdleTimeoutInFull(t *testing.T) {
 
 	cfg, clock := newIdleConfig(t)
 	run := startHolder(t.Context(), t, cfg)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 	conn := dialHolder(t, run, socketOf(t, cfg.Dir))
 	conn.hello(WireVersion)
 	conn.attachAt(0)
@@ -108,7 +108,7 @@ func TestHolderIdleKillsATermproofChildOnlyAfterTheGrace(t *testing.T) {
 	// Cleanups run in reverse order, so this advance runs before startHolder waits for the holder. It ends a child that
 	// ignores SIGTERM. A test that fails before the idle stop would otherwise wait out the grace forever.
 	t.Cleanup(func() { clock.Advance(time.Hour) })
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 	conn := dialHolder(t, run, socketOf(t, cfg.Dir))
 	conn.hello(WireVersion)
 	conn.attachAt(0)

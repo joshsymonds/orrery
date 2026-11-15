@@ -69,7 +69,7 @@ func TestClearStopsRunningHolderThenRemovesDir(t *testing.T) {
 	run := startHolder(t.Context(), t, cfg)
 	sock := socketOf(t, cfg.Dir)
 	dialHolder(t, run, sock).hello(WireVersion)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	if err := Clear(t.Context(), cfg.Dir); err != nil {
 		t.Fatalf("Clear = %v, want nil", err)
@@ -248,7 +248,7 @@ func TestStopStopsRunningHolderAndKeepsDir(t *testing.T) {
 	cfg := newHolderConfig(t)
 	run := startHolder(t.Context(), t, cfg)
 	dialHolder(t, run, socketOf(t, cfg.Dir)).hello(WireVersion)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	if err := Stop(t.Context(), cfg.Dir); err != nil {
 		t.Fatalf("Stop = %v, want nil", err)

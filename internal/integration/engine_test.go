@@ -130,6 +130,7 @@ func terminate(p *orreryProcess) {
 		return
 	default:
 	}
+	p.asked.Store(true)
 	_ = p.cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case <-p.done:
@@ -180,6 +181,11 @@ func (f *engineFixture) waitForHistory(t *testing.T, id string, ready func(store
 		if err == nil && ready(history) {
 			return
 		}
+		// A failed session gives no more events, so a wait it has not satisfied would never end.
+		if err == nil && history.State == "failed" {
+			t.Fatalf("session %s failed before its history reached the wanted state; reason %q", id, history.Reason)
+		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -252,6 +258,7 @@ func fakeClaudePID(t *testing.T, dir string) int {
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
 	for syscall.Kill(pid, 0) != syscall.ESRCH {
+		stopIfFailed(t)
 		time.Sleep(pollEvery)
 	}
 }
@@ -266,6 +273,7 @@ func waitHolderEnded(t *testing.T, dir string) {
 		t.Fatalf("read holder pids in %s: %v", dir, err)
 	}
 	for syscall.Kill(pids.Holder, 0) != syscall.ESRCH {
+		stopIfFailed(t)
 		time.Sleep(pollEvery)
 	}
 }

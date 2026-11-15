@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -47,14 +48,25 @@ func (o *noticesOutput) String() string {
 	return o.buf.String()
 }
 
-// waitFor returns once the output equals want. It has no deadline of its own.
-func (o *noticesOutput) waitFor(t *testing.T, want string) {
+// waitFor returns once the output equals want. It has no deadline of its own, and fails at once when call returns first.
+func (o *noticesOutput) waitFor(t *testing.T, call noticesCall, want string) {
 	t.Helper()
 	for {
 		if got := o.String(); got == want {
 			return
 		}
-		<-o.wrote
+		// Notices writes all it writes before it returns, so once its result is queued the output is final. The result
+		// is read by its length, so it stays on the channel for call.wait.
+		if len(call.done) > 0 {
+			if got := o.String(); got != want {
+				t.Fatalf("Notices returned with output %q, want %q first", got, want)
+			}
+			return
+		}
+		select {
+		case <-o.wrote:
+		case <-time.After(pollInterval):
+		}
 	}
 }
 
@@ -169,7 +181,7 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 	if got != activity {
 		t.Fatalf("socket received %q, want %q", got, activity)
 	}
-	stdout.waitFor(t, hello+notice)
+	stdout.waitFor(t, call, hello+notice)
 
 	if err := pw.Close(); err != nil {
 		t.Fatalf("close stdin: %v", err)

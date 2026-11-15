@@ -301,7 +301,7 @@ func TestEvidenceCaptureReadoptReadsTheExitRecordOfAGateThatEndedDetached(t *tes
 		defer close(done)
 		got, runErr = c.run(ctx, repo, head, "detached", item, started)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) || !reflect.DeepEqual(got, store.EvidenceCapture{}) {
@@ -366,7 +366,7 @@ func TestEvidenceCaptureReadoptDetachesWhenItsBrokerCloses(t *testing.T) {
 		defer close(done)
 		got, runErr = c.run(t.Context(), repo, head, "broker", item, started)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	pools.drop <- grants.ErrClosed
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) || !reflect.DeepEqual(got, store.EvidenceCapture{}) {
@@ -421,7 +421,7 @@ func TestEvidenceCaptureEndsNotFinishedWhenItsContextEndsMidRun(t *testing.T) {
 		defer close(done)
 		got, runErr = c.run(ctx, repo, head, "cut", item, nil)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	cancel()
 	evidenceCaptureWait(t, done)
 	if runErr != nil {
@@ -465,7 +465,7 @@ func TestEvidenceCaptureReadoptLosesAGateWhoseWorktreeCannotBeMade(t *testing.T)
 		defer close(done)
 		got, runErr = c.run(ctx, repo, head, "unmade", item, started)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) || !reflect.DeepEqual(got, store.EvidenceCapture{}) {

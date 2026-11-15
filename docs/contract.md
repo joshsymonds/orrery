@@ -929,12 +929,13 @@ A workflow is a YAML file that names the nodes an epic's run is made of, in orde
     - `command` takes `argv`, a non-empty sequence of non-empty strings whose first item contains a `/`, `limit`, an integer of 1 or more that counts seconds, `needs`, an optional mapping from a pool name matching `^[a-z][a-z0-9_]*$` to an integer of 1 or more, and `at`.
     - `agent` takes `agent` and `prompt`, each required and not blank, `schema`, a required mapping, and `at`.
     - `at` is `base` or `head`, and is required by `gate`, `evidence`, `command` and `agent`. `base` is the epic's base, and `head` is the head of the epic's branch `epic/<slug>` (`workflow.readAt`, `interpret.revisionOf`).
+  - The epic kinds `review`, `conclude` and `release` sit only at the top level, and `closure` sits only in a loop body. Each takes no settings and no body. `review` and `conclude` report the outcome `passed`, and `closure` and `release` report `passed` and `failed`. The format registers them so a workflow can name them now; the interpreter registers none of them, so a node of one starts and then waits (see **Running** and **Reserved names**).
 - A loop node has `id`, `loop` and `body`. `loop` is a mapping of `max`, `until` and `spent`, and no other key (`workflow.readLoop`, `workflow.readLoopSettings`, `workflow.readLoopFields`, `workflow.readMax`, `workflow.readUntil`, `workflow.readSpent`):
   - `max` is required: an integer of 1 or more.
   - `until` is required: `<node id>.<outcome>`, naming a direct child of the loop's body whose kind reports that outcome.
   - `spent` is `park` or `continue`, and `park` when it is absent.
 
-  A loop sits at the top level and in a loop body. Its `body` is a non-empty sequence that holds what the top level holds: `plan`, `loop`, `include` and the check kinds.
+  A loop sits at the top level and in a loop body. Its `body` is a non-empty sequence that holds what the top level holds, `plan`, `loop`, `include` and the check kinds, and `closure`, but not `review`, `conclude` or `release`.
 - An include node has the single key `include`, the name of another workflow. It sits at the top level and in a loop body, and expansion replaces it with that workflow's nodes.
 
 The load check validates `max`, `until` and `spent`, and the interpreter enforces them when it runs a loop (see **Running**).
@@ -986,7 +987,7 @@ Its sha256 is `c1e3aa00af4e050003c2ba37afc2c9ca346233cbaed0dcab92df836c370ddf7b`
 | Refusal | When | Code |
 |---|---|---|
 | `key kind: unknown kind "<kind>"` | a `kind` names no registered kind | `workflow.readKind` |
-| `key kind: <kind> cannot sit <where>` | a kind sits where it may not: `build` or `integrate` outside a plan body, or `plan` in a plan body. `<where>` is `at the top level`, `in a loop body` or `in a plan body` | `workflow.readKind`, `workflow.kinds` |
+| `key kind: <kind> cannot sit <where>` | a kind sits where it may not: `build` or `integrate` outside a plan body, `plan` in a plan body, `review`, `conclude` or `release` anywhere but the top level, or `closure` anywhere but a loop body. `<where>` is `at the top level`, `in a loop body` or `in a plan body` | `workflow.readKind`, `workflow.kinds` |
 | `key loop: cannot sit <where>`, `key include: cannot sit <where>` | a loop or an include in a plan body | `workflow.readLoop`, `workflow.readInclude` |
 | `key kind: one of kind, loop or include is required` | a node with none of the three | `workflow.formOf` |
 | `key <form>: cannot sit beside <form>` | a node with two of the three; the second is named | `workflow.formOf` |
@@ -1030,7 +1031,7 @@ Its sha256 is `c1e3aa00af4e050003c2ba37afc2c9ca346233cbaed0dcab92df836c370ddf7b`
 
 A node run is one instance of a workflow node on an epic, stored as described in [Node runs in the store](#node-runs-in-the-store). A top-level node's path is its id. A node in a loop body in round `r` has the path `<loop path>@<r>/<id>`, and a build child of a plan run has the path `<plan path>/<build id>/T<seq>` (`interpret.pass.walk`, `interpret.pass.loop`, `interpret.pass.fanOut`). Its id is `NodeRunID` of the epic, the path, the round and a cause: the first 32 hex digits of the lowercase SHA-256 of `orrery-workflow`, the epic, the path, the round in decimal and the cause, joined with NUL bytes. The cause is `start` for a node or loop that starts, and `turn <turn> task <position>` for a build child, with the position the task's 1-based place among its turn's tasks in seq order. A later plan's trigger id is `workflow:` and the id for the cause `trigger` (`store.NodeRunID`; `interpret.pass.start`, `interpret.pass.causeOf`). The same inputs give the same id, and a start whose path or trigger id is stored already changes nothing, so a restart that decides the same rows again starts nothing twice (see [Node runs in the store](#node-runs-in-the-store)). The work of a check node run has its own ids, as `NodeWorkID` gives them: the first 32 hex digits of the lowercase SHA-256 of `orrery-workflow-work`, the node run's id, its attempt and a part, joined with NUL bytes. A gate's or command's check is named `check`, an agent's step `step`, and an evidence item by its Requirement's id. An integrate run's Done gate checks are named `done 1`, `done 2` and so on, with `done <i> rerun` for a rerun, and its captures `capture <R>`, with `capture <R> rerun` for a rerun. A node run starts at attempt `0`, and `epic retry ID NODE` reruns a parked node at its next attempt (`store.NodeWorkID`, `kinds.checkRun`, `kinds.Agent.Decide`, `kinds.Evidence.Decide`).
 
-The walk takes the top-level nodes in order. A node with no run starts, and the walk stops there, so a node starts when the one before it has ended. A parked run stops the walk. Once every top-level node has ended, the pass returns no action, so the epic keeps its phase (`interpret.Decide`, `interpret.pass.walk`). A running node is decided by its kind: an end ends its run and every running run under it, and a run hands the node on to the planner or the build (see [Planner turns](#planner-turns) and [Task builds](#task-builds); `interpret.pass.running`). A check node's kind asks for its `prepare`, `start` or `refs` work instead, which the interpreter carries out (see **Check kinds**; `interpret.Runner.work`).
+The walk takes the top-level nodes in order. A node with no run starts, and the walk stops there, so a node starts when the one before it has ended. A parked run stops the walk. Once every top-level node has ended, the pass returns no action, so the epic keeps its phase (`interpret.Decide`, `interpret.pass.walk`). A running node is decided by its kind, and a node whose kind the interpreter does not register, such as `review`, gets no action: its run stays running, parks nothing, and the walk waits there (`interpret.pass.running`). A registered kind decides: an end ends its run and every running run under it, and a run hands the node on to the planner or the build (see [Planner turns](#planner-turns) and [Task builds](#task-builds); `interpret.pass.running`). A check node's kind asks for its `prepare`, `start` or `refs` work instead, which the interpreter carries out (see **Check kinds**; `interpret.Runner.work`).
 
 A loop starts at round 1. Each round walks the loop's body, and once every node of the round has ended, the loop decides from that round. It ends when its `until` node ended with the until outcome in that round. Otherwise it moves to the next round while its rounds, `max` plus the rounds granted to it, are not spent. When they are spent, it ends if `spent` is `continue` and parks if `spent` is `park` (`interpret.pass.loop`). A park parks the loop at its round, and parks the epic with the reason `loop <id> spent its <n> rounds without <node>.<outcome>`, which is also written as a tell (`store.Store.ParkLoop`).
 
@@ -1058,6 +1059,45 @@ A loop starts at round 1. Each round walks the loop's body, and once every node 
 The interpreter adds no pause or park rule of its own, except that a check's `prepare` waits while the epic is paused or parked (see **Check kinds**). A paused or parked epic's node runs start and end as usual, and the planner and the build keep their own rules (`planner.Decide`; see [Planner turns](#planner-turns) and [Task builds](#task-builds)).
 
 **Restart of check nodes.** Before the interpreter's first pass, `orreryd` takes up the open checks (`cmd/orreryd.sessionHost.startNodeChecks`, `cmd/orreryd.startSessions`; `enginehost.NodeChecks.Resume`). A check stored with a grant re-adopts its gate under that grant, and ends `failed` with `lost at a restart` when the gate cannot be re-adopted (`enginehost.NodeChecks.readoptGranted`, `enginehost.NodeChecks.readoptLost`). A check with no grant runs from the start, after its worktree is removed. A check cut before its gate launched is left running for the next start (`enginehost.NodeChecks.readoptUnlaunched`, `enginehost.NodeChecks.notStarted`). `Resume` re-reads each check before driving it, so a check that a drive ended after `Resume` listed is left alone (`enginehost.NodeChecks.Resume`, `enginehost.NodeChecks.readoptStart`). A gate that detaches under `--holder-scope` keeps running under its holder and records nothing, so the next start readopts it. An agent node's step is re-adopted when its holder is live, as any step is. Otherwise the step ends `engine_restarted` (`enginehost.Steps.Readopt`, `enginehost.Steps.Reconcile`, `enginehost.Steps.endRestarted`), and its node fails with that end as its output, so it parks as a failed top-level check does. The writes of a node run's work and outcome each change only a run still in the state they need, so a repeat changes nothing: a repeated `Run` returns the stored check, and `PrepareNode`, `RecordNodeResult`, `CheckNodeRefs`, `ParkNode` and `EndNodesWaking` each skip a run that is past their step (`enginehost.NodeChecks.Run`, `store.Store.PrepareNode`, `store.Store.RecordNodeResult`, `store.Store.CheckNodeRefs`, `store.Store.ParkNode`, `store.Store.EndNodesWaking`). An integrate run's Done gate and capture checks restart the same way, and a lost one reruns once and then parks (see **Batch integration**).
+
+**Reserved names.** These names are reserved for the engine epics that fill them, so the epics can be built in parallel without colliding. Each is contract now and has no behavior until its epic lands. Migration numbers are assigned in merge order; the names stay.
+
+| Name | What | Epic |
+|---|---|---|
+| `integrate` | kind, top level | O3d4 |
+| `review`, `conclude` | kinds, top level; registered by the format, not the interpreter | O3e2 |
+| `closure` | kind, loop body; registered by the format, not the interpreter | O3e2 |
+| `release` | kind, top level; registered by the format, not the interpreter | O3e3 |
+| `built`, `met_at_base` | phases | O3d4 |
+| `reviewing`, `correcting`, `clean`, `ended_with_gaps` | phases | O3e2 |
+| `releasing`, `released`, `done`, `stopped` | phases | O3e3 |
+| `00033_integration` | migration | O3d4 |
+| `assertions` | migration | O3d5a |
+| `guards` | migration | O3d5b |
+| `reviewers` | migration | O3e1 |
+| `review_ledger` | migration | O3e2 |
+| `release` | migration | O3e3 |
+| `questions` | migration | attention |
+| `ledger` | trigger cause | O3e2 |
+| `repro <R>` | work part | O3d5b |
+| `reviewer <n>`, `verify <n> <k>`, `close <id>` | work parts | O3e2 |
+| `release <pos>`, `judge` | work parts | O3e3 |
+| `ReleaseEpic` | RPC of `orrery.engine.v1.Epics`, not yet declared | O3e3 |
+| `FollowEpics` | RPC of `orrery.engine.v1.Epics`, not yet declared | attention |
+| `EvidenceItem` 7 `kind`, 8 `tests` | reserved proto fields | O3d5a |
+| `EpicTask` 22 `contributes` | reserved proto field | O3d5a |
+| `EpicTask` 23 `test_changes`, 24 `guard` | reserved proto fields | O3d5b |
+| `EpicRequirement` 6 `owner`, 7 `contributors`, 8 `state` | reserved proto fields | O3d5a |
+| `EpicRequirement` 9 `disagreement` | reserved proto field | O3d5b |
+| `EpicTaskFinding` 7 `unverified` | reserved proto field | O3e1 |
+| `EpicContract` 21 `reviewers`, `StoredEpic` 14 `reviewers` | reserved proto fields | O3e1 |
+| `StoredEpic` 15 `ledger`, 16 `frozen`, 17 `clean` | reserved proto fields | O3e2 |
+| `StoredEpic` 18 `releases`, 19 `release_slot` | reserved proto fields | O3e3 |
+| `EpicQuestion` 5 to 10 | reserved proto field numbers; attention names them | attention |
+| `AnswerEpicRequest` 5 `choice` | reserved proto field | attention |
+| `orrery.v1.EpicsGetResponse` 13 `ledger`, 14 `releases`, 15 `reviews` | reserved proto fields | O3e4 |
+
+The built-in workflow takes its final shape in O3d4: a red evidence check at base, `plan` holding `build` and `integrate`, `review`, a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) over a `plan` and `closure`, `conclude`, then `release`. Until O3e2 lands, an epic on it waits at `review`. The proto fields above are held by `reserved` statements in `proto/orrery/engine/v1/epic.proto` and `proto/orrery/v1/epics.proto`, each with a comment naming its epic, and each epic replaces its reservation with a typed field when it builds. The Go names `evidence.Kind`, `evidence.Item.Kind`, `evidence.Item.Tests`, `evidence.Current` and `interpret.Ending` are declared now and follow the same rule.
 
 #### Planner turns
 

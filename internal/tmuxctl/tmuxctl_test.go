@@ -2,7 +2,9 @@ package tmuxctl_test
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,7 +81,8 @@ func waitForExec(t *testing.T, client *tmuxctl.Client, pane, want string) {
 	}
 }
 
-// paneExeced reports whether the process tmux started for pane has exec'd want: its /proc comm is want.
+// paneExeced reports whether the process tmux started for pane has exec'd want: its /proc comm is want. It fails the
+// test if the process has exited, since it can exec nothing more.
 func paneExeced(t *testing.T, client *tmuxctl.Client, pane, want string) bool {
 	t.Helper()
 	out, err := client.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
@@ -87,6 +90,9 @@ func paneExeced(t *testing.T, client *tmuxctl.Client, pane, want string) bool {
 		t.Fatalf("pane %s pane_pid: %v", pane, err)
 	}
 	comm, err := os.ReadFile(filepath.Join("/proc", strings.TrimSpace(out), "comm"))
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("pane %s never exec'd %s: its process exited first", pane, want)
+	}
 	return err == nil && strings.TrimSpace(string(comm)) == want
 }
 

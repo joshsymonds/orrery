@@ -145,7 +145,7 @@ func TestEvidenceReadoptCaptureRecordedWhenCtxEndsBeforeItsRecord(t *testing.T) 
 		defer close(done)
 		_, runErr = c.run(ctx, repo, head, evidenceRecordRun, item, started)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) {

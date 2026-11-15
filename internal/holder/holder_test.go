@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 const (
@@ -196,16 +198,15 @@ func (c *client) setDeadline() {
 }
 
 // awaitChildPid waits for the fake child to write its pid into childDir and returns it. The fake renames the file into
-// place, so a read sees the whole pid.
-func awaitChildPid(t *testing.T, childDir string) int {
+// place, so a read sees the whole pid. It fails at once if run, the holder that starts the child, ends first.
+func awaitChildPid(t *testing.T, run *running, childDir string) int {
 	t.Helper()
 	name := filepath.Join(childDir, fakePidName)
-	for {
-		if _, err := os.Stat(name); err == nil {
-			return readChildPid(t, name)
-		}
-		time.Sleep(holderPoll)
-	}
+	waittest.Until(t, run.done, "child pid in "+name, func() bool {
+		_, err := os.Stat(name)
+		return err == nil
+	})
+	return readChildPid(t, name)
 }
 
 // readExitFile returns the exit record in the holder dir dir.
@@ -255,7 +256,7 @@ func awaitLockFree(t *testing.T, dir string) {
 // The kernel lists /proc/locks a page at a time and walks its lock lists again, by position, for each page, so a lock
 // released before the holder's line between two pages shifts that line past the next page's start and one read can miss
 // it. The holder holds its lock all along, so heldLockID reads the table again until the line is there, with no
-// deadline of its own.
+// deadline of its own. It fails at once if the holder has stopped running, since its lock is gone with it.
 func heldLockID(t *testing.T, dir string) string {
 	t.Helper()
 	pids, err := ReadPids(dir)
@@ -276,6 +277,9 @@ func heldLockID(t *testing.T, dir string) string {
 			if fields[4] == strconv.Itoa(pids.Holder) && strings.HasSuffix(fields[5], inode) {
 				return fields[5]
 			}
+		}
+		if !procRunning(t, pids.Holder, pids.HolderStart) {
+			t.Fatalf("holder %d never listed its session lock in /proc/locks: it stopped first", pids.Holder)
 		}
 		time.Sleep(holderPoll)
 	}
@@ -383,7 +387,7 @@ func TestHolderStopEndsChildGroupThenWritesExitAndAnswersStopped(t *testing.T) {
 	sock := socketOf(t, cfg.Dir)
 	conn := dialHolder(t, run, sock)
 	conn.hello(WireVersion + 1)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	conn.send(Frame{Type: TypeStop})
 	if got := conn.read(); got.Type != TypeStopped {
@@ -426,7 +430,7 @@ func TestHolderSecondHolderIsLockedOutAndFirstKeepsServing(t *testing.T) {
 	run := startHolder(t.Context(), t, cfg)
 	sock := socketOf(t, cfg.Dir)
 	dialHolder(t, run, sock).hello(WireVersion)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	if err := Run(t.Context(), cfg); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second Run = %v, want ErrLocked", err)
@@ -489,7 +493,7 @@ func TestHolderContextEndStopsChildWithReasonStopped(t *testing.T) {
 	run := startHolder(ctx, t, cfg)
 	sock := socketOf(t, cfg.Dir)
 	dialHolder(t, run, sock).hello(WireVersion)
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	cancel()
 	if err := run.wait(t); err != nil {
