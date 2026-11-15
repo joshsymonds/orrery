@@ -108,7 +108,7 @@ func TestEpicsGetRedactsBuildTaskText(t *testing.T) {
 		Reviews: []*enginev1.EpicTaskReview{{
 			Attempt: 1, Gate: "review-gate", Step: "step-review-1", Verdict: "fails",
 			Findings: []*enginev1.EpicTaskFinding{{
-				Id: "F1", Claim: "Authorization: Bearer EXAMPLEBEARERTOKEN",
+				Id: "ghp_EXAMPLE0123456789abcdefABCDEF0123", Claim: "Authorization: Bearer EXAMPLEBEARERTOKEN",
 				Location: "OPENAI_KEY=sk-EXAMPLEKEY0123456789abcd", Step: "step-verify-1", Result: "dropped",
 				Reason: "token ghp_EXAMPLE0123456789abcdefABCDEF0123 ok",
 			}},
@@ -132,6 +132,7 @@ func TestEpicsGetRedactsBuildTaskText(t *testing.T) {
 	check("title", task.GetTitle(), "[redacted]")
 	check("red judge_reason", task.GetRed().GetJudgeReason(), "[redacted]")
 	check("red not_captured", task.GetRed().GetNotCaptured(), "SLACK_TOKEN=[redacted]")
+	check("finding id", finding.GetId(), "[redacted]")
 	check("finding claim", finding.GetClaim(), "Authorization: [redacted]")
 	check("finding location", finding.GetLocation(), "OPENAI_KEY=[redacted]")
 	check("finding reason", finding.GetReason(), "token [redacted] ok")

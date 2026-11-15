@@ -7,8 +7,8 @@ import (
 )
 
 // epicBuildTaskMessages converts each task of an orreryd epic's plan to its EpicBuildTask, in order. The title is
-// redacted, and so are each finding's claim, location and reason. A red or green run is converted by epicBuildRunMessage.
-// A run the task does not name is absent.
+// redacted, and so are each finding's id, claim, location and reason. A red or green run is converted by
+// epicBuildRunMessage. A run the task does not name is absent.
 func epicBuildTaskMessages(tasks []*enginev1.EpicTask) []*orreryv1.EpicBuildTask {
 	out := make([]*orreryv1.EpicBuildTask, 0, len(tasks))
 	for _, task := range tasks {
@@ -47,7 +47,7 @@ func epicTaskReviewMessages(reviews []*enginev1.EpicTaskReview) []*orreryv1.Epic
 		findings := make([]*orreryv1.EpicTaskFinding, 0, len(review.GetFindings()))
 		for _, finding := range review.GetFindings() {
 			findings = append(findings, &orreryv1.EpicTaskFinding{
-				Id:       finding.GetId(),
+				Id:       redact.Text(finding.GetId()),
 				Claim:    redact.Text(finding.GetClaim()),
 				Location: redact.Text(finding.GetLocation()),
 				Step:     finding.GetStep(),
