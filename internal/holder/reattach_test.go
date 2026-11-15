@@ -285,9 +285,11 @@ func TestReattachOfAHolderThatHasEndedIsGone(t *testing.T) {
 	if err := p1.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
+	lockID := heldLockID(t, dir)
 	if err := Stop(t.Context(), dir); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	awaitLockUnheld(t, lockID)
 	if _, _, err := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(err, ErrGone) {
 		t.Fatalf("Reattach of an ended holder = %v, want ErrGone", err)
 	}
@@ -495,7 +497,11 @@ func TestReattachStreamsFromItsOffsetAndAcksAtOrAboveTheAttachedFrame(t *testing
 func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	t.Parallel()
 
-	p1, dir := launchHolder(t, launchRoot(t), launchChild(t, "read line; "+exitTailChild))
+	// The child reads the write, then waits for the release file before it ends, so the controller detaches before the
+	// child ends and the end is read by the lock watch, not from an exit frame. A controller still attached at the end
+	// would also remove the holder's directory.
+	child := launchChild(t, "read line; while [ ! -e "+launchReleaseFile+" ]; do sleep 0.01; done; "+exitTailChild)
+	p1, dir := launchHolder(t, launchRoot(t), child)
 	if err := p1.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
@@ -503,14 +509,13 @@ func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reattach: %v", err)
 	}
-	// The write releases the child, and the controller detaches before the child ends, so the end is read by the lock
-	// watch, not from an exit frame.
 	if got := awaitWrite(t, startWrite(p2, []byte("go\n"))); got.err != nil {
-		t.Fatalf("write to release the child: %v", got.err)
+		t.Fatalf("write to the child: %v", got.err)
 	}
 	if err = p2.Detach(); err != nil {
 		t.Fatalf("Detach the reattached controller: %v", err)
 	}
+	writeChildFile(t, child.Dir, launchReleaseFile, nil)
 	held, ok := p2.held.(*attachedHolder)
 	if !ok {
 		t.Fatalf("held process is %T, want *attachedHolder", p2.held)
