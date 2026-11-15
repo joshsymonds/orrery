@@ -358,7 +358,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if err != nil {
 		return fmt.Errorf("push store: %w", err)
 	}
-	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout})
+	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout}, nil)
 	if err != nil {
 		return fmt.Errorf("push publisher: %w", err)
 	}
