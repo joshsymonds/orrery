@@ -285,7 +285,9 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	if err := os.Mkdir(judgeLog, 0o700); err != nil {
 		t.Fatalf("make judge log directory: %v", err)
 	}
-	if err := os.Link(filepath.Join(judgeDir, "fakeclaude.stdin"), filepath.Join(judgeLog, "fakeclaude.stdin")); err != nil {
+	if err := os.Link(
+		filepath.Join(judgeDir, "fakeclaude.stdin"), filepath.Join(judgeLog, "fakeclaude.stdin"),
+	); err != nil {
 		t.Fatalf("link the judge's stdin log: %v", err)
 	}
 

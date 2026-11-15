@@ -74,7 +74,7 @@ func ReattachGate(ctx context.Context, dir string, opts ...ReattachOption) (*Pro
 	return p, err
 }
 
-// reattach does the work of Reattach and ReattachGate, attaching at version with the settings in o. The Process removes
+// reattach does the work of Reattach and ReattachGate, attaching at version under settings. The Process removes
 // remove once the holder has ended, or keeps its directory when remove is empty.
 func reattach(
 	ctx context.Context,
@@ -82,7 +82,7 @@ func reattach(
 	replayFrom int64,
 	version int,
 	remove string,
-	o reattachOptions,
+	settings reattachOptions,
 ) (*Process, []string, error) {
 	lockPath := filepath.Join(dir, LockName)
 	lock, err := os.OpenFile(filepath.Clean(lockPath), os.O_RDWR, 0)
@@ -103,7 +103,7 @@ func reattach(
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
-	conn, attached, err := attachBounded(ctx, sock, replayFrom, version, o.attachTimeout)
+	conn, attached, err := attachBounded(ctx, sock, replayFrom, version, settings.attachTimeout)
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
