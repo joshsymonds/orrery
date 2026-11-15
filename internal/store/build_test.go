@@ -49,12 +49,13 @@ func buildTaskOf(t *testing.T, s *Store, seq int64) EpicTask {
 	return EpicTask{}
 }
 
-// addBuildRun stores a captured run id of buildEpic in phase, as RunTask does before a build names it.
+// addBuildRun stores a captured run id of buildEpic in phase, as RunTask does before a build names it. Its spec is
+// the evidence plannedBuildEpic stored for task 1, the item the run is under.
 func addBuildRun(t *testing.T, s *Store, id, phase string) {
 	t.Helper()
 	if err := s.AddEvidenceRun(context.Background(), EvidenceRun{
 		ID: id, Epic: buildEpic, Item: "T1", Revision: "abc1234", Phase: phase, Source: "captured",
-		Spec: runItem(), Created: runCreatedAt(),
+		Spec: plannedTurn().Tasks[0].Evidence, Created: runCreatedAt(),
 	}); err != nil {
 		t.Fatalf("AddEvidenceRun %s: %v", id, err)
 	}

@@ -53,7 +53,7 @@ type EpicTurn struct {
 // Requirements it covers, the Requirements it contributes to, its gate, its evidence item and its status. Turn is the
 // seq of the turn that planned it.
 // Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
-// its build names, nil when it names none.
+// its build names, nil when it names none or when the run is not current with Evidence.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -226,7 +226,8 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 }
 
 // taskOf returns the task a stored row holds, with the files, Requirements, contributions and reviews stored under it,
-// its evidence item decoded, its build state, and the evidence runs its build names as red and green.
+// its evidence item decoded, its build state, and the evidence runs its build names as red and green, each kept only
+// while its spec is current with the evidence item.
 func taskOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -248,14 +249,18 @@ func taskOf(
 		if runErr != nil {
 			return EpicTask{}, fmt.Errorf("task %d red run: %w", stored.Seq, runErr)
 		}
-		task.Red = &run
+		if evidence.Current(run.Spec, item) {
+			task.Red = &run
+		}
 	}
 	if task.Build.GreenRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.GreenRun)
 		if runErr != nil {
 			return EpicTask{}, fmt.Errorf("task %d green run: %w", stored.Seq, runErr)
 		}
-		task.Green = &run
+		if evidence.Current(run.Spec, item) {
+			task.Green = &run
+		}
 	}
 	return task, nil
 }
