@@ -14,8 +14,7 @@ import (
 	"sync"
 
 	"github.com/pressly/goose/v3"
-	// The blank import registers the pure-Go "sqlite" driver with database/sql.
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
@@ -27,7 +26,8 @@ var ErrTooNew = errors.New("store schema is newer than this binary")
 
 // Store is an open orrery SQLite store.
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	connector *trackedConnector
 
 	liveMu     sync.Mutex
 	engineLive func() []string
@@ -82,6 +82,9 @@ type Option func(*openConfig)
 
 type openConfig struct {
 	synchronous Synchronous
+	// connectGate and closeWaiting are the trackedConnector's gate and waiting. They are for tests and nil otherwise.
+	connectGate  func(context.Context)
+	closeWaiting func()
 }
 
 // WithSynchronous sets the connection's synchronous mode in place of SQLite's default, FULL. It is for tests: OFF
@@ -121,21 +124,29 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	}
 
 	dsn := (&url.URL{Scheme: "file", Path: clean, RawQuery: query}).String()
-	db, err := sql.Open("sqlite", dsn)
+	inner, err := sqlite.NewConnector(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
+	connector := &trackedConnector{inner: inner, gate: cfg.connectGate, waiting: cfg.closeWaiting}
+	db := sql.OpenDB(connector)
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, connector: connector}
 	if err = s.migrate(ctx); err != nil {
-		return nil, errors.Join(err, db.Close())
+		return nil, errors.Join(err, s.Close())
 	}
 	return s, nil
 }
 
-// Close closes the store.
+// Close closes the store and returns once every connection it opened is closed, so the database's files are settled
+// when it returns. database/sql opens a connection on its own goroutine when one is discarded, an interrupted one for
+// instance, while another call waits for it, and DB.Close does not wait for that open. Close refuses new connections
+// first, then closes the pool, then waits for the connections still open, which close as their calls return them.
 func (s *Store) Close() error {
-	if err := s.db.Close(); err != nil {
+	s.connector.beginClose()
+	err := s.db.Close()
+	s.connector.wait()
+	if err != nil {
 		return fmt.Errorf("close store: %w", err)
 	}
 	return nil
