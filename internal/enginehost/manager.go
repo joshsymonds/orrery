@@ -31,6 +31,10 @@ var ErrCapReached = errors.New("session cap reached")
 // ErrNoSession reports an id with no engine row, or a Stop, Answer or Interrupt of a session that is not live.
 var ErrNoSession = errors.New("no such session")
 
+// ErrNotResumable reports a Resume of an engine row that is not interrupted, or whose session has no Claude session to
+// resume. The error's text says which.
+var ErrNotResumable = errors.New("session cannot be resumed")
+
 // ErrBadDir reports a Start whose directory is not an absolute path to an existing directory.
 var ErrBadDir = errors.New("session directory must be an existing absolute directory")
 
@@ -527,6 +531,26 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 		return fmt.Errorf("say to session %s: %w", req.ID, err)
 	}
 	return m.send(ctx, live, store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID})
+}
+
+// Resume sends resumePrompt to the session id as its next prompt, through Say, so that its interrupted turn continues
+// on its Claude session. It returns an error wrapping ErrNoSession when no engine row has id, and an error wrapping
+// ErrNotResumable, saying which condition failed, when the row is not interrupted or has no Claude session. A refused
+// Resume sends nothing.
+func (m *Manager) Resume(ctx context.Context, id string) error {
+	row, err := m.engineRow(ctx, id)
+	if err != nil {
+		return fmt.Errorf("resume session %s: %w", id, err)
+	}
+	if row.State != stateInterrupted {
+		return fmt.Errorf(
+			"resume session %s: %w: its state is %s, not %s", id, ErrNotResumable, row.State, stateInterrupted,
+		)
+	}
+	if row.ClaudeSession == "" {
+		return fmt.Errorf("resume session %s: %w: it has no Claude session", id, ErrNotResumable)
+	}
+	return m.Say(ctx, SayRequest{ID: id, Text: resumePrompt})
 }
 
 // send records prompt as the next prompt of live, with the working state, and then sends its text. live must have its

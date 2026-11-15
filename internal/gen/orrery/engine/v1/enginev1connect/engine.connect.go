@@ -45,6 +45,8 @@ const (
 	EngineStopProcedure = "/orrery.engine.v1.Engine/Stop"
 	// EngineSeenProcedure is the fully-qualified name of the Engine's Seen RPC.
 	EngineSeenProcedure = "/orrery.engine.v1.Engine/Seen"
+	// EngineResumeProcedure is the fully-qualified name of the Engine's Resume RPC.
+	EngineResumeProcedure = "/orrery.engine.v1.Engine/Resume"
 )
 
 // EngineClient is a client for the orrery.engine.v1.Engine service.
@@ -64,6 +66,9 @@ type EngineClient interface {
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen marks a session's conversation as read.
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
+	// Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
+	// has no Claude session to resume, is refused.
+	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
 }
 
 // NewEngineClient constructs a client for the orrery.engine.v1.Engine service. By default, it uses
@@ -113,6 +118,12 @@ func NewEngineClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(engineMethods.ByName("Seen")),
 			connect.WithClientOptions(opts...),
 		),
+		resume: connect.NewClient[v1.ResumeRequest, v1.ResumeResponse](
+			httpClient,
+			baseURL+EngineResumeProcedure,
+			connect.WithSchema(engineMethods.ByName("Resume")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -124,6 +135,7 @@ type engineClient struct {
 	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
+	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
 }
 
 // Start calls orrery.engine.v1.Engine.Start.
@@ -156,6 +168,11 @@ func (c *engineClient) Seen(ctx context.Context, req *connect.Request[v1.SeenReq
 	return c.seen.CallUnary(ctx, req)
 }
 
+// Resume calls orrery.engine.v1.Engine.Resume.
+func (c *engineClient) Resume(ctx context.Context, req *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error) {
+	return c.resume.CallUnary(ctx, req)
+}
+
 // EngineHandler is an implementation of the orrery.engine.v1.Engine service.
 type EngineHandler interface {
 	// Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
@@ -173,6 +190,9 @@ type EngineHandler interface {
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen marks a session's conversation as read.
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
+	// Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
+	// has no Claude session to resume, is refused.
+	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
 }
 
 // NewEngineHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -218,6 +238,12 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(engineMethods.ByName("Seen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engineResumeHandler := connect.NewUnaryHandler(
+		EngineResumeProcedure,
+		svc.Resume,
+		connect.WithSchema(engineMethods.ByName("Resume")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Engine/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngineStartProcedure:
@@ -232,6 +258,8 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 			engineStopHandler.ServeHTTP(w, r)
 		case EngineSeenProcedure:
 			engineSeenHandler.ServeHTTP(w, r)
+		case EngineResumeProcedure:
+			engineResumeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -263,4 +291,8 @@ func (UnimplementedEngineHandler) Stop(context.Context, *connect.Request[v1.Stop
 
 func (UnimplementedEngineHandler) Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Seen is not implemented"))
+}
+
+func (UnimplementedEngineHandler) Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Resume is not implemented"))
 }

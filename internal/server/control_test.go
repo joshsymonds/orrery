@@ -108,6 +108,16 @@ func (f *fakeEngine) Interrupt(
 	return connect.NewResponse(&enginev1.InterruptResponse{}), nil
 }
 
+func (f *fakeEngine) Resume(
+	ctx context.Context,
+	req *connect.Request[enginev1.ResumeRequest],
+) (*connect.Response[enginev1.ResumeResponse], error) {
+	if err := f.answer(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.ResumeResponse{}), nil
+}
+
 func (f *fakeEngine) Stop(
 	ctx context.Context,
 	req *connect.Request[enginev1.StopRequest],

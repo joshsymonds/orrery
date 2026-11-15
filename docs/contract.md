@@ -612,10 +612,11 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 | `Interrupt` | `id` | the session is live |
 | `Stop` | `id` | the session is live |
 | `Seen` | `id` | the session has a row |
+| `Resume` | `id` | the session has a row in state `interrupted` and a Claude session. The call sends `Resume working.` as the session's next prompt, through `Say`, so the turn continues on that Claude session |
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
-`Say`, `Answer`, `Interrupt` and `Stop` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
+`Say`, `Answer`, `Interrupt`, `Stop` and `Resume` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`, `enginehost.service.Resume`). `Resume` is refused as `failed_precondition` when its row is not `interrupted`, or has no Claude session; the message names which, as `resume session <id>: session cannot be resumed: its state is <state>, not interrupted` or `resume session <id>: session cannot be resumed: it has no Claude session` (`enginehost.Manager.Resume`, `enginehost.ErrNotResumable`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
 
 Errors are Connect codes:
 
@@ -625,7 +626,7 @@ Errors are Connect codes:
 | `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
 | `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
 | `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, a `model` or `id` that does not fit its rule, or an answer that does not fit the open request |
-| `failed_precondition` | `Say`, `Answer`, `Interrupt` or `Stop` names a step id (see the paragraph above the table) |
+| `failed_precondition` | `Say`, `Answer`, `Interrupt`, `Stop` or `Resume` names a step id (see the paragraph above the table), or `Resume` names a session that is not `interrupted` or has no Claude session |
 | `internal` | any other failure, including a call made while `orreryd` is shutting down |
 
 #### Lifecycle rules

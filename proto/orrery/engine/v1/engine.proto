@@ -25,6 +25,10 @@ service Engine {
 
   // Seen marks a session's conversation as read.
   rpc Seen(SeenRequest) returns (SeenResponse);
+
+  // Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
+  // has no Claude session to resume, is refused.
+  rpc Resume(ResumeRequest) returns (ResumeResponse);
 }
 
 // StartRequest asks for a new headless session.
@@ -106,3 +110,12 @@ message SeenRequest {
 
 // SeenResponse acknowledges a seen mark. It has no fields.
 message SeenResponse {}
+
+// ResumeRequest asks for an interrupted session's turn to resume.
+message ResumeRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// ResumeResponse acknowledges a resume. It has no fields.
+message ResumeResponse {}
