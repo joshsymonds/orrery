@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // evidenceRecordRun is the id of the run the record tests drive.
@@ -110,7 +111,7 @@ func TestEvidenceCaptureRecordedWhenCtxEndsBeforeItsRecord(t *testing.T) {
 	if err := resumed.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	judged := evidenceRunSettled(t, st, evidenceRecordRun)
+	judged := evidenceRunSettled(t, engineOf(ev, resumed), st, evidenceRecordRun)
 	if judged.Verdict != evidence.VerdictHolds || !judged.Passed || judged.Judges != 1 || judges.startCount() != 1 {
 		t.Fatalf(
 			"run after Resume = verdict %q passed %t judges %d starts %d, want holds, passed, one judge, one start",
@@ -199,7 +200,7 @@ func TestEvidenceReadoptCaptureRecordedWhenCtxEndsBeforeItsRecord(t *testing.T) 
 	if err := resumed.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	judged := evidenceRunSettled(t, st, evidenceRecordRun)
+	judged := evidenceRunSettled(t, engineOf(ev, resumed), st, evidenceRecordRun)
 	if judged.Verdict != evidence.VerdictHolds || !judged.Passed || judged.Judges != 1 || judges.startCount() != 1 {
 		t.Fatalf(
 			"run after Resume = verdict %q passed %t judges %d starts %d, want holds, passed, one judge, one start",
@@ -230,7 +231,8 @@ func TestEvidenceCaptureCutShortBeforeItsGateLaunchesIsLeftForARestart(t *testin
 		defer close(done)
 		ev.drive(ctx, repo, stored)
 	}()
-	evidenceRunEventually(t, "the grant is requested", func() bool { return len(queued.requested()) == 1 })
+	// The test drives the run itself, outside ev's drives, so the wait ends with that drive.
+	waittest.Until(t, done, "the grant is requested", func() bool { return len(queued.requested()) == 1 })
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 
@@ -248,7 +250,7 @@ func TestEvidenceCaptureCutShortBeforeItsGateLaunchesIsLeftForARestart(t *testin
 	if err := resumed.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	judged := evidenceRunSettled(t, st, evidenceRecordRun)
+	judged := evidenceRunSettled(t, engineOf(ev, resumed), st, evidenceRecordRun)
 	if judged.Verdict != evidence.VerdictHolds || !judged.Passed || judged.Judges != 1 || judges.startCount() != 1 {
 		t.Fatalf(
 			"run after Resume = verdict %q passed %t judges %d starts %d, want holds, passed, one judge, one start",
@@ -290,7 +292,7 @@ func TestEvidenceSuppliedReadCutShortIsLeftForARestart(t *testing.T) {
 	if err := resumed.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	judged := evidenceRunSettled(t, st, evidenceRecordRun)
+	judged := evidenceRunSettled(t, engineOf(ev, resumed), st, evidenceRecordRun)
 	if judged.NotCaptured != "" || len(judged.Artifacts) != 1 || judged.Artifacts[0].State != artifactKept ||
 		judged.Verdict != evidence.VerdictHolds || judges.startCount() != 1 {
 		t.Fatalf(
