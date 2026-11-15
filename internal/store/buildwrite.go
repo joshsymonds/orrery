@@ -117,17 +117,6 @@ func (s *Store) ParkEpic(ctx context.Context, epic, reason string, at time.Time)
 	})
 }
 
-// Tell adds text to epic as its next tell, numbered one past its highest and not yet told. An unknown epic is
-// ErrNoEpic and writes nothing.
-func (s *Store) Tell(ctx context.Context, epic, text string, at time.Time) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if _, err := epicHead(ctx, queries, epic); err != nil {
-			return err
-		}
-		return insertTell(ctx, queries, epic, text, at)
-	})
-}
-
 // SetEpicBranch stores state as the branch state of epic. An unknown epic is ErrNoEpic.
 func (s *Store) SetEpicBranch(ctx context.Context, epic, state string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {

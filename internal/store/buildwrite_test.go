@@ -96,6 +96,16 @@ func openBuildStore(ctx context.Context, t *testing.T) (*store.Store, *sql.DB) {
 	return s, raw
 }
 
+// tellBuildEpic adds text to buildEpic as a tell written at at, through the write the ref check tells through: task 1 is
+// stored with the build it already has, so only the tell is new.
+func tellBuildEpic(ctx context.Context, t *testing.T, s *store.Store, text string, at time.Time) {
+	t.Helper()
+	build := store.TaskBuild{}
+	if err := s.SetTaskBuildTelling(ctx, buildEpic, 1, build, build, []string{text}, at); err != nil {
+		t.Fatalf("SetTaskBuildTelling of %q: %v", text, err)
+	}
+}
+
 // buildTaskOf returns task 1 of buildEpic as the store reads it.
 func buildTaskOf(ctx context.Context, t *testing.T, s *store.Store) store.EpicTask {
 	t.Helper()
@@ -295,17 +305,13 @@ func TestParkEpicOfUnknownEpicIsErrNoEpicAndWritesNothing(t *testing.T) {
 	}
 }
 
-func TestTellNumbersTellsFromOneAndUnknownEpicIsErrNoEpic(t *testing.T) {
+func TestSetTaskBuildTellingNumbersTellsFromOneAndUnknownEpicIsErrTaskMoved(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openBuildStore(ctx, t)
 
-	if err := s.Tell(ctx, buildEpic, "first", writtenAt()); err != nil {
-		t.Fatalf("Tell first: %v", err)
-	}
-	if err := s.Tell(ctx, buildEpic, "second", writtenAt()); err != nil {
-		t.Fatalf("Tell second: %v", err)
-	}
+	tellBuildEpic(ctx, t, s, "first", writtenAt())
+	tellBuildEpic(ctx, t, s, "second", writtenAt())
 
 	want := [][]any{
 		{int64(1), "first", writtenAt().Unix(), int64(0)},
@@ -315,9 +321,12 @@ func TestTellNumbersTellsFromOneAndUnknownEpicIsErrNoEpic(t *testing.T) {
 		t.Errorf("tells = %v, want %v", got, want)
 	}
 
-	err := s.Tell(ctx, "orrery-1a2b3c4/epic-missing", "no such epic", writtenAt())
-	if !errors.Is(err, store.ErrNoEpic) {
-		t.Errorf("Tell of unknown epic err = %v, want ErrNoEpic", err)
+	unknown := store.TaskBuild{}
+	err := s.SetTaskBuildTelling(
+		ctx, "orrery-1a2b3c4/epic-missing", 1, unknown, unknown, []string{"no such epic"}, writtenAt(),
+	)
+	if !errors.Is(err, store.ErrTaskMoved) {
+		t.Errorf("SetTaskBuildTelling of unknown epic err = %v, want ErrTaskMoved", err)
 	}
 }
 

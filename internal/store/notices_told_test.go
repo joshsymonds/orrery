@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
 // toldRowOf is the epic notice row the told tests put: a row of id 1 under claimEpic, with told as its mark.
@@ -15,8 +17,8 @@ func toldRowOf(told *ToldMark) NoticeRow {
 	}
 }
 
-// endTurnOfClaimEpic claims the next turn of claimEpic and completes it as work, so the epic has one ended, untold
-// turn.
+// endTurnOfClaimEpic claims the next turn of claimEpic and completes it as work with one planned task, so the epic has
+// one ended, untold turn and a planned task its tells are written to.
 func endTurnOfClaimEpic(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -24,7 +26,14 @@ func endTurnOfClaimEpic(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
-	if err := s.CompleteTurn(ctx, claimEpic, turn.Seq, EpicPlan{Outcome: "work"}, completedAt()); err != nil {
+	plan := EpicPlan{Outcome: "work", Tasks: []EpicTaskInput{{
+		Title: "Write the tell", Deliverable: "the tell lands", Files: []string{"a.go"},
+		Requirements: []string{"R1"}, Gate: "check",
+		Evidence: evidence.Item{
+			Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the tell lands", Judge: "read it",
+		},
+	}}}
+	if err := s.CompleteTurn(ctx, claimEpic, turn.Seq, plan, completedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
 }
@@ -90,8 +99,10 @@ func TestPutNoticeMarksItsTellToldInTheWriteThatStoresTheRow(t *testing.T) {
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 	endTurnOfClaimEpic(t, s)
-	if err := s.Tell(ctx, claimEpic, "synthetic tell", claimedAt()); err != nil {
-		t.Fatalf("Tell: %v", err)
+	if err := s.SetTaskBuildTelling(
+		ctx, claimEpic, 1, TaskBuild{}, TaskBuild{}, []string{"synthetic tell"}, claimedAt(),
+	); err != nil {
+		t.Fatalf("SetTaskBuildTelling: %v", err)
 	}
 
 	if err := s.PutNotice(ctx, toldRowOf(&ToldMark{Epic: claimEpic, Seq: 1, Tell: true})); err != nil {
@@ -131,8 +142,10 @@ func TestPutNoticeWithAMarkOfAMissingTellStoresNothingAndMarksNothing(t *testing
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 	endTurnOfClaimEpic(t, s)
-	if err := s.Tell(ctx, claimEpic, "synthetic tell", claimedAt()); err != nil {
-		t.Fatalf("Tell: %v", err)
+	if err := s.SetTaskBuildTelling(
+		ctx, claimEpic, 1, TaskBuild{}, TaskBuild{}, []string{"synthetic tell"}, claimedAt(),
+	); err != nil {
+		t.Fatalf("SetTaskBuildTelling: %v", err)
 	}
 
 	err := s.PutNotice(ctx, toldRowOf(&ToldMark{Epic: claimEpic, Seq: 2, Tell: true}))
