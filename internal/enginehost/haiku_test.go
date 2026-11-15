@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -52,9 +53,7 @@ cat "$dir/stderr" >&2
 exit %d
 `, dir, f.extra, f.status)
 	path := filepath.Join(dir, "claude")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
 }
 

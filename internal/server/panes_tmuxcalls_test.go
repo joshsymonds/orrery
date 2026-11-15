@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -93,9 +94,7 @@ func installTmuxShim(t *testing.T) string {
 	dir := t.TempDir()
 	count := filepath.Join(dir, "calls")
 	script := "#!/bin/sh\necho call >> " + shellQuote(count) + "\nexec " + shellQuote(tmuxPath) + " \"$@\"\n"
-	if err = os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0o700); err != nil {
-		t.Fatalf("write tmux shim: %v", err)
-	}
+	exectest.WriteFile(t, filepath.Join(dir, "tmux"), []byte(script), 0o700)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return count
 }
