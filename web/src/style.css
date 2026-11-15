@@ -392,6 +392,7 @@ button, input, textarea, select { font-family: var(--mono); }
 .composer textarea {
   flex: 1 1 auto; min-width: 0; padding: 0; resize: vertical;
   background: none; border: 0; outline: 0; font: 15.5px/1.45 var(--mono);
+  field-sizing: content; max-height: calc(8 * 1.45em); overflow-y: auto;
 }
 .composer textarea::placeholder { color: var(--overlay0); }
 .composer .go {

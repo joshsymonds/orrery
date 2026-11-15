@@ -209,6 +209,14 @@ test("the composer's send button is a 24px mauve square with crust text", () => 
   assert.match(go, /color:\s*var\(--crust\);/);
 });
 
+test("both composer textareas size to their content, cap at 8 lines of their 1.45 line height, then scroll", () => {
+  const box = declarationsFor(css, ".composer textarea");
+  assert.match(box, /(?<![-\w])field-sizing:\s*content;/);
+  assert.match(box, /font:\s*15\.5px\/1\.45 var\(--mono\);/);
+  assert.match(box, /(?<![-\w])max-height:\s*calc\(8 \* 1\.45em\);/);
+  assert.match(box, /overflow-y:\s*auto;/);
+});
+
 test("the queue docks onto the composer: its top corners and the composer's bottom corners are 10px", () => {
   assert.match(declarationsFor(css, ".compose .queue"), /border-radius:\s*10px 10px 0 0;/);
   assert.match(declarationsFor(css, ".compose .queue + .composer"), /border-radius:\s*0 0 10px 10px;/);
