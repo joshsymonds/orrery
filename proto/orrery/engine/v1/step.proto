@@ -274,6 +274,10 @@ message StepCheck {
 
   // The tail of the check's stderr, redacted.
   string stderr = 6;
+
+  // The file a failed gate check's output was kept in, stdout then stderr, each redacted, under the gate state
+  // directory. Empty for any other check.
+  string log = 7;
 }
 
 // StepVerdict is one verdict the step's monitor or judge gave.
