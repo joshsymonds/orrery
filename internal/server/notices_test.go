@@ -58,6 +58,9 @@ func (f *fakeNoticesEngine) Seen(
 	f.seen = append(f.seen, req.Msg)
 	f.mu.Unlock()
 	f.hold(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.seenErr != nil {
 		return nil, f.seenErr
 	}
