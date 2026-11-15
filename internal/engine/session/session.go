@@ -139,10 +139,12 @@ func newSession(process Process, written []string) *Session {
 
 // ReadoptOptions says where a re-adopted session resumes. From is the stdout offset the process's stdout begins at,
 // Consumed the offset the controller has consumed, and Written the write ids the holder has applied to the process's
-// stdin.
+// stdin. Owed is how many prompts the previous controller wrote to the holder after the session's newest turn end, which
+// no turn has answered yet; it is never negative.
 type ReadoptOptions struct {
 	From, Consumed int64
 	Written        []string
+	Owed           int
 }
 
 // Readopt re-adopts a session whose process's stdout begins at opts.From. It reads and observes the lines from From up
@@ -152,6 +154,7 @@ type ReadoptOptions struct {
 // with Stop when it has no Detach, so that a holder keeps running.
 func Readopt(ctx context.Context, process Process, opts ReadoptOptions) (*Session, []Line, error) {
 	session := newSession(process, opts.Written)
+	session.unanswered.owe(opts.Owed)
 	lines, err := session.replay(ctx, opts)
 	if err != nil {
 		return nil, nil, errors.Join(err, terminate(process, session.transport, true))
@@ -230,24 +233,33 @@ func (s *Session) Prompt(writeID, text string) error {
 	})
 }
 
-// UnansweredPrompts returns how many prompts the session sent that no turn has answered. It is safe to call from any
-// goroutine.
+// UnansweredPrompts returns how many prompts the session sent, or owes as a re-adopted session (see ReadoptOptions.Owed),
+// that no turn has answered. It is safe to call from any goroutine.
 func (s *Session) UnansweredPrompts() int {
 	return s.unanswered.count()
 }
 
-// unansweredPrompts is the set of prompts the session sent that no turn has answered, by uuid. Prompt records each
-// send and the reader records each turn's end, so every access is guarded by mu. A turn can end before Prompt records
-// the send it answers, because the send is recorded once the write returns. The early set holds those answers, so the
-// send is not counted when it is recorded.
+// unansweredPrompts is the set of prompts the session sent that no turn has answered, by uuid, plus the owed prompts a
+// re-adopted session was given: the prompts the previous controller wrote to the holder that no turn has answered, which
+// the session did not send and so holds no uuid for. Prompt records each send and the reader records each turn's end, so
+// every access is guarded by mu. A turn can end before Prompt records the send it answers, because the send is recorded
+// once the write returns. The early set holds those answers, so the send is not counted when it is recorded.
 type unansweredPrompts struct {
 	mu    sync.Mutex
 	open  map[string]bool
 	early map[string]bool
+	owed  int
 }
 
 func newUnansweredPrompts() *unansweredPrompts {
 	return &unansweredPrompts{open: make(map[string]bool), early: make(map[string]bool)}
+}
+
+// owe sets how many owed prompts the session holds, before its reader runs.
+func (u *unansweredPrompts) owe(n int) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.owed = n
 }
 
 // sent records that the session sent the user message uuid, unless a turn already answered it.
@@ -261,25 +273,28 @@ func (u *unansweredPrompts) sent(uuid string) {
 	u.open[uuid] = true
 }
 
-// answer records that a turn answered the user messages uuids. A message that was not recorded as sent is kept in
-// early.
+// answer records that a turn answered the user messages uuids. A message that was not recorded as sent is one of the
+// owed prompts while owed is above 0, which it lowers. Otherwise it is kept in early.
 func (u *unansweredPrompts) answer(uuids []string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	for _, uuid := range uuids {
-		if u.open[uuid] {
+		switch {
+		case u.open[uuid]:
 			delete(u.open, uuid)
-		} else {
+		case u.owed > 0:
+			u.owed--
+		default:
 			u.early[uuid] = true
 		}
 	}
 }
 
-// count returns how many sent user messages no turn has answered.
+// count returns how many sent user messages no turn has answered, plus the owed prompts no turn has answered.
 func (u *unansweredPrompts) count() int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return len(u.open)
+	return len(u.open) + u.owed
 }
 
 // Interrupt writes an interrupt request for the turn in progress, under a fresh random id.

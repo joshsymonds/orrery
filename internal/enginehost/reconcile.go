@@ -236,11 +236,12 @@ func (m *Manager) drainGone(ctx context.Context, row store.EngineRow, dir string
 
 // readopt re-adopts the session of row from its holder in dir. It reads the spec the session is registered with, attaches
 // the holder at row's replay-from, replays the stdout from there to row's consumed offset, and registers the session live,
-// primed from that replay (see prime). A holder one version older than the controller's is re-adopted as well, but its
-// session is draining, so it is retired once no turn runs (see retireLocked); a step is retired at its hand-off and keeps
-// its step slot for its id. It takes a slot without the cap check, since the holder's process already runs: a step slot for
-// a step, and a session slot otherwise. A failure after the holder is attached ends the session with Detach, which leaves
-// the holder running for the caller to clear.
+// primed from that replay (see prime). It owes the session the prompts the previous controller left unanswered (see
+// owedPrompts). A holder one version older than the controller's is re-adopted as well, but its session is draining, so it
+// is retired once no turn runs (see retireLocked); a step is retired at its hand-off and keeps its step slot for its id. It
+// takes a slot without the cap check, since the holder's process already runs: a step slot for a step, and a session slot
+// otherwise. A failure after the holder is attached ends the session with Detach, which leaves the holder running for the
+// caller to clear.
 func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) error {
 	sp, err := m.readoptSpec(ctx, row)
 	if err != nil {
@@ -250,9 +251,13 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	if err != nil {
 		return fmt.Errorf("attach holder of session %s: %w", row.ID, err)
 	}
+	owed, err := m.owedPrompts(ctx, row.ID, written)
+	if err != nil {
+		return errors.Join(err, process.Detach())
+	}
 	draining := process.Version() == m.holderVersion-1
 	sess, lines, err := session.Readopt(ctx, process, session.ReadoptOptions{
-		From: row.ReplayFrom, Consumed: row.Consumed, Written: written,
+		From: row.ReplayFrom, Consumed: row.Consumed, Written: written, Owed: owed,
 	})
 	if err != nil {
 		return fmt.Errorf("replay session %s: %w", row.ID, err)
@@ -276,6 +281,22 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 		return errors.Join(fmt.Errorf("register session %s: %w", row.ID, err), sess.Detach())
 	}
 	return nil
+}
+
+// owedPrompts returns how many prompts the previous controller wrote to the holder of session id after the session's
+// newest turn end, which no turn has answered and which the re-adopted session did not send. It is the store's count less
+// the prompts sendUnwritten sends, since Prompt counts those itself, and never below 0. written holds the write ids the
+// holder has applied.
+func (m *Manager) owedPrompts(ctx context.Context, id string, written []string) (int, error) {
+	after, err := m.store.HolderPromptsAfterTurnEnd(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("count prompts of session %s after its turn end: %w", id, err)
+	}
+	prompts, err := m.store.HolderPrompts(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("read prompts of session %s: %w", id, err)
+	}
+	return max(after-len(unwrittenPrompts(prompts, written)), 0), nil
 }
 
 // readoptSpec returns the spec the session of row is registered with when it is re-adopted. An engine session has none. A
