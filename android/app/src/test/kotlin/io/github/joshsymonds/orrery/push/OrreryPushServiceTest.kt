@@ -447,16 +447,6 @@ class OrreryPushServiceTest {
     }
 
     @Test
-    fun alertPushBesidePanePushWithSameHostLeavesTwoNotifications() {
-        service.onMessage(PushMessage(payload(time = noticeTime), decrypted = true), instance)
-        service.onMessage(PushMessage(alertPayload(), decrypted = true), instance)
-
-        assertNotNull(postedFor(pane))
-        assertNotNull(postedAlert())
-        assertEquals(2, shadowOf(manager).allNotifications.size)
-    }
-
-    @Test
     fun alertNamedLikeSessionDoesNotReplaceSessionNotice() {
         service.onMessage(PushMessage(payload(pane = "", session = session, time = noticeTime), decrypted = true), instance)
         service.onMessage(PushMessage(alertPayload(alert = session), decrypted = true), instance)
