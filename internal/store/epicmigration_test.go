@@ -565,9 +565,10 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	}
 }
 
-// TestEpicTaskCheckRestoredByEvidenceMigrationDown stores a task with an evidence item at migration 20 and reads its
-// conclusion back as task_check after the Down of 00020_evidence.sql, which drops gate and evidence.
-func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
+// TestEvidenceMigrationDownAndUp removes the epic gate tables, the base and item columns, and the task gate and evidence
+// with the Down of 00020_evidence.sql, and Up restores them. The task it stores with an evidence item reads its
+// conclusion back as task_check after the Down. The walk down to 19 is shared by both reads, since it is the slow part.
+func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -587,10 +588,10 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
+
 	if _, err := provider.DownTo(ctx, 19); err != nil {
 		t.Fatalf("DownTo 19: %v", err)
 	}
-
 	var check string
 	if err := s.db.QueryRowContext(ctx, `SELECT task_check FROM epic_tasks WHERE seq = 1`).Scan(&check); err != nil {
 		t.Fatalf("read task_check after Down: %v", err)
@@ -600,27 +601,6 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	}
 	if columns := columnsOf(t, s, "epic_tasks"); hasAny(columns, "gate", "evidence") {
 		t.Errorf("epic_tasks columns after Down = %v, want no gate or evidence", columns)
-	}
-}
-
-// TestEvidenceMigrationDownAndUp removes the epic gate tables and the base and item columns with the Down of
-// 00020_evidence.sql, and Up restores them.
-func TestEvidenceMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 19); err != nil {
-		t.Fatalf("DownTo 19: %v", err)
 	}
 	tables := tableNames(t, s)
 	if tables["epic_gates"] || tables["epic_gate_lists"] {
