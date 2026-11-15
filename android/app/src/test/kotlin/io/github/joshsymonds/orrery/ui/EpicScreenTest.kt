@@ -68,13 +68,21 @@ class EpicScreenTest {
             .setStatus(status)
             .build()
 
+    private fun gateCheck(
+        name: String,
+        ok: Boolean,
+        stdout: String = "",
+        stderr: String = "",
+    ): EpicStepCheck =
+        EpicStepCheck.newBuilder().setName(name).setOk(ok).setStdout(stdout).setStderr(stderr).build()
+
     private fun step(
         id: String,
         task: String,
         agent: String,
         end: String,
         held: Boolean = false,
-        checks: List<Pair<String, Boolean>> = emptyList(),
+        checks: List<EpicStepCheck> = emptyList(),
     ): EpicStep {
         val builder = EpicStep.newBuilder()
             .setId(id)
@@ -87,8 +95,8 @@ class EpicScreenTest {
             .setEnded(if (end.isEmpty()) 0L else CHANGED - 60)
             .setDoing("")
             .setReason("")
-        checks.forEachIndexed { index, (name, ok) ->
-            builder.addChecks(EpicStepCheck.newBuilder().setRound(index + 1).setName(name).setOk(ok))
+        checks.forEachIndexed { index, check ->
+            builder.addChecks(check.toBuilder().setRound(index + 1))
         }
         return builder.build()
     }
@@ -147,6 +155,9 @@ class EpicScreenTest {
 
     private fun countNodes(matcher: SemanticsMatcher): Int =
         composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
+
+    private fun countIn(tag: String, matcher: SemanticsMatcher): Int =
+        countNodes(matcher and hasAnyAncestor(hasTestTag(tag)))
 
     private fun awaitText(text: String) {
         composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasText(text)) > 0 }
@@ -259,7 +270,7 @@ class EpicScreenTest {
                             "example-task-1",
                             "example-agent",
                             "",
-                            checks = listOf("example-check" to true, "other-check" to false),
+                            checks = listOf(gateCheck("example-check", true), gateCheck("other-check", false)),
                         ),
                         step("example-step-2", "", "other-agent", "", held = true),
                     ),
@@ -286,7 +297,7 @@ class EpicScreenTest {
                 body(
                     steps = listOf(
                         step("example-step-1", "", "example-agent", ""),
-                        step("example-step-2", "", "other-agent", "checks_failed", checks = listOf("example-check" to false)),
+                        step("example-step-2", "", "other-agent", "checks_failed", checks = listOf(gateCheck("example-check", false))),
                         step("example-step-3", "", "third-agent", "done"),
                     ),
                 ),
@@ -304,6 +315,48 @@ class EpicScreenTest {
             assertEquals(1, countNodes(hasTestTag("step-row:example-step-3")))
             assertEquals(1, countNodes(hasText("checks_failed")))
             assertEquals(1, countNodes(hasTestTag("pip:failed") and hasAnyAncestor(hasTestTag("step-row:example-step-2"))))
+        }
+    }
+
+    @Test
+    fun aFailedGateCheckShowsItsTwoTailsUnderItsStepLineEachUnderItsLabelAndAPassingCheckNone() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(
+                    steps = listOf(
+                        step(
+                            "example-step-1",
+                            "example-task-1",
+                            "example-agent",
+                            "checks_failed",
+                            checks = listOf(
+                                gateCheck(
+                                    "example-check",
+                                    false,
+                                    stdout = "example stdout tail",
+                                    stderr = "example stderr tail",
+                                ),
+                                gateCheck("passing-check", true, stdout = "example passing tail"),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            setScreen(server)
+            awaitText("1 ended steps")
+            clickTag("ended-steps")
+
+            val stdoutTail = "check-tail:example-step-1:0:stdout"
+            val stderrTail = "check-tail:example-step-1:0:stderr"
+            assertEquals(1, countIn(stdoutTail, hasText("stdout")))
+            assertEquals(1, countIn(stdoutTail, hasText("example stdout tail")))
+            assertEquals(0, countIn(stdoutTail, hasText("example stderr tail")))
+            assertEquals(1, countIn(stderrTail, hasText("stderr")))
+            assertEquals(1, countIn(stderrTail, hasText("example stderr tail")))
+            assertEquals(0, countIn(stderrTail, hasText("example stdout tail")))
+            assertEquals(0, countNodes(hasText("example passing tail")))
+            assertEquals(0, countNodes(hasTestTag("check-tail:example-step-1:1:stdout")))
         }
     }
 
