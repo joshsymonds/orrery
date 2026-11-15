@@ -103,9 +103,8 @@ message EpicContract {
   // The names of the agent gates that review the epic.
   repeated string review_gates = 20;
 
-  // Reserved for O3e1 (reviewers).
-  reserved 21;
-  reserved "reviewers";
+  // The reviewers the epic declares. Each merges by name over orrery's defaults and the project file.
+  repeated EpicReviewer reviewers = 21;
 }
 
 // EpicFailure is one failure the epic guards against.
@@ -136,6 +135,46 @@ message EpicAddition {
 
   // What the addition costs.
   string cost = 4;
+}
+
+// EpicReviewer is one reviewer. In the contract it is the epic's layer: an optional key left unset keeps the value the
+// layer below sets, and an empty repeated field is unset. In the stored epic it is a merged reviewer.
+message EpicReviewer {
+  // The reviewer's name: lowercase letters, digits and underscores, starting with a letter, at most 48 bytes.
+  string name = 1;
+
+  // Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
+  optional bool enabled = 2;
+
+  // The stages the reviewer runs at: task, epic, or both.
+  repeated string stage = 3;
+
+  // The statements the reviewer's return must show hold.
+  repeated string must = 4;
+
+  // The statements the reviewer's return must show do not hold.
+  repeated string must_not = 5;
+
+  // The role the reviewer runs under. Required when model is set.
+  optional string prompt = 6;
+
+  // The agent the reviewer runs, an agent claude already has. Set beside neither model, tools nor effort.
+  optional string agent = 7;
+
+  // The model the reviewer runs on, under an inline agent named from the reviewer. Never set beside agent.
+  optional string model = 8;
+
+  // The tools the reviewer may use. Never set beside agent.
+  repeated string tools = 9;
+
+  // The effort the reviewer runs at: low, medium, high, xhigh or max. Never set beside agent.
+  optional string effort = 10;
+
+  // The reviewer's time limit in seconds.
+  optional int64 limit = 11;
+
+  // Whether the reviewer's findings go to a verifier. Off, each finding counts as confirmed and is marked unverified.
+  optional bool verify = 12;
 }
 
 // EpicRequirement is one requirement: a thing that will be true when the epic is done.
@@ -503,9 +542,9 @@ message EpicTaskFinding {
   // Why the verification gave its result.
   string reason = 6;
 
-  // Reserved for O3e1 (unverified).
-  reserved 7;
-  reserved "unverified";
+  // Whether the finding was confirmed without a verifier: a review with verify off confirms its findings and marks
+  // each one unverified.
+  bool unverified = 7;
 }
 
 // EpicQuestion is one question a planner turn asked.
@@ -649,9 +688,13 @@ message StoredEpic {
   // workflow does not hold after the others. Every epic RPC that returns the epic fills it.
   repeated EpicNode nodes = 13;
 
-  // Reserved for O3e1 (reviewers), O3e2 (ledger, frozen, clean) and O3e3 (releases, release_slot).
-  reserved 14 to 19;
-  reserved "reviewers", "ledger", "frozen", "clean", "releases", "release_slot";
+  // The epic's reviewers, merged from orrery's defaults, the project file and the contract, in the order their names
+  // first appear.
+  repeated EpicReviewer reviewers = 14;
+
+  // Reserved for O3e2 (ledger, frozen, clean) and O3e3 (releases, release_slot).
+  reserved 15 to 19;
+  reserved "ledger", "frozen", "clean", "releases", "release_slot";
 }
 
 // EpicSummary is an epic's head fields, without its contract.
