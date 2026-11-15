@@ -121,9 +121,16 @@ func TestStepsResumeSendsOwnerResumePrompt(t *testing.T) {
 		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
 	)
 
-	history := waitHistory(t, rig.path, id, "the resume prompt recorded", func(h store.EngineHistory) bool {
-		return slices.Contains(conversationOf(t, h), "prompt: "+stepResumePrompt)
-	})
+	history := waitHistory(
+		t,
+		engineOf(rig.manager, rig.steps),
+		rig.path,
+		id,
+		"the resume prompt recorded",
+		func(h store.EngineHistory) bool {
+			return slices.Contains(conversationOf(t, h), "prompt: "+stepResumePrompt)
+		},
+	)
 	if !slices.Contains(conversationOf(t, history), "prompt: "+stepResumePrompt) {
 		t.Fatalf("conversation = %q, want the owner resume prompt", conversationOf(t, history))
 	}

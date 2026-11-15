@@ -106,9 +106,16 @@ func TestReconcileLeavesStoppingDrainingRowToItsPump(t *testing.T) {
 	}
 
 	hold.open()
-	waitHistory(t, rig.path, id, "the done state of the trickled turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the trickled turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	waitUntil(t, engineOf(rig.manager, restarted), "the pump of session "+id+" to end", func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()

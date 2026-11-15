@@ -42,11 +42,18 @@ func TestStepAskIsDeniedWithoutAnswer(t *testing.T) {
 	obs := &stepObserver{}
 	startDenyStep(t, m, "ASK", obs)
 
-	history := waitHistory(t, path, stepA, "the step's answered reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake answered 1")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the step's answered reply block",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake answered 1")
+		},
+	)
 	requireNeverWaits(t, history)
-	waitHistory(t, path, stepA, "the step's done state", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's done state", func(h store.EngineHistory) bool {
 		return lastState(t, h) == string(protocol.StateDone)
 	})
 	waitReturns(t, obs, 1)
@@ -58,11 +65,18 @@ func TestStepPermitIsDeniedWithoutAnswer(t *testing.T) {
 	obs := &stepObserver{}
 	startDenyStep(t, m, "PERMIT", obs)
 
-	history := waitHistory(t, path, stepA, "the step's denied reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake denied 1")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the step's denied reply block",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake denied 1")
+		},
+	)
 	requireNeverWaits(t, history)
-	waitHistory(t, path, stepA, "the step's done state", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's done state", func(h store.EngineHistory) bool {
 		return lastState(t, h) == string(protocol.StateDone)
 	})
 	waitReturns(t, obs, 1)
@@ -75,7 +89,7 @@ func TestSessionAskStillWaitsForAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	history := waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
 		return h.State == string(protocol.StateWaiting)
 	})
 	if question, ok := lastQuestion(t, history); !ok || question != "Which color?" {

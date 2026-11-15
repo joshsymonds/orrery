@@ -120,9 +120,16 @@ func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
 	if err := rig.manager.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 1")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		stepA,
+		"the step's first turn done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 1")
+		},
+	)
 	pid := fakePID(t, dir)
 
 	rig.crash.refuse()
@@ -142,9 +149,16 @@ func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue of the re-adopted step: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the re-adopted step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the re-adopted step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	// Stop waits for the step's pump, so the turn end handed to the observer has arrived when it returns.
 	if err := restarted.Stop(t.Context(), stepA); err != nil {
 		t.Fatalf("Stop of the re-adopted step: %v", err)

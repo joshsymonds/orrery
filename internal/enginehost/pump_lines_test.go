@@ -338,9 +338,16 @@ func TestPumpLinesAnsweredRequestRecordsNoWaitingState(t *testing.T) {
 	line := session.Line{End: 10, Events: []session.Event{request}}
 	rig.manager.recordLine(t.Context(), live, newRecorder(chosenID), line, "")
 
-	waitHistory(t, rig.path, chosenID, "the answered request is stored", func(h store.EngineHistory) bool {
-		return countKind(h, store.EventEngineRequest) == 1
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		chosenID,
+		"the answered request is stored",
+		func(h store.EngineHistory) bool {
+			return countKind(h, store.EventEngineRequest) == 1
+		},
+	)
 	row, err := rig.store.EngineSession(t.Context(), chosenID)
 	if err != nil {
 		t.Fatalf("EngineSession: %v", err)
@@ -392,7 +399,7 @@ func TestPumpLinesExitLineStoresNoConsumedOffset(t *testing.T) {
 
 	rig.manager.recordLine(t.Context(), live, newRecorder(chosenID), exit, "")
 
-	waitHistory(t, rig.path, chosenID, "the exit is stored", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(rig.manager), rig.path, chosenID, "the exit is stored", func(h store.EngineHistory) bool {
 		return countKind(h, store.EventEngineChanged) > 0
 	})
 	for i, batch := range rig.applier.callsOf() {

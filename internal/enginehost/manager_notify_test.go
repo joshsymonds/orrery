@@ -212,13 +212,13 @@ func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the hanging reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the hanging reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake hanging 1")
 	})
 	if err := m.Interrupt(t.Context(), id); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
-	waitHistory(t, path, id, "the interrupted turn's end", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the interrupted turn's end", func(h store.EngineHistory) bool {
 		return turnEndsWithError(t, h)
 	})
 
@@ -242,7 +242,7 @@ func TestNoticeFailedCarriesRecordedReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	history := waitHistory(t, path, id, "the failed state", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the failed state", func(h store.EngineHistory) bool {
 		return h.State == "failed"
 	})
 	reason := ""
@@ -684,7 +684,7 @@ func TestAnsweredWaitingNoticeAtDeskEndsChanged(t *testing.T) {
 	waittest.Until(t, nil, "the waiting notice at the desk", func() bool {
 		return len(log.got()) == 1 && after.armed() == 1
 	})
-	waiting := waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {
+	waiting := waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
 		return h.State == "waiting"
 	})
 

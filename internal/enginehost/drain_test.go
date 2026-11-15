@@ -143,9 +143,16 @@ func TestDrainStoresDieTurnWrittenWhileDownOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the done state of the first turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		id,
+		"the done state of the first turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	row, err := rig.store.EngineSession(t.Context(), id)

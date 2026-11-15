@@ -131,9 +131,16 @@ func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	history := waitHistory(t, rig.path, id, "the done state of the trickled turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	history := waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the trickled turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	if slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is live after its turn ended, want its holder stopped", id)
 	}
@@ -162,9 +169,16 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the done state of the first turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		id,
+		"the done state of the first turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 
@@ -198,9 +212,16 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say after the stop: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the reply to the next Say", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the next Say",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	starts := fakeStarts(t, dir)
 	if len(starts) != 2 || !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", starts)
@@ -271,9 +292,16 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 	if starts := fakeStarts(t, dir); !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want the second with --resume session_1", starts)
 	}
-	waitHistory(t, rig.path, id, "the reply to the Say that waited", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the Say that waited",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	for _, n := range sink.got() {
 		if n.State == "failed" {
 			t.Fatalf("notice %+v, want the Say answered, not failed", n)
@@ -303,9 +331,16 @@ func TestReconcileKeepsOwnVersionHolderLiveAfterItsTurn(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitHistory(t, rig.path, id, "the done state of the held turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the held turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	if !slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is not live after its turn ended, want it kept for its own version", id)
 	}
@@ -368,7 +403,7 @@ func TestReconcileKeepsOneVersionOlderHolderWhileItsBackgroundTaskRuns(t *testin
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the background turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(rig.manager), rig.path, id, "the background turn done", func(h store.EngineHistory) bool {
 		return h.State == "done" && hasBlock(t, h, "fake background 1")
 	})
 	pids := holderPids(t, holderDir(t, rig.root, id))
@@ -384,9 +419,16 @@ func TestReconcileKeepsOneVersionOlderHolderWhileItsBackgroundTaskRuns(t *testin
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
 		t.Fatalf("Say BGEND: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the reply after the background task ended", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply after the background task ended",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if starts := fakeStarts(t, dir); len(starts) != 1 {
 		t.Fatalf("fake claude starts = %q, want the one start, the Say answered on the old holder", starts)
 	}

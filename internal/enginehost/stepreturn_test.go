@@ -110,7 +110,7 @@ func TestStepHandsFirstTurnToObserver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	waitReturns(t, obs, 1)
@@ -129,7 +129,7 @@ func TestStepHandsEventsToObserverInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	waitReturns(t, obs, 1)
@@ -168,7 +168,7 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the background turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the background turn done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	if n := obs.returned(); n != 0 {
@@ -178,9 +178,16 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "BGEND", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue BGEND: %v", err)
 	}
-	waitHistory(t, path, stepA, "the reply after the background task ended", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
-	})
+	waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the reply after the background task ended",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
+		},
+	)
 	waitReturns(t, obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer after the task ended = %d, want 1", n)
@@ -198,15 +205,22 @@ func TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the background turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the background turn done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "BGDONE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue BGDONE: %v", err)
 	}
-	waitHistory(t, path, stepA, "the done reply while the task is listed", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake bgdone 2") && lastState(t, h) == string(protocol.StateDone)
-	})
+	waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the done reply while the task is listed",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake bgdone 2") && lastState(t, h) == string(protocol.StateDone)
+		},
+	)
 	waitReturns(t, obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer with the task listed = %d, want 1", n)
@@ -224,9 +238,16 @@ func TestStepNotDoneReturnWhileBackgroundTaskIsListedIsNotHanded(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the not-done turn done with its tasks listed", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake bgself 1") && lastState(t, h) == string(protocol.StateDone)
-	})
+	waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the not-done turn done with its tasks listed",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake bgself 1") && lastState(t, h) == string(protocol.StateDone)
+		},
+	)
 	if n := obs.returned(); n != 0 {
 		t.Fatalf("turn ends handed to the observer with tasks listed = %d, want 0", n)
 	}
@@ -247,10 +268,10 @@ func TestStepHandOffStaysBusyThroughIdleCheck(t *testing.T) {
 	if err := m.StartStep(t.Context(), StepSession{ID: stepB, Dir: dirB, Prompt: "hi", Agent: "reviewer"}); err != nil {
 		t.Fatalf("StartStep unobserved: %v", err)
 	}
-	waitHistory(t, path, stepA, "the handed-off step's reply", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the handed-off step's reply", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	waitHistory(t, path, stepB, "the unobserved step's reply", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepB, "the unobserved step's reply", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	waitReturns(t, held, 1)
@@ -283,9 +304,16 @@ func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue: %v", err)
 	}
-	history := waitHistory(t, path, stepA, "the reply to the continued prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the reply to the continued prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
+		},
+	)
 	want := []string{"prompt: hi", "reply: fake reply 1", "prompt: again", "reply: fake reply 2"}
 	if got := conversationOf(t, history); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("conversation = %q, want %q", got, want)
@@ -317,7 +345,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 	if !strings.Contains(reason, "exit status 3") || !strings.HasSuffix(reason, "fake died") {
 		t.Fatalf("exit reason = %q, want the exit status 3 and a suffix fake died", reason)
 	}
-	waitHistory(t, path, stepA, "the dead step's failed state", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the dead step's failed state", func(h store.EngineHistory) bool {
 		return h.State == "failed"
 	})
 	if n := obs.returned(); n != 1 {

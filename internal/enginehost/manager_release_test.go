@@ -21,7 +21,7 @@ func TestReleaseFreesStepSlotAndRecordsNothing(t *testing.T) {
 	if err := m.StartStep(t.Context(), step); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	waitUntil(t, engineOf(m), "the step's hand-off", func() bool { return obs.returned() == 1 })
@@ -55,7 +55,7 @@ func TestContinueRespawnsReleasedStepInItsSession(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)
@@ -68,9 +68,16 @@ func TestContinueRespawnsReleasedStepInItsSession(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue of a released step: %v", err)
 	}
-	history := waitHistory(t, path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the respawned step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	if err := m.Stop(t.Context(), stepA); err != nil {
 		t.Fatalf("Stop of the respawned step: %v", err)
 	}
@@ -96,7 +103,7 @@ func TestReleaseOfStepNotLiveReturnsNil(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)

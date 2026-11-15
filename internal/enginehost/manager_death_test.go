@@ -29,23 +29,30 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start of the session that dies: %v", err)
 	}
-	waitHistory(t, path, dead, "the dying session's first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, dead, "the dying session's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	live, err := m.Start(t.Context(), StartRequest{Dir: liveDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start of the session that keeps running: %v", err)
 	}
-	waitHistory(t, path, live, "the other session's first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, live, "the other session's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
 	if err := m.Say(t.Context(), SayRequest{ID: dead, Text: "DIE"}); err != nil {
 		t.Fatalf("Say DIE: %v", err)
 	}
-	history := waitHistory(t, path, dead, "the dead session's failed state", func(h store.EngineHistory) bool {
-		return h.State == "failed"
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		dead,
+		"the dead session's failed state",
+		func(h store.EngineHistory) bool {
+			return h.State == "failed"
+		},
+	)
 	reason := ""
 	for _, fields := range changedFields(t, history) {
 		if fields["reason"] != "" {
@@ -71,9 +78,16 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: live, Text: "again"}); err != nil {
 		t.Fatalf("Say to the other session: %v", err)
 	}
-	waitHistory(t, path, live, "the other session's reply to its next prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(m),
+		path,
+		live,
+		"the other session's reply to its next prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if state := historyOf(t, path, live).State; state == "failed" {
 		t.Fatalf("other session state after the death = %q, want it undisturbed", state)
 	}
@@ -81,7 +95,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: dead, Text: "again"}); err != nil {
 		t.Fatalf("Say to the dead session: %v", err)
 	}
-	waitHistory(t, path, dead, "the dead session's reply after resume", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, dead, "the dead session's reply after resume", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 3")
 	})
 	args := fakeArgs(t, deadDir)

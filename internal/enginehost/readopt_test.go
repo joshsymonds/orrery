@@ -236,9 +236,16 @@ func TestReadoptAskedQuestionIsAnsweredOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waiting := waitHistory(t, rig.path, id, "the waiting state", func(h store.EngineHistory) bool {
-		return h.State == "waiting"
-	})
+	waiting := waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		id,
+		"the waiting state",
+		func(h store.EngineHistory) bool {
+			return h.State == "waiting"
+		},
+	)
 	requestID := requestIDOf(t, waiting)
 
 	rig.crash.refuse()
@@ -254,12 +261,26 @@ func TestReadoptAskedQuestionIsAnsweredOnce(t *testing.T) {
 	if err := restarted.Answer(t.Context(), id, requestID, "red"); err != nil {
 		t.Fatalf("Answer red after the restart: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the answered reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake answered 1")
-	})
-	waitHistory(t, rig.path, id, "the done state after the answered turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the answered reply block",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake answered 1")
+		},
+	)
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state after the answered turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	if n := stdinLinesWith(t, dir, `"answers"`); n != 1 {
 		t.Fatalf("fake claude read %d answers, want the one answer once", n)
 	}
@@ -280,9 +301,16 @@ func TestReadoptFloodStoresEveryBlockOnce(t *testing.T) {
 
 			restartAfterCrash(t, rig)
 
-			waitHistory(t, rig.path, id, "the done state after the flood", func(h store.EngineHistory) bool {
-				return h.State == "done"
-			})
+			waitHistory(
+				t,
+				engineOf(rig.manager),
+				rig.path,
+				id,
+				"the done state after the flood",
+				func(h store.EngineHistory) bool {
+					return h.State == "done"
+				},
+			)
 			var want []string
 			for k := 1; k <= 50; k++ {
 				want = append(want, fmt.Sprintf("fake flood 1.%d", k))
@@ -309,9 +337,16 @@ func TestReadoptPairLineStoresEachBlockOnce(t *testing.T) {
 
 			restartAfterCrash(t, rig)
 
-			waitHistory(t, rig.path, id, "the done state after the pair", func(h store.EngineHistory) bool {
-				return h.State == "done"
-			})
+			waitHistory(
+				t,
+				engineOf(rig.manager),
+				rig.path,
+				id,
+				"the done state after the pair",
+				func(h store.EngineHistory) bool {
+					return h.State == "done"
+				},
+			)
 			want := []string{"fake pair 1.1", "fake pair 1.2"}
 			if got := blockTexts(t, historyOf(t, rig.path, id)); !slices.Equal(got, want) {
 				t.Fatalf("finished blocks after the restart = %q, want %q once each", got, want)
@@ -359,9 +394,16 @@ func TestReadoptWaitingRowWithNoOpenRequestGoesWorking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the done state of the first turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		id,
+		"the done state of the first turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	// The row says a question waits, but the holder's claude has no request open.
 	waiting, question := "waiting", "Which color?"
 	set := store.EngineSet{ID: id, Changes: store.EngineChanges{State: &waiting, Question: &question}}

@@ -41,9 +41,16 @@ func TestDrainFollowsSayWhileOldHolderRuns(t *testing.T) {
 		t.Fatalf("Say while the turn holds: %v", err)
 	}
 	releaseHeldTurn(t, dir)
-	waitHistory(t, rig.path, id, "the reply to the Say that followed the held turn", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the Say that followed the held turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is live after the reply's turn ended, want it retired", id)
 	}
@@ -80,9 +87,16 @@ func TestDrainFoldsSayIntoRunningTurn(t *testing.T) {
 		t.Fatalf("Say while the turn holds: %v", err)
 	}
 	releaseHeldTurn(t, dir)
-	history := waitHistory(t, rig.path, id, "the done state of the folded turn", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake fold 1")
-	})
+	history := waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the folded turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake fold 1")
+		},
+	)
 	if slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is live after the folded turn ended, want it retired", id)
 	}

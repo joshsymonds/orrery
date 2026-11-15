@@ -70,7 +70,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -80,7 +80,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of a stopped session: %v", err)
 	}
-	history := waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the resumed reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	if got := conversationOf(t, history); !reflect.DeepEqual(got,
@@ -101,7 +101,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(first), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	first.Close()
@@ -110,7 +110,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 	if err := second.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say on a second manager: %v", err)
 	}
-	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(first, second), path, id, "the resumed reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	if err := second.Seen(t.Context(), id); err != nil {
@@ -136,7 +136,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -148,7 +148,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start of the session that fills the cap: %v", err)
 	}
-	waitHistory(t, path, other, "the cap-filling reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, other, "the cap-filling reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
@@ -197,7 +197,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}
-			waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+			waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 				return hasBlock(t, h, "fake reply 1")
 			})
 			if err := m.Stop(t.Context(), id); err != nil {
@@ -242,7 +242,7 @@ func TestConcurrentSaysStartOneProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -267,7 +267,7 @@ func TestConcurrentSaysStartOneProcess(t *testing.T) {
 		}
 	}
 
-	waitHistory(t, path, id, "a reply to every concurrent prompt", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "a reply to every concurrent prompt", func(h store.EngineHistory) bool {
 		for k := 2; k <= prompts+1; k++ {
 			if !hasBlock(t, h, fmt.Sprintf("fake reply %d", k)) {
 				return false
