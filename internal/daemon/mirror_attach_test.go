@@ -12,9 +12,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// mirrorSyncDroppedMsg is the log message a dropped pane sync writes.
-const mirrorSyncDroppedMsg = "mirror sync dropped"
-
 // attachLogs collects the mirror's log output. The daemon's connection goroutines write it while the test reads it.
 type attachLogs struct {
 	mu  sync.Mutex
@@ -40,11 +37,15 @@ func newAttachLogs() (*attachLogs, *slog.Logger) {
 	return logs, slog.New(slog.NewJSONHandler(logs, nil))
 }
 
-func TestMirrorAttachFrameBeforeAndAfterOpen(t *testing.T) {
+func TestMirrorAttachFrameBeforeOpenLandsAfterOpen(t *testing.T) {
 	srv := startServer(t)
 	st, db := openFrameStore(t)
 	logs, logger := newAttachLogs()
 	m := daemon.NewPendingMirror(time.Now, logger)
+	// Every wait for the store or the lock has already expired, so the frame's sync is deferred at once.
+	expired := make(chan time.Time)
+	close(expired)
+	daemon.SetMirrorLockWait(m, func() <-chan time.Time { return expired })
 	socket := serve(t, daemon.Config{Server: srv.server, Mirror: m, Logger: logger})
 
 	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
@@ -53,17 +54,18 @@ func TestMirrorAttachFrameBeforeAndAfterOpen(t *testing.T) {
 	if rows := listSessions(t, db); len(rows) != 0 {
 		t.Fatalf("rows before Attach = %+v, want none", rows)
 	}
-	if dropped := tidyLogMessages(t, logs.snapshot(), mirrorSyncDroppedMsg); len(dropped) != 1 {
-		t.Fatalf("%q records before Attach = %d, want 1", mirrorSyncDroppedMsg, len(dropped))
+	deferred := tidyLogMessages(t, logs.snapshot(), mirrorSyncDeferredMsg)
+	if len(deferred) != 1 || deferred[0]["reason"] != "store still opening" {
+		t.Fatalf("%q records before Attach = %v, want one for the store still opening", mirrorSyncDeferredMsg, deferred)
 	}
 
+	// The deferred sync lands once the store is attached, with no further frame.
 	m.Attach(st)
+	awaitPaneRow(t, srv, db)
+
 	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
 	wantOption(t, srv, protocol.OptionState, "waiting")
-	checkPaneRow(t, srv, db)
-	if dropped := tidyLogMessages(t, logs.snapshot(), mirrorSyncDroppedMsg); len(dropped) != 1 {
-		t.Fatalf("%q records after Attach = %d, want still 1", mirrorSyncDroppedMsg, len(dropped))
-	}
+	awaitPaneRow(t, srv, db)
 }
 
 func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
@@ -118,18 +120,14 @@ func TestMirrorAttachNilIsSilent(t *testing.T) {
 	}
 }
 
-func TestMirrorAttachTidyBeforeOpenWaitsThenDrops(t *testing.T) {
+func TestMirrorAttachTidyBeforeOpenWaitsThenLandsAfterOpen(t *testing.T) {
 	srv := startServer(t)
+	st, db := openFrameStore(t)
 	logs, logger := newAttachLogs()
 	m := daemon.NewPendingMirror(time.Now, logger)
-	// The tidy's wait for the store runs on a channel the test closes, so it drops only once the test lets the wait
-	// expire.
-	armed := make(chan struct{}, 1)
-	expire := make(chan time.Time)
-	daemon.SetMirrorLockWait(m, func() <-chan time.Time {
-		armed <- struct{}{}
-		return expire
-	})
+	// The tidy's wait for the store runs on a channel the test closes, so it is deferred only once the test lets the
+	// wait expire.
+	armed, expire := expiringLockWait(m)
 
 	tidied := make(chan struct{})
 	go func() {
@@ -144,8 +142,15 @@ func TestMirrorAttachTidyBeforeOpenWaitsThenDrops(t *testing.T) {
 	}
 	close(expire)
 	<-tidied
-	if dropped := tidyLogMessages(t, logs.snapshot(), tidyDroppedMsg); len(dropped) != 1 {
-		t.Fatalf("%q records = %d, want 1", tidyDroppedMsg, len(dropped))
+	if deferred := tidyLogMessages(t, logs.snapshot(), mirrorTidyDeferredMsg); len(deferred) != 1 {
+		t.Fatalf("%q records = %d, want 1", mirrorTidyDeferredMsg, len(deferred))
 	}
 	wantOption(t, srv, protocol.OptionID, "")
+	if rows := listSessions(t, db); len(rows) != 0 {
+		t.Fatalf("rows before Attach = %+v, want none", rows)
+	}
+
+	// The deferred tidy lands once the store is attached: it mints the pane's id and writes its row.
+	m.Attach(st)
+	awaitPaneRow(t, srv, db)
 }
