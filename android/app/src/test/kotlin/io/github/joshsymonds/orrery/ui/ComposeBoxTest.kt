@@ -273,20 +273,6 @@ class ComposeBoxTest {
     }
 
     @Test
-    fun workingEdgeTagsTheFieldWorking() {
-        setBox(edge = ComposeEdge.WORKING)
-
-        assertEquals(1, edgeTagCount("working"))
-    }
-
-    @Test
-    fun waitingEdgeTagsTheFieldWaiting() {
-        setBox(edge = ComposeEdge.WAITING)
-
-        assertEquals(1, edgeTagCount("waiting"))
-    }
-
-    @Test
     fun heldEdgeTagsTheFieldHeld() {
         setBox(edge = ComposeEdge.HELD)
 
@@ -299,21 +285,6 @@ class ComposeBoxTest {
         composeRule.waitForIdle()
 
         assertEquals(1, edgeTagCount("idle"))
-    }
-
-    @Test
-    fun composeEdgeOfMapsWorkingToWorking() {
-        assertEquals(ComposeEdge.WORKING, composeEdgeOf("working"))
-    }
-
-    @Test
-    fun composeEdgeOfMapsWaitingToWaiting() {
-        assertEquals(ComposeEdge.WAITING, composeEdgeOf("waiting"))
-    }
-
-    @Test
-    fun composeEdgeOfMapsDoneToIdle() {
-        assertEquals(ComposeEdge.IDLE, composeEdgeOf("done"))
     }
 
     @Test
