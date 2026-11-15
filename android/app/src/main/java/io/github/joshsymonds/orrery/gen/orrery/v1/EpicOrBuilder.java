@@ -188,4 +188,35 @@ public interface EpicOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSourceBytes();
+
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   * @return The outcomeDetail.
+   */
+  java.lang.String getOutcomeDetail();
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   * @return The bytes for outcomeDetail.
+   */
+  com.google.protobuf.ByteString
+      getOutcomeDetailBytes();
+
+  /**
+   * <pre>
+   * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+   * effort task. False for an orreryd epic.
+   * </pre>
+   *
+   * <code>bool waiting = 12 [json_name = "waiting"];</code>
+   * @return The waiting.
+   */
+  boolean getWaiting();
 }
