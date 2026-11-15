@@ -415,7 +415,9 @@ func writeLargeSession(t *testing.T, s *store.Store, replies int) {
 }
 
 // TestSessionWatchEndsStalledReaderAtSendDeadline holds a stream blocked in its reset on a client that stops
-// reading. The send deadline must end that stream and its connection.
+// reading. The send deadline must end that stream and its connection. The listener holds the deadline the server sets
+// until the send is seen blocked, then applies it as already due, so no real deadline is waited out: a deadline that
+// fired while the test was still looking for the blocked send would end the send before it was seen.
 func TestSessionWatchEndsStalledReaderAtSendDeadline(t *testing.T) {
 	t.Parallel()
 
@@ -427,6 +429,7 @@ func TestSessionWatchEndsStalledReaderAtSendDeadline(t *testing.T) {
 		sessionsHandler(t, store.NewReader(path), nil, deadlineStalledSendTimeout),
 	)
 
+	obs.setHold(true)
 	dialed := make(chan net.Conn, 1)
 	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
 	stalled := openSessionStream(
@@ -437,6 +440,9 @@ func TestSessionWatchEndsStalledReaderAtSendDeadline(t *testing.T) {
 	stalledAddr := (<-dialed).LocalAddr().String()
 	waitStalledWrite(t, obs)
 
+	if err := obs.releaseAll(); err != nil {
+		t.Fatalf("release the stalled connection: %v", err)
+	}
 	waitClosed(t, closed, stalledAddr)
 	if err := stalled.end(t); err == nil {
 		t.Fatal("stalled stream ended cleanly, want a transport error with no end-of-stream message")

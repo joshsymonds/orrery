@@ -9,11 +9,13 @@ import (
 )
 
 // The first lines of the logs the cut-tail tests store. Each holds a synthetic GitHub token, so a read that keeps it
-// shows the token, and a log of at least evidenceCaptureLogTail bytes drops it whole.
+// shows the token, and a log as long as the capture's tail drops it whole.
 const (
 	evidenceLogsCutStdoutFirst = "ghp_EXAMPLEEXAMPLEEXAMPLE0000 went stale\n"
 	evidenceLogsCutStderrFirst = "warn: ghp_EXAMPLEEXAMPLEEXAMPLE1111 went stale\n"
 	evidenceLogsCutPlain       = "plain line\n"
+	// evidenceLogsTestTail is the capture tail the cut test reads its logs with.
+	evidenceLogsTestTail = 4096
 )
 
 // evidenceLogsCutBlob returns a log of size bytes that starts with first and continues with plain lines. The last
@@ -40,7 +42,7 @@ func evidenceLogsDiffAt(got, want string) int {
 }
 
 // evidenceLogsWantRead fails the test unless data reads as want and hash is the sha256 of data. A mismatch reports the
-// lengths and the first differing byte, not the logs, which are a mebibyte long.
+// lengths and the first differing byte, not the logs, which are kilobytes long.
 func evidenceLogsWantRead(t *testing.T, label string, data []byte, hash, want string) {
 	t.Helper()
 	if string(data) != want {
@@ -54,9 +56,9 @@ func evidenceLogsWantRead(t *testing.T, label string, data []byte, hash, want st
 }
 
 // TestEvidenceLogsReadCutTailLosesItsFirstLine reads the logs of two runs. The cut run's stdout and stderr logs are
-// stored with evidenceCaptureLogTail bytes, as a capture that filled its tail leaves them. Each reads back with its
-// first line replaced by [redacted] and every later line kept. The short run's logs are one byte shorter, so they read
-// back as redaction in place gives them, first line and all.
+// stored with evidenceLogsTestTail bytes, the tail the test gives the capture, as a capture that filled its tail leaves
+// them. Each reads back with its first line replaced by [redacted] and every later line kept. The short run's logs are
+// one byte shorter, so they read back as redaction in place gives them, first line and all.
 func TestEvidenceLogsReadCutTailLosesItsFirstLine(t *testing.T) {
 	t.Parallel()
 	repo, head := evidenceRunRepo(t, "exit 0\n")
@@ -64,13 +66,16 @@ func TestEvidenceLogsReadCutTailLosesItsFirstLine(t *testing.T) {
 	item := evidenceRunItem()
 	evidenceRunSeed(t, st, repo, item, item)
 	ev := evidenceRunNew(t, st, &evidenceLogsSteps{})
+	// The tail is a test-sized one, so the logs are a few kilobytes and not a mebibyte each: the rule under test, that a
+	// log as long as the tail lost its first line and a shorter one did not, is the same at any size.
+	ev.captures.logTail = evidenceLogsTestTail
 	cut := evidenceLogsStartRun(t, st, "run-cut", head)
 	short := evidenceLogsStartRun(t, st, "run-short", head)
 
-	cutStdout := evidenceLogsCutBlob(evidenceLogsCutStdoutFirst, evidenceCaptureLogTail)
-	cutStderr := evidenceLogsCutBlob(evidenceLogsCutStderrFirst, evidenceCaptureLogTail)
-	shortStdout := evidenceLogsCutBlob(evidenceLogsCutStdoutFirst, evidenceCaptureLogTail-1)
-	shortStderr := evidenceLogsCutBlob(evidenceLogsCutStderrFirst, evidenceCaptureLogTail-1)
+	cutStdout := evidenceLogsCutBlob(evidenceLogsCutStdoutFirst, evidenceLogsTestTail)
+	cutStderr := evidenceLogsCutBlob(evidenceLogsCutStderrFirst, evidenceLogsTestTail)
+	shortStdout := evidenceLogsCutBlob(evidenceLogsCutStdoutFirst, evidenceLogsTestTail-1)
+	shortStderr := evidenceLogsCutBlob(evidenceLogsCutStderrFirst, evidenceLogsTestTail-1)
 	records := []struct {
 		id      string
 		capture store.EvidenceCapture
