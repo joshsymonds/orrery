@@ -206,9 +206,8 @@ test("the pill's working glyph turns, and reduced motion holds it still", () => 
   assert.match(declarationsFor(reduced, ".pill .g-working"), /animation:\s*none;/);
 });
 
-test("the send foot's how line is 11.5px over overlay0", () => {
-  assert.match(declarationsFor(css, ".send .how"), /font:\s*11\.5px\/16px var\(--mono\);/);
-  assert.match(declarationsFor(css, ".send .how"), /color:\s*var\(--overlay0\);/);
+test("no rule names the send foot's how line, whose markup left the page", () => {
+  assert.doesNotMatch(css, /\.how\b/);
 });
 
 test("the composer's send button is a 24px mauve square with crust text", () => {
@@ -217,6 +216,33 @@ test("the composer's send button is a 24px mauve square with crust text", () => 
   assert.match(go, /(?<![-\w])height:\s*24px;/);
   assert.match(go, /background:\s*var\(--mauve\);/);
   assert.match(go, /color:\s*var\(--crust\);/);
+});
+
+test("a working composer's edge is a 2px inset line in yellow, and a waiting or held one's is peach", () => {
+  assert.match(declarationsFor(css, ".composer.edge-working"), /inset 2px 0 0 var\(--yellow\)/);
+  for (const selector of [".composer.edge-waiting", ".composer.edge-held"]) {
+    assert.match(declarationsFor(css, selector), /inset 2px 0 0 var\(--peach\)/, selector);
+  }
+});
+
+test("an idle composer keeps the plain surface1 ring and names no edge colour", () => {
+  assert.match(declarationsFor(css, ".composer"), /box-shadow:\s*inset 0 0 0 1px var\(--surface1\);/);
+  assert.equal(declarationsFor(css, ".composer.edge-idle"), "");
+});
+
+test("the composer's focus ring is a 1px inset mauve ring, and a focused edge keeps its colour under it", () => {
+  assert.match(declarationsFor(css, ".composer:focus-within"), /box-shadow:\s*inset 0 0 0 1px var\(--mauve\);/);
+  assert.match(
+    declarationsFor(css, ".composer.edge-working:focus-within"),
+    /box-shadow:\s*inset 2px 0 0 var\(--yellow\), inset 0 0 0 1px var\(--mauve\);/,
+  );
+  for (const selector of [".composer.edge-waiting:focus-within", ".composer.edge-held:focus-within"]) {
+    assert.match(
+      declarationsFor(css, selector),
+      /box-shadow:\s*inset 2px 0 0 var\(--peach\), inset 0 0 0 1px var\(--mauve\);/,
+      selector,
+    );
+  }
 });
 
 test("both composer textareas size to their content, cap at 8 lines of their 1.45 line height, then scroll", () => {

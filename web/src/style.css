@@ -283,8 +283,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .pill.tone-interrupted { --tone: var(--maroon); }
 .pill.tone-ended { --tone: var(--red); }
 .pill.tone-idle { color: var(--overlay1); background: var(--surface0); box-shadow: 0 0 0 1px color-mix(in srgb, var(--overlay1) 30%, transparent); }
-.send .how { margin: 0 0 7px; font: 11.5px/16px var(--mono); color: var(--overlay0); overflow-wrap: anywhere; }
-
 .reader { min-width: 0; padding: 4px 0 10px; }
 .reader-loading { margin: 0; color: var(--overlay1); }
 .reader .t { display: grid; grid-template-columns: 5ch minmax(0, 68ch); column-gap: 20px; }
@@ -390,7 +388,13 @@ button, input, textarea, select { font-family: var(--mono); }
   border-radius: 10px; overflow: hidden;
   background: var(--mantle); box-shadow: inset 0 0 0 1px var(--surface1);
 }
+/* The composer's left edge names its conversation's state: yellow while working, peach when waiting or held, and no edge
+   when idle. The focus ring stays mauve, and a focused composer keeps its edge under the ring. */
+.composer.edge-working { box-shadow: inset 2px 0 0 var(--yellow), inset 0 0 0 1px var(--surface1); }
+.composer.edge-waiting, .composer.edge-held { box-shadow: inset 2px 0 0 var(--peach), inset 0 0 0 1px var(--surface1); }
 .composer:focus-within { box-shadow: inset 0 0 0 1px var(--mauve); }
+.composer.edge-working:focus-within { box-shadow: inset 2px 0 0 var(--yellow), inset 0 0 0 1px var(--mauve); }
+.composer.edge-waiting:focus-within, .composer.edge-held:focus-within { box-shadow: inset 2px 0 0 var(--peach), inset 0 0 0 1px var(--mauve); }
 .composer textarea {
   flex: 1 1 auto; min-width: 0; padding: 0; resize: vertical;
   background: none; border: 0; outline: 0; font: 15.5px/1.45 var(--mono);
