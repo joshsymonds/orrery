@@ -841,8 +841,8 @@ func (h *sessionHost) startBuild(
 	}()
 }
 
-// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. A limit that holds
-// steps when it starts is remembered, not announced.
+// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. The marks st holds
+// say which limits a previous orreryd told, and those are not told again.
 func (h *sessionHost) startLimits(
 	ctx context.Context,
 	st *store.Store,
@@ -852,6 +852,7 @@ func (h *sessionHost) startLimits(
 	ticker := time.NewTicker(limitTick)
 	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
 		Steps:  st,
+		Told:   st,
 		Route:  router,
 		Now:    time.Now,
 		Tick:   ticker.C,
@@ -1170,12 +1171,13 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 }
 
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
-// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, an epic
-// notice through planner.RestoreNotice, a pane notice through hub's rebuildPane. So hub is built first, and cfg's
-// Rebuild is set here.
+// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a limit
+// notice through enginehost.RestoreLimitNotice, an epic notice through planner.RestoreNotice, a pane notice through
+// hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
 func newRelay(cfg route.Config, hub *relay) *relay {
 	cfg.Rebuild = map[string]route.Rebuild{
 		enginehost.SessionSource: enginehost.RestoreNotice,
+		enginehost.LimitSource:   enginehost.RestoreLimitNotice,
 		planner.EpicSource:       planner.RestoreNotice,
 		paneSourceKind:           hub.rebuildPane,
 	}
