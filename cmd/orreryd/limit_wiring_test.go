@@ -261,13 +261,20 @@ func TestSessionsHostTellsAStepLimitedAgainAfterItsResume(t *testing.T) {
 	if desk.Body != want {
 		t.Errorf("notice body after the resume = %q, want %q", desk.Body, want)
 	}
-	marks, err := st.ToldLimits(ctx)
-	if err != nil {
-		t.Fatalf("read told limits: %v", err)
-	}
-	if want := map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringBefore}}; !maps.EqualFunc(
-		marks, want, slices.Equal[[]string]) {
-		t.Fatalf("told limits = %v, want %v", marks, want)
+	// The check routes a limit's notice before it writes the limit's mark (see LimitNotices.update), so the notice can
+	// arrive before the mark is stored.
+	wantMarks := map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringBefore}}
+	for deadline := time.Now().Add(ioTimeout); ; time.Sleep(10 * time.Millisecond) {
+		marks, err := st.ToldLimits(ctx)
+		if err != nil {
+			t.Fatalf("read told limits: %v", err)
+		}
+		if maps.EqualFunc(marks, wantMarks, slices.Equal[[]string]) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("told limits = %v, want %v", marks, wantMarks)
+		}
 	}
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)

@@ -51,6 +51,11 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "after"}); err != nil {
 		t.Fatalf("Say after: %v", err)
 	}
+	// Say returns once the new holder has the prompt, which can be before its claude has started and logged its
+	// arguments. The reply to the Say comes from that claude, so its start is logged by then.
+	waitHistory(t, rig.path, id, "the reply to the Say after the stop", func(h store.EngineHistory) bool {
+		return h.State == "done" && hasBlock(t, h, "fake reply 3")
+	})
 	starts := fakeStarts(t, dir)
 	if len(starts) != 2 || !strings.Contains(starts[1], "--resume") {
 		t.Fatalf("starts = %q, want a second start with --resume", starts)
