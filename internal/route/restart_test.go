@@ -47,19 +47,24 @@ type faults struct {
 	putPhase string // PutNotice fails for a row in this phase
 	puts     bool   // every PutNotice fails
 	deletes  bool   // every DeleteNotice fails
-	block    bool   // every write blocks until its context ends
+	block    bool   // every write blocks until its store-call bound fires, which it fires at once
 }
 
-// flakyRows is a store with faults injected. Calls that are not faulted reach the real store.
+// flakyRows is a store with faults injected. Calls that are not faulted reach the real store. A blocked write fires
+// the bound its Router armed on it, from bounds, so the write is cut short as a store that hangs would be, without a
+// wall-clock wait. calls records the blocked writes in the order they were made.
 type flakyRows struct {
 	*store.Store
-	mu sync.Mutex
-	f  faults
+	t      *testing.T
+	bounds *bounds
+	mu     sync.Mutex
+	f      faults
+	calls  []string
 }
 
 func newFlakyRows(t *testing.T) *flakyRows {
 	t.Helper()
-	return &flakyRows{Store: openStore(t, filepath.Join(t.TempDir(), "orrery.db"))}
+	return &flakyRows{Store: openStore(t, filepath.Join(t.TempDir(), "orrery.db")), t: t, bounds: &bounds{t: t}}
 }
 
 func (s *flakyRows) set(f faults) {
@@ -77,8 +82,7 @@ func (s *flakyRows) current() faults {
 func (s *flakyRows) PutNotice(ctx context.Context, row store.NoticeRow) error {
 	f := s.current()
 	if f.block {
-		<-ctx.Done()
-		return fmt.Errorf("blocked put: %w", ctx.Err())
+		return s.blockOn(ctx, fmt.Sprintf("put %d", row.ID))
 	}
 	if f.puts || row.Phase == f.putPhase {
 		return errStore
@@ -89,13 +93,37 @@ func (s *flakyRows) PutNotice(ctx context.Context, row store.NoticeRow) error {
 func (s *flakyRows) DeleteNotice(ctx context.Context, id int64) error {
 	f := s.current()
 	if f.block {
-		<-ctx.Done()
-		return fmt.Errorf("blocked delete: %w", ctx.Err())
+		return s.blockOn(ctx, fmt.Sprintf("delete %d", id))
 	}
 	if f.deletes {
 		return errStore
 	}
 	return s.Store.DeleteNotice(ctx, id)
+}
+
+// blockOn records the blocked write call, fires the bound armed on it, and returns once that bound ends ctx. A write
+// with no bound armed fails the test, because only the bound can end it.
+func (s *flakyRows) blockOn(ctx context.Context, call string) error {
+	s.mu.Lock()
+	s.calls = append(s.calls, call)
+	s.mu.Unlock()
+	if !s.bounds.fireArmed() {
+		s.t.Errorf("%s blocked with no store-call bound armed", call)
+		return fmt.Errorf("blocked %s: %w", call, errStore)
+	}
+	<-ctx.Done()
+	return fmt.Errorf("blocked %s: %w", call, ctx.Err())
+}
+
+// blockedCalls runs run and returns the write calls that blocked while it ran.
+func (s *flakyRows) blockedCalls(run func()) []string {
+	s.mu.Lock()
+	start := len(s.calls)
+	s.mu.Unlock()
+	run()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.calls[start:])
 }
 
 func (s *flakyRows) NoticeIDFloor(ctx context.Context) (int64, error) {
@@ -141,7 +169,22 @@ func openStore(t *testing.T, path string) *store.Store {
 
 // newRestartRouter returns a Router wired to f that logs to logger, or discards when logger is nil. It is closed
 // when the test ends.
+// Its store-call bounds never fire, so a real store write that is slow is never read as late.
 func newRestartRouter(t *testing.T, f *fake, logger *slog.Logger) *route.Router {
+	t.Helper()
+	return storeBoundRouter(t, f, logger, &bounds{t: t})
+}
+
+// blockingRouter is newRestartRouter with its store-call bounds armed by s, so a write s blocks ends when s fires its
+// bound.
+func blockingRouter(t *testing.T, f *fake, logger *slog.Logger, s *flakyRows) *route.Router {
+	t.Helper()
+	return storeBoundRouter(t, f, logger, s.bounds)
+}
+
+// storeBoundRouter returns a Router wired to f that logs to logger, or discards when logger is nil, with its store-call
+// bounds armed by b. It is closed when the test ends.
+func storeBoundRouter(t *testing.T, f *fake, logger *slog.Logger, b *bounds) *route.Router {
 	t.Helper()
 	r := route.New(route.Config{
 		Host:       testHost,
@@ -152,6 +195,7 @@ func newRestartRouter(t *testing.T, f *fake, logger *slog.Logger) *route.Router 
 		Subscribed: f.Subscribed,
 		Log:        f,
 		Logger:     logger,
+		StoreAfter: b.after,
 	})
 	t.Cleanup(r.Close)
 	return r
@@ -207,14 +251,16 @@ func checkRows(t *testing.T, rows route.Rows, want ...store.NoticeRow) {
 	}
 }
 
-// within runs run and fails the test when it takes longer than limit.
-func within(t *testing.T, limit time.Duration, run func()) {
+// within runs run while s blocks every write and fails the test when the blocked calls it made, each costing the
+// whole store-call bound, add up to more than limit. It returns those calls.
+func within(t *testing.T, s *flakyRows, limit time.Duration, run func()) []string {
 	t.Helper()
-	start := time.Now()
-	run()
-	if elapsed := time.Since(start); elapsed > limit {
-		t.Errorf("routing took %v with the store blocked, want within %v", elapsed, limit)
+	calls := s.blockedCalls(run)
+	if cost := time.Duration(len(calls)) * boundDuration; cost > limit {
+		t.Errorf("routing made blocked store calls %q, %v at the %v bound, want within %v", calls, cost, boundDuration,
+			limit)
 	}
+	return calls
 }
 
 func TestCloseKeepsRows(t *testing.T) {
@@ -635,11 +681,11 @@ func TestRowWriteFails(t *testing.T) {
 		s := newFlakyRows(t)
 		logs := &logBuffer{}
 		f := newFake()
-		r := newRestartRouter(t, f, slog.New(slog.NewTextHandler(logs, nil)))
+		r := blockingRouter(t, f, slog.New(slog.NewTextHandler(logs, nil)), s)
 		r.Attach(ctx, s)
 
 		s.set(faults{block: true})
-		within(t, rowLimit, func() {
+		within(t, s, rowLimit, func() {
 			r.Notify(ctx, deskNotice(f))
 			r.Wait()
 		})
@@ -656,7 +702,7 @@ func TestRowWriteFails(t *testing.T) {
 		s := newFlakyRows(t)
 		f := newFake()
 		f.setWatching(true, nil)
-		r := newRestartRouter(t, f, nil)
+		r := blockingRouter(t, f, nil, s)
 		r.Attach(ctx, s)
 
 		// Five notices are stored, then each ends while every store call blocks, so each row's delete fails and waits.
@@ -671,12 +717,19 @@ func TestRowWriteFails(t *testing.T) {
 			r.Changed(notice.Key{Pane: backlogPane(i)})
 		}
 
-		// Each blocked write costs its own calls and at most one retry, not one call per failed delete.
-		within(t, rowLimit, func() {
+		// Each blocked write costs its own calls and at most one retry, not one call per failed delete: the retry pass
+		// stops at the oldest failed delete.
+		calls := within(t, s, rowLimit, func() {
 			r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, true)))
 			r.Wait()
 		})
-		within(t, rowLimit, r.Close)
+		if want := []string{"delete 1", "put 6", "delete 1", "put 6"}; !slices.Equal(calls, want) {
+			t.Errorf("blocked calls routing the notice = %q, want %q", calls, want)
+		}
+		calls = within(t, s, rowLimit, r.Close)
+		if want := []string{"delete 1", "delete 1", "delete 6"}; !slices.Equal(calls, want) {
+			t.Errorf("blocked calls closing = %q, want %q", calls, want)
+		}
 
 		// Once the store recovers, one later write deletes the backlog and stores the notice that is pending.
 		s.set(faults{})
