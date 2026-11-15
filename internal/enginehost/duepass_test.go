@@ -522,9 +522,9 @@ func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
 		<-done
 	}()
 
-	awaitPass(t, passes, "the pass at start")
+	awaitPass(t, passes, done, "the pass at start")
 	tick <- time.Time{}
-	awaitPass(t, passes, "the pass on the tick")
+	awaitPass(t, passes, done, "the pass on the tick")
 	cancel()
 	<-done
 	if got := len(passes); got != 0 {
@@ -532,8 +532,17 @@ func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
 	}
 }
 
-// awaitPass waits for a pass to be sent on passes. It has no deadline of its own.
-func awaitPass(t *testing.T, passes <-chan struct{}, _ string) {
+// awaitPass waits for a pass to be sent on passes. It has no deadline of its own, and fails at once, naming what, when
+// done, the end of the Run that passes, closes first.
+func awaitPass(t *testing.T, passes, done <-chan struct{}, what string) {
 	t.Helper()
-	<-passes
+	select {
+	case <-passes:
+	case <-done:
+		select {
+		case <-passes:
+		default:
+			t.Fatalf("%s never happened: Run returned first", what)
+		}
+	}
 }
