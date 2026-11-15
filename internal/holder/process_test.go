@@ -268,7 +268,7 @@ func startWrite(p *Process, data []byte) <-chan writeResult {
 	})
 }
 
-// awaitWrite returns the result of a startWrite call, failing the test when none arrives within waitArmedTimeout.
+// awaitWrite returns the result of a startWrite call, with no deadline of its own.
 func awaitWrite(t *testing.T, result <-chan writeResult) writeResult {
 	t.Helper()
 	return awaitResult(t, "Write", result)

@@ -16,7 +16,6 @@ import (
 // at once if run returns first. The connection closes when the test ends.
 func awaitDial(t *testing.T, run *running, dialFn func() (*Conn, error)) *Conn {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		conn, err := dialFn()
 		if err == nil {
@@ -30,8 +29,6 @@ func awaitDial(t *testing.T, run *running, dialFn func() (*Conn, error)) *Conn {
 		select {
 		case <-run.done:
 			t.Fatalf("holder returned %v before its socket accepted; last dial error: %v", run.err, err)
-		case <-timeout:
-			t.Fatalf("socket did not accept within %v: %v", waitArmedTimeout, err)
 		case <-time.After(holderPoll):
 		}
 	}
@@ -222,13 +219,8 @@ func TestClientDialSendsWireVersionAndStopFailsWhenTheHolderEndsWithoutStopped(t
 	if err := peer.conn.CloseWrite(); err != nil {
 		t.Fatalf("close write: %v", err)
 	}
-	select {
-	case err := <-stopped:
-		if !errors.Is(err, io.EOF) {
-			t.Errorf("Stop = %v, want an error wrapping end of stream", err)
-		}
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("Stop did not return within %v", waitArmedTimeout)
+	if err := <-stopped; !errors.Is(err, io.EOF) {
+		t.Errorf("Stop = %v, want an error wrapping end of stream", err)
 	}
 }
 

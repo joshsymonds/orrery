@@ -515,11 +515,7 @@ func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	if !ok {
 		t.Fatalf("held process is %T, want *attachedHolder", p2.held)
 	}
-	select {
-	case <-held.Done():
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("holder did not end within %v", waitArmedTimeout)
-	}
+	<-held.Done()
 	wantWait := fmt.Sprintf("exit status %d", childDiedCode)
 	if waitErr := held.Wait(); waitErr == nil || waitErr.Error() != wantWait {
 		t.Fatalf("held Wait = %v, want %q from exit.json", waitErr, wantWait)

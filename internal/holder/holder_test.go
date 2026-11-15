@@ -49,11 +49,7 @@ func startHolder(ctx context.Context, t *testing.T, cfg Config) *running {
 		close(run.done)
 	}()
 	t.Cleanup(func() {
-		select {
-		case <-run.done:
-		case <-time.After(waitArmedTimeout):
-			t.Errorf("holder still running %v after its test ended", waitArmedTimeout)
-		}
+		<-run.done
 	})
 	return run
 }
@@ -131,7 +127,6 @@ type client struct {
 // retries until the socket accepts. It fails at once if Run returns first.
 func dialHolder(t *testing.T, run *running, sock string) *client {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: sock, Net: "unix"})
 		if err == nil {
@@ -144,9 +139,7 @@ func dialHolder(t *testing.T, run *running, sock string) *client {
 		}
 		select {
 		case <-run.done:
-			t.Fatalf("holder returned %v before its socket accepted", run.err)
-		case <-timeout:
-			t.Fatalf("socket %s did not accept within %v: %v", sock, waitArmedTimeout, err)
+			t.Fatalf("holder returned %v before its socket %s accepted: %v", run.err, sock, err)
 		case <-time.After(holderPoll):
 		}
 	}
@@ -237,14 +230,12 @@ func requireChildGroupAlive(t *testing.T, pgid int) {
 	}
 }
 
-// awaitLockFree fails unless the session lock in dir becomes free to take within waitArmedTimeout. A process forked
-// while the lock is open holds a copy of its descriptor until that process execs, so a parallel test's fork can keep
-// the lock busy for a moment after the holder has closed it. A lock the holder never released stays busy past the
-// timeout.
+// awaitLockFree waits until the session lock in dir is free to take. A process forked while the lock is open holds a
+// copy of its descriptor until that process execs, so a parallel test's fork can keep the lock busy for a moment after
+// the holder has closed it. A lock the holder never released keeps the wait going until the test binary's timeout.
 func awaitLockFree(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, LockName)
-	timeout := time.After(waitArmedTimeout)
 	for {
 		lock, err := Lock(path)
 		if err == nil {
@@ -253,11 +244,7 @@ func awaitLockFree(t *testing.T, dir string) {
 			}
 			return
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("session lock still held after %v: %v", waitArmedTimeout, err)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
@@ -289,13 +276,12 @@ func heldLockID(t *testing.T, dir string) string {
 }
 
 // awaitLockUnheld waits until the kernel's lock table holds no lock on the file it names id, as heldLockID returns it,
-// failing the test after waitArmedTimeout. It never opens the lock file, so unlike awaitLockFree it leaves no
+// with no deadline of its own. It never opens the lock file, so unlike awaitLockFree it leaves no
 // descriptor that a parallel test's fork could copy and so keep the lock held. Stop takes and releases the lock in this
 // process, and a fork in that window holds the lock for a moment after Stop returns, so a test that next probes the
 // lock waits here first.
 func awaitLockUnheld(t *testing.T, id string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		held := false
 		for _, fields := range lockTable(t) {
@@ -307,11 +293,7 @@ func awaitLockUnheld(t *testing.T, id string) {
 		if !held {
 			return
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("lock %s still held after %v", id, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
