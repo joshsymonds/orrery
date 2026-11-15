@@ -955,15 +955,19 @@ func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *stor
 
 // holderLives reports whether the holder that serves the holder directory dir is running. A gate's grant names the
 // orreryd that started it as its client, which ends with a SIGKILL, so the gate's holder is what keeps the grant a
-// restarted broker restores until the gate exits. A directory whose pids record is missing or unreadable has no live
-// holder.
+// restarted broker restores until the gate exits. A holder holds its session lock for its whole life, from before it
+// starts its child: its pids record is written only after the child starts, so a holder whose child has already run
+// may have none yet. The test is a non-blocking flock on the lock file, which the holder's flock refuses. The file is
+// opened, never created, so a directory with no lock file has no live holder, and a free lock means the holder has
+// ended: the kernel frees a flock when its process dies.
 func holderLives(dir string) bool {
-	pids, err := holder.ReadPids(dir)
+	lock, err := os.OpenFile(filepath.Join(dir, holder.LockName), os.O_RDONLY, 0)
 	if err != nil {
 		return false
 	}
-	running, err := holder.Running(pids.Holder, pids.HolderStart)
-	return err == nil && running
+	defer lock.Close()
+	err = syscall.Flock(int(lock.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+	return errors.Is(err, syscall.EWOULDBLOCK)
 }
 
 // runBroker ticks the broker every brokerTick until the broker closes. Each tick ends the grants of clients that are
