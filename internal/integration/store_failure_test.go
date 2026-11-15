@@ -84,6 +84,7 @@ func holdWriteLock(t *testing.T, path string) func() {
 }
 
 func TestOrrerydServesHooksWithMissingStore(t *testing.T) {
+	t.Parallel()
 	f := newStoreFixture(t)
 	daemon := f.startOrreryd(t)
 
@@ -96,6 +97,7 @@ func TestOrrerydServesHooksWithMissingStore(t *testing.T) {
 }
 
 func TestOrrerydServesHooksWithCorruptStore(t *testing.T) {
+	t.Parallel()
 	f := newStoreFixture(t)
 	if err := os.MkdirAll(filepath.Dir(f.dbPath), 0o700); err != nil {
 		t.Fatalf("make store directory: %v", err)
@@ -122,6 +124,7 @@ func TestOrrerydServesHooksWithCorruptStore(t *testing.T) {
 }
 
 func TestOrrerydServesHooksWithTooNewStore(t *testing.T) {
+	t.Parallel()
 	f := newStoreFixture(t)
 	prepareStore(t, f.dbPath)
 	db, err := sql.Open("sqlite", f.dbPath)
@@ -160,6 +163,7 @@ func TestOrrerydServesHooksWithTooNewStore(t *testing.T) {
 }
 
 func TestOrrerydServesHooksWithWriteLockedStore(t *testing.T) {
+	t.Parallel()
 	f := newStoreFixture(t)
 	prepareStore(t, f.dbPath)
 	daemon := f.startOrreryd(t)

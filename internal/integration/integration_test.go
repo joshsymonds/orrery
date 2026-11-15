@@ -66,9 +66,9 @@ const cleanupGrace = 10 * time.Second
 
 // TestMain builds the binaries the tests run. Every test that leaves the process environment alone runs in parallel:
 // each starts its own tmux server, orreryd and directories, and much of the package's time is idle waiting, such as a
-// route.JudgeDelay or a session start retrying an absent socket for rpcretry.Window. A test that sets the environment
-// with t.Setenv, a store-failure test that bounds a notice's latency, and a test whose subtests are not each a fixture
-// of their own run alone first.
+// route.JudgeDelay or a session start retrying an absent socket for rpcretry.Window. Only a test that sets the
+// environment with t.Setenv runs alone first. A test whose subtests share one fixture runs in parallel with the other
+// tests while its subtests run one at a time.
 func TestMain(m *testing.M) {
 	os.Exit(runWithBinaries(m))
 }
@@ -81,12 +81,13 @@ func runWithBinaries(m *testing.M) int {
 		return 1
 	}
 	defer os.RemoveAll(dir)
-	for _, name := range []string{"orrery", "orreryd"} {
-		out, buildErr := exec.Command("go", "build", "-o", filepath.Join(dir, name), "../../cmd/"+name).CombinedOutput()
-		if buildErr != nil {
-			fmt.Fprintf(os.Stderr, "build %s: %v\n%s", name, buildErr, out)
-			return 1
-		}
+	// One go build builds both commands at once, where two builds ran one after the other. With -o naming a directory,
+	// each binary lands there under its command's name.
+	out, buildErr := exec.Command("go", "build", "-o", dir+string(os.PathSeparator), "../../cmd/orrery", "../../cmd/orreryd").
+		CombinedOutput()
+	if buildErr != nil {
+		fmt.Fprintf(os.Stderr, "build orrery and orreryd: %v\n%s", buildErr, out)
+		return 1
 	}
 	if err = os.Setenv(binDirEnv, dir); err != nil {
 		fmt.Fprintf(os.Stderr, "set %s: %v\n", binDirEnv, err)
@@ -487,6 +488,7 @@ func TestHookAbsentSocketIsSilentWithJunkArgs(t *testing.T) {
 }
 
 func TestHookExitsSilentlyWhenGlobalFlagsFail(t *testing.T) {
+	t.Parallel()
 	socket := filepath.Join(t.TempDir(), "absent.sock")
 	cases := []struct {
 		name string
@@ -503,6 +505,7 @@ func TestHookExitsSilentlyWhenGlobalFlagsFail(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := runOrrery(t, exampleHookJSON, nil, tc.args...)
 			wantExit(t, out, 0)
 			if out.stdout != "" || out.stderr != "" {
@@ -749,6 +752,7 @@ func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
 }
 
 func TestDebugQueueReplayExitCodes(t *testing.T) {
+	t.Parallel()
 	const before = "2026-01-01T00:00:00Z"
 	missingRoot := filepath.Join(t.TempDir(), "missing")
 	cases := []struct {
@@ -771,6 +775,7 @@ func TestDebugQueueReplayExitCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := runOrrery(t, "", tc.env, tc.args...)
 			wantExit(t, out, tc.code)
 			if !strings.HasPrefix(out.stderr, "orrery: ") {
@@ -784,6 +789,7 @@ func TestDebugQueueReplayExitCodes(t *testing.T) {
 }
 
 func TestHookExitSilenceIsLimitedToHookCommands(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		args []string
@@ -793,6 +799,7 @@ func TestHookExitSilenceIsLimitedToHookCommands(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := runOrrery(t, "", nil, tc.args...)
 			wantExit(t, out, 2)
 			if !strings.HasPrefix(out.stderr, "orrery: ") {
@@ -803,6 +810,7 @@ func TestHookExitSilenceIsLimitedToHookCommands(t *testing.T) {
 }
 
 func TestUsageAndFailureExitCodes(t *testing.T) {
+	t.Parallel()
 	// No server is started here: every case exits before any tmux call.
 	const name = "orrery-integration-unused"
 	cases := []struct {
@@ -830,6 +838,7 @@ func TestUsageAndFailureExitCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := runOrrery(t, "", nil, tc.args...)
 			wantExit(t, out, tc.code)
 			if !strings.HasPrefix(out.stderr, "orrery: ") {
@@ -1475,6 +1484,7 @@ func TestOrrerydMarksViewedPaneSeenOnDone(t *testing.T) {
 }
 
 func TestOrrerydUsageExitCodes(t *testing.T) {
+	t.Parallel()
 	// Every case exits before any tmux call or socket use, so the socket below is never created.
 	socket := filepath.Join(t.TempDir(), "orreryd.sock")
 	cases := []struct {
@@ -1501,6 +1511,7 @@ func TestOrrerydUsageExitCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := runCommand(t, "", "orreryd", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), tc.args...)
 			wantExit(t, out, 2)
 			if !strings.HasPrefix(out.stderr, "orreryd: ") {
@@ -1642,11 +1653,14 @@ func popupError(t *testing.T, client *tmuxctl.Client, name, session, invokingTTY
 }
 
 func TestShellOpensPopupOnInvokingClient(t *testing.T) {
+	t.Parallel()
 	// Synthetic directory names. Each holds a character that tmux would expand in a -c argument or a command
 	// string if the argument were not escaped.
 	dirNames := []string{"example dir", "example#(id)", "example#{session_name}"}
 	for _, dirName := range dirNames {
 		t.Run(dirName, func(t *testing.T) {
+			// Each case has its own tmux server, clients and directory.
+			t.Parallel()
 			client, name := newServer(t)
 			startPane(t, client, "sleep 300")
 			dir := filepath.Join(t.TempDir(), dirName)
@@ -1677,6 +1691,7 @@ func TestShellOpensPopupOnInvokingClient(t *testing.T) {
 }
 
 func TestShellRefusesBadCommandLines(t *testing.T) {
+	t.Parallel()
 	// Every case exits before any tmux call that needs a server, so the server name below is never started.
 	const name = "orrery-integration-unused"
 	cases := []struct {
@@ -1691,6 +1706,7 @@ func TestShellRefusesBadCommandLines(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			out := runOrrery(t, "", nil, append([]string{"-L", name}, tc.args...)...)
 			wantExit(t, out, 2)
 			if !strings.Contains(out.stderr, "usage: orrery") ||
@@ -1702,6 +1718,7 @@ func TestShellRefusesBadCommandLines(t *testing.T) {
 }
 
 func TestShellRelativeDirExitsOneWithoutSession(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	startPane(t, client, "sleep 300")
 
@@ -1744,6 +1761,7 @@ func TestTmuxConfPrintsPluginForBinaryPath(t *testing.T) {
 }
 
 func TestTmuxConfPluginSourcesOnPrivateServer(t *testing.T) {
+	t.Parallel()
 	// tmux binds prefix Space to next-layout by default, so only the plugin's binding names the binary.
 	exe, err := filepath.EvalSymlinks(filepath.Join(os.Getenv(binDirEnv), "orrery"))
 	if err != nil {
@@ -1836,6 +1854,7 @@ func TestHelpHTMLPrintsPageWithServerPrefix(t *testing.T) {
 }
 
 func TestHelpWithoutServerPrintsCardWithoutPrefix(t *testing.T) {
+	t.Parallel()
 	// help reads the server and never starts one, so an unstarted server gives a card with no prefix.
 	var want bytes.Buffer
 	if err := help.Card(&want, ""); err != nil {
@@ -3379,9 +3398,11 @@ func TestServeServesAPIOnLoopback(t *testing.T) {
 }
 
 func TestServeRefusesNonLoopbackListen(t *testing.T) {
+	t.Parallel()
 	// Listen refuses each address before it binds, so the refusal names the address and no port is opened.
 	for _, listen := range []string{"0.0.0.0:0", "192.0.2.1:0", "localhost:0", ":0"} {
 		t.Run(listen, func(t *testing.T) {
+			t.Parallel()
 			env := scrubbedEnv("XDG_STATE_HOME=" + t.TempDir())
 			out := runCommand(t, "", "orrery", "", env, "-L", unusedServer, "serve",
 				"--listen", listen, "--allow-login", exampleLogin)
@@ -3394,6 +3415,7 @@ func TestServeRefusesNonLoopbackListen(t *testing.T) {
 }
 
 func TestServeUsageExitCodes(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		args []string
@@ -3406,6 +3428,7 @@ func TestServeUsageExitCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			args := append([]string{"-L", unusedServer, "serve"}, tc.args...)
 			out := runCommand(t, "", "orrery", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), args...)
 			wantExit(t, out, 2)
