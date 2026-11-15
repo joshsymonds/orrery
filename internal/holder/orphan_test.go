@@ -24,9 +24,17 @@ const orphanChildScript = "exec sleep 600"
 // its checks do not depend on the code they test.
 func procStatOf(t *testing.T, pid int) (state, start string, ok bool) {
 	t.Helper()
+	state, start, _, ok = procStatFlags(t, pid)
+	return state, start, ok
+}
+
+// procStatFlags returns process pid's state, start time and kernel flags from /proc, with ok false once /proc no
+// longer holds it.
+func procStatFlags(t *testing.T, pid int) (state, start string, flags uint64, ok bool) {
+	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
-		return "", "", false
+		return "", "", 0, false
 	}
 	if err != nil {
 		t.Fatalf("read /proc/%d/stat: %v", pid, err)
@@ -35,14 +43,27 @@ func procStatOf(t *testing.T, pid int) (state, start string, ok bool) {
 	if len(fields) <= pidsStartField {
 		t.Fatalf("/proc/%d/stat has %d fields after its command name: %q", pid, len(fields), raw)
 	}
-	return fields[0], fields[pidsStartField], true
+	flags, err = strconv.ParseUint(fields[procFlagsField], 10, 64)
+	if err != nil {
+		t.Fatalf("/proc/%d/stat flags %q: %v", pid, fields[procFlagsField], err)
+	}
+	return fields[0], fields[pidsStartField], flags, true
 }
 
-// procRunning reports whether /proc holds process pid with start start that is not a zombie.
+const (
+	// procFlagsField is the index of field 9, the kernel flags, among the fields after a stat line's command name.
+	procFlagsField = 9 - 3
+	// procExiting is the kernel's PF_EXITING flag. The kernel sets it when a process starts to exit, before it closes
+	// the process's files and so frees its locks, and well before the process is a zombie.
+	procExiting = 0x4
+)
+
+// procRunning reports whether /proc holds process pid with start start that is neither a zombie nor exiting. A killed
+// process frees its locks while it exits, so a caller that saw its lock free sees it exiting here, never running.
 func procRunning(t *testing.T, pid int, start string) bool {
 	t.Helper()
-	state, got, ok := procStatOf(t, pid)
-	return ok && state != "Z" && got == start
+	state, got, flags, ok := procStatFlags(t, pid)
+	return ok && state != "Z" && flags&procExiting == 0 && got == start
 }
 
 // awaitStopped waits until process pid with start start no longer runs, with no deadline of its own.
