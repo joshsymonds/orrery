@@ -17,6 +17,7 @@ import (
 // in the background under a context that Close cancels and waits for, as Run's drives are, and a run this Evidence already
 // drives is left alone. It returns the errors of the runs it could not take up, joined.
 func (e *Evidence) Resume(ctx context.Context) error {
+	defer e.calls.enter()()
 	open, err := e.store.OpenEvidenceRuns(ctx)
 	if err != nil {
 		return fmt.Errorf("resume evidence runs: %w", err)

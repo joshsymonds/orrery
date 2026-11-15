@@ -93,6 +93,9 @@ type Writer struct {
 	// closing is set when Run begins its last flush. From then on nothing would store a newly queued op, so put
 	// refuses it.
 	closing bool
+	// inFlight is set while a flush applies a batch it took out of queue, so an empty queue with inFlight clear means
+	// every op put so far is stored or dropped. Tests read it to see the writer's work finished.
+	inFlight bool
 	// stopped is closed when Run returns.
 	stopped chan struct{}
 }
@@ -370,6 +373,7 @@ func (w *Writer) flush(ctx context.Context) {
 	w.mu.Lock()
 	batch := w.queue
 	w.queue = nil
+	w.inFlight = len(batch) > 0
 	w.mu.Unlock()
 	if len(batch) == 0 {
 		return
@@ -395,6 +399,7 @@ func (w *Writer) flush(ctx context.Context) {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.inFlight = false
 	for _, e := range dropped {
 		w.settleLocked(e)
 	}

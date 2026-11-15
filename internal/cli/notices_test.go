@@ -85,6 +85,18 @@ func startNotices(t *testing.T, socketPath string, stdin io.Reader, stdout io.Wr
 	return noticesCall{done: done}
 }
 
+// receiveWhileNotices receives from ch, which the fake socket or the test's stdin writer feeds as Notices runs. It has
+// no deadline of its own, and fails the test with what Notices returned once it has returned and ch still has nothing
+// (see receiveUntil): what names what the test waited for.
+func receiveWhileNotices[T any](t *testing.T, call noticesCall, ch <-chan T, what string) T {
+	t.Helper()
+	v, _, received := receiveUntil(ch, resultQueued(call.done))
+	if !received {
+		t.Fatalf("Notices returned %v while the test waited for %s", <-call.done, what)
+	}
+	return v
+}
+
 // wait returns the error Notices returned. It has no deadline of its own.
 func (c noticesCall) wait(t *testing.T) error {
 	t.Helper()
@@ -173,11 +185,12 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 		_, err := io.WriteString(pw, activity)
 		written <- err
 	}()
-	err := <-written
-	if err != nil {
+	// The stdin write returns once Notices reads it, and the socket's line comes once Notices relays it, so both wait
+	// on Notices and end when it returns.
+	if err := receiveWhileNotices(t, call, written, "it to read stdin"); err != nil {
 		t.Fatalf("write stdin: %v", err)
 	}
-	got := <-received
+	got := receiveWhileNotices(t, call, received, "the socket to receive the stdin line")
 	if got != activity {
 		t.Fatalf("socket received %q, want %q", got, activity)
 	}

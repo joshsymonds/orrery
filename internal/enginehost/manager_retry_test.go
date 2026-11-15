@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // matchGate forwards to inner, but holds the first ApplyEngine call whose ops include one that match accepts. entered
@@ -90,7 +91,7 @@ func TestSayRetryAfterCanceledSayRunsPromptOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
@@ -105,7 +106,7 @@ func TestSayRetryAfterCanceledSayRunsPromptOnce(t *testing.T) {
 	}
 
 	gate.open()
-	waitHistory(t, path, id, "the held prompt stored", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the held prompt stored", func(h store.EngineHistory) bool {
 		return len(promptIDsOf(t, h)) == 2
 	})
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"}); err != nil {
@@ -114,9 +115,16 @@ func TestSayRetryAfterCanceledSayRunsPromptOnce(t *testing.T) {
 	if got := promptIDsOf(t, historyOf(t, path, id)); !slices.Equal(got, []string{"", "p1"}) {
 		t.Fatalf("prompt ids after retry = %q, want [\"\" \"p1\"]", got)
 	}
-	history := waitHistory(t, path, id, "the reply to the retried prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply to the retried prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	want := []string{"prompt: hi", "reply: fake reply 1", "prompt: again", "reply: fake reply 2"}
 	if got := conversationOf(t, history); !slices.Equal(got, want) {
 		t.Fatalf("conversation = %q, want %q", got, want)
@@ -147,7 +155,7 @@ func TestStartRetryAfterCanceledStartRunsOnce(t *testing.T) {
 	}
 
 	gate.open()
-	waitHistory(t, path, chosenID, "the held row stored", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, chosenID, "the held row stored", func(h store.EngineHistory) bool {
 		return countKind(h, store.EventEngineAdded) == 1
 	})
 	id, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"})
@@ -157,11 +165,11 @@ func TestStartRetryAfterCanceledStartRunsOnce(t *testing.T) {
 	if id != chosenID {
 		t.Fatalf("retry Start id = %q, want %q", id, chosenID)
 	}
-	waitUntil(t, "the fake claude start", func() bool {
+	waittest.Until(t, nil, "the fake claude start", func() bool {
 		_, statErr := os.Stat(filepath.Join(dir, "fakeclaude.args"))
 		return statErr == nil
 	})
-	history := waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if got := fakeArgs(t, dir); len(got) != 1 {
@@ -184,7 +192,7 @@ func TestRetryWhileAttemptHeldWaitsForItsResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
@@ -215,9 +223,16 @@ func TestRetryWhileAttemptHeldWaitsForItsResult(t *testing.T) {
 	if got := promptIDsOf(t, historyOf(t, path, id)); !slices.Equal(got, []string{"", "p1"}) {
 		t.Fatalf("prompt ids after retry = %q, want [\"\" \"p1\"]", got)
 	}
-	history := waitHistory(t, path, id, "the reply to the retried prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply to the retried prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	want := []string{"prompt: hi", "reply: fake reply 1", "prompt: again", "reply: fake reply 2"}
 	if got := conversationOf(t, history); !slices.Equal(got, want) {
 		t.Fatalf("conversation = %q, want %q", got, want)
@@ -235,7 +250,7 @@ func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	stopped, err := m.live(id)
@@ -280,9 +295,16 @@ func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "third", PromptID: "p2"}); err != nil {
 		t.Fatalf("Say with a new prompt id: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to the resumed prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply to the resumed prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if got := promptIDsOf(t, history); !slices.Equal(got, []string{"", "p1", "p2"}) {
 		t.Fatalf("prompt ids after resume = %q, want [\"\" \"p1\" \"p2\"]", got)
 	}
@@ -315,7 +337,7 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	stopped, err := m.live(id)
@@ -368,9 +390,16 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "third", PromptID: "p2"}); err != nil {
 		t.Fatalf("Say with a new prompt id after restart: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to the resumed prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m, restarted),
+		path,
+		id,
+		"the reply to the resumed prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if got := promptIDsOf(t, history); !slices.Equal(got, []string{"", "p1", "p2"}) {
 		t.Fatalf("prompt ids after resume = %q, want [\"\" \"p1\" \"p2\"]", got)
 	}
@@ -395,7 +424,7 @@ func TestStartRefusedBeforeStoringFreesItsKey(t *testing.T) {
 	if id != chosenID {
 		t.Fatalf("retry Start id = %q, want %q", id, chosenID)
 	}
-	waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 }

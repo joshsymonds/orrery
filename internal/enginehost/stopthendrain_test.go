@@ -24,7 +24,7 @@ func TestStopThenDrainKillsAHolderThatGaveNoAnswerWithoutAskingAgain(t *testing.
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	hdir := holderDir(t, rig.root, id)
 	pids := holderPids(t, hdir)

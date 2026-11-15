@@ -72,7 +72,7 @@ func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
 	if len(prompts) != 1 || prompts[0].Text != "hi" || prompts[0].WriteID == "" {
 		t.Fatalf("holder prompts = %+v, want one prompt \"hi\" with a write id", prompts)
 	}
-	history := waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if n := countKind(history, store.EventEnginePrompt); n != 1 {
@@ -92,13 +92,13 @@ func TestSayStoresEachPromptWithItsOwnWriteID(t *testing.T) {
 	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, chosenID, "the first turn's end", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, chosenID, "the first turn's end", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && h.State == "done"
 	})
 	if err := m.Say(t.Context(), SayRequest{ID: chosenID, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	waitHistory(t, path, chosenID, "the second reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, chosenID, "the second reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	prompts, err := s.HolderPrompts(t.Context(), chosenID)
@@ -125,7 +125,7 @@ func TestStartStepStoresPromptWithItsWriteIDAndSendsItOnce(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	prompts, err := s.HolderPrompts(t.Context(), stepA)

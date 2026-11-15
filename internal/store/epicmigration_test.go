@@ -17,14 +17,15 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028 and 00030 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029 and 00034
+// 00019, 00028 and 00030 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033 and
+// 00034
 // add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
 			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "workflow",
-			"workflow_text", "workflow_sha256", "pause_source", "summary",
+			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -47,7 +48,7 @@ func epicTableColumns() map[string][]string {
 		"epic_tasks": {
 			"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence", "stage", "base", "attempt",
 			"rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision", "failure", "review", "refs",
-			"gate_pos", "finding_pos",
+			"gate_pos", "finding_pos", "batch",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -190,6 +191,9 @@ func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 		table, column, typ, dflt string
 	}{
 		{"epics", "retried", "INTEGER", "0"},
+		{"epics", "stored_base", "TEXT", "''"},
+		{"epics", "candidate", "TEXT", "''"},
+		{"epic_tasks", "batch", "TEXT", "''"},
 		{"epic_turns", "told", "INTEGER", "0"},
 		{"epic_turns", "stop", "INTEGER", "0"},
 		{"epic_turns", "resets", "INTEGER", "0"},
@@ -441,6 +445,43 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	}
 }
 
+// TestEpicStoredAtVersion32ReadsStoredBaseAsItsBase stores an epic with a base at migration 32, before the integration
+// migration, and reads it back after Open migrates the store: its stored base is its base and its candidate is empty.
+func TestEpicStoredAtVersion32ReadsStoredBaseAsItsBase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+
+	const base = "0123456789abcdef0123456789abcdef01234567"
+	fixture := openStoreAtVersion(t, path, 32)
+	const id = seededEpic
+	seedEpic(t, fixture)
+	if _, err := fixture.ExecContext(ctx, `UPDATE epics SET base = ? WHERE id = ?`, base, id); err != nil {
+		fixture.Close()
+		t.Fatalf("seed base: %v", err)
+	}
+	if err := fixture.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
+	}
+
+	s, err := Open(ctx, path, noSync())
+	if err != nil {
+		t.Fatalf("Open at version 32: %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if got.Base != base || got.StoredBase != base {
+		t.Errorf("base = %q, stored base = %q; want both %q", got.Base, got.StoredBase, base)
+	}
+	if got.Candidate != "" {
+		t.Errorf("candidate = %q, want empty", got.Candidate)
+	}
+}
+
 // TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence stores an epic and a Requirement at migration 16, before the
 // evidence migration, and reads them back after Open migrates the store: the base is empty and the item the zero Item.
 func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
@@ -525,9 +566,10 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	}
 }
 
-// TestEpicTaskCheckRestoredByEvidenceMigrationDown stores a task with an evidence item at migration 20 and reads its
-// conclusion back as task_check after the Down of 00020_evidence.sql, which drops gate and evidence.
-func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
+// TestEvidenceMigrationDownAndUp removes the epic gate tables, the base and item columns, and the task gate and evidence
+// with the Down of 00020_evidence.sql, and Up restores them. The task it stores with an evidence item reads its
+// conclusion back as task_check after the Down. The walk down to 19 is shared by both reads, since it is the slow part.
+func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -547,10 +589,10 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
+
 	if _, err := provider.DownTo(ctx, 19); err != nil {
 		t.Fatalf("DownTo 19: %v", err)
 	}
-
 	var check string
 	if err := s.db.QueryRowContext(ctx, `SELECT task_check FROM epic_tasks WHERE seq = 1`).Scan(&check); err != nil {
 		t.Fatalf("read task_check after Down: %v", err)
@@ -560,27 +602,6 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	}
 	if columns := columnsOf(t, s, "epic_tasks"); hasAny(columns, "gate", "evidence") {
 		t.Errorf("epic_tasks columns after Down = %v, want no gate or evidence", columns)
-	}
-}
-
-// TestEvidenceMigrationDownAndUp removes the epic gate tables and the base and item columns with the Down of
-// 00020_evidence.sql, and Up restores them.
-func TestEvidenceMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 19); err != nil {
-		t.Fatalf("DownTo 19: %v", err)
 	}
 	tables := tableNames(t, s)
 	if tables["epic_gates"] || tables["epic_gate_lists"] {
@@ -831,7 +852,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	// Each stored row keeps its values and gains what later migrations give it at the end of its table: the epic
 	// stored at version 16 pins the built-in epic workflow.
 	added := map[string][]any{
-		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText), "", ""},
+		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText), "", "", "", ""},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
 		"pending_notices": {"", ""},

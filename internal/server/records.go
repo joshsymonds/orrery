@@ -24,6 +24,7 @@ type epicRecord struct {
 	ID, Repository, Slug string
 	Dir                  string    // absolute record directory
 	Outcome              string    // recordText of the head's "outcome"
+	OutcomeDetail        string    // recordText of the head's "outcome_detail"
 	Changed              time.Time // head state.json mtime
 	Problem              string    // empty when the head parsed
 }
@@ -91,10 +92,10 @@ func findEpic(root, id string, heads *headCache) (epicRecord, bool, error) {
 	return readHead(root, fsys, repo, slug, heads)
 }
 
-// epicLive reports whether an epic is live: never when its outcome is exactly "released", otherwise when a
+// epicLive reports whether an epic is live: never when its outcome's leading letters are "released", otherwise when a
 // labeled step of it runs or its head state.json changed within liveWindow before now.
 func epicLive(rec epicRecord, now time.Time, running bool) bool {
-	if rec.Outcome == "released" {
+	if leadingLetters(rec.Outcome) == "released" {
 		return false
 	}
 	if running {
@@ -102,6 +103,15 @@ func epicLive(rec epicRecord, now time.Time, running bool) bool {
 	}
 	age := now.Sub(rec.Changed)
 	return age >= 0 && age <= liveWindow
+}
+
+// leadingLetters returns the run of ASCII letters at the start of s, which is empty when s does not start with one.
+func leadingLetters(s string) string {
+	end := 0
+	for end < len(s) && (s[end] >= 'a' && s[end] <= 'z' || s[end] >= 'A' && s[end] <= 'Z') {
+		end++
+	}
+	return s[:end]
 }
 
 // recordText returns a record field as text: a JSON string is its value, null or absent is empty, and any other
@@ -177,18 +187,17 @@ func readHead(root string, fsys fs.FS, repo, slug string, heads *headCache) (epi
 		return rec, true, nil
 	}
 	rec.Outcome = entry.outcome
+	rec.OutcomeDetail = entry.outcomeDetail
 	return rec, true, nil
 }
 
-// headOutcome returns the raw "outcome" of a head state.json, and false when raw does not parse as a JSON object.
-func headOutcome(raw []byte) (json.RawMessage, bool) {
-	var head struct {
-		Outcome json.RawMessage `json:"outcome"`
-	}
-	if json.Unmarshal(raw, &head) != nil {
+// headFields returns the raw top-level fields of a head state.json, and false when raw does not parse as a JSON object.
+func headFields(raw []byte) (map[string]json.RawMessage, bool) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
 		return nil, false
 	}
-	return head.Outcome, true
+	return fields, true
 }
 
 // headCache holds the decode of each record state.json the epics server has read, keyed by path, so that a read
@@ -200,13 +209,15 @@ type headCache struct {
 }
 
 // headEntry is the decode of one state.json, parse failures included, with the size and mtime the file had when it was
-// decoded. A head fills outcome; an effort state fills tasks. parsed is false when the content did not parse.
+// decoded. A head fills outcome and outcomeDetail; an effort state fills tasks. parsed is false when the content did
+// not parse.
 type headEntry struct {
-	size    int64
-	modTime time.Time
-	parsed  bool
-	outcome string
-	tasks   []taskRecord
+	size          int64
+	modTime       time.Time
+	parsed        bool
+	outcome       string
+	outcomeDetail string
+	tasks         []taskRecord
 }
 
 // newHeadCache returns an empty headCache.
@@ -238,6 +249,10 @@ func (c *headCache) store(key string, info fs.FileInfo, entry headEntry) {
 
 // decodeHead decodes the content of a head state.json into the entry readHead keeps.
 func decodeHead(raw []byte) headEntry {
-	outcome, ok := headOutcome(raw)
-	return headEntry{parsed: ok, outcome: recordText(outcome)}
+	fields, ok := headFields(raw)
+	return headEntry{
+		parsed:        ok,
+		outcome:       recordText(fields["outcome"]),
+		outcomeDetail: recordText(fields["outcome_detail"]),
+	}
 }

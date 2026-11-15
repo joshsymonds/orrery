@@ -36,7 +36,7 @@ func stepCheckoutStart(t *testing.T, f *stepStartFixture, start StepStart) (stri
 func stepCheckoutReturn(t *testing.T, f *stepStartFixture, id string, value json.RawMessage) store.StepRow {
 	t.Helper()
 	stepsRunOf(t, f.steps, id).Return(session.TurnEnded{StructuredOutput: value})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "step "+id+" to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})

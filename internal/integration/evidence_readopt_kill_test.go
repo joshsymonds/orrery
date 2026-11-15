@@ -33,6 +33,15 @@ const evidenceKillConclusion = "JUDGEHOLDS"
 // in the repository: a read-only step runs in a worktree under the state directory, where a project agent is not read.
 const evidenceKillAgent = "general-purpose"
 
+// evidenceKillWorkflow is the repository workflow the epic names, and evidenceKillWorkflowText its canonical text: a
+// plan holding build. The built-in epic has a red node before its plan, which would capture R1 once more, so the test
+// pins its own workflow instead.
+const (
+	evidenceKillWorkflow     = "plan-build"
+	evidenceKillWorkflowText = "name: plan-build\nnodes:\n  - id: plan\n    kind: plan\n    body:\n" +
+		"      - id: build\n        kind: build\n"
+)
+
 // evidenceKillRig is a repository whose project file declares the default gate pool, with the base commit an epic
 // starts from. The paths are the ones the test releases and counts through.
 type evidenceKillRig struct {
@@ -68,6 +77,11 @@ func newEvidenceKillRig(t *testing.T) *evidenceKillRig {
 	stepReadoptGit(t, f.root, "init", "-q", "-b", "main", repo)
 	stepReadoptWrite(t, filepath.Join(repo, ".gitignore"), "fakeclaude.*\n")
 	stepReadoptWrite(t, filepath.Join(repo, "README"), "base\n")
+	stepReadoptWrite(
+		t,
+		filepath.Join(repo, ".orrery", "workflows", evidenceKillWorkflow+".yaml"),
+		evidenceKillWorkflowText,
+	)
 	stepReadoptWrite(t, filepath.Join(repo, ".orrery", "project.toml"), fmt.Sprintf(
 		"[pools.gate]\nhost = %q\ncap = 1\nmembers = [\"m1\"]\n"+
 			"wake = [%q, \"-c\", \"exit 0\"]\nwake_limit = 60\n"+
@@ -132,6 +146,7 @@ func (r *evidenceKillRig) steps() enginev1connect.StepsClient {
 func (r *evidenceKillRig) createEpic(t *testing.T) {
 	t.Helper()
 	_, err := r.epics().CreateEpic(t.Context(), connect.NewRequest(&v1.CreateEpicRequest{
+		Workflow: evidenceKillWorkflow,
 		Contract: &v1.EpicContract{
 			Id:         evidenceKillEpic,
 			Repository: r.repo,

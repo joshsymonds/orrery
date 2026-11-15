@@ -18,7 +18,7 @@ func TestLiveSessionSurvivesPrune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
 		return h.State == "waiting"
 	})
 	// The test writer stamps events with the wall clock, so every event so far is at or before now. A prune at now
@@ -46,7 +46,7 @@ func TestLiveSessionSurvivesPrune(t *testing.T) {
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	waitUntil(t, "session "+id+" to leave the live set", func() bool {
+	waitUntil(t, engineOf(m), "session "+id+" to leave the live set", func() bool {
 		return len(m.Live()) == 0
 	})
 	if err := s.SyncServer(t.Context(), "-L a", nil, now); err != nil {

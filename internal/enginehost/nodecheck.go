@@ -58,6 +58,8 @@ type NodeChecks struct {
 	closed  bool
 	cancels map[string]context.CancelCauseFunc
 	drives  sync.WaitGroup
+	// calls counts the calls under way that can start or end work (see callsInFlight).
+	calls callsInFlight
 }
 
 // NewNodeChecks returns a NodeChecks for cfg. Its check worktrees are kept under StateDir/node-check-worktrees.
@@ -87,6 +89,7 @@ func NewNodeChecks(cfg NodeChecksConfig) *NodeChecks {
 // under the same id returns the stored check and runs nothing. A check whose NotRun is set is stored ended and runs nothing.
 // Run refuses an id that is not 32 lowercase hex digits, before anything is stored, since the id names the worktree.
 func (n *NodeChecks) Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error) {
+	defer n.calls.enter()()
 	if err := checkID(check.ID); err != nil {
 		return store.NodeCheck{}, fmt.Errorf("node check %q: %w", check.ID, err)
 	}
@@ -281,6 +284,7 @@ func (n *NodeChecks) end(
 // which leaves its check's gate running under its holder for a restarted orreryd to re-adopt. Without one the cancel kills
 // the gate. Run returns an error from then on.
 func (n *NodeChecks) Close() {
+	defer n.calls.enter()()
 	n.mu.Lock()
 	n.closed = true
 	var cause error

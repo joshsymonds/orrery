@@ -2493,6 +2493,37 @@ test("the Epics head counts every live epic, drawn or folded, and a seventh quie
   });
 });
 
+test("accepted, waiting epics fold into one line that opens to their names, and closes again", () => {
+  const live = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
+  const first = makeEpic(widgetsRepo, "queued", { waiting: true });
+  const second = makeEpic(gadgetsRepo, "next", { waiting: true });
+  const epics = epicsView([live, first, second], new Map());
+  return withApp({ epics }, async (container) => {
+    const section = sectionOf(container, "Epics");
+    const labels = () => [...section.querySelectorAll(".label")].map((label) => label.textContent);
+    const waitingLine = () => section.querySelector<HTMLElement>(".b-more");
+    assert.equal(waitingLine()?.textContent, "2 accepted, waiting to start", "the two waiting epics fold into one line");
+    assert.equal(labels().includes("queued"), false, "the line starts closed: the first waiting slug is not drawn");
+    assert.equal(labels().includes("next"), false, "the line starts closed: the second waiting slug is not drawn");
+    assert.equal(rowElement(container, epicKey(live)).querySelector(".label")?.textContent, "busy", "the live epic shows");
+
+    await act(() => {
+      waitingLine()?.dispatchEvent(clickEvent());
+    });
+    assert.equal(labels().includes("queued"), true, "opened, the line shows the first waiting slug");
+    assert.equal(labels().includes("next"), true, "opened, the line shows the second waiting slug");
+    assert.equal(rowElement(container, epicKey(first)).querySelector(".proj")?.textContent, widgetsRepo);
+    assert.equal(rowElement(container, epicKey(second)).querySelector(".proj")?.textContent, gadgetsRepo);
+    assert.equal(rowElement(container, epicKey(live)).querySelector(".label")?.textContent, "busy", "the live epic still shows");
+
+    await act(() => {
+      waitingLine()?.dispatchEvent(clickEvent());
+    });
+    assert.equal(labels().includes("queued"), false, "a second click closes the line: the first slug is gone");
+    assert.equal(labels().includes("next"), false, "a second click closes the line: the second slug is gone");
+  });
+});
+
 test("an epic shows four running steps with the held one marked, then its more, tail and folded lines", () => {
   const steps = ["one", "two", "three", "four", "five"].map((name) => makeStep(name, { held: name === "two" }));
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: steps, endedSteps: 3 });

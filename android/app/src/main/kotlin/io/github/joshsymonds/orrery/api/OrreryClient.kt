@@ -19,6 +19,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask as EpicBuildTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
@@ -265,7 +266,8 @@ data class StepRow(
 
 /**
  * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
- * included. [source] is "orreryd" for an epic orreryd's database holds, "record" for an epic read from records only.
+ * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
+ * orreryd's database holds, "record" for an epic read from records only.
  */
 data class EpicRow(
     val id: String,
@@ -274,6 +276,7 @@ data class EpicRow(
     val outcome: String,
     val changed: Long,
     val live: Boolean,
+    val waiting: Boolean = false,
     val runningSteps: List<StepRow>,
     val endedSteps: Int,
     val problem: String,
@@ -382,9 +385,23 @@ data class EpicNodeCheckRow(
 )
 
 /**
+ * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
+ * unit. [red] and [green] are the evidence runs the build names, null until it names one.
+ */
+data class EpicBuildTaskRow(
+    val id: String,
+    val title: String,
+    val status: String,
+    val stage: String,
+    val red: EvidenceRunRow?,
+    val green: EvidenceRunRow?,
+)
+
+/**
  * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [nodes] are its
- * workflow node runs in the order the server lists them.
+ * workflow node runs in the order the server lists them. [buildTasks] are an orreryd epic's planned tasks in the order
+ * they were planned, empty for a record epic.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -393,6 +410,7 @@ data class EpicDetail(
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
     val nodes: List<EpicNodeRow> = emptyList(),
+    val buildTasks: List<EpicBuildTaskRow> = emptyList(),
 )
 
 /** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
@@ -644,6 +662,7 @@ class OrreryClient(
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             nodes = response.nodesList.map { it.toEpicNodeRow() },
+            buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
         )
     }
 
@@ -823,6 +842,7 @@ class OrreryClient(
             outcome = outcome,
             changed = changed,
             live = live,
+            waiting = waiting,
             runningSteps = runningStepsList.map { it.toStepRow() },
             endedSteps = endedSteps,
             problem = problem,
@@ -908,6 +928,16 @@ class OrreryClient(
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
         StepCheckRow(round = round, name = name, ok = ok, stdout = stdout, stderr = stderr)
+
+    private fun EpicBuildTaskProto.toEpicBuildTaskRow(): EpicBuildTaskRow =
+        EpicBuildTaskRow(
+            id = id,
+            title = title,
+            status = status,
+            stage = stage,
+            red = if (hasRed()) red.toEvidenceRunRow() else null,
+            green = if (hasGreen()) green.toEvidenceRunRow() else null,
+        )
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
         EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)

@@ -2039,7 +2039,12 @@ type Epic struct {
 	// What could not be read from the epic's records, joined with "; ", empty when everything was read.
 	Problem string `protobuf:"bytes,9,opt,name=problem,proto3" json:"problem,omitempty"`
 	// orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
-	Source        string `protobuf:"bytes,10,opt,name=source,proto3" json:"source,omitempty"`
+	Source string `protobuf:"bytes,10,opt,name=source,proto3" json:"source,omitempty"`
+	// The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+	OutcomeDetail string `protobuf:"bytes,11,opt,name=outcome_detail,json=outcomeDetail,proto3" json:"outcome_detail,omitempty"`
+	// Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+	// effort task. False for an orreryd epic.
+	Waiting       bool `protobuf:"varint,12,opt,name=waiting,proto3" json:"waiting,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2142,6 +2147,20 @@ func (x *Epic) GetSource() string {
 		return x.Source
 	}
 	return ""
+}
+
+func (x *Epic) GetOutcomeDetail() string {
+	if x != nil {
+		return x.OutcomeDetail
+	}
+	return ""
+}
+
+func (x *Epic) GetWaiting() bool {
+	if x != nil {
+		return x.Waiting
+	}
+	return false
 }
 
 // EpicTask is one task from an effort's state.json.
@@ -4191,7 +4210,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\bquestion\x18\x04 \x01(\tR\bquestion\"d\n" +
 	"\x13EpicsAnswerResponse\x123\n" +
 	"\bdecision\x18\x01 \x01(\v2\x17.orrery.v1.EpicDecisionR\bdecision\x12\x18\n" +
-	"\awarning\x18\x02 \x01(\tR\awarning\"\x9f\x02\n" +
+	"\awarning\x18\x02 \x01(\tR\awarning\"\xe0\x02\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -4206,7 +4225,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"endedSteps\x12\x18\n" +
 	"\aproblem\x18\t \x01(\tR\aproblem\x12\x16\n" +
 	"\x06source\x18\n" +
-	" \x01(\tR\x06source\"\x8c\x01\n" +
+	" \x01(\tR\x06source\x12%\n" +
+	"\x0eoutcome_detail\x18\v \x01(\tR\routcomeDetail\x12\x18\n" +
+	"\awaiting\x18\f \x01(\bR\awaiting\"\x8c\x01\n" +
 	"\bEpicTask\x12\x16\n" +
 	"\x06effort\x18\x01 \x01(\x05R\x06effort\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +

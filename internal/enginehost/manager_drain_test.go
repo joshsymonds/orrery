@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // newDrainManager returns a manager with one slot whose controller speaks holder wire version version, over writer and s.
@@ -104,24 +105,25 @@ func stalledSession(t *testing.T, rig crashRig, dir string) (string, int, holder
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	return id, fakePID(t, dir), holderPids(t, holderDir(t, rig.root, id))
 }
 
 // TestReconcileDrainsOneVersionOlderHolderAfterItsTurn crashes orreryd partway through a trickling turn, so the turn's
-// later blocks and its end are only in the holder's spool. The restart re-adopts the holder of one version older, records
-// the rest of the turn on it, and stops the holder once the turn has ended.
+// later blocks are only in the holder's spool. The fake holds the turn's last block until the restart has re-adopted
+// the holder of one version older, so the turn is still running then. The restart records the rest of the turn on it,
+// and stops the holder once the turn has ended.
 func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, blockTrigger("fake trickle 1.5"), false)
 	dir := t.TempDir()
-	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "TRICKLE"})
+	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "TRICKLEHELD"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the store refuses the batch of fake trickle 1.5", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake trickle 1.5", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 
@@ -129,10 +131,23 @@ func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	if !slices.Contains(restarted.Live(), id) {
+		t.Fatalf("session %s is not live after the restart, want its held turn re-adopted", id)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.release"), nil, 0o600); err != nil {
+		t.Fatalf("release the turn's last block: %v", err)
+	}
 
-	history := waitHistory(t, rig.path, id, "the done state of the trickled turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	history := waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the trickled turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	if slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is live after its turn ended, want its holder stopped", id)
 	}
@@ -161,9 +176,16 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the done state of the first turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		id,
+		"the done state of the first turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 
@@ -178,7 +200,7 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
 	// The pump ends after the stopped child's exit has been read, so its end means any exit record has been stored.
-	waitUntil(t, "the stopped session's pump to end", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the stopped session's pump to end", func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
 		return restarted.stopping[id] == nil
@@ -197,9 +219,16 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say after the stop: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the reply to the next Say", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the next Say",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	starts := fakeStarts(t, dir)
 	if len(starts) != 2 || !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", starts)
@@ -234,14 +263,19 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitUntil(t, "the turn end to take session "+id+" out of the live set", func() bool {
-		return !slices.Contains(restarted.Live(), id)
-	})
+	waitUntil(
+		t,
+		engineOf(rig.manager, restarted),
+		"the turn end to take session "+id+" out of the live set",
+		func() bool {
+			return !slices.Contains(restarted.Live(), id)
+		},
+	)
 	said := make(chan error, 1)
 	go func() {
 		said <- restarted.Say(t.Context(), SayRequest{ID: id, Text: "again"})
 	}()
-	waitUntil(t, "the Say to wait for the old holder to stop", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the Say to wait for the old holder to stop", func() bool {
 		// Only a Say that finds no live session takes resumeMu, so holding it means the Say is in resumeSession, and the
 		// held pump keeps that Say from resuming until the hold opens.
 		if restarted.resumeMu.TryLock() {
@@ -255,7 +289,7 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 		t.Fatalf("Say while the old holder stopped: %v", err)
 	}
 
-	waitUntil(t, "the fake claude to start a second time", func() bool {
+	waittest.Until(t, nil, "the fake claude to start a second time", func() bool {
 		return len(fakeStarts(t, dir)) == 2
 	})
 	// The Say waited for the old holder to end, so the old claude is gone by the time the new one starts.
@@ -265,9 +299,16 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 	if starts := fakeStarts(t, dir); !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want the second with --resume session_1", starts)
 	}
-	waitHistory(t, rig.path, id, "the reply to the Say that waited", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the Say that waited",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	for _, n := range sink.got() {
 		if n.State == "failed" {
 			t.Fatalf("notice %+v, want the Say answered, not failed", n)
@@ -297,9 +338,16 @@ func TestReconcileKeepsOwnVersionHolderLiveAfterItsTurn(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitHistory(t, rig.path, id, "the done state of the held turn", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the held turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	if !slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is not live after its turn ended, want it kept for its own version", id)
 	}
@@ -362,7 +410,7 @@ func TestReconcileKeepsOneVersionOlderHolderWhileItsBackgroundTaskRuns(t *testin
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the background turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(rig.manager), rig.path, id, "the background turn done", func(h store.EngineHistory) bool {
 		return h.State == "done" && hasBlock(t, h, "fake background 1")
 	})
 	pids := holderPids(t, holderDir(t, rig.root, id))
@@ -378,9 +426,16 @@ func TestReconcileKeepsOneVersionOlderHolderWhileItsBackgroundTaskRuns(t *testin
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
 		t.Fatalf("Say BGEND: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the reply after the background task ended", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply after the background task ended",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if starts := fakeStarts(t, dir); len(starts) != 1 {
 		t.Fatalf("fake claude starts = %q, want the one start, the Say answered on the old holder", starts)
 	}

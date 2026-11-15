@@ -59,7 +59,7 @@ func evidenceCloseStart(t *testing.T, st *store.Store, ev *Evidence, pidFile str
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	return started, stepCtlAwaitGatePid(t, pidFile)
+	return started, stepCtlAwaitGatePid(t, engineOf(ev), pidFile)
 }
 
 // TestEvidenceCloseWithGateScopeDetachesARunningCapture closes an Evidence under a gate scope while its capture's gate

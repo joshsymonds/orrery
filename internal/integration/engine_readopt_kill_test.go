@@ -122,8 +122,9 @@ func TestEngineHolderScopeSigkillKeepsSentPromptOnce(t *testing.T) {
 
 // TestEngineHolderScopeSigkillKeepsInFlightPromptOnce proves that a prompt whose write is in flight when orreryd is
 // killed reaches the fake claude once after the restart, and that each turn completes once. The fake reads its stdin
-// only between turns, so a prompt sent during a TRICKLE turn and larger than the pipe blocks in the holder: its write id
-// is recorded and the write is part-way when orreryd dies.
+// only between turns, so a prompt sent during a TRICKLEHELD turn and larger than the pipe blocks in the holder: its
+// write id is recorded and the write is part-way when orreryd dies. The fake holds the turn's last block until the test
+// releases it after the restart, so the turn runs across the kill.
 func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
 	t.Parallel()
 	f, scope, _ := scopedFixture(t)
@@ -136,9 +137,9 @@ func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
 	f.waitForHistory(t, id, turnDone)
 	pid := fakeClaudePID(t, dir)
 
-	// The fake numbers its replies by prompt, and TRICKLE is the second prompt of the session. The prompt after it is
+	// The fake numbers its replies by prompt, and TRICKLEHELD is the second prompt of the session. The prompt after it is
 	// 96 KiB, under the 128 KiB a single exec argument may hold and over the 64 KiB a Linux pipe holds.
-	wantExit(t, f.orrery(t, "session", "say", id, "TRICKLE"), 0)
+	wantExit(t, f.orrery(t, "session", "say", id, "TRICKLEHELD"), 0)
 	f.waitForBlock(t, id, "fake trickle 2.1")
 	say := startBinary(t, "orrery", f.env, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10))
 	waitUntil(t, func() bool { return !stdinWritable(t, pid) })
@@ -146,6 +147,9 @@ func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
 
 	// The say retries its cut call with the same prompt id until the restarted orreryd answers it.
 	restarted := f.startOrreryd(t, true, "--holder-scope", scope)
+	// The turn ran across the kill. Releasing its last block lets the turn end, the fake read the prompt the holder is
+	// still writing, and the say's retry complete.
+	writeFile(t, filepath.Join(dir, "fakeclaude.release"), "", 0o600)
 	wantExit(t, say.exitOutcome(t), 0)
 	f.waitForBlock(t, id, "fake reply 3")
 	f.waitForHistory(t, id, turnDone)

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +49,10 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 	dirs := make([]string, engineStreamSessions)
 	for i := range engineStreamSessions {
 		dirs[i] = f.sessionDir(t, fmt.Sprintf("stream-%d", i))
+	}
+	// Each stream advances a block per pane hook, so the sessions stream while the hooks arrive at any machine's pace.
+	paceStreams(t, dirs, 1)
+	for i := range engineStreamSessions {
 		ids[i] = f.start(t, dirs[i], engineStreamPrompt)
 	}
 	// Every session's first block is stored before the first hook, and its last block only after the last hook, so
@@ -72,11 +78,15 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 			state, event = protocol.StateDone, "Stop"
 		}
 		hook := map[string]any{"hook_event_name": event, "session_id": pulseSession, "transcript_path": transcript}
-		sendHook(t, f.socket, pane, pulseDir, hook)
+		// The frame goes straight to orreryd's socket: the subject is the pane syncs under the sessions' load, not
+		// the hook command, so no orrery process is spawned per pulse.
+		paceStreams(t, dirs, i+2)
+		sendHookFrame(t, f.socket, pane, pulseDir, hook)
 		waitForPaneState(t, q, client, pane, state)
 		want = append(want, string(state))
 	}
 
+	paceStreams(t, dirs, engineStreamBlocks)
 	for i, id := range ids {
 		writeFile(t, filepath.Join(dirs[i], "fakeclaude.release"), "", 0o600)
 		f.waitForHistory(t, id, hasStreamBlocks)
@@ -104,6 +114,19 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 	wantExit(t, out, 0)
 	if strings.Contains(out.stderr, mirrorDroppedLog) {
 		t.Fatalf("orreryd dropped a mirror sync; stderr %q", out.stderr)
+	}
+}
+
+// paceStreams lets the fake claude in each of dirs stream up to block k of its trickle: at each block it waits for
+// fakeclaude.pace to reach it. The file is replaced whole, so the fake reads a number or no file.
+func paceStreams(t *testing.T, dirs []string, k int) {
+	t.Helper()
+	for _, dir := range dirs {
+		next := filepath.Join(dir, "fakeclaude.pace.next")
+		writeFile(t, next, strconv.Itoa(k), 0o600)
+		if err := os.Rename(next, filepath.Join(dir, "fakeclaude.pace")); err != nil {
+			t.Fatalf("pace the stream in %s: %v", dir, err)
+		}
 	}
 }
 

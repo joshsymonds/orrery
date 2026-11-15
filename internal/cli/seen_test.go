@@ -22,6 +22,8 @@ import (
 const (
 	seenNoConfig = "/dev/null"
 	seenCommand  = "sleep 300"
+	// seenPoll is how often a wait asks the server whether a client is listed yet.
+	seenPoll = 20 * time.Millisecond
 )
 
 // seenServer returns a client for a unique private server name and kills that server at cleanup.
@@ -146,14 +148,24 @@ func seenAttach(t *testing.T, client *tmuxctl.Client, session string) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start control client: %v", err)
 	}
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
 	t.Cleanup(func() {
 		_ = stdin.Close()
 		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		<-exited
 	})
 
+	// The client is the only one this server gets, so once it has exited no client will be listed.
 	for strings.TrimSpace(seenRun(t, client, "list-clients", "-F", "#{client_name}")) == "" {
-		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-exited:
+			t.Fatalf("the control client exited before the server listed it: %v", cmd.ProcessState)
+		case <-time.After(seenPoll):
+		}
 	}
 }
 

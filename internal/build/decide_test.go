@@ -1,6 +1,7 @@
 package build
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -11,6 +12,9 @@ import (
 
 // decideBranch is the epic branch a task's red unit runs at.
 const decideBranch = "epic/acme-epic"
+
+// decideCandidate is the red candidate of an epic whose batch failed, which a fresh task starts at.
+const decideCandidate = "candidate-commit"
 
 // refsSnapshot is the refs snapshot an implementer's step was checked against.
 const refsSnapshot = "refs-snapshot"
@@ -90,6 +94,13 @@ func TestDecideFresh(t *testing.T) {
 			want: Action{Kind: ActMove, Next: store.TaskBuild{Stage: StageRed, Base: decideBranch}},
 		},
 		{
+			name: "a fresh task with a candidate starts at red on the candidate",
+			view: View{
+				Epic: decideEpic, Branch: decideBranch, Candidate: decideCandidate, Task: store.EpicTask{Seq: 3},
+			},
+			want: Action{Kind: ActMove, Next: store.TaskBuild{Stage: StageRed, Base: decideCandidate}},
+		},
+		{
 			name: "a fresh task with no branch waits",
 			view: View{Epic: decideEpic, Task: store.EpicTask{Seq: 3}},
 			want: Action{Kind: ActNone},
@@ -105,6 +116,24 @@ func TestDecideFresh(t *testing.T) {
 			want: Action{Kind: ActNone},
 		},
 	})
+}
+
+// TestViewCandidate pins that a runner's view of a fresh task carries the epic's candidate, so Decide starts the task
+// at it.
+func TestViewCandidate(t *testing.T) {
+	t.Parallel()
+	epic := store.EpicRow{ID: decideEpic, Candidate: decideCandidate}
+	view, err := New(Config{}).view(context.Background(), epic, store.EpicTask{Seq: 3}, decideBranch)
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if view.Candidate != decideCandidate {
+		t.Fatalf("view Candidate = %q, want %q", view.Candidate, decideCandidate)
+	}
+	want := Action{Kind: ActMove, Next: store.TaskBuild{Stage: StageRed, Base: decideCandidate}}
+	if got := Decide(view); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Decide = %+v, want %+v", got, want)
+	}
 }
 
 func TestDecideRed(t *testing.T) {

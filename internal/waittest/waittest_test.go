@@ -120,3 +120,47 @@ func TestAllClosesOnlyOnceEveryChannelHas(t *testing.T) {
 		t.Fatal("All of no channels closed")
 	}
 }
+
+// runIdle calls UntilIdle on r and returns whether it failed.
+func (r *recorder) runIdle(finished func() bool, ok func() bool) (failed bool) {
+	defer func() {
+		if got := recover(); got != nil {
+			if got != r {
+				panic(got)
+			}
+			failed = true
+		}
+	}()
+	UntilIdle(r, finished, "the mark", ok)
+	return false
+}
+
+func TestUntilIdleFailsOnceTheWorkHasFinished(t *testing.T) {
+	t.Parallel()
+	r := &recorder{TB: t}
+	if !r.runIdle(func() bool { return true }, func() bool { return false }) {
+		t.Fatal("UntilIdle returned though ok never held and the work had finished")
+	}
+}
+
+func TestUntilIdleReturnsOnceOkHolds(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	r := &recorder{TB: t}
+	if r.runIdle(func() bool { return false }, func() bool { return calls.Add(1) >= 3 }) {
+		t.Fatal("UntilIdle failed though ok came true")
+	}
+}
+
+func TestUntilIdlePassesWhenOkHoldsAsTheWorkFinishes(t *testing.T) {
+	t.Parallel()
+	var done atomic.Bool
+	r := &recorder{TB: t}
+	finished := func() bool {
+		done.Store(true)
+		return true
+	}
+	if r.runIdle(finished, done.Load) {
+		t.Fatal("UntilIdle failed though ok held once the work finished")
+	}
+}
