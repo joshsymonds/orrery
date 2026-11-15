@@ -23,6 +23,8 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
@@ -58,7 +60,6 @@ private const val ANSWER_PATH = "/orrery.v1.Control/Answer"
 private const val SEEN_PATH = "/orrery.v1.Control/Seen"
 private const val INTERRUPT_PATH = "/orrery.v1.Control/Interrupt"
 private const val STOP_PATH = "/orrery.v1.Control/Stop"
-private const val TIMEOUT_MILLIS = 5_000L
 private const val FIXTURE_CHANGED = 4102444800L
 private const val FIXTURE_SEEN = 4102444900L
 private const val REPLY_TIME = 1_700_000_000L
@@ -211,7 +212,7 @@ class SessionScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("synthetic reply"))
             composeRule.onNodeWithText("synthetic prompt").assertIsDisplayed()
         }
     }
@@ -239,10 +240,10 @@ class SessionScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText(PART_ONE), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(PART_ONE))
             composeRule.onAllNodesWithText("synthetic thinking").assertCountEquals(0)
 
-            composeRule.waitUntil(TIMEOUT_MILLIS) {
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithText(PART_TWO).fetchSemanticsNodes().size == 1 &&
                     composeRule.onAllNodesWithText(PART_ONE).fetchSemanticsNodes().isEmpty()
             }
@@ -256,11 +257,11 @@ class SessionScreenTest {
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.respond(SAY_PATH, SayResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer"))
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, SAY_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, SAY_PATH) == 1 }
 
             val request = server.requests.single { it.rawPath == SAY_PATH }
             val say = SayRequest.parseFrom(request.body)
@@ -276,11 +277,11 @@ class SessionScreenTest {
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "synthetic cap reached")
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer"))
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
-            composeRule.waitUntilExactlyOneExists(hasText(NOT_SENT), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NOT_SENT))
 
             assertEquals(SYNTHETIC_DRAFT, editField().text.toString())
         }
@@ -300,9 +301,9 @@ class SessionScreenTest {
             server.respond(ANSWER_PATH, AnswerResponse.getDefaultInstance())
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(REQUEST_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(REQUEST_TAG))
             composeRule.onNodeWithTag("session-option:$OPTION_TWO").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, ANSWER_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, ANSWER_PATH) == 1 }
 
             val sent = server.requests.single { it.rawPath == ANSWER_PATH }
             assertEquals(
@@ -322,7 +323,7 @@ class SessionScreenTest {
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
             composeRule.onNodeWithTag(INTERRUPT_TAG).assertIsDisplayed()
             composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
         }
@@ -344,7 +345,7 @@ class SessionScreenTest {
             server.respond(SEEN_PATH, SeenResponse.getDefaultInstance())
             setScreen(server)
 
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, SEEN_PATH) >= 1 }
+            composeRule.awaitUntil { countPosts(server, SEEN_PATH) >= 1 }
 
             val seen = SeenRequest.parseFrom(server.requests.first { it.rawPath == SEEN_PATH }.body)
             assertEquals(SESSION_ID, seen.id)
@@ -367,8 +368,8 @@ class SessionScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText(REFRESH_FAILED), TIMEOUT_MILLIS)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { watchRequests(server).size >= 2 }
+            composeRule.awaitExactlyOne(hasText(REFRESH_FAILED))
+            composeRule.awaitUntil { watchRequests(server).size >= 2 }
 
             val reconnect = watchRequests(server)[1]
             assertEquals(SESSION_ID, reconnect.id)
@@ -392,8 +393,8 @@ class SessionScreenTest {
             )
             setScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText(REFRESH_FAILED), TIMEOUT_MILLIS)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { watchRequests(server).size >= 2 }
+            composeRule.awaitExactlyOne(hasText(REFRESH_FAILED))
+            composeRule.awaitUntil { watchRequests(server).size >= 2 }
 
             val reconnect = watchRequests(server)[1]
             assertEquals(SESSION_ID, reconnect.id)
@@ -413,15 +414,15 @@ class SessionScreenTest {
             )
             server.respond(INTERRUPT_PATH, InterruptResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
 
             composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, INTERRUPT_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, INTERRUPT_PATH) == 1 }
             composeRule.waitForIdle()
             assertFalse("still working, so nothing is shown yet", shown(RESULT_TAG))
 
             gate.release()
-            composeRule.waitUntilExactlyOneExists(hasTestTag(RESULT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(RESULT_TAG))
             composeRule.onNodeWithTag(RESULT_TAG).assertTextEquals(RESULT_TEXT)
             assertFalse("the controls are gone once the turn is done", shown(INTERRUPT_TAG))
             assertFalse("the controls are gone once the turn is done", shown(STOP_TAG))
@@ -444,13 +445,13 @@ class SessionScreenTest {
             )
             server.fail(INTERRUPT_PATH, Code.INTERNAL_ERROR, "synthetic failure")
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
 
             composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-            composeRule.waitUntilExactlyOneExists(hasText(NOT_SENT), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NOT_SENT))
 
             gate.release()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { !shown(INTERRUPT_TAG) }
+            composeRule.awaitUntil { !shown(INTERRUPT_TAG) }
             composeRule.waitForIdle()
             assertFalse(shown(RESULT_TAG))
         }
@@ -468,16 +469,16 @@ class SessionScreenTest {
             )
             server.respond(STOP_PATH, StopResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(STOP_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(STOP_TAG))
 
             composeRule.onNodeWithTag(STOP_TAG).performClick()
             composeRule.waitForIdle()
             composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, STOP_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, STOP_PATH) == 1 }
             composeRule.waitForIdle()
 
             gate.release()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { !shown(STOP_TAG) }
+            composeRule.awaitUntil { !shown(STOP_TAG) }
             composeRule.waitForIdle()
             assertFalse(shown(RESULT_TAG))
         }
@@ -497,23 +498,23 @@ class SessionScreenTest {
             )
             server.respond(INTERRUPT_PATH, InterruptResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
 
             composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, INTERRUPT_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, INTERRUPT_PATH) == 1 }
             composeRule.waitForIdle()
 
             gate.release()
-            composeRule.waitUntilExactlyOneExists(hasTestTag(RESULT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(RESULT_TAG))
             assertFalse(shown(INTERRUPT_TAG))
 
             gate.release()
-            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(INTERRUPT_TAG))
             composeRule.waitForIdle()
             assertFalse("working again clears Interrupted", shown(RESULT_TAG))
 
             gate.release()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { !shown(INTERRUPT_TAG) }
+            composeRule.awaitUntil { !shown(INTERRUPT_TAG) }
             composeRule.waitForIdle()
             assertFalse("a later done does not bring back the cleared Interrupted", shown(RESULT_TAG))
         }

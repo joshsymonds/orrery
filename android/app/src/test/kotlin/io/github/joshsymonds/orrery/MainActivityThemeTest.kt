@@ -24,7 +24,6 @@ import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
@@ -121,7 +120,7 @@ class MainActivityThemeTest {
     @Test
     fun composedBackgroundIsMochaBase() {
         val activity = launch().visible().get()
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodes(hasTestTag("pane-row:%1")).fetchSemanticsNodes().isNotEmpty()
         }
 

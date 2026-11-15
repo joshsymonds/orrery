@@ -19,6 +19,8 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
@@ -66,7 +68,6 @@ private const val REQUEST_ID = "synthetic-request"
 private const val QUESTION = "Pick a synthetic option?"
 private const val OPTION_ONE = "Synthetic one"
 private const val OPTION_TWO = "Synthetic two"
-private const val TIMEOUT_MILLIS = 5_000L
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -163,13 +164,13 @@ class SessionScreenStepTest {
             server.respond(HOLD_PATH, StepsHoldResponse.getDefaultInstance())
             setStepScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(HOLD_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(HOLD_TAG))
             assertTrue(composeRule.onAllNodesWithTag(INTERRUPT_TAG).fetchSemanticsNodes().isEmpty())
             assertTrue(composeRule.onAllNodesWithTag(CONTROL_STOP_TAG).fetchSemanticsNodes().isEmpty())
             composeRule.onNodeWithTag(STOP_TAG).assertIsDisplayed()
 
             composeRule.onNodeWithTag(HOLD_TAG).performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, HOLD_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, HOLD_PATH) == 1 }
 
             val hold = server.requests.single { it.rawPath == HOLD_PATH }
             assertEquals(STEP_SESSION_ID, StepsHoldRequest.parseFrom(hold.body).id)
@@ -184,14 +185,14 @@ class SessionScreenStepTest {
             server.respond(STEPS_STOP_PATH, StepsStopResponse.getDefaultInstance())
             setStepScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(STOP_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(STOP_TAG))
             composeRule.onNodeWithTag(STOP_TAG).performClick()
             composeRule.waitForIdle()
             composeRule.onNodeWithTag(CONFIRM_TAG).assertIsDisplayed()
             assertEquals(0, countPosts(server, STEPS_STOP_PATH))
 
             composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, STEPS_STOP_PATH) == 1 }
+            composeRule.awaitUntil { countPosts(server, STEPS_STOP_PATH) == 1 }
 
             val stop = server.requests.single { it.rawPath == STEPS_STOP_PATH }
             assertEquals(STEP_SESSION_ID, StepsStopRequest.parseFrom(stop.body).id)
@@ -205,7 +206,7 @@ class SessionScreenStepTest {
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setStepScreen(server, held = true)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag(STOP_TAG), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag(STOP_TAG))
             assertTrue(composeRule.onAllNodesWithTag(HOLD_TAG).fetchSemanticsNodes().isEmpty())
         }
     }
@@ -216,7 +217,7 @@ class SessionScreenStepTest {
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             setStepScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer"))
             assertEquals(NUDGE_HINT, editField().hint.toString())
             composeRule.onNodeWithText(NUDGE_NOTE).assertIsDisplayed()
         }
@@ -228,11 +229,11 @@ class SessionScreenStepTest {
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.respond(NUDGE_PATH, StepsNudgeResponse.getDefaultInstance())
             setStepScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer"))
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
-            composeRule.waitUntilExactlyOneExists(hasText(NUDGE_LANDED), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NUDGE_LANDED))
 
             val nudge = server.requests.single { it.rawPath == NUDGE_PATH }
             val sent = StepsNudgeRequest.parseFrom(nudge.body)
@@ -248,11 +249,11 @@ class SessionScreenStepTest {
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.fail(NUDGE_PATH, Code.FAILED_PRECONDITION, REFUSAL_REASON)
             setStepScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasTestTag("composer"))
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
-            composeRule.waitUntilExactlyOneExists(hasText("refused: $REFUSAL_REASON"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("refused: $REFUSAL_REASON"))
 
             assertEquals(SYNTHETIC_DRAFT, editField().text.toString())
         }
@@ -279,7 +280,7 @@ class SessionScreenStepTest {
             )
             setStepScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasText(STEP_REPLY), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(STEP_REPLY))
             assertTrue(composeRule.onAllNodesWithTag(REQUEST_TAG).fetchSemanticsNodes().isEmpty())
         }
     }
