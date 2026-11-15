@@ -100,8 +100,8 @@ func (e epicsServer) List(
 
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
-// the evidence runs of its item, and the tasks of its record when one exists. An id that neither the database nor the
-// record root lists answers not_found, and the id is never joined into a path.
+// the evidence runs of its item, its build_tasks in plan order, and the tasks of its record when one exists. An id that
+// neither the database nor the record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -146,6 +146,7 @@ func (e epicsServer) Get(
 		)
 		runs := e.listEvidence(ctx, id)
 		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
+		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
 	} else {
 		resp.Epic = epicMessage(rec, taskProblems, labeled, e.now())
 	}
