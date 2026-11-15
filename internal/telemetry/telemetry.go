@@ -87,8 +87,21 @@ func (p *Provider) Handler() http.Handler {
 
 // Serve answers GET /metrics from Handler on ln until ctx ends. It then shuts down within shutdownWait and returns nil.
 func (p *Provider) Serve(ctx context.Context, ln net.Listener) error {
+	return p.serve(ctx, ln, nil)
+}
+
+// ServeWithAlerts is Serve, and also answers POST /alerts with alerts.
+func (p *Provider) ServeWithAlerts(ctx context.Context, ln net.Listener, alerts http.Handler) error {
+	return p.serve(ctx, ln, alerts)
+}
+
+// serve is Serve with the POST /alerts handler mounted when alerts is not nil.
+func (p *Provider) serve(ctx context.Context, ln net.Listener, alerts http.Handler) error {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", p.Handler())
+	if alerts != nil {
+		mux.Handle("POST /alerts", alerts)
+	}
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
 	done := make(chan error, 1)
