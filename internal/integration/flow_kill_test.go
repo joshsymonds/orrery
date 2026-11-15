@@ -20,6 +20,8 @@ import (
 // of claude. The workflow is a loop of at most two rounds over a plan that holds build. Its one task is planned before
 // any plan run exists, so the interpreter starts the loop, its round-1 plan and the plan's build child for task 1
 // before the implementer step runs. The rig is the build rig's, seeded with that pin in place of the built-in one.
+// These tests live in internal/integration because they SIGKILL the orreryd binary and restart it over the same store,
+// which crosses the interpreter, store, planner, build and step packages and no package test of one of them can do.
 
 // flowWorkflowName names the repository workflow the epic pins, and flowWorkflowFile is the path it is read from.
 const (
