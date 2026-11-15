@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ func readEpics(root string) ([]epicRecord, error) {
 	}
 	recs := []epicRecord{}
 	for _, repo := range repos {
-		if !repo.IsDir() || strings.HasPrefix(repo.Name(), ".") {
+		if !listed(repo) {
 			continue
 		}
 		found, repoErr := readRepo(root, fsys, repo.Name())
@@ -53,19 +54,40 @@ func readEpics(root string) ([]epicRecord, error) {
 	return recs, nil
 }
 
-// findEpic returns the listed epic whose ID is id. The id is matched against the listing only, never joined into
-// a path, so an id naming a directory outside the listing finds nothing.
+// listed reports whether a record listing names an epic or repository directory: a directory whose name is not
+// dot-led. A symlink is not a directory in a listing, so it is never listed.
+func listed(entry fs.DirEntry) bool {
+	return entry.IsDir() && !strings.HasPrefix(entry.Name(), ".")
+}
+
+// findEpic returns the listed epic whose ID is id, reading only that epic's head. The id must split at "/" into exactly
+// two parts: the first must be a repository in the record root's listing and the second an epic in that repository's
+// listing, both by readEpics' filter. The id is never joined into a path, so an id the listings do not name, a symlink
+// or a file among them, finds nothing and reads nothing.
 func findEpic(root, id string) (epicRecord, bool, error) {
-	recs, err := readEpics(root)
+	repo, slug, found := strings.Cut(id, "/")
+	if !found || strings.Contains(slug, "/") {
+		return epicRecord{}, false, nil
+	}
+	fsys := os.DirFS(root)
+	repos, err := fs.ReadDir(fsys, ".")
+	if errors.Is(err, fs.ErrNotExist) {
+		return epicRecord{}, false, nil
+	}
 	if err != nil {
-		return epicRecord{}, false, err
+		return epicRecord{}, false, fmt.Errorf("read record root: %w", err)
 	}
-	for _, rec := range recs {
-		if rec.ID == id {
-			return rec, true, nil
-		}
+	if !slices.ContainsFunc(repos, func(entry fs.DirEntry) bool { return listed(entry) && entry.Name() == repo }) {
+		return epicRecord{}, false, nil
 	}
-	return epicRecord{}, false, nil
+	slugs, err := fs.ReadDir(fsys, repo)
+	if err != nil {
+		return epicRecord{}, false, fmt.Errorf("read record repository: %w", err)
+	}
+	if !slices.ContainsFunc(slugs, func(entry fs.DirEntry) bool { return listed(entry) && entry.Name() == slug }) {
+		return epicRecord{}, false, nil
+	}
+	return readHead(root, fsys, repo, slug)
 }
 
 // epicLive reports whether an epic is live: never when its outcome is exactly "released", otherwise when a
@@ -107,7 +129,7 @@ func readRepo(root string, fsys fs.FS, repo string) ([]epicRecord, error) {
 	}
 	recs := []epicRecord{}
 	for _, slug := range slugs {
-		if !slug.IsDir() || strings.HasPrefix(slug.Name(), ".") {
+		if !listed(slug) {
 			continue
 		}
 		rec, ok, headErr := readHead(root, fsys, repo, slug.Name())
