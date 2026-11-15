@@ -3,6 +3,7 @@ package enginehost
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -144,6 +145,65 @@ func TestEvidenceJudgePromptNamesOnlyTheLogsARunHas(t *testing.T) {
 			for _, unwanted := range tc.noLines {
 				if strings.Contains(prompt, unwanted) {
 					t.Errorf("prompt names %q though the run has no such log:\n%s", unwanted, prompt)
+				}
+			}
+		})
+	}
+}
+
+// TestEvidenceJudgePromptNamesTheCaptureCommandOnlyWhenThereIsOne names a capture's argv as a JSON array on its own line,
+// beside the exit and the logs, and names no command for a supplied item, which has no capture.
+func TestEvidenceJudgePromptNamesTheCaptureCommandOnlyWhenThereIsOne(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		mutate    func(run *store.EvidenceRun)
+		wantLines []string
+		noLines   []string
+	}{
+		{
+			name: "capture",
+			mutate: func(run *store.EvidenceRun) {
+				run.Spec.Capture = []string{"tool/run", "--flag"}
+			},
+			wantLines: []string{
+				`Command: ["tool/run","--flag"]`,
+				"Exit: 3",
+				"Timed out: true",
+				"Stdout log: " + filepath.Join(judgeTestBlobDir, judgeTestHash("a")+".log"),
+			},
+		},
+		{
+			name: "supplied item",
+			mutate: func(run *store.EvidenceRun) {
+				run.Spec = evidence.Item{
+					Supplied:   []string{"out/store.json"},
+					Conclusion: "the build passes",
+					Judge:      "reviewer",
+				}
+				run.Source = evidence.SourceSupplied
+			},
+			noLines: []string{"Command:"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := judgeTestRun()
+			tc.mutate(&run)
+			prompt, err := judgePrompt(run, evidenceBlobs{dir: judgeTestBlobDir})
+			if err != nil {
+				t.Fatalf("judgePrompt: %v", err)
+			}
+			lines := strings.Split(prompt, "\n")
+			for _, want := range tc.wantLines {
+				if !slices.Contains(lines, want) {
+					t.Errorf("prompt lacks line %q:\n%s", want, prompt)
+				}
+			}
+			for _, unwanted := range tc.noLines {
+				if strings.Contains(prompt, unwanted) {
+					t.Errorf("prompt names %q though the run has no capture:\n%s", unwanted, prompt)
 				}
 			}
 		})

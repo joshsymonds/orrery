@@ -18,7 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
-// TestServeRecordsCallMetricsForEveryService serves all five services with nil backends and telemetry's handler
+// TestServeRecordsCallMetricsForEveryService serves all six services with nil backends and telemetry's handler
 // options, calls one procedure of each, and expects the scrape to hold one series per procedure labeled with exactly
 // rpc_method and rpc_response_status_code.
 func TestServeRecordsCallMetricsForEveryService(t *testing.T) {
@@ -35,7 +35,7 @@ func TestServeRecordsCallMetricsForEveryService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, ln, nil, nil, nil, nil, nil, provider.HandlerOptions()...)
+		done <- Serve(ctx, ln, nil, nil, nil, nil, nil, nil, provider.HandlerOptions()...)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -73,6 +73,11 @@ func TestServeRecordsCallMetricsForEveryService(t *testing.T) {
 		{enginev1connect.EvidenceListEvidenceProcedure, func() error {
 			_, err := enginev1connect.NewEvidenceClient(httpClient, base).ListEvidence(
 				t.Context(), connect.NewRequest(&v1.ListEvidenceRequest{}))
+			return err
+		}},
+		{enginev1connect.NoticesSeenProcedure, func() error {
+			_, err := enginev1connect.NewNoticesClient(httpClient, base).Seen(
+				t.Context(), connect.NewRequest(&v1.NoticesSeenRequest{}))
 			return err
 		}},
 	}

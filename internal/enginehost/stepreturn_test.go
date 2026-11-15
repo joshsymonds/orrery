@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -37,6 +38,15 @@ func (o *stepObserver) Return(session.TurnEnded) {
 	defer o.mu.Unlock()
 	o.returns++
 	o.order = append(o.order, stepReturnMark{})
+}
+
+// Done reports whether the structured return of turn has the step's default done status. It takes no lock, since the
+// manager calls it under its own.
+func (o *stepObserver) Done(turn session.TurnEnded) bool {
+	var head struct {
+		Status string `json:"status"`
+	}
+	return json.Unmarshal(turn.StructuredOutput, &head) == nil && head.Status == stepDefaultDone
 }
 
 func (o *stepObserver) Exited(reason string) {
@@ -169,6 +179,51 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 	waitReturns(t, obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer after the task ended = %d, want 1", n)
+	}
+}
+
+// TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded covers R1: a turn that Continue sends while a background task is
+// still listed, and that returns done, is handed to the observer before the task ends.
+func TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded(t *testing.T) {
+	t.Parallel()
+	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	obs := &stepObserver{}
+	if err := m.StartStep(t.Context(), StepSession{
+		ID: stepA, Dir: t.TempDir(), Prompt: "BACKGROUND", Agent: "reviewer", Observer: obs,
+	}); err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	waitHistory(t, path, stepA, "the background turn done", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
+	})
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "BGDONE", Sender: store.PromptSenderOwner}); err != nil {
+		t.Fatalf("Continue BGDONE: %v", err)
+	}
+	waitHistory(t, path, stepA, "the done reply while the task is listed", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake bgdone 2") && lastState(t, h) == string(protocol.StateDone)
+	})
+	waitReturns(t, obs, 1)
+	if n := obs.returned(); n != 1 {
+		t.Fatalf("turn ends handed to the observer with the task listed = %d, want 1", n)
+	}
+}
+
+// TestStepNotDoneReturnWhileBackgroundTaskIsListedIsNotHanded covers R1: a turn that ends with a not-done return while
+// background tasks are listed is not handed to the observer.
+func TestStepNotDoneReturnWhileBackgroundTaskIsListedIsNotHanded(t *testing.T) {
+	t.Parallel()
+	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	obs := &stepObserver{}
+	if err := m.StartStep(t.Context(), StepSession{
+		ID: stepA, Dir: t.TempDir(), Prompt: "BGSELF", Agent: "reviewer", Observer: obs,
+	}); err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	waitHistory(t, path, stepA, "the not-done turn done with its tasks listed", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake bgself 1") && lastState(t, h) == string(protocol.StateDone)
+	})
+	if n := obs.returned(); n != 0 {
+		t.Fatalf("turn ends handed to the observer with tasks listed = %d, want 0", n)
 	}
 }
 

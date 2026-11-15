@@ -139,12 +139,16 @@ type Store interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	SetTaskBuild(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
+	SetTaskBuildTelling(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
+	) error
 	FailTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, at time.Time) error
 	AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error
 	StopTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
-	ParkTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time) error
+	ParkTask(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time, tells ...string,
+	) error
 	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
-	Tell(ctx context.Context, epic, text string, at time.Time) error
 	SetEpicBranch(ctx context.Context, epic, state string) error
 	AddTaskReview(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, review store.TaskReview) error
 	SetFindingResult(
@@ -165,14 +169,44 @@ type Evidence interface {
 	StderrLog(ctx context.Context, run string) ([]byte, string, error)
 }
 
+// Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add
+// and the removal of a task's worktrees.
+type Git interface {
+	CreateBranch(ctx context.Context, repo, epic, base string) error
+	Pin(ctx context.Context, repo, ref, commit string) error
+	AddWorktree(ctx context.Context, repo, path, base string) error
+	RemoveWorktrees(ctx context.Context, repo, dir string) error
+}
+
+// packageGit makes the writes of Git through the package's own functions.
+type packageGit struct{}
+
+func (packageGit) CreateBranch(ctx context.Context, repo, epic, base string) error {
+	return CreateBranch(ctx, repo, epic, base)
+}
+
+func (packageGit) Pin(ctx context.Context, repo, ref, commit string) error {
+	return Pin(ctx, repo, ref, commit)
+}
+
+func (packageGit) AddWorktree(ctx context.Context, repo, path, base string) error {
+	return AddWorktree(ctx, repo, path, base)
+}
+
+func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
+	return RemoveWorktrees(ctx, repo, dir)
+}
+
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards, and a nil Getenv means os.Getenv. StateDir is the directory the task worktrees live under.
+// Logger discards, and a nil Getenv means os.Getenv. StateDir is the directory the task worktrees live under. A nil Git
+// makes the repository writes through the package's own functions.
 type Config struct {
 	Store    Store
 	Steps    Steps
 	Evidence Evidence
 	Getenv   func(string) string
 	StateDir string
+	Git      Git
 	Tick     time.Duration
 	Now      func() time.Time
 	Logger   *slog.Logger
@@ -185,6 +219,7 @@ type Runner struct {
 	evidence Evidence
 	getenv   func(string) string
 	stateDir string
+	git      Git
 	tick     time.Duration
 	now      func() time.Time
 	logger   *slog.Logger
@@ -197,7 +232,10 @@ const defaultTick = 5 * time.Second
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, steps: cfg.Steps, evidence: cfg.Evidence, getenv: cfg.Getenv, stateDir: cfg.StateDir,
-		tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		git: cfg.Git, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+	}
+	if runner.git == nil {
+		runner.git = packageGit{}
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick

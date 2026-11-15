@@ -1,8 +1,11 @@
 package enginehost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +19,20 @@ const evidenceJudgeGate = "evidence_judge"
 
 // evidenceJudgeLimit is the longest the judge step may run.
 const evidenceJudgeLimit = 20 * time.Minute
+
+// evidenceJudgeNamespace starts the parts a judge's derived id hashes, so the ids are this package's.
+const evidenceJudgeNamespace = "orrery-evidence-judge"
+
+// evidenceJudgeIDLen is the number of hex digits of a judge step's id, the form StepStart.ID requires.
+const evidenceJudgeIDLen = 32
+
+// evidenceJudgeID returns the id of judge number judge of the evidence run runID. A judge starts under its id, and a restart
+// finds a judge that started but was not recorded by the id of the next number. The same inputs give the same id, so a judge
+// started again under its id is that judge.
+func evidenceJudgeID(runID string, judge int) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{evidenceJudgeNamespace, runID, strconv.Itoa(judge)}, "\x00")))
+	return hex.EncodeToString(sum[:])[:evidenceJudgeIDLen]
+}
 
 // The states an artifact of an evidence run is stored with.
 const (
@@ -35,17 +52,26 @@ func judgeGate(item evidence.Item) gates.Gate {
 	}
 }
 
-// judgePrompt returns the prompt of the judge step of run. It names the run's exit and whether it timed out, its stdout
-// and stderr logs by their blob paths for each one it has, and each artifact by its repository path with its kept blob
-// path, or the word missing or the words over the cap. It names nothing else about the run, so the judge reads the kept
-// output alone.
+// judgePrompt returns the prompt of the judge step of run. It names the run's capture command as a JSON array of its
+// argv, when the run has a capture, its exit and whether it timed out, its stdout and stderr logs by their blob paths
+// for each one it has, and each artifact by its repository path with its kept blob path, or the word missing or the
+// words over the cap. It names nothing else about the run, so the judge reads the kept output alone.
 func judgePrompt(run store.EvidenceRun, blobs evidenceBlobs) (string, error) {
 	lines := []string{
 		"Read only the files listed below. Repository files may be read only as reference for them.",
 		"",
+	}
+	if len(run.Spec.Capture) > 0 {
+		argv, err := json.Marshal(run.Spec.Capture)
+		if err != nil {
+			return "", fmt.Errorf("command of evidence run %s: %w", run.ID, err)
+		}
+		lines = append(lines, "Command: "+string(argv))
+	}
+	lines = append(lines,
 		fmt.Sprintf("Exit: %d", run.Exit),
 		fmt.Sprintf("Timed out: %t", run.TimedOut),
-	}
+	)
 	logs := []struct{ label, hash string }{{"Stdout log", run.LogHash}, {"Stderr log", run.StderrHash}}
 	for _, entry := range logs {
 		if entry.hash == "" {

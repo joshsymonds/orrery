@@ -54,10 +54,17 @@ type Verdict struct {
 	Why    string
 }
 
-// DeskSink posts notices to the desk and reports whether the desk is present. *deskstream.Hub satisfies it.
+// DeskSink posts notices to the open desk links and reports the newest web input, in unix seconds. *deskstream.Hub
+// satisfies it.
 type DeskSink interface {
 	Post(deskstream.Notice)
-	Desk() (input int64, present bool)
+	Desk() int64
+}
+
+// PageSink shows a notice in open web pages until it ends. *inapp.Hub satisfies it.
+type PageSink interface {
+	Show(key notice.Key, n deskstream.Notice)
+	End(key notice.Key)
 }
 
 // PhoneSink sends push notices and clears. *notice.Notices satisfies it.
@@ -79,12 +86,14 @@ type Source struct {
 }
 
 // Notice is one waiting or done notice to route. A non-empty Silent is the reason it goes nowhere. A nil
-// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store.
+// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store,
+// and a non-nil Told is written into each of those rows, marking its turn or tell told in the same write.
 type Notice struct {
 	Key      notice.Key
 	State    string
 	Silent   string
 	Source   Source
+	Told     *store.ToldMark
 	Watching func(context.Context) (bool, error)
 	Judge    func(context.Context) (Verdict, error)
 	Desk     func(context.Context) (deskstream.Notice, error)
@@ -104,15 +113,18 @@ var (
 // with.
 type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
-// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. Rebuild maps
-// each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each Rebuild under
-// the Router's lock, so a Rebuild must not call the Router.
+// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. StoreAfter arms
+// the bound on each store call the Router makes, and a nil StoreAfter uses time.AfterFunc. A nil Pages shows nothing.
+// Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each
+// Rebuild under the Router's lock, so a Rebuild must not call the Router.
 type Config struct {
 	Host       string
 	Now        func() time.Time
 	After      func(d time.Duration, f func()) (stop func() bool)
+	StoreAfter func(d time.Duration, f func()) (stop func() bool)
 	Desk       DeskSink
 	Phone      PhoneSink
+	Pages      PageSink
 	Subscribed func() (bool, error)
 	Log        Recorder
 	Logger     *slog.Logger
@@ -130,7 +142,8 @@ type Router struct {
 	running int
 	seq     uint64
 	pending map[notice.Key]*entry
-	// putRow and deleteRow write to the store Attach was given, each under storeDeadline; both are nil until Attach.
+	// putRow and deleteRow write to the store Attach was given, each under the store-call bound; both are nil until
+	// Attach.
 	// rowID is the highest row id given out.
 	putRow    func(store.NoticeRow) error
 	deleteRow func(int64) error
@@ -146,7 +159,7 @@ type Router struct {
 
 // entry is a notice waiting for its route. Its fields are guarded by Router.mu, except n, which never changes. phase
 // is the wait ent is in, due is when that wait runs out in unix ms, and row is the id of ent's stored row, 0 for none.
-// silent is the Silent flag of that row.
+// silent is the Silent flag of that row. shown is whether ent's desk notice is showing on Pages.
 type entry struct {
 	seq         uint64
 	n           Notice
@@ -155,6 +168,7 @@ type entry struct {
 	due         int64
 	row         int64
 	silent      bool
+	shown       bool
 	ended       bool
 	watchLogged bool
 	delayed     bool
@@ -165,6 +179,9 @@ type entry struct {
 func New(cfg Config) *Router {
 	if cfg.After == nil {
 		cfg.After = afterFunc
+	}
+	if cfg.StoreAfter == nil {
+		cfg.StoreAfter = afterFunc
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -371,8 +388,7 @@ func (r *Router) hold(ctx context.Context, ent *entry) {
 // route sends ent to the desk when the desk is at hand, and away otherwise. clause is added to the reason of the
 // line route writes.
 func (r *Router) route(ctx context.Context, ent *entry, clause string) {
-	input, present := r.cfg.Desk.Desk()
-	atDesk := present && input >= r.cfg.Now().Add(-DeskWindow).Unix()
+	atDesk := r.cfg.Desk.Desk() >= r.cfg.Now().Add(-DeskWindow).Unix()
 	dn, built := r.buildDesk(ctx, ent)
 	if atDesk && built {
 		r.atDesk(ctx, ent, dn, clause)
@@ -381,7 +397,7 @@ func (r *Router) route(ctx context.Context, ent *entry, clause string) {
 	r.deliver(ctx, ent, dn, built, ent.n.Push, false, reasonAway+clause)
 }
 
-// atDesk posts the desk notice and arms the escalation that pushes the phone if ent stays unseen.
+// atDesk posts the desk notice, shows it on Pages, and arms the escalation that pushes the phone if ent stays unseen.
 func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, clause string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -391,6 +407,10 @@ func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, c
 	ent.phase, ent.due = phaseDesk, r.dueIn(Escalation)
 	r.rowLocked(ent)
 	r.cfg.Desk.Post(dn)
+	if r.cfg.Pages != nil {
+		r.cfg.Pages.Show(ent.n.Key, dn)
+		ent.shown = true
+	}
 	r.lineLocked(ent.n.Key, ent.n.State, Desk, reasonAtDesk+clause)
 	r.laterLocked(ent, Escalation, func() { r.escalate(ctx, ent) })
 }
@@ -474,7 +494,8 @@ func (r *Router) endLocked(ent *entry, routed, reason string) {
 	}
 }
 
-// stopLocked stops ent's timer and stops treating ent as pending, without a line. The caller holds r.mu.
+// stopLocked stops ent's timer and stops treating ent as pending, without a line. When ent was shown on Pages, its
+// notice there ends. The caller holds r.mu.
 func (r *Router) stopLocked(ent *entry) {
 	ent.ended = true
 	if ent.stop != nil {
@@ -483,6 +504,10 @@ func (r *Router) stopLocked(ent *entry) {
 	ent.stop = nil
 	if r.pending[ent.n.Key] == ent {
 		delete(r.pending, ent.n.Key)
+	}
+	if ent.shown {
+		ent.shown = false
+		r.cfg.Pages.End(ent.n.Key)
 	}
 }
 

@@ -8,6 +8,14 @@ import (
 	"database/sql"
 )
 
+type DueResume struct {
+	ID     string
+	Kind   string
+	Target string
+	Resets int64
+	State  string
+}
+
 type EnginePromptFailed struct {
 	SessionID string
 	PromptID  string
@@ -52,6 +60,7 @@ type Epic struct {
 	Workflow       string
 	WorkflowText   string
 	WorkflowSha256 string
+	PauseSource    string
 }
 
 type EpicAddition struct {
@@ -270,6 +279,7 @@ type Event struct {
 	At        int64
 	Payload   string
 	WriteID   string
+	Answered  sql.NullString
 }
 
 type EvidenceArtifact struct {
@@ -346,6 +356,7 @@ type PendingNotice struct {
 	Source      []byte
 	Silent      bool
 	Epic        string
+	LimitKey    string
 }
 
 type PendingNoticeID struct {
@@ -438,4 +449,9 @@ type Step struct {
 	LoopGateFrom    int64
 	CheckoutHead    string
 	CheckoutHash    string
+}
+
+type ToldLimitStep struct {
+	LimitKey string
+	Step     string
 }

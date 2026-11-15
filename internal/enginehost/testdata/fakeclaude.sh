@@ -5,14 +5,18 @@
 # FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
 # start of a text block and never finishes it, TERMPROOF ignores SIGTERM and then stalls as STALL does, DIE streams
 # the same start, writes fake died to stderr and exits with status 3, BACKGROUND starts a background task and ends
-# its turn while the task runs, BGEND ends that task and then answers as any other prompt does, PAIR answers with one
+# its turn while the task runs, BGEND ends that task and then answers as any other prompt does, BGDONE answers with a
+# success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two tasks and
+# ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
+# itself, reading no stdin, which ends with a done return while the second task still runs, PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
 # structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
 # structured output is done with no commit, as a read-only step's return is, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
 # exists in its directory, then folds the next line it reads from stdin into its turn: the turn streams one text block
-# and ends with a success result that lists the uuids of both prompts as answered, LIMIT plays a usage-limit turn (a
+# and ends with a success result that lists the uuids of both prompts as answered, WAITOPEN waits until fakeclaude.open
+# exists in its directory before it opens its turn, then answers as any other prompt does, LIMIT plays a usage-limit turn (a
 # rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
@@ -81,8 +85,9 @@ turn_open() {
 }
 
 # turn_close ends a completed turn: the message delta, the message stop and the success result. The result carries
-# structured_output set to the JSON in structured when structured is set. Its is_error and result come from the variables
-# is_error and result_text, which each prompt sets to false and redacted by default.
+# structured_output set to the JSON in structured when structured is set, and origin set to the JSON in origin when origin
+# is set. Its result_index is result_index, 0 by default. Its is_error and result come from the variables is_error and
+# result_text, which each prompt sets to false and redacted by default.
 turn_close() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null,"container":null},"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}]},"context_management":{"applied_edits":[]}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_11","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_12","api_message_id":"redacted"}'
@@ -90,7 +95,10 @@ turn_close() {
 	if [ -n "$structured" ]; then
 		printf '%s' '"structured_output":'"$structured"','
 	fi
-	printf '%s\n' '"duration_api_ms":0,"stop_reason":"end_turn","session_id":"session_1","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}],"speed":"redacted","fallback_credit":null},"modelUsage":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}},"permission_denials":[],"terminal_reason":"completed","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":'"$is_error"',"num_turns":1,"subtype":"success","api_error_status":null,"result":"'"$result_text"'","ttft_ms":0,"type":"result","duration_ms":0,"uuid":"uuid_13","ttft_stream_ms":0,"time_to_request_ms":0,"first_content_frame_ms":0,"user_message_uuid":"uuid_1","user_message_uuids":'"$answered"',"request_sent_wall_ms":0,"first_request_input_tokens":0,"first_request_cache_read_input_tokens":0,"queued_turn_count":0,"result_index":0,"model_usage_since_last_result":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}}}'
+	if [ -n "$origin" ]; then
+		printf '%s' '"origin":'"$origin"','
+	fi
+	printf '%s\n' '"duration_api_ms":0,"stop_reason":"end_turn","session_id":"session_1","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}],"speed":"redacted","fallback_credit":null},"modelUsage":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}},"permission_denials":[],"terminal_reason":"completed","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":'"$is_error"',"num_turns":1,"subtype":"success","api_error_status":null,"result":"'"$result_text"'","ttft_ms":0,"type":"result","duration_ms":0,"uuid":"uuid_13","ttft_stream_ms":0,"time_to_request_ms":0,"first_content_frame_ms":0,"user_message_uuid":"uuid_1","user_message_uuids":'"$answered"',"request_sent_wall_ms":0,"first_request_input_tokens":0,"first_request_cache_read_input_tokens":0,"queued_turn_count":0,"result_index":'"$result_index"',"model_usage_since_last_result":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}}}'
 }
 
 # reply streams "fake reply n" in two deltas and ends the turn.
@@ -200,6 +208,40 @@ bgend() {
 	reply
 }
 
+# bgdone answers with a text block and a success result whose structured output is done with no commit. It starts no
+# task, so a task listed by an earlier turn is still listed when the turn ends.
+bgdone() {
+	turn_open
+	text_block 0 "fake bgdone $n" "fake bgdone $n"
+	structured='{"status":"done","summary":"fake done"}'
+	turn_close
+}
+
+# bgself starts two background tasks, streams a text block and ends the turn with a not-done return while both run. Once
+# fakeclaude.release exists in its directory, the first task ends: claude reports it, reads no stdin and starts a turn by
+# itself. That turn has no user_message_uuids, a result_index of 1 and the origin of a task notification, and ends with a
+# done return while the second task still runs.
+bgself() {
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"},{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake bgself $n" "fake bgself $n"
+	structured='{"status":"needs_context","summary":"fake waiting"}'
+	turn_close
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	printf '%s\n' '{"type":"system","subtype":"task_updated","task_id":"task_fake_1","patch":{"status":"completed","end_time":0},"session_id":"session_1","uuid":"uuid_t4"}'
+	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_1","status":"completed","output_file":"fake.output","summary":"fake sleep","session_id":"session_1","uuid":"uuid_t5"}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t6"}'
+	answered='[]'
+	turn_open
+	text_block 0 "fake self $n" "fake self $n"
+	structured='{"status":"done","summary":"fake done"}'
+	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
+	result_index=1
+	turn_close
+}
+
 # pair answers with one assistant line that carries two finished text blocks, so one stdout line yields two events.
 pair() {
 	turn_open
@@ -258,6 +300,14 @@ fold() {
 	turn_close
 }
 
+# waitopen waits until fakeclaude.open exists in its directory before it opens its turn, then answers as reply does.
+waitopen() {
+	while [ ! -e fakeclaude.open ]; do
+		sleep 0.05
+	done
+	reply
+}
+
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
 die() {
 	turn_open
@@ -310,6 +360,8 @@ while next; do
 				*NOAGENT*) omit_agent=1 ;;
 			esac
 			structured=
+			origin=
+			result_index=0
 			is_error=false
 			result_text=redacted
 			case $prompt in
@@ -323,11 +375,14 @@ while next; do
 				*DIE*) die ;;
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;
+				*BGDONE*) bgdone ;;
+				*BGSELF*) bgself ;;
 				*PAIR*) pair ;;
 				*READDONE*) readdone ;;
 				*STEPDONE*) stepdone ;;
 				*JUDGEHOLDS*) judgeholds ;;
 				*FOLD*) fold ;;
+				*WAITOPEN*) waitopen ;;
 				*LIMITNORESET*) limit noreset ;;
 				*LIMIT*) limit ;;
 				*) reply ;;

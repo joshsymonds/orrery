@@ -37,7 +37,7 @@ func TestReaderQueryPlans(t *testing.T) {
 
 	texts := sqlcQueryTexts(t)
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-	partial := partialIndexesOfEvents(t, s.db)
+	partial := partialIndexesOf(t, s.db, "events")
 	for method, names := range readerQueries {
 		for _, name := range names {
 			text, ok := texts[name]
@@ -52,13 +52,90 @@ func TestReaderQueryPlans(t *testing.T) {
 	}
 }
 
+// TestDueResumeQueryPlans fails when a query of the due pass or of a limit's write scans due_resumes without a
+// partial index. The table keeps every row it closes, so a full scan grows with each reset the store has seen. A
+// search of due_resumes is not a scan and passes.
+func TestDueResumeQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	partial := partialIndexesOf(t, s.db, "due_resumes")
+	names := map[string]bool{"due_resumes": true}
+	for _, name := range []string{"InsertDueResume", "GetDueResume", "ListDueResumes", "CloseDueResume", "CloseDueResumesOf"} {
+		text, ok := texts[name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
+		}
+		for _, detail := range planDetails(t, s.db, name, text) {
+			if index, scans := eventsScan(detail, names); scans && !partial[index] {
+				t.Errorf("query %s: plan row %q scans due_resumes without a partial index", name, detail)
+			}
+		}
+	}
+}
+
+// TestHolderPromptQueryPlans fails when a query that writes a turn end's answered uuids, or counts the holder prompts
+// no later turn end answers, scans events without a partial index. Re-adoption counts the owed prompts of each holder it
+// attaches, and events holds every session's log, so a full scan of it grows with the whole store. A search of events
+// is not a scan and passes.
+func TestHolderPromptQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	partial := partialIndexesOf(t, s.db, "events")
+	for _, name := range []string{"InsertEngineTurnEndedEvent", "CountHolderPromptsUnanswered"} {
+		text, ok := texts[name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
+		}
+		for _, detail := range unpartitionedEventsScans(t, s.db, partial, name, text) {
+			t.Errorf("query %s: plan row %q scans events without a partial index", name, detail)
+		}
+	}
+}
+
+// TestToldLimitQueryPlans checks the told-limit queries against told_limit_steps. Deleting a limit's marks searches its
+// primary key. Listing reads every mark, as the check at start needs them all, so it may scan, but only in primary-key
+// order: a bare scan of the table or a temporary sort would mean the key no longer serves the query.
+func TestToldLimitQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	names := map[string]bool{"told_limit_steps": true}
+	for _, tc := range []struct {
+		name     string
+		scanning bool
+	}{
+		{"InsertToldLimitStep", false},
+		{"DeleteToldLimit", false},
+		{"ListToldLimitSteps", true},
+	} {
+		text, ok := texts[tc.name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", tc.name, queryPlanSource)
+		}
+		for _, detail := range planDetails(t, s.db, tc.name, text) {
+			if strings.Contains(detail, "TEMP B-TREE") {
+				t.Errorf("query %s: plan row %q sorts told_limit_steps in a temporary b-tree", tc.name, detail)
+			}
+			index, scans := eventsScan(detail, names)
+			switch {
+			case scans && !tc.scanning:
+				t.Errorf("query %s: plan row %q scans told_limit_steps, want a search of its key", tc.name, detail)
+			case scans && index == "":
+				t.Errorf("query %s: plan row %q scans told_limit_steps without its key", tc.name, detail)
+			}
+		}
+	}
+}
+
 // TestReaderQueryPlansAliases checks that the guard sees a scan of events under an alias, with or without AS, and
 // passes a search of events under an alias. EXPLAIN QUERY PLAN names an aliased table by its alias, so each plan row
 // of a query that reads events through an alias must be matched against the names that the query gives events.
 func TestReaderQueryPlansAliases(t *testing.T) {
 	t.Parallel()
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-	partial := partialIndexesOfEvents(t, s.db)
+	partial := partialIndexesOf(t, s.db, "events")
 	for _, tc := range []struct {
 		name    string
 		text    string
@@ -160,25 +237,25 @@ func queryName(text string) (string, bool) {
 	return name, true
 }
 
-// partialIndexesOfEvents maps each index on the events table to whether it is a partial index.
-func partialIndexesOfEvents(t *testing.T, db *sql.DB) map[string]bool {
+// partialIndexesOf maps each index on table to whether it is a partial index.
+func partialIndexesOf(t *testing.T, db *sql.DB, table string) map[string]bool {
 	t.Helper()
-	rows, err := db.QueryContext(context.Background(), `PRAGMA index_list(events)`)
+	rows, err := db.QueryContext(context.Background(), `SELECT name, partial FROM pragma_index_list(?)`, table)
 	if err != nil {
-		t.Fatalf("PRAGMA index_list(events): %v", err)
+		t.Fatalf("index list of %s: %v", table, err)
 	}
 	defer rows.Close()
 	partial := make(map[string]bool)
 	for rows.Next() {
-		var seq, unique, isPartial int
-		var name, origin string
-		if err := rows.Scan(&seq, &name, &unique, &origin, &isPartial); err != nil {
-			t.Fatalf("scan PRAGMA index_list(events): %v", err)
+		var name string
+		var isPartial int
+		if err := rows.Scan(&name, &isPartial); err != nil {
+			t.Fatalf("scan index list of %s: %v", table, err)
 		}
 		partial[name] = isPartial == 1
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("read PRAGMA index_list(events): %v", err)
+		t.Fatalf("read index list of %s: %v", table, err)
 	}
 	return partial
 }

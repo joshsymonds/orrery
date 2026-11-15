@@ -100,9 +100,9 @@ func (e *Evidence) readoptCapture(ctx context.Context, repo string, run store.Ev
 	e.readoptJudge(ctx, repo, evidenceRunCaptured(run, capture))
 }
 
-// readoptJudge gives judging run its verdict as judgeRun does. It waits for the judge step the run holds, or starts one when it
-// holds none, and a judge that ends with no verdict is followed by another, up to evidenceJudgeTries judges in all. The verdict
-// is recorded once.
+// readoptJudge gives judging run its verdict as judgeRun does. It waits for the judge step the run holds, or for the judge a
+// restart finds under the next derived id, and a judge that ends with no verdict is followed by another, up to evidenceJudgeTries
+// attempts in all. The verdict is recorded once.
 func (e *Evidence) readoptJudge(ctx context.Context, repo string, run store.EvidenceRun) {
 	step, judges, err := e.readoptJudgeStep(ctx, run)
 	if err != nil {
@@ -118,68 +118,36 @@ func (e *Evidence) readoptJudge(ctx context.Context, repo string, run store.Evid
 		}
 		verdict, reason = judgeVerdict(row)
 	}
-	for verdict == "" && judges < evidenceJudgeTries {
-		verdict, reason, err = e.judgeOnce(ctx, repo, run)
+	for tries := judges; verdict == "" && tries < evidenceJudgeTries; tries++ {
+		var started bool
+		started, verdict, reason, err = e.judgeOnce(ctx, repo, run, judges+1)
 		if err != nil {
 			e.logger.WarnContext(ctx, "evidence judge stopped", "run", run.ID, "err", err)
 			return
 		}
-		judges++
+		if started {
+			judges++
+		}
 	}
 	e.recordVerdict(ctx, run, verdict, reason)
 }
 
-// readoptJudgeStep returns the judge step run holds and the judges the store counts for it. A run's judges start one after
-// another, so the newest step LabelledSteps lists for it is its judge. When that step is not the stored one, a restart
-// found it started and not stored: it is adopted and counted as a judge, so a judge that still runs is waited for and
-// never doubled. Otherwise the stored step, or none, stands.
+// readoptJudgeStep returns the judge step run holds and the judges the store counts for it. A run's next judge starts under the
+// derived id of its next number, so a step the store has under that id is a judge a restart found started and not recorded. It
+// is adopted and counted, so a judge that still runs is waited for and never doubled. Otherwise the stored step, or none, stands.
 func (e *Evidence) readoptJudgeStep(ctx context.Context, run store.EvidenceRun) (string, int, error) {
-	steps, err := e.store.LabelledSteps(ctx, run.Epic, "evidence-"+run.ID)
-	if err != nil {
-		return "", 0, fmt.Errorf("labeled steps of evidence run %s: %w", run.ID, err)
-	}
-	newest := readoptNewestJudge(steps, run.JudgeStep)
-	if newest == "" || newest == run.JudgeStep {
+	next := evidenceJudgeID(run.ID, run.Judges+1)
+	_, err := e.store.Step(ctx, next)
+	if errors.Is(err, store.ErrNoStep) {
 		return run.JudgeStep, run.Judges, nil
 	}
-	if err = e.store.SetEvidenceJudge(ctx, run.ID, newest); err != nil {
+	if err != nil {
+		return "", 0, fmt.Errorf("judge step of evidence run %s: %w", run.ID, err)
+	}
+	if err = e.store.SetEvidenceJudge(ctx, run.ID, next); err != nil {
 		return "", 0, fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
 	}
-	return newest, run.Judges + 1, nil
-}
-
-// readoptNewestJudge returns the id of the newest of a run's judge steps: the latest to start, then a running step over an
-// ended one, then the latest to end. A tie keeps stored, the step the run already holds. It returns "" when steps is empty.
-func readoptNewestJudge(steps []store.StepRow, stored string) string {
-	var newest *store.StepRow
-	for i := range steps {
-		if steps[i].ID == stored {
-			newest = &steps[i]
-			break
-		}
-	}
-	for i := range steps {
-		if newest == nil || readoptJudgeAfter(steps[i], *newest) {
-			newest = &steps[i]
-		}
-	}
-	if newest == nil {
-		return ""
-	}
-	return newest.ID
-}
-
-// readoptJudgeAfter reports whether judge step candidate is newer than current: it started later, or started in the same
-// second and still runs while current has ended, or both ended and candidate ended later.
-func readoptJudgeAfter(candidate, current store.StepRow) bool {
-	switch {
-	case !candidate.Started.Equal(current.Started):
-		return candidate.Started.After(current.Started)
-	case (candidate.End == "") != (current.End == ""):
-		return candidate.End == ""
-	default:
-		return candidate.Ended.After(current.Ended)
-	}
+	return next, run.Judges + 1, nil
 }
 
 // EvidenceReadoptGate returns the ReadoptGate of a Steps. A judge step of an evidence run has its agent gate rebuilt from the

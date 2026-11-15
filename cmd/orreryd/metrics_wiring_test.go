@@ -173,7 +173,7 @@ func TestSessionsHandoffsMetricsToWriter(t *testing.T) {
 	opts := evidenceWiringOptions(t)
 	opts.metrics = daemon
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, st, &recordingRouter{},
+		ctx, opts, evidenceWiringHost, st, &recordingRouter{}, nil,
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {

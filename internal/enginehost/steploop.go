@@ -18,11 +18,13 @@ import (
 )
 
 // StepPrompt is a prompt sent to a step session as its next message. Sender is who sent it, which the engine stores with
-// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none.
+// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none. PromptID is the
+// client-chosen id of the prompt, and empty when it carries none.
 type StepPrompt struct {
-	Text   string
-	Sender string
-	Round  int
+	Text     string
+	Sender   string
+	Round    int
+	PromptID string
 }
 
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
@@ -214,6 +216,15 @@ func (r *stepRun) Event(event session.Event) {
 		r.rateLimit.Store(true)
 	}
 	r.watch.event(r.now(), event)
+}
+
+// Done reports whether the structured return of ended has the step's done value. It reads only the step's fixed config,
+// so the manager may call it under its lock.
+func (r *stepRun) Done(ended session.TurnEnded) bool {
+	var head struct {
+		Status string `json:"status"`
+	}
+	return json.Unmarshal(ended.StructuredOutput, &head) == nil && head.Status == r.doneValue
 }
 
 // Return hands the structured return of the session's ended turn to run. It returns once run has queued it, the step has

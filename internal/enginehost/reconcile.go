@@ -286,20 +286,19 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	return nil
 }
 
-// owedPrompts returns how many prompts the previous controller wrote to the holder of session id after the session's
-// newest turn end, which no turn has answered and which the re-adopted session did not send. It is the store's count less
-// the prompts sendUnwritten sends, since Prompt counts those itself, and never below 0. written holds the write ids the
-// holder has applied.
+// owedPrompts returns how many prompts the previous controller wrote to the holder of session id that no later stored turn
+// end answers, and which the re-adopted session did not send. It is the store's count less the prompts sendUnwritten sends,
+// since Prompt counts those itself, and never below 0. written holds the write ids the holder has applied.
 func (m *Manager) owedPrompts(ctx context.Context, id string, written []string) (int, error) {
-	after, err := m.store.HolderPromptsAfterTurnEnd(ctx, id)
+	unanswered, err := m.store.HolderPromptsUnanswered(ctx, id)
 	if err != nil {
-		return 0, fmt.Errorf("count prompts of session %s after its turn end: %w", id, err)
+		return 0, fmt.Errorf("count prompts of session %s no turn end answers: %w", id, err)
 	}
 	prompts, err := m.store.HolderPrompts(ctx, id)
 	if err != nil {
 		return 0, fmt.Errorf("read prompts of session %s: %w", id, err)
 	}
-	return max(after-len(unwrittenPrompts(prompts, written)), 0), nil
+	return max(unanswered-len(unwrittenPrompts(prompts, written)), 0), nil
 }
 
 // readoptSpec returns the spec the session of row is registered with when it is re-adopted. An engine session has none. A

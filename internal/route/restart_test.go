@@ -222,7 +222,7 @@ func TestCloseKeepsRows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openStore(t, path)
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	f.setWatching(true, nil)
 	r := newRestartRouter(t, f, nil)
 	r.Attach(ctx, s)
@@ -299,7 +299,7 @@ func TestSendingRowKept(t *testing.T) {
 		ctx := t.Context()
 		s := newFlakyRows(t)
 		f := newFake()
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		r := newRestartRouter(t, f, nil)
 		r.Attach(ctx, s)
 
@@ -424,7 +424,7 @@ func TestPendingRowPhases(t *testing.T) {
 		checkRows(t, s, withDelayServed(rowFor(1, testPane, stateWaiting, clockStart, rowDelayed,
 			(clockStart+watchSeconds+judgeSeconds)*1000)))
 
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		f.fire(t, route.JudgeDelay)
 		r.Wait()
 		checkRows(t, s, withDelayServed(rowFor(1, testPane, stateWaiting, clockStart, rowDesk,
@@ -494,7 +494,7 @@ func TestRowWriteFails(t *testing.T) {
 		s.set(faults{floor: true})
 		logs := &logBuffer{}
 		f := newFake()
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		r := newRestartRouter(t, f, slog.New(slog.NewTextHandler(logs, nil)))
 		r.Attach(ctx, s)
 
@@ -515,7 +515,7 @@ func TestRowWriteFails(t *testing.T) {
 		s := newFlakyRows(t)
 		logs := &logBuffer{}
 		f := newFake()
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		r := newRestartRouter(t, f, slog.New(slog.NewTextHandler(logs, nil)))
 		r.Attach(ctx, s)
 
@@ -570,7 +570,7 @@ func TestRowWriteFails(t *testing.T) {
 		ctx := t.Context()
 		s := newFlakyRows(t)
 		f := newFake()
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		r := newRestartRouter(t, f, nil)
 		r.Attach(ctx, s)
 
@@ -591,7 +591,7 @@ func TestRowWriteFails(t *testing.T) {
 		ctx := t.Context()
 		s := newFlakyRows(t)
 		f := newFake()
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		r := newRestartRouter(t, f, nil)
 		r.Attach(ctx, s)
 
@@ -613,7 +613,7 @@ func TestRowWriteFails(t *testing.T) {
 		ctx := t.Context()
 		s := newFlakyRows(t)
 		f := newFake()
-		f.setDesk(true, clockStart)
+		f.setDesk(clockStart)
 		r := newRestartRouter(t, f, nil)
 		r.Attach(ctx, s)
 

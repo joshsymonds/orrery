@@ -11,6 +11,7 @@ const watchPath = "/orrery.v1.Events/Watch";
 const epicsListPath = "/orrery.v1.Epics/List";
 const epicsGetPath = "/orrery.v1.Epics/Get";
 const presencePath = "/orrery.v1.Presence/Report";
+const noticesWatchPath = "/orrery.v1.Notices/Watch";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
@@ -582,7 +583,7 @@ test("the page calls only the list, get and watch paths it reads", () =>
       await until(() => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
       assert.deepEqual(
         [...server.paths].sort(),
-        [epicsGetPath, epicsListPath, panesPath, sessionsPath, watchPath].sort(),
+        [epicsGetPath, epicsListPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
       );
     } finally {
       stop();

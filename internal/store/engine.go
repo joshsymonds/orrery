@@ -172,7 +172,8 @@ type EngineRequestCancelled struct {
 	ToolUseID string
 }
 
-// EngineTurnEnded appends engine_turn_ended when a turn ends.
+// EngineTurnEnded appends engine_turn_ended when a turn ends. Answered lists the uuids of the user messages the turn
+// answered, in the order its result listed them.
 type EngineTurnEnded struct {
 	ID             string
 	Subtype        string
@@ -180,6 +181,7 @@ type EngineTurnEnded struct {
 	TerminalReason string
 	Result         string
 	Origin         string
+	Answered       []string
 }
 
 // EngineText upserts the unfinished row of one streaming block.
@@ -438,10 +440,27 @@ func (op EngineRequestCancelled) applyEngine(ctx context.Context, queries *sqlcg
 }
 
 func (op EngineTurnEnded) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	return appendEnginePayload(ctx, queries, op.ID, EventEngineTurnEnded, engineTurnEndedPayload{
+	payload, err := encodeEnginePayload(EventEngineTurnEnded, engineTurnEndedPayload{
 		Subtype: op.Subtype, IsError: op.IsError, TerminalReason: op.TerminalReason,
 		Result: op.Result, Origin: op.Origin,
-	}, now)
+	})
+	if err != nil {
+		return err
+	}
+	answered := op.Answered
+	if answered == nil {
+		answered = []string{}
+	}
+	list, err := json.Marshal(answered)
+	if err != nil {
+		return fmt.Errorf("encode %s answered of session %s: %w", EventEngineTurnEnded, op.ID, err)
+	}
+	if err = queries.InsertEngineTurnEndedEvent(ctx, sqlcgen.InsertEngineTurnEndedEventParams{
+		SessionID: op.ID, At: now.Unix(), Payload: payload, Answered: sql.NullString{String: string(list), Valid: true},
+	}); err != nil {
+		return fmt.Errorf("append %s for session %s: %w", EventEngineTurnEnded, op.ID, err)
+	}
+	return nil
 }
 
 func (op EngineText) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
@@ -489,13 +508,22 @@ func capEngineText(text string) (string, bool) {
 	return text[:cut], true
 }
 
+// encodeEnginePayload encodes value as the JSON object payload of an engine event of kind.
+func encodeEnginePayload(kind string, value any) (string, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("encode %s payload: %w", kind, err)
+	}
+	return string(payload), nil
+}
+
 // appendEnginePayload appends one engine event whose payload is value encoded as a JSON object.
 func appendEnginePayload(ctx context.Context, queries *sqlcgen.Queries, sessionID, kind string, value any,
 	now time.Time,
 ) error {
-	payload, err := json.Marshal(value)
+	payload, err := encodeEnginePayload(kind, value)
 	if err != nil {
-		return fmt.Errorf("encode %s payload: %w", kind, err)
+		return err
 	}
-	return appendEvent(ctx, queries, sessionID, kind, string(payload), now)
+	return appendEvent(ctx, queries, sessionID, kind, payload, now)
 }

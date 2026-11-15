@@ -182,7 +182,7 @@ func (r *Runner) create(ctx context.Context, epic store.EpicRow) (string, error)
 	if err := r.store.SetEpicBranch(ctx, epic.ID, branchCreating); err != nil {
 		return "", fmt.Errorf("mark branch of epic %s creating: %w", epic.ID, err)
 	}
-	if err := CreateBranch(ctx, epic.Repository, epic.ID, epic.Base); err != nil {
+	if err := r.git.CreateBranch(ctx, epic.Repository, epic.ID, epic.Base); err != nil {
 		return "", r.park(ctx, epic.ID, "epic/"+Slug(epic.ID)+" exists: "+err.Error())
 	}
 	return r.markCreated(ctx, epic.ID, epic.Base)

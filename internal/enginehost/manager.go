@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/engine/transport"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
@@ -82,14 +83,14 @@ type NoticeSink interface {
 
 // Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
 // rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written and how many prompts were written
-// after a session's newest turn end, the step rows Continue respawns from, and the failure markers Say checks. *store.Store
+// that no later turn end answers, the step rows Continue respawns from, and the failure markers Say checks. *store.Store
 // satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineTextSessions(ctx context.Context) (map[string]bool, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
 	HolderPrompts(ctx context.Context, id string) ([]store.HolderPrompt, error)
-	HolderPromptsAfterTurnEnd(ctx context.Context, id string) (int, error)
+	HolderPromptsUnanswered(ctx context.Context, id string) (int, error)
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
@@ -567,13 +568,23 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 }
 
 // Continue sends prompt to the step id as its next prompt, which ends the step's hand-off: the step is busy again until
-// this turn ends. A step that is not live, as after an idle stop or a drain at its hand-off, is respawned first from its
-// rows (see respawnStep). The prompt is recorded with its sender and round, as Say records one without them, and a failed
-// send records the step failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and
-// ErrEmptyPrompt for empty text.
+// this turn ends. A non-empty prompt.PromptID that an engine_prompt of the step already carries makes Continue return nil
+// and do nothing else, as Say does. A step that is not live, as after an idle stop or a drain at its hand-off, is
+// respawned first from its rows (see respawnStep). The prompt is recorded with its PromptID, sender and round, as Say
+// records one without the sender and round, and a failed send records the step failed without a notice. It returns an
+// error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for empty text.
 func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
 	if prompt.Text == "" {
 		return ErrEmptyPrompt
+	}
+	if prompt.PromptID != "" {
+		sent, err := m.store.EnginePromptSent(ctx, id, prompt.PromptID)
+		if err != nil {
+			return fmt.Errorf("check prompt %s of step %s: %w", prompt.PromptID, id, err)
+		}
+		if sent {
+			return nil
+		}
 	}
 	live, err := m.claimStep(id)
 	if errors.Is(err, ErrNoSession) {
@@ -583,7 +594,7 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 		return fmt.Errorf("continue step %s: %w", id, err)
 	}
 	return m.send(ctx, live, store.EnginePrompt{
-		ID: id, Text: prompt.Text, Sender: prompt.Sender, Round: prompt.Round,
+		ID: id, Text: prompt.Text, PromptID: prompt.PromptID, Sender: prompt.Sender, Round: prompt.Round,
 	})
 }
 
@@ -1242,13 +1253,14 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// newWriteID returns the write id of a prompt about to be sent: 128 random bits in hex.
+// newWriteID returns the write id of a prompt about to be sent: a random version-4 UUID, which the prompt is also sent
+// under as its user-message uuid.
 func newWriteID() (string, error) {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
+	id, err := transport.RandomUUID()
+	if err != nil {
 		return "", fmt.Errorf("write id: %w", err)
 	}
-	return hex.EncodeToString(raw[:]), nil
+	return id, nil
 }
 
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
@@ -1514,10 +1526,11 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 
 // noteEvent tracks the turn of live through event. It reports whether the pump records event, and for a turn's end,
 // whether that turn was interrupted through Interrupt, which clears the mark for the next turn, and whether the turn is
-// handed to the step's observer: a step's turn that ends with no background task live. The hand-off makes the step busy
-// in the same lock hold. A draining session whose turn ends is retired in the same lock hold (see retireLocked). The exit
-// of a session that Close or a retirement is stopping is not recorded here: recordClosed records a closed session's state
-// from its turn instead, and under a holder scope records nothing, and a retired session records nothing.
+// handed to the step's observer: a step's turn that ends with no background task live, or whose structured return is the
+// step's done value while one is live (see StepObserver.Done). The hand-off makes the step busy in the same lock hold. A
+// draining session whose turn ends is retired in the same lock hold (see retireLocked). The exit of a session that Close
+// or a retirement is stopping is not recorded here: recordClosed records a closed session's state from its turn instead,
+// and under a holder scope records nothing, and a retired session records nothing.
 func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted, handed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1538,7 +1551,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 		clear(live.requests)
 		interrupted = live.interrupting
 		live.interrupting = false
-		if live.observer != nil && !live.background {
+		if live.observer != nil && (!live.background || live.observer.Done(ev)) {
 			live.returned = true
 			handed = true
 		}

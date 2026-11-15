@@ -12,7 +12,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// storeDeadline bounds each store call the Router makes. A call that outlives it is late, and is retried.
+// storeDeadline is the bound each store call the Router makes is armed with. A write whose bound fires before it
+// returns is late, and is retried.
 const storeDeadline = 200 * time.Millisecond
 
 // The phases a row records: the wait its notice is in, or sending once its push was handed to the phone.
@@ -41,9 +42,9 @@ type Rows interface {
 // `not restored`; a sending row has its push sent to the phone again; and the others resume from their phase. A failed
 // floor read is logged and leaves the Router without a store. A failed read of the rows is logged and restores nothing.
 func (r *Router) Attach(ctx context.Context, rows Rows) {
-	floorCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeDeadline)
+	floorCtx, done := r.armed(context.WithoutCancel(ctx))
 	floor, err := rows.NoticeIDFloor(floorCtx)
-	cancel()
+	done()
 	// Every row write and restore runs on ctx without its cancel, so a stopping caller never cuts one short.
 	base := context.WithoutCancel(ctx)
 	r.mu.Lock()
@@ -55,10 +56,10 @@ func (r *Router) Attach(ctx context.Context, rows Rows) {
 		return
 	}
 	r.putRow = func(row store.NoticeRow) error {
-		return bounded(base, func(ctx context.Context) error { return rows.PutNotice(ctx, row) })
+		return r.bounded(base, func(ctx context.Context) error { return rows.PutNotice(ctx, row) })
 	}
 	r.deleteRow = func(id int64) error {
-		return bounded(base, func(ctx context.Context) error { return rows.DeleteNotice(ctx, id) })
+		return r.bounded(base, func(ctx context.Context) error { return rows.DeleteNotice(ctx, id) })
 	}
 	r.rowID = floor
 	for _, ent := range r.sortedPendingLocked() {
@@ -71,9 +72,9 @@ func (r *Router) Attach(ctx context.Context, rows Rows) {
 // already pending, so it is not restored. Of the rows of one key, only the highest id resumes: the others end
 // `changed`, as does every row of a key that saw a Notify before Attach. The caller holds r.mu.
 func (r *Router) restoreLocked(ctx context.Context, rows Rows, floor int64, beforeAttach map[notice.Key]bool) {
-	readCtx, cancel := context.WithTimeout(ctx, storeDeadline)
+	readCtx, done := r.armed(ctx)
 	stored, err := rows.Notices(readCtx)
-	cancel()
+	done()
 	if err != nil {
 		r.cfg.Logger.ErrorContext(ctx, "read notices", "error", err)
 		return
@@ -160,8 +161,8 @@ func (r *Router) rebuildLocked(ctx context.Context, ent *entry) error {
 }
 
 // resumeLocked resumes the restored ent from its phase. A deciding or held notice decides at once. A delayed notice
-// decides, and a desk notice escalates, when its due passes. A sending notice is sent to the phone again at once. The
-// caller holds r.mu.
+// decides, and a desk notice escalates, when its due passes. A desk notice is shown on Pages again at once. A sending
+// notice is sent to the phone again at once. The caller holds r.mu.
 func (r *Router) resumeLocked(ctx context.Context, ent *entry) {
 	switch ent.phase {
 	case phaseDeciding, phaseHeld:
@@ -170,9 +171,26 @@ func (r *Router) resumeLocked(ctx context.Context, ent *entry) {
 		r.dueLocked(ent, func() { r.decide(ctx, ent) })
 	case phaseDesk:
 		r.dueLocked(ent, func() { r.escalate(ctx, ent) })
+		r.startLocked(func() { r.showRestored(ctx, ent) })
 	case phaseSending:
 		r.resendLocked(ctx, ent)
 	}
+}
+
+// showRestored builds the desk notice of the restored desk ent outside the lock, as route does, and shows it on Pages
+// until ent ends. It is not posted to the desk link again, and a failed build shows nothing.
+func (r *Router) showRestored(ctx context.Context, ent *entry) {
+	dn, built := r.buildDesk(ctx, ent)
+	if !built {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ent.ended || r.cfg.Pages == nil {
+		return
+	}
+	r.cfg.Pages.Show(ent.n.Key, dn)
+	ent.shown = true
 }
 
 // resendLocked hands the push of the restored sending ent to the phone again, silent when its row is silent. The row
@@ -198,7 +216,7 @@ func (r *Router) dueLocked(ent *entry, run func()) {
 
 // keyOf is the key of the notice row describes.
 func keyOf(row store.NoticeRow) notice.Key {
-	return notice.Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic}
+	return notice.Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit}
 }
 
 // rowLocked writes ent's row. A notice without a source, and a Router without a store, have no row. The first write
@@ -271,18 +289,28 @@ func (r *Router) deleteLocked(id int64, key notice.Key) {
 	delete(r.rowDeletes, id)
 }
 
-// bounded runs one store write on parent under storeDeadline and returns its error. A write that outlives the
-// deadline reads as failed, even when it succeeded, because it was late.
-func bounded(parent context.Context, write func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(parent, storeDeadline)
-	defer cancel()
-	if err := write(ctx); err != nil {
-		return err
+// bounded runs one store write on parent under the store-call bound and returns its error. A write whose bound fires
+// before it returns reads as failed, even when it succeeded, because it was late.
+func (r *Router) bounded(parent context.Context, write func(context.Context) error) error {
+	ctx, done := r.armed(parent)
+	err := write(ctx)
+	if done() {
+		return fmt.Errorf("write outlived its %v deadline: %w", storeDeadline, context.DeadlineExceeded)
 	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("write outlived its %v deadline: %w", storeDeadline, err)
+	return err
+}
+
+// armed returns parent under the store-call bound: the bound cancels the returned context when it fires. The returned
+// func ends the bound, cancels the context, and reports whether the bound fired first. A read ignores that report: a
+// read the bound cancels fails as the store reports it.
+func (r *Router) armed(parent context.Context) (context.Context, func() bool) {
+	ctx, cancel := context.WithCancel(parent)
+	stop := r.cfg.StoreAfter(storeDeadline, cancel)
+	return ctx, func() bool {
+		fired := !stop()
+		cancel()
+		return fired
 	}
-	return nil
 }
 
 // dueIn is the unix millisecond d from now.
@@ -290,13 +318,15 @@ func (r *Router) dueIn(d time.Duration) int64 {
 	return r.cfg.Now().Add(d).UnixMilli()
 }
 
-// rowOf is the whole row ent keeps.
+// rowOf is the whole row ent keeps. It carries the told mark of ent's notice, so the write that stores the row marks
+// it told too.
 func rowOf(ent *entry) store.NoticeRow {
 	return store.NoticeRow{
 		ID:          ent.row,
 		Pane:        ent.n.Key.Pane,
 		Session:     ent.n.Key.Session,
 		Epic:        ent.n.Key.Epic,
+		Limit:       ent.n.Key.Limit,
 		State:       ent.n.State,
 		Time:        ent.at,
 		Phase:       ent.phase,
@@ -306,5 +336,6 @@ func rowOf(ent *entry) store.NoticeRow {
 		SourceKind:  ent.n.Source.Kind,
 		Source:      ent.n.Source.Data,
 		Silent:      ent.silent,
+		Told:        ent.n.Told,
 	}
 }

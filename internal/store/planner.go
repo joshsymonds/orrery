@@ -482,6 +482,16 @@ const parkedAfterFailures = "3 planner turns failed in a row: "
 // so the stored value marks a limit, and it reads back with a zero Resets.
 const limitWithoutReset = -1
 
+// dueKindEpic is the kind of the due row a planner turn's usage limit stores for its epic.
+const dueKindEpic = "epic"
+
+// The pause sources an epic records: pauseOwner for a pause its owner makes, and pauseLimit for a pause a usage limit
+// makes.
+const (
+	pauseOwner = "owner"
+	pauseLimit = "limit"
+)
+
 // TurnFree is how a running turn ends without a return: its Reason, whether it Pauses the epic, the Park reason
 // it parks the epic with when not empty, whether it is a usage Limit, and the usage-limit Resets time it stores when
 // not zero.
@@ -504,6 +514,48 @@ func storedResetsOf(free TurnFree) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// pauseFreed pauses epic for the turn free ends and records the source of the pause. A turn that is not a Limit
+// records pauseOwner. A Limit records pauseLimit and, for a known reset, stores the epic's due row for that reset in
+// the same write. A Limit over a pause its owner made, recorded as pauseOwner or with no source, leaves that pause and
+// its source as they are and stores no row, since the owner's pause wins over a reset.
+func pauseFreed(ctx context.Context, queries *sqlcgen.Queries, epic string, free TurnFree) error {
+	if !free.Limit {
+		return pauseEpicAs(ctx, queries, epic, pauseOwner)
+	}
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if head.Paused != 0 && head.PauseSource != pauseLimit {
+		return nil
+	}
+	return pauseLimitedEpic(ctx, queries, epic, free.Resets)
+}
+
+// pauseLimitedEpic pauses epic with pauseLimit and, when resets is known, stores the epic's due row for that reset.
+func pauseLimitedEpic(ctx context.Context, queries *sqlcgen.Queries, epic string, resets time.Time) error {
+	if err := pauseEpicAs(ctx, queries, epic, pauseLimit); err != nil {
+		return err
+	}
+	if resets.IsZero() {
+		return nil
+	}
+	return insertDueResume(ctx, queries, dueKindEpic, epic, resets.Unix())
+}
+
+// pauseEpicAs pauses epic and records source as its pause source.
+func pauseEpicAs(ctx context.Context, queries *sqlcgen.Queries, epic, source string) error {
+	if err := queries.PauseEpic(ctx, epic); err != nil {
+		return fmt.Errorf("pause epic %s: %w", epic, err)
+	}
+	if err := queries.SetEpicPauseSource(ctx, sqlcgen.SetEpicPauseSourceParams{
+		PauseSource: source, ID: epic,
+	}); err != nil {
+		return fmt.Errorf("set pause source of epic %s: %w", epic, err)
+	}
+	return nil
 }
 
 // FailTurn ends the running turn seq of epic as failed with reason, cut to TurnReasonMax bytes, in one write, and
@@ -529,9 +581,9 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 
 // FreeTurn ends the running turn seq of epic as free with free.Reason, cut to TurnReasonMax bytes, and returns its
 // triggers to pending with turn 0 in one write. The turn stores storedResetsOf(free): a non-zero free.Resets as its
-// reset time, and limitWithoutReset for a Limit that names none. Pause pauses the epic, and a non-empty Park parks it
-// with that reason. A free turn never counts toward the three failed turns that park an epic. A turn that is not
-// running, or does not exist, is ErrTurnNotRunning and writes nothing.
+// reset time, and limitWithoutReset for a Limit that names none. Pause pauses the epic as pauseFreed records, and a
+// non-empty Park parks it with that reason. A free turn never counts toward the three failed turns that park an epic.
+// A turn that is not running, or does not exist, is ErrTurnNotRunning and writes nothing.
 func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free TurnFree, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := endTurn(ctx, queries, epic, turn, "free", capTurnText(free.Reason), at); err != nil {
@@ -545,8 +597,8 @@ func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free Turn
 			}
 		}
 		if free.Pause {
-			if err := queries.PauseEpic(ctx, epic); err != nil {
-				return fmt.Errorf("pause epic %s: %w", epic, err)
+			if err := pauseFreed(ctx, queries, epic, free); err != nil {
+				return err
 			}
 		}
 		if free.Park == "" {

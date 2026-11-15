@@ -127,7 +127,7 @@ func TestFlightReconcileTraceOnlyWhenSlow(t *testing.T) {
 				opts.holdReconcile = func(ctx context.Context) { flightWiringHold(ctx, tc.hold) }
 			}
 			host, err := startSessions(
-				t.Context(), opts, flightWiringHost, st, &recordingRouter{},
+				t.Context(), opts, flightWiringHost, st, &recordingRouter{}, nil,
 				slog.New(slog.DiscardHandler), getenv,
 			)
 			if err != nil {

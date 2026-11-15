@@ -21,12 +21,12 @@ import (
 // connectSeriesFamily is the family of the otelconnect server metrics.
 const connectSeriesFamily = "rpc_server_call_duration_seconds"
 
-// TestEveryServiceRecordsConnectMetrics calls one procedure of each of the twelve services through the guard and
+// TestEveryServiceRecordsConnectMetrics calls one procedure of each of the thirteen services through the guard and
 // checks that the scrape holds a series for each procedure, labeled with exactly its procedure and its code.
 func TestEveryServiceRecordsConnectMetrics(t *testing.T) {
 	t.Parallel()
 
-	// serviceProcedures names the procedure callEveryService calls of each of the twelve Connect services serve mounts.
+	// serviceProcedures names the procedure callEveryService calls of each of the thirteen Connect services serve mounts.
 	serviceProcedures := []string{
 		orreryv1connect.SessionsListProcedure,
 		orreryv1connect.EventsWatchProcedure,
@@ -40,6 +40,7 @@ func TestEveryServiceRecordsConnectMetrics(t *testing.T) {
 		orreryv1connect.PushRegisterProcedure,
 		orreryv1connect.PickerAskProcedure,
 		orreryv1connect.PresenceReportProcedure,
+		orreryv1connect.NoticesSeenProcedure,
 	}
 
 	provider, err := telemetry.New()
@@ -98,6 +99,8 @@ func callEveryService(t *testing.T, handler http.Handler) {
 		ctx, connect.NewRequest(&orreryv1.AskRequest{}))
 	_, _ = orreryv1connect.NewPresenceClient(httpClient, srv.URL).Report(
 		ctx, connect.NewRequest(&orreryv1.PresenceReportRequest{}))
+	_, _ = orreryv1connect.NewNoticesClient(httpClient, srv.URL).Seen(
+		ctx, connect.NewRequest(&orreryv1.NoticesSeenRequest{}))
 
 	// Events.Watch streams. Its one receive waits for the stream to end, so its metric is recorded before the scrape.
 	stream, err := orreryv1connect.NewEventsClient(httpClient, srv.URL).Watch(

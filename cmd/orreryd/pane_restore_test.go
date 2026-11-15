@@ -61,15 +61,15 @@ const (
 // paneSinks is the desk, phone and log of one orreryd process, and the clock its router reads. Its After timers are
 // the waits its router started, and fire runs one of them.
 type paneSinks struct {
-	mu      sync.Mutex
-	now     int64
-	present bool
-	timers  []*paneTimer
-	posts   []deskstream.Notice
-	pushes  []push.Notification
-	lines   []route.Line
-	errs    []error
-	sents   []func()
+	mu       sync.Mutex
+	now      int64
+	webInput bool
+	timers   []*paneTimer
+	posts    []deskstream.Notice
+	pushes   []push.Notification
+	lines    []route.Line
+	errs     []error
+	sents    []func()
 }
 
 // paneTimer is one wait. It is active until it is stopped or fired.
@@ -79,9 +79,9 @@ type paneTimer struct {
 	done bool
 }
 
-// newPaneSinks returns sinks whose clock reads now, in unix seconds, with a desk that is present or not.
-func newPaneSinks(now int64, present bool) *paneSinks {
-	return &paneSinks{now: now, present: present}
+// newPaneSinks returns sinks whose clock reads now, in unix seconds, with a web page that has input at now or not.
+func newPaneSinks(now int64, webInput bool) *paneSinks {
+	return &paneSinks{now: now, webInput: webInput}
 }
 
 // Now reads the fake clock.
@@ -108,11 +108,14 @@ func (s *paneSinks) After(d time.Duration, f func()) func() bool {
 	}
 }
 
-// Desk reports the clock's time as the desk's input, so a present desk is at hand.
-func (s *paneSinks) Desk() (int64, bool) {
+// Desk reports the clock's time as the web input when a web page has input, and no input otherwise.
+func (s *paneSinks) Desk() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.now, s.present
+	if !s.webInput {
+		return 0
+	}
+	return s.now
 }
 
 // Post records a desk notice.

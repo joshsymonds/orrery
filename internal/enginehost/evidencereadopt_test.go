@@ -3,11 +3,13 @@ package enginehost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,16 +81,72 @@ func evidenceReadoptClose(t *testing.T, ev *Evidence) {
 	}
 }
 
-// evidenceReadoptLabel stores a step with id, labeled as the judge of run of epic evidenceRunEpic.
-func evidenceReadoptLabel(t *testing.T, st *store.Store, step, repo, revision, run string) {
+// evidenceReadoptStep stores a judge step with id at repo and revision, with no labels: a restart finds it by its derived id
+// alone, whatever labels it carries.
+func evidenceReadoptStep(t *testing.T, st *store.Store, step, repo, revision string) {
 	t.Helper()
 	ops := []store.EngineOp{store.StepAdd{
 		ID: step, Prompt: "judge", DoneValue: stepLoopEndDone, Workspace: repo, Revision: revision, ReadOnly: true,
-		Epic: evidenceRunEpic, Task: "evidence-" + run,
 	}}
 	if err := st.ApplyEngine(t.Context(), ops, time.Unix(1700000002, 0)); err != nil {
 		t.Fatalf("ApplyEngine step %s: %v", step, err)
 	}
+}
+
+// evidenceIDJudge is a judge evidenceIDSteps starts. It ends with end, the row it stores. A judge whose start fails stores that
+// row and returns its id with startErr, as Steps.Start does when a StartStep fails after its row is written.
+type evidenceIDJudge struct {
+	end      store.StepRow
+	startErr error
+}
+
+// evidenceIDSteps is an EvidenceSteps that starts each judge under the id its StepStart carries, as Steps.Start does, and
+// records each id a start carries. Judges start in the order judges gives. ended holds the rows Wait reads, by id, and may be
+// set before the test runs.
+type evidenceIDSteps struct {
+	mu     sync.Mutex
+	judges []evidenceIDJudge
+	ids    []string
+	ended  map[string]store.StepRow
+}
+
+// Start starts the next scripted judge under start.ID. A start with no judge left is an error.
+func (f *evidenceIDSteps) Start(_ context.Context, start StepStart) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ids = append(f.ids, start.ID)
+	if len(f.judges) == 0 {
+		return "", errors.New("evidence run test: a judge started with none left")
+	}
+	judge := f.judges[0]
+	f.judges = f.judges[1:]
+	if f.ended == nil {
+		f.ended = map[string]store.StepRow{}
+	}
+	judge.end.ID = start.ID
+	f.ended[start.ID] = judge.end
+	return start.ID, judge.startErr
+}
+
+// Wait returns the row of the judge with id ids[0] once it has ended. A judge with no row waits until ctx ends.
+func (f *evidenceIDSteps) Wait(
+	ctx context.Context, ids []string, _ time.Duration,
+) (*store.StepRow, []store.StepRow, error) {
+	f.mu.Lock()
+	row, ended := f.ended[ids[0]]
+	f.mu.Unlock()
+	if !ended {
+		<-ctx.Done()
+		return nil, nil, fmt.Errorf("wait for judge %s: %w", ids[0], ctx.Err())
+	}
+	return &row, []store.StepRow{row}, nil
+}
+
+// startIDs returns the id each start carried, in start order.
+func (f *evidenceIDSteps) startIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.ids...)
 }
 
 // evidenceReadoptLines returns how many lines the file at path holds, and 0 when there is no file.
@@ -273,17 +331,18 @@ func TestEvidenceReadoptJudgingRunWhoseStepEndsHoldsRecordsOnce(t *testing.T) {
 	}
 }
 
-// TestEvidenceReadoptJudgingRunWithNoStoredStepAdoptsItsLabelledStep resumes a judging run with no judge step stored, whose
-// judge a restart found labeled. The labeled step is adopted and waited for, and no judge starts.
-func TestEvidenceReadoptJudgingRunWithNoStoredStepAdoptsItsLabelledStep(t *testing.T) {
+// TestEvidenceReadoptJudgingRunWithNoStoredStepAdoptsItsDerivedStep resumes a judging run with no judge step stored, whose first
+// judge a restart found started under its derived id and never stored. The step is adopted and waited for, and no judge starts.
+func TestEvidenceReadoptJudgingRunWithNoStoredStepAdoptsItsDerivedStep(t *testing.T) {
 	t.Parallel()
 	repo, head := evidenceRunRepo(t, "exit 0\n")
 	st := epicTestStore(t)
 	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
 	evidenceReadoptJudging(t, st, "adopt", head, evidenceRunItem(), "")
-	evidenceReadoptLabel(t, st, "judge-labeled", repo, head, "adopt")
+	const first = "dc467cbb72e3c9f4dcea18893c6bf3bb"
+	evidenceReadoptStep(t, st, first, repo, head)
 	steps := &evidenceRunSteps{ended: map[string]store.StepRow{
-		"judge-labeled": {ID: "judge-labeled", End: stepLoopEndDone},
+		first: {ID: first, End: stepLoopEndDone},
 	}}
 	ev := evidenceRunNew(t, st, steps)
 
@@ -291,10 +350,10 @@ func TestEvidenceReadoptJudgingRunWithNoStoredStepAdoptsItsLabelledStep(t *testi
 		t.Fatalf("Resume: %v", err)
 	}
 	got := evidenceRunSettled(t, st, "adopt")
-	if got.JudgeStep != "judge-labeled" || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 1 ||
+	if got.JudgeStep != first || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 1 ||
 		steps.startCount() != 0 {
 		t.Fatalf(
-			"run = judge %q verdict %q passed %t judges %d starts %d, want the labeled step, holds, passed, one judge, no start",
+			"run = judge %q verdict %q passed %t judges %d starts %d, want the derived step, holds, passed, one judge, no start",
 			got.JudgeStep,
 			got.Verdict,
 			got.Passed,
@@ -312,27 +371,18 @@ func TestEvidenceReadoptJudgingRunAdoptsANewerJudgeThanItsStoredOne(t *testing.T
 	repo, head := evidenceRunRepo(t, "exit 0\n")
 	st := epicTestStore(t)
 	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	evidenceReadoptJudging(t, st, "newer", head, evidenceRunItem(), "judge-first")
-	first := []store.EngineOp{
-		store.StepAdd{
-			ID: "judge-first", Prompt: "judge", DoneValue: stepLoopEndDone, Workspace: repo, Revision: head,
-			ReadOnly: true, Epic: evidenceRunEpic, Task: "evidence-newer",
-		},
-		store.StepEnd{ID: "judge-first", End: stepRestartedEnd},
+	const first = "785122470b5ca51872b9ce3eefbd21e1"
+	const second = "da53b42727c0909d009e5828941ba009"
+	evidenceReadoptJudging(t, st, "newer", head, evidenceRunItem(), first)
+	evidenceReadoptStep(t, st, first, repo, head)
+	ended := []store.EngineOp{store.StepEnd{ID: first, End: stepRestartedEnd}}
+	if err := st.ApplyEngine(t.Context(), ended, time.Unix(1700000002, 0)); err != nil {
+		t.Fatalf("ApplyEngine end of the stored judge: %v", err)
 	}
-	if err := st.ApplyEngine(t.Context(), first, time.Unix(1700000002, 0)); err != nil {
-		t.Fatalf("ApplyEngine judge-first: %v", err)
-	}
-	second := []store.EngineOp{store.StepAdd{
-		ID: "judge-second", Prompt: "judge", DoneValue: stepLoopEndDone, Workspace: repo, Revision: head,
-		ReadOnly: true, Epic: evidenceRunEpic, Task: "evidence-newer",
-	}}
-	if err := st.ApplyEngine(t.Context(), second, time.Unix(1700000003, 0)); err != nil {
-		t.Fatalf("ApplyEngine judge-second: %v", err)
-	}
+	evidenceReadoptStep(t, st, second, repo, head)
 	steps := &evidenceRunSteps{ended: map[string]store.StepRow{
-		"judge-first":  {ID: "judge-first", End: stepRestartedEnd},
-		"judge-second": {ID: "judge-second", End: stepLoopEndDone},
+		first:  {ID: first, End: stepRestartedEnd},
+		second: {ID: second, End: stepLoopEndDone},
 	}}
 	ev := evidenceRunNew(t, st, steps)
 
@@ -340,10 +390,10 @@ func TestEvidenceReadoptJudgingRunAdoptsANewerJudgeThanItsStoredOne(t *testing.T
 		t.Fatalf("Resume: %v", err)
 	}
 	got := evidenceRunSettled(t, st, "newer")
-	if got.JudgeStep != "judge-second" || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 ||
+	if got.JudgeStep != second || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 ||
 		steps.startCount() != 0 {
 		t.Fatalf(
-			"run = judge %q verdict %q passed %t judges %d starts %d, want judge-second, holds, passed, two judges, no start",
+			"run = judge %q verdict %q passed %t judges %d starts %d, want the newer derived step, holds, passed, two judges, no start",
 			got.JudgeStep,
 			got.Verdict,
 			got.Passed,
@@ -353,63 +403,93 @@ func TestEvidenceReadoptJudgingRunAdoptsANewerJudgeThanItsStoredOne(t *testing.T
 	}
 }
 
-// TestReadoptNewestJudgeOrdersByStartThenRunningThenEnd checks the order readoptNewestJudge keeps: the later start wins, a
-// running step beats an ended one that started in the same second, the later end wins between ended steps, and a full tie
-// keeps the stored step.
-func TestReadoptNewestJudgeOrdersByStartThenRunningThenEnd(t *testing.T) {
+// TestEvidenceReadoptJudgeStartsCarryTheDerivedIDOfEachJudge resumes a run whose capture never launched. Its first judge ends
+// with no verdict, so its rejudge follows. Each start carries the derived id of its judge number: 1 for the first judge and 2
+// for the rejudge, and the rejudge's verdict is the one recorded.
+func TestEvidenceReadoptJudgeStartsCarryTheDerivedIDOfEachJudge(t *testing.T) {
 	t.Parallel()
-	at := func(seconds int64) time.Time { return time.Unix(seconds, 0) }
-	cases := []struct {
-		name   string
-		steps  []store.StepRow
-		stored string
-		want   string
-	}{
-		{name: "none", want: ""},
-		{
-			name: "later start",
-			steps: []store.StepRow{
-				{ID: "b", Started: at(20), End: "done", Ended: at(30)},
-				{ID: "a", Started: at(10), End: "done", Ended: at(15)},
-			},
-			stored: "a",
-			want:   "b",
-		},
-		{
-			name: "running beats ended in the same second",
-			steps: []store.StepRow{
-				{ID: "a", Started: at(10), End: "done", Ended: at(10)},
-				{ID: "b", Started: at(10)},
-			},
-			stored: "a",
-			want:   "b",
-		},
-		{
-			name: "later end",
-			steps: []store.StepRow{
-				{ID: "b", Started: at(10), End: "done", Ended: at(12)},
-				{ID: "a", Started: at(10), End: "done", Ended: at(11)},
-			},
-			stored: "a",
-			want:   "b",
-		},
-		{
-			name: "tie keeps stored",
-			steps: []store.StepRow{
-				{ID: "b", Started: at(10), End: "done", Ended: at(11)},
-				{ID: "a", Started: at(10), End: "done", Ended: at(11)},
-			},
-			stored: "a",
-			want:   "a",
-		},
+	repo, head := evidenceRunRepo(t, "exit 0\n")
+	st := epicTestStore(t)
+	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
+	evidenceReadoptAdd(t, st, "fresh", head, evidence.PhaseGreen, evidenceRunItem())
+	steps := &evidenceIDSteps{judges: []evidenceIDJudge{
+		{end: store.StepRow{End: stepRestartedEnd}},
+		{end: store.StepRow{End: stepLoopEndDone}},
+	}}
+	ev := evidenceRunNew(t, st, steps)
+
+	if err := ev.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := readoptNewestJudge(tc.steps, tc.stored); got != tc.want {
-				t.Fatalf("readoptNewestJudge = %q, want %q", got, tc.want)
-			}
-		})
+	got := evidenceRunSettled(t, st, "fresh")
+	first, second := "61b04f6e1d4b02210ada8ecd11226496", "0580241a3520094d961bf03184e0fcf2"
+	if ids := steps.startIDs(); !reflect.DeepEqual(ids, []string{first, second}) {
+		t.Fatalf("judge start ids = %q, want the derived ids of judges 1 and 2 %q", ids, []string{first, second})
+	}
+	if got.JudgeStep != second || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 {
+		t.Fatalf("run = judge %q verdict %q passed %t judges %d, want judge 2, holds, passed, two judges",
+			got.JudgeStep, got.Verdict, got.Passed, got.Judges)
+	}
+}
+
+// TestEvidenceReadoptJudgingRunRejudgesUnderTheNextDerivedID resumes a judging run whose stored judge, judge 1, ended with no
+// verdict. The rejudge starts under the derived id of judge 2, and its verdict is recorded.
+func TestEvidenceReadoptJudgingRunRejudgesUnderTheNextDerivedID(t *testing.T) {
+	t.Parallel()
+	repo, head := evidenceRunRepo(t, "exit 0\n")
+	st := epicTestStore(t)
+	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
+	const first = "5bd81b62ae3a68826ef5872b4d8f41a4"
+	const second = "d3ff02b2d6758b2f093c7e67e2be04d2"
+	evidenceReadoptJudging(t, st, "rejudged", head, evidenceRunItem(), first)
+	steps := &evidenceIDSteps{
+		judges: []evidenceIDJudge{{end: store.StepRow{End: stepLoopEndDone}}},
+		ended:  map[string]store.StepRow{first: {ID: first, End: stepRestartedEnd}},
+	}
+	ev := evidenceReadoptNew(t, st, steps)
+
+	if err := ev.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	got := evidenceRunSettled(t, st, "rejudged")
+	if ids := steps.startIDs(); !reflect.DeepEqual(ids, []string{second}) {
+		t.Fatalf("judge start ids = %q, want the derived id of judge 2 %q", ids, second)
+	}
+	if got.JudgeStep != second || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 {
+		t.Fatalf("run = judge %q verdict %q passed %t judges %d, want judge 2, holds, passed, two judges",
+			got.JudgeStep, got.Verdict, got.Passed, got.Judges)
+	}
+}
+
+// TestEvidenceReadoptFailedJudgeStartIsCountedAndRetriedUnderTheNextID resumes a run whose first judge's start fails after its
+// row is written, as a StartStep failure leaves it: the row ends failed and Start returns its id with the error. That judge is
+// counted, so its failure gives no verdict and the rejudge starts under the derived id of judge 2 and holds.
+func TestEvidenceReadoptFailedJudgeStartIsCountedAndRetriedUnderTheNextID(t *testing.T) {
+	t.Parallel()
+	repo, head := evidenceRunRepo(t, "exit 0\n")
+	st := epicTestStore(t)
+	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
+	evidenceReadoptAdd(t, st, "failed", head, evidence.PhaseGreen, evidenceRunItem())
+	steps := &evidenceIDSteps{judges: []evidenceIDJudge{
+		{
+			end:      store.StepRow{End: stepLoopEndFailed, Reason: "spawn failed"},
+			startErr: errors.New("start step: spawn failed"),
+		},
+		{end: store.StepRow{End: stepLoopEndDone}},
+	}}
+	ev := evidenceRunNew(t, st, steps)
+
+	if err := ev.Resume(t.Context()); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	got := evidenceRunSettled(t, st, "failed")
+	first, second := "216b3db2193649102c12c582b1d0fd61", "1e2d554126c2140aeb63d4b88707e4d5"
+	if ids := steps.startIDs(); !reflect.DeepEqual(ids, []string{first, second}) {
+		t.Fatalf("judge start ids = %q, want the derived ids of judges 1 and 2 %q", ids, []string{first, second})
+	}
+	if got.JudgeStep != second || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 {
+		t.Fatalf("run = judge %q verdict %q passed %t judges %d, want judge 2, holds, passed, two judges",
+			got.JudgeStep, got.Verdict, got.Passed, got.Judges)
 	}
 }
 
