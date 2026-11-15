@@ -1056,20 +1056,20 @@ The interpreter adds no pause or park rule of its own, except that a check's `pr
 | `release <pos>`, `judge` | work parts | O3e3 |
 | `ReleaseEpic` | RPC of `orrery.engine.v1.Epics`, not yet declared | O3e3 |
 | `FollowEpics` | RPC of `orrery.engine.v1.Epics`, not yet declared | attention |
-| `EvidenceItem` 7 `kind`, 8 `tests` | reserved proto fields | O3d5a |
-| `EpicTask` 22 `contributes` | reserved proto field | O3d5a |
-| `EpicTask` 23 `test_changes`, 24 `guard` | reserved proto fields | O3d5b |
-| `EpicRequirement` 6 `owner`, 7 `contributors`, 8 `state` | reserved proto fields | O3d5a |
-| `EpicRequirement` 9 `disagreement` | reserved proto field | O3d5b |
-| `EpicTaskFinding` 7 `unverified` | reserved proto field | O3e1 |
-| `EpicContract` 21 `reviewers`, `StoredEpic` 14 `reviewers` | reserved proto fields | O3e1 |
-| `StoredEpic` 15 `ledger`, 16 `frozen`, 17 `clean` | reserved proto fields | O3e2 |
-| `StoredEpic` 18 `releases`, 19 `release_slot` | reserved proto fields | O3e3 |
+| `EvidenceItem` 7 `kind`, 8 `tests` | reserved proto fields (this table) | O3d5a |
+| `EpicTask` 22 `contributes` | reserved proto field (this table) | O3d5a |
+| `EpicTask` 23 `test_changes`, 24 `guard` | reserved proto fields (this table) | O3d5b |
+| `EpicRequirement` 6 `owner`, 7 `contributors`, 8 `state` | reserved proto fields (this table) | O3d5a |
+| `EpicRequirement` 9 `disagreement` | reserved proto field (this table) | O3d5b |
+| `EpicTaskFinding` 7 `unverified` | reserved proto field (this table) | O3e1 |
+| `EpicContract` 21 `reviewers`, `StoredEpic` 14 `reviewers` | reserved proto fields (this table) | O3e1 |
+| `StoredEpic` 15 `ledger`, 16 `frozen`, 17 `clean` | reserved proto fields (this table) | O3e2 |
+| `StoredEpic` 18 `releases`, 19 `release_slot` | reserved proto fields (this table) | O3e3 |
 | `EpicQuestion` 5 to 10 | reserved proto field numbers; attention names them | attention |
-| `AnswerEpicRequest` 5 `choice` | reserved proto field | attention |
-| `orrery.v1.EpicsGetResponse` 13 `ledger`, 14 `releases`, 15 `reviews` | reserved proto fields | O3e4 |
+| `AnswerEpicRequest` 5 `choice` | reserved proto field (this table) | attention |
+| `orrery.v1.EpicsGetResponse` 13 `ledger`, 14 `releases`, 15 `reviews` | reserved proto fields (this table) | O3e4 |
 
-The built-in workflow takes its final shape in O3d4: a red evidence check at base, `plan` holding `build` and `integrate`, `review`, a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) over a `plan` and `closure`, `conclude`, then `release`. Until O3e2 lands, an epic on it waits at `review`. The proto fields above are held by `reserved` statements in `proto/orrery/engine/v1/epic.proto` and `proto/orrery/v1/epics.proto`, each with a comment naming its epic, and each epic replaces its reservation with a typed field when it builds. The Go names `evidence.Kind`, `evidence.Item.Kind`, `evidence.Item.Tests`, `evidence.Current` and `interpret.Ending` are declared now and follow the same rule.
+The built-in workflow takes its final shape in O3d4: a red evidence check at base, `plan` holding `build` and `integrate`, `review`, a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) over a `plan` and `closure`, `conclude`, then `release`. Until O3e2 lands, an epic on it waits at `review`. The proto fields above are reserved by this table only, not by `reserved` statements: buf counts deleting a reserved name as a breaking change even when the same field is then declared, so each epic adds its field at the number named here when it builds. The Go names `evidence.Kind`, `evidence.Item.Kind`, `evidence.Item.Tests`, `evidence.Current` and `interpret.Ending` are declared now and follow the same rule.
 
 #### Planner turns
 

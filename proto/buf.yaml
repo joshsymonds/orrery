@@ -7,3 +7,11 @@ lint:
   except:
     # The API names its services `Sessions` and `Events` (docs/contract.md), not `SessionsService` or `EventsService`.
     - SERVICE_SUFFIX
+breaking:
+  # One release only (v0.71.2): the O3 skeleton's placeholder `reserved` statements are removed, because buf counts
+  # deleting a reserved name as breaking even when an epic later declares that same field. Reservations live in
+  # docs/contract.md's Reserved names table instead. The release after this one deletes this block.
+  ignore_only:
+    RESERVED_MESSAGE_NO_DELETE:
+      - orrery/engine/v1/epic.proto
+      - orrery/v1/epics.proto
