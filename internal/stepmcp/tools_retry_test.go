@@ -234,7 +234,8 @@ func serveSteps(t *testing.T, path string, handler http.Handler) {
 		t.Errorf("listen %s: %v", path, err)
 		return
 	}
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: testTimeout}
+	// An http.Server needs a header timeout (gosec G112). An hour never fires during a test.
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: time.Hour}
 	go func() { _ = server.Serve(ln) }()
 	t.Cleanup(func() { _ = server.Close() })
 }
