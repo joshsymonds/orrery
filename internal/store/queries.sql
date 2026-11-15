@@ -32,7 +32,7 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events;
 SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events;
 
 -- name: EventPageAfter :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
 
 -- name: PruneEvents :exec
 DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest);
@@ -146,7 +146,7 @@ SELECT * FROM engine_text
 ORDER BY session_id, message_id, parent_tool_use_id, block_index;
 
 -- name: SessionEventsAfter :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
 
@@ -162,6 +162,9 @@ WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extr
 
 -- name: InsertEnginePromptEvent :exec
 INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?);
+
+-- name: InsertEngineTurnEndedEvent :exec
+INSERT INTO events (session_id, kind, at, payload, answered) VALUES (?, 'engine_turn_ended', ?, ?, ?);
 
 -- name: ListHolderPrompts :many
 SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events

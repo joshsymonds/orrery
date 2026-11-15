@@ -359,7 +359,7 @@ func (q *Queries) EndEpicTurn(ctx context.Context, arg EndEpicTurnParams) (int64
 }
 
 const eventPageAfter = `-- name: EventPageAfter :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events WHERE seq > ? ORDER BY seq LIMIT ?
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events WHERE seq > ? ORDER BY seq LIMIT ?
 `
 
 type EventPageAfterParams struct {
@@ -383,6 +383,7 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 			&i.At,
 			&i.Payload,
 			&i.WriteID,
+			&i.Answered,
 		); err != nil {
 			return nil, err
 		}
@@ -869,6 +870,27 @@ func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessi
 		arg.Dir,
 		arg.State,
 		arg.Changed,
+	)
+	return err
+}
+
+const insertEngineTurnEndedEvent = `-- name: InsertEngineTurnEndedEvent :exec
+INSERT INTO events (session_id, kind, at, payload, answered) VALUES (?, 'engine_turn_ended', ?, ?, ?)
+`
+
+type InsertEngineTurnEndedEventParams struct {
+	SessionID string
+	At        int64
+	Payload   string
+	Answered  sql.NullString
+}
+
+func (q *Queries) InsertEngineTurnEndedEvent(ctx context.Context, arg InsertEngineTurnEndedEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertEngineTurnEndedEvent,
+		arg.SessionID,
+		arg.At,
+		arg.Payload,
+		arg.Answered,
 	)
 	return err
 }
@@ -2705,7 +2727,7 @@ func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events ORDER BY seq
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events ORDER BY seq
 `
 
 func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
@@ -2724,6 +2746,7 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 			&i.At,
 			&i.Payload,
 			&i.WriteID,
+			&i.Answered,
 		); err != nil {
 			return nil, err
 		}
@@ -3930,7 +3953,7 @@ func (q *Queries) RetryEpic(ctx context.Context, arg RetryEpicParams) error {
 }
 
 const sessionEventsAfter = `-- name: SessionEventsAfter :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?
 `
@@ -3957,6 +3980,7 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 			&i.At,
 			&i.Payload,
 			&i.WriteID,
+			&i.Answered,
 		); err != nil {
 			return nil, err
 		}

@@ -457,6 +457,30 @@ func TestRecorderOps(t *testing.T) {
 			},
 		},
 		{
+			name: "a turn end carries the uuids of the user messages it answered",
+			steps: []step{
+				{
+					session.TurnEnded{Subtype: "success", TerminalReason: "completed", Result: "done", Origin: "user",
+						Answered: []string{"u-1", "u-2"}},
+					[]store.EngineOp{
+						store.EngineTurnEnded{
+							ID:             recorderID,
+							Subtype:        "success",
+							TerminalReason: "completed",
+							Result:         "done",
+							Origin:         "user",
+							Answered:       []string{"u-1", "u-2"},
+						},
+						store.EngineTextClear{ID: recorderID},
+						store.EngineSet{
+							ID:      recorderID,
+							Changes: store.EngineChanges{State: strPtr("done"), Question: strPtr("")},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "a clean exit stops the session and clears open text",
 			steps: []step{
 				{

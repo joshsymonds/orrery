@@ -270,6 +270,7 @@ type Event struct {
 	At        int64
 	Payload   string
 	WriteID   string
+	Answered  sql.NullString
 }
 
 type EvidenceArtifact struct {

@@ -75,7 +75,7 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 		done := string(protocol.StateDone)
 		return []store.EngineOp{
 			store.EngineTurnEnded{ID: r.id, Subtype: ev.Subtype, IsError: ev.IsError, TerminalReason: ev.TerminalReason,
-				Result: ev.Result, Origin: ev.Origin},
+				Result: ev.Result, Origin: ev.Origin, Answered: ev.Answered},
 			store.EngineTextClear{ID: r.id},
 			store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &done, Question: new("")}},
 		}
