@@ -10,6 +10,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 func TestNotifyEpicPublishesAndStores(t *testing.T) {
@@ -70,6 +71,7 @@ func TestEpicPushSurvivesRestartAndIsCleared(t *testing.T) {
 	clk := &clock{at: time.Unix(at, 0)}
 	sender := &fakeSender{}
 
+	storetest.Seed(t, path)
 	before, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

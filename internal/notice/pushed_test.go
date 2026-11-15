@@ -106,6 +106,7 @@ func TestSeenAfterRestartClears(t *testing.T) {
 			clk := &clock{at: time.Unix(at, 0)}
 			sender := &fakeSender{}
 
+			storetest.Seed(t, path)
 			before, err := store.Open(ctx, path)
 			if err != nil {
 				t.Fatalf("Open: %v", err)

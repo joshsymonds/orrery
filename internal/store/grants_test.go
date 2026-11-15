@@ -152,6 +152,7 @@ func TestGrantsSurviveReopeningTheStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

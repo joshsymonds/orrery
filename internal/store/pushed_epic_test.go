@@ -12,6 +12,7 @@ func TestPushedEpicRows(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -89,6 +90,7 @@ func TestPushedEpicAndPaneKeysAreDistinct(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -135,6 +137,7 @@ func TestNoticeEpicRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

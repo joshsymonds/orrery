@@ -187,6 +187,7 @@ func TestSnapshotReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 func TestSnapshotReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -261,6 +262,7 @@ func TestSnapshotReopensReplacedStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	now := time.Unix(1_700_000_000, 0)
 
+	seedMigrated(t, path)
 	old, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open old: %v", err)
@@ -277,6 +279,7 @@ func TestSnapshotReopensReplacedStore(t *testing.T) {
 
 	// A second store is built elsewhere, closed so its WAL is checkpointed, then renamed over the first.
 	replacementPath := filepath.Join(t.TempDir(), "replacement.db")
+	seedMigrated(t, replacementPath)
 	replacement, err := Open(ctx, replacementPath)
 	if err != nil {
 		t.Fatalf("Open replacement: %v", err)
@@ -305,6 +308,7 @@ func TestSnapshotReplacedWhileReaderHasReadAndWriterOpen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	now := time.Unix(1_700_000_000, 0)
 
+	seedMigrated(t, path)
 	old, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open old: %v", err)
@@ -316,6 +320,7 @@ func TestSnapshotReplacedWhileReaderHasReadAndWriterOpen(t *testing.T) {
 	assertSnapshot(t, snapshotOf(t, r), []Session{{ID: "orrery-old", Server: "-L a", Pane: "%1"}}, 1)
 
 	replacementPath := filepath.Join(t.TempDir(), "replacement.db")
+	seedMigrated(t, replacementPath)
 	replacement, err := Open(ctx, replacementPath)
 	if err != nil {
 		t.Fatalf("Open replacement: %v", err)

@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // shutdownGuard bounds how long the test waits for the broker to return a held call once its context has ended.
@@ -22,7 +23,9 @@ const shutdownGuard = 10 * time.Second
 // held call must return ErrClosed: a call whose own context ends first ends its grant, which deletes the stored row.
 func TestShutdownKeepsLiveClientsGrant(t *testing.T) {
 	const host = "box"
-	st, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "orrery.db"))
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
+	st, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

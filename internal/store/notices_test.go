@@ -11,6 +11,7 @@ func TestPendingRowsReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -131,6 +132,7 @@ func TestNoticeSilentReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // openLimitStore opens a migrated store file and returns it with a reopen function. reopen closes the store and opens
@@ -15,7 +14,7 @@ import (
 func openLimitStore(ctx context.Context, t *testing.T) (*store.Store, func() *store.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	storetest.Seed(t, path)
+	store.SeedMigrated(t, path)
 	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

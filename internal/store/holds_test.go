@@ -13,6 +13,7 @@ func TestHoldSurvivesReopeningTheStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	row := HoldRow{Member: "m1", Since: engineNowAt()}
 
+	seedMigrated(t, path)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

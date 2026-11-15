@@ -12,7 +12,6 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // buildEpic is the accepted epic, at base main, whose one task the build write tests write.
@@ -63,7 +62,7 @@ func buildPlan() store.EpicPlan {
 func openBuildStore(ctx context.Context, t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	storetest.Seed(t, path)
+	store.SeedMigrated(t, path)
 	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
