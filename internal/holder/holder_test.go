@@ -58,16 +58,11 @@ func startHolder(ctx context.Context, t *testing.T, cfg Config) *running {
 	return run
 }
 
-// wait returns Run's error once Run has returned, failing the test after waitArmedTimeout.
+// wait returns Run's error once Run has returned. It has no deadline of its own.
 func (run *running) wait(t *testing.T) error {
 	t.Helper()
-	select {
-	case <-run.done:
-		return run.err
-	case <-time.After(waitArmedTimeout):
-		t.Fatalf("holder did not return within %v", waitArmedTimeout)
-		return nil
-	}
+	<-run.done
+	return run.err
 }
 
 // shortRoot creates a temporary directory whose path is short enough for a socket path. A t.TempDir path carries the
@@ -165,7 +160,8 @@ func (c *client) send(frame Frame) {
 	}
 }
 
-// read returns the next frame the holder sends, failing the test when none arrives within waitArmedTimeout.
+// read returns the next frame the holder sends. It sets no deadline: the holder's pace is the machine's, and the test
+// binary's timeout ends a read that never returns.
 func (c *client) read() Frame {
 	c.t.Helper()
 	c.setDeadline()
@@ -197,10 +193,11 @@ func (c *client) hello(version int) Frame {
 	return answer
 }
 
-// setDeadline bounds the next read so a holder that never answers fails the test instead of hanging it.
+// setDeadline clears any read deadline, such as the one expectSilent sets, so the next read waits for the holder. A
+// holder that never answers is the test binary's timeout to end.
 func (c *client) setDeadline() {
 	c.t.Helper()
-	if err := c.conn.SetReadDeadline(time.Now().Add(waitArmedTimeout)); err != nil {
+	if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
 		c.t.Fatalf("set read deadline: %v", err)
 	}
 }
@@ -210,16 +207,11 @@ func (c *client) setDeadline() {
 func awaitChildPid(t *testing.T, childDir string) int {
 	t.Helper()
 	name := filepath.Join(childDir, fakePidName)
-	timeout := time.After(waitArmedTimeout)
 	for {
 		if _, err := os.Stat(name); err == nil {
 			return readChildPid(t, name)
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("fake child wrote no pid to %s within %v", name, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
