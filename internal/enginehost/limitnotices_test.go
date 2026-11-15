@@ -95,14 +95,56 @@ func (f *fakeTold) ToldLimits(context.Context) (map[string][]string, error) {
 	return f.marks, nil
 }
 
-func (f *fakeTold) TellLimit(_ context.Context, limit string, steps []string) error {
+// TellLimit records the mark. Like the store, it refuses a write on an ended context, which then records nothing.
+func (f *fakeTold) TellLimit(ctx context.Context, limit string, steps []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.tells = append(f.tells, tellCall{limit: limit, steps: steps})
 	return f.writeErr
 }
 
-func (f *fakeTold) ForgetLimit(_ context.Context, limit string) error {
+// ForgetLimit records the forget. Like the store, it refuses a write on an ended context, which then records nothing.
+func (f *fakeTold) ForgetLimit(ctx context.Context, limit string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f.forgets = append(f.forgets, limit)
 	return f.writeErr
+}
+
+// stoppingRouter is a fakeRouter that ends the LimitNotices context once it is told a notice or a seen report, as a
+// stop of orreryd landing right after the router took it.
+type stoppingRouter struct {
+	fakeRouter
+	stop context.CancelFunc
+}
+
+func (s *stoppingRouter) Notify(ctx context.Context, n route.Notice) {
+	s.fakeRouter.Notify(ctx, n)
+	s.stop()
+}
+
+func (s *stoppingRouter) Seen(ctx context.Context, key notice.Key, seen int64) {
+	s.fakeRouter.Seen(ctx, key, seen)
+	s.stop()
+}
+
+// runStoppedLimitNotices runs LimitNotices over told and one read of rows, with a router that stops it at its first
+// notice or seen report. It returns what the router was told.
+func runStoppedLimitNotices(t *testing.T, told *fakeTold, rows []store.StepRow) *stoppingRouter {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	router := &stoppingRouter{stop: cancel}
+	NewLimitNotices(LimitNoticesConfig{
+		Steps: &scriptedLimits{reads: []limitRead{{rows: rows}}},
+		Told:  told,
+		Route: router,
+		Now:   limitNow,
+		Tick:  make(chan time.Time),
+	}).Run(ctx)
+	return router
 }
 
 // runLimitNotices runs LimitNotices over told and reads. The first read is the one at start, and each later read is one
@@ -347,6 +389,34 @@ func TestLimitNoticesSeesAMarkedGroupThatEmptiesOnceAndForgetsIt(t *testing.T) {
 	want := seenReport{key: resetKey(), seen: limitNow().Unix()}
 	if len(router.seens) != 1 || router.seens[0] != want {
 		t.Fatalf("seen reports = %+v, want exactly [%+v]", router.seens, want)
+	}
+	if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
+		t.Fatalf("forgot %v, want %q once", told.forgets, resetKey().Limit)
+	}
+}
+
+// TestLimitNoticesMarksALimitWhenAStopFollowsItsNotice checks that a limit told just before a stop is still marked,
+// so the next start does not tell it again.
+func TestLimitNoticesMarksALimitWhenAStopFollowsItsNotice(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{}
+	router := runStoppedLimitNotices(t, told, []store.StepRow{usageRow("a")})
+
+	if len(router.notices) != 1 {
+		t.Fatalf("got %d notices, want 1", len(router.notices))
+	}
+	checkTells(t, told, tellCall{limit: resetKey().Limit, steps: []string{"a"}})
+}
+
+// TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen checks that a marked limit seen just before a stop is still
+// forgotten, so the next start does not see it again.
+func TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}}
+	router := runStoppedLimitNotices(t, told, nil)
+
+	if len(router.seens) != 1 {
+		t.Fatalf("got %d seen reports, want 1", len(router.seens))
 	}
 	if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
 		t.Fatalf("forgot %v, want %q once", told.forgets, resetKey().Limit)

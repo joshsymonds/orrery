@@ -173,9 +173,12 @@ func resetUnix(resets time.Time) int64 {
 }
 
 // update brings the marks to groups. A group whose step ids differ from its mark is told as one notice, and marked with
-// its ids. A marked limit with no group has emptied: it is seen, and its mark is forgotten. A failed write of a mark is
-// logged, and the mark is kept in memory either way, so the check does not tell or see the limit again.
+// its ids. A marked limit with no group has emptied: it is seen, and its mark is forgotten. The Router takes a notice
+// whatever ctx's cancellation, so the mark writes ignore it too: a stop landing after a notice still marks it, and the
+// next start does not tell it again. A failed write of a mark is logged, and the mark is kept in memory either way, so
+// the check does not tell or see the limit again.
 func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitGroup) {
+	markCtx := context.WithoutCancel(ctx)
 	for _, key := range sortedLimitKeys(groups) {
 		group := groups[key]
 		ids := slices.Sorted(slices.Values(group.ids))
@@ -184,7 +187,7 @@ func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitG
 		}
 		l.cfg.Route.Notify(ctx, limitRouted(group))
 		l.known[key] = ids
-		if err := l.cfg.Told.TellLimit(ctx, key.Limit, ids); err != nil {
+		if err := l.cfg.Told.TellLimit(markCtx, key.Limit, ids); err != nil {
 			l.cfg.Logger.ErrorContext(ctx, "mark limit told", "limit", key.Limit, "error", err)
 		}
 	}
@@ -195,7 +198,7 @@ func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitG
 		}
 		delete(l.known, key)
 		l.cfg.Route.Seen(ctx, key, now)
-		if err := l.cfg.Told.ForgetLimit(ctx, key.Limit); err != nil {
+		if err := l.cfg.Told.ForgetLimit(markCtx, key.Limit); err != nil {
 			l.cfg.Logger.ErrorContext(ctx, "forget limit told", "limit", key.Limit, "error", err)
 		}
 	}
