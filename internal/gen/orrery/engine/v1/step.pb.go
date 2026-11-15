@@ -568,7 +568,17 @@ type Step struct {
 	LimitKind string `protobuf:"bytes,19,opt,name=limit_kind,json=limitKind,proto3" json:"limit_kind,omitempty"`
 	// When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
 	// unknown.
-	LimitResets   int64 `protobuf:"varint,20,opt,name=limit_resets,json=limitResets,proto3" json:"limit_resets,omitempty"`
+	LimitResets int64 `protobuf:"varint,20,opt,name=limit_resets,json=limitResets,proto3" json:"limit_resets,omitempty"`
+	// The stage the step is in, such as turn, checks, gate, judge, held or limited. Empty when the row stores no stage.
+	Stage string `protobuf:"bytes,21,opt,name=stage,proto3" json:"stage,omitempty"`
+	// When the step's stage started, in unix seconds. Zero when the row stores no start.
+	StageStarted int64 `protobuf:"varint,22,opt,name=stage_started,json=stageStarted,proto3" json:"stage_started,omitempty"`
+	// The name of the gate the step runs. Empty when the step runs no named gate.
+	GateName string `protobuf:"bytes,23,opt,name=gate_name,json=gateName,proto3" json:"gate_name,omitempty"`
+	// The most seconds the step's gate may run, in whole seconds.
+	GateLimitSeconds int64 `protobuf:"varint,24,opt,name=gate_limit_seconds,json=gateLimitSeconds,proto3" json:"gate_limit_seconds,omitempty"`
+	// The verdicts the step's monitor and judge gave, in the order they were recorded.
+	Verdicts      []*StepVerdict `protobuf:"bytes,25,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -741,6 +751,41 @@ func (x *Step) GetLimitResets() int64 {
 		return x.LimitResets
 	}
 	return 0
+}
+
+func (x *Step) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *Step) GetStageStarted() int64 {
+	if x != nil {
+		return x.StageStarted
+	}
+	return 0
+}
+
+func (x *Step) GetGateName() string {
+	if x != nil {
+		return x.GateName
+	}
+	return ""
+}
+
+func (x *Step) GetGateLimitSeconds() int64 {
+	if x != nil {
+		return x.GateLimitSeconds
+	}
+	return 0
+}
+
+func (x *Step) GetVerdicts() []*StepVerdict {
+	if x != nil {
+		return x.Verdicts
+	}
+	return nil
 }
 
 // ListStepsRequest asks for the labelled steps.
@@ -1193,6 +1238,79 @@ func (x *StepCheck) GetStderr() string {
 	return ""
 }
 
+// StepVerdict is one verdict the step's monitor or judge gave.
+type StepVerdict struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The round the verdict was given in.
+	Round uint32 `protobuf:"varint,1,opt,name=round,proto3" json:"round,omitempty"`
+	// The kind of verdict: monitor or judge.
+	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The verdict the call gave. Empty when the call failed.
+	Verdict string `protobuf:"bytes,3,opt,name=verdict,proto3" json:"verdict,omitempty"`
+	// The verdict's detail, such as the reason it gave.
+	Detail        string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StepVerdict) Reset() {
+	*x = StepVerdict{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StepVerdict) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StepVerdict) ProtoMessage() {}
+
+func (x *StepVerdict) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StepVerdict.ProtoReflect.Descriptor instead.
+func (*StepVerdict) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *StepVerdict) GetRound() uint32 {
+	if x != nil {
+		return x.Round
+	}
+	return 0
+}
+
+func (x *StepVerdict) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *StepVerdict) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
+	}
+	return ""
+}
+
+func (x *StepVerdict) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 var File_orrery_engine_v1_step_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_step_proto_rawDesc = "" +
@@ -1232,7 +1350,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x02 \x01(\rR\x0etimeoutSeconds\"o\n" +
 	"\x11WaitStepsResponse\x12,\n" +
 	"\x05ended\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x05ended\x12,\n" +
-	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\x8c\x04\n" +
+	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xcd\x05\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -1255,7 +1373,12 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\alimited\x18\x12 \x01(\bR\alimited\x12\x1d\n" +
 	"\n" +
 	"limit_kind\x18\x13 \x01(\tR\tlimitKind\x12!\n" +
-	"\flimit_resets\x18\x14 \x01(\x03R\vlimitResets\":\n" +
+	"\flimit_resets\x18\x14 \x01(\x03R\vlimitResets\x12\x14\n" +
+	"\x05stage\x18\x15 \x01(\tR\x05stage\x12#\n" +
+	"\rstage_started\x18\x16 \x01(\x03R\fstageStarted\x12\x1b\n" +
+	"\tgate_name\x18\x17 \x01(\tR\bgateName\x12,\n" +
+	"\x12gate_limit_seconds\x18\x18 \x01(\x03R\x10gateLimitSeconds\x129\n" +
+	"\bverdicts\x18\x19 \x03(\v2\x1d.orrery.engine.v1.StepVerdictR\bverdicts\":\n" +
 	"\x10ListStepsRequest\x12\x12\n" +
 	"\x04epic\x18\x01 \x01(\tR\x04epic\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\"A\n" +
@@ -1277,7 +1400,12 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x02ok\x18\x03 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x16\n" +
 	"\x06stdout\x18\x05 \x01(\tR\x06stdout\x12\x16\n" +
-	"\x06stderr\x18\x06 \x01(\tR\x06stderr2\xb7\x05\n" +
+	"\x06stderr\x18\x06 \x01(\tR\x06stderr\"i\n" +
+	"\vStepVerdict\x12\x14\n" +
+	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x18\n" +
+	"\averdict\x18\x03 \x01(\tR\averdict\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail2\xb7\x05\n" +
 	"\x05Steps\x12T\n" +
 	"\tStartStep\x12\".orrery.engine.v1.StartStepRequest\x1a#.orrery.engine.v1.StartStepResponse\x12Q\n" +
 	"\bStopStep\x12!.orrery.engine.v1.StopStepRequest\x1a\".orrery.engine.v1.StopStepResponse\x12W\n" +
@@ -1303,7 +1431,7 @@ func file_orrery_engine_v1_step_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_step_proto_rawDescData
 }
 
-var file_orrery_engine_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_orrery_engine_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_orrery_engine_v1_step_proto_goTypes = []any{
 	(*StartStepRequest)(nil),   // 0: orrery.engine.v1.StartStepRequest
 	(*StartStepResponse)(nil),  // 1: orrery.engine.v1.StartStepResponse
@@ -1323,34 +1451,36 @@ var file_orrery_engine_v1_step_proto_goTypes = []any{
 	(*ResumeStepRequest)(nil),  // 15: orrery.engine.v1.ResumeStepRequest
 	(*ResumeStepResponse)(nil), // 16: orrery.engine.v1.ResumeStepResponse
 	(*StepCheck)(nil),          // 17: orrery.engine.v1.StepCheck
+	(*StepVerdict)(nil),        // 18: orrery.engine.v1.StepVerdict
 }
 var file_orrery_engine_v1_step_proto_depIdxs = []int32{
 	8,  // 0: orrery.engine.v1.StepStatusResponse.step:type_name -> orrery.engine.v1.Step
 	8,  // 1: orrery.engine.v1.WaitStepsResponse.ended:type_name -> orrery.engine.v1.Step
 	8,  // 2: orrery.engine.v1.WaitStepsResponse.steps:type_name -> orrery.engine.v1.Step
 	17, // 3: orrery.engine.v1.Step.checks:type_name -> orrery.engine.v1.StepCheck
-	8,  // 4: orrery.engine.v1.ListStepsResponse.steps:type_name -> orrery.engine.v1.Step
-	0,  // 5: orrery.engine.v1.Steps.StartStep:input_type -> orrery.engine.v1.StartStepRequest
-	2,  // 6: orrery.engine.v1.Steps.StopStep:input_type -> orrery.engine.v1.StopStepRequest
-	4,  // 7: orrery.engine.v1.Steps.StepStatus:input_type -> orrery.engine.v1.StepStatusRequest
-	6,  // 8: orrery.engine.v1.Steps.WaitSteps:input_type -> orrery.engine.v1.WaitStepsRequest
-	9,  // 9: orrery.engine.v1.Steps.ListSteps:input_type -> orrery.engine.v1.ListStepsRequest
-	11, // 10: orrery.engine.v1.Steps.HoldStep:input_type -> orrery.engine.v1.HoldStepRequest
-	13, // 11: orrery.engine.v1.Steps.NudgeStep:input_type -> orrery.engine.v1.NudgeStepRequest
-	15, // 12: orrery.engine.v1.Steps.ResumeStep:input_type -> orrery.engine.v1.ResumeStepRequest
-	1,  // 13: orrery.engine.v1.Steps.StartStep:output_type -> orrery.engine.v1.StartStepResponse
-	3,  // 14: orrery.engine.v1.Steps.StopStep:output_type -> orrery.engine.v1.StopStepResponse
-	5,  // 15: orrery.engine.v1.Steps.StepStatus:output_type -> orrery.engine.v1.StepStatusResponse
-	7,  // 16: orrery.engine.v1.Steps.WaitSteps:output_type -> orrery.engine.v1.WaitStepsResponse
-	10, // 17: orrery.engine.v1.Steps.ListSteps:output_type -> orrery.engine.v1.ListStepsResponse
-	12, // 18: orrery.engine.v1.Steps.HoldStep:output_type -> orrery.engine.v1.HoldStepResponse
-	14, // 19: orrery.engine.v1.Steps.NudgeStep:output_type -> orrery.engine.v1.NudgeStepResponse
-	16, // 20: orrery.engine.v1.Steps.ResumeStep:output_type -> orrery.engine.v1.ResumeStepResponse
-	13, // [13:21] is the sub-list for method output_type
-	5,  // [5:13] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	18, // 4: orrery.engine.v1.Step.verdicts:type_name -> orrery.engine.v1.StepVerdict
+	8,  // 5: orrery.engine.v1.ListStepsResponse.steps:type_name -> orrery.engine.v1.Step
+	0,  // 6: orrery.engine.v1.Steps.StartStep:input_type -> orrery.engine.v1.StartStepRequest
+	2,  // 7: orrery.engine.v1.Steps.StopStep:input_type -> orrery.engine.v1.StopStepRequest
+	4,  // 8: orrery.engine.v1.Steps.StepStatus:input_type -> orrery.engine.v1.StepStatusRequest
+	6,  // 9: orrery.engine.v1.Steps.WaitSteps:input_type -> orrery.engine.v1.WaitStepsRequest
+	9,  // 10: orrery.engine.v1.Steps.ListSteps:input_type -> orrery.engine.v1.ListStepsRequest
+	11, // 11: orrery.engine.v1.Steps.HoldStep:input_type -> orrery.engine.v1.HoldStepRequest
+	13, // 12: orrery.engine.v1.Steps.NudgeStep:input_type -> orrery.engine.v1.NudgeStepRequest
+	15, // 13: orrery.engine.v1.Steps.ResumeStep:input_type -> orrery.engine.v1.ResumeStepRequest
+	1,  // 14: orrery.engine.v1.Steps.StartStep:output_type -> orrery.engine.v1.StartStepResponse
+	3,  // 15: orrery.engine.v1.Steps.StopStep:output_type -> orrery.engine.v1.StopStepResponse
+	5,  // 16: orrery.engine.v1.Steps.StepStatus:output_type -> orrery.engine.v1.StepStatusResponse
+	7,  // 17: orrery.engine.v1.Steps.WaitSteps:output_type -> orrery.engine.v1.WaitStepsResponse
+	10, // 18: orrery.engine.v1.Steps.ListSteps:output_type -> orrery.engine.v1.ListStepsResponse
+	12, // 19: orrery.engine.v1.Steps.HoldStep:output_type -> orrery.engine.v1.HoldStepResponse
+	14, // 20: orrery.engine.v1.Steps.NudgeStep:output_type -> orrery.engine.v1.NudgeStepResponse
+	16, // 21: orrery.engine.v1.Steps.ResumeStep:output_type -> orrery.engine.v1.ResumeStepResponse
+	14, // [14:22] is the sub-list for method output_type
+	6,  // [6:14] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_step_proto_init() }
@@ -1364,7 +1494,7 @@ func file_orrery_engine_v1_step_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_step_proto_rawDesc), len(file_orrery_engine_v1_step_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

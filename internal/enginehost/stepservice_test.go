@@ -231,9 +231,10 @@ func fullStep() *v1.Step {
 			{Round: 1, Name: "gate", Ok: false, Detail: "exit 1"},
 			{Round: 2, Name: "gate", Ok: true, Detail: ""},
 		},
-		Reason:  "returned",
-		Started: 1700000000,
-		Ended:   1700000600,
+		Reason:           "returned",
+		Started:          1700000000,
+		Ended:            1700000600,
+		GateLimitSeconds: 60,
 	}
 }
 

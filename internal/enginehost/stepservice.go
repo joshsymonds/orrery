@@ -196,7 +196,7 @@ func (s *stepService) ResumeStep(
 }
 
 // stepMessage returns the Step message of row, with held as its held flag. Ended is zero while the step runs. A check
-// round outside uint32 is an error, since the reply cannot carry it.
+// or verdict round outside uint32 is an error, since the reply cannot carry it.
 func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 	checks := make([]*v1.StepCheck, 0, len(row.Checks))
 	for _, check := range row.Checks {
@@ -212,31 +212,50 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 			Stderr: check.Stderr,
 		})
 	}
+	verdicts := make([]*v1.StepVerdict, 0, len(row.Verdicts))
+	for _, verdict := range row.Verdicts {
+		if int64(verdict.Round) < 0 || int64(verdict.Round) > math.MaxUint32 {
+			return nil, fmt.Errorf("step %s verdict round %d is outside uint32", row.ID, verdict.Round)
+		}
+		verdicts = append(verdicts, &v1.StepVerdict{
+			Round:   uint32(verdict.Round),
+			Kind:    verdict.Kind,
+			Verdict: verdict.Verdict,
+			Detail:  verdict.Detail,
+		})
+	}
 	step := &v1.Step{
-		Id:        row.ID,
-		Agent:     row.Agent,
-		Epic:      row.Epic,
-		Task:      row.Task,
-		Held:      held,
-		Workspace: row.Workspace,
-		Revision:  row.Revision,
-		ReadOnly:  row.ReadOnly,
-		Worktree:  row.Worktree,
-		End:       row.End,
-		Status:    row.Status,
-		Result:    row.Result,
-		Checks:    checks,
-		Doing:     row.Doing,
-		Reason:    row.Reason,
-		Started:   row.Started.Unix(),
-		Limited:   row.LoopLimited,
-		LimitKind: row.LoopLimitKind,
+		Id:               row.ID,
+		Agent:            row.Agent,
+		Epic:             row.Epic,
+		Task:             row.Task,
+		Held:             held,
+		Workspace:        row.Workspace,
+		Revision:         row.Revision,
+		ReadOnly:         row.ReadOnly,
+		Worktree:         row.Worktree,
+		End:              row.End,
+		Status:           row.Status,
+		Result:           row.Result,
+		Checks:           checks,
+		Doing:            row.Doing,
+		Reason:           row.Reason,
+		Started:          row.Started.Unix(),
+		Limited:          row.LoopLimited,
+		LimitKind:        row.LoopLimitKind,
+		Stage:            row.LoopStage,
+		GateName:         row.GateName,
+		GateLimitSeconds: int64(row.GateLimit / time.Second),
+		Verdicts:         verdicts,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()
 	}
 	if !row.LoopLimitResets.IsZero() {
 		step.LimitResets = row.LoopLimitResets.Unix()
+	}
+	if !row.LoopStageFrom.IsZero() {
+		step.StageStarted = row.LoopStageFrom.Unix()
 	}
 	return step, nil
 }
