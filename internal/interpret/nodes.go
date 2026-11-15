@@ -1,0 +1,300 @@
+package interpret
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/kinds"
+	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/workflow"
+)
+
+// The kinds of the check nodes whose work the executor carries out, and the position base names in their settings. A
+// position other than base is head.
+const (
+	kindGate     = "gate"
+	kindCommand  = "command"
+	kindEvidence = "evidence"
+	kindOwned    = "owned"
+	kindAgent    = "agent"
+	atBase       = "base"
+)
+
+// stepPart is the part an agent run's step is stored under: NodeWorkID of the run and its attempt with stepPart. The
+// store reads the step under the same part.
+const stepPart = "step"
+
+// work carries out one work action of a check node run: the prepare, start or refs check its kind asks for.
+func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	switch act.Work {
+	case kinds.ActPrepare:
+		return r.prepare(ctx, epic, act)
+	case kinds.ActStart:
+		return r.start(ctx, epic, act)
+	case kinds.ActRefs:
+		return r.checkRefs(ctx, epic, act, at)
+	default:
+		return fmt.Errorf("work %s is not one the executor carries out", act.Work)
+	}
+}
+
+// prepare records the revision a check node run's work runs at. A gate, command or evidence run also records the refs it
+// is checked against, and an agent run none, since no ref compare applies to it.
+func (r *Runner) prepare(ctx context.Context, epic store.EpicRow, act Action) error {
+	revision, err := revisionOf(ctx, epic, act.Def.Settings.At)
+	if err != nil {
+		return err
+	}
+	var refs string
+	if act.NodeKind != kindAgent {
+		if refs, err = r.refSnapshot(ctx, epic); err != nil {
+			return err
+		}
+	}
+	if err = r.store.PrepareNode(ctx, epic.ID, act.Path, act.Run.Attempt, revision, refs); err != nil {
+		return fmt.Errorf("prepare node %s: %w", act.Path, err)
+	}
+	return nil
+}
+
+// revisionOf returns the revision a node names with at: the epic's base for base, and the head of the epic's branch for
+// head.
+func revisionOf(ctx context.Context, epic store.EpicRow, at string) (string, error) {
+	if at == atBase {
+		if epic.Base == "" {
+			return "", fmt.Errorf("epic %s has no base to run at", epic.ID)
+		}
+		return epic.Base, nil
+	}
+	return branchHead(ctx, epic)
+}
+
+// branchHead returns the commit of the epic's branch. A branch that does not exist is an error.
+func branchHead(ctx context.Context, epic store.EpicRow) (string, error) {
+	tip, ok, err := build.BranchTip(ctx, epic.Repository, epic.ID)
+	if err != nil {
+		return "", fmt.Errorf("read branch of epic %s: %w", epic.ID, err)
+	}
+	if !ok {
+		return "", fmt.Errorf("epic %s has no branch", epic.ID)
+	}
+	return tip, nil
+}
+
+// refSnapshot returns the refs of epic's repository and of its primary checkout's HEAD, as build.Snapshot writes them. It
+// leaves out the branch of every epic that shares the repository, as build does, since an epic's branch moves with the
+// epic's own work.
+func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, error) {
+	epics, err := r.store.Epics(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list epics: %w", err)
+	}
+	var exclude []string
+	for _, other := range epics {
+		if other.Repository == epic.Repository {
+			exclude = append(exclude, build.BranchRef(other.ID))
+		}
+	}
+	snapshot, err := build.Snapshot(ctx, epic.Repository, exclude)
+	if err != nil {
+		return "", fmt.Errorf("snapshot refs of epic %s: %w", epic.ID, err)
+	}
+	return snapshot, nil
+}
+
+// start carries out the start of a check node run's work: its check, its evidence runs or its agent step, or the record of
+// an owned run's result. The work of a kind whose service the runner was not given is an error, not a start.
+func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) error {
+	switch act.NodeKind {
+	case kindGate, kindCommand:
+		if r.checks == nil {
+			return missingService("checks")
+		}
+		return r.startCheck(ctx, epic, act)
+	case kindEvidence:
+		if r.evidence == nil {
+			return missingService("evidence")
+		}
+		return r.startEvidence(ctx, epic, act)
+	case kindAgent:
+		if r.steps == nil {
+			return missingService("steps")
+		}
+		return r.startAgent(ctx, epic, act)
+	case kindOwned:
+		return r.recordOwned(ctx, epic, act)
+	default:
+		return fmt.Errorf("node kind %s has no work to start", act.NodeKind)
+	}
+}
+
+// missingService is the error the work of a node returns when the runner was not given the service the work runs on.
+func missingService(service string) error {
+	return fmt.Errorf("the runner was not given a %s service", service)
+}
+
+// startCheck starts the check of a gate or command run under the id its action names, at the run's revision.
+func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
+	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
+	var err error
+	if act.NodeKind == kindGate {
+		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
+	} else {
+		check.Argv = act.Def.Settings.Argv
+		check.Limit = int64(act.Def.Settings.Limit)
+		check.Needs = commandNeeds(act.Def.Settings.Needs)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = r.checks.Run(ctx, check); err != nil {
+		return fmt.Errorf("run check %s: %w", check.ID, err)
+	}
+	return nil
+}
+
+// withGate fills check with the gate named name: its argv, limit and needs. A gate that does not resolve, and an agent
+// gate, are not run, so check ends with the reason it did not run.
+func (r *Runner) withGate(
+	ctx context.Context, epic store.EpicRow, name string, check store.NodeCheck,
+) (store.NodeCheck, error) {
+	gate, err := build.ResolveGate(ctx, epic, name, r.getenv)
+	switch {
+	case errors.Is(err, gates.ErrUnknown):
+		check.NotRun = err.Error()
+		return check, nil
+	case err != nil:
+		return store.NodeCheck{}, fmt.Errorf("check %s: %w", check.ID, err)
+	case gate.Agent != "":
+		check.NotRun = fmt.Sprintf("gate %s is an agent gate, and a check node runs argv gates only", name)
+		return check, nil
+	}
+	check.Argv = gate.Argv
+	check.Limit = int64(gate.Limit / time.Second)
+	check.Needs = gateNeeds(gate.Needs)
+	return check, nil
+}
+
+// gateNeeds returns needs as the store holds the pools a check draws on.
+func gateNeeds(needs []gates.Need) []store.EpicGateNeed {
+	out := make([]store.EpicGateNeed, 0, len(needs))
+	for _, need := range needs {
+		out = append(out, store.EpicGateNeed{Pool: need.Pool, Count: int64(need.Count)})
+	}
+	return out
+}
+
+// commandNeeds returns needs as the store holds the pools a check draws on.
+func commandNeeds(needs []workflow.Need) []store.EpicGateNeed {
+	out := make([]store.EpicGateNeed, 0, len(needs))
+	for _, need := range needs {
+		out = append(out, store.EpicGateNeed{Pool: need.Pool, Count: int64(need.Count)})
+	}
+	return out
+}
+
+// startEvidence starts the evidence run of each Requirement the action names, under the id it names, at the run's revision.
+// The phase is red at base and green at head.
+func (r *Runner) startEvidence(ctx context.Context, epic store.EpicRow, act Action) error {
+	phase := evidence.PhaseGreen
+	if act.Def.Settings.At == atBase {
+		phase = evidence.PhaseRed
+	}
+	for i, id := range act.IDs {
+		if _, err := r.evidence.RunItem(ctx, id, epic.ID, act.Items[i], act.Run.Revision, phase); err != nil {
+			return fmt.Errorf("run evidence %s: %w", act.Items[i], err)
+		}
+	}
+	return nil
+}
+
+// startAgent starts the read-only step of an agent run at the run's revision, under the id derived from the run.
+func (r *Runner) startAgent(ctx context.Context, epic store.EpicRow, act Action) error {
+	settings := act.Def.Settings
+	start := enginehost.StepStart{
+		ID: store.NodeWorkID(act.Run.ID, act.Run.Attempt, stepPart), Agent: settings.Agent, Prompt: settings.Prompt,
+		Schema: settings.Schema, Workspace: epic.Repository, Revision: act.Run.Revision, ReadOnly: true, Epic: epic.ID,
+	}
+	if _, err := r.steps.Start(ctx, start); err != nil {
+		return fmt.Errorf("start step %s: %w", start.ID, err)
+	}
+	return nil
+}
+
+// recordOwned records the paths the epic's branch changes over its base as a JSON array, which is [] when none changed.
+// --no-renames lists a renamed path under both its names, so a rename out of an owned path is not missed.
+func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action) error {
+	head, err := branchHead(ctx, epic)
+	if err != nil {
+		return err
+	}
+	listing, err := gitOutput(ctx, epic.Repository, "diff", "--name-only", "-z", "--no-renames", epic.Base, head)
+	if err != nil {
+		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
+	}
+	changed := []string{}
+	for path := range strings.SplitSeq(listing, "\x00") {
+		if path != "" {
+			changed = append(changed, path)
+		}
+	}
+	data, err := json.Marshal(changed)
+	if err != nil {
+		return fmt.Errorf("encode paths changed by epic %s: %w", epic.ID, err)
+	}
+	if err = r.store.RecordNodeResult(ctx, epic.ID, act.Path, act.Run.Attempt, string(data)); err != nil {
+		return fmt.Errorf("record result of node %s: %w", act.Path, err)
+	}
+	return nil
+}
+
+// checkRefs compares the refs a check node run was prepared with to the refs now. The first move that parks is the park
+// reason, which parks the run and the epic. Every other move is told.
+func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	now, err := r.refSnapshot(ctx, epic)
+	if err != nil {
+		return err
+	}
+	moves, err := build.Compare(act.Run.Refs, now)
+	if err != nil {
+		return fmt.Errorf("compare refs of node %s: %w", act.Path, err)
+	}
+	var park string
+	var tells []string
+	for _, move := range moves {
+		reason := fmt.Sprintf("workflow node %s moved %s (%s to %s)", act.Path, move.Ref, move.From, move.To)
+		if move.Parks && park == "" {
+			park = reason
+			continue
+		}
+		tells = append(tells, reason)
+	}
+	if err = r.store.CheckNodeRefs(ctx, epic.ID, act.Path, act.Run.Attempt, park, tells, at); err != nil {
+		return fmt.Errorf("check refs of node %s: %w", act.Path, err)
+	}
+	return nil
+}
+
+// gitOutput runs git in dir and returns its stdout as git wrote it. On failure the error carries git's stderr.
+func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git")
+	cmd.Args = append(cmd.Args, "-C", dir)
+	cmd.Args = append(cmd.Args, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
+}
