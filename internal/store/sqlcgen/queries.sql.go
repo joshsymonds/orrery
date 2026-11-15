@@ -332,6 +332,15 @@ func (q *Queries) DeleteStaleEngineText(ctx context.Context, arg DeleteStaleEngi
 	return err
 }
 
+const deleteToldLimit = `-- name: DeleteToldLimit :exec
+DELETE FROM told_limit_steps WHERE limit_key = ?
+`
+
+func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
+	_, err := q.db.ExecContext(ctx, deleteToldLimit, limitKey)
+	return err
+}
+
 const endEpicTurn = `-- name: EndEpicTurn :execrows
 UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running'
 `
@@ -1595,6 +1604,21 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.Epic,
 		arg.Task,
 	)
+	return err
+}
+
+const insertToldLimitStep = `-- name: InsertToldLimitStep :exec
+INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
+ON CONFLICT (limit_key, step) DO NOTHING
+`
+
+type InsertToldLimitStepParams struct {
+	LimitKey string
+	Step     string
+}
+
+func (q *Queries) InsertToldLimitStep(ctx context.Context, arg InsertToldLimitStepParams) error {
+	_, err := q.db.ExecContext(ctx, insertToldLimitStep, arg.LimitKey, arg.Step)
 	return err
 }
 
@@ -3281,7 +3305,7 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 }
 
 const listPendingNotices = `-- name: ListPendingNotices :many
-SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic FROM pending_notices ORDER BY id
+SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key FROM pending_notices ORDER BY id
 `
 
 func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, error) {
@@ -3307,6 +3331,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.Source,
 			&i.Silent,
 			&i.Epic,
+			&i.LimitKey,
 		); err != nil {
 			return nil, err
 		}
@@ -3558,6 +3583,33 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.TurnOutput,
 			&i.PromptsFrom,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listToldLimitSteps = `-- name: ListToldLimitSteps :many
+SELECT limit_key, step FROM told_limit_steps ORDER BY limit_key, step
+`
+
+func (q *Queries) ListToldLimitSteps(ctx context.Context) ([]ToldLimitStep, error) {
+	rows, err := q.db.QueryContext(ctx, listToldLimitSteps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ToldLimitStep
+	for rows.Next() {
+		var i ToldLimitStep
+		if err := rows.Scan(&i.LimitKey, &i.Step); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4444,12 +4496,12 @@ func (q *Queries) UpsertEngineText(ctx context.Context, arg UpsertEngineTextPara
 }
 
 const upsertPendingNotice = `-- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent, epic = excluded.epic
+    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key
 `
 
 type UpsertPendingNoticeParams struct {
@@ -4466,6 +4518,7 @@ type UpsertPendingNoticeParams struct {
 	Source      []byte
 	Silent      bool
 	Epic        string
+	LimitKey    string
 }
 
 func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoticeParams) error {
@@ -4483,6 +4536,7 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.Source,
 		arg.Silent,
 		arg.Epic,
+		arg.LimitKey,
 	)
 	return err
 }

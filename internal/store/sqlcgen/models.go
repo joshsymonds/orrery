@@ -333,6 +333,7 @@ type PendingNotice struct {
 	Source      []byte
 	Silent      bool
 	Epic        string
+	LimitKey    string
 }
 
 type PendingNoticeID struct {
@@ -423,4 +424,9 @@ type Step struct {
 	LoopLimitKind   string
 	LoopLimitResets int64
 	LoopGateFrom    int64
+}
+
+type ToldLimitStep struct {
+	LimitKey string
+	Step     string
 }

@@ -274,12 +274,12 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent, epic = excluded.epic;
+    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key;
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -322,6 +322,16 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 
 -- name: ListPushedLimitNotices :many
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
+
+-- name: InsertToldLimitStep :exec
+INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
+ON CONFLICT (limit_key, step) DO NOTHING;
+
+-- name: DeleteToldLimit :exec
+DELETE FROM told_limit_steps WHERE limit_key = ?;
+
+-- name: ListToldLimitSteps :many
+SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
