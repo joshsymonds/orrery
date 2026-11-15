@@ -42,13 +42,9 @@ func TestRunRefusedReclaimStopsCommandWithGrace(t *testing.T) {
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 	close(ready)
 
-	select {
-	case d := <-graces:
-		if d != stopGrace {
-			t.Fatalf("the grace = %v, want %v", d, stopGrace)
-		}
-	case <-time.After(runTimeout):
-		t.Fatal("the grace never started after orreryd refused the reclaim")
+	d := <-graces
+	if d != stopGrace {
+		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}
 	// CMD ignores SIGTERM, and the grace runs on the test's clock, so CMD is still running once the grace is armed.
 	if processExited(t, pid) {
