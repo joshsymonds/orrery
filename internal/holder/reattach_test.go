@@ -36,8 +36,11 @@ const (
 	reattachCancelAfter = 200 * time.Millisecond
 	// reattachCancelWait is how long a canceled Reattach may take to return.
 	reattachCancelWait = 2 * time.Second
-	// reattachSlack is how much longer than AttachTimeout a holder that never answers may keep Reattach.
+	// reattachSlack is how much longer than its bound a holder that never answers may keep Reattach or Stop.
 	reattachSlack = 2 * time.Second
+	// reattachTestBound is the attach timeout, and the stop bound, that a test of a holder that never answers waits out
+	// in place of the default.
+	reattachTestBound = 300 * time.Millisecond
 )
 
 // launchHolder launches a real holder for testSession under root that runs child, and returns the launch's Process and
@@ -324,15 +327,18 @@ func TestReattachWithAStaleSocketAndAFreeLockIsGone(t *testing.T) {
 func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing.T) {
 	t.Parallel()
 
+	if got := newReattachOptions(nil).attachTimeout; got != AttachTimeout {
+		t.Fatalf("attach timeout with no options = %v, want AttachTimeout %v", got, AttachTimeout)
+	}
 	dir, _ := startWedged(t)
 	start := time.Now()
-	_, _, err := Reattach(t.Context(), dir, 0, WireVersion)
+	_, _, err := Reattach(t.Context(), dir, 0, WireVersion, WithAttachTimeout(reattachTestBound))
 	elapsed := time.Since(start)
 	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable from the timeout", err)
 	}
-	if elapsed < AttachTimeout || elapsed > AttachTimeout+reattachSlack {
-		t.Fatalf("Reattach returned after %v, want about %v", elapsed, AttachTimeout)
+	if elapsed < reattachTestBound || elapsed > reattachTestBound+reattachSlack {
+		t.Fatalf("Reattach returned after %v, want about %v", elapsed, reattachTestBound)
 	}
 }
 
@@ -527,6 +533,10 @@ func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
 	t.Parallel()
 
 	p, server, held, listener := rawProcessHeld(t)
+	if p.stopTimeout != holderStopTimeout {
+		t.Fatalf("Process stop bound = %v, want holderStopTimeout %v", p.stopTimeout, holderStopTimeout)
+	}
+	p.stopTimeout = reattachTestBound
 	// Ending the held process also ends the stream, with the exit frame the holder sends when its child has ended.
 	held.cancel = func() {
 		close(held.done)
@@ -547,14 +557,14 @@ func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Stop = %v, want nil from the held process's stop", err)
 		}
-	case <-time.After(holderStopTimeout + reattachSlack):
-		t.Fatalf("Stop of a holder that never answers did not return within %v", holderStopTimeout+reattachSlack)
+	case <-time.After(reattachTestBound + reattachSlack):
+		t.Fatalf("Stop of a holder that never answers did not return within %v", reattachTestBound+reattachSlack)
 	}
-	if elapsed := time.Since(start); elapsed < holderStopTimeout {
+	if elapsed := time.Since(start); elapsed < reattachTestBound {
 		t.Fatalf(
 			"Stop returned after %v, want it to wait out the %v bound before falling back",
 			elapsed,
-			holderStopTimeout,
+			reattachTestBound,
 		)
 	}
 }
