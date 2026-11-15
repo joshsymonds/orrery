@@ -67,6 +67,7 @@ func (f *storeFixture) waitForPaneID(t *testing.T) {
 		case <-t.Context().Done():
 			t.Fatalf("pane %s never had an %s", f.pane, protocol.OptionID)
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -90,6 +91,7 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 			t.Fatalf("pane %s row never held summary %q and label %q: row %+v (found %t)",
 				pane, summary, label, got, ok)
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }

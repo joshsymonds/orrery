@@ -13,10 +13,12 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.espresso.IdlingRegistry
 import androidx.test.espresso.IdlingResource
 import androidx.test.ext.junit.rules.ActivityScenarioRule
+import io.github.joshsymonds.orrery.api.Quiescence
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.junit.runner.Description
 import org.junit.runners.model.Statement
+import org.robolectric.Shadows.shadowOf
 
 /*
  * Compose test rules whose compositions, effects and coroutines run on the main thread only.
@@ -125,43 +127,73 @@ fun <A : ComponentActivity> mainThreadAndroidComposeRule(activityClass: Class<A>
     )
 }
 
-/** How long a wait yields between checks so the threads doing the real work can run, as Compose's waitUntil does. */
+/** How long a wait yields while real work is in flight, so the threads doing it can run. */
 private const val CHECK_PAUSE_MILLIS = 10L
 
+/**
+ * How much virtual time a wait lets pass, with nothing in flight, before it fails. Virtual time moves only while no
+ * real work is in flight, so this bounds how long the screen's own timers may take, not how loaded the machine is.
+ * The longest timer a test waits through is five seconds (the quick keys' read window).
+ */
+private const val VIRTUAL_BUDGET_MILLIS = 30_000L
+
 /*
- * Waits for work on other threads: a fake server's round trip, an IO dispatcher's call, OkHttp's stream. No
- * test clock moves that work, so a wall-clock deadline per wait only measures how loaded the machine is (a 5 s
- * deadline timed out PaneScreenTest's first render at load 80). These waits have no deadline of their own; the
- * test task's timeout in build.gradle.kts bounds a wait that never ends. Each check advances the main clock by a
- * frame while it auto-advances, as waitUntil does, so a wait on virtual time still ends.
+ * Waits end when their condition holds, and fail as soon as nothing can make it hold. While real work is in flight
+ * (Quiescence: a fake-server handler, an unanswered request, an unread answer, a client thread running) the wait
+ * yields and the clock stands still, however long the work takes. With nothing in flight, the wait runs the main
+ * thread's queue, then moves the clock a frame if it auto-advances, so the screen's timers fire; it fails once the
+ * clock has moved [VIRTUAL_BUDGET_MILLIS], or at once when the clock is stopped, since then nothing at all can change.
+ * No wait reads a wall clock.
  */
 
-/** Waits for [condition], with no deadline of its own. */
-fun ComposeTestRule.awaitUntil(condition: () -> Boolean) {
+/** Waits for [condition], named [description] in the failure. */
+fun ComposeTestRule.awaitUntil(description: String = "the awaited condition", condition: () -> Boolean) {
+    val startedAt = mainClock.currentTime
     while (!condition()) {
-        if (mainClock.autoAdvance) mainClock.advanceTimeByFrame()
-        Thread.sleep(CHECK_PAUSE_MILLIS)
+        shadowOf(Looper.getMainLooper()).idle()
+        if (Quiescence.inFlight() != null) {
+            Thread.sleep(CHECK_PAUSE_MILLIS)
+            continue
+        }
+        if (!mainClock.autoAdvance) {
+            // The clock is stopped and nothing is in flight: run what the main thread has queued, then judge.
+            waitForIdle()
+            if (condition()) return
+            if (Quiescence.inFlight() != null) continue
+            throw AssertionError(
+                "$description never held: the clock is stopped and nothing is in flight; ${Quiescence.serverState()}",
+            )
+        }
+        val waited = mainClock.currentTime - startedAt
+        if (waited >= VIRTUAL_BUDGET_MILLIS) {
+            throw AssertionError(
+                "$description never held through $waited ms of virtual time with nothing in flight; " +
+                    Quiescence.serverState(),
+            )
+        }
+        mainClock.advanceTimeByFrame()
     }
 }
 
-/** Waits until exactly one node matches [matcher], with no deadline of its own. */
+/** Waits until exactly one node matches [matcher]. */
 fun ComposeTestRule.awaitExactlyOne(matcher: SemanticsMatcher) {
-    awaitUntil { onAllNodes(matcher).fetchSemanticsNodes().size == 1 }
+    awaitUntil("exactly one node matching ${matcher.description}") {
+        onAllNodes(matcher).fetchSemanticsNodes().size == 1
+    }
 }
 
-/** Waits until no node matches [matcher], with no deadline of its own. */
+/** Waits until no node matches [matcher]. */
 fun ComposeTestRule.awaitNone(matcher: SemanticsMatcher) {
-    awaitUntil { onAllNodes(matcher).fetchSemanticsNodes().isEmpty() }
+    awaitUntil("no node matching ${matcher.description}") { onAllNodes(matcher).fetchSemanticsNodes().isEmpty() }
 }
 
 /**
  * Waits for [condition], letting the main thread run its queued continuations before each check, as the app's
- * main looper runs them between frames, with no deadline of its own. Use it when the clock is paused and
- * [condition] reads no Compose state (a fake server's requests): a plain wait then neither advances the clock nor
- * idles the main thread, so a coroutine a tap launched would never start.
+ * main looper runs them between frames. Use it when the clock is paused and [condition] reads no Compose state (a
+ * fake server's requests): the wait then runs a coroutine a tap launched before it judges.
  */
-fun ComposeTestRule.awaitUntilAfterIdle(condition: () -> Boolean) {
-    awaitUntil {
+fun ComposeTestRule.awaitUntilAfterIdle(description: String = "the awaited condition", condition: () -> Boolean) {
+    awaitUntil(description) {
         waitForIdle()
         condition()
     }

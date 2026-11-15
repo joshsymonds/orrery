@@ -228,13 +228,24 @@ func (r *buildRig) task(t *testing.T) *v1.EpicTask {
 // awaitStep runs daemon's flow, a pass at a time, until task 1 holds step id as its build's current step.
 func (r *buildRig) awaitStep(t *testing.T, daemon *orreryProcess, ack string, id string) {
 	t.Helper()
-	passUntil(t, daemon, ack, func() bool { return r.task(t).GetStep() == id })
+	passUntil(t, daemon, ack, func() bool { return r.taskAlive(t).GetStep() == id })
 }
 
 // awaitGreen runs daemon's flow, a pass at a time, until task 1 is at green.
 func (r *buildRig) awaitGreen(t *testing.T, daemon *orreryProcess, ack string) {
 	t.Helper()
-	passUntil(t, daemon, ack, func() bool { return r.task(t).GetStage() == build.StageGreen })
+	passUntil(t, daemon, ack, func() bool { return r.taskAlive(t).GetStage() == build.StageGreen })
+}
+
+// taskAlive returns task 1, failing the test at once when the task has failed: a failed task starts no step and
+// reaches no stage, so a wait on either would never end.
+func (r *buildRig) taskAlive(t *testing.T) *v1.EpicTask {
+	t.Helper()
+	task := r.task(t)
+	if task.GetStatus() == "failed" {
+		t.Fatalf("task 1 failed while the test waited on it: %q", task.GetFailure())
+	}
+	return task
 }
 
 // passUntil signals daemon, which runs with --flow-ticks at ack, to run its flow one pass at a time until done reports

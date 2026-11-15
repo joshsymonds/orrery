@@ -332,7 +332,7 @@ class OrreryClientSessionStreamTest {
                 val job = launch(Dispatchers.IO) {
                     client.watchSession(SESSION_ID, 0L) { firstDelta.complete(Unit) }
                 }
-                firstDelta.await()
+                Quiescence.awaitUntil("the first delta") { firstDelta.isCompleted }
 
                 job.cancelAndJoin()
             }
