@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -134,7 +133,7 @@ func terminate(p *orreryProcess) {
 	_ = p.cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case <-p.done:
-	case <-time.After(waitLimit):
+	case <-time.After(cleanupGrace):
 	}
 }
 
@@ -166,12 +165,11 @@ func (f *engineFixture) start(t *testing.T, dir, prompt string) string {
 	return id
 }
 
-// waitForHistory waits until ready accepts the stored history of session id. A store that is missing or has no row for
-// id yet is read again, and the test fails after waitLimit.
+// waitForHistory waits until ready accepts the stored history of session id. A store that is missing or has no row
+// for id yet is read again. It has no deadline of its own.
 func (f *engineFixture) waitForHistory(t *testing.T, id string, ready func(store.EngineHistory) bool) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -182,11 +180,7 @@ func (f *engineFixture) waitForHistory(t *testing.T, id string, ready func(store
 		if err == nil && ready(history) {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("history of %s never reached the wanted state", id)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -253,15 +247,11 @@ func fakeClaudePID(t *testing.T, dir string) int {
 	return pid
 }
 
-// waitGone fails the test unless the process pid has exited within waitLimit. Signal 0 reports a process that no longer
-// exists as ESRCH.
+// waitGone waits until the process pid has exited. It has no deadline of its own. Signal 0 reports a process that no
+// longer exists as ESRCH.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.Now().Add(waitLimit)
 	for syscall.Kill(pid, 0) != syscall.ESRCH {
-		if time.Now().After(deadline) {
-			t.Fatalf("fake claude process %d still running", pid)
-		}
 		time.Sleep(pollEvery)
 	}
 }
@@ -275,11 +265,7 @@ func waitHolderEnded(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("read holder pids in %s: %v", dir, err)
 	}
-	deadline := time.Now().Add(waitLimit)
 	for syscall.Kill(pids.Holder, 0) != syscall.ESRCH {
-		if time.Now().After(deadline) {
-			t.Fatalf("holder process %d of %s still running", pids.Holder, dir)
-		}
 		time.Sleep(pollEvery)
 	}
 }

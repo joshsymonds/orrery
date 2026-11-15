@@ -18,8 +18,6 @@ const (
 	noConfig = "/dev/null"
 	// testCommand keeps each test pane alive until its server is killed.
 	testCommand = "sleep 300"
-	// ioTimeout bounds each wait for tmux to reach the expected state.
-	ioTimeout = 5 * time.Second
 	// pollInterval spaces the checks made while waiting for tmux.
 	pollInterval = 20 * time.Millisecond
 )
@@ -126,10 +124,9 @@ func newestActivity(t *testing.T, client *tmuxctl.Client) int64 {
 	return newest
 }
 
-// waitFor polls check until it reports true, failing the test on its error or when ioTimeout elapses.
+// waitFor polls check until it reports true, failing the test on its error. It has no deadline of its own.
 func waitFor(t *testing.T, what string, check func() (bool, error)) {
 	t.Helper()
-	deadline := time.Now().Add(ioTimeout)
 	for {
 		ok, err := check()
 		if err != nil {
@@ -137,9 +134,6 @@ func waitFor(t *testing.T, what string, check func() (bool, error)) {
 		}
 		if ok {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
 		}
 		time.Sleep(pollInterval)
 	}

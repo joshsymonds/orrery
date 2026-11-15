@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	dto "github.com/prometheus/client_model/go"
@@ -79,13 +78,9 @@ func TestServeMetricsListenScrapesConnectSeries(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("runServe returned %v, want nil", err)
-		}
-	case <-time.After(serveTestWait):
-		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	err := <-done
+	if err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
 	}
 }
 

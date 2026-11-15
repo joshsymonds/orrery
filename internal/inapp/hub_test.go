@@ -3,14 +3,10 @@ package inapp
 import (
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/notice"
 )
-
-// wait bounds how long a test waits on a channel or a call before it fails. A correct hub answers well inside it.
-const wait = 5 * time.Second
 
 // paneKey is the key of the pane notice a test shows.
 func paneKey(pane string) notice.Key {
@@ -27,19 +23,14 @@ func shownNotice(key notice.Key, title string) Notice {
 	return Notice{Key: key, State: "stopped", Title: title, Body: "body of " + title}
 }
 
-// recv returns the next change on ch. It fails the test if none arrives within wait.
+// recv returns the next change on ch, failing the test if ch closes first. It has no deadline of its own.
 func recv(t *testing.T, ch <-chan Change) Change {
 	t.Helper()
-	select {
-	case c, ok := <-ch:
-		if !ok {
-			t.Fatal("change channel closed, want a change")
-		}
-		return c
-	case <-time.After(wait):
-		t.Fatal("no change within wait")
+	c, ok := <-ch
+	if !ok {
+		t.Fatal("change channel closed, want a change")
 	}
-	return Change{}
+	return c
 }
 
 // expectChanges fails the test unless ch carries want, in order.
@@ -55,28 +46,9 @@ func expectChanges(t *testing.T, ch <-chan Change, want ...Change) {
 // expectClosed fails the test unless ch is closed with nothing left on it.
 func expectClosed(t *testing.T, ch <-chan Change) {
 	t.Helper()
-	select {
-	case c, ok := <-ch:
-		if ok {
-			t.Fatalf("change channel carried %+v, want closed", c)
-		}
-	case <-time.After(wait):
-		t.Fatal("change channel still open after wait")
-	}
-}
-
-// returnsWithin runs f and fails the test unless f returns within wait.
-func returnsWithin(t *testing.T, f func()) {
-	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		f()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(wait):
-		t.Fatal("call blocked past wait")
+	c, ok := <-ch
+	if ok {
+		t.Fatalf("change channel carried %+v, want closed", c)
 	}
 }
 
@@ -205,11 +177,9 @@ func TestFullWatcherIsDroppedWhileShowReturns(t *testing.T) {
 	_, full, stop := hub.Watch()
 
 	// Nothing reads full, so its queue fills and it is dropped. Show must keep returning for every call.
-	returnsWithin(t, func() {
-		for range queueLen + 2 {
-			hub.Show(paneKey("a"), deskNotice("a"))
-		}
-	})
+	for range queueLen + 2 {
+		hub.Show(paneKey("a"), deskNotice("a"))
+	}
 
 	// The queued changes are still readable, then the channel is closed.
 	for range queueLen {

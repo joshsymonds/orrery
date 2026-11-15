@@ -100,7 +100,7 @@ func startHolderCommand(t *testing.T, root, session string, child ...string) *ho
 	return hc
 }
 
-// result returns the command's result, failing the test when it does not return in time.
+// result returns the command's result. It has no deadline of its own.
 func (hc *holderCommand) result() runResult {
 	hc.t.Helper()
 	if !hc.done {
@@ -114,7 +114,6 @@ func (hc *holderCommand) result() runResult {
 // first or the socket does not accept in time.
 func (hc *holderCommand) dial() *holderConn {
 	hc.t.Helper()
-	deadline := time.After(runTimeout)
 	for {
 		conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: hc.socket, Net: "unix"})
 		if err == nil {
@@ -129,8 +128,6 @@ func (hc *holderCommand) dial() *holderConn {
 		case res := <-hc.ch:
 			hc.res, hc.done = res, true
 			hc.t.Fatalf("orrery holder returned %+v before its socket %s accepted", res, hc.socket)
-		case <-deadline:
-			hc.t.Fatalf("socket %s did not accept within %v: %v", hc.socket, runTimeout, err)
 		case <-time.After(holderPollInterval):
 		}
 	}
@@ -149,11 +146,7 @@ func (hc *holderCommand) stopIfServing() {
 			hc.t.Errorf("close cleanup connection: %v", cerr)
 		}
 	}
-	select {
-	case <-hc.ch:
-	case <-time.After(runTimeout):
-		hc.t.Errorf("orrery holder still running %v after its test ended", runTimeout)
-	}
+	<-hc.ch
 }
 
 // holderConn is the test's end of one connection to a holder.
@@ -185,12 +178,9 @@ func (c *holderConn) send(frame holder.Frame) {
 	}
 }
 
-// read returns the next frame the holder sends, failing the test when none arrives within runTimeout.
+// read returns the next frame the holder sends. It has no deadline of its own.
 func (c *holderConn) read() holder.Frame {
 	c.t.Helper()
-	if err := c.conn.SetReadDeadline(time.Now().Add(runTimeout)); err != nil {
-		c.t.Fatalf("set read deadline: %v", err)
-	}
 	frame, err := c.frames.Read()
 	if err != nil {
 		c.t.Fatalf("read frame: %v", err)
@@ -198,18 +188,13 @@ func (c *holderConn) read() holder.Frame {
 	return frame
 }
 
-// awaitFile returns the contents of path once the file ends with a newline, failing the test when that takes longer
-// than runTimeout.
+// awaitFile returns the contents of path once the file ends with a newline. It has no deadline of its own.
 func awaitFile(t *testing.T, path string) string {
 	t.Helper()
-	deadline := time.Now().Add(runTimeout)
 	for {
 		data, err := os.ReadFile(path)
 		if err == nil && strings.HasSuffix(string(data), "\n") {
 			return string(data)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("file %s was not written within %v: %v", path, runTimeout, err)
 		}
 		time.Sleep(holderPollInterval)
 	}

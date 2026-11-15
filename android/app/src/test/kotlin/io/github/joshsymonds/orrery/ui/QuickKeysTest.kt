@@ -1,10 +1,14 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.ObserverHandle
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -28,9 +32,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +53,8 @@ private const val FLASH_MILLIS = 300L
 private const val WINDOW_MILLIS = 5_000L
 private const val CHANGED_AT = 1_000L
 private const val LATER = 2_000L
+/** The screen's read-window state class, named because it is private to QuickKeys.kt. */
+private const val READ_WINDOW_CLASS = "ReadWindow"
 private const val READ_SETTLE_MILLIS = 1_000L
 
 /** The results a window can show, none of them the send's "key not sent". */
@@ -59,6 +68,36 @@ class QuickKeysTest {
     val composeRule = mainThreadComposeRule()
 
     private val haptic = RecordingHaptic()
+
+    /**
+     * How many read windows the screen has opened: each is a ReadWindow written to the screen's state on the main
+     * thread, in the same step that starts the window's five-second close. [awaitWindowOpened] waits on it.
+     */
+    private val windowsOpened = AtomicInteger()
+    private var countWindows: ObserverHandle? = null
+
+    @Before
+    fun countOpenedWindows() {
+        val main = Looper.getMainLooper()
+        countWindows = Snapshot.registerGlobalWriteObserver { state ->
+            if (Looper.myLooper() == main && (state as? State<*>)?.value?.javaClass?.simpleName == READ_WINDOW_CLASS) {
+                windowsOpened.incrementAndGet()
+            }
+        }
+    }
+
+    @After
+    fun stopCountingWindows() {
+        countWindows?.dispose()
+    }
+
+    /**
+     * Waits until the screen has opened [count] read windows. With the clock stopped, the window's close then runs
+     * from the time the test advances from. The send's answer comes back on another thread, so the wait has no deadline.
+     */
+    private fun awaitWindowOpened(count: Int) {
+        composeRule.awaitUntilAfterIdle { windowsOpened.get() >= count }
+    }
 
     private val labelToKey = listOf(
         "Esc" to "Escape",
@@ -297,8 +336,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Ctrl-C").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS - 1, ignoreFrameDuration = true)
             settleReads()
@@ -322,8 +360,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
@@ -341,8 +378,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
 
             // The shown pane is still "working"; the read finds the pane "done".
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
@@ -361,8 +397,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
@@ -383,14 +418,12 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
 
             composeRule.mainClock.advanceTimeBy(3_000, ignoreFrameDuration = true)
-            composeRule.mainClock.autoAdvance = true
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntil { keyRequests(server) == 2 }
-            composeRule.mainClock.autoAdvance = false
+            awaitWindowOpened(2)
+            assertEquals(2, keyRequests(server))
 
             composeRule.mainClock.advanceTimeBy(2_000, ignoreFrameDuration = true)
             // The first window's close fires at exactly 5 s; its read starts on the frame after.
@@ -415,8 +448,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
             composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
@@ -437,8 +469,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
-            settleReads()
+            awaitWindowOpened(1)
             composeRule.mainClock.advanceTimeBy(3_000, ignoreFrameDuration = true)
 
             composeRule.mainClock.autoAdvance = true

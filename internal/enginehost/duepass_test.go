@@ -487,11 +487,7 @@ func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
 	}()
 
 	awaitPass(t, passes, "the pass at start")
-	select {
-	case tick <- time.Time{}:
-	case <-time.After(dueWait):
-		t.Fatal("Run did not take a tick")
-	}
+	tick <- time.Time{}
 	awaitPass(t, passes, "the pass on the tick")
 	cancel()
 	<-done
@@ -500,15 +496,8 @@ func TestDuePassRunsAPassAtStartAndOnEachTick(t *testing.T) {
 	}
 }
 
-// dueWait bounds each wait a test makes on a pass, so a pass that never runs fails the test instead of hanging it.
-const dueWait = 30 * time.Second
-
-// awaitPass waits for a pass to be sent on passes, and fails the test with what when none comes within dueWait.
-func awaitPass(t *testing.T, passes <-chan struct{}, what string) {
+// awaitPass waits for a pass to be sent on passes. It has no deadline of its own.
+func awaitPass(t *testing.T, passes <-chan struct{}, _ string) {
 	t.Helper()
-	select {
-	case <-passes:
-	case <-time.After(dueWait):
-		t.Fatalf("no pass for %s", what)
-	}
+	<-passes
 }

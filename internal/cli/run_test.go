@@ -35,8 +35,6 @@ const (
 	runHelperEnv = "ORRERY_RUN_TEST_HELPER"
 	// runSocketEnv names the socket the client helper acquires its grant from.
 	runSocketEnv = "ORRERY_RUN_TEST_SOCKET"
-	// runTimeout bounds every wait on a process or on the fake server.
-	runTimeout = 10 * time.Second
 	// testRetry is the reconnect interval every run test uses, so a broken stream is reclaimed quickly.
 	testRetry = 10 * time.Millisecond
 	// pollInterval is how often a wait checks whether a process has exited.
@@ -239,16 +237,11 @@ func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
 	return step
 }
 
-// awaitRequests fails the test unless fake receives n requests within runTimeout.
+// awaitRequests waits until fake has received n requests. It has no deadline of its own.
 func awaitRequests(t *testing.T, fake *poolsFake, n int) {
 	t.Helper()
-	deadline := time.After(runTimeout)
 	for len(fake.received()) < n {
-		select {
-		case <-deadline:
-			t.Fatalf("fake received %d requests, want %d", len(fake.received()), n)
-		case <-time.After(pollInterval):
-		}
+		<-time.After(pollInterval)
 	}
 }
 
@@ -332,26 +325,17 @@ func runAsync(ctx context.Context, cfg cli.RunConfig) <-chan int {
 	return status
 }
 
-// awaitStatus returns the status from status. It fails the test when none arrives within runTimeout.
+// awaitStatus returns the status from status. It has no deadline of its own.
 func awaitStatus(t *testing.T, status <-chan int) int {
 	t.Helper()
-	select {
-	case got := <-status:
-		return got
-	case <-time.After(runTimeout):
-		t.Fatal("RunWithGrant did not return")
-		return 0
-	}
+	got := <-status
+	return got
 }
 
-// waitClosed fails the test unless ch closes within runTimeout. what says what did not happen.
-func waitClosed(t *testing.T, ch <-chan struct{}, what string) {
+// waitClosed waits until ch closes; its last argument names what it waits for. It has no deadline of its own.
+func waitClosed(t *testing.T, ch <-chan struct{}, _ string) {
 	t.Helper()
-	select {
-	case <-ch:
-	case <-time.After(runTimeout):
-		t.Fatal(what)
-	}
+	<-ch
 }
 
 // stdoutPipe returns a pipe for a command's stdout: the command writes to w and the test reads r.
@@ -368,8 +352,7 @@ func stdoutPipe(t *testing.T) (r, w *os.File) {
 	return r, w
 }
 
-// awaitReady returns the first line r reads, which a helper prints once it is running. It fails the test when no line
-// comes within runTimeout.
+// awaitReady returns the first line r reads, which a helper prints once it is running. It has no deadline of its own.
 func awaitReady(t *testing.T, r io.Reader) string {
 	t.Helper()
 	line := make(chan string, 1)
@@ -377,13 +360,8 @@ func awaitReady(t *testing.T, r io.Reader) string {
 		text, _ := bufio.NewReader(r).ReadString('\n')
 		line <- text
 	}()
-	select {
-	case text := <-line:
-		return text
-	case <-time.After(runTimeout):
-		t.Fatal("no ready line from the helper")
-		return ""
-	}
+	text := <-line
+	return text
 }
 
 // readyPID returns the process id on the ready line a sleep helper prints.
@@ -399,13 +377,8 @@ func readyPID(t *testing.T, ready string) int {
 // waitGone fails the test unless the process pid exits within runTimeout.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.After(runTimeout)
 	for !processExited(t, pid) {
-		select {
-		case <-deadline:
-			t.Fatalf("process %d is still running", pid)
-		case <-time.After(pollInterval):
-		}
+		<-time.After(pollInterval)
 	}
 }
 

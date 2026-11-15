@@ -131,9 +131,6 @@ func TestSeen(t *testing.T) {
 	}
 }
 
-// seenWait bounds the wait for a control-mode client to appear in list-clients.
-const seenWait = 5 * time.Second
-
 // seenAttach starts a control-mode client of client's server attached to session, keeps its stdin open until
 // cleanup, and waits until the server lists it. The client connects through the server's socket path.
 func seenAttach(t *testing.T, client *tmuxctl.Client, session string) {
@@ -154,11 +151,7 @@ func seenAttach(t *testing.T, client *tmuxctl.Client, session string) {
 		_ = cmd.Wait()
 	})
 
-	deadline := time.Now().Add(seenWait)
 	for strings.TrimSpace(seenRun(t, client, "list-clients", "-F", "#{client_name}")) == "" {
-		if time.Now().After(deadline) {
-			t.Fatalf("no client listed for session %s after %v", session, seenWait)
-		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }

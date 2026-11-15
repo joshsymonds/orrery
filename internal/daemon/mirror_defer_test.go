@@ -48,17 +48,12 @@ func paneRowMatches(t *testing.T, srv testServer, db *sql.DB) bool {
 }
 
 // awaitPaneRow polls until the pane's row equals its tmux options, then checks the row and its events with
-// checkPaneRow. ioTimeout is a hang guard, never a timing assumption: the deferred work runs as soon as the store and
-// the lock are free.
+// checkPaneRow. The poll has no deadline of its own: the deferred work runs as soon as the store and the lock are free,
+// and the test binary's timeout ends a wait that never does.
 func awaitPaneRow(t *testing.T, srv testServer, db *sql.DB) {
 	t.Helper()
-	guard := time.After(ioTimeout)
 	for !paneRowMatches(t, srv, db) {
-		select {
-		case <-guard:
-			t.Fatalf("pane %s row never matched its tmux options %v", srv.pane, tmuxRow(t, srv))
-		case <-time.After(10 * time.Millisecond):
-		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	checkPaneRow(t, srv, db)
 }

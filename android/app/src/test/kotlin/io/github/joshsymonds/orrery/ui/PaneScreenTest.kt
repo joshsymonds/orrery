@@ -418,12 +418,13 @@ class PaneScreenTest {
             }
             assertEquals(1, paneListRequests(server))
 
-            composeRule.mainClock.advanceTimeBy(999)
+            // ignoreFrameDuration: a plain advance rounds up to whole 16 ms frames, so "999" would be 1008.
+            composeRule.mainClock.advanceTimeBy(999, ignoreFrameDuration = true)
             composeRule.waitForIdle()
             composeRule.onNodeWithTag(NO_CONVERSATION_TAG).assertExists()
             assertEquals(1, paneListRequests(server))
 
-            composeRule.mainClock.advanceTimeBy(1)
+            composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
             composeRule.awaitUntilAfterIdle { paneListRequests(server) == 2 }
         }
     }

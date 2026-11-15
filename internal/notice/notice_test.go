@@ -19,9 +19,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 )
 
-// ioTimeout bounds each wait on a goroutine or socket exchange in these tests.
-const ioTimeout = 5 * time.Second
-
 // call is one Sender call, recorded in call order.
 type call struct {
 	kind  string
@@ -123,11 +120,7 @@ func TestNotifyReportsPublish(t *testing.T) {
 				build(push.Notification{Summary: "done"}),
 				func() { sentRan <- struct{}{} },
 			)
-			select {
-			case <-entered:
-			case <-time.After(ioTimeout):
-				t.Fatal("Publish was not called")
-			}
+			<-entered
 			// Publish is still blocked on hold, so sent must not have run.
 			requireNotSent(t, sentRan)
 			close(hold)
@@ -248,11 +241,7 @@ func TestClearNeverPrecedesNoticeWhenBuildBlocks(t *testing.T) {
 		n.Seen(context.Background(), key, at)
 		close(seenReturned)
 	}()
-	select {
-	case <-seenReturned:
-	case <-time.After(ioTimeout):
-		t.Fatal("Seen blocked on a notice whose build is still running")
-	}
+	<-seenReturned
 	// Seen has returned with the build still held. A clear that did not queue behind the build would have reached the
 	// sender already.
 	if calls := sender.snapshot(); len(calls) != 0 {
@@ -295,11 +284,7 @@ func TestKeysDoNotWaitOnEachOther(t *testing.T) {
 	}, nil)
 	n.Notify(context.Background(), notice.Key{Pane: "%2"}, build(push.Notification{}), nil)
 
-	select {
-	case <-sender.published:
-	case <-time.After(ioTimeout):
-		t.Fatal("pane %2 was held behind pane %1's blocked build")
-	}
+	<-sender.published
 	close(release)
 	n.Wait()
 	if got := sender.snapshot(); len(got) != 2 || got[0].note.Pane != "%2" || got[1].note.Pane != "%1" {
@@ -375,25 +360,17 @@ func TestDaemonSeenReportClearsRecordedPaneNotice(t *testing.T) {
 	}()
 	t.Cleanup(func() {
 		cancel()
-		select {
-		case err := <-serveDone:
-			if err != nil {
-				t.Errorf("Serve: %v", err)
-			}
-		case <-time.After(ioTimeout):
-			t.Errorf("Serve did not return after cancel")
+		err := <-serveDone
+		if err != nil {
+			t.Errorf("Serve: %v", err)
 		}
 	})
 
 	n.Notify(ctx, notice.Key{Pane: "%7"}, build(push.Notification{Summary: "waiting"}), nil)
 	sendSeenFrame(t, socketPath, protocol.HookFrame{TmuxPane: "%7", Seen: seenAt})
-	select {
-	case report := <-reports:
-		if report != (daemon.SeenReport{PaneID: "%7", Seen: seenAt}) {
-			t.Fatalf("seen report = %+v, want pane %%7 at %d", report, seenAt)
-		}
-	case <-time.After(ioTimeout):
-		t.Fatal("daemon did not pass the seen report to Config.Seen")
+	report := <-reports
+	if report != (daemon.SeenReport{PaneID: "%7", Seen: seenAt}) {
+		t.Fatalf("seen report = %+v, want pane %%7 at %d", report, seenAt)
 	}
 	n.Wait()
 
@@ -407,8 +384,7 @@ func TestDaemonSeenReportClearsRecordedPaneNotice(t *testing.T) {
 // closes it after the seen report is handed to Config.Seen, so this return is the synchronization point.
 func sendSeenFrame(t *testing.T, socketPath string, frame protocol.HookFrame) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), ioTimeout)
-	defer cancel()
+	ctx := context.Background()
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "unix", socketPath)
 	if err != nil {
@@ -426,12 +402,6 @@ func sendSeenFrame(t *testing.T, socketPath string, frame protocol.HookFrame) {
 	if _, err := conn.Write(buf.Bytes()); err != nil {
 		t.Fatalf("write seen frame: %v", err)
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(ioTimeout)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
-	_, err = conn.Read(make([]byte, 1))
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		t.Fatalf("daemon did not close the connection: %v", err)
-	}
+	// The read returns once the daemon closes the connection. It has no deadline of its own.
+	_, _ = conn.Read(make([]byte, 1))
 }

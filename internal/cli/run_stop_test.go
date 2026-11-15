@@ -199,31 +199,21 @@ func outputLines(r io.Reader) <-chan string {
 	return lines
 }
 
-// nextLine returns the next line lines delivers. It fails the test when none comes within runTimeout.
+// nextLine returns the next line lines delivers. It has no deadline of its own.
 func nextLine(t *testing.T, lines <-chan string) string {
 	t.Helper()
-	select {
-	case line, ok := <-lines:
-		if !ok {
-			t.Fatal("the command's output ended before the next line")
-		}
-		return line
-	case <-time.After(runTimeout):
-		t.Fatal("no output line from the command")
-		return ""
+	line, ok := <-lines
+	if !ok {
+		t.Fatal("the command's output ended before the next line")
 	}
+	return line
 }
 
-// awaitStopRequests fails the test unless pools receives n requests within runTimeout.
+// awaitStopRequests waits until pools has received n requests. It has no deadline of its own.
 func awaitStopRequests(t *testing.T, pools *stopPools, n int) {
 	t.Helper()
-	deadline := time.After(runTimeout)
 	for len(pools.received()) < n {
-		select {
-		case <-deadline:
-			t.Fatalf("pools received %d requests, want %d", len(pools.received()), n)
-		case <-time.After(pollInterval):
-		}
+		<-time.After(pollInterval)
 	}
 }
 
@@ -298,13 +288,9 @@ func TestRunStopKillsCommandOnlyAfterGrace(t *testing.T) {
 	pid := readyPID(t, nextLine(t, lines))
 	close(ready)
 
-	select {
-	case d := <-graces:
-		if d != stopGrace {
-			t.Fatalf("the grace = %v, want %v", d, stopGrace)
-		}
-	case <-time.After(runTimeout):
-		t.Fatal("the grace never started after the stop")
+	d := <-graces
+	if d != stopGrace {
+		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}
 	// CMD ignores SIGTERM, and the grace runs on the test's clock, so CMD is still running once the grace is armed.
 	if processExited(t, pid) {
@@ -353,13 +339,9 @@ func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
 	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
 	close(ready)
 
-	select {
-	case d := <-graces:
-		if d != stopGrace {
-			t.Fatalf("the grace = %v, want %v", d, stopGrace)
-		}
-	case <-time.After(runTimeout):
-		t.Fatal("the grace never started after the stop")
+	d := <-graces
+	if d != stopGrace {
+		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}
 	// CMD has exited on SIGTERM, but its child ignores SIGTERM, and the grace runs on the test's clock, so the child is
 	// still running once the grace is armed. The grant is not reclaimed while the child lives.

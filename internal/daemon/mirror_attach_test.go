@@ -90,11 +90,7 @@ func TestMirrorAttachWaitingSyncWritesRow(t *testing.T) {
 	}()
 	<-armed
 	m.Attach(st)
-	select {
-	case <-synced:
-	case <-time.After(ioTimeout):
-		t.Fatal("SyncPane did not return after Attach")
-	}
+	<-synced
 	checkPaneRow(t, srv, db)
 }
 

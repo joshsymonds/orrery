@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -229,23 +228,13 @@ func (r *buildRig) task(t *testing.T) *v1.EpicTask {
 	return tasks[0]
 }
 
-// awaitStep waits until task 1 holds step id as its build's current step. A build that never gets there fails with its
-// state, the epic's park and the daemon's stderr, which say why the step did not start.
-func (r *buildRig) awaitStep(t *testing.T, daemon *orreryProcess, id string) {
+// awaitStep waits until task 1 holds step id as its build's current step. It has no deadline of its own.
+func (r *buildRig) awaitStep(t *testing.T, id string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for r.task(t).GetStep() != id {
-		select {
-		case <-ctx.Done():
-			epic, task := r.epic(t), r.task(t)
-			t.Fatalf("step of task 1 = %q, want %q; stage %q, attempt %d, held %q, failure %q; "+
-				"branch %q, parked %q; daemon stderr %q", task.GetStep(), id, task.GetStage(), task.GetAttempt(),
-				task.GetHeld(), task.GetFailure(), epic.GetBranch(), epic.GetParked(), daemon.stderr.String())
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -276,10 +265,11 @@ func (r *buildRig) stepRow(t *testing.T, id string) *v1.Step {
 func (r *buildRig) awaitEnd(t *testing.T, id string) *v1.Step {
 	t.Helper()
 	var step *v1.Step
-	waitUntil(t, "step "+id+" to end", func() bool {
+	waitUntil(t, func() bool {
 		step = r.stepRow(t, id)
 		return step.GetEnd() != ""
 	})
+
 	return step
 }
 

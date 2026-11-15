@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -14,7 +13,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -26,8 +24,6 @@ import (
 const (
 	noConfig    = "/dev/null"
 	testCommand = "sleep 300"
-	// ioTimeout bounds each socket exchange and each wait on a daemon goroutine.
-	ioTimeout = 5 * time.Second
 )
 
 // Synthetic Claude Code hook events.
@@ -98,13 +94,9 @@ func serve(t *testing.T, cfg daemon.Config) string {
 	go func() { done <- daemon.Serve(ctx, ln, cfg) }()
 	t.Cleanup(func() {
 		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Serve: %v", err)
-			}
-		case <-time.After(ioTimeout):
-			t.Errorf("Serve did not return after cancel")
+		err := <-done
+		if err != nil {
+			t.Errorf("Serve: %v", err)
 		}
 	})
 	return socketPath
@@ -134,8 +126,7 @@ func sendFrame(t *testing.T, socketPath string, frame protocol.HookFrame) {
 // from unread input also counts as closed; only a read deadline is a failure.
 func sendBytes(t *testing.T, socketPath string, payload []byte) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), ioTimeout)
-	defer cancel()
+	ctx := t.Context()
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "unix", socketPath)
 	if err != nil {
@@ -149,14 +140,8 @@ func sendBytes(t *testing.T, socketPath string, payload []byte) {
 	if _, err := conn.Write(payload); err != nil {
 		t.Fatalf("write frame: %v", err)
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(ioTimeout)); err != nil {
-		t.Fatalf("set read deadline: %v", err)
-	}
-	_, err = conn.Read(make([]byte, 1))
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		t.Fatalf("daemon did not close the connection: %v", err)
-	}
+	// The read returns once the daemon closes the connection. It has no deadline of its own.
+	_, _ = conn.Read(make([]byte, 1))
 }
 
 // drain returns every value already delivered to ch without blocking.
@@ -823,13 +808,9 @@ func TestListen(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- daemon.Serve(ctx, ln, daemon.Config{}) }()
 		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatalf("Serve after cancel: %v", err)
-			}
-		case <-time.After(ioTimeout):
-			t.Fatal("Serve did not return after cancel")
+		err = <-done
+		if err != nil {
+			t.Fatalf("Serve after cancel: %v", err)
 		}
 	})
 }

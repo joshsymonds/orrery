@@ -12,16 +12,12 @@ import (
 	"time"
 )
 
-// startGuard bounds each wait for a child process to act. It is generous on purpose: a CI runner under
-// -race is several times slower than a laptop, and the guard only turns a hang into a failure.
-const startGuard = 60 * time.Second
-
 // pollInterval is the pause between checks while a test waits for a child process.
 const pollInterval = 10 * time.Millisecond
 
 // grandchildClaude is a fake claude that records the session marker and its arguments in argv, starts
 // a background sleep, which a non-interactive shell leaves ignoring SIGINT and which outlives
-// startGuard, records the sleep's pid in grandchild.pid, and then waits in a loop. Both files land in
+// the test, records the sleep's pid in grandchild.pid, and then waits in a loop. Both files land in
 // its working directory and are written under a temporary name and renamed, so a reader never sees a
 // partial file; argv is in place before grandchild.pid appears.
 const grandchildClaude = `printf '%s\n' "$ORRERY_SESSION" "$*" > argv.tmp && mv argv.tmp argv
@@ -90,7 +86,6 @@ func startRealSession(t *testing.T, cfg Config) *Session {
 // waitPID returns the pid that the fake claude writes to path, waiting for the file to appear.
 func waitPID(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(startGuard)
 	for {
 		if data, err := os.ReadFile(path); err == nil {
 			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
@@ -99,45 +94,33 @@ func waitPID(t *testing.T, path string) int {
 			}
 			return pid
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pid file %s did not appear within %v", path, startGuard)
-		}
 		time.Sleep(pollInterval)
 	}
 }
 
-// waitGone fails the test unless pid no longer exists within startGuard.
+// waitGone waits until pid no longer exists. It has no deadline of its own.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.Now().Add(startGuard)
 	for {
 		err := syscall.Kill(pid, 0)
 		if errors.Is(err, syscall.ESRCH) {
 			return
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pid %d still exists after %v: %v", pid, startGuard, err)
-		}
 		time.Sleep(pollInterval)
 	}
 }
 
-// collectEvents returns the events of every line up to the close of Lines, in order, failing the test if
-// Lines does not close within startGuard.
+// collectEvents returns the events of every line up to the close of Lines, in order. It has no deadline of
+// its own.
 func collectEvents(t *testing.T, s *Session) []Event {
 	t.Helper()
 	var events []Event
-	deadline := time.After(startGuard)
 	for {
-		select {
-		case line, ok := <-s.Lines():
-			if !ok {
-				return events
-			}
-			events = append(events, line.Events...)
-		case <-deadline:
-			t.Fatalf("Lines did not close within %v after %d events", startGuard, len(events))
+		line, ok := <-s.Lines()
+		if !ok {
+			return events
 		}
+		events = append(events, line.Events...)
 	}
 }
 

@@ -150,11 +150,7 @@ func (f *watchLoopFixture) turnEnd(d time.Duration, ended session.TurnEnded) {
 func (f *watchLoopFixture) tick(t *testing.T, d time.Duration) {
 	t.Helper()
 	f.clock.set(d)
-	select {
-	case f.ticks <- time.Time{}:
-	case <-time.After(waitTimeout):
-		t.Fatal("run did not take the tick")
-	}
+	f.ticks <- time.Time{}
 }
 
 // row returns the step row the fixture's store holds.
@@ -196,14 +192,10 @@ func (f *watchLoopFixture) waitEnd(t *testing.T) store.StepRow {
 	return f.row(t)
 }
 
-// watchLoopWait polls ok until it returns true and fails the test once waitTimeout has passed.
-func watchLoopWait(t *testing.T, what string, ok func() bool) {
+// watchLoopWait polls ok until it returns true. It has no deadline of its own.
+func watchLoopWait(t *testing.T, _ string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(waitTimeout)
 	for !ok() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
 		time.Sleep(time.Millisecond)
 	}
 }

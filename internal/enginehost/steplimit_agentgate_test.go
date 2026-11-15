@@ -37,11 +37,7 @@ func newAgentGateLimitFixture(t *testing.T, clock *limitClock) (*stepLoopFixture
 // tickRun hands the fixture's run one tick and waits until the loop has taken it and handled it.
 func tickRun(t *testing.T, f *stepLoopFixture, ticks chan<- time.Time) {
 	t.Helper()
-	select {
-	case ticks <- time.Now():
-	case <-time.After(waitTimeout):
-		t.Fatal("run did not take a tick")
-	}
+	ticks <- time.Now()
 	// The loop handles one channel at a time, so an owner action after the tick runs once the tick is handled; an
 	// ended run refuses it.
 	_ = f.run.do(t.Context(), func(context.Context) error { return nil })

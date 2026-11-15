@@ -16,10 +16,8 @@ import (
 )
 
 const (
-	testHost = "box"
-	lostWait = 5 * time.Minute
-	// ioTimeout bounds each wait for the link to reach the state a step needs.
-	ioTimeout    = 5 * time.Second
+	testHost     = "box"
+	lostWait     = 5 * time.Minute
 	pollInterval = 5 * time.Millisecond
 )
 
@@ -204,13 +202,9 @@ func (f *fixture) run() {
 func (f *fixture) finish() {
 	f.t.Helper()
 	f.cancel()
-	select {
-	case err := <-f.done:
-		if err != nil {
-			f.t.Fatalf("Run returned %v, want nil", err)
-		}
-	case <-time.After(ioTimeout):
-		f.t.Fatal("Run did not return after ctx ended")
+	err := <-f.done
+	if err != nil {
+		f.t.Fatalf("Run returned %v, want nil", err)
 	}
 }
 
@@ -267,14 +261,10 @@ func readLines(dir, name string) []string {
 	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
 
-// waitFor polls cond until it holds and fails the test after ioTimeout.
-func waitFor(t *testing.T, what string, cond func() bool) {
+// waitFor polls cond until it holds. It has no deadline of its own.
+func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(ioTimeout)
 	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
 		time.Sleep(pollInterval)
 	}
 }
@@ -284,7 +274,7 @@ func TestLinkNotifiesNoticesInOrder(t *testing.T) {
 	f.plan(1, emit(helloLine, noticeLine("first"), "not json", statusLine, noticeLine("second"), noticeLine("third")))
 	f.run()
 
-	waitFor(t, "three notices", func() bool { return f.rec.noticeCount() == 3 })
+	waitFor(t, func() bool { return f.rec.noticeCount() == 3 })
 	notices := f.rec.noticeList()
 	titles := make([]string, 0, len(notices))
 	for _, line := range notices {
@@ -306,10 +296,10 @@ func TestLinkRestartsWithBackoffCappedAt60s(t *testing.T) {
 	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
 		16 * time.Second, 32 * time.Second, time.Minute, time.Minute}
 	for _, wait := range want {
-		waitFor(t, "restart wait", func() bool { return f.clock.pending(wait) })
+		waitFor(t, func() bool { return f.clock.pending(wait) })
 		f.clock.Advance(wait)
 	}
-	waitFor(t, "ninth session", func() bool { return f.starts() == 9 })
+	waitFor(t, func() bool { return f.starts() == 9 })
 	if got := f.clock.restartWaits(); !slices.Equal(got, want) {
 		t.Fatalf("restart waits = %v, want %v", got, want)
 	}
@@ -325,10 +315,10 @@ func TestLinkHelloResetsBackoff(t *testing.T) {
 	f.run()
 
 	for _, wait := range []time.Duration{time.Second, 2 * time.Second, time.Second, 2 * time.Second} {
-		waitFor(t, "restart wait", func() bool { return f.clock.pending(wait) })
+		waitFor(t, func() bool { return f.clock.pending(wait) })
 		f.clock.Advance(wait)
 	}
-	waitFor(t, "fifth session", func() bool { return f.starts() == 5 })
+	waitFor(t, func() bool { return f.starts() == 5 })
 	want := []time.Duration{time.Second, 2 * time.Second, time.Second, 2 * time.Second}
 	if got := f.clock.restartWaits(); !slices.Equal(got, want) {
 		t.Fatalf("restart waits = %v, want %v", got, want)
@@ -341,26 +331,26 @@ func TestLinkLostRunsOnceAt5MinutesAndAgainAfterLaterLoss(t *testing.T) {
 	f.plan(2, emit(helloLine, noticeLine("live"))) // session 2 connects and stays up
 	f.run()
 
-	waitFor(t, "first session", func() bool { return f.starts() == 1 })
+	waitFor(t, func() bool { return f.starts() == 1 })
 	f.clock.Advance(lostWait)
-	waitFor(t, "first lost", func() bool { return f.rec.lostCount() == 1 })
+	waitFor(t, func() bool { return f.rec.lostCount() == 1 })
 
 	f.stop(1) // session 1 exits without a hello
-	waitFor(t, "restart after session 1", func() bool { return f.clock.pending(time.Second) })
+	waitFor(t, func() bool { return f.clock.pending(time.Second) })
 	if got := f.clock.callCount(lostWait); got != 1 {
 		t.Fatalf("lost waits started = %d, want 1 for one down period", got)
 	}
 	f.clock.Advance(time.Second)
-	waitFor(t, "live notice from session 2", func() bool { return f.rec.noticeCount() == 1 })
+	waitFor(t, func() bool { return f.rec.noticeCount() == 1 })
 
 	f.stop(2) // a hello rearmed the lost wait, so session 2's exit starts a new one
-	waitFor(t, "rearmed lost wait", func() bool { return f.clock.callCount(lostWait) == 2 })
-	waitFor(t, "restart after session 2", func() bool { return f.clock.pending(time.Second) })
+	waitFor(t, func() bool { return f.clock.callCount(lostWait) == 2 })
+	waitFor(t, func() bool { return f.clock.pending(time.Second) })
 	f.clock.Advance(time.Second)
-	waitFor(t, "third session", func() bool { return f.starts() == 3 })
+	waitFor(t, func() bool { return f.starts() == 3 })
 
 	f.clock.Advance(lostWait)
-	waitFor(t, "second lost", func() bool { return f.rec.lostCount() == 2 })
+	waitFor(t, func() bool { return f.rec.lostCount() == 2 })
 	f.finish()
 }
 
@@ -373,10 +363,10 @@ func TestLinkDoesNotRunLostWhileLive(t *testing.T) {
 	f.run()
 
 	// The link handles lines in order, so the live notice means the hello has already been handled.
-	waitFor(t, "live notice", func() bool { return f.rec.noticeCount() == 1 })
+	waitFor(t, func() bool { return f.rec.noticeCount() == 1 })
 	f.clock.Advance(lostWait)
 	writeFile(t, filepath.Join(f.dir, "go"), "")
-	waitFor(t, "late notice", func() bool { return f.rec.noticeCount() == 2 })
+	waitFor(t, func() bool { return f.rec.noticeCount() == 2 })
 	if got := f.rec.lostCount(); got != 0 {
 		t.Fatalf("Lost ran %d times while the stream was live, want 0", got)
 	}

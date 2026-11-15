@@ -33,7 +33,7 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 	id := r.startLimitKillStep(t)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 	t.Cleanup(func() { clearHolder(t, r.gateHolder(t, id)) })
-	waitUntil(t, "step "+id+" to be limited", func() bool { return r.step(t, id).GetLimited() })
+	waitUntil(t, func() bool { return r.step(t, id).GetLimited() })
 	// The limit frees the fake claude before the kill. Checking after the restart would not show that: a kill closes the
 	// fake's stdin, and the fake exits at once.
 	waitGone(t, fakeClaudePID(t, r.worktree))
@@ -63,7 +63,7 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 	if _, err := r.steps().ResumeStep(t.Context(), connect.NewRequest(&v1.ResumeStepRequest{Id: id})); err != nil {
 		t.Fatalf("resume step %s: %v", id, err)
 	}
-	waitUntil(t, "the gate to start", func() bool { return gateRunCount(t, r.gateRuns) > 0 })
+	waitUntil(t, func() bool { return gateRunCount(t, r.gateRuns) > 0 })
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d, want 1", id, n)
 	}

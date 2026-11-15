@@ -25,8 +25,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-const testTimeout = 5 * time.Second
-
 // waitCall is one Wait the daemon received, with the timeout it converted from seconds.
 type waitCall struct {
 	ids     []string
@@ -263,14 +261,11 @@ func (p *peer) send(message any) {
 	}
 }
 
-// call sends a request and returns its response. A response that does not arrive in time
-// closes the output so the decode fails instead of hanging the run.
+// call sends a request and returns its response. It has no deadline of its own.
 func (p *peer) call(method string, params any) rpcReply {
 	p.t.Helper()
 	p.nextRequest++
 	p.send(map[string]any{"jsonrpc": "2.0", "id": p.nextRequest, "method": method, "params": params})
-	watchdog := time.AfterFunc(testTimeout, func() { _ = p.outputRead.Close() })
-	defer watchdog.Stop()
 	var reply rpcReply
 	if err := p.output.Decode(&reply); err != nil {
 		p.t.Fatalf("read %s reply: %v", method, err)

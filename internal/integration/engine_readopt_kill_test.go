@@ -141,7 +141,7 @@ func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
 	wantExit(t, f.orrery(t, "session", "say", id, "TRICKLE"), 0)
 	f.waitForBlock(t, id, "fake trickle 2.1")
 	say := startBinary(t, "orrery", f.env, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10))
-	waitUntil(t, "the stdin pipe of the fake claude full", func() bool { return !stdinWritable(t, pid) })
+	waitUntil(t, func() bool { return !stdinWritable(t, pid) })
 	killOrreryd(t, daemon)
 
 	// The say retries its cut call with the same prompt id until the restarted orreryd answers it.
@@ -210,7 +210,7 @@ func pauseHolder(t *testing.T, pid int) func() {
 	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
 		t.Fatalf("stop holder %d: %v", pid, err)
 	}
-	waitUntil(t, fmt.Sprintf("holder %d stopped", pid), func() bool { return procState(t, pid) == "T" })
+	waitUntil(t, func() bool { return procState(t, pid) == "T" })
 	var once sync.Once
 	resume := func() {
 		once.Do(func() {
@@ -263,7 +263,7 @@ func stdinWritable(t *testing.T, pid int) bool {
 // waitProcessExited waits until /proc shows pid as ended: no stat, or a zombie that has ended and is not yet reaped.
 func waitProcessExited(t *testing.T, pid int) {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("process %d exited", pid), func() bool {
+	waitUntil(t, func() bool {
 		state := procState(t, pid)
 		return state == "" || state == "Z" || state == "X"
 	})
@@ -302,7 +302,7 @@ func holderOutput(t *testing.T, holderDir string) string {
 // waitForOutput waits until the holder in holderDir has spooled marker from the fake claude's stdout.
 func waitForOutput(t *testing.T, holderDir, marker string) {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("holder output %q", marker), func() bool {
+	waitUntil(t, func() bool {
 		return strings.Contains(holderOutput(t, holderDir), marker)
 	})
 }
