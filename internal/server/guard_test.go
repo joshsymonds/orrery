@@ -35,6 +35,7 @@ func phoneProcedures() []string {
 // must refuse, and checks that a well-formed Connect GET carrying login and the client header is answered 405 on
 // every path, since none declares NO_SIDE_EFFECTS.
 func TestPhoneServicesRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
+	t.Parallel()
 	handler := newHandler(t, newTmuxClient(t))
 	probes := []struct {
 		name   string

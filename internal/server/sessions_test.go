@@ -125,6 +125,7 @@ func writeStore(t *testing.T, path string) int64 {
 }
 
 func TestListAnswersEveryRowAndSeqFromStore(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seq := writeStore(t, path)
 
@@ -149,11 +150,13 @@ func TestListAnswersEveryRowAndSeqFromStore(t *testing.T) {
 }
 
 func TestListReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "absent", "orrery.db")
 	expectListCode(t, sessionsClient(t, store.NewReader(path)), connect.CodeUnavailable)
 }
 
 func TestListReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	writeStore(t, path)
@@ -189,10 +192,12 @@ func TestListReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 }
 
 func TestListReturnsUnavailableWhenReaderIsNil(t *testing.T) {
+	t.Parallel()
 	expectListCode(t, sessionsClient(t, nil), connect.CodeUnavailable)
 }
 
 func TestListReturnsInternalWithoutStoreDetail(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	if err := os.WriteFile(path, []byte("this file is not a sqlite database and has no header"), 0o600); err != nil {
 		t.Fatalf("write garbage store: %v", err)

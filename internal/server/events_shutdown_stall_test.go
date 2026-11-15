@@ -155,6 +155,7 @@ func waitBlockedSend(t *testing.T, obs *observedListener) {
 // the shutdown signal must end the blocked send and the stream's end-of-stream write, so the server closes. The send
 // deadline is stallSendTimeout, so only the shutdown can end the send.
 func TestShutdownEndsBlockedSendWithinGrace(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, shutdownReplayCount)

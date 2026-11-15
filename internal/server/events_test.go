@@ -190,6 +190,7 @@ func optional(value string) *string {
 }
 
 func TestWatchReplaysMoreThanOnePageThenFollows(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, replayCount)
@@ -214,6 +215,7 @@ func TestWatchReplaysMoreThanOnePageThenFollows(t *testing.T) {
 }
 
 func TestWatchAfterCursorResumesAtNextSeq(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 5)
@@ -233,6 +235,7 @@ func TestWatchAfterCursorResumesAtNextSeq(t *testing.T) {
 }
 
 func TestWatchAfterListReceivesOnlyLaterWrites(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 3)
@@ -256,6 +259,7 @@ func TestWatchAfterListReceivesOnlyLaterWrites(t *testing.T) {
 }
 
 func TestWatchRefusesCursorPastEnd(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 2)
@@ -266,6 +270,7 @@ func TestWatchRefusesCursorPastEnd(t *testing.T) {
 }
 
 func TestWatchRefusesCursorOlderThanPrunedLog(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 3)
@@ -282,6 +287,7 @@ func TestWatchRefusesCursorOlderThanPrunedLog(t *testing.T) {
 }
 
 func TestWatchDecodesEachKind(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	ctx := t.Context()
@@ -356,6 +362,7 @@ func promptEngine(t *testing.T, s *store.Store, count int) {
 }
 
 func TestWatchSendsEngineEventsBetweenPaneEvents(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
@@ -418,6 +425,7 @@ func TestWatchSendsEngineEventsBetweenPaneEvents(t *testing.T) {
 }
 
 func TestWatchReachesPaneEventsAfterMoreThanOnePageOfEngineEvents(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
@@ -447,6 +455,7 @@ func TestWatchReachesPaneEventsAfterMoreThanOnePageOfEngineEvents(t *testing.T) 
 }
 
 func TestWatchUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "absent", "orrery.db")
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
 
@@ -455,6 +464,7 @@ func TestWatchUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestWatchUnavailableWhenStoreIsRemoved(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seq := seedSessionStore(t, path)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
@@ -470,6 +480,7 @@ func TestWatchUnavailableWhenStoreIsRemoved(t *testing.T) {
 }
 
 func TestWatchRequiresGuard(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedSessionStore(t, path)
 	handler := guardedHandler(t, path)
@@ -507,6 +518,7 @@ func TestWatchRequiresGuard(t *testing.T) {
 }
 
 func TestNewRejectsNegativeEventPoll(t *testing.T) {
+	t.Parallel()
 	_, err := server.New(server.Config{
 		Logins:    []string{allowedLogin},
 		Tmux:      newTmuxClient(t),

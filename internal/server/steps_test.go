@@ -162,8 +162,10 @@ func requireConnectError(t *testing.T, err error, code connect.Code, message str
 }
 
 func TestStepsForwardsLabeledStepOnce(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &stepsFake{}
 			client := stepsClient(t, fake)
 			if err := op.call(t.Context(), client, stepsLabeled); err != nil {
@@ -184,9 +186,11 @@ func TestStepsForwardsLabeledStepOnce(t *testing.T) {
 }
 
 func TestStepsRefusesUnknownAndUnlabeledSteps(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		for _, id := range []string{"step-unknown", stepsUnlabeled} {
 			t.Run(op.name+"/"+id, func(t *testing.T) {
+				t.Parallel()
 				fake := &stepsFake{}
 				client := stepsClient(t, fake)
 				err := op.call(t.Context(), client, id)
@@ -200,8 +204,10 @@ func TestStepsRefusesUnknownAndUnlabeledSteps(t *testing.T) {
 }
 
 func TestStepsPassesForwardedFailedPreconditionThrough(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &stepsFake{forwardErr: connect.NewError(connect.CodeFailedPrecondition, errors.New(stepsRefusal))}
 			client := stepsClient(t, fake)
 			err := op.call(t.Context(), client, stepsLabeled)
@@ -214,8 +220,10 @@ func TestStepsPassesForwardedFailedPreconditionThrough(t *testing.T) {
 }
 
 func TestStepsAnswersUnavailableAsTranslateErrorDoes(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			unavailable := connect.NewError(connect.CodeUnavailable, errors.New("synthetic engine down"))
 			fake := &stepsFake{forwardErr: unavailable}
 			client := stepsClient(t, fake)
@@ -226,8 +234,10 @@ func TestStepsAnswersUnavailableAsTranslateErrorDoes(t *testing.T) {
 }
 
 func TestStepsAnswersStatusUnavailableAsTranslateErrorDoes(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			unavailable := connect.NewError(connect.CodeUnavailable, errors.New("synthetic engine down"))
 			fake := &stepsFake{statusErr: unavailable}
 			client := stepsClient(t, fake)
@@ -241,8 +251,10 @@ func TestStepsAnswersStatusUnavailableAsTranslateErrorDoes(t *testing.T) {
 }
 
 func TestStepsNilClientAnswersUnavailable(t *testing.T) {
+	t.Parallel()
 	for _, op := range stepsOps() {
 		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
 			client := stepsClient(t, nil)
 			err := op.call(t.Context(), client, stepsLabeled)
 			requireConnectError(t, err, connect.CodeUnavailable, "step service unavailable")
@@ -251,6 +263,7 @@ func TestStepsNilClientAnswersUnavailable(t *testing.T) {
 }
 
 func TestStepsZeroTimeoutIsTheDefault(t *testing.T) {
+	t.Parallel()
 	fake := &stepsFake{}
 	client := stepsClient(t, fake)
 	if err := stepsOps()[0].call(t.Context(), client, stepsLabeled); err != nil {

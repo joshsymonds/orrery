@@ -212,6 +212,7 @@ func seedSessionReplies(t *testing.T, s *store.Store, count int) {
 // three replies. The first delta is a reset with the two newest replies, the whole state, and the seq of the newest
 // event.
 func TestSessionWatchFirstDeltaResetsWithNewestItems(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -234,6 +235,7 @@ func TestSessionWatchFirstDeltaResetsWithNewestItems(t *testing.T) {
 // TestSessionWatchResumeSendsItemsAfterSeq opens the stream after seq 3, the seq of reply 1. The first delta is not
 // a reset: it carries the replies above seq 3 and the whole state.
 func TestSessionWatchResumeSendsItemsAfterSeq(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -255,6 +257,7 @@ func TestSessionWatchResumeSendsItemsAfterSeq(t *testing.T) {
 // TestSessionWatchSendsNewBlockAsDelta appends a reply after the first delta. The next delta carries only that reply:
 // no reset, and no state, since the state did not change.
 func TestSessionWatchSendsNewBlockAsDelta(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -275,6 +278,7 @@ func TestSessionWatchSendsNewBlockAsDelta(t *testing.T) {
 // delta with the new text in the unfinished set and no items. When the block finishes, its reply is the item and the
 // unfinished set is empty.
 func TestSessionWatchStreamsUnfinishedTextUntilItFinishes(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -318,6 +322,7 @@ func TestSessionWatchStreamsUnfinishedTextUntilItFinishes(t *testing.T) {
 // TestSessionWatchCarriesOpenRequestWhileWaiting opens a permission request and sets the session to waiting. The
 // state carries the open request, which the phone answers with its options.
 func TestSessionWatchCarriesOpenRequestWhileWaiting(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -351,6 +356,7 @@ func TestSessionWatchCarriesOpenRequestWhileWaiting(t *testing.T) {
 // TestSessionWatchKeepaliveCarriesUnfinishedSet leaves the session unchanged after the first delta. The keepalive that
 // follows carries no items and no state, and the unfinished set of the read it came from.
 func TestSessionWatchKeepaliveCarriesUnfinishedSet(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -375,6 +381,7 @@ const quietKeepalive = time.Hour
 // keepalive never comes due, so no message the stream may send before shutdown can reach the client: one that
 // arrives after the first delta is a send the shutdown failed to stop.
 func TestSessionWatchEndsOnShutdown(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -475,6 +482,7 @@ func writeStepSession(t *testing.T, s *store.Store) {
 // not_found for a missing session and a step session, invalid_argument for a limit above 100, and internal with no
 // store detail for a store that cannot be read.
 func TestSessionWatchStartErrors(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -529,6 +537,7 @@ func TestSessionWatchStartErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sessionsWatchClient(t, sessionsHandler(t, tc.reader, nil, 0))
 			stream := openSessionStream(t, client, tc.req)
 			err := stream.end(t)
