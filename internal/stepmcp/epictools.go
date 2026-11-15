@@ -68,8 +68,9 @@ func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
 		},
 		{
 			Name: "epic_pause",
-			Description: "Pause an epic by id, so the planner starts no turn for it. Returns the stored epic. " +
-				"An epic that is already paused is refused.",
+			Description: "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. " +
+				"Returns the stored epic. An epic the owner paused, or paused with no recorded source, is refused; " +
+				"an epic a usage limit paused is accepted and stays paused past the reset.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     epicPauseHandler(epics),
 		},
