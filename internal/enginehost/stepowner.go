@@ -76,7 +76,8 @@ func (r *stepRun) do(ctx context.Context, act func(ctx context.Context) error) e
 
 // hold interrupts the running turn and marks the run held. It runs in the loop goroutine. A held run refuses first, then
 // a run with no turn running. An interrupt error is returned with the run unheld. A landed hold drops the nudges pending
-// for the turn, the watchdog's and the owner's, so the held turn's end continues nothing, and stores the loop state.
+// for the turn, the watchdog's and the owner's, so the held turn's end continues nothing, and stores the loop state in
+// the held stage.
 func (r *stepRun) hold(ctx context.Context) error {
 	if r.held.Load() {
 		return ErrStepHeld
@@ -90,6 +91,7 @@ func (r *stepRun) hold(ctx context.Context) error {
 	r.nudge = ""
 	r.ownerNudge = ""
 	r.held.Store(true)
+	r.setStage(store.StepStageHeld)
 	r.saveLoop(ctx)
 	return nil
 }
@@ -151,8 +153,9 @@ func (r *stepRun) autoResumeLimited(ctx context.Context, resets time.Time) error
 
 // resumeWith sends prompt to a limited run, which respawns its released process in its session. It runs in the loop
 // goroutine. A Continue the step cap refuses leaves the run limited, and any other failed Continue ends the step failed. A
-// sent resume clears the limit, restarts an agent gate step's limit from now, so the wait for the reset never ends it
-// overtime, and stores the loop state with the step's stored rate limit deleted and its due rows closed in one write.
+// sent resume clears the limit, moves the loop into turn, restarts an agent gate step's limit from now, so the wait for the
+// reset never ends it overtime, and stores the loop state with the step's stored rate limit deleted and its due rows closed
+// in one write.
 func (r *stepRun) resumeWith(ctx context.Context, prompt StepPrompt) error {
 	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		err = fmt.Errorf("continue step %s: %w", r.id, err)
@@ -163,6 +166,7 @@ func (r *stepRun) resumeWith(ctx context.Context, prompt StepPrompt) error {
 	}
 	r.limited = false
 	r.limitKind, r.limitResets = "", time.Time{}
+	r.setStage(store.StepStageTurn)
 	if r.agentGate != nil {
 		r.gateFrom = r.now()
 	}

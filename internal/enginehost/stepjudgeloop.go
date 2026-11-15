@@ -27,14 +27,17 @@ const judgeLoopContinueText = "A judge found that your return does not meet the 
 	"Return again with a result that meets it."
 
 // judgeReturn judges a done return whose checks all passed and stores the verdict. A nil haiku makes no call and ends
-// done. A met verdict ends done. A first unmet verdict sends the session back once with its reason, and stores the loop
-// state once that Continue is sent. A second unmet verdict ends goal_unmet with the return kept. A failed call, a reply
-// that does not parse or a diff stat that cannot be read stores its error with no verdict and ends done. It reports
-// whether the run goes on.
+// done. The loop is stored in judge before the judge is called. A met verdict ends done. A first unmet verdict sends the
+// session back once with its reason, and the loop is stored in turn before that Continue is sent. A second unmet verdict
+// ends goal_unmet with the return kept. A failed call, a reply that does not parse or a diff stat that cannot be read
+// stores its error with no verdict and ends done. It reports whether the run goes on.
 func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMessage, commit, status string,
 	checks []store.StepCheck) bool {
 	if r.haiku == nil {
 		r.finish(ctx, stepLoopEndDone, status, "")
+		return false
+	}
+	if !r.enterJudge(ctx) {
 		return false
 	}
 	verdict := store.StepVerdict{Kind: judgeLoopKind, Round: round, Action: judgeLoopActionNone}
@@ -71,14 +74,18 @@ func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMess
 	if !r.judgeRecord(ctx, verdict) {
 		return false
 	}
-	prompt := StepPrompt{
+	return r.continueWith(ctx, StepPrompt{
 		Text: fmt.Sprintf(judgeLoopContinueText, reason), Sender: store.PromptSenderEngine, Round: round,
-	}
-	if err = r.sessions.Continue(ctx, r.id, prompt); err != nil {
-		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
+	})
+}
+
+// enterJudge moves the loop into judge and stores it before the judge is called. It reports whether the run goes on.
+func (r *stepRun) enterJudge(ctx context.Context) bool {
+	r.setStage(store.StepStageJudge)
+	if err := r.writer.Commit(ctx, r.id, r.loopState()); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record judge of step %s: %v", r.id, err))
 		return false
 	}
-	r.saveLoop(ctx)
 	return true
 }
 
