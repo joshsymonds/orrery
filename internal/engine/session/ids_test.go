@@ -137,6 +137,25 @@ func TestPromptWritesUnderTheIDItIsGiven(t *testing.T) {
 	requireUserEnvelope(t, strings.TrimSuffix(writes[1].data, "\n"), "first prompt")
 }
 
+func TestPromptIsSentUnderItsWriteIDAsItsUUID(t *testing.T) {
+	t.Parallel()
+	session, process := startIDSession(t)
+	if err := session.Prompt("write-1", "first prompt"); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	writes := process.input.all()
+	if len(writes) != 2 {
+		t.Fatalf("stdin writes = %#v, want the initialize write and the prompt", writes)
+	}
+	if uuid := requireUserEnvelope(t, strings.TrimSuffix(writes[1].data, "\n"), "first prompt"); uuid != "write-1" {
+		t.Fatalf("user envelope uuid = %q, want the write id write-1", uuid)
+	}
+	deliverResult(t, session, process.fakeProcess, "write-1")
+	if got := session.UnansweredPrompts(); got != 0 {
+		t.Fatalf("UnansweredPrompts = %d after a turn listed write-1, want 0", got)
+	}
+}
+
 func TestInterruptWritesUnderARandomIDUsedAsItsRequestID(t *testing.T) {
 	t.Parallel()
 	session, process := startIDSession(t)

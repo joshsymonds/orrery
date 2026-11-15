@@ -220,15 +220,14 @@ func (s *Session) Lines() <-chan Line {
 	return s.lines
 }
 
-// Prompt writes text as one user message, under a fresh uuid and writeID as its write id. The session counts the
-// message as unanswered until a turn lists its uuid as answered.
+// Prompt writes text as one user message under writeID, which is both the message's uuid and its write id. The session
+// counts the message as unanswered until a turn lists its uuid as answered.
 func (s *Session) Prompt(writeID, text string) error {
 	return s.write(writeID, func() error {
-		uuid, err := s.transport.SendUserMessage(text)
-		if err != nil {
+		if err := s.transport.SendUserMessageWithUUID(writeID, text); err != nil {
 			return fmt.Errorf("session: send prompt: %w", err)
 		}
-		s.unanswered.sent(uuid)
+		s.unanswered.sent(writeID)
 		return nil
 	})
 }

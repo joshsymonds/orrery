@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/engine/transport"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
@@ -1237,13 +1238,14 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// newWriteID returns the write id of a prompt about to be sent: 128 random bits in hex.
+// newWriteID returns the write id of a prompt about to be sent: a random version-4 UUID, which the prompt is also sent
+// under as its user-message uuid.
 func newWriteID() (string, error) {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
+	id, err := transport.RandomUUID()
+	if err != nil {
 		return "", fmt.Errorf("write id: %w", err)
 	}
-	return hex.EncodeToString(raw[:]), nil
+	return id, nil
 }
 
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the

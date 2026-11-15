@@ -149,7 +149,7 @@ type Transport struct {
 func New(stdin io.Writer, stdout io.Reader, options ...Option) *Transport {
 	configuration := transportOptions{
 		bufferSize:    defaultBufferSize,
-		uuidGenerator: randomUUID,
+		uuidGenerator: RandomUUID,
 	}
 	for _, apply := range options {
 		if apply != nil {
@@ -196,15 +196,23 @@ func (transport *Transport) Done() <-chan error {
 
 // SendUserMessage writes one UUID-stamped user-message envelope and returns its UUID.
 func (transport *Transport) SendUserMessage(text string) (string, error) {
-	transport.writeMu.Lock()
-	defer transport.writeMu.Unlock()
-
 	messageUUID, err := transport.uuidGenerator()
 	if err != nil {
 		return "", fmt.Errorf("transport: generate user message UUID: %w", err)
 	}
+	if writeErr := transport.SendUserMessageWithUUID(messageUUID, text); writeErr != nil {
+		return "", writeErr
+	}
+	return messageUUID, nil
+}
+
+// SendUserMessageWithUUID writes one user-message envelope under messageUUID.
+func (transport *Transport) SendUserMessageWithUUID(messageUUID, text string) error {
+	transport.writeMu.Lock()
+	defer transport.writeMu.Unlock()
+
 	if messageUUID == "" {
-		return "", errors.New("transport: generated empty user message UUID")
+		return errors.New("transport: empty user message UUID")
 	}
 	envelope := userEnvelope{
 		Type: userRole,
@@ -216,12 +224,9 @@ func (transport *Transport) SendUserMessage(text string) (string, error) {
 	}
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
-		return "", fmt.Errorf("transport: marshal user message: %w", err)
+		return fmt.Errorf("transport: marshal user message: %w", err)
 	}
-	if writeErr := transport.writeLocked(append(encoded, '\n')); writeErr != nil {
-		return "", writeErr
-	}
-	return messageUUID, nil
+	return transport.writeLocked(append(encoded, '\n'))
 }
 
 // SendInterrupt writes one caller-correlated interrupt control request.
@@ -482,7 +487,8 @@ func (transport *Transport) closeStreams() {
 	})
 }
 
-func randomUUID() (string, error) {
+// RandomUUID returns a random version-4 UUID in lowercase 8-4-4-4-12 form.
+func RandomUUID() (string, error) {
 	var identifier [16]byte
 	if _, err := io.ReadFull(rand.Reader, identifier[:]); err != nil {
 		return "", fmt.Errorf("read random bytes: %w", err)
