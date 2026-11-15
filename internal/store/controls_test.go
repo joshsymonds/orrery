@@ -24,9 +24,9 @@ func requireRefusal(t *testing.T, err error, want string) {
 func controlRows(t *testing.T, s *Store) [][][]any {
 	t.Helper()
 	return [][][]any{
-		rowsOf(t, s.db, "epics"),
-		rowsOf(t, s.db, "epic_turns"),
-		rowsOf(t, s.db, "epic_triggers"),
+		rowsOf(t, s.db.DB, "epics"),
+		rowsOf(t, s.db.DB, "epic_turns"),
+		rowsOf(t, s.db.DB, "epic_triggers"),
 	}
 }
 
@@ -145,7 +145,7 @@ func TestStopEpicPausesFlagsTheRunningTurnAndKeepsItsTriggers(t *testing.T) {
 		{claimEpic, createdTriggerID, createdTriggerCause, "claimed", int64(1), int64(1700000000)},
 		{claimEpic, "t2", "test trigger", "claimed", int64(1), int64(1700000000)},
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
 		t.Errorf("epic_triggers after StopEpic = %v, want %v", got, wantTriggers)
 	}
 }
@@ -188,7 +188,7 @@ func TestRetryEpicClearsThePark(t *testing.T) {
 	if got := storedRetried(t, s); got != 2 {
 		t.Errorf("retried after RetryEpic = %d, want 2, the epic's highest turn seq", got)
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("pending", 0)) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("pending", 0)) {
 		t.Errorf("epic_triggers after RetryEpic = %v, want %v", got, triggerRows("pending", 0))
 	}
 

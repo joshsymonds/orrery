@@ -28,6 +28,7 @@ const stepWaitPoll = 20 * time.Millisecond
 // limit, so finish stops no session for it. A step that has already ended is left as it is and Stop returns nil. An open
 // row with no loop is ended the same way. An id with no row returns an error matching store.ErrNoStep.
 func (s *Steps) Stop(ctx context.Context, id string) error {
+	defer s.calls.enter()()
 	s.mu.Lock()
 	cancel, run := s.loops[id], s.runs[id]
 	s.mu.Unlock()
@@ -128,6 +129,7 @@ func earliestEnded(rows []store.StepRow) *store.StepRow {
 // whose ReadoptGate does not rebuild its gate among them, is logged and left unregistered, so Reconcile ends it
 // engine_restarted. It returns the error of reading the open rows.
 func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
+	defer s.calls.enter()()
 	open, err := s.store.OpenSteps(ctx)
 	if err != nil {
 		return fmt.Errorf("readopt steps: %w", err)
@@ -259,6 +261,7 @@ func (s *Steps) readoptAgentGate(ctx context.Context, row store.StepRow) (*gates
 // endRestarted, in one write. A Steps Readopt did not run for has no adopter, so it unregisters nothing. A row whose loop
 // is running is left alone. It returns the first read or write error.
 func (s *Steps) Reconcile(ctx context.Context) error {
+	defer s.calls.enter()()
 	open, err := s.store.OpenSteps(ctx)
 	if err != nil {
 		return fmt.Errorf("reconcile steps: %w", err)
@@ -349,6 +352,7 @@ func (s *Steps) cleanRestartedStep(ctx context.Context, row store.StepRow, adopt
 // running. With one, each loop is canceled with errGateDetach, which leaves its gate running under its holder for a
 // restarted Steps to re-adopt. Each step row stays open, for Reconcile to settle after a restart.
 func (s *Steps) Close() {
+	defer s.calls.enter()()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var cause error

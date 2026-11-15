@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.push
 
 import android.util.Log
+import io.github.joshsymonds.orrery.BackgroundWork
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.OrreryClient
 import org.json.JSONException
@@ -22,9 +23,9 @@ class OrreryPushService : PushService() {
             return
         }
         val registration = PushRegistration(OrreryClient(ServerSettings(this).serverUrl))
-        Thread {
+        BackgroundWork.run {
             registration.register(endpoint.url, keys.pubKey, keys.auth)
-        }.start()
+        }
     }
 
     override fun onMessage(message: PushMessage, instance: String) {

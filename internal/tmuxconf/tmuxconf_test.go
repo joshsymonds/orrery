@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
@@ -404,9 +405,7 @@ func fakeOrrery(t *testing.T) string {
 d=$(dirname "$0")
 printf '%s\n' "$@" > "$d/$1.tmp" && mv "$d/$1.tmp" "$d/$1"
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake orrery: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
 }
 

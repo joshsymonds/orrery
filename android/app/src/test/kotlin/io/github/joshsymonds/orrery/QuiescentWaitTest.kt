@@ -18,6 +18,9 @@ import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.ui.PaneScreen
+import java.util.Timer
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.schedule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
@@ -29,13 +32,13 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.concurrent.thread
 
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val STREAM_PATH = "/orrery.v1.Panes/WatchConversation"
 private const val PANE_ID = "%3"
 private const val SLOW_ANSWER_MILLIS = 3_000L
 private const val NOW = 1_700_000_000L
+private const val LATE_START_MILLIS = 300L
 
 /**
  * The waits end when their condition holds and fail as soon as nothing can make it hold, with no clock deadline:
@@ -124,10 +127,36 @@ class QuiescentWaitTest {
         FakeOrreryServer().use { server ->
             server.respond(PANES_PATH, panes(), delayMillis = SLOW_ANSWER_MILLIS)
             val answer = AtomicReference<String?>()
-            thread { answer.set(OrreryClient(server.baseUrl).panes().single().label) }
+            BackgroundWork.run { answer.set(OrreryClient(server.baseUrl).panes().single().label) }
 
             Quiescence.awaitUntil("the slow answer") { answer.get() != null }
             assertEquals("synthetic-label", answer.get())
+        }
+    }
+
+    @Test
+    fun backgroundWorkWhoseThreadHasNotRunYetIsStillWaitedFor() {
+        val previous = BackgroundWork.start
+        // A timer starts the work's thread late, so when the wait first looks no thread has the work yet: the
+        // order in which ReplyReceiverTest.blankReplySendsNothingAndShowsNotSent saw "nothing is in flight".
+        val startLate: (Runnable) -> Unit = { work -> Timer(true).schedule(LATE_START_MILLIS) { Thread(work).start() } }
+        try {
+            // As before: the thread was started outside the count, so the wait judged too early.
+            val uncounted = CountDownLatch(1)
+            BackgroundWork.start = startLate
+            BackgroundWork.run { uncounted.countDown() }
+            assertThrows(AssertionError::class.java) {
+                Quiescence.awaitUntil("the late-started work") { uncounted.count == 0L }
+            }
+            uncounted.await()
+
+            // Now: BackgroundWork is counted from the moment it is asked for, so the wait holds until it ends.
+            val counted = CountDownLatch(1)
+            BackgroundWork.start = { work -> Quiescence.countedStart(work, startLate) }
+            BackgroundWork.run { counted.countDown() }
+            Quiescence.awaitUntil("the late-started work") { counted.count == 0L }
+        } finally {
+            BackgroundWork.start = previous
         }
     }
 

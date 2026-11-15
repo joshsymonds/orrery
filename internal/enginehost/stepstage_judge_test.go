@@ -107,7 +107,12 @@ func stepJudgeRelease(t *testing.T, judgeDir string) {
 // awaitStepStage waits until the stored row of id holds its loop in stage.
 func awaitStepStage(t *testing.T, steps *Steps, id, stage string) {
 	t.Helper()
-	waitUntil(t, "stored stage "+stage, func() bool { return stepRowOf(t, steps, id).LoopStage == stage })
+	waitUntil(
+		t,
+		engineOf(steps),
+		"stored stage "+stage,
+		func() bool { return stepRowOf(t, steps, id).LoopStage == stage },
+	)
 }
 
 // TestStepJudgeStagesSurviveRestart covers R1: one read-only step goes through a usage limit, its resume, a judge that
@@ -162,7 +167,7 @@ func TestStepJudgeStagesSurviveRestart(t *testing.T) {
 
 	// The hold lands at six minutes, once the send-back turn runs, and the held stage starts there.
 	rig.clock.set(6 * time.Minute)
-	waitUntil(t, "the send-back turn to hold", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the send-back turn to hold", func() bool {
 		err := rig.steps.Hold(t.Context(), id)
 		if errors.Is(err, ErrStepNoTurn) {
 			return false
@@ -196,7 +201,12 @@ func TestStepJudgeStagesSurviveRestart(t *testing.T) {
 	rig.clock.set(9 * time.Minute)
 	stepJudgeAnswer(t, rig.judgeDir, "met", "the summary is there now")
 	stepStageWrite(t, filepath.Join(dir, "fakeclaude.release"), "")
-	waitUntil(t, "the step to end", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"the step to end",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 	row := stepRowOf(t, rig.steps, id)
 	if row.End != stepLoopEndDone {
 		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)

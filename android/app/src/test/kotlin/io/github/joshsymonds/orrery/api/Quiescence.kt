@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.api
 
+import io.github.joshsymonds.orrery.BackgroundWork
 import java.io.FilterInputStream
 import java.io.FilterOutputStream
 import java.io.IOException
@@ -11,6 +12,7 @@ import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.SocketFactory
 import kotlinx.coroutines.Dispatchers
 import okhttp3.Call
@@ -36,10 +38,40 @@ object Quiescence {
     internal fun install() {
         if (socketFactory !is CountingSocketFactory) socketFactory = CountingSocketFactory
         if (eventListenerFactory !is CallCounter) eventListenerFactory = CallCounter
+        if (BackgroundWork.start !== countingStart) BackgroundWork.start = countingStart
+    }
+
+    /** BackgroundWork asked for and not yet returned: started, or still waiting for its thread to run it. */
+    private val backgroundWork = AtomicInteger()
+
+    private val countingStart: (Runnable) -> Unit = { work -> countedStart(work) }
+
+    /**
+     * Counts [work] as in flight from now until it returns, then hands it to [launch] to run on a thread. The count
+     * starts before any thread exists, so work whose thread has not run yet is still in flight.
+     */
+    internal fun countedStart(work: Runnable, launch: (Runnable) -> Unit = { Thread(it).start() }) {
+        backgroundWork.incrementAndGet()
+        try {
+            launch(
+                Runnable {
+                    try {
+                        work.run()
+                    } finally {
+                        backgroundWork.decrementAndGet()
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            backgroundWork.decrementAndGet()
+            throw e
+        }
     }
 
     /** What is still in flight, in a phrase, or null when nothing is: then only the test's thread can change anything. */
     fun inFlight(): String? {
+        install()
+        backgroundWork.get().takeIf { it > 0 }?.let { return "$it background work item(s) not finished" }
         FakeOrreryServer.busyHandlers().takeIf { it > 0 }?.let { return "$it fake-server handler(s) still answering" }
         pendingCalls.size.takeIf { it > 0 }?.let { return "$it call(s) not yet answered with headers" }
         coroutineTasks()?.let { return it }

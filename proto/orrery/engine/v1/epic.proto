@@ -102,10 +102,6 @@ message EpicContract {
 
   // The names of the agent gates that review the epic.
   repeated string review_gates = 20;
-
-  // Reserved for O3e1 (reviewers).
-  reserved 21;
-  reserved "reviewers";
 }
 
 // EpicFailure is one failure the epic guards against.
@@ -155,10 +151,6 @@ message EpicRequirement {
 
   // The evidence that shows the requirement is true. Empty for epics stored before O3d2, which keep evidence and kind.
   EvidenceItem item = 5;
-
-  // Reserved for O3d5a (owner, contributors, state) and O3d5b (disagreement).
-  reserved 6, 7, 8, 9;
-  reserved "owner", "contributors", "state", "disagreement";
 }
 
 // EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
@@ -213,10 +205,6 @@ message EvidenceItem {
 
   // The agent that judges the evidence.
   string judge = 6;
-
-  // Reserved for O3d5a (kind, tests).
-  reserved 7, 8;
-  reserved "kind", "tests";
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -459,10 +447,6 @@ message EpicTask {
 
   // The reviews of the task's build, in attempt then position order.
   repeated EpicTaskReview reviews = 21;
-
-  // Reserved for O3d5a (contributes) and O3d5b (test_changes, guard).
-  reserved 22, 23, 24;
-  reserved "contributes", "test_changes", "guard";
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
@@ -502,10 +486,6 @@ message EpicTaskFinding {
 
   // Why the verification gave its result.
   string reason = 6;
-
-  // Reserved for O3e1 (unverified).
-  reserved 7;
-  reserved "unverified";
 }
 
 // EpicQuestion is one question a planner turn asked.
@@ -521,9 +501,6 @@ message EpicQuestion {
 
   // The question's state: open until the owner answers it.
   string state = 4;
-
-  // Reserved for attention (the question's label, choices and recommendation; attention names the fields).
-  reserved 5 to 10;
 }
 
 // EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
@@ -648,10 +625,6 @@ message StoredEpic {
   // The epic's workflow node runs in the order of the pinned workflow's nodes, then by path, with a run of a node the
   // workflow does not hold after the others. Every epic RPC that returns the epic fills it.
   repeated EpicNode nodes = 13;
-
-  // Reserved for O3e1 (reviewers), O3e2 (ledger, frozen, clean) and O3e3 (releases, release_slot).
-  reserved 14 to 19;
-  reserved "reviewers", "ledger", "frozen", "clean", "releases", "release_slot";
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -727,10 +700,6 @@ message AnswerEpicRequest {
 
   // The question, Q<n>, the answer names; empty for a note.
   string question = 4;
-
-  // Reserved for attention (choice).
-  reserved 5;
-  reserved "choice";
 }
 
 // AnswerEpicResponse carries the recorded decision.

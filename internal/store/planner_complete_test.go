@@ -57,7 +57,7 @@ func planRowsOf(t *testing.T, s *Store) map[string][][]any {
 	t.Helper()
 	out := make(map[string][][]any)
 	for _, table := range planTables() {
-		out[table] = rowsOf(t, s.db, table)
+		out[table] = rowsOf(t, s.db.DB, table)
 	}
 	return out
 }
@@ -265,7 +265,7 @@ func TestFailedCompleteTurnLeavesNoTaskQuestionOrConsumedTrigger(t *testing.T) {
 	if got := planRowsOf(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("plan rows after failed CompleteTurn = %v, want %v", got, before)
 	}
-	if got := rowsOf(t, s.db, "epic_tasks"); len(got) != 0 {
+	if got := rowsOf(t, s.db.DB, "epic_tasks"); len(got) != 0 {
 		t.Errorf("epic_tasks after failed CompleteTurn = %v, want none", got)
 	}
 }

@@ -153,7 +153,7 @@ func TestStepsStartTripsWatchOnTicks(t *testing.T) {
 		Environ: haikuEnviron()})
 	f, id := stepWireStartOvertime(t, h)
 
-	stepStartAwait(t, "the overtime end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the overtime end", func() bool {
 		row, err := f.store.Step(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -184,7 +184,7 @@ func TestStepsStartStopsWatchTicksWhenStepEnds(t *testing.T) {
 	f, id := stepWireStartOvertime(t, h)
 	run := stepWireRun(t, f)
 
-	stepStartAwait(t, "the step's loop to return", func() bool {
+	stepStartAwait(t, engineOf(f.steps, run), "the step's loop to return", func() bool {
 		f.steps.mu.Lock()
 		defer f.steps.mu.Unlock()
 		return len(f.steps.loops) == 0

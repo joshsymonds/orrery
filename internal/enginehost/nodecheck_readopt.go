@@ -15,6 +15,7 @@ import (
 // under a context that Close cancels and waits for, as Run's drives are, and a check this NodeChecks already drives is
 // left alone. It returns the errors of the checks it could not take up, joined.
 func (n *NodeChecks) Resume(ctx context.Context) error {
+	defer n.calls.enter()()
 	open, err := n.store.OpenNodeChecks(ctx)
 	if err != nil {
 		return fmt.Errorf("resume node checks: %w", err)

@@ -16,12 +16,6 @@ import (
 // evidenceRunEpic is the id of the epic the runner tests run items of.
 const evidenceRunEpic = "run-epic"
 
-// The poll evidenceRunEventually checks its condition every evidenceRunPoll, for evidenceRunDeadline at most.
-const (
-	evidenceRunPoll     = 20 * time.Millisecond
-	evidenceRunDeadline = 20 * time.Second
-)
-
 // evidenceRunRepo returns a scratch repository whose HEAD commits script as capture.sh, and the HEAD.
 func evidenceRunRepo(t *testing.T, script string) (string, string) {
 	t.Helper()
@@ -94,19 +88,19 @@ func evidenceRunNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidenc
 	return ev
 }
 
-// evidenceRunEventually polls ok until it holds. It has no deadline of its own.
-func evidenceRunEventually(t *testing.T, _ string, ok func() bool) {
+// evidenceRunEventually polls ok until it holds. It has no deadline of its own, and fails at once, naming what, when the
+// work of eng has finished first.
+func evidenceRunEventually(t *testing.T, eng engine, what string, ok func() bool) {
 	t.Helper()
-	for !ok() {
-		time.Sleep(evidenceRunPoll)
-	}
+	eng.until(t, what, ok)
 }
 
-// evidenceRunSettled waits until the run with id is ended in st, and returns it.
-func evidenceRunSettled(t *testing.T, st *store.Store, id string) store.EvidenceRun {
+// evidenceRunSettled waits until the run with id is ended in st, and returns it. It fails at once when the work of eng
+// has finished first.
+func evidenceRunSettled(t *testing.T, eng engine, st *store.Store, id string) store.EvidenceRun {
 	t.Helper()
 	var run store.EvidenceRun
-	evidenceRunEventually(t, "evidence run "+id+" ends", func() bool {
+	evidenceRunEventually(t, eng, "evidence run "+id+" ends", func() bool {
 		var err error
 		run, err = st.EvidenceRun(t.Context(), id)
 		if err != nil {
@@ -127,7 +121,7 @@ func evidenceRunOnce(
 	if err != nil {
 		t.Fatalf("Run(R1, %s, %s): %v", revision, phase, err)
 	}
-	return started, evidenceRunSettled(t, st, started.ID)
+	return started, evidenceRunSettled(t, engineOf(ev), st, started.ID)
 }
 
 // evidenceRunWantStarted fails the test unless started, the run Run returned, is stored in state capturing with the item,
@@ -517,7 +511,7 @@ func TestEvidenceRunCloseRecordsNothingMore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	evidenceRunEventually(t, "the judge step is recorded", func() bool {
+	evidenceRunEventually(t, engineOf(ev), "the judge step is recorded", func() bool {
 		run, readErr := st.EvidenceRun(t.Context(), started.ID)
 		if readErr != nil {
 			t.Fatalf("read evidence run: %v", readErr)

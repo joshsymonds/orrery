@@ -29,7 +29,7 @@ func TestStartPassesModelToClaudeAndResumeOmitsIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -38,7 +38,7 @@ func TestStartPassesModelToClaudeAndResumeOmitsIt(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of a stopped session: %v", err)
 	}
-	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the resumed reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 

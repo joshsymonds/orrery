@@ -29,7 +29,7 @@ func answerRowsOf(t *testing.T, s *Store) map[string][][]any {
 	t.Helper()
 	out := make(map[string][][]any)
 	for _, table := range []string{"epics", "epic_decisions", "epic_questions", "epic_triggers"} {
-		out[table] = rowsOf(t, s.db, table)
+		out[table] = rowsOf(t, s.db.DB, table)
 	}
 	return out
 }
@@ -73,7 +73,7 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 		{id, createdTriggerID, createdTriggerCause, "consumed", int64(1), int64(1700000000)},
 		{id, "answer:D3", "answer D3 to Q2", "pending", int64(0), int64(1700000600)},
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
 		t.Errorf("epic_triggers after AnswerQuestion = %v, want %v", got, wantTriggers)
 	}
 }
@@ -172,7 +172,7 @@ func TestAnswerEpicNoteLeavesEveryQuestionOpenAndAddsNoTrigger(t *testing.T) {
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, "Keep the old tasks?", "Which store?")
-	triggersBefore := rowsOf(t, s.db, "epic_triggers")
+	triggersBefore := rowsOf(t, s.db.DB, "epic_triggers")
 
 	at := time.Unix(1700000600, 0)
 	got, err := s.AnswerEpic(ctx, id, "D3", "A note", at)
@@ -192,7 +192,7 @@ func TestAnswerEpicNoteLeavesEveryQuestionOpenAndAddsNoTrigger(t *testing.T) {
 			t.Errorf("question Q%d state = %q after a note, want open", question.Seq, question.State)
 		}
 	}
-	if triggers := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(triggers, triggersBefore) {
+	if triggers := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(triggers, triggersBefore) {
 		t.Errorf("epic_triggers after AnswerEpic = %v, want %v", triggers, triggersBefore)
 	}
 }

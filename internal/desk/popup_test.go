@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/desk"
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 // fakeTools puts a fake notify-send and pw-play first on PATH. Each records its argv NUL-separated
@@ -28,9 +29,7 @@ func fakeTools(t *testing.T, fail ...string) string {
 			"echo " + name + " >> " + order + "\n" +
 			"for a; do printf '%s\\0' \"$a\"; done > " + argsPath(dir, name) + "\n" +
 			exit + "\n"
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		exectest.WriteFile(t, filepath.Join(dir, name), []byte(script), 0o700)
 	}
 	return dir
 }

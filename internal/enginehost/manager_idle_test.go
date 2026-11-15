@@ -70,7 +70,7 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	pid := fakePID(t, dir)
@@ -97,7 +97,7 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of an idle-stopped session: %v", err)
 	}
-	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the resumed reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 }
@@ -114,10 +114,10 @@ func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start HANG: %v", err)
 	}
-	waitHistory(t, path, askID, "the open question", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, askID, "the open question", func(h store.EngineHistory) bool {
 		return lastState(t, h) == string(protocol.StateWaiting)
 	})
-	waitHistory(t, path, hangID, "the hanging reply", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, hangID, "the hanging reply", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake hanging 1")
 	})
 	askPID := fakePID(t, askDir)
@@ -137,7 +137,7 @@ func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the background turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the background turn done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake background 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	pid := fakePID(t, dir)
@@ -149,9 +149,16 @@ func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
 		t.Fatalf("Say BGEND: %v", err)
 	}
-	waitHistory(t, path, id, "the reply after the background task ended", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
-	})
+	waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply after the background task ended",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
+		},
+	)
 
 	clock.advance(10*time.Minute - time.Millisecond)
 	m.checkIdle(t.Context())
@@ -169,7 +176,7 @@ func TestIdleStopFreesSlotForStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); !errors.Is(err, ErrCapReached) {
@@ -182,7 +189,7 @@ func TestIdleStopFreesSlotForStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start after the idle stop: %v", err)
 	}
-	waitHistory(t, path, next, "the reply of the next session", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, next, "the reply of the next session", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 }

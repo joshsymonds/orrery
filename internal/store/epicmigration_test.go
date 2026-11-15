@@ -236,7 +236,7 @@ func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 		t.Fatalf("second pushed notice of %s: err = %v, want the one-row-per-epic refusal", epic, err)
 	}
 	want := [][]any{{epic, int64(1700000000)}}
-	if got := rowsOf(t, s.db, "pushed_epic_notices"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "pushed_epic_notices"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("pushed notices after refused insert = %v, want %v", got, want)
 	}
 }
@@ -276,7 +276,7 @@ func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 		{epic, "trigger-claimed", "epic created", "claimed", int64(0), int64(1700000000)},
 		{epic, "trigger-consumed", "epic created", "consumed", int64(0), int64(1700000000)},
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("triggers after refused inserts = %v, want %v", got, want)
 	}
 }
@@ -324,10 +324,10 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 	defer s.Close()
 
 	const id = seededEpic
-	seedEpic(t, s.db)
+	seedEpic(t, s.db.DB)
 	want := [][]any{{id, int64(1), "D1", "Use the store", int64(1700000000), int64(0)}}
 
-	if got := rowsOf(t, s.db, "epic_decisions"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "epic_decisions"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("seeded decisions = %v, want %v", got, want)
 	}
 
@@ -340,7 +340,7 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 		t.Fatalf("DELETE on epic_decisions: err = %v, want the append-only refusal", err)
 	}
 
-	if got := rowsOf(t, s.db, "epic_decisions"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "epic_decisions"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("decisions after refused UPDATE and DELETE = %v, want %v", got, want)
 	}
 }
@@ -438,7 +438,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
 	// grants, so each row is compared over the columns it had before the migrations.
 	for _, table := range existing {
-		if got := leadingColumns(rowsOf(t, s.db, table), before[table]); !reflect.DeepEqual(got, before[table]) {
+		if got := leadingColumns(rowsOf(t, s.db.DB, table), before[table]); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("%s after migration = %v, want %v", table, got, before[table])
 		}
 	}
@@ -583,7 +583,7 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -614,7 +614,7 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -673,7 +673,7 @@ func TestTaskBuildMigrationDownAndUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -715,13 +715,13 @@ func TestWorkflowMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
-	seedEpic(t, s.db)
+	seedEpic(t, s.db.DB)
 
 	migrationsFS, err := fs.Sub(migrationFS, "migrations")
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -765,7 +765,7 @@ func TestDueResumesMigrationDownAndUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestLimitToldMigrationDownAndUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 		for i, row := range before[table] {
 			want[i] = append(append([]any{}, row...), added[table]...)
 		}
-		if got := rowsOf(t, s.db, table); !reflect.DeepEqual(got, want) {
+		if got := rowsOf(t, s.db.DB, table); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s after migration = %v, want %v", table, got, want)
 		}
 	}

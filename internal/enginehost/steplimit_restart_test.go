@@ -61,7 +61,12 @@ func TestStepLimitHoldsStepAcrossRestart(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 
 	var logs bytes.Buffer
@@ -96,7 +101,12 @@ func TestStepLimitResumedAfterRestartRespawnsWithResume(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	// The loop stores the limit before it releases the process, so the crash waits for the release to finish.
 	requireGone(t, pid)
 	writeResumeNext(t, dir)
@@ -109,7 +119,7 @@ func TestStepLimitResumedAfterRestartRespawnsWithResume(t *testing.T) {
 	requireResumedStart(t, dir)
 	releaseResumedTurn(t, dir)
 	var row store.StepRow
-	waitUntil(t, "resumed step done", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps, steps), "resumed step done", func() bool {
 		row = stepRowOf(t, steps, id)
 		return row.End != ""
 	})
@@ -134,7 +144,12 @@ func TestStepsStopOfLimitedStepEndsStoppedWithoutSessionStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps, steps),
+		"step limited",
+		func() bool { return stepRowOf(t, steps, id).LoopLimited },
+	)
 
 	if err := steps.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop of a limited step: %v", err)
@@ -154,7 +169,12 @@ func TestStepsStopOfLimitedStepAfterRestartEndsStopped(t *testing.T) {
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	pid := fakePID(t, filepath.Join(rig.worktrees, id))
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	// The loop stores the limit before it releases the process, so the crash waits for the release to finish.
 	requireGone(t, pid)
 
@@ -178,7 +198,12 @@ func TestStepsStopOfLimitedRowWithoutLoopEndsStopped(t *testing.T) {
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	pid := fakePID(t, filepath.Join(rig.worktrees, id))
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	// The loop stores the limit before it releases the process, so the crash waits for the release to finish.
 	requireGone(t, pid)
 

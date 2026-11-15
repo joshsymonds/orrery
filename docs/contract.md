@@ -1105,20 +1105,20 @@ The interpreter adds no pause or park rule of its own, except that a check's `pr
 | `release <pos>`, `judge` | work parts | O3e3 |
 | `ReleaseEpic` | RPC of `orrery.engine.v1.Epics`, not yet declared | O3e3 |
 | `FollowEpics` | RPC of `orrery.engine.v1.Epics`, not yet declared | attention |
-| `EvidenceItem` 7 `kind`, 8 `tests` | reserved proto fields | O3d5a |
-| `EpicTask` 22 `contributes` | reserved proto field | O3d5a |
-| `EpicTask` 23 `test_changes`, 24 `guard` | reserved proto fields | O3d5b |
-| `EpicRequirement` 6 `owner`, 7 `contributors`, 8 `state` | reserved proto fields | O3d5a |
-| `EpicRequirement` 9 `disagreement` | reserved proto field | O3d5b |
-| `EpicTaskFinding` 7 `unverified` | reserved proto field | O3e1 |
-| `EpicContract` 21 `reviewers`, `StoredEpic` 14 `reviewers` | reserved proto fields | O3e1 |
-| `StoredEpic` 15 `ledger`, 16 `frozen`, 17 `clean` | reserved proto fields | O3e2 |
-| `StoredEpic` 18 `releases`, 19 `release_slot` | reserved proto fields | O3e3 |
+| `EvidenceItem` 7 `kind`, 8 `tests` | reserved proto fields (this table) | O3d5a |
+| `EpicTask` 22 `contributes` | reserved proto field (this table) | O3d5a |
+| `EpicTask` 23 `test_changes`, 24 `guard` | reserved proto fields (this table) | O3d5b |
+| `EpicRequirement` 6 `owner`, 7 `contributors`, 8 `state` | reserved proto fields (this table) | O3d5a |
+| `EpicRequirement` 9 `disagreement` | reserved proto field (this table) | O3d5b |
+| `EpicTaskFinding` 7 `unverified` | reserved proto field (this table) | O3e1 |
+| `EpicContract` 21 `reviewers`, `StoredEpic` 14 `reviewers` | reserved proto fields (this table) | O3e1 |
+| `StoredEpic` 15 `ledger`, 16 `frozen`, 17 `clean` | reserved proto fields (this table) | O3e2 |
+| `StoredEpic` 18 `releases`, 19 `release_slot` | reserved proto fields (this table) | O3e3 |
 | `EpicQuestion` 5 to 10 | reserved proto field numbers; attention names them | attention |
-| `AnswerEpicRequest` 5 `choice` | reserved proto field | attention |
-| `orrery.v1.EpicsGetResponse` 13 `ledger`, 14 `releases`, 15 `reviews` | reserved proto fields | O3e4 |
+| `AnswerEpicRequest` 5 `choice` | reserved proto field (this table) | attention |
+| `orrery.v1.EpicsGetResponse` 13 `ledger`, 14 `releases`, 15 `reviews` | reserved proto fields (this table) | O3e4 |
 
-The built-in workflow takes its final shape in O3d4: a red evidence check at base, `plan` holding `build` and `integrate`, `review`, a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) over a `plan` and `closure`, `conclude`, then `release`. Until O3e2 lands, an epic on it waits at `review`. The proto fields above are held by `reserved` statements in `proto/orrery/engine/v1/epic.proto` and `proto/orrery/v1/epics.proto`, each with a comment naming its epic, and each epic replaces its reservation with a typed field when it builds. The Go names `evidence.Kind`, `evidence.Item.Kind`, `evidence.Item.Tests`, `evidence.Current` and `interpret.Ending` are declared now and follow the same rule.
+The built-in workflow takes its final shape in O3d4: a red evidence check at base, `plan` holding `build` and `integrate`, `review`, a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) over a `plan` and `closure`, `conclude`, then `release`. Until O3e2 lands, an epic on it waits at `review`. The proto fields above are reserved by this table only, not by `reserved` statements: buf counts deleting a reserved name as a breaking change even when the same field is then declared, so each epic adds its field at the number named here when it builds. The Go names `evidence.Kind`, `evidence.Item.Kind`, `evidence.Item.Tests`, `evidence.Current` and `interpret.Ending` are declared now and follow the same rule.
 
 #### Planner turns
 
@@ -1395,7 +1395,7 @@ The CLI (`orrery run status`), the tree's pools view and the phone's Pools calls
 Restart:
 
 - On shutdown, the Pools broker closes before the session socket closes. Each open `Acquire` ends `unavailable`, and each stored grant stays for the next start. Member commands in flight are cancelled.
-- At start, `orreryd` restores the holds, then the stored grants, before it serves Pools. A grant whose `client_pid` has no process, and which names no holder that is alive, is ended in the store at once (`grants.Broker.lasts`, `grants.Broker.Restore`). A process is gone when a signal 0 to its pid fails with ESRCH. Each other grant keeps its members, and waits for its client or its holder to reclaim it. Its pools come back into use, so each of their members gets a status run. `orreryd` gives the broker that holder check (`cmd/orreryd.sessionHost.startBroker`, `cmd/orreryd.holderLives`). Member commands keep these rules: the ones in flight are cancelled at shutdown, and a pool's members get a status run when the pool comes into use at start (`grants.Broker.Close`, `grants.Broker.useLocked`).
+- At start, `orreryd` restores the holds, then the stored grants, before it serves Pools. A grant whose `client_pid` has no process, and which names no holder that is alive, is ended in the store at once (`grants.Broker.lasts`, `grants.Broker.Restore`). A process is gone when a signal 0 to its pid fails with ESRCH. Each other grant keeps its members, and waits for its client or its holder to reclaim it. Its pools come back into use, so each of their members gets a status run. `orreryd` gives the broker that holder check: a holder is alive while it holds its session lock, `holder.lock` in its directory, which it takes before it starts its child and keeps for its life, so a holder whose child has started before its pids record is written still counts (`cmd/orreryd.sessionHost.startBroker`, `cmd/orreryd.holderLives`). Member commands keep these rules: the ones in flight are cancelled at shutdown, and a pool's members get a status run when the pool comes into use at start (`grants.Broker.Close`, `grants.Broker.useLocked`).
 - On each 60-second tick, a kept grant whose client has no process and which names no live holder is ended the same way, and so is a stopped grant's request that waits for its client and names no live holder (`grants.Broker.endDeadLocked`).
 - If the restore fails, `orreryd` logs the error, and Pools refuses every call as `unavailable` until `orreryd` restarts. No grant is made from a partly restored broker.
 
@@ -1505,7 +1505,7 @@ Both processes export `rpc_server_call_duration_seconds`, a histogram with `_buc
 
 `orrery serve` gives these options to every Connect handler that `server.New` mounts (`server.Config.HandlerOptions`). `orreryd` gives them only to the six services that `enginehost.Serve` mounts on `sessions.sock` (`enginehost.Serve`; `cmd/orreryd.startSessions`).
 
-`orreryd` also registers six `orrery_*` series in `NewDaemon` (`telemetry.NewDaemon`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
+`orreryd` also registers seven `orrery_*` series in `NewDaemon` (`telemetry.NewDaemon`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
 
 | Series | Type | Labels | Recorded when |
 |---|---|---|---|
@@ -1515,6 +1515,7 @@ Both processes export `rpc_server_call_duration_seconds`, a histogram with `_buc
 | `orrery_holder_losses_total` | counter | none | Each holder that has ended or cannot be attached when the sessions reconcile re-adopts it. `readoptHolder` counts it (`enginehost.Manager.readoptHolder`). Only the start-time sessions reconcile moves it. |
 | `orrery_writer_wait_seconds_total` | counter | none | Seconds that callers wait on the writer: a `Put`, `Commit` or `CommitAll` waiting for room under its session's op limit, and a `Commit` or `CommitAll` waiting for its ops to be stored. Each wait adds its whole duration, including a wait that ends with an error (`enginehost.Writer.putAll`, `enginehost.Writer.waitForRoom`, `enginehost.Writer.recordWait`, `enginehost.Writer.await`). |
 | `orrery_writer_backlog_age_seconds` | gauge | none | Age in seconds of the oldest op in the writer's queue, and 0 when the queue is empty. The writer sets it at the end of each flush, so a flush that has not returned leaves the last value in place (`enginehost.Writer.flush`, `enginehost.Writer.recordBacklog`). |
+| `orrery_store_slow_calls_total` | counter | none | Each store call that takes longer than 100 ms, from the call until the store's one connection is free again: an Exec, a query until its rows close, a read transaction until it ends, or a write. The store logs each one as `slow store call` with its `queries`, its `wait` for the connection and its `run` on it (`store.callTimer.finish`, `store.WithSlowCallCounter`, `cmd/orreryd.openStore`). |
 
 #### Alert rules
 

@@ -21,7 +21,7 @@ func TestCreateEpicAddsItsCreatedTrigger(t *testing.T) {
 	createEpic(t, s, fullEpic(id))
 
 	want := [][]any{createdTriggerRow(id)}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, want) {
 		t.Errorf("epic_triggers after CreateEpic = %v, want %v", got, want)
 	}
 }
@@ -40,7 +40,7 @@ func TestSecondCreateEpicOfStoredIDLeavesItsTriggerUnchanged(t *testing.T) {
 	}
 
 	want := [][]any{createdTriggerRow(id)}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, want) {
 		t.Errorf("epic_triggers after refused CreateEpic = %v, want %v", got, want)
 	}
 }
@@ -60,7 +60,7 @@ func TestFailedCreateEpicStoresNoTrigger(t *testing.T) {
 	if _, err := s.Epic(ctx, id); !errors.Is(err, ErrNoEpic) {
 		t.Errorf("Epic after failed CreateEpic err = %v, want ErrNoEpic", err)
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); len(got) != 0 {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); len(got) != 0 {
 		t.Errorf("epic_triggers after failed CreateEpic = %v, want none", got)
 	}
 }

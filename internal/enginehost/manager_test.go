@@ -16,13 +16,11 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 
 	// The blank import registers the pure-Go "sqlite" driver the empty-store check opens the file with.
 	_ "modernc.org/sqlite"
 )
-
-// pollEvery is the pause between checks inside a bounded wait.
-const pollEvery = 10 * time.Millisecond
 
 // fixedClock is the clock the manager tests give the manager, so the seen timestamp is known.
 func fixedClock() time.Time { return time.Unix(1_700_000_000, 0) }
@@ -69,12 +67,11 @@ func newTestManager(t *testing.T, limit int, claude string) (*Manager, string) {
 	return m, path
 }
 
-// waitUntil polls ok until it returns true. It has no deadline of its own.
-func waitUntil(t *testing.T, _ string, ok func() bool) {
+// waitUntil polls ok until it returns true. It has no deadline of its own, and fails at once, naming what, when the
+// work of eng has finished first.
+func waitUntil(t *testing.T, eng engine, what string, ok func() bool) {
 	t.Helper()
-	for !ok() {
-		time.Sleep(pollEvery)
-	}
+	eng.until(t, what, ok)
 }
 
 // historyOf reads the engine history of id from the store at path.
@@ -87,11 +84,14 @@ func historyOf(t *testing.T, path, id string) store.EngineHistory {
 	return history
 }
 
-// waitHistory waits until the engine history of id satisfies ok, and returns it.
-func waitHistory(t *testing.T, path, id, what string, ok func(store.EngineHistory) bool) store.EngineHistory {
+// waitHistory waits until the engine history of id satisfies ok, and returns it. It fails at once when the work of eng
+// has finished first.
+func waitHistory(
+	t *testing.T, eng engine, path, id, what string, ok func(store.EngineHistory) bool,
+) store.EngineHistory {
 	t.Helper()
 	var history store.EngineHistory
-	waitUntil(t, what, func() bool {
+	waitUntil(t, eng, what, func() bool {
 		reader := store.NewReader(path)
 		h, err := reader.EngineHistory(t.Context(), id, 0, 10_000)
 		if err != nil {
@@ -147,7 +147,7 @@ func fakePID(t *testing.T, dir string) int {
 	t.Helper()
 	path := filepath.Join(dir, "fakeclaude.pid")
 	var pid int
-	waitUntil(t, "fake claude pid file "+path, func() bool {
+	waittest.Until(t, nil, "fake claude pid file "+path, func() bool {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return false
@@ -164,7 +164,7 @@ func fakePID(t *testing.T, dir string) int {
 // requireGone waits until no process has pid. It has no deadline of its own.
 func requireGone(t *testing.T, pid int) {
 	t.Helper()
-	waitUntil(t, "fake claude process "+strconv.Itoa(pid)+" exit", func() bool {
+	waittest.Until(t, nil, "fake claude process "+strconv.Itoa(pid)+" exit", func() bool {
 		return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 	})
 }
@@ -211,7 +211,7 @@ func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
 	}
 	requireSessionID(t, id)
 
-	history := waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if len(history.Events) == 0 || history.Events[0].Kind != store.EventEngineAdded {
@@ -271,7 +271,7 @@ func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)
@@ -295,7 +295,12 @@ func TestStopRemovesUnfinishedText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(m),
+		"the stalled block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -371,7 +376,7 @@ func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	history := waitHistory(t, path, id, "the failed state", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the failed state", func(h store.EngineHistory) bool {
 		return h.State == "failed"
 	})
 	reason := ""
@@ -398,10 +403,15 @@ func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start ended: %v", err)
 	}
-	waitHistory(t, path, ended, "the ended turn's done state", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, ended, "the ended turn's done state", func(h store.EngineHistory) bool {
 		return h.State == "done"
 	})
-	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(m),
+		"the stalled block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 	stalledPID := fakePID(t, stalledDir)
 	endedPID := fakePID(t, endedDir)
 
@@ -443,9 +453,16 @@ func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 		}
 		ids = append(ids, id)
 		// The turn's end, not only its reply, is stored before Close, so Close finds the turn ended.
-		waitHistory(t, path, id, "the first reply block and the turn's end", func(h store.EngineHistory) bool {
-			return hasBlock(t, h, "fake reply 1") && h.State == "done"
-		})
+		waitHistory(
+			t,
+			engineOf(m),
+			path,
+			id,
+			"the first reply block and the turn's end",
+			func(h store.EngineHistory) bool {
+				return hasBlock(t, h, "fake reply 1") && h.State == "done"
+			},
+		)
 		pids = append(pids, fakePID(t, dir))
 	}
 

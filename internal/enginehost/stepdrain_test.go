@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // restartStepDrain ends the step manager of rig as a crash leaves it, and returns a manager over the same store and state
@@ -58,7 +59,7 @@ func startHeldStep(t *testing.T, rig crashRig, dir string, obs StepObserver) {
 	if err := rig.manager.StartStep(t.Context(), step); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitUntil(t, "the fake claude to read the held prompt", func() bool {
+	waittest.Until(t, nil, "the fake claude to read the held prompt", func() bool {
 		return stdinLinesWith(t, dir, "JUDGEHOLDS") == 1
 	})
 }
@@ -66,7 +67,7 @@ func startHeldStep(t *testing.T, rig crashRig, dir string, obs StepObserver) {
 // waitStoppingEnded waits until the pump of the retired session id has ended, so nothing it records is still to come.
 func waitStoppingEnded(t *testing.T, m *Manager, id string) {
 	t.Helper()
-	waitUntil(t, "the stopped session "+id+" to end its pump", func() bool {
+	waitUntil(t, engineOf(m), "the stopped session "+id+" to end its pump", func() bool {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		return m.stopping[id] == nil
@@ -91,7 +92,7 @@ func drainHeldStep(t *testing.T, rig crashRig, dir string, obs *stepObserver, st
 		t.Fatalf("step %s is not live after the restart, want its holder re-adopted mid-round", stepA)
 	}
 	releaseHeldTurn(t, dir)
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(rig.manager, restarted), obs, 1)
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
 	waitStoppingEnded(t, restarted, stepA)
@@ -108,9 +109,16 @@ func TestReadoptOneVersionOlderStepStopsAtHandOff(t *testing.T) {
 	obs := &stepObserver{}
 	restarted, sink := drainHeldStep(t, rig, dir, obs, 1)
 
-	waitHistory(t, rig.path, stepA, "the held turn's end recorded", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the held turn's end recorded",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 	if got := obs.returned(); got != 1 {
 		t.Fatalf("turn ends handed to the observer = %d, want 1", got)
 	}
@@ -143,9 +151,16 @@ func TestReadoptIdleOneVersionOlderStepKeepsItsSlotForContinue(t *testing.T) {
 	if err := rig.manager.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 1")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		stepA,
+		"the step's first turn done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 1")
+		},
+	)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, stepA))
 
@@ -169,9 +184,16 @@ func TestReadoptIdleOneVersionOlderStepKeepsItsSlotForContinue(t *testing.T) {
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue of the kept step: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the respawned step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	args := fakeArgs(t, dir)
 	if len(args) != 2 || !hasFlagValue(args[1], "--resume", "session_1") {
 		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", args)
@@ -190,9 +212,16 @@ func TestContinueRespawnsDrainedStepWithResume(t *testing.T) {
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue of the drained step: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the respawned step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	args := fakeArgs(t, dir)
 	if len(args) != 2 {
 		t.Fatalf("fake claude starts = %q, want two", args)
@@ -225,9 +254,16 @@ func TestContinueRespawnsDrainedStepWhenStepCapIsFull(t *testing.T) {
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue of the drained step with the cap full: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the respawned step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	args := fakeArgs(t, dir)
 	if len(args) != 2 || !hasFlagValue(args[1], "--resume", "session_1") {
 		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", args)
@@ -299,10 +335,17 @@ func TestReadoptOwnVersionStepStaysLiveAfterHandOff(t *testing.T) {
 		t.Fatalf("session %s is not live after the restart: live %v", stepA, restarted.Live())
 	}
 	releaseHeldTurn(t, dir)
-	waitReturns(t, obs, 1)
-	waitHistory(t, rig.path, stepA, "the held turn's end recorded", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitReturns(t, engineOf(rig.manager, restarted), obs, 1)
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the held turn's end recorded",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 
 	if !slices.Contains(restarted.Live(), stepA) {
 		t.Fatalf("session %s is not live after its hand-off, want it kept for its own version", stepA)
@@ -366,7 +409,7 @@ func TestContinueWaitsForDrainedStepsPumpBeforeRespawn(t *testing.T) {
 	go func() {
 		said <- restarted.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner})
 	}()
-	waitUntil(t, "the Continue to wait for the drained step's pump", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the Continue to wait for the drained step's pump", func() bool {
 		// Only a Continue that finds no live session holds resumeMu, so holding it means the Continue is in respawnStep,
 		// and the held hand-off keeps that Continue from respawning until the hold opens.
 		if restarted.resumeMu.TryLock() {
@@ -384,9 +427,16 @@ func TestContinueWaitsForDrainedStepsPumpBeforeRespawn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Continue after the drained step's pump ended: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the respawned step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	args := fakeArgs(t, dir)
 	if len(args) != 2 || !hasFlagValue(args[1], "--resume", "session_1") {
 		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", args)
