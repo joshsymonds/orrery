@@ -134,16 +134,16 @@ func TestWatchConversationEndsStalledReaderAtSendDeadline(t *testing.T) {
 	url, closed, obs := startConvDeadlineServer(t, convEndHandler(t, tmux, nil, deadlineStalledSendTimeout))
 	req := &orreryv1.WatchConversationRequest{Pane: pane, Limit: convLargeReplies}
 
-	// The stalled connection is the only one accepted while the hold is on: the healthy stream dials after the stalled
-	// send is blocked. The stalled send's deadline stays unapplied until the healthy stream has been checked, and
-	// release applies it as already due.
+	// Both connections hold their write deadlines. The stalled send's stays unapplied until the healthy stream has
+	// been checked, and release applies it as already due. The healthy stream's sends wait on its reader, never on a
+	// real deadline, so a reader slowed by load cannot see its stream ended. It is idle with no deadline in force by
+	// the release, which then changes nothing for it.
 	obs.setHold(true)
 	dialed := make(chan net.Conn, 1)
 	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
 	stalled := openConversation(t, orreryv1connect.NewPanesClient(stalledHTTP, url), req)
 	stalledAddr := (<-dialed).LocalAddr().String()
 	waitStalledWrite(t, obs)
-	obs.setHold(false)
 
 	healthy := openConversation(t, orreryv1connect.NewPanesClient(guardedHTTPClient(), url), req)
 	if first := healthy.next(t); !first.GetReset_() {
