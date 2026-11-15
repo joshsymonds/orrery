@@ -212,10 +212,11 @@ func (r *stepReadoptRig) step(t *testing.T, id string) *v1.Step {
 func (r *stepReadoptRig) awaitEnd(t *testing.T, id string) *v1.Step {
 	t.Helper()
 	var step *v1.Step
-	waitUntil(t, "step "+id+" to end", func() bool {
+	waitUntil(t, func() bool {
 		step = r.step(t, id)
 		return step.GetEnd() != ""
 	})
+
 	return step
 }
 
@@ -289,9 +290,10 @@ func TestStepReadoptSigkillDuringTurnEndsDone(t *testing.T) {
 	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
 	id := r.startStep(t)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
-	waitUntil(t, "the fake claude to read the step's prompt", func() bool {
+	waitUntil(t, func() bool {
 		return fileContains(t, filepath.Join(r.worktree, "fakeclaude.stdin"), stepReadoptPrompt)
 	})
+
 	pid := fakeClaudePID(t, r.worktree)
 
 	killOrreryd(t, daemon)
@@ -302,7 +304,7 @@ func TestStepReadoptSigkillDuringTurnEndsDone(t *testing.T) {
 	requireProcessRunning(t, pid)
 
 	stepReadoptTouch(t, r.turnRelease)
-	waitUntil(t, "the gate to start", func() bool { return gateRunCount(t, r.gateRuns) > 0 })
+	waitUntil(t, func() bool { return gateRunCount(t, r.gateRuns) > 0 })
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d, want 1", id, n)
 	}
@@ -330,7 +332,7 @@ func TestStepReadoptSigkillDuringGateHoldsMemberOnce(t *testing.T) {
 	id := r.startStep(t)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 	t.Cleanup(func() { clearHolder(t, r.gateHolder(t, id)) })
-	waitUntil(t, "the gate to start", func() bool { return gateRunCount(t, r.gateRuns) > 0 })
+	waitUntil(t, func() bool { return gateRunCount(t, r.gateRuns) > 0 })
 	granted := r.heldGrant(t)
 	if granted == "" {
 		t.Fatalf("member of %s holds no grant before the kill, want the gate's", stepReadoptPool)

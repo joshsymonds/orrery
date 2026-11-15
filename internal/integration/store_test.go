@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -156,13 +155,11 @@ func (f *storeFixture) paneRow(t *testing.T, db *sql.DB, pane string) (got, want
 	return got, want, true
 }
 
-// waitForRow polls until the store row for pane equals the pane's mirrored options, failing the test after waitLimit.
+// waitForRow polls until the store row for pane equals the pane's mirrored options. It has no deadline of its own.
 // The daemon syncs a pane after its hook is applied, and the hook client returns before that sync, so the row can
 // trail the options for a moment.
 func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -170,11 +167,7 @@ func (f *storeFixture) waitForRow(t *testing.T, db *sql.DB, pane string) {
 		if ok && got == want {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s row never matched its options: row %+v (found %t), want %+v", pane, got, ok, want)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 

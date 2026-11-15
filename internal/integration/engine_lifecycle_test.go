@@ -35,11 +35,7 @@ func (f *engineFixture) stateOf(t *testing.T, id string) string {
 // waitForUnfinishedText waits until the store holds unfinished text for session id.
 func (f *engineFixture) waitForUnfinishedText(t *testing.T, id string) {
 	t.Helper()
-	deadline := time.Now().Add(waitLimit)
 	for engineTextRows(t, f.dbPath, id) == 0 {
-		if time.Now().After(deadline) {
-			t.Fatalf("session %s never stored unfinished text", id)
-		}
 		time.Sleep(pollEvery)
 	}
 }

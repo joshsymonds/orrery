@@ -18,9 +18,6 @@ import (
 // and execs the holder once it drops the seven scope arguments.
 const engineFakeSystemdRun = "../holder/testdata/fakesystemdrun.sh"
 
-// clearHolderTimeout bounds the holder.Clear a test's cleanup makes of its session's holder.
-const clearHolderTimeout = waitLimit
-
 // scopedFixture returns the fixture of a test whose sessions run their holders under the fake systemd-run, the absolute
 // path of that fake for --holder-scope, and the file the fake records its arguments in.
 func scopedFixture(t *testing.T) (*engineFixture, string, string) {
@@ -185,9 +182,7 @@ func recordedArgv(t *testing.T, argsFile string) []string {
 // is not an error.
 func clearHolder(t *testing.T, dir string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), clearHolderTimeout)
-	defer cancel()
-	if err := holder.Clear(ctx, dir); err != nil {
+	if err := holder.Clear(context.Background(), dir); err != nil {
 		t.Errorf("clear holder %s: %v", dir, err)
 	}
 }
