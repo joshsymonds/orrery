@@ -60,7 +60,7 @@ func TestSessionsHostLeavesCompletedEpicUnparked(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	waitParked(t, st, flowWiringControl)
+	waitParked(t, st, host, flowWiringControl)
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
 	}

@@ -11,15 +11,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 // commandScript writes a fake command that runs body under /bin/sh into a new directory, and returns its path.
 func commandScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
-		t.Fatalf("write fake command: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte("#!/bin/sh\n"+body+"\n"), 0o700)
 	return path
 }
 
@@ -128,9 +128,7 @@ func TestRunCommandFindsArgvZeroOnPath(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "ran")
 	script := "#!/bin/sh\nprintf ran > \"$MARKER\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "orrery-fake-member"), []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake command: %v", err)
-	}
+	exectest.WriteFile(t, filepath.Join(dir, "orrery-fake-member"), []byte(script), 0o700)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	outcome, err := RunCommand(t.Context(), []string{"orrery-fake-member"}, time.Minute, commandEnv("MARKER="+marker))

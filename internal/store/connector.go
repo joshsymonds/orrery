@@ -87,11 +87,73 @@ func (c *trackedConnector) wait() {
 	c.open.Wait()
 }
 
-// trackedConn is a store connection that tells its connector when it closes.
+// trackedConn is a store connection that tells its connector when it closes, and records each statement on the timer
+// of the store call it serves (see callTimer).
 type trackedConn struct {
 	sqliteConn
 	once sync.Once
 	done func()
+
+	// mu guards active.
+	mu sync.Mutex
+	// active is the timer of the store call the connection serves: the one the last timed statement's context
+	// carried. A statement whose context carries none, one of a transaction or of a write, belongs to it.
+	active *callTimer
+}
+
+// ran records query on the timer of the store call the connection serves, and returns that timer, or nil when no
+// timed call has used the connection.
+func (c *trackedConn) ran(ctx context.Context, query string) *callTimer {
+	timer := timerOf(ctx)
+	c.mu.Lock()
+	if timer == nil {
+		timer = c.active
+	} else {
+		c.active = timer
+	}
+	c.mu.Unlock()
+	if timer != nil {
+		timer.ran(query)
+	}
+	return timer
+}
+
+// ExecContext runs query, recorded on its call's timer. Its error is the driver's, text unchanged.
+func (c *trackedConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.ran(ctx, query)
+	result, err := c.sqliteConn.ExecContext(ctx, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return result, nil
+}
+
+// QueryContext runs query, recorded on its call's timer. The rows of a query the pool times end its call when they
+// close. Its error is the driver's, text unchanged.
+func (c *trackedConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	timer := c.ran(ctx, query)
+	rows, err := c.sqliteConn.QueryContext(ctx, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	if timer != nil && timer.end == endAtRowsClose && timerOf(ctx) == timer {
+		return &timedRows{Rows: rows, timer: timer}, nil
+	}
+	return rows, nil
+}
+
+// BeginTx begins a transaction, recorded on its call's timer. A transaction the pool times ends its call when it
+// commits or rolls back. Its error is the driver's, text unchanged.
+func (c *trackedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	timer := c.ran(ctx, "BEGIN")
+	tx, err := c.sqliteConn.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	if timer != nil && timer.end == endAtTxEnd && timerOf(ctx) == timer {
+		return &timedTx{Tx: tx, timer: timer}, nil
+	}
+	return tx, nil
 }
 
 // Close closes the connection and counts it closed, once.

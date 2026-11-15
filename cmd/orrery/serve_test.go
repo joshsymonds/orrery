@@ -21,6 +21,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -175,9 +176,7 @@ func servePickerHandler(t *testing.T, tmux *tmuxctl.Client, picker func() (open.
 func writeServeFakeBinary(t *testing.T, dir, name string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake %s: %v", name, err)
-	}
+	exectest.WriteFile(t, path, []byte("#!/bin/sh\nexit 0\n"), 0o755)
 	return path
 }
 

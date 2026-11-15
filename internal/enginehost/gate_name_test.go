@@ -41,7 +41,7 @@ func TestStepDoneGateNameIsStepIDGateAndRestartReadoptsItOnce(t *testing.T) {
 
 	_, done := f.start(t)
 	f.run.Return(stepDoneReturn(commit))
-	gateWaitFile(t, started)
+	gateWaitFile(t, started, done)
 	pools.drop <- grants.ErrClosed
 	waitRunEnd(t, done)
 
@@ -56,7 +56,7 @@ func TestStepDoneGateNameIsStepIDGateAndRestartReadoptsItOnce(t *testing.T) {
 
 	f.resumeFrom(stepRestore{Row: row, Turn: store.StepTurnEnd{Seq: 3, Output: resumeDoneOutput(commit)}, Found: true})
 	_, done = f.start(t)
-	gateWaitRequests(t, pools, 2)
+	gateWaitRequests(t, pools, 2, done)
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatalf("release the gate: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestEvidenceCaptureGateNameIsRunIDAndRestartReadoptsItOnce(t *testing.T) {
 		defer close(done)
 		_, runErr = c.run(ctx, repo, head, "named", item, started)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) {

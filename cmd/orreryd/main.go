@@ -570,9 +570,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,
+		// Each tidy pass retries the notice row writes the store refused, so they are stored once it takes writes.
+		AfterTidy: notices.Retry,
 	})
 
-	st := openStore(ctx, getenv, logger)
+	st := openStore(ctx, getenv, logger, opts.metrics)
 	attachStore(ctx, st, mirror, notices, router)
 	var sessions *sessionHost
 	var startErr error
@@ -698,9 +700,10 @@ func shutdownServe(
 	if sessions != nil {
 		sessionErr = sessions.stop()
 	}
-	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it.
+	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it. The
+	// notices close before the store, so a row write the store refused gets its last try while the store is open.
 	shutdownRouter(router)
-	notices.Wait()
+	notices.Close(ctx)
 	closeStore(ctx, st, logger)
 	return sessionErr
 }
@@ -959,15 +962,19 @@ func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *stor
 
 // holderLives reports whether the holder that serves the holder directory dir is running. A gate's grant names the
 // orreryd that started it as its client, which ends with a SIGKILL, so the gate's holder is what keeps the grant a
-// restarted broker restores until the gate exits. A directory whose pids record is missing or unreadable has no live
-// holder.
+// restarted broker restores until the gate exits. A holder holds its session lock for its whole life, from before it
+// starts its child: its pids record is written only after the child starts, so a holder whose child has already run
+// may have none yet. The test is a non-blocking flock on the lock file, which the holder's flock refuses. The file is
+// opened, never created, so a directory with no lock file has no live holder, and a free lock means the holder has
+// ended: the kernel frees a flock when its process dies.
 func holderLives(dir string) bool {
-	pids, err := holder.ReadPids(dir)
+	lock, err := os.OpenFile(filepath.Join(dir, holder.LockName), os.O_RDONLY, 0)
 	if err != nil {
 		return false
 	}
-	running, err := holder.Running(pids.Holder, pids.HolderStart)
-	return err == nil && running
+	defer lock.Close()
+	err = syscall.Flock(int(lock.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+	return errors.Is(err, syscall.EWOULDBLOCK)
 }
 
 // runBroker ticks the broker every brokerTick until the broker closes. Each tick ends the grants of clients that are
@@ -1290,14 +1297,19 @@ func (h *sessionHost) shutdown() {
 
 // openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
 // path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
-// notifications without the store.
-func openStore(ctx context.Context, getenv func(string) string, logger *slog.Logger) *store.Store {
+// notifications without the store. The store warns on logger of each call over 100 ms and counts it on metrics.
+func openStore(
+	ctx context.Context,
+	getenv func(string) string,
+	logger *slog.Logger,
+	metrics *telemetry.Daemon,
+) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "error", err)
 		return nil
 	}
-	st, err := store.Open(ctx, path)
+	st, err := store.Open(ctx, path, store.WithLogger(logger), store.WithSlowCallCounter(metrics.StoreSlowCall))
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
 		return nil

@@ -268,6 +268,9 @@ func waitEvidenceVerdict(t *testing.T, st *store.Store, id string) store.Evidenc
 		if run.Verdict != "" {
 			return run
 		}
+		if run.State == "ended" {
+			t.Fatalf("evidence run %s ended with no verdict", id)
+		}
 		time.Sleep(evidenceWiringPoll)
 	}
 }

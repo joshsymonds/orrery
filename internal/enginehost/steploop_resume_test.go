@@ -179,7 +179,7 @@ func TestStepLoopResumeLiveStoredGateIsReadoptedNotRerun(t *testing.T) {
 	row := f.commit(t, store.StepGate{ID: stepLoopID, Grant: "grant-1", Holder: plan.dir, Round: 1})
 	f.resumeFrom(stepRestore{Row: row, Turn: store.StepTurnEnd{Seq: 3, Output: resumeDoneOutput(commit)}, Found: true})
 	_, done := f.start(t)
-	gateWaitRequests(t, pools, 2)
+	gateWaitRequests(t, pools, 2, done)
 	if err = os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatalf("release the gate: %v", err)
 	}

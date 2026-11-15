@@ -102,10 +102,10 @@ func TestFailTurnStoresTheReasonAndFreesItsTriggersToPending(t *testing.T) {
 		{id, int64(1), "", "failed", "return had no outline", int64(len(seededDecisions())), "", "",
 			int64(1700000500), int64(1700000700), int64(0), int64(0), int64(0)},
 	}
-	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("epic_turns after FailTurn = %v, want %v", got, wantTurns)
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("pending", 0)) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("pending", 0)) {
 		t.Errorf("epic_triggers after FailTurn = %v, want %v", got, triggerRows("pending", 0))
 	}
 
@@ -116,7 +116,7 @@ func TestFailTurnStoresTheReasonAndFreesItsTriggersToPending(t *testing.T) {
 	if turn.Seq != 2 {
 		t.Errorf("ClaimTurn after FailTurn seq = %d, want 2", turn.Seq)
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("claimed", 2)) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("claimed", 2)) {
 		t.Errorf("epic_triggers after ClaimTurn of turn 2 = %v, want %v", got, triggerRows("claimed", 2))
 	}
 }
@@ -274,10 +274,10 @@ func TestFreeTurnFreesItsTriggersAndStoresItsReason(t *testing.T) {
 		{id, int64(1), "", "free", "rate limited", int64(len(seededDecisions())), "", "",
 			int64(1700000500), int64(1700000700), int64(0), int64(0), int64(0)},
 	}
-	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("epic_turns after FreeTurn = %v, want %v", got, wantTurns)
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("pending", 0)) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, triggerRows("pending", 0)) {
 		t.Errorf("epic_triggers after FreeTurn = %v, want %v", got, triggerRows("pending", 0))
 	}
 	if paused, parked := epicFlags(t, s); paused != 0 || parked != "" {

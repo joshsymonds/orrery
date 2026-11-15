@@ -245,7 +245,7 @@ func TestEpicPauseSourceIsSetAndClearedByResume(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
-	seedEpic(t, s.db)
+	seedEpic(t, s.db.DB)
 	q := sqlcgen.New(s.db)
 
 	if err := q.PauseEpic(ctx, seededEpic); err != nil {
@@ -279,7 +279,7 @@ func TestEpicPauseSourceRejectsAnUnknownSource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
-	seedEpic(t, s.db)
+	seedEpic(t, s.db.DB)
 
 	err := sqlcgen.New(s.db).SetEpicPauseSource(ctx, sqlcgen.SetEpicPauseSourceParams{
 		PauseSource: "weekly", ID: seededEpic,

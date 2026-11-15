@@ -538,7 +538,7 @@ func TestStepRunLoopingVerdictStillNudgesAfterOwnerNudge(t *testing.T) {
 	}
 
 	f.turnEnd(6*time.Minute, session.TurnEnded{IsError: true})
-	watchLoopWait(t, "the watchdog continue", func() bool {
+	watchLoopWait(t, f.done, "the watchdog continue", func() bool {
 		return len(sessions.continuedTexts()) == 2
 	})
 	watchLoopWantContains(t, sessions.continuedTexts()[1], "periodic", watchLoopDoing)

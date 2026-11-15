@@ -36,6 +36,7 @@ func (f *engineFixture) stateOf(t *testing.T, id string) string {
 func (f *engineFixture) waitForUnfinishedText(t *testing.T, id string) {
 	t.Helper()
 	for engineTextRows(t, f.dbPath, id) == 0 {
+		stopIfFailed(t)
 		time.Sleep(pollEvery)
 	}
 }
@@ -126,10 +127,7 @@ func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
 	f.waitForUnfinishedText(t, id)
 	pid := fakeClaudePID(t, dir)
 
-	if err := daemon.cmd.Process.Signal(syscall.SIGKILL); err != nil {
-		t.Fatalf("kill orreryd: %v", err)
-	}
-	daemon.exitOutcome(t)
+	killOrreryd(t, daemon)
 	// The orphaned fake may already have exited at its stdin's EOF, so a kill that finds no process is not an error.
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("kill orphaned fake claude %d: %v", pid, err)

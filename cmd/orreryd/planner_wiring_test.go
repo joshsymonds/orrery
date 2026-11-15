@@ -69,7 +69,7 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	row := waitParked(t, st, plannerWiringEpic)
+	row := waitParked(t, st, host, plannerWiringEpic)
 	if !strings.Contains(row.Parked, "no role file") {
 		t.Errorf("parked = %q, want the reason %q", row.Parked, "no role file")
 	}
@@ -86,7 +86,7 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 }
 
 // waitParked reads epic from st until it is parked, and returns that read. It has no deadline of its own.
-func waitParked(t *testing.T, st *store.Store, epic string) store.EpicRow {
+func waitParked(t *testing.T, st *store.Store, host *sessionHost, epic string) store.EpicRow {
 	t.Helper()
 	for {
 		row, err := st.Epic(t.Context(), epic)
@@ -96,6 +96,10 @@ func waitParked(t *testing.T, st *store.Store, epic string) store.EpicRow {
 		if row.Parked != "" {
 			return row
 		}
-		time.Sleep(plannerWiringPoll)
+		select {
+		case <-host.flowDone:
+			t.Fatalf("the flow loop ended before epic %s parked", epic)
+		case <-time.After(plannerWiringPoll):
+		}
 	}
 }

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"net"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -67,6 +67,7 @@ func (f *storeFixture) waitForPaneID(t *testing.T) {
 		case <-t.Context().Done():
 			t.Fatalf("pane %s never had an %s", f.pane, protocol.OptionID)
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -90,6 +91,7 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 			t.Fatalf("pane %s row never held summary %q and label %q: row %+v (found %t)",
 				pane, summary, label, got, ok)
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -97,9 +99,7 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 func TestSummaryReachesRowAndEvents(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
-	if err := os.WriteFile(f.fakeClaude, []byte(gatedFakeClaudeScript), 0o700); err != nil {
-		t.Fatalf("write gated fake claude: %v", err)
-	}
+	exectest.WriteFile(t, f.fakeClaude, []byte(gatedFakeClaudeScript), 0o700)
 	daemon := f.startOrreryd(t)
 	// A sync waits at most 200 ms for a store still opening, or for the mirror lock, and is then dropped. So the
 	// summarizer's sync must find the store open and the lock free: the hook follows the store-open line and the first

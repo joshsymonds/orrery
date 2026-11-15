@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -89,9 +90,7 @@ func installFake(t *testing.T) string {
 		t.Fatalf("read fake claude: %v", err)
 	}
 	bin := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(bin, src, 0o755); err != nil {
-		t.Fatalf("install fake claude: %v", err)
-	}
+	exectest.WriteFile(t, bin, src, 0o755)
 	return bin
 }
 

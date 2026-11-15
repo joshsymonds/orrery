@@ -2,6 +2,8 @@
 package evidence
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"path"
@@ -9,9 +11,22 @@ import (
 	"time"
 )
 
+// Kind is how an item shows its evidence: a test, a capture or supplied files. An item stored before kinds is
+// kindless, the empty Kind. Reserved: filled by O3d5a.
+type Kind string
+
+// The kinds an item may state. A test runs a capture beside the test files it lists in Tests, a capture runs a capture
+// alone, and supplied evidence is files a person supplies.
+const (
+	KindTest     Kind = "test"
+	KindCapture  Kind = "capture"
+	KindSupplied Kind = "supplied"
+)
+
 // Item is the evidence a Requirement or task names: the capture a run executes, the limit it runs under in seconds,
 // the artifacts it leaves, the files a person supplies in place of a capture, the conclusion the evidence supports,
-// and the judge that reads it.
+// and the judge that reads it. Kind and Tests are reserved for O3d5a: the item's kind, and a test item's test files.
+// Both are left out of the stored form when empty, so an item stored without them reads and writes back unchanged.
 type Item struct {
 	Capture    []string `json:"capture"`
 	Limit      int64    `json:"limit"`
@@ -19,6 +34,23 @@ type Item struct {
 	Supplied   []string `json:"supplied"`
 	Conclusion string   `json:"conclusion"`
 	Judge      string   `json:"judge"`
+	Kind       Kind     `json:"kind,omitempty"`
+	Tests      []string `json:"tests,omitempty"`
+}
+
+// Current reports whether item is spec as stored: true when the two encode to the same JSON, the form an item is
+// stored and a run keeps its item in. A run counts only while its kept item is current with the item now stored
+// (O3d5a). An item that does not encode is never current.
+func Current(spec, item Item) bool {
+	want, err := json.Marshal(spec)
+	if err != nil {
+		return false
+	}
+	got, err := json.Marshal(item)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(want, got)
 }
 
 // maxLimitSeconds is the largest limit in whole seconds whose duration fits in a time.Duration.

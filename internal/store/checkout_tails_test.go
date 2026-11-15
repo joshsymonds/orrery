@@ -117,7 +117,7 @@ func TestCheckoutTailsMigrationDownAndUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}

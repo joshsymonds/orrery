@@ -149,6 +149,7 @@ func TestEngineHolderScopeSigkillReadoptsAskedQuestion(t *testing.T) {
 // killOrreryd sends SIGKILL to the orreryd daemon the test started and waits for it to exit. Its holders keep running.
 func killOrreryd(t *testing.T, daemon *orreryProcess) {
 	t.Helper()
+	daemon.asked.Store(true)
 	if err := daemon.cmd.Process.Signal(syscall.SIGKILL); err != nil {
 		t.Fatalf("kill orreryd: %v", err)
 	}

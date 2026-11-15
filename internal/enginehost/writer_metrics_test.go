@@ -3,6 +3,7 @@ package enginehost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/telemetry"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // manualClock is a WriterConfig.Now that moves only when a test advances it. It counts its reads, so a test can wait
@@ -38,18 +40,15 @@ func (c *manualClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
-// waitReads blocks until the clock has been read at least n times. It has no deadline of its own.
-func (c *manualClock) waitReads(t *testing.T, n int) {
+// waitReads blocks until the clock has been read at least n times. It has no deadline of its own, and fails at once if
+// ended, the end of the call that makes the last read, closes first.
+func (c *manualClock) waitReads(t *testing.T, n int, ended <-chan struct{}) {
 	t.Helper()
-	for {
+	waittest.Until(t, ended, fmt.Sprintf("clock read %d", n), func() bool {
 		c.mu.Lock()
-		got := c.reads
-		c.mu.Unlock()
-		if got >= n {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
+		defer c.mu.Unlock()
+		return c.reads >= n
+	})
 }
 
 // toggleApplier forwards to a real store while up is set, and fails every ApplyEngine call while it is not.
@@ -126,12 +125,13 @@ func TestCommitWaitIsRecordedAsWriterWait(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- w.Commit(t.Context(), "a", prompt("a", "committed")) }()
+	ended, doneResult := waittest.Closed(done)
 	// The Commit reads the clock to stamp its op, then again when it starts waiting for the op to be stored.
-	clock.waitReads(t, 2)
+	clock.waitReads(t, 2, ended)
 	clock.Advance(3 * time.Second)
 	w.flush(t.Context())
 
-	if err := receive(t, done); err != nil {
+	if err := receive(t, doneResult); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if got := scrapeSample(t, provider, "orrery_writer_wait_seconds_total"); got != 3 {
@@ -154,12 +154,13 @@ func TestPutBlockedAtLimitIsRecordedAsWriterWait(t *testing.T) {
 	}
 	blocked := make(chan error, 1)
 	go func() { blocked <- w.Put(ctx, "a", prompt("a", "a2")) }()
+	ended, blockedResult := waittest.Closed(blocked)
 	// Put a1 read the clock to stamp its op, and Put a2 reads it again when it starts waiting for room under the limit.
-	clock.waitReads(t, 2)
+	clock.waitReads(t, 2, ended)
 	clock.Advance(2 * time.Second)
 	w.flush(ctx)
 
-	if err := receive(t, blocked); err != nil {
+	if err := receive(t, blockedResult); err != nil {
 		t.Fatalf("blocked Put after a1 was stored: %v", err)
 	}
 	if got := scrapeSample(t, provider, "orrery_writer_wait_seconds_total"); got != 2 {

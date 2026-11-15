@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // gateEnv is the environment a test gate runs in: the test's PATH so its tools resolve, plus extra.
@@ -27,16 +28,25 @@ func gateEnv(extra ...string) []string {
 const gateHeldScript = `echo running > "$MARKER"; until [ -e "$RELEASE" ]; do sleep 0.01; done; echo done; exit 0`
 
 // gateWaitFile polls until path exists with content and returns the trimmed content. It has no deadline of its own:
-// the gate runs at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func gateWaitFile(t *testing.T, path string) string {
+// the gate runs at the machine's pace, and the test binary's timeout ends a wait that never ends. ended closes once
+// the run that writes path has returned; the wait then fails at once if path still has no content (see
+// waittest.Until). A nil ended is a run the test holds no end of.
+func gateWaitFile(t *testing.T, path string, ended <-chan struct{}) string {
 	t.Helper()
-	for {
+	var content string
+	waittest.Until(t, ended, "content in "+path, func() bool {
 		data, err := os.ReadFile(path)
-		if err == nil && strings.TrimSpace(string(data)) != "" {
-			return strings.TrimSpace(string(data))
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+		content = strings.TrimSpace(string(data))
+		return err == nil && content != ""
+	})
+	return content
+}
+
+// gateReturned returns a channel that is already closed, the ended of a run that has returned before the wait.
+func gateReturned() <-chan struct{} {
+	ended := make(chan struct{})
+	close(ended)
+	return ended
 }
 
 // gateProcessGone reports whether pid has exited: no /proc entry, or a zombie waiting to be reaped.
@@ -60,10 +70,10 @@ func gateWaitGone(t *testing.T, pids ...int) {
 }
 
 // gateParsePids reads the "$$ $!" pair a gate script writes: its own pid (the group id) and its
-// background child's pid.
-func gateParsePids(t *testing.T, path string) (int, int) {
+// background child's pid. ended is gateWaitFile's.
+func gateParsePids(t *testing.T, path string, ended <-chan struct{}) (int, int) {
 	t.Helper()
-	fields := strings.Fields(gateWaitFile(t, path))
+	fields := strings.Fields(gateWaitFile(t, path, ended))
 	if len(fields) != 2 {
 		t.Fatalf("pid file %s = %q, want two pids", path, strings.Join(fields, " "))
 	}
@@ -156,7 +166,7 @@ func TestGateKillsItsGroupAtLimit(t *testing.T) {
 	if !result.TimedOut {
 		t.Fatal("TimedOut = false for a gate killed at its limit")
 	}
-	group, child := gateParsePids(t, pids)
+	group, child := gateParsePids(t, pids, gateReturned())
 	gateWaitGone(t, group, child)
 }
 
@@ -181,9 +191,10 @@ func TestGateCancelKillsGroupAndErrors(t *testing.T) {
 		done <- outcome{result, err}
 	}()
 
-	group, child := gateParsePids(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
 	cancel()
-	got := <-done
+	got := <-doneResult
 	if got.err == nil {
 		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
@@ -217,10 +228,10 @@ func TestGateKeepsTheLastEightKiB(t *testing.T) {
 }
 
 // gateKillDetachedAtCleanup reads the pid a gate script wrote for a child it detached with setsid, and
-// kills that child when the test ends so it never outlives the test.
-func gateKillDetachedAtCleanup(t *testing.T, path string) {
+// kills that child when the test ends so it never outlives the test. ended is gateWaitFile's.
+func gateKillDetachedAtCleanup(t *testing.T, path string, ended <-chan struct{}) {
 	t.Helper()
-	pid, err := strconv.Atoi(gateWaitFile(t, path))
+	pid, err := strconv.Atoi(gateWaitFile(t, path, ended))
 	if err != nil {
 		t.Fatalf("detached pid in %s: %v", path, err)
 	}
@@ -236,7 +247,7 @@ func TestGateReturnsAtLimitPastDetachedChild(t *testing.T) {
 		Limit:   time.Second,
 		Environ: gateEnv("PIDS=" + pids),
 	})
-	gateKillDetachedAtCleanup(t, pids)
+	gateKillDetachedAtCleanup(t, pids, gateReturned())
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
 	}
@@ -266,9 +277,10 @@ func TestGateCancelReturnsPastDetachedChild(t *testing.T) {
 		done <- outcome{result, err}
 	}()
 
-	gateKillDetachedAtCleanup(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	gateKillDetachedAtCleanup(t, pids, ended)
 	cancel()
-	got := <-done
+	got := <-doneResult
 	if got.err == nil {
 		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
@@ -286,7 +298,7 @@ func TestGateReportsExitWhenDetachedChildHoldsOutput(t *testing.T) {
 				Limit:   time.Minute,
 				Environ: gateEnv("PIDS=" + pids),
 			})
-			gateKillDetachedAtCleanup(t, pids)
+			gateKillDetachedAtCleanup(t, pids, gateReturned())
 			if err != nil {
 				t.Fatalf("runGrantedGate returned an error for a gate that exited on its own: %v", err)
 			}
@@ -339,14 +351,27 @@ func gateReadExit(t *testing.T, dir string) holder.Exit {
 	return exit
 }
 
-// gateWaitExit polls until the gate's holder in dir has left its exit record, and returns it.
+// gateWaitExit polls until the gate's holder in dir has left its exit record, and returns it. It has no deadline of
+// its own, but it fails at once when the holder that pids record names is gone with no record left: a holder writes
+// its record before it exits, so one that exited without it never will.
 func gateWaitExit(t *testing.T, dir string) holder.Exit {
 	t.Helper()
+	exitPath := filepath.Join(dir, holder.ExitName)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
 	for {
-		if _, err := os.Stat(filepath.Join(dir, holder.ExitName)); err == nil {
+		if _, err := os.Stat(exitPath); err == nil {
 			return gateReadExit(t, dir)
 		}
-		time.Sleep(20 * time.Millisecond)
+		if pids, err := holder.ReadPids(dir); err == nil {
+			if running, runErr := holder.Running(pids.Holder, pids.HolderStart); runErr == nil && !running {
+				if _, err := os.Stat(exitPath); err == nil {
+					return gateReadExit(t, dir)
+				}
+				t.Fatalf("holder %d of %s exited without its exit record %s", pids.Holder, dir, exitPath)
+			}
+		}
+		<-ticker.C
 	}
 }
 
@@ -600,12 +625,13 @@ func TestGateCancelStopsHolderAndClearsItsDirectory(t *testing.T) {
 	}()
 
 	dir := gateWaitStarted(t, started)
-	group, child := gateParsePids(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
 	if _, err := os.Stat(filepath.Join(dir, holder.SocketName)); err != nil {
 		t.Fatalf("the gate's holder does not serve %s while the gate runs: %v", dir, err)
 	}
 	cancel()
-	got := <-done
+	got := <-doneResult
 	if got.err == nil {
 		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
@@ -634,6 +660,6 @@ func TestGateNormalExitKillsWhatItLeftRunning(t *testing.T) {
 	if result.Exit != 4 || result.TimedOut {
 		t.Fatalf("Exit = %d, TimedOut = %t, want 4 and false", result.Exit, result.TimedOut)
 	}
-	group, child := gateParsePids(t, pids)
+	group, child := gateParsePids(t, pids, gateReturned())
 	gateWaitGone(t, group, child)
 }

@@ -152,7 +152,7 @@ func TestPickerRunParity(t *testing.T) {
 
 	panes := serverPaneIDs(t, tmux)
 	// Two asks run claude synchronously, and each pane run opens a window whose claude starts asynchronously.
-	awaitClaudeRuns(t, runs, 4)
+	awaitClaudeRuns(t, tmux, runs, 4, firstPane, secondPane)
 	ran := claudeRuns(t, runs)
 	if repeat := runPane(t, handler, first[0].GetToken()); repeat != firstPane {
 		t.Errorf("repeat of the first Picker.Run token answered pane %q, want %q", repeat, firstPane)
