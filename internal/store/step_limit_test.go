@@ -193,7 +193,7 @@ func TestStepLimitSurvivesReopeningTheStore(t *testing.T) {
 	seedMigrated(t, path)
 	resets := time.Unix(1_700_003_600, 0)
 
-	s, err := Open(ctx, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestStepLimitSurvivesReopeningTheStore(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reopened, err := Open(ctx, path)
+	reopened, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open after close: %v", err)
 	}

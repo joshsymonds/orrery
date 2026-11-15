@@ -30,6 +30,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
 	"github.com/joshsymonds/orrery/internal/webui"
@@ -62,7 +63,8 @@ func (t serveLoginTransport) RoundTrip(req *http.Request) (*http.Response, error
 func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 	ctx := t.Context()
 	dbPath := filepath.Join(t.TempDir(), "orrery.db")
-	writer, err := store.Open(ctx, dbPath)
+	storetest.Seed(t, dbPath)
+	writer, err := store.Open(ctx, dbPath, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

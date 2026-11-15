@@ -21,7 +21,7 @@ import (
 func openStore(ctx context.Context, t *testing.T, path string) *store.Store {
 	t.Helper()
 	storetest.Seed(t, path)
-	s, err := store.Open(ctx, path)
+	s, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("Open(%s): %v", path, err)
 	}
@@ -106,7 +106,8 @@ func TestSeenAfterRestartClears(t *testing.T) {
 			clk := &clock{at: time.Unix(at, 0)}
 			sender := &fakeSender{}
 
-			before, err := store.Open(ctx, path)
+			storetest.Seed(t, path)
+			before, err := store.Open(ctx, path, storetest.NoSync())
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}

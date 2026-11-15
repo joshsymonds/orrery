@@ -35,7 +35,7 @@ func storeWithPush(ctx context.Context, t *testing.T, key notice.Key) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(ctx, path)
+	s, err := store.Open(ctx, path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("Open(%s): %v", path, err)
 	}

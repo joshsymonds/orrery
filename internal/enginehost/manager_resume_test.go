@@ -27,7 +27,7 @@ func newManagerOn(t *testing.T, path string, limit int, claude string, sink Noti
 		t.Fatalf("find sh: %v", err)
 	}
 	storetest.Seed(t, path)
-	s, err := store.Open(t.Context(), path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

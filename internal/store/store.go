@@ -67,10 +67,47 @@ func Path(getenv func(string) string) (string, error) {
 	return "", fmt.Errorf("no store path: set XDG_STATE_HOME or HOME")
 }
 
+// Synchronous is an SQLite synchronous mode for the store's connection.
+type Synchronous string
+
+// The synchronous modes WithSynchronous accepts.
+const (
+	SynchronousOff    Synchronous = "OFF"
+	SynchronousNormal Synchronous = "NORMAL"
+	SynchronousFull   Synchronous = "FULL"
+)
+
+// Option changes how Open opens the store.
+type Option func(*openConfig)
+
+type openConfig struct {
+	synchronous Synchronous
+}
+
+// WithSynchronous sets the connection's synchronous mode in place of SQLite's default, FULL. It is for tests: OFF
+// skips the fsync each commit and checkpoint costs, which a test's throwaway store does not need. orreryd never
+// passes it, because restart and re-adoption rely on committed rows surviving an OS crash or power loss.
+func WithSynchronous(mode Synchronous) Option {
+	return func(c *openConfig) { c.synchronous = mode }
+}
+
 // Open creates the store's directory (0700) and file (0600) when absent, opens the database in WAL mode with a
 // 200 ms busy timeout, and applies the embedded migrations. It returns ErrTooNew, without migrating, when the
 // database records a newer migration than this binary embeds. A file it cannot use is left untouched.
-func Open(ctx context.Context, path string) (*Store, error) {
+func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
+	var cfg openConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	query := "_busy_timeout=200&_journal_mode=WAL"
+	switch cfg.synchronous {
+	case "":
+	case SynchronousOff, SynchronousNormal, SynchronousFull:
+		query += "&_synchronous=" + string(cfg.synchronous)
+	default:
+		return nil, fmt.Errorf("open store: unknown synchronous mode %q", cfg.synchronous)
+	}
+
 	clean := filepath.Clean(path)
 	if err := os.MkdirAll(filepath.Dir(clean), 0o700); err != nil {
 		return nil, fmt.Errorf("create store directory: %w", err)
@@ -83,7 +120,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("close store file: %w", err)
 	}
 
-	dsn := (&url.URL{Scheme: "file", Path: clean, RawQuery: "_busy_timeout=200&_journal_mode=WAL"}).String()
+	dsn := (&url.URL{Scheme: "file", Path: clean, RawQuery: query}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)

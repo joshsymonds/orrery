@@ -35,6 +35,7 @@ func assertDirs(t *testing.T, got, want []string) {
 }
 
 func TestDirsListsEngineDirsAndStepWorkspacesNewestFirst(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	applyDirsOps(t, s, -300, EngineAdd{ID: "e-old", Dir: "/engine-old", State: "idle"})
@@ -50,6 +51,7 @@ func TestDirsListsEngineDirsAndStepWorkspacesNewestFirst(t *testing.T) {
 }
 
 func TestDirsListsEachDirOnceAtItsNewestPosition(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	applyDirsOps(t, s, -500, EngineAdd{ID: "e-x", Dir: "/x", State: "idle"})
@@ -65,6 +67,7 @@ func TestDirsListsEachDirOnceAtItsNewestPosition(t *testing.T) {
 }
 
 func TestDirsBreaksTimeTiesByDirAscending(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	applyDirsOps(t, s, 0,
@@ -81,6 +84,7 @@ func TestDirsBreaksTimeTiesByDirAscending(t *testing.T) {
 }
 
 func TestDirsOmitsWorktreesPaneSessionsAndEmptyDirs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -111,6 +115,7 @@ func TestDirsOmitsWorktreesPaneSessionsAndEmptyDirs(t *testing.T) {
 }
 
 func TestDirsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "absent")
 	path := filepath.Join(dir, "orrery.db")
 
@@ -127,6 +132,7 @@ func TestDirsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestDirsLeavesDatabaseBytesUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
