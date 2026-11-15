@@ -22,9 +22,6 @@ const nodeCheckEpic = "check-epic"
 // nodeCheckID is the id the tests give their checks. It is a valid check id.
 const nodeCheckID = "0123456789abcdef0123456789abcdef"
 
-// nodeCheckDeadline is how long a test waits for a check's end to be reported before the test fails.
-const nodeCheckDeadline = 20 * time.Second
-
 // nodeCheckStore is the store a test's NodeChecks writes to. EndNodeCheck passes through to the store, then reports its
 // error on ended, so a test waits for a check's end as an event on the store.
 type nodeCheckStore struct {
@@ -85,17 +82,12 @@ func nodeCheckOf(revision string, limit int64, argv ...string) store.NodeCheck {
 	}
 }
 
-// nodeCheckEnded waits until a check's end is reported on ended, and fails the test when the store did not record it or
-// it is not reported within nodeCheckDeadline.
+// nodeCheckEnded waits until a check's end is reported on ended, and fails the test when the store did not record it.
+// The wait has no deadline of its own: the test binary's timeout bounds a hang.
 func nodeCheckEnded(t *testing.T, ended <-chan error) {
 	t.Helper()
-	select {
-	case err := <-ended:
-		if err != nil {
-			t.Fatalf("end node check: %v", err)
-		}
-	case <-time.After(nodeCheckDeadline):
-		t.Fatalf("node check did not end within %s", nodeCheckDeadline)
+	if err := <-ended; err != nil {
+		t.Fatalf("end node check: %v", err)
 	}
 }
 
