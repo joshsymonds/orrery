@@ -79,6 +79,9 @@ private const val REQUEST_TAG = "session-request"
 private const val RESULT_TAG = "session-result"
 private const val RESULT_TEXT = "Interrupted"
 private const val COMPOSER_TAG = "composer"
+private const val QUEUE_HINT = "Queue for Claude…"
+private const val ANSWER_HINT = "Answer Claude…"
+private const val MESSAGE_HINT = "Message Claude…"
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -251,12 +254,13 @@ class SessionScreenTest {
     }
 
     @Test
-    fun sendPostsTheDraftAsAPromptToTheSession() {
+    fun doneSessionHintsMessageAndSendPostsTheDraftAsAPrompt() {
         FakeOrreryServer().use { server ->
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
             server.respond(SAY_PATH, SayResponse.getDefaultInstance())
             setScreen(server)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
+            composeRule.waitUntilExactlyOneExists(hasTestTag("pane-header"), TIMEOUT_MILLIS)
+            assertEquals(MESSAGE_HINT, editField().hint.toString())
 
             setDraft(SYNTHETIC_DRAFT)
             composeRule.onNodeWithText("Send").performClick()
@@ -288,7 +292,7 @@ class SessionScreenTest {
 
     @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
     @Test
-    fun waitingRequestCardAnswersThroughAnswer() {
+    fun waitingSessionHintsAnswerAndItsRequestCardAnswersThroughAnswer() {
         FakeOrreryServer().use { server ->
             val request = OpenRequest.newBuilder()
                 .setId(REQUEST_ID)
@@ -301,6 +305,7 @@ class SessionScreenTest {
             setScreen(server)
 
             composeRule.waitUntilExactlyOneExists(hasTestTag(REQUEST_TAG), TIMEOUT_MILLIS)
+            assertEquals(ANSWER_HINT, editField().hint.toString())
             composeRule.onNodeWithTag("session-option:$OPTION_TWO").performClick()
             composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, ANSWER_PATH) == 1 }
 
@@ -329,12 +334,13 @@ class SessionScreenTest {
     }
 
     @Test
-    fun workingSessionDrawsNoWorkingMarkAndCarriesTheWorkingEdge() {
+    fun workingSessionHintsQueueDrawsNoWorkingMarkAndCarriesTheWorkingEdge() {
         FakeOrreryServer().use { server ->
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setScreen(server)
 
             composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            assertEquals(QUEUE_HINT, editField().hint.toString())
             composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
             composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(1)
         }

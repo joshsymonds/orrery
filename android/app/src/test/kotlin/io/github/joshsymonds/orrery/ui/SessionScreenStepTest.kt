@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -56,7 +57,8 @@ private const val REQUEST_TAG = "session-request"
 private const val HOLD_TAG = "step-hold"
 private const val STOP_TAG = "step-stop"
 private const val CONFIRM_TAG = "step-stop-confirm"
-private const val NUDGE_HINT = "Nudge the step…"
+private const val NUDGE_RUNNING_HINT = "Nudge the step: it interrupts the turn, then prompts"
+private const val NUDGE_HELD_HINT = "Nudge the step: it resumes with your text"
 private const val NUDGE_NOTE = "A message to a step is a nudge."
 private const val NUDGE_LANDED = "nudge landed"
 private const val REFUSAL_REASON = "synthetic refusal"
@@ -200,25 +202,28 @@ class SessionScreenStepTest {
     }
 
     @Test
-    fun heldStepShowsNoHoldButtonButKeepsStop() {
+    fun heldStepShowsNoHoldButtonButKeepsStopAndItsResumeHint() {
         FakeOrreryServer().use { server ->
             serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setStepScreen(server, held = true)
 
             composeRule.waitUntilExactlyOneExists(hasTestTag(STOP_TAG), TIMEOUT_MILLIS)
             assertTrue(composeRule.onAllNodesWithTag(HOLD_TAG).fetchSemanticsNodes().isEmpty())
+            composeRule.waitUntilExactlyOneExists(hasTestTag("pane-header"), TIMEOUT_MILLIS)
+            assertEquals(NUDGE_HELD_HINT, editField().hint.toString())
+            assertTrue(composeRule.onAllNodesWithText(NUDGE_NOTE).fetchSemanticsNodes().isEmpty())
         }
     }
 
     @Test
-    fun composeBoxHintsNudgeAndSaysAMessageIsANudge() {
+    fun runningStepComposeBoxSaysItInterruptsAndDrawsNoNudgeNote() {
         FakeOrreryServer().use { server ->
-            serveStream(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
+            serveStream(server, streamOf(delta(seq = 1L, state = stateOf("working"))))
             setStepScreen(server)
 
-            composeRule.waitUntilExactlyOneExists(hasTestTag("composer"), TIMEOUT_MILLIS)
-            assertEquals(NUDGE_HINT, editField().hint.toString())
-            composeRule.onNodeWithText(NUDGE_NOTE).assertIsDisplayed()
+            composeRule.waitUntilExactlyOneExists(hasTestTag("pane-header"), TIMEOUT_MILLIS)
+            assertEquals(NUDGE_RUNNING_HINT, editField().hint.toString())
+            assertTrue(composeRule.onAllNodesWithText(NUDGE_NOTE).fetchSemanticsNodes().isEmpty())
         }
     }
 
