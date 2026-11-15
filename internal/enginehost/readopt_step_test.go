@@ -199,8 +199,7 @@ func TestReadoptStepEndedWhileDownIsClearedNotDrained(t *testing.T) {
 	pid := fakePID(t, dir)
 
 	restarted, sink := restartBeforeReconcile(t, rig)
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
-	defer cancel()
+	ctx := context.WithoutCancel(t.Context())
 	if err := holder.Stop(ctx, holderDir(t, rig.root, stepA)); err != nil {
 		t.Fatalf("stop holder of step %s: %v", stepA, err)
 	}

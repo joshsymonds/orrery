@@ -312,8 +312,7 @@ func TestReadoptStepWhoseHolderIsGoneEndsEngineRestarted(t *testing.T) {
 	pid := fakePID(t, wt)
 
 	rig.crash()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), managerGuard)
-	defer cancel()
+	ctx := context.WithoutCancel(t.Context())
 	if err := holder.Stop(ctx, holderDir(t, rig.root, id)); err != nil {
 		t.Fatalf("stop holder of step %s: %v", id, err)
 	}

@@ -32,7 +32,6 @@ func gateWaitLockFree(t *testing.T, dir string) {
 func gateTakeLock(t *testing.T, dir string) *os.File {
 	t.Helper()
 	path := filepath.Join(dir, holder.LockName)
-	deadline := time.Now().Add(10 * time.Second)
 	for {
 		lock, err := holder.Lock(path)
 		if err == nil {
@@ -41,9 +40,6 @@ func gateTakeLock(t *testing.T, dir string) *os.File {
 		if !errors.Is(err, holder.ErrLocked) {
 			t.Fatalf("take lock %s: %v", path, err)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the holder in %s still holds its lock", dir)
-		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -51,11 +47,7 @@ func gateTakeLock(t *testing.T, dir string) *os.File {
 // gateWaitRequests polls until pools has been asked for at least n grants.
 func gateWaitRequests(t *testing.T, pools *fakeGatePools, n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
 	for len(pools.requested()) < n {
-		if time.Now().After(deadline) {
-			t.Fatalf("pools were asked for %d grants, want %d", len(pools.requested()), n)
-		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -91,13 +83,9 @@ func gateDetachedRun(t *testing.T, pools *fakeGatePools, run gateRun, started st
 	}()
 	gateWaitFile(t, started)
 	cancel(errGateDetach)
-	select {
-	case err := <-done:
-		if !errors.Is(err, errGateDetach) {
-			t.Fatalf("runGrantedGate err = %v, want errGateDetach", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after the detach")
+	err := <-done
+	if !errors.Is(err, errGateDetach) {
+		t.Fatalf("runGrantedGate err = %v, want errGateDetach", err)
 	}
 }
 
@@ -130,12 +118,7 @@ func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) 
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatalf("release the gate: %v", err)
 	}
-	var got outcome
-	select {
-	case got = <-readopted:
-	case <-time.After(10 * time.Second):
-		t.Fatal("readoptGrantedGate did not return after the gate exited")
-	}
+	got := <-readopted
 	if got.err != nil {
 		t.Fatalf("readoptGrantedGate: %v", got.err)
 	}

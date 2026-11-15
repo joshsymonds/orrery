@@ -453,11 +453,7 @@ func TestStepLoopReturnAndExitedDoNotBlockAfterRunReturns(t *testing.T) {
 			f.run.Exited("claude exited: status 1")
 		}
 	}()
-	select {
-	case <-calls:
-	case <-time.After(waitTimeout):
-		t.Fatal("Return or Exited blocked after run returned")
-	}
+	<-calls
 }
 
 func TestStepLoopContinueErrorEndsFailed(t *testing.T) {

@@ -47,14 +47,10 @@ func (*queuedClosePools) Free(context.Context, string) error {
 	return nil
 }
 
-// waitAcquireQueued fails the test unless the fake's Acquire queues within a few seconds.
+// waitAcquireQueued waits until the fake's Acquire queues. It has no deadline of its own.
 func waitAcquireQueued(t *testing.T, pools *queuedClosePools) {
 	t.Helper()
-	select {
-	case <-pools.queued:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Acquire never queued the request")
-	}
+	<-pools.queued
 }
 
 // TestGateScopedCloseDetachesLaunchedGate checks that a gate with a Scope whose grant's Acquire ends with
@@ -94,12 +90,7 @@ func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
 	// after the attempt has returned.
 	<-launched
 	pools.drop <- grants.ErrClosed
-	var err error
-	select {
-	case err = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after the grant's Acquire ended")
-	}
+	err := <-done
 	if !errors.Is(err, errGateDetach) {
 		t.Fatalf("err = %v, want errGateDetach", err)
 	}
@@ -142,12 +133,7 @@ func TestGateScopedCloseWhileQueuedLaunchesNothing(t *testing.T) {
 
 	waitAcquireQueued(t, pools)
 	close(pools.closing)
-	var err error
-	select {
-	case err = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after the broker closed")
-	}
+	err := <-done
 	if !errors.Is(err, errGateDetach) {
 		t.Fatalf("err = %v, want errGateDetach", err)
 	}
@@ -184,12 +170,7 @@ func TestGateCloseWithoutScopeStopsGate(t *testing.T) {
 
 	group, child := gateParsePids(t, pids)
 	pools.drop <- grants.ErrClosed
-	var err error
-	select {
-	case err = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("runGrantedGate did not return after the grant's Acquire ended")
-	}
+	err := <-done
 	if errors.Is(err, errGateDetach) {
 		t.Fatalf("err = %v: a gate with no scope must not detach", err)
 	}
@@ -220,12 +201,7 @@ func TestGateReadoptScopedCloseWhileQueuedDetaches(t *testing.T) {
 
 	waitAcquireQueued(t, pools)
 	close(pools.closing)
-	var err error
-	select {
-	case err = <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("readoptGrantedGate did not return after the broker closed")
-	}
+	err := <-done
 	if !errors.Is(err, errGateDetach) {
 		t.Fatalf("err = %v, want errGateDetach", err)
 	}

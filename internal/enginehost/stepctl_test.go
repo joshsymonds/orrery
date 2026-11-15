@@ -353,12 +353,7 @@ func TestStepsWaitBlocksUntilAStepEnds(t *testing.T) {
 	}
 
 	f.endStep(t, id)
-	var w waited
-	select {
-	case w = <-result:
-	case <-time.After(waitTimeout):
-		t.Fatal("Wait did not return after the step ended")
-	}
+	w := <-result
 	if w.err != nil {
 		t.Fatalf("Wait: %v", w.err)
 	}

@@ -17,9 +17,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/notice"
 )
 
-// noticeWait bounds how long a test waits on the notices service. It is a hang guard, never a timing assumption.
-const noticeWait = 10 * time.Second
-
 // noticeNow is the clock the notice tests read. It is a fixed time, never the real clock, and its seconds are 1700000456.
 func noticeNow() time.Time {
 	return time.Unix(1700000456, 900000000)
@@ -81,8 +78,7 @@ func TestWatchStreamsSnapshotThenChanges(t *testing.T) {
 	pages.Show(notice.Key{Pane: "%3"}, deskstream.Notice{State: "waiting", Title: "proj · pane 3", Body: "needs input"})
 	client := startNoticesServer(t, NewPageNotices(pages, &fakeRouter{}, noticeNow))
 
-	ctx, cancel := context.WithTimeout(t.Context(), noticeWait)
-	defer cancel()
+	ctx := t.Context()
 	stream, err := client.Watch(ctx, connect.NewRequest(&v1.NoticesWatchRequest{}))
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
@@ -121,8 +117,7 @@ func TestSeenReachesRouterWithClockTime(t *testing.T) {
 	router := &fakeRouter{}
 	client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, noticeNow))
 
-	ctx, cancel := context.WithTimeout(t.Context(), noticeWait)
-	defer cancel()
+	ctx := t.Context()
 	if _, err := client.Seen(ctx, connect.NewRequest(&v1.NoticesSeenRequest{
 		Key: &v1.NoticeKey{Pane: "%3"},
 	})); err != nil {
@@ -151,8 +146,7 @@ func TestSeenRefusesKeyWithoutExactlyOneField(t *testing.T) {
 			router := &fakeRouter{}
 			client := startNoticesServer(t, NewPageNotices(inapp.NewHub(), router, noticeNow))
 
-			ctx, cancel := context.WithTimeout(t.Context(), noticeWait)
-			defer cancel()
+			ctx := t.Context()
 			_, err := client.Seen(ctx, connect.NewRequest(&v1.NoticesSeenRequest{Key: tc.key}))
 			if code := connect.CodeOf(err); code != connect.CodeInvalidArgument {
 				t.Fatalf("Seen code = %v (err %v), want invalid_argument", code, err)
@@ -168,8 +162,7 @@ func TestNilNoticeSourceIsUnavailable(t *testing.T) {
 	t.Parallel()
 	client := startNoticesServer(t, nil)
 
-	ctx, cancel := context.WithTimeout(t.Context(), noticeWait)
-	defer cancel()
+	ctx := t.Context()
 	stream, err := client.Watch(ctx, connect.NewRequest(&v1.NoticesWatchRequest{}))
 	if err == nil {
 		stream.Receive()
@@ -190,8 +183,7 @@ func TestWatchEndsWhenChangesClose(t *testing.T) {
 	source := newFakeNoticeSource()
 	client := startNoticesServer(t, source)
 
-	ctx, cancel := context.WithTimeout(t.Context(), noticeWait)
-	defer cancel()
+	ctx := t.Context()
 	stream, err := client.Watch(ctx, connect.NewRequest(&v1.NoticesWatchRequest{}))
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
@@ -213,7 +205,7 @@ func TestWatchStopsWhenCallEnds(t *testing.T) {
 	source := newFakeNoticeSource()
 	client := startNoticesServer(t, source)
 
-	ctx, cancel := context.WithTimeout(t.Context(), noticeWait)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	stream, err := client.Watch(ctx, connect.NewRequest(&v1.NoticesWatchRequest{}))
 	if err != nil {

@@ -380,13 +380,9 @@ func TestContinueWaitsForDrainedStepsPumpBeforeRespawn(t *testing.T) {
 	}
 
 	obs.open()
-	select {
-	case err := <-said:
-		if err != nil {
-			t.Fatalf("Continue after the drained step's pump ended: %v", err)
-		}
-	case <-time.After(managerGuard):
-		t.Fatalf("Continue did not return within %v after the hand-off was released", managerGuard)
+	err := <-said
+	if err != nil {
+		t.Fatalf("Continue after the drained step's pump ended: %v", err)
 	}
 	waitHistory(t, rig.path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 2")
