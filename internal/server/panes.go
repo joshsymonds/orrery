@@ -79,7 +79,7 @@ func newPanesHandler(
 // camel case the tag linter asks for. claudeSessionKey is the key protocol.Pane writes for ClaudeSession.
 const claudeSessionKey = "claude_session"
 
-// paneJSON is one element of the array listPanes returns, decoded by the keys its tags name. The keys
+// paneJSON is one pane object of a listing, decoded by the keys its tags name. The keys
 // claudeSessionKey, questionHashKey and newestReplyKey are read from the same object by paneField.
 type paneJSON struct {
 	ID       string `json:"id"`
@@ -109,7 +109,7 @@ func (s panesServer) List(
 	if err != nil {
 		return nil, connectError(err)
 	}
-	out, err := paneMessages(panes)
+	out, err := paneMessages(paneObjects(panes))
 	if err != nil {
 		return nil, connectError(err)
 	}
@@ -302,8 +302,8 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 	return out, nil
 }
 
-// paneExtras returns the claude_session, question_hash, newest_reply and last_turn_end of one pane object of
-// listPanes, which paneJSON does not tag.
+// paneExtras returns the claude_session, question_hash, newest_reply and last_turn_end of one pane object of a
+// listing, which paneJSON does not tag.
 func paneExtras(fields map[string]json.RawMessage) (string, string, int64, int64, error) {
 	var claudeSession, questionHash string
 	var newestReply, lastTurnEnd int64
