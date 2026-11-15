@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
 const (
@@ -33,14 +34,15 @@ type Applier interface {
 	ApplyEngine(ctx context.Context, ops []store.EngineOp, now time.Time) error
 }
 
-// WriterConfig configures a Writer. A zero Tick is 100 ms and a zero Limit is 256. A nil Now is time.Now and a nil
-// Logger discards.
+// WriterConfig configures a Writer. A zero Tick is 100 ms and a zero Limit is 256. A nil Now is time.Now, a nil
+// Logger discards, and a nil Metrics records nothing.
 type WriterConfig struct {
 	Applier Applier
 	Tick    time.Duration
 	Limit   int
 	Now     func() time.Time
 	Logger  *slog.Logger
+	Metrics *telemetry.Daemon
 }
 
 // outcome is how one queued op ends. done is closed once the op is stored or dropped. err is set before done is
@@ -50,11 +52,12 @@ type outcome struct {
 	err  error
 }
 
-// entry is one queued op. result is the op's outcome.
+// entry is one queued op. result is the op's outcome, and queued is when the op was queued.
 type entry struct {
 	id     string
 	op     store.EngineOp
 	result *outcome
+	queued time.Time
 }
 
 // textKey names the unfinished-text row an EngineText or EngineTextDone op addresses.
@@ -74,6 +77,7 @@ type Writer struct {
 	limit   int
 	now     func() time.Time
 	logger  *slog.Logger
+	metrics *telemetry.Daemon
 
 	// failing is read and written only by flush, which only Run calls.
 	failing bool
@@ -101,6 +105,7 @@ func NewWriter(cfg WriterConfig) *Writer {
 		limit:    cfg.Limit,
 		now:      cfg.Now,
 		logger:   cfg.Logger,
+		metrics:  cfg.Metrics,
 		unstored: map[string]int{},
 		changed:  make(chan struct{}),
 		stopped:  make(chan struct{}),
@@ -221,12 +226,8 @@ func (w *Writer) putAll(ctx context.Context, groups []SessionOps) ([][]*outcome,
 		}
 		changed := w.changed
 		w.mu.Unlock()
-		select {
-		case <-changed:
-		case <-w.stopped:
-			return nil, ErrWriterStopped
-		case <-ctx.Done():
-			return nil, fmt.Errorf("queue ops for session %s: %w", full.ID, ctx.Err())
+		if err := w.waitForRoom(ctx, changed, full.ID); err != nil {
+			return nil, err
 		}
 		w.mu.Lock()
 	}
@@ -243,6 +244,21 @@ func (w *Writer) putAll(ctx context.Context, groups []SessionOps) ([][]*outcome,
 		}
 	}
 	return results, nil
+}
+
+// waitForRoom waits until changed is closed, Run returns, or ctx ends, and records the time it waited. id names the
+// session whose Put waits.
+func (w *Writer) waitForRoom(ctx context.Context, changed chan struct{}, id string) error {
+	start := w.now()
+	defer w.recordWait(ctx, start)
+	select {
+	case <-changed:
+		return nil
+	case <-w.stopped:
+		return ErrWriterStopped
+	case <-ctx.Done():
+		return fmt.Errorf("queue ops for session %s: %w", id, ctx.Err())
+	}
 }
 
 // fullLocked returns the first group whose session has as many unstored ops as the limit, when the group has an op
@@ -276,7 +292,7 @@ func (w *Writer) enqueueLocked(id string, op store.EngineOp) *outcome {
 		}
 	}
 	result := &outcome{done: make(chan struct{})}
-	w.queue = append(w.queue, entry{id: id, op: op, result: result})
+	w.queue = append(w.queue, entry{id: id, op: op, result: result, queued: w.now()})
 	if countsAgainstLimit(op) {
 		w.unstored[id]++
 	}
@@ -348,8 +364,9 @@ func blockOf(messageID string, index int, parentToolUseID string) textKey {
 // flush sends every queued op in one ApplyEngine call. An op whose session or step row is gone is dropped, and the
 // rest are sent again in the same flush, so it never holds up the others. On any other failure flush puts the ops
 // back at the front of the queue for the next flush. Each flush that stores or drops ops wakes the Puts blocked at the
-// limit.
+// limit. Each flush also records the backlog age once it has finished.
 func (w *Writer) flush(ctx context.Context) {
+	defer w.recordBacklog(ctx)
 	w.mu.Lock()
 	batch := w.queue
 	w.queue = nil
@@ -414,9 +431,28 @@ func (w *Writer) settleLocked(e entry) {
 	}
 }
 
+// recordBacklog records the age of the oldest op not yet stored, or 0 when none is queued. flush is its only caller,
+// so the queue holds every op not yet stored.
+func (w *Writer) recordBacklog(ctx context.Context) {
+	w.mu.Lock()
+	var age time.Duration
+	if len(w.queue) > 0 {
+		age = w.now().Sub(w.queue[0].queued)
+	}
+	w.mu.Unlock()
+	w.metrics.WriterBacklog(ctx, age)
+}
+
+// recordWait adds the time since start to the writer wait metric.
+func (w *Writer) recordWait(ctx context.Context, start time.Time) {
+	w.metrics.WriterWaited(ctx, w.now().Sub(start))
+}
+
 // await waits for result to settle, or for ctx to end or Run to return without settling it. It returns nil once the op
 // is settled, whether stored or dropped; the op's error, when it was dropped, is result.err.
 func (w *Writer) await(ctx context.Context, result *outcome) error {
+	start := w.now()
+	defer w.recordWait(ctx, start)
 	select {
 	case <-result.done:
 		return nil

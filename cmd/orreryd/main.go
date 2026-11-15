@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/daemon"
@@ -38,9 +40,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/sdnotify"
+	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
+	"github.com/joshsymonds/orrery/internal/telemetry"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -74,6 +78,11 @@ const (
 	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
+	// flightThreshold is how long a start to READY or a sessions reconcile may take before the flight recorder writes
+	// a trace.
+	flightThreshold = 10 * time.Second
+	// flightDirName is the directory beside the store that holds the flight traces.
+	flightDirName = "traces"
 	// noticeLogName is the notice log's file name, beside the push store.
 	noticeLogName = "notices.jsonl"
 	// readWindow is how long after a read report its pane still counts as read, so a waiting notice for it is held.
@@ -91,7 +100,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--holder-scope PATH] [--step-cap N]
+               [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -110,6 +119,8 @@ flags:
                     systemd-run binary that runs each session's holder in its own user scope
                     (default: none, the holder starts plainly)
   --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
+  --metrics-listen ADDR
+                    serve /metrics on ADDR, a loopback IP literal with a port (default: none)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -128,18 +139,25 @@ func usagef(format string, args ...any) error {
 
 // options holds the parsed command line.
 type options struct {
-	server        tmuxctl.Server
-	defaultServer tmuxctl.Server // the default socket, set only when server is zero
-	socket        string
-	claude        string
-	models        map[string]string
-	pushHosts     []string
-	sessions      bool
-	sessionCap    int
-	sessionShell  string
-	holderScope   string
-	stepCap       int
-	notifySocket  string // the NOTIFY_SOCKET value orreryd started with, "" when unset
+	server          tmuxctl.Server
+	defaultServer   tmuxctl.Server // the default socket, set only when server is zero
+	socket          string
+	claude          string
+	models          map[string]string
+	pushHosts       []string
+	sessions        bool
+	sessionCap      int
+	sessionShell    string
+	holderScope     string
+	stepCap         int
+	metricsListen   string                  // the --metrics-listen address, "" when unset
+	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
+	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
+	notifySocket    string                  // the NOTIFY_SOCKET value orreryd started with, "" when unset
+	// holdReconcile is a test seam: reconcile calls it before it starts, and production leaves it nil.
+	holdReconcile func(ctx context.Context)
+	flight        *telemetry.Flight // the flight recorder run starts, nil when it could not start
+	started       time.Time         // when run began, the start of the start phase
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -183,6 +201,8 @@ func main() {
 
 // run starts orreryd with the command line args and returns its exit code. It exits 0 after SIGINT or SIGTERM.
 func run(args []string, stderr io.Writer, getenv func(string) string) int {
+	// start is when orreryd began, the start of the start phase that the flight recorder times to READY.
+	start := time.Now()
 	// The notify socket is read and removed before anything captures the environment, so no child inherits it.
 	notifySocket := getenv(envNotifySocket)
 	if err := os.Unsetenv(envNotifySocket); err != nil {
@@ -193,10 +213,54 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 		return report(stderr, err)
 	}
 	opts.notifySocket = notifySocket
+	opts.started = start
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	// The recorder starts whether or not --metrics-listen is set, and stops when run returns.
+	opts.flight = startFlight(ctx, getenv, flightThreshold, logger)
+	defer opts.flight.Stop()
+	// The metrics address is bound before any socket exists, so a refused address fails before the daemon socket does.
+	if err := startMetrics(ctx, &opts, start, logger); err != nil {
+		return report(stderr, err)
+	}
 	return report(stderr, serve(ctx, opts, logger, getenv))
+}
+
+// startFlight starts the flight recorder over the traces directory beside the store, so a phase that takes longer than
+// threshold writes a trace there. A recorder that cannot start is logged and nil is returned, so orreryd serves on.
+func startFlight(
+	ctx context.Context,
+	getenv func(string) string,
+	threshold time.Duration,
+	logger *slog.Logger,
+) *telemetry.Flight {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "flight recorder off, serving anyway", "error", err)
+		return nil
+	}
+	dir := filepath.Join(filepath.Dir(storePath), flightDirName)
+	flight, err := telemetry.StartFlight(dir, threshold)
+	if err != nil {
+		logger.ErrorContext(ctx, "start flight recorder, serving anyway", "dir", dir, "error", err)
+		return nil
+	}
+	return flight
+}
+
+// observeFlight writes a flight trace named for phase when took is over the flight threshold. A write that fails is
+// logged and serving goes on. A nil flight writes nothing.
+func observeFlight(
+	ctx context.Context,
+	logger *slog.Logger,
+	flight *telemetry.Flight,
+	phase string,
+	took time.Duration,
+) {
+	if err := flight.Observe(phase, took); err != nil {
+		logger.ErrorContext(ctx, "write flight trace, serving anyway", "phase", phase, "error", err)
+	}
 }
 
 // report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently.
@@ -231,6 +295,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
+	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -279,6 +344,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessionShell:  *sessionShell,
 		holderScope:   *holderScope,
 		stepCap:       *stepCap,
+		metricsListen: *metricsListen,
 	}, nil
 }
 
@@ -342,7 +408,9 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 // serve listens on the daemon and desk sockets and applies hook frames while it opens the store, so no frame waits for
 // the store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
-// systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions.
+// systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
+// --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
+// threshold writes a start trace once READY=1 is sent.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, err := os.Hostname()
 	if err != nil {
@@ -359,7 +427,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if err != nil {
 		return fmt.Errorf("push store: %w", err)
 	}
-	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout})
+	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout}, opts.metrics)
 	if err != nil {
 		return fmt.Errorf("push publisher: %w", err)
 	}
@@ -442,7 +510,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		stop()
 	} else {
 		close(tidyStart)
-		notifyReady(ctx, logger, opts.notifySocket)
+		notifyReady(ctx, logger, opts)
 	}
 	serveErr := <-serveDone
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
@@ -452,15 +520,48 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	return errors.Join(startErr, serveErr, sessionErr)
 }
 
-// notifyReady sends systemd READY=1 to socket. An empty socket means systemd did not start orreryd, so nothing is sent.
-// A failed send is logged and serving goes on.
-func notifyReady(ctx context.Context, logger *slog.Logger, socket string) {
-	if socket == "" {
-		return
+// notifyReady records the ready time on metrics, then sends systemd READY=1 to opts.notifySocket. An empty socket means
+// systemd did not start orreryd, so nothing is sent. A failed send is logged and serving goes on. A nil metrics records
+// nothing. The start to READY time is then observed by the flight recorder, which writes a start trace when it is over
+// the threshold.
+func notifyReady(ctx context.Context, logger *slog.Logger, opts options) {
+	took := time.Since(opts.started)
+	opts.metrics.Ready(ctx, time.Now())
+	if opts.notifySocket != "" {
+		if err := sdnotify.Ready(opts.notifySocket); err != nil {
+			logger.ErrorContext(ctx, "notify systemd, serving anyway", "error", err)
+		}
 	}
-	if err := sdnotify.Ready(socket); err != nil {
-		logger.ErrorContext(ctx, "notify systemd, serving anyway", "error", err)
+	observeFlight(ctx, logger, opts.flight, "start", took)
+}
+
+// startMetrics serves /metrics for a --metrics-listen orreryd until ctx ends. It binds the address, records start as
+// the start time, and sets opts.metrics and opts.metricsHandlers, which the push publisher, the writer, the manager and
+// the session services take. Without the flag it sets nothing.
+func startMetrics(ctx context.Context, opts *options, start time.Time, logger *slog.Logger) error {
+	if opts.metricsListen == "" {
+		return nil
 	}
+	ln, err := server.Listen(ctx, opts.metricsListen)
+	if err != nil {
+		return fmt.Errorf("metrics listener: %w", err)
+	}
+	provider, err := telemetry.New()
+	if err != nil {
+		return errors.Join(fmt.Errorf("metrics provider: %w", err), ln.Close())
+	}
+	daemon, err := telemetry.NewDaemon(ctx, provider, start)
+	if err != nil {
+		return errors.Join(fmt.Errorf("metrics daemon: %w", err), ln.Close())
+	}
+	opts.metrics = daemon
+	opts.metricsHandlers = provider.HandlerOptions()
+	go func() {
+		if serveErr := provider.Serve(ctx, ln); serveErr != nil {
+			logger.ErrorContext(ctx, "serve metrics", "error", serveErr)
+		}
+	}()
+	return nil
 }
 
 // serveInBackground runs daemon.Serve on ln with cfg until ctx is done. The returned channel receives Serve's error
@@ -573,7 +674,7 @@ func startSessions(
 			return nil, fmt.Errorf("step worktrees: %w", err)
 		}
 		stateDir := filepath.Dir(storePath)
-		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
+		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger, Metrics: opts.metrics})
 		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
@@ -588,6 +689,7 @@ func startSessions(
 			Notifier:    notifier,
 			Store:       st,
 			Logger:      logger,
+			Metrics:     opts.metrics,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -622,7 +724,7 @@ func startSessions(
 			host.writer.Run(writerCtx)
 			close(host.writerDone)
 		}()
-		host.reconcile(ctx, logger)
+		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
 		host.startPlanner(ctx, st, router, getenv, resolve, logger)
@@ -639,7 +741,9 @@ func startSessions(
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
-		host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices)
+		host.serveDone <- enginehost.Serve(
+			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, opts.metricsHandlers...,
+		)
 	}()
 	return host, nil
 }
@@ -679,8 +783,20 @@ func readoptGate(
 }
 
 // reconcile re-adopts the open step rows a previous run left, then reconciles the session rows and the step rows that no
-// re-adoption holds. A failure is logged and serving goes on.
-func (h *sessionHost) reconcile(ctx context.Context, logger *slog.Logger) {
+// re-adoption holds. A failure is logged and serving goes on. hold, when not nil, is called first and returns when the
+// reconcile may start. The flight recorder flight, when not nil, writes a reconcile trace when the whole call, hold
+// included, takes longer than its threshold.
+func (h *sessionHost) reconcile(
+	ctx context.Context,
+	logger *slog.Logger,
+	hold func(context.Context),
+	flight *telemetry.Flight,
+) {
+	start := time.Now()
+	defer func() { observeFlight(ctx, logger, flight, "reconcile", time.Since(start)) }()
+	if hold != nil {
+		hold(ctx)
+	}
 	if err := h.steps.Readopt(ctx, h.manager); err != nil {
 		logger.ErrorContext(ctx, "readopt steps, serving anyway", "error", err)
 	}

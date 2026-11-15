@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
 // Notification is one pane event sent to every registered subscription.
@@ -67,17 +68,19 @@ const pushTTLSeconds = 3600
 type Publisher struct {
 	store  *Store
 	client *http.Client
+	daemon *telemetry.Daemon
 }
 
-// NewPublisher returns a Publisher that reads subscriptions from store and posts with client.
-func NewPublisher(store *Store, client *http.Client) (*Publisher, error) {
+// NewPublisher returns a Publisher that reads subscriptions from store, posts with client and counts failed posts on
+// daemon. A nil daemon counts nothing.
+func NewPublisher(store *Store, client *http.Client, daemon *telemetry.Daemon) (*Publisher, error) {
 	if store == nil {
 		return nil, errors.New("push publisher: nil store")
 	}
 	if client == nil {
 		return nil, errors.New("push publisher: nil HTTP client")
 	}
-	return &Publisher{store: store, client: client}, nil
+	return &Publisher{store: store, client: client, daemon: daemon}, nil
 }
 
 // Publish encrypts note for every stored subscription and POSTs each body. Every body is built before the
@@ -240,7 +243,8 @@ func encryptFor(sub Subscription, payload []byte) ([]byte, error) {
 	return Encrypt(payload, uaPublic, authSecret, asPrivate, salt)
 }
 
-// post sends one encrypted body to endpoint and fails on any non-2xx reply.
+// post sends one encrypted body to endpoint and fails on any non-2xx reply. Each failure is counted on the daemon by
+// its status, with 0 for no reply.
 func (p *Publisher) post(ctx context.Context, endpoint string, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -251,10 +255,12 @@ func (p *Publisher) post(ctx context.Context, endpoint string, body []byte) erro
 	req.Header.Set(pushTTLHeader, strconv.Itoa(pushTTLSeconds))
 	resp, err := p.client.Do(req)
 	if err != nil {
+		p.daemon.PushFailed(ctx, 0)
 		return fmt.Errorf("post push notification: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		p.daemon.PushFailed(ctx, resp.StatusCode)
 		return fmt.Errorf("push endpoint returned %s", resp.Status)
 	}
 	return nil

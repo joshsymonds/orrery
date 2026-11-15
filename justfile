@@ -16,6 +16,10 @@ default:
 lint:
     golangci-lint run
 
+# Replay the orrery alert rules against their promtool unit tests.
+alert-check:
+    promtool test rules observability/orrery-rules.test.yml
+
 # Run tests with race and coverage, and enforce at least 80% total coverage
 # excluding cmd/ entry points and the generated code in internal/gen.
 # -coverpkg=./... attributes coverage across package boundaries.
@@ -181,7 +185,7 @@ web-page:
     scripts/build-web.sh web/build/page
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page
+check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

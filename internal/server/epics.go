@@ -596,15 +596,17 @@ func newEpicsHandler(
 	timeout time.Duration,
 	now func() time.Time,
 	clock rpcretry.Clock,
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
+	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewEpicsHandler(
 		epicsServer{
 			root: root, steps: steps, store: store, evidence: evidence, timeout: timeout, now: now, clock: clock,
 			heads: newHeadCache(),
 		},
-		connect.WithReadMaxBytes(maxControlBody),
+		options...,
 	)
 }
