@@ -193,6 +193,21 @@ message Step {
   // When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
   // unknown.
   int64 limit_resets = 20;
+
+  // The stage the step is in, such as turn, checks, gate, judge, held or limited. Empty when the row stores no stage.
+  string stage = 21;
+
+  // When the step's stage started, in unix seconds. Zero when the row stores no start.
+  int64 stage_started = 22;
+
+  // The name of the gate the step runs. Empty when the step runs no named gate.
+  string gate_name = 23;
+
+  // The most seconds the step's gate may run, in whole seconds.
+  int64 gate_limit_seconds = 24;
+
+  // The verdicts the step's monitor and judge gave, in the order they were recorded.
+  repeated StepVerdict verdicts = 25;
 }
 
 // ListStepsRequest asks for the labelled steps.
@@ -259,4 +274,19 @@ message StepCheck {
 
   // The tail of the check's stderr, redacted.
   string stderr = 6;
+}
+
+// StepVerdict is one verdict the step's monitor or judge gave.
+message StepVerdict {
+  // The round the verdict was given in.
+  uint32 round = 1;
+
+  // The kind of verdict: monitor or judge.
+  string kind = 2;
+
+  // The verdict the call gave. Empty when the call failed.
+  string verdict = 3;
+
+  // The verdict's detail, such as the reason it gave.
+  string detail = 4;
 }

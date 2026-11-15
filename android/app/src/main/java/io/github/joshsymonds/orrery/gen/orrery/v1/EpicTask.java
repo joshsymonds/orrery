@@ -22,6 +22,7 @@ public  final class EpicTask extends
     slug_ = "";
     subject_ = "";
     status_ = "";
+    requirements_ = emptyProtobufList();
   }
   public static final int EFFORT_FIELD_NUMBER = 1;
   private int effort_;
@@ -260,6 +261,135 @@ public  final class EpicTask extends
     checkByteStringIsUtf8(value);
     status_ = value.toStringUtf8();
 
+  }
+
+  public static final int REQUIREMENTS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> requirements_;
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @return A list containing the requirements.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getRequirementsList() {
+    return requirements_;
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @return The count of requirements.
+   */
+  @java.lang.Override
+  public int getRequirementsCount() {
+    return requirements_.size();
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param index The index of the element to return.
+   * @return The requirements at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getRequirements(int index) {
+    return requirements_.get(index);
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the requirements at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRequirementsBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        requirements_.get(index));
+  }
+  private void ensureRequirementsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        requirements_;  if (!tmp.isModifiable()) {
+      requirements_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param index The index to set the value at.
+   * @param value The requirements to set.
+   */
+  private void setRequirements(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRequirementsIsMutable();
+    requirements_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param value The requirements to add.
+   */
+  private void addRequirements(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRequirementsIsMutable();
+    requirements_.add(value);
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param values The requirements to add.
+   */
+  private void addAllRequirements(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureRequirementsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, requirements_);
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void clearRequirements() {
+    requirements_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+   * </pre>
+   *
+   * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+   * @param value The bytes of the requirements to add.
+   */
+  private void addRequirementsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureRequirementsIsMutable();
+    requirements_.add(value.toStringUtf8());
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask parseFrom(
@@ -610,6 +740,134 @@ public  final class EpicTask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @return A list containing the requirements.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getRequirementsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getRequirementsList());
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @return The count of requirements.
+     */
+    @java.lang.Override
+    public int getRequirementsCount() {
+      return instance.getRequirementsCount();
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @param index The index of the element to return.
+     * @return The requirements at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getRequirements(int index) {
+      return instance.getRequirements(index);
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the requirements at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getRequirementsBytes(int index) {
+      return instance.getRequirementsBytes(index);
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @param index The index to set the value at.
+     * @param value The requirements to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRequirements(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setRequirements(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @param value The requirements to add.
+     * @return This builder for chaining.
+     */
+    public Builder addRequirements(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addRequirements(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @param values The requirements to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllRequirements(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllRequirements(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRequirements() {
+      copyOnWrite();
+      instance.clearRequirements();
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+     * </pre>
+     *
+     * <code>repeated string requirements = 5 [json_name = "requirements"];</code>
+     * @param value The bytes of the requirements to add.
+     * @return This builder for chaining.
+     */
+    public Builder addRequirementsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addRequirementsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicTask)
   }
   @java.lang.Override
@@ -630,10 +888,11 @@ public  final class EpicTask extends
             "slug_",
             "subject_",
             "status_",
+            "requirements_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0004\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0004\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

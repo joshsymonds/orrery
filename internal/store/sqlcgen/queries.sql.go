@@ -859,7 +859,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -910,6 +910,8 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.LoopGateFrom,
 		&i.CheckoutHead,
 		&i.CheckoutHash,
+		&i.LoopStage,
+		&i.LoopStageFrom,
 	)
 	return i, err
 }
@@ -1911,32 +1913,35 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 const insertStep = `-- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
-                   started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?)
+                   started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
+                   loop_stage, loop_stage_from)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?)
 `
 
 type InsertStepParams struct {
-	ID           string
-	Agent        string
-	Prompt       string
-	OutputSchema string
-	Workspace    string
-	Revision     string
-	Worktree     string
-	CheckoutHead string
-	CheckoutHash string
-	DoneValue    string
-	ReadOnly     bool
-	Owned        string
-	Gate         string
-	GateName     string
-	GateSource   string
-	GateNeeds    string
-	GateLimit    int64
-	ModelLimit   int64
-	Started      int64
-	Epic         string
-	Task         string
+	ID            string
+	Agent         string
+	Prompt        string
+	OutputSchema  string
+	Workspace     string
+	Revision      string
+	Worktree      string
+	CheckoutHead  string
+	CheckoutHash  string
+	DoneValue     string
+	ReadOnly      bool
+	Owned         string
+	Gate          string
+	GateName      string
+	GateSource    string
+	GateNeeds     string
+	GateLimit     int64
+	ModelLimit    int64
+	Started       int64
+	Epic          string
+	Task          string
+	LoopStage     string
+	LoopStageFrom int64
 }
 
 func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
@@ -1962,6 +1967,8 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.Started,
 		arg.Epic,
 		arg.Task,
+		arg.LoopStage,
+		arg.LoopStageFrom,
 	)
 	return err
 }
@@ -3533,7 +3540,7 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
 ORDER BY started, id
@@ -3598,6 +3605,8 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.LoopGateFrom,
 			&i.CheckoutHead,
 			&i.CheckoutHash,
+			&i.LoopStage,
+			&i.LoopStageFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -3613,7 +3622,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 }
 
 const listLimitedSteps = `-- name: ListLimitedSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
 `
 
 func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
@@ -3670,6 +3679,8 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 			&i.LoopGateFrom,
 			&i.CheckoutHead,
 			&i.CheckoutHash,
+			&i.LoopStage,
+			&i.LoopStageFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -3815,7 +3826,7 @@ func (q *Queries) ListOpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, erro
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -3872,6 +3883,8 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.LoopGateFrom,
 			&i.CheckoutHead,
 			&i.CheckoutHash,
+			&i.LoopStage,
+			&i.LoopStageFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -5142,7 +5155,8 @@ func (q *Queries) UpdateStepGate(ctx context.Context, arg UpdateStepGateParams) 
 const updateStepLoop = `-- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?, loop_gate_from = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?, loop_gate_from = ?,
+    loop_stage = ?, loop_stage_from = ?
 WHERE id = ?
 `
 
@@ -5158,6 +5172,8 @@ type UpdateStepLoopParams struct {
 	LoopLimitKind   string
 	LoopLimitResets int64
 	LoopGateFrom    int64
+	LoopStage       string
+	LoopStageFrom   int64
 	ID              string
 }
 
@@ -5174,6 +5190,8 @@ func (q *Queries) UpdateStepLoop(ctx context.Context, arg UpdateStepLoopParams) 
 		arg.LoopLimitKind,
 		arg.LoopLimitResets,
 		arg.LoopGateFrom,
+		arg.LoopStage,
+		arg.LoopStageFrom,
 		arg.ID,
 	)
 	return err

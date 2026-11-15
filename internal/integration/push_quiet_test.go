@@ -78,7 +78,7 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 		}
 	}
 
-	// A pane reads done once orreryd has applied its Stop. A Stop that notifies is judged after route.JudgeDelay, so
+	// A pane reads done once orreryd has applied its Stop. A Stop that notifies is judged after its judge delay, so
 	// each notifying push is awaited before orreryd stops. orreryd awaits every notification before it exits, so once
 	// it has exited, a push still queued is one a quiet Stop sent.
 	for _, pane := range panes {

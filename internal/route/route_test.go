@@ -755,6 +755,54 @@ func silentDonePush() push.Notification {
 	return n
 }
 
+// TestJudgeWaitsTheConfiguredDelay proves that Config.JudgeDelay replaces the JudgeDelay constant as the wait of an
+// unwatched judged notice: the one timer armed waits the configured delay, and firing it runs the judge.
+func TestJudgeWaitsTheConfiguredDelay(t *testing.T) {
+	const delay = 3 * time.Second
+	f := newFake()
+	c := &canned{verdict: route.Verdict{Needed: true}}
+	r := route.New(route.Config{
+		Host: testHost, Now: f.Now, After: f.After, JudgeDelay: delay,
+		Desk: f, Phone: f, Subscribed: f.Subscribed, Log: f,
+	})
+	t.Cleanup(r.Close)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = c.judge
+	r.Notify(t.Context(), n)
+	r.Wait()
+	c.checkCalls(t, 0)
+	if got := countTimers(f, route.JudgeDelay); got != 0 {
+		t.Fatalf("timers waiting the %v default = %d, want 0", route.JudgeDelay, got)
+	}
+
+	f.fire(t, delay)
+	r.Wait()
+	c.checkCalls(t, 1)
+}
+
+// TestJudgeAtOnceWithNoJudgeDelay proves that Config.JudgeDelay NoJudgeDelay arms the judge's wait with no delay: the
+// one timer armed waits zero, and firing it runs the judge.
+func TestJudgeAtOnceWithNoJudgeDelay(t *testing.T) {
+	f := newFake()
+	c := &canned{verdict: route.Verdict{Needed: true}}
+	r := route.New(route.Config{
+		Host: testHost, Now: f.Now, After: f.After, JudgeDelay: route.NoJudgeDelay,
+		Desk: f, Phone: f, Subscribed: f.Subscribed, Log: f,
+	})
+	t.Cleanup(r.Close)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = c.judge
+	r.Notify(t.Context(), n)
+	r.Wait()
+	c.checkCalls(t, 0)
+
+	f.fire(t, 0)
+	r.Wait()
+	c.checkCalls(t, 1)
+}
+
 func TestJudgeNoCallBeforeDelayThenNeededRoutesAsToday(t *testing.T) {
 	f := newFake()
 	c := &canned{verdict: route.Verdict{Needed: true}}

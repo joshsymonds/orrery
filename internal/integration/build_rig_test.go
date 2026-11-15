@@ -228,13 +228,26 @@ func (r *buildRig) task(t *testing.T) *v1.EpicTask {
 	return tasks[0]
 }
 
-// awaitStep waits until task 1 holds step id as its build's current step. It has no deadline of its own.
-func (r *buildRig) awaitStep(t *testing.T, id string) {
+// awaitStep runs daemon's flow, a pass at a time, until task 1 holds step id as its build's current step.
+func (r *buildRig) awaitStep(t *testing.T, daemon *orreryProcess, ack string, id string) {
 	t.Helper()
-	ticker := time.NewTicker(pollEvery)
-	defer ticker.Stop()
-	for r.task(t).GetStep() != id {
-		<-ticker.C
+	passUntil(t, daemon, ack, func() bool { return r.task(t).GetStep() == id })
+}
+
+// awaitGreen runs daemon's flow, a pass at a time, until task 1 is at green.
+func (r *buildRig) awaitGreen(t *testing.T, daemon *orreryProcess, ack string) {
+	t.Helper()
+	passUntil(t, daemon, ack, func() bool { return r.task(t).GetStage() == build.StageGreen })
+}
+
+// passUntil signals daemon, which runs with --flow-ticks at ack, to run its flow one pass at a time until done reports
+// true. Each pass is awaited in ack, so done reads the store after the pass's writes. A pass that has nothing to do
+// changes nothing, so the loop also waits for work outside the flow, such as a fake claude's turn. It has no deadline
+// of its own.
+func passUntil(t *testing.T, daemon *orreryProcess, ack string, done func() bool) {
+	t.Helper()
+	for !done() {
+		signalPass(t, daemon, ack)
 	}
 }
 

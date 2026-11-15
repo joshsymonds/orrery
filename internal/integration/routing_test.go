@@ -292,7 +292,7 @@ func dialDesk(t *testing.T, socket string) *bufio.Reader {
 	return r
 }
 
-// TestOrrerydRouteJudgedDoneRoutesByVerdict drives one plain done per case, judged after route.JudgeDelay. The verdict
+// TestOrrerydRouteJudgedDoneRoutesByVerdict drives one plain done per case, judged after its judge delay. The verdict
 // or the failure sets the desk line's quiet key, the push's silent key and the log reason. The judge runs once, through
 // the pane's base URL and summary model.
 func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
@@ -339,8 +339,8 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			writeFile(t, transcript, exampleTranscript, 0o600)
 			since := time.Now().Unix()
 
-			// The notice waits out route.JudgeDelay before the judge runs; route's own tests check that wait on fake
-			// timers, so this test checks only what the judged notice carries.
+			// The notice waits out the daemon's --judge-delay before the judge runs; route's own tests check that wait
+			// on fake timers, so this test checks only what the judged notice carries.
 			sendHook(t, socket, pane, project, stopHook(transcript))
 			line := nextDeskLine(t, r)
 			if line.Kind != deskstream.KindNotice || line.State != string(protocol.StateDone) ||
@@ -377,7 +377,9 @@ func TestOrrerydRouteWorkAfterDoneIsChanged(t *testing.T) {
 	stateHome := filepath.Join(dir, "state")
 	endpoint := newPushEndpoint(t)
 	registerPush(t, stateHome, endpoint)
-	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
+	// The work has to start inside the done's judge delay, so this daemon's delay outlasts the test. The later
+	// --judge-delay overrides the one startPushDaemon passes.
+	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint, "--judge-delay", time.Hour.String())
 	transcript := filepath.Join(dir, "transcript.jsonl")
 	writeFile(t, transcript, exampleTranscript, 0o600)
 	since := time.Now().Unix()

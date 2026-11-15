@@ -94,11 +94,11 @@ func TestTitles(t *testing.T) {
 }
 
 func TestHelloThenNoticesInOrder(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 
-	if got, want := c.readLine(), `{"kind":"hello","host":"gnomon"}`; got != want {
+	if got, want := c.readLine(), `{"kind":"hello","host":"synthetic-host"}`; got != want {
 		t.Fatalf("hello = %s, want %s", got, want)
 	}
 	hub.Post(Notice{State: "waiting", Title: "T1", Body: "B1"})
@@ -106,9 +106,9 @@ func TestHelloThenNoticesInOrder(t *testing.T) {
 	hub.Post(Notice{Title: "T3"})
 
 	wants := []string{
-		`{"kind":"notice","host":"gnomon","state":"waiting","title":"T1","body":"B1"}`,
-		`{"kind":"notice","host":"gnomon","state":"done","title":"T2","body":"B2"}`,
-		`{"kind":"notice","host":"gnomon","title":"T3"}`,
+		`{"kind":"notice","host":"synthetic-host","state":"waiting","title":"T1","body":"B1"}`,
+		`{"kind":"notice","host":"synthetic-host","state":"done","title":"T2","body":"B2"}`,
+		`{"kind":"notice","host":"synthetic-host","title":"T3"}`,
 	}
 	for _, want := range wants {
 		if got := c.readLine(); got != want {
@@ -118,33 +118,33 @@ func TestHelloThenNoticesInOrder(t *testing.T) {
 }
 
 func TestQuietNoticeLineCarriesQuietKey(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
 
 	hub.Post(Notice{State: "done", Title: "T", Body: "B", Quiet: true})
-	want := `{"kind":"notice","host":"gnomon","state":"done","title":"T","body":"B","quiet":true}`
+	want := `{"kind":"notice","host":"synthetic-host","state":"done","title":"T","body":"B","quiet":true}`
 	if got := c.readLine(); got != want {
 		t.Fatalf("quiet notice = %s, want %s", got, want)
 	}
 }
 
 func TestNoticeWithoutQuietHasNoQuietKey(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
 
 	hub.Post(Notice{State: "done", Title: "T", Body: "B"})
-	want := `{"kind":"notice","host":"gnomon","state":"done","title":"T","body":"B"}`
+	want := `{"kind":"notice","host":"synthetic-host","state":"done","title":"T","body":"B"}`
 	if got := c.readLine(); got != want {
 		t.Fatalf("notice = %s, want %s (no quiet key when Quiet is false)", got, want)
 	}
 }
 
 func TestTwoStreamsReceiveNotices(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	a := dial(t, path)
 	b := dial(t, path)
@@ -152,7 +152,7 @@ func TestTwoStreamsReceiveNotices(t *testing.T) {
 	b.readLine()
 
 	hub.Post(Notice{State: "waiting", Title: "T", Body: "B"})
-	want := `{"kind":"notice","host":"gnomon","state":"waiting","title":"T","body":"B"}`
+	want := `{"kind":"notice","host":"synthetic-host","state":"waiting","title":"T","body":"B"}`
 	if got := a.readLine(); got != want {
 		t.Fatalf("first stream notice = %s, want %s", got, want)
 	}
@@ -162,7 +162,7 @@ func TestTwoStreamsReceiveNotices(t *testing.T) {
 }
 
 func TestStalledStreamClosedWhilePostReturns(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	stalled := dial(t, path)
 	stalled.readLine() // hello, so the stream is registered before the posts
@@ -204,7 +204,7 @@ func (c *client) closeWrite() {
 }
 
 func TestNoticePostedBeforeCloseDelivered(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
@@ -212,7 +212,7 @@ func TestNoticePostedBeforeCloseDelivered(t *testing.T) {
 	hub.Post(Notice{State: "waiting", Title: "last", Body: "before close"})
 	hub.Close()
 
-	want := `{"kind":"notice","host":"gnomon","state":"waiting","title":"last","body":"before close"}`
+	want := `{"kind":"notice","host":"synthetic-host","state":"waiting","title":"last","body":"before close"}`
 	if got := c.readLine(); got != want {
 		t.Fatalf("notice after Close = %s, want %s", got, want)
 	}
@@ -220,7 +220,7 @@ func TestNoticePostedBeforeCloseDelivered(t *testing.T) {
 }
 
 func TestCloseStopsAcceptingAndServeReturnsNil(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, errc := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
@@ -237,7 +237,7 @@ func TestCloseStopsAcceptingAndServeReturnsNil(t *testing.T) {
 }
 
 func TestCloseWithStalledStreamReturnsAndEndsIt(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	stalled := dial(t, path)
 	stalled.readLine()
@@ -256,7 +256,7 @@ func TestCloseWithStalledStreamReturnsAndEndsIt(t *testing.T) {
 // TestDeskIsWebInputOnly checks that Desk reports the recorded input and nothing about streams: an open stream is not
 // input, and input survives the stream closing.
 func TestDeskIsWebInputOnly(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	if input := hub.Desk(); input != 0 {
 		t.Fatalf("Desk on a fresh hub = %d, want 0", input)
 	}
@@ -277,7 +277,7 @@ func TestDeskIsWebInputOnly(t *testing.T) {
 }
 
 func TestInputKeepsNewest(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	hub.Input(start + 30)
 	hub.Input(start)
 	if input := hub.Desk(); input != start+30 {
@@ -290,7 +290,7 @@ func TestInputKeepsNewest(t *testing.T) {
 }
 
 func TestDeskLinesAreDiscarded(t *testing.T) {
-	hub := NewHub("gnomon", nil)
+	hub := NewHub("synthetic-host", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()

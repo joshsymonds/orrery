@@ -89,4 +89,64 @@ public interface EpicStepCheckOrBuilder extends
    */
   com.google.protobuf.ByteString
       getStderrBytes();
+
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   * @return The detail.
+   */
+  java.lang.String getDetail();
+  /**
+   * <pre>
+   * The check's detail, such as the failure it reported, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string detail = 6 [json_name = "detail"];</code>
+   * @return The bytes for detail.
+   */
+  com.google.protobuf.ByteString
+      getDetailBytes();
+
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   * @return The tailStdout.
+   */
+  java.lang.String getTailStdout();
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stdout = 7 [json_name = "tailStdout"];</code>
+   * @return The bytes for tailStdout.
+   */
+  com.google.protobuf.ByteString
+      getTailStdoutBytes();
+
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   * @return The tailStderr.
+   */
+  java.lang.String getTailStderr();
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set for any check.
+   * </pre>
+   *
+   * <code>string tail_stderr = 8 [json_name = "tailStderr"];</code>
+   * @return The bytes for tailStderr.
+   */
+  com.google.protobuf.ByteString
+      getTailStderrBytes();
 }

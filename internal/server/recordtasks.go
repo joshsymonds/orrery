@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // taskRecord is one task from an effort's state.json, with its text as the record wrote it.
 type taskRecord struct {
 	Effort                int
 	Slug, Subject, Status string
+	Requirements          []string
 }
 
 // readTasks lists the tasks of the epic whose record directory is dir: every efforts/<n>/state.json, effort number
@@ -117,9 +119,10 @@ func parseEffortTasks(raw []byte, effort int) ([]taskRecord, bool) {
 		return nil, false
 	}
 	var list []struct {
-		Slug    json.RawMessage `json:"slug"`
-		Subject json.RawMessage `json:"subject"`
-		Status  json.RawMessage `json:"status"`
+		Slug        json.RawMessage `json:"slug"`
+		Subject     json.RawMessage `json:"subject"`
+		Status      json.RawMessage `json:"status"`
+		Requirement json.RawMessage `json:"requirement"`
 	}
 	if json.Unmarshal(tasksJSON, &list) != nil {
 		return nil, false
@@ -127,11 +130,28 @@ func parseEffortTasks(raw []byte, effort int) ([]taskRecord, bool) {
 	found := make([]taskRecord, 0, len(list))
 	for _, task := range list {
 		found = append(found, taskRecord{
-			Effort:  effort,
-			Slug:    recordText(task.Slug),
-			Subject: recordText(task.Subject),
-			Status:  recordText(task.Status),
+			Effort:       effort,
+			Slug:         recordText(task.Slug),
+			Subject:      recordText(task.Subject),
+			Status:       recordText(task.Status),
+			Requirements: recordRequirements(task.Requirement),
 		})
 	}
 	return found, true
+}
+
+// recordRequirements splits a task's requirement text on commas, each part trimmed, empty parts dropped, in order. A
+// requirement that is missing, empty or not a JSON string gives none.
+func recordRequirements(raw json.RawMessage) []string {
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return nil
+	}
+	var ids []string
+	for part := range strings.SplitSeq(text, ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,6 +54,55 @@ func sendRun(t *testing.T, client *tmuxctl.Client, args ...string) string {
 		t.Fatalf("Run(%v): %v", args, err)
 	}
 	return out
+}
+
+// instantClock is a clock whose every wait fires at once and moves its time forward by the wait, so a typed send's
+// pauses and a pull's bound pass without sleeping.
+type instantClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+// Now returns the clock's time.
+func (c *instantClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+// After moves the clock forward by d and returns a channel that has already fired.
+func (c *instantClock) After(d time.Duration) <-chan time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+	fired := make(chan time.Time, 1)
+	fired <- c.now
+	return fired
+}
+
+// gatedClock is an instantClock whose waits fire only once open closes. armed closes at the first wait, so a test knows
+// the typed send has started and is paused.
+type gatedClock struct {
+	instantClock
+	once  sync.Once
+	armed chan struct{}
+	open  chan struct{}
+}
+
+// newGatedClock returns a gatedClock whose gate is shut.
+func newGatedClock() *gatedClock {
+	return &gatedClock{armed: make(chan struct{}), open: make(chan struct{})}
+}
+
+// After closes armed on the first call and returns a channel that fires, with d added to the clock, once open closes.
+func (c *gatedClock) After(d time.Duration) <-chan time.Time {
+	c.once.Do(func() { close(c.armed) })
+	fired := make(chan time.Time, 1)
+	go func() {
+		<-c.open
+		fired <- <-c.instantClock.After(d)
+	}()
+	return fired
 }
 
 // sendPollUntil calls ready every sendPoll until it reports true. It has no deadline of its own.
@@ -166,7 +216,8 @@ func sendSetState(t *testing.T, client *tmuxctl.Client, pane, state string) {
 func sendTextAwait(t *testing.T, client *tmuxctl.Client, pane, file, text, want string) {
 	t.Helper()
 	var out bytes.Buffer
-	if err := cli.Send(t.Context(), client, []string{"--pane", pane, "--text", text}, &out); err != nil {
+	args := []string{"--pane", pane, "--text", text}
+	if err := cli.SendWithClock(t.Context(), &instantClock{}, client, args, &out); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if out.Len() != 0 {
@@ -335,8 +386,9 @@ func TestSendTextTypesAtTypeLimit(t *testing.T) {
 }
 
 // TestSendTextFinishesWhenCallerCancels starts a typed send of 20 short lines under a cancellable context
-// and cancels it once the first bytes reach the pane's input file. The typed send runs on its own bounded
-// context, so Send returns nil and the pane receives every typed byte, then Enter.
+// and cancels it once the first bytes reach the pane's input file, while the send waits at its first pause, which a
+// gated clock holds until then. The typed send runs on its own bounded context, so Send returns nil and the pane
+// receives every typed byte, then Enter.
 func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 	t.Parallel()
 	lines := make([]string, 0, 20)
@@ -351,11 +403,13 @@ func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	clock := newGatedClock()
 	result := make(chan error, 1)
 	go func() {
-		result <- cli.Send(ctx, client, []string{"--pane", pane, "--text", text}, &bytes.Buffer{})
+		result <- cli.SendWithClock(ctx, clock, client, []string{"--pane", pane, "--text", text}, &bytes.Buffer{})
 	}()
 
+	<-clock.armed
 	sendPollUntil(t, "first typed bytes in "+file, func() (bool, error) {
 		data, err := os.ReadFile(file)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -367,6 +421,7 @@ func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 		return len(data) > 0, nil
 	})
 	cancel()
+	close(clock.open)
 
 	err := <-result
 	if err != nil {

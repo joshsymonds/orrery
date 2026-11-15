@@ -258,19 +258,19 @@ func requireFlowRuns(t *testing.T, got []sqlcgen.EpicNodeRun) {
 func TestFlowSigkillRestartStartsEachNodeOnce(t *testing.T) {
 	t.Parallel()
 	r := newFlowRig(t)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, ack := r.startPassDaemon(t, "first")
 	id := r.stepID()
 	dir := r.stepDir(id)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
-	r.awaitStep(t, id)
+	r.awaitStep(t, daemon, ack, id)
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
 	waitUntil(t, func() bool { return fileContains(t, stdin, buildRigMarker) })
 	pid := fakeClaudePID(t, dir)
 	requireFlowRuns(t, r.nodeRuns(t))
 
 	killOrreryd(t, daemon)
-	restarted := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	restarted, restartedAck := r.startPassDaemon(t, "restarted")
 	requireFlowRuns(t, r.nodeRuns(t))
 	if end := r.stepRow(t, id).GetEnd(); end != "" {
 		t.Fatalf("step %s ended %q after the restart, want it still running its turn", id, end)
@@ -289,7 +289,7 @@ func TestFlowSigkillRestartStartsEachNodeOnce(t *testing.T) {
 
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
 	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, id))
-	waitUntil(t, func() bool { return r.task(t).GetStage() == build.StageGreen })
+	r.awaitGreen(t, restarted, restartedAck)
 	requireFlowRuns(t, r.nodeRuns(t))
 	if got := r.task(t).GetRevision(); got != commit {
 		t.Fatalf("revision of task 1 at green = %q, want the fake's commit %s", got, commit)

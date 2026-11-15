@@ -64,6 +64,9 @@ message EpicsGetResponse {
 
   // The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
   repeated EpicNode nodes = 6;
+
+  // The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+  repeated EpicBuildTask build_tasks = 7;
 }
 
 // Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
@@ -114,6 +117,75 @@ message EpicTask {
 
   // The task's status, free text kept as the record wrote it.
   string status = 4;
+
+  // The requirement ids the task's requirement names, split on commas, each trimmed, empty parts dropped, in order.
+  repeated string requirements = 5;
+}
+
+// EpicBuildTask is one task of an orreryd epic's plan, with its build.
+message EpicBuildTask {
+  // The task's id, T<seq>.
+  string id = 1;
+
+  // The task's title.
+  string title = 2;
+
+  // The task's status: open until it is done.
+  string status = 3;
+
+  // The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+  string stage = 4;
+
+  // The requirements the task covers.
+  repeated string requirements = 5;
+
+  // The red evidence run the build names; absent until the build names one.
+  EvidenceRun red = 6;
+
+  // The green evidence run the build names; absent until the build names one.
+  EvidenceRun green = 7;
+
+  // The task's reviews, in attempt then position order.
+  repeated EpicTaskReview reviews = 8;
+}
+
+// EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
+message EpicTaskReview {
+  // The attempt the review ran in.
+  int64 attempt = 1;
+
+  // The review gate the review ran.
+  string gate = 2;
+
+  // The step that ran the review.
+  string step = 3;
+
+  // The review's verdict: holds or fails.
+  string verdict = 4;
+
+  // The findings the review raised, in position order.
+  repeated EpicTaskFinding findings = 5;
+}
+
+// EpicTaskFinding is one finding a review raised, with its verification.
+message EpicTaskFinding {
+  // The finding's id.
+  string id = 1;
+
+  // The claim the finding makes.
+  string claim = 2;
+
+  // Where the finding is located.
+  string location = 3;
+
+  // The step that verified the finding; empty until it is verified.
+  string step = 4;
+
+  // The verification's result: confirmed, dropped or undecided; empty until it is verified.
+  string result = 5;
+
+  // Why the verification gave its result.
+  string reason = 6;
 }
 
 // EpicStep is one labelled step of an epic.
@@ -153,6 +225,40 @@ message EpicStep {
 
   // Why the step ended or is held, empty when there is no reason.
   string reason = 11;
+
+  // The stage the step is in: turn, checks, gate, judge, held or limited.
+  string stage = 12;
+
+  // When the step's stage started, in unix seconds.
+  int64 stage_started = 13;
+
+  // The name of the gate the step's return is checked against. Empty runs no gate.
+  string gate_name = 14;
+
+  // The gate's time limit, in seconds.
+  int64 gate_limit = 15;
+
+  // Whether a usage limit holds the step, so that it waits for a resume.
+  bool limited = 16;
+
+  // The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+  string limit_kind = 17;
+
+  // When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+  // unknown.
+  int64 limit_resets = 18;
+
+  // Whether the step is read-only.
+  bool read_only = 19;
+
+  // The role the step plays: implementer, reviewer, planner or evidence. Empty when it plays none.
+  string role = 20;
+
+  // The step's summary, redacted.
+  string summary = 21;
+
+  // The step's done-judge verdicts.
+  repeated EpicStepVerdict verdicts = 22;
 }
 
 // EpicStepCheck is one check a step ran in one round.
@@ -171,6 +277,27 @@ message EpicStepCheck {
 
   // The tail of the check's stderr, redacted; set only for a failed gate check.
   string stderr = 5;
+
+  // The check's detail, such as the failure it reported, redacted; set for any check.
+  string detail = 6;
+
+  // The tail of the check's stdout, redacted; set for any check.
+  string tail_stdout = 7;
+
+  // The tail of the check's stderr, redacted; set for any check.
+  string tail_stderr = 8;
+}
+
+// EpicStepVerdict is one done-judge verdict a step got.
+message EpicStepVerdict {
+  // The round the verdict was given in.
+  uint32 round = 1;
+
+  // The verdict: met, unmet, or empty when the call failed.
+  string verdict = 2;
+
+  // Why the judge gave the verdict, redacted.
+  string reason = 3;
 }
 
 // EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,

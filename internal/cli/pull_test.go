@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -42,12 +44,12 @@ type pullResult struct {
 	err  error
 }
 
-// pullStart runs PullQueued in a goroutine, because the fake pane only records Up after the call sends it.
-func pullStart(t *testing.T, client *tmuxctl.Client, pane, transcript string) <-chan pullResult {
+// pullStart runs PullQueued on clock in a goroutine, because the fake pane only records Up after the call sends it.
+func pullStart(t *testing.T, clock rpcretry.Clock, client *tmuxctl.Client, pane, transcript string) <-chan pullResult {
 	t.Helper()
 	ch := make(chan pullResult, 1)
 	go func() {
-		text, err := cli.PullQueued(t.Context(), client, pane, transcript)
+		text, err := cli.PullQueuedWithClock(t.Context(), clock, client, pane, transcript)
 		ch <- pullResult{text: text, err: err}
 	}()
 	return ch
@@ -96,6 +98,16 @@ func pullWritePopped(t *testing.T, transcript string, contents ...string) {
 	}
 }
 
+// standstillClock is a clock whose time never moves, so the pull's bound never passes and the wait for the popAll
+// records ends only when they arrive. Its waits pass in real time, which only paces the transcript reads.
+type standstillClock struct{}
+
+// Now returns the zero time.
+func (standstillClock) Now() time.Time { return time.Time{} }
+
+// After returns time.After(d).
+func (standstillClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
+
 // pullTranscript returns an empty transcript file in a fresh directory.
 func pullTranscript(t *testing.T) string {
 	t.Helper()
@@ -114,7 +126,7 @@ func TestPullQueuedTakesQueuedMessages(t *testing.T) {
 	pane, file := sendStartPane(t, client, pullScreen("", pullDimPlaceholder))
 	transcript := pullTranscript(t)
 
-	ch := pullStart(t, client, pane, transcript)
+	ch := pullStart(t, standstillClock{}, client, pane, transcript)
 	pullAwaitUp(t, file)
 	pullWritePopped(t, transcript, "first", "second")
 
@@ -153,7 +165,8 @@ func TestPullQueuedBusyInputSendsNothing(t *testing.T) {
 			}
 			transcript := pullTranscript(t)
 
-			ch := pullStart(t, client, pane, transcript)
+			// The pull refuses before Up, so nothing waits on the system clock.
+			ch := pullStart(t, rpcretry.SystemClock{}, client, pane, transcript)
 			out, err := pullWait(t, ch)
 			if !errors.Is(err, cli.ErrInputBusy) {
 				t.Fatalf("PullQueued = %q, %v; want ErrInputBusy", out, err)
@@ -188,7 +201,8 @@ func TestPullQueuedNothingQueued(t *testing.T) {
 			pane, file := sendStartPane(t, client, tc.screen)
 			transcript := pullTranscript(t)
 
-			ch := pullStart(t, client, pane, transcript)
+			// No popAll record comes, so the pull waits out its bound, which the instant clock passes without sleeping.
+			ch := pullStart(t, &instantClock{}, client, pane, transcript)
 			text, err := pullWait(t, ch)
 			if !errors.Is(err, cli.ErrNothingQueued) {
 				t.Fatalf("PullQueued = %q, %v; want ErrNothingQueued", text, err)
