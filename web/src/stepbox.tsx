@@ -29,18 +29,23 @@ function failure(outcome: Refusal, refused: string, unknown: string): Notice {
 // menu is the state of the ⋯ menu: closed, open with Stop, or confirming a stop with Confirm stop and Cancel.
 type Menu = "closed" | "open" | "confirming";
 
-// StepBox is the box under a step's reader: the nudge sentence, then one line of Interrupt, the nudge input with a send
-// button, and ⋯. Stop sits in the menu ⋯ opens. Enter and the send button send the nudge text once; a failed nudge keeps
-// the draft and is never resent by the box. Stop asks first: it reveals Confirm stop and Cancel, and only Confirm stop
-// calls the server. Every message is drawn as text.
+// StepBox is the box under a step's reader: one line of Interrupt, the nudge input with a send button, and ⋯. Stop sits
+// in the menu ⋯ opens. Enter and the send button send the nudge text once; a failed nudge keeps the draft and is never
+// resent by the box. Stop asks first: it reveals Confirm stop and Cancel, and only Confirm stop calls the server. Every
+// message is drawn as text. Its edge and placeholder say whether the step is held or running.
 export function StepBox(props: {
-  label: string; // placeholder "Nudge <label>"
+  label: string; // the step's label, named in the placeholder
+  held: boolean; // whether the step is held; a step that is not held is running
   nudge: (text: string) => Promise<void>;
   hold: () => Promise<void>;
   stop: () => Promise<void>;
   inputRef?: Ref<HTMLTextAreaElement>; // the page's handle on the textarea
 }): JSX.Element {
-  const { label, nudge, hold, stop, inputRef } = props;
+  const { label, held, nudge, hold, stop, inputRef } = props;
+  const edge = held ? "edge-held" : "edge-working";
+  const placeholder = held
+    ? `Nudge ${label}: it resumes the step with your text`
+    : `Nudge ${label}: it interrupts the turn, then prompts`;
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [menu, setMenu] = useState<Menu>("closed");
@@ -100,17 +105,14 @@ export function StepBox(props: {
 
   return (
     <div class="stepbox">
-      <p class="how">
-        A message here is a nudge: it interrupts the turn, then prompts. It does not count as a check round.
-      </p>
       <div class="line">
         <button type="button" class="interrupt" onClick={() => void interrupt()}>
           Interrupt
         </button>
-        <div class="composer">
+        <div class={`composer ${edge}`}>
           <textarea
             ref={inputRef}
-            placeholder={`Nudge ${label}`}
+            placeholder={placeholder}
             rows={1}
             value={text}
             onInput={(event) => setText(event.currentTarget.value)}

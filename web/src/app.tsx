@@ -678,6 +678,7 @@ export function App({
                 <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
                   <StepBox
                     label={step.label}
+                    held={step.held}
                     nudge={calls.nudge}
                     hold={calls.hold}
                     stop={calls.stop}

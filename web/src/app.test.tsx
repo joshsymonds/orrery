@@ -378,7 +378,8 @@ function composerSendButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-const composerEdgeNames = ["edge-working", "edge-waiting", "edge-idle"];
+// composerEdgeNames are the edge classes a composer or a step box carries.
+const composerEdgeNames = ["edge-working", "edge-waiting", "edge-idle", "edge-held"];
 
 // edgesOf names the edge classes the composer around a reply box carries, in the order of composerEdgeNames.
 function edgesOf(box: HTMLTextAreaElement): string[] {
@@ -1085,6 +1086,23 @@ test("a held step's head pill reads held with no clock", () => {
     await onStepOne(container, fake);
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "held");
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+  });
+});
+
+test("each step box takes its own step's held flag, and a box the cursor left keeps its own", () => {
+  const epics = epicsView(
+    [makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { held: true }), makeStep("s2")] })],
+    new Map(),
+  );
+  return withApp({ epics }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-held"]);
+    assert.equal(cursorStepInput(container).placeholder, "Nudge s1: it resumes the step with your text");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-working"]);
+    assert.equal(cursorStepInput(container).placeholder, "Nudge s2: it interrupts the turn, then prompts");
+    assert.deepEqual(edgesOf(stepInputNamed(container, "s1")), ["edge-held"], "s1's hidden box keeps its held edge");
   });
 });
 
@@ -2815,6 +2833,22 @@ function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
   );
   assert.ok(button, `the step box has a ${label} button`);
   return button;
+}
+
+// cursorStepInput is the textarea of the cursor's step box.
+function cursorStepInput(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .stepbox textarea");
+  assert.ok(box, "the cursor's step box has an input");
+  return box;
+}
+
+// stepInputNamed is the textarea of the step box for the step with the given label, shown or hidden.
+function stepInputNamed(container: HTMLElement, label: string): HTMLTextAreaElement {
+  const box = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .stepbox textarea')].find(
+    (element) => element.placeholder.startsWith(`Nudge ${label}:`),
+  );
+  assert.ok(box, `the step box for ${label} has an input`);
+  return box;
 }
 
 // sendButton is the send button of the cursor's step box.
