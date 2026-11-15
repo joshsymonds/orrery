@@ -12,6 +12,7 @@ import (
 )
 
 func TestPathUsesXDGStateHome(t *testing.T) {
+	t.Parallel()
 	env := map[string]string{"XDG_STATE_HOME": "/xdg", "HOME": "/home/user"}
 	got, err := Path(func(k string) string { return env[k] })
 	if err != nil {
@@ -24,6 +25,7 @@ func TestPathUsesXDGStateHome(t *testing.T) {
 }
 
 func TestPathFallsBackToHome(t *testing.T) {
+	t.Parallel()
 	env := map[string]string{"HOME": "/home/user"}
 	got, err := Path(func(k string) string { return env[k] })
 	if err != nil {
@@ -36,6 +38,7 @@ func TestPathFallsBackToHome(t *testing.T) {
 }
 
 func TestPathErrorsWhenNoHomeOrXDG(t *testing.T) {
+	t.Parallel()
 	if _, err := Path(func(string) string { return "" }); err == nil {
 		t.Fatal("Path with neither XDG_STATE_HOME nor HOME: want error, got nil")
 	}
@@ -72,6 +75,7 @@ func tableNames(t *testing.T, s *Store) map[string]bool {
 }
 
 func TestOpenCreatesPrivateStoreAndMigrates(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "state", "orrery")
 	path := filepath.Join(dir, "orrery.db")
@@ -134,6 +138,7 @@ func goodRows(t *testing.T, path string) string {
 }
 
 func TestOpenAlreadyMigratedStoreChangesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -159,6 +164,7 @@ func TestOpenAlreadyMigratedStoreChangesNothing(t *testing.T) {
 }
 
 func TestOpenRejectsNonSQLiteFileUntouched(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	garbage := []byte("this is not a sqlite database, it is plain text kept for the test\n")
@@ -182,6 +188,7 @@ func TestOpenRejectsNonSQLiteFileUntouched(t *testing.T) {
 }
 
 func TestOpenRejectsNewerSchemaWithoutMigrating(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 

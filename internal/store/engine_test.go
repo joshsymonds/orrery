@@ -68,6 +68,7 @@ func engineRowOf(t *testing.T, s *Store, id string) sqlcgen.Session {
 }
 
 func TestApplyEngineWritesEveryOpForTwoSessions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -142,6 +143,7 @@ func TestApplyEngineWritesEveryOpForTwoSessions(t *testing.T) {
 }
 
 func TestApplyEngineSetStampsChangedOnlyWhenStateIsSet(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	later := engineNowAt().Add(time.Minute)
@@ -178,6 +180,7 @@ func TestApplyEngineSetStampsChangedOnlyWhenStateIsSet(t *testing.T) {
 }
 
 func TestApplyEngineTextOverwritesTheSameBlock(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -200,6 +203,7 @@ func TestApplyEngineTextOverwritesTheSameBlock(t *testing.T) {
 }
 
 func TestApplyEngineTextDoneInSameBatchLeavesNoRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -222,6 +226,7 @@ func TestApplyEngineTextDoneInSameBatchLeavesNoRow(t *testing.T) {
 }
 
 func TestApplyEngineCapsBlockAndTextAtUTF8Boundary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	// "a" then 20000 two-byte runes: byte 32768 falls inside a rune, so the longest valid cut is 32767 bytes.
@@ -256,6 +261,7 @@ func TestApplyEngineCapsBlockAndTextAtUTF8Boundary(t *testing.T) {
 }
 
 func TestApplyEngineCapsBlockInputAndContent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	big := strings.Repeat("x", 40000)
@@ -287,6 +293,7 @@ func TestApplyEngineCapsBlockInputAndContent(t *testing.T) {
 }
 
 func TestApplyEngineRollsBackTheWholeBatchOnError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -359,6 +366,7 @@ func TestApplyEngineReturnsErrorWhileStoreIsWriteLocked(t *testing.T) {
 }
 
 func TestIsEngineKind(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{EventEngineAdded, EventEngineRequestCancelled, EventEngineTurnEnded} {
 		if !IsEngineKind(kind) {
 			t.Fatalf("IsEngineKind(%q): got false, want true", kind)

@@ -20,6 +20,7 @@ func stepAddOf(id string) StepAdd {
 }
 
 func TestStepVerdictJSONNames(t *testing.T) {
+	t.Parallel()
 	raw, err := json.Marshal(StepVerdict{
 		At: 1700000000, Kind: "monitor", Trip: "silent", Round: 0, Verdict: "looping",
 		Detail: "editing", Error: "", Action: "nudge",
@@ -35,6 +36,7 @@ func TestStepVerdictJSONNames(t *testing.T) {
 }
 
 func TestStepWatchAppendsVerdictsInOrderAndKeepsDoing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -84,6 +86,7 @@ func TestStepWatchAppendsVerdictsInOrderAndKeepsDoing(t *testing.T) {
 }
 
 func TestStepCheckJSONNames(t *testing.T) {
+	t.Parallel()
 	raw, err := json.Marshal(StepCheck{Round: 2, Name: "head", OK: true, Detail: "ok"})
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
@@ -94,6 +97,7 @@ func TestStepCheckJSONNames(t *testing.T) {
 }
 
 func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -123,6 +127,7 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 }
 
 func TestStepGateReadsBackThroughEveryReader(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	add := labelledStepOf("s1", "E1", "T1")
@@ -160,6 +165,7 @@ func TestStepGateReadsBackThroughEveryReader(t *testing.T) {
 }
 
 func TestStepWithoutGateReadsBackEmptyGate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, engineNowAt()); err != nil {
@@ -177,6 +183,7 @@ func TestStepWithoutGateReadsBackEmptyGate(t *testing.T) {
 }
 
 func TestStepRowWrittenBeforeGateColumnsTakesTheirDefaults(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	// This insert names no gate column, the way a row written before migration 00009 was written.
@@ -208,6 +215,7 @@ func TestStepRowWrittenBeforeGateColumnsTakesTheirDefaults(t *testing.T) {
 }
 
 func TestStepGateNeedsThatIsNotJSONFailsTheRead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, engineNowAt()); err != nil {
@@ -226,6 +234,7 @@ func TestStepGateNeedsThatIsNotJSONFailsTheRead(t *testing.T) {
 }
 
 func TestStepReturnKeepsLatestResultAndAllChecksInOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, engineNowAt()); err != nil {
@@ -265,6 +274,7 @@ func TestStepReturnKeepsLatestResultAndAllChecksInOrder(t *testing.T) {
 }
 
 func TestStepEndSetsFieldsAndOpenStepsOmitsIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -308,6 +318,7 @@ func TestStepEndSetsFieldsAndOpenStepsOmitsIt(t *testing.T) {
 }
 
 func TestStepUnknownIDMatchesErrNoStep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -347,6 +358,7 @@ func TestStepUnknownIDMatchesErrNoStep(t *testing.T) {
 }
 
 func TestStepOpsAppendNoEvent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	ops := []EngineOp{
@@ -364,6 +376,7 @@ func TestStepOpsAppendNoEvent(t *testing.T) {
 }
 
 func TestStepRowSurvivesEventRetentionPrune(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -401,6 +414,7 @@ func TestStepRowSurvivesEventRetentionPrune(t *testing.T) {
 }
 
 func TestStepAndEngineAddInOneBatchBothLand(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	ops := []EngineOp{
@@ -434,6 +448,7 @@ func labelledStepOf(id, epic, task string) StepAdd {
 }
 
 func TestStepAddStoresLabelsAndLabelledStepsReadsThem(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -460,6 +475,7 @@ func TestStepAddStoresLabelsAndLabelledStepsReadsThem(t *testing.T) {
 }
 
 func TestLabelledStepsLeavesOutUnlabelledRows(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -521,6 +537,7 @@ func TestLabelledStepsFiltersByEpicAndTask(t *testing.T) {
 }
 
 func TestLabelledStepsOrdersByStartedThenID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()

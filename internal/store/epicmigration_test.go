@@ -142,6 +142,7 @@ func seedEpic(t *testing.T, db *sql.DB) {
 }
 
 func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
 	if err != nil {
@@ -229,6 +230,7 @@ func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 }
 
 func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
 	if err != nil {
@@ -268,6 +270,7 @@ func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 }
 
 func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
 	if err != nil {
@@ -300,6 +303,7 @@ func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 }
 
 func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
 	if err != nil {
@@ -356,6 +360,7 @@ func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 }
 
 func TestEpicMigrationKeepsExistingRows(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -429,6 +434,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 // TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence stores an epic and a Requirement at migration 16, before the
 // evidence migration, and reads them back after Open migrates the store: the base is empty and the item the zero Item.
 func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -473,6 +479,7 @@ func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
 // TestEpicTaskStoredAtVersion16MigratesCheckToEvidence stores a task with a check at migration 16 and reads it back
 // after Open migrates the store: the check is the conclusion of its evidence, its gate is empty, and it has no judge.
 func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -511,6 +518,7 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 // TestEpicTaskCheckRestoredByEvidenceMigrationDown stores a task with an evidence item at migration 20 and reads its
 // conclusion back as task_check after the Down of 00020_evidence.sql, which drops gate and evidence.
 func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks
@@ -548,6 +556,7 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 // TestEvidenceMigrationDownAndUp removes the epic gate tables and the base and item columns with the Down of
 // 00020_evidence.sql, and Up restores them.
 func TestEvidenceMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 
@@ -602,6 +611,7 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 // TestTaskBuildMigrationDownAndUp removes the branch and build columns and the review, finding and tell tables with
 // the Down of 00021_task_build.sql, and Up restores them.
 func TestTaskBuildMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	buildColumns := []string{

@@ -44,6 +44,7 @@ func engineTextCountOf(t *testing.T, s *Store, id string) int {
 }
 
 func TestSyncServerRemovesEngineSessionWithNoEventInRetention(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -87,6 +88,7 @@ func TestSyncServerRemovesEngineSessionWithNoEventInRetention(t *testing.T) {
 }
 
 func TestSyncServerKeepsEngineSessionsWithEventInRetention(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -120,6 +122,7 @@ func TestSyncServerKeepsEngineSessionsWithEventInRetention(t *testing.T) {
 }
 
 func TestSyncServerEngineCutoffIncludesEventAtCutoff(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -165,6 +168,7 @@ func seedStaleEngine(t *testing.T, s *Store, t0 time.Time) {
 }
 
 func TestSyncServerKeepsLiveEngineSessionPastRetention(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -226,6 +230,7 @@ func promptFailureOf(t *testing.T, s *Store, id, promptID string) (string, bool)
 }
 
 func TestSyncServerRemovesPromptFailureWithStaleEngineSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -250,6 +255,7 @@ func TestSyncServerRemovesPromptFailureWithStaleEngineSession(t *testing.T) {
 }
 
 func TestSyncServerKeepsPromptFailureOfRetainedEngineSessions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)

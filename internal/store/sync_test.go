@@ -142,6 +142,7 @@ func replaySessions(t *testing.T, events []sqlcgen.Event) map[string]sqlcgen.Ses
 }
 
 func TestSyncPaneAddsRowAndEventsOnlyForChanges(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := time.Unix(1_700_000_000, 0)
@@ -181,6 +182,7 @@ func TestSyncPaneAddsRowAndEventsOnlyForChanges(t *testing.T) {
 }
 
 func TestSyncPaneNewRowWithNoFieldsAppendsOnlyAdded(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := time.Unix(1_700_000_000, 0)
@@ -194,6 +196,7 @@ func TestSyncPaneNewRowWithNoFieldsAppendsOnlyAdded(t *testing.T) {
 }
 
 func TestReplayRebuildsSessionsAfterMixedSequence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -245,6 +248,7 @@ func TestReplayRebuildsSessionsAfterMixedSequence(t *testing.T) {
 }
 
 func TestSyncServerRemovesOnlyAbsentRowsOfItsServer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -283,6 +287,7 @@ func TestSyncServerRemovesOnlyAbsentRowsOfItsServer(t *testing.T) {
 }
 
 func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := time.Unix(1_700_000_000, 0)
@@ -323,6 +328,7 @@ func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
 }
 
 func TestSyncServerPrunesEventsOlderThanRetention(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := time.Unix(1_700_000_000, 0)

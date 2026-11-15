@@ -21,6 +21,7 @@ func insertPendingTrigger(t *testing.T, s *Store, epic, id, cause string) {
 }
 
 func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -73,6 +74,7 @@ func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
 }
 
 func TestPausedAndParkedEpicsReadTheirReasonsFromEpicAndEpics(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const active, paused, parked = "orrery-1a2b3c4/active", "orrery-1a2b3c4/paused", "orrery-1a2b3c4/parked"
@@ -125,6 +127,7 @@ func TestPausedAndParkedEpicsReadTheirReasonsFromEpicAndEpics(t *testing.T) {
 }
 
 func TestRunningTurnsListsOnlyRunningTurnsAcrossEpics(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const alpha, beta, gamma = "orrery-1a2b3c4/alpha", "orrery-1a2b3c4/beta", "orrery-1a2b3c4/gamma"
@@ -182,6 +185,7 @@ func TestRunningTurnsListsOnlyRunningTurnsAcrossEpics(t *testing.T) {
 }
 
 func TestTurnTriggersReturnsTheTriggersOfThatTurnOrderedByID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic

@@ -8,6 +8,7 @@ import (
 )
 
 func TestPendingRowsReopen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
@@ -129,6 +130,7 @@ func TestPendingRowsReopen(t *testing.T) {
 }
 
 func TestNoticeSilentReopen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 

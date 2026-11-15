@@ -63,6 +63,7 @@ func planRowsOf(t *testing.T, s *Store) map[string][][]any {
 }
 
 func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -124,6 +125,7 @@ func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
 }
 
 func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -216,6 +218,7 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 }
 
 func TestCompleteTurnRefusesATurnThatIsNotRunningAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -240,6 +243,7 @@ func TestCompleteTurnRefusesATurnThatIsNotRunningAndWritesNothing(t *testing.T) 
 }
 
 func TestFailedCompleteTurnLeavesNoTaskQuestionOrConsumedTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic

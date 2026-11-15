@@ -75,6 +75,7 @@ func headlessCutoff() int64 {
 }
 
 func TestHeadlessSessionsListsRecentEngineRowsWithNewestReply(t *testing.T) {
+	t.Parallel()
 	r := NewReader(headlessStore(t))
 
 	got, err := r.HeadlessSessions(context.Background(), headlessCutoff())
@@ -99,6 +100,7 @@ func TestHeadlessSessionsListsRecentEngineRowsWithNewestReply(t *testing.T) {
 }
 
 func TestHeadlessSessionsOmitsRowsWithoutRecentEvents(t *testing.T) {
+	t.Parallel()
 	r := NewReader(headlessStore(t))
 
 	got, err := r.HeadlessSessions(context.Background(), headlessCutoff())
@@ -116,6 +118,7 @@ func TestHeadlessSessionsOmitsRowsWithoutRecentEvents(t *testing.T) {
 }
 
 func TestHeadlessSessionsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	r := NewReader(filepath.Join(t.TempDir(), "missing.db"))
 
 	_, err := r.HeadlessSessions(context.Background(), headlessCutoff())
@@ -125,6 +128,7 @@ func TestHeadlessSessionsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestHeadlessSessionsIgnoresUserTextBlocks(t *testing.T) {
+	t.Parallel()
 	path := headlessStore(t)
 	ctx := context.Background()
 	s, err := Open(ctx, path)

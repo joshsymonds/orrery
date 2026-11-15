@@ -54,6 +54,7 @@ func TestStepRateLimitReadsRejectedRowAtOrAfterThePrompt(t *testing.T) {
 }
 
 func TestStepRateLimitBeforeTheNewestPromptReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	newest := engineNowAt()
@@ -87,6 +88,7 @@ func TestStepRateLimitBeforeTheNewestPromptReadsFalse(t *testing.T) {
 }
 
 func TestStepRateLimitOfNotRejectedRowReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -114,6 +116,7 @@ func TestStepRateLimitOfNotRejectedRowReadsFalse(t *testing.T) {
 }
 
 func TestStepRateLimitOfSessionWithNoRowReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -136,6 +139,7 @@ func TestStepRateLimitOfSessionWithNoRowReadsFalse(t *testing.T) {
 }
 
 func TestStepRateLimitOfSessionWithNoPromptReadsTrue(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

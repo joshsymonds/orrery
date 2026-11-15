@@ -19,6 +19,7 @@ func boolOf(v bool) *bool {
 }
 
 func TestEngineReadoptNewRowIsUntracked(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -37,6 +38,7 @@ func TestEngineReadoptNewRowIsUntracked(t *testing.T) {
 }
 
 func TestEngineLaunchTracksRowAtZero(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -114,6 +116,7 @@ func TestEngineConsumedMovesOnlySetColumns(t *testing.T) {
 }
 
 func TestEngineHolderPromptsListsLaterPromptsWithWriteIDs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -184,6 +187,7 @@ func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
 }
 
 func TestEngineReadoptMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

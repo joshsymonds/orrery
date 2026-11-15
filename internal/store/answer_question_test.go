@@ -35,6 +35,7 @@ func answerRowsOf(t *testing.T, s *Store) map[string][][]any {
 }
 
 func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -78,6 +79,7 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 }
 
 func TestAnswerQuestionOfUnknownQuestionIsErrNoQuestionAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -93,6 +95,7 @@ func TestAnswerQuestionOfUnknownQuestionIsErrNoQuestionAndWritesNothing(t *testi
 }
 
 func TestAnswerQuestionOfClosedQuestionIsErrQuestionClosedAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -111,6 +114,7 @@ func TestAnswerQuestionOfClosedQuestionIsErrQuestionClosedAndWritesNothing(t *te
 }
 
 func TestAnswerQuestionWithStoredIDAndTextReturnsStoredRowAfterItsQuestionClosed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -134,6 +138,7 @@ func TestAnswerQuestionWithStoredIDAndTextReturnsStoredRowAfterItsQuestionClosed
 }
 
 func TestAnswerQuestionWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -162,6 +167,7 @@ func TestAnswerQuestionWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.
 }
 
 func TestAnswerEpicNoteLeavesEveryQuestionOpenAndAddsNoTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -192,6 +198,7 @@ func TestAnswerEpicNoteLeavesEveryQuestionOpenAndAddsNoTrigger(t *testing.T) {
 }
 
 func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -226,6 +233,7 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 }
 
 func TestAnswerQuestionOfUnknownEpicIsErrNoEpic(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	_, err := s.AnswerQuestion(context.Background(), "orrery-1a2b3c4/missing", "D1", "text", 1, epicCreated())
 	if !errors.Is(err, ErrNoEpic) {

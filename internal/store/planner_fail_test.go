@@ -84,6 +84,7 @@ func storedTurnReason(t *testing.T, s *Store, id string, seq int64) string {
 }
 
 func TestFailTurnStoresTheReasonAndFreesItsTriggersToPending(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -121,6 +122,7 @@ func TestFailTurnStoresTheReasonAndFreesItsTriggersToPending(t *testing.T) {
 }
 
 func TestFailTurnCapsTheReasonAt1024Bytes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -140,6 +142,7 @@ func TestFailTurnCapsTheReasonAt1024Bytes(t *testing.T) {
 }
 
 func TestFailTurnCapsTheReasonAtARuneBoundary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -160,6 +163,7 @@ func TestFailTurnCapsTheReasonAtARuneBoundary(t *testing.T) {
 }
 
 func TestThreeFailedTurnsInARowParkTheEpicWithTheStoredReason(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	const id = claimEpic
 	createEpic(t, s, fullEpic(id))
@@ -178,6 +182,7 @@ func TestThreeFailedTurnsInARowParkTheEpicWithTheStoredReason(t *testing.T) {
 }
 
 func TestParkedReasonIsCappedAt1024BytesWithItsPrefix(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	const id = claimEpic
 	createEpic(t, s, fullEpic(id))
@@ -194,6 +199,7 @@ func TestParkedReasonIsCappedAt1024BytesWithItsPrefix(t *testing.T) {
 }
 
 func TestFreeTurnBetweenFailuresNeitherResetsNorCountsTowardsThree(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	const id = claimEpic
 	createEpic(t, s, fullEpic(id))
@@ -214,6 +220,7 @@ func TestFreeTurnBetweenFailuresNeitherResetsNorCountsTowardsThree(t *testing.T)
 }
 
 func TestSucceededTurnResetsTheFailureCount(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -249,6 +256,7 @@ func TestSucceededTurnResetsTheFailureCount(t *testing.T) {
 }
 
 func TestFreeTurnFreesItsTriggersAndStoresItsReason(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -282,6 +290,7 @@ func TestFreeTurnFreesItsTriggersAndStoresItsReason(t *testing.T) {
 }
 
 func TestFreeTurnWithPausePausesTheEpic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -303,6 +312,7 @@ func TestFreeTurnWithPausePausesTheEpic(t *testing.T) {
 }
 
 func TestFreeTurnWithParkParksTheEpic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -323,6 +333,7 @@ func TestFreeTurnWithParkParksTheEpic(t *testing.T) {
 }
 
 func TestFreeTurnWithParkCapsTheParkReasonAt1024Bytes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -341,6 +352,7 @@ func TestFreeTurnWithParkCapsTheParkReasonAt1024Bytes(t *testing.T) {
 }
 
 func TestFailAndFreeTurnRefuseATurnThatIsNotRunningAndWriteNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic

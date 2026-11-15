@@ -35,6 +35,7 @@ func lastTurnEndsOf(t *testing.T, path string) map[string]int64 {
 }
 
 func TestLastTurnEndsAnswersTheNewestDoneAfterAFlip(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -63,6 +64,7 @@ func TestLastTurnEndsAnswersTheNewestDoneAfterAFlip(t *testing.T) {
 }
 
 func TestLastTurnEndsOmitsSessionsThatNeverWentDone(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -85,6 +87,7 @@ func TestLastTurnEndsOmitsSessionsThatNeverWentDone(t *testing.T) {
 }
 
 func TestLastTurnEndsAnswersEachSessionIndependently(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -114,6 +117,7 @@ func TestLastTurnEndsAnswersEachSessionIndependently(t *testing.T) {
 }
 
 func TestLastTurnEndsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "absent")
 	path := filepath.Join(dir, "orrery.db")
 

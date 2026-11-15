@@ -15,6 +15,7 @@ import (
 // fails must match ErrUnavailable, because a lost store is reported the same way whether the file is gone before
 // the read or disappears during it.
 func TestReadsRacingRemovalAnswerUnavailable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	now := time.Unix(1_700_000_000, 0)

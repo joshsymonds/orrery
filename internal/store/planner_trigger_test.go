@@ -15,6 +15,7 @@ func createdTriggerRow(id string) []any {
 }
 
 func TestCreateEpicAddsItsCreatedTrigger(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
 	createEpic(t, s, fullEpic(id))
@@ -26,6 +27,7 @@ func TestCreateEpicAddsItsCreatedTrigger(t *testing.T) {
 }
 
 func TestSecondCreateEpicOfStoredIDLeavesItsTriggerUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
@@ -44,6 +46,7 @@ func TestSecondCreateEpicOfStoredIDLeavesItsTriggerUnchanged(t *testing.T) {
 }
 
 func TestFailedCreateEpicStoresNoTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"

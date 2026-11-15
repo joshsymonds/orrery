@@ -101,6 +101,7 @@ func createEpic(t *testing.T, s *Store, row EpicRow) {
 }
 
 func TestCreatedEpicReadsBackEveryFieldInOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
@@ -118,6 +119,7 @@ func TestCreatedEpicReadsBackEveryFieldInOrder(t *testing.T) {
 }
 
 func TestCreateEpicOfStoredIDIsErrEpicExistsAndChangesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
@@ -150,6 +152,7 @@ func TestCreateEpicOfStoredIDIsErrEpicExistsAndChangesNothing(t *testing.T) {
 }
 
 func TestEpicsListsEveryEpicByIDWithHeadFields(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const storeID = "orrery-1a2b3c4/epic-store"
@@ -172,6 +175,7 @@ func TestEpicsListsEveryEpicByIDWithHeadFields(t *testing.T) {
 }
 
 func TestEpicOfUnknownIDIsErrNoEpic(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	if _, err := s.Epic(context.Background(), "orrery-1a2b3c4/missing"); !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("Epic of unknown id err = %v, want ErrNoEpic", err)
@@ -179,6 +183,7 @@ func TestEpicOfUnknownIDIsErrNoEpic(t *testing.T) {
 }
 
 func TestAnswerEpicAppendsSeqThreeAndMovesChanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
@@ -207,6 +212,7 @@ func TestAnswerEpicAppendsSeqThreeAndMovesChanged(t *testing.T) {
 }
 
 func TestAnswerEpicWithStoredIDAndTextReturnsStoredRowAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
@@ -238,6 +244,7 @@ func TestAnswerEpicWithStoredIDAndTextReturnsStoredRowAndWritesNothing(t *testin
 }
 
 func TestAnswerEpicWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = "orrery-1a2b3c4/epic-store"
@@ -266,6 +273,7 @@ func TestAnswerEpicWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.T) {
 }
 
 func TestAnswerEpicOfUnknownEpicIsErrNoEpic(t *testing.T) {
+	t.Parallel()
 	s := openEpicStore(t)
 	_, err := s.AnswerEpic(context.Background(), "orrery-1a2b3c4/missing", "D1", "text", epicCreated())
 	if !errors.Is(err, ErrNoEpic) {

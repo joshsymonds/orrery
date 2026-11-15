@@ -6,6 +6,7 @@ import (
 )
 
 func TestEnginePromptStoresPromptID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -31,6 +32,7 @@ func TestEnginePromptStoresPromptID(t *testing.T) {
 }
 
 func TestEnginePromptStoresSenderAndRound(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -63,6 +65,7 @@ func TestEnginePromptStoresSenderAndRound(t *testing.T) {
 }
 
 func TestPromptSenderValues(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, got, want string
 	}{
@@ -158,6 +161,7 @@ func TestEnginePromptFailureRecordsFailedPrompt(t *testing.T) {
 }
 
 func TestEnginePromptFailureKeepsFirstReason(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
