@@ -777,9 +777,35 @@ func (f *servePools) Free(
 	return connect.NewResponse(&enginev1.PoolsFreeResponse{}), nil
 }
 
-// serveFakePools serves fake as Pools on the session socket beside a daemon socket in a temporary directory. It
-// returns the daemon socket path that `--socket` names. The server is closed at cleanup.
-func serveFakePools(t *testing.T, fake *servePools) string {
+// serveNotices is a fake orreryd Notices. It records the key of each Seen and answers each with no fields. Watch comes
+// from the embedded UnimplementedNoticesHandler, since serve's forwarding test does not open it.
+type serveNotices struct {
+	enginev1connect.UnimplementedNoticesHandler
+	mu   sync.Mutex
+	seen []*enginev1.NoticeKey
+}
+
+// Seen implements enginev1connect.NoticesHandler.
+func (f *serveNotices) Seen(
+	_ context.Context,
+	req *connect.Request[enginev1.NoticesSeenRequest],
+) (*connect.Response[enginev1.NoticesSeenResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seen = append(f.seen, req.Msg.GetKey())
+	return connect.NewResponse(&enginev1.NoticesSeenResponse{}), nil
+}
+
+// keys returns the keys the fake has received, in order.
+func (f *serveNotices) keys() []*enginev1.NoticeKey {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.seen)
+}
+
+// serveSessionSocket serves the handlers register mounts on the session socket beside a daemon socket in a temporary
+// directory. It returns the daemon socket path that `--socket` names. The server is closed at cleanup.
+func serveSessionSocket(t *testing.T, register func(mux *http.ServeMux)) string {
 	t.Helper()
 	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
 	ln, err := net.Listen("unix", protocol.SessionSocketPath(daemon))
@@ -787,16 +813,35 @@ func serveFakePools(t *testing.T, fake *servePools) string {
 		t.Fatalf("listen on the session socket: %v", err)
 	}
 	mux := http.NewServeMux()
-	path, handler := enginev1connect.NewPoolsHandler(fake)
-	mux.Handle(path, handler)
+	register(mux)
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() {
 		if err := srv.Close(); err != nil {
-			t.Errorf("close pools server: %v", err)
+			t.Errorf("close session server: %v", err)
 		}
 	})
 	return daemon
+}
+
+// serveFakePools serves fake as Pools on the session socket beside a daemon socket in a temporary directory. It
+// returns the daemon socket path that `--socket` names.
+func serveFakePools(t *testing.T, fake *servePools) string {
+	t.Helper()
+	return serveSessionSocket(t, func(mux *http.ServeMux) {
+		path, handler := enginev1connect.NewPoolsHandler(fake)
+		mux.Handle(path, handler)
+	})
+}
+
+// serveFakeNotices serves fake as Notices on the session socket beside a daemon socket in a temporary directory. It
+// returns the daemon socket path that `--socket` names.
+func serveFakeNotices(t *testing.T, fake *serveNotices) string {
+	t.Helper()
+	return serveSessionSocket(t, func(mux *http.ServeMux) {
+		path, handler := enginev1connect.NewNoticesHandler(fake)
+		mux.Handle(path, handler)
+	})
 }
 
 // serveAwaitListener waits until a connection to addr succeeds. It fails the test when done reports that runServe
@@ -877,6 +922,49 @@ func TestServeForwardsPools(t *testing.T) {
 	wantCalls := []string{"Status", "Hold builds-1", "Free builds-1"}
 	if got := fake.received(); !slices.Equal(got, wantCalls) {
 		t.Errorf("orreryd received %q, want %q", got, wantCalls)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServe returned %v, want nil", err)
+		}
+	case <-time.After(serveTestWait):
+		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	}
+}
+
+// TestServeForwardsNoticeSeen runs serve through runServe with --socket naming a daemon socket whose session socket
+// serves a fake orreryd Notices. A phone's Notices.Seen through the guard reaches that Notices with the key.
+func TestServeForwardsNoticeSeen(t *testing.T) {
+	t.Parallel()
+	fake := &serveNotices{}
+	daemon := serveFakeNotices(t, fake)
+	state := t.TempDir()
+	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
+	addr := serveFreeLoopbackAddr(t)
+	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
+	}()
+	serveAwaitListener(t, addr, done)
+
+	notices := orreryv1connect.NewNoticesClient(
+		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
+	callCtx, cancelCall := context.WithTimeout(ctx, serveTestWait)
+	defer cancelCall()
+	if _, err := notices.Seen(callCtx, connect.NewRequest(&orreryv1.NoticesSeenRequest{
+		Key: &orreryv1.NoticeKey{Pane: "%7"},
+	})); err != nil {
+		t.Fatalf("Notices.Seen: %v", err)
+	}
+	wantKey := &enginev1.NoticeKey{Pane: "%7"}
+	if got := fake.keys(); len(got) != 1 || !proto.Equal(got[0], wantKey) {
+		t.Errorf("orreryd received keys %v, want [%v]", got, wantKey)
 	}
 
 	cancel()
