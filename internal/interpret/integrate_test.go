@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -39,30 +40,56 @@ func integrateFlow() workflow.Workflow {
 	}}}
 }
 
+// integrateOptions are the choices a test world makes beyond its defaults.
+type integrateOptions struct {
+	pin       store.EpicWorkflow
+	viaRunner bool
+}
+
+// integrateOption sets one of integrateOptions before the test epic is stored.
+type integrateOption func(*integrateOptions)
+
+// pinnedTo pins the test epic to pin, the workflow it runs.
+func pinnedTo(pin store.EpicWorkflow) integrateOption {
+	return func(o *integrateOptions) { o.pin = pin }
+}
+
+// viaRunnerPass makes each pass of the world go through Runner.Pass, which loads the epic's pinned workflow, rather than
+// carrying integrateFlow out.
+func viaRunnerPass() integrateOption {
+	return func(o *integrateOptions) { o.viaRunner = true }
+}
+
 // integrateWorld is one integrate test's world: a scratch repository with the epic's branch at base, the epic stored on
 // it with its Done gate and Requirement, and a runner over the check and evidence fakes. Its logger keeps what a pass
 // logs, so a pass that logs an error fails the test.
 type integrateWorld struct {
-	t      *testing.T
-	s      *store.Store
-	path   string
-	repo   string
-	base   string
-	fakes  nodeFakes
-	runner *Runner
-	logs   *bytes.Buffer
+	t         *testing.T
+	s         *store.Store
+	path      string
+	repo      string
+	base      string
+	fakes     nodeFakes
+	runner    *Runner
+	logs      *bytes.Buffer
+	viaRunner bool
 }
 
-// newIntegrateWorld returns a world with the test epic stored at its base, its branch at base and no task.
-func newIntegrateWorld(t *testing.T) *integrateWorld {
+// newIntegrateWorld returns a world with the test epic stored at its base, its branch at base and no task. The options
+// apply to the epic and its passes.
+func newIntegrateWorld(t *testing.T, opts ...integrateOption) *integrateWorld {
 	t.Helper()
+	var o integrateOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	s, path := openNodeStore(t)
 	repo, base := nodeRepo(t)
 	nodeGit(t, repo, "update-ref", integrateBranch, base)
 	if err := s.CreateEpic(context.Background(), store.EpicRow{
 		ID: runEpic, Repository: repo, Base: base, Title: "Integrate the batches", Phase: runPhase,
 		Created: runClock(), Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate},
-		Requirements: nodeRequirements(),
+		Requirements: nodeRequirements(), Workflow: o.pin,
 	}); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
@@ -70,13 +97,21 @@ func newIntegrateWorld(t *testing.T) *integrateWorld {
 	logs := &bytes.Buffer{}
 	runner := runNodes(s, fakes)
 	runner.logger = slog.New(slog.NewTextHandler(logs, nil))
-	return &integrateWorld{t: t, s: s, path: path, repo: repo, base: base, fakes: fakes, runner: runner, logs: logs}
+	return &integrateWorld{
+		t: t, s: s, path: path, repo: repo, base: base, fakes: fakes, runner: runner, logs: logs,
+		viaRunner: o.viaRunner,
+	}
 }
 
-// pass carries the integrate flow out on the test epic once.
+// pass carries one pass out on the test epic: through Runner.Pass when the world is viaRunner, otherwise by carrying the
+// integrate flow out.
 func (w *integrateWorld) pass() {
 	w.t.Helper()
-	w.runner.passFlow(context.Background(), epicOf(w.t, w.s), integrateFlow())
+	if w.viaRunner {
+		w.runner.Pass(context.Background())
+	} else {
+		w.runner.passFlow(context.Background(), epicOf(w.t, w.s), integrateFlow())
+	}
 	if w.logs.Len() > 0 {
 		w.t.Fatalf("pass logged an error: %s", w.logs.String())
 	}
@@ -140,6 +175,24 @@ func (w *integrateWorld) endGate(path string, exit int, stderr string) {
 func (w *integrateWorld) endCapture(path string) {
 	w.t.Helper()
 	nodeEndEvidence(w.t, w.s, workID(w.t, w.s, path, "capture R1"))
+}
+
+// endRed ends the red capture of R1 at the node run at path as its judge finds the conclusion fails. That is the
+// Requirement not met at base, which a red run passes.
+func (w *integrateWorld) endRed(path string) {
+	w.t.Helper()
+	ctx := context.Background()
+	id := workID(w.t, w.s, path, "R1")
+	if err := w.s.RecordEvidenceCapture(ctx, id, store.EvidenceCapture{At: runClock()}); err != nil {
+		w.t.Fatalf("RecordEvidenceCapture %s: %v", id, err)
+	}
+	verdict := store.EvidenceVerdict{
+		Verdict: evidence.VerdictFails, Passed: evidence.Passed(evidence.PhaseRed, "", 0, evidence.VerdictFails),
+		At: runClock(),
+	}
+	if err := w.s.RecordEvidenceVerdict(ctx, id, verdict); err != nil {
+		w.t.Fatalf("RecordEvidenceVerdict %s: %v", id, err)
+	}
 }
 
 // pending returns how many triggers of the test epic are pending.
@@ -406,5 +459,90 @@ func TestIntegrateOverlapLeavesTaskOutAndTellsThePlanner(t *testing.T) {
 	wantCause := fmt.Sprintf("workflow node %s passed: R1 green\n%s", integrateBatch, overlap)
 	if !slices.ContainsFunc(triggers, func(trigger store.EpicTrigger) bool { return trigger.Cause == wantCause }) {
 		t.Errorf("pending triggers = %+v, want one with cause %q", triggers, wantCause)
+	}
+}
+
+// TestBuiltInEpicReachesBuiltThenWaitsAtReview: a database epic pinned to the built-in epic, with one Requirement naming
+// an evidence item, runs red at base first: its capture is judged not met, so red passes and the plan starts. The one
+// task is planned, built and accepted, and its batch integrates green, so the plan ends built and review starts. Review
+// waits: after further passes it is still running, the epic is not parked, and no node after it has started.
+func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
+	t.Parallel()
+	w := newIntegrateWorld(t, pinnedTo(builtinPin(t)), viaRunnerPass())
+	s := w.s
+
+	w.pass()
+	w.endRed("red")
+	w.pass()
+	if red := runAt(t, s, "red"); red.State != store.NodeEnded || red.Outcome != "passed" {
+		t.Errorf("red = %+v, want ended passed: the Requirement is not met at base", red)
+	}
+	wantEvidence := []evidenceCall{{
+		id: workID(t, s, "red", "R1"), epic: runEpic, item: "R1", revision: w.base, phase: evidence.PhaseRed,
+	}}
+	if !reflect.DeepEqual(w.fakes.evidence.calls, wantEvidence) {
+		t.Fatalf("evidence runs = %+v, want %+v", w.fakes.evidence.calls, wantEvidence)
+	}
+	if plan := runAt(t, s, "plan"); plan.State != store.NodeRunning {
+		t.Fatalf("plan = %+v, want running once red passed", plan)
+	}
+
+	completeTurn(t, s, store.EpicPlan{
+		Decisions: []string{}, Tasks: []store.EpicTaskInput{runTask("only", "b.go")}, Outline: "one task",
+		Outcome: "complete",
+	})
+	w.pass()
+	if task := runAt(t, s, "plan/build/T1"); task.State != store.NodeRunning || task.Task != 1 {
+		t.Fatalf("build of task 1 = %+v, want running", task)
+	}
+
+	first := w.commit(w.base, "b.go", "one\n")
+	w.accept(1, w.base, first)
+	w.pass()
+	const batch = "plan/S1/integrate"
+	candidate := w.candidate(batch)
+	w.endGate(batch, 0, "")
+	w.pass()
+	w.endCapture(batch)
+	w.pass()
+	if run := runAt(t, s, batch); run.State != store.NodeEnded || run.Outcome != "passed" {
+		t.Fatalf("batch = %+v, want ended passed", run)
+	}
+	if epic := epicOf(t, s); epic.StoredBase != candidate || epic.Candidate != "" {
+		t.Fatalf("stored base %q and candidate %q, want %q and none", epic.StoredBase, epic.Candidate, candidate)
+	}
+
+	completeTurn(t, s, store.EpicPlan{Decisions: []string{}, Outline: "the batch is green", Outcome: "complete"})
+	w.pass()
+	plan := runAt(t, s, "plan")
+	if plan.State != store.NodeEnded || plan.Outcome != "complete" {
+		t.Errorf("plan = %+v, want ended complete", plan)
+	}
+	if got := epicOf(t, s).Phase; got != "built" {
+		t.Errorf("epic phase = %q, want built", got)
+	}
+	review := runAt(t, s, "review")
+	if review.Kind != "review" || review.State != store.NodeRunning {
+		t.Errorf("review = %+v, want running", review)
+	}
+
+	settled := runsOf(t, s)
+	w.pass()
+	w.pass()
+	if got := runsOf(t, s); !reflect.DeepEqual(got, settled) {
+		t.Errorf("node runs changed after review started: %+v, want %+v", got, settled)
+	}
+	if run := runAt(t, s, "review"); run.State != store.NodeRunning {
+		t.Errorf("review = %+v after further passes, want still running", run)
+	}
+	if parked := epicOf(t, s).Parked; parked != "" {
+		t.Errorf("epic parked = %q, want not parked", parked)
+	}
+	for _, run := range runsOf(t, s) {
+		for _, later := range []string{"correct", "conclude", "release"} {
+			if run.Path == later || strings.HasPrefix(run.Path, later+"@") {
+				t.Errorf("node run %s started after review, want none", run.Path)
+			}
+		}
 	}
 }
