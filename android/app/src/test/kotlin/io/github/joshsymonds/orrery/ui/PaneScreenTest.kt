@@ -296,11 +296,11 @@ class PaneScreenTest {
             composeRule.waitUntilExactlyOneExists(hasTestTag("new-divider"), TIMEOUT_MILLIS)
             assertDividerBeforeRow(below = 2)
 
-            // The later poll also turns the pane to working. Its working mark is drawn from the same
-            // state write that would move the seen time, so the mark shows the later poll has landed.
+            // The later poll also turns the pane to working. Its composer edge is drawn from the same
+            // state write that would move the seen time, so the edge shows the later poll has landed.
             server.respond(PANES_PATH, paneList(state = "working", seen = SEEN_AFTER_REPLIES))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("working-mark"), TIMEOUT_MILLIS)
+            composeRule.waitUntilExactlyOneExists(hasTestTag("composer-edge:working"), TIMEOUT_MILLIS)
 
             assertDividerBeforeRow(below = 2)
         }
@@ -373,7 +373,7 @@ class PaneScreenTest {
 
             server.respond(PANES_PATH, paneList(state = "working"))
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.waitUntilExactlyOneExists(hasTestTag("working-mark"), TIMEOUT_MILLIS)
+            composeRule.waitUntilExactlyOneExists(hasTestTag("composer-edge:working"), TIMEOUT_MILLIS)
         }
     }
 
@@ -910,7 +910,7 @@ class PaneScreenTest {
     }
 
     @Test
-    fun workingPaneShowsWorkingMarkThenWaitingRowsBelowTheLastItem() {
+    fun workingPaneDrawsNoWorkingMarkAndWaitingRowsSitBelowTheLastItem() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -923,19 +923,18 @@ class PaneScreenTest {
             setClockedScreen(server)
 
             composeRule.waitUntilExactlyOneExists(hasText("synthetic queued message"), TIMEOUT_MILLIS)
-            composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+            composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("composer-edge:working").assertCountEquals(1)
             composeRule.onNodeWithTag("waiting-row").assertIsDisplayed()
             composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
             val reply = composeRule.onNodeWithText("synthetic reply").fetchSemanticsNode().boundsInRoot
-            val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
             val waiting = composeRule.onNodeWithTag("waiting-row").fetchSemanticsNode().boundsInRoot
-            assertTrue(mark.top >= reply.bottom - EDGE_TOLERANCE_PX)
-            assertTrue(waiting.top >= mark.bottom - EDGE_TOLERANCE_PX)
+            assertTrue(waiting.top >= reply.bottom - EDGE_TOLERANCE_PX)
         }
     }
 
     @Test
-    fun donePaneShowsNoWorkingMark() {
+    fun donePaneDrawsNoWorkingMarkAndCarriesTheIdleEdge() {
         FakeOrreryServer().use { server ->
             servePane(
                 server,
@@ -945,7 +944,23 @@ class PaneScreenTest {
             setClockedScreen(server)
 
             composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
-            composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+            composeRule.onAllNodesWithText("Claude is still working").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("composer-edge:idle").assertCountEquals(1)
+        }
+    }
+
+    @Test
+    fun waitingPaneCarriesTheWaitingComposerEdge() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "waiting",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag("composer-edge:waiting").assertCountEquals(1)
         }
     }
 

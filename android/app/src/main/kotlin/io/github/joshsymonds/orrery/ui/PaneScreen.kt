@@ -303,7 +303,6 @@ fun PaneScreen(
                 }
                 ConversationView(
                     entries,
-                    working = current?.state == "working",
                     waiting = conversation?.waiting.orEmpty(),
                     listState = listState,
                     contentPadding = PaddingValues(top = bodyTop),
@@ -358,6 +357,7 @@ fun PaneScreen(
             paneId,
             client,
             maxFieldHeight = composeCap,
+            edge = composeEdgeOf(current?.state.orEmpty()),
             hint = when {
                 current == null -> ""
                 current.state.isEmpty() -> "Type a command…"

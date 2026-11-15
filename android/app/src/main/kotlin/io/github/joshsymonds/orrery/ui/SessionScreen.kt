@@ -161,7 +161,6 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             if (held != null) {
                 ConversationView(
                     entries,
-                    working = pane?.state == WORKING_STATE,
                     waiting = held.conversation.waiting,
                     footer = footer,
                     seen = seenAtOpen,
@@ -198,6 +197,7 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
         ComposeBox(
             sessionId,
             client,
+            edge = if (step?.held == true) ComposeEdge.HELD else composeEdgeOf(state),
             hint = if (step != null) NUDGE_HINT else COMPOSE_HINT,
             status = if (step != null) nudgeNote else null,
             send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
