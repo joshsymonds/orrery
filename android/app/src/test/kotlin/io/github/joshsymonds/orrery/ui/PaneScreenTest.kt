@@ -383,12 +383,14 @@ class PaneScreenTest {
             composeRule.waitUntilExactlyOneExists(hasTestTag(NO_CONVERSATION_TAG), TIMEOUT_MILLIS)
             assertEquals(1, paneListRequests(server))
 
+            // Only the test moves the clock from here, so the refresh comes at exactly one second.
+            composeRule.mainClock.autoAdvance = false
             composeRule.mainClock.advanceTimeBy(999)
             composeRule.waitForIdle()
             assertEquals(1, paneListRequests(server))
 
             composeRule.mainClock.advanceTimeBy(1)
-            composeRule.waitUntil(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
+            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { paneListRequests(server) == 2 }
         }
     }
 
