@@ -336,8 +336,17 @@ SELECT * FROM epics WHERE id = ?;
 -- name: ListEpics :many
 SELECT * FROM epics ORDER BY id;
 
+-- name: ListBuildEpics :many
+SELECT epics.id FROM epics
+WHERE epics.base <> '' AND epics.phase = 'accepted'
+  AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
+ORDER BY epics.id;
+
 -- name: UpdateEpicChanged :exec
 UPDATE epics SET changed = ? WHERE id = ?;
+
+-- name: SetEpicBranch :exec
+UPDATE epics SET branch = ? WHERE id = ?;
 
 -- name: InsertEpicFailure :exec
 INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);
@@ -462,6 +471,36 @@ INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: SetEpicTaskBuild :execrows
+UPDATE epic_tasks
+SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_attempt),
+    rerun = sqlc.arg(to_rerun), no_verdict = sqlc.arg(to_no_verdict), held = sqlc.arg(to_held),
+    step = sqlc.arg(to_step), red_run = sqlc.arg(to_red_run), green_run = sqlc.arg(to_green_run),
+    revision = sqlc.arg(to_revision), failure = sqlc.arg(to_failure), review = sqlc.arg(to_review),
+    refs = sqlc.arg(to_refs), gate_pos = sqlc.arg(to_gate_pos), finding_pos = sqlc.arg(to_finding_pos)
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
+  AND stage = sqlc.arg(from_stage) AND base = sqlc.arg(from_base) AND attempt = sqlc.arg(from_attempt)
+  AND rerun = sqlc.arg(from_rerun) AND no_verdict = sqlc.arg(from_no_verdict) AND held = sqlc.arg(from_held)
+  AND step = sqlc.arg(from_step) AND red_run = sqlc.arg(from_red_run) AND green_run = sqlc.arg(from_green_run)
+  AND revision = sqlc.arg(from_revision) AND failure = sqlc.arg(from_failure) AND review = sqlc.arg(from_review)
+  AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos);
+
+-- name: SetEpicTaskStatus :exec
+UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: InsertEpicTaskReview :exec
+INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEpicTaskFinding :exec
+INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SetEpicTaskFindingResult :execrows
+UPDATE epic_task_findings
+SET step = sqlc.arg(step), result = sqlc.arg(result), reason = sqlc.arg(reason)
+WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(attempt)
+  AND review = sqlc.arg(review) AND position = sqlc.arg(position) AND result = '';
+
 -- name: MaxEpicQuestionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
 
@@ -515,6 +554,24 @@ SELECT * FROM epic_task_files WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicTaskRequirements :many
 SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
+
+-- name: ListEpicTaskReviews :many
+SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
+
+-- name: ListEpicTaskFindings :many
+SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position;
+
+-- name: MaxEpicTellSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
+
+-- name: InsertEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0);
+
+-- name: ListEpicTells :many
+SELECT * FROM epic_tells WHERE epic = ? ORDER BY seq;
+
+-- name: MarkEpicTellTold :execrows
+UPDATE epic_tells SET told = 1 WHERE epic = ? AND seq = ?;
 
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;

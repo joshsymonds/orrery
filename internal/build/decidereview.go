@@ -1,0 +1,303 @@
+package build
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/joshsymonds/orrery/internal/store"
+)
+
+// The ends of a step that decideReview and decideVerify read. A step with no end is still open.
+const (
+	endDone            = "done"
+	endReturned        = "returned"
+	endStopped         = "stopped"
+	endEngineRestarted = "engine_restarted"
+	endGateFailed      = "gate_failed"
+)
+
+// statusDone is the status of a gate return that finished, and the verdicts a review stores.
+const (
+	statusDone   = "done"
+	verdictHolds = "holds"
+	verdictFails = "fails"
+)
+
+// The results a gate return gives an assertion, and the results a finding stores.
+const (
+	resultUndetermined = "undetermined"
+	resultConfirmed    = "confirmed"
+	resultDropped      = "dropped"
+	resultUndecided    = "undecided"
+)
+
+// gateReturn is the part of a review step's kept return decideReview reads: its status, its findings and the result
+// each assertion got. Each finding is kept as its schema keys map to strings, so the decoder reads verify_by as the
+// schema spells it.
+type gateReturn struct {
+	Status   string              `json:"status"`
+	Findings []map[string]string `json:"findings"`
+	Results  []gateResult        `json:"results"`
+}
+
+// gateResult is the result a gate return gave one assertion.
+type gateResult struct {
+	Result string `json:"result"`
+}
+
+// verifierReturn is the part of a verifier step's return decideVerify reads: the results it gave its finding.
+type verifierReturn struct {
+	Results []verifierResult `json:"results"`
+}
+
+// verifierResult is the result a verifier gave one finding, and the evidence it gave for it.
+type verifierResult struct {
+	Evidence string `json:"evidence"`
+	Result   string `json:"result"`
+}
+
+// decideGreen returns the action for the green unit of a task: its evidence run at the commit, once it has ended. A
+// run that is not captured or not met spends the attempt, and a run that gave no verdict reruns or parks the task. A
+// met run is kept as the green run and goes to the review gates; with none, decideReview accepts it unreviewed.
+func decideGreen(view View) Action {
+	build := view.Task.Build
+	run := view.Run
+	if run == nil {
+		if view.Paused || view.Parked {
+			return Action{Kind: ActNone}
+		}
+		return Action{
+			Kind: ActStartRun, Phase: StageGreen, Revision: build.Revision,
+			ID: RunID(view.Epic, view.Task.Seq, StageGreen, build.Attempt, build.Rerun),
+		}
+	}
+	if run.Ended.IsZero() {
+		return Action{Kind: ActNone}
+	}
+	if run.NotCaptured != "" {
+		return spend(view, "green not captured: "+run.NotCaptured)
+	}
+	if run.Verdict == "" {
+		return noVerdict(view, StageGreen, run.JudgeReason)
+	}
+	if !run.Passed {
+		return spend(view, fmt.Sprintf("green not met: exit %d, verdict %s", run.Exit, run.Verdict))
+	}
+	build.Stage = StageReview
+	build.GreenRun = run.ID
+	build.GatePos = 0
+	build.FindingPos = 0
+	build.Rerun = 0
+	build.NoVerdict = 0
+	return Action{Kind: ActMove, Next: build}
+}
+
+// decideReview returns the action for the review of the build's gate, once its step has ended. A done review holds
+// and moves to the next gate. A failed review with findings stores them and moves to their verification. Any other
+// end gives no verdict. Past the last gate the task is accepted as reviewed, or as unreviewed when the epic has no review
+// gates.
+func decideReview(view View) Action {
+	build := view.Task.Build
+	if build.GatePos >= int64(len(view.ReviewGates)) {
+		if len(view.ReviewGates) == 0 {
+			return Action{Kind: ActAccept, Next: build, Reason: ReviewUnreviewed}
+		}
+		return Action{Kind: ActAccept, Next: build, Reason: ReviewReviewed}
+	}
+	gate := view.ReviewGates[build.GatePos]
+	step := view.Step
+	if step == nil {
+		if view.Paused || view.Parked {
+			return Action{Kind: ActNone}
+		}
+		return Action{
+			Kind: ActStartStep, Unit: StageReview,
+			ID: StepID(view.Epic, view.Task.Seq, StageReview, build.Attempt, build.Rerun, build.GatePos, 0),
+		}
+	}
+	switch step.End {
+	case "":
+		return Action{Kind: ActNone}
+	case endStopped:
+		return holdStopped(build)
+	case endEngineRestarted:
+		return restartUnit(build)
+	case endDone:
+		review := store.TaskReview{
+			Attempt: build.Attempt, Position: build.GatePos, Gate: gate, Step: step.ID, Verdict: verdictHolds,
+		}
+		build.GatePos++
+		build.Rerun = 0
+		build.NoVerdict = 0
+		return Action{Kind: ActReview, Review: review, Next: build}
+	case endGateFailed:
+		if ret, ok := parseGateReturn(step.Result); ok && failedWithFindings(ret) {
+			findings := make([]store.TaskFinding, 0, len(ret.Findings))
+			for i, f := range ret.Findings {
+				findings = append(findings, store.TaskFinding{
+					Position: int64(i), ID: f["id"], Claim: f["claim"], Citation: f["citation"],
+					Location: f["location"], Evidence: f["evidence"], VerifyBy: f["verify_by"],
+				})
+			}
+			review := store.TaskReview{
+				Attempt: build.Attempt, Position: build.GatePos, Gate: gate, Step: step.ID, Verdict: verdictFails,
+				Findings: findings,
+			}
+			build.Stage = StageVerify
+			build.FindingPos = 0
+			build.Rerun = 0
+			build.NoVerdict = 0
+			return Action{Kind: ActReview, Review: review, Next: build}
+		}
+	}
+	return noVerdict(view, "review "+gate, endText(step))
+}
+
+// decideVerify returns the action for the verifier of the build's finding, once its step has ended. A done or returned
+// verifier stores the finding's result. Once every finding of the review is verified, a confirmed one spends the
+// attempt, and otherwise the build moves to the next gate. Any other end gives no verdict.
+func decideVerify(view View) Action {
+	build := view.Task.Build
+	findings := reviewFindings(view)
+	if build.FindingPos >= int64(len(findings)) {
+		return settledFindings(view, findings)
+	}
+	finding := findings[build.FindingPos]
+	step := view.Step
+	if step == nil {
+		if view.Paused || view.Parked {
+			return Action{Kind: ActNone}
+		}
+		return Action{
+			Kind: ActStartStep,
+			Unit: StageVerify,
+			ID: StepID(
+				view.Epic,
+				view.Task.Seq,
+				StageVerify,
+				build.Attempt,
+				build.Rerun,
+				build.GatePos,
+				build.FindingPos,
+			),
+		}
+	}
+	switch step.End {
+	case "":
+		return Action{Kind: ActNone}
+	case endStopped:
+		return holdStopped(build)
+	case endEngineRestarted:
+		return restartUnit(build)
+	case endDone:
+		if ret, ok := parseVerifierReturn(step.Result); ok && len(ret.Results) > 0 {
+			return verifiedAction(view, step.ID, verifiedResult(ret.Results[0].Result), ret.Results[0].Evidence)
+		}
+	case endReturned:
+		return verifiedAction(view, step.ID, resultUndecided, "blocked: "+step.Reason)
+	}
+	return noVerdict(view, "verify "+finding.ID, endText(step))
+}
+
+// failedWithFindings reports whether a review's kept return is a finished review that failed with findings: its
+// status is done, no assertion is undetermined, and it raised at least one finding.
+func failedWithFindings(ret gateReturn) bool {
+	if ret.Status != statusDone || len(ret.Findings) == 0 {
+		return false
+	}
+	for _, r := range ret.Results {
+		if r.Result == resultUndetermined {
+			return false
+		}
+	}
+	return true
+}
+
+// parseGateReturn decodes a review step's kept return. It reports false when the return is not a gate return.
+func parseGateReturn(result string) (gateReturn, bool) {
+	var ret gateReturn
+	err := json.Unmarshal([]byte(result), &ret)
+	return ret, err == nil
+}
+
+// parseVerifierReturn decodes a verifier step's return. It reports false when the return is not a verifier return.
+func parseVerifierReturn(result string) (verifierReturn, bool) {
+	var ret verifierReturn
+	err := json.Unmarshal([]byte(result), &ret)
+	return ret, err == nil
+}
+
+// verifiedResult returns the result a done verifier stores for its finding: confirmed and dropped as given, anything
+// else undecided.
+func verifiedResult(result string) string {
+	switch result {
+	case resultConfirmed, resultDropped:
+		return result
+	default:
+		return resultUndecided
+	}
+}
+
+// verifiedAction stores result and reason as the finding the build is on, as the step stepID verified, and moves the
+// build to the next finding.
+func verifiedAction(view View, stepID, result, reason string) Action {
+	build := view.Task.Build
+	finding := store.TaskFindingResult{
+		Attempt: build.Attempt, Review: build.GatePos, Position: build.FindingPos, Step: stepID,
+		Result: result, Reason: reason,
+	}
+	build.FindingPos++
+	build.Rerun = 0
+	build.NoVerdict = 0
+	return Action{Kind: ActFinding, Finding: finding, Next: build}
+}
+
+// settledFindings returns the action once every finding of the review is verified: a confirmed finding spends the
+// attempt with the claims it confirmed, and otherwise the build moves to the next gate.
+func settledFindings(view View, findings []store.TaskFinding) Action {
+	var confirmed []string
+	for _, f := range findings {
+		if f.Result == resultConfirmed {
+			confirmed = append(confirmed, fmt.Sprintf("confirmed: %s %s", f.ID, f.Claim))
+		}
+	}
+	if len(confirmed) > 0 {
+		return spend(view, strings.Join(confirmed, "; "))
+	}
+	build := view.Task.Build
+	build.Stage = StageReview
+	build.GatePos++
+	build.FindingPos = 0
+	build.Rerun = 0
+	build.NoVerdict = 0
+	return Action{Kind: ActMove, Next: build}
+}
+
+// reviewFindings returns the findings of the review of the build's attempt and gate, nil when the task has no such
+// review.
+func reviewFindings(view View) []store.TaskFinding {
+	for _, r := range view.Task.Reviews {
+		if r.Attempt == view.Task.Build.Attempt && r.Position == view.Task.Build.GatePos {
+			return r.Findings
+		}
+	}
+	return nil
+}
+
+// holdStopped returns the action for a step the owner stopped: the build holds stopped until the owner resumes it.
+func holdStopped(build store.TaskBuild) Action {
+	build.Held = HeldStopped
+	return Action{Kind: ActPause, Next: build}
+}
+
+// restartUnit returns the action for a step the engine ended on a restart: the unit reruns.
+func restartUnit(build store.TaskBuild) Action {
+	build.Rerun++
+	return Action{Kind: ActMove, Next: build}
+}
+
+// endText is the reason a step that ended with no verdict gives: its end, then the step's reason.
+func endText(step *store.StepRow) string {
+	return step.End + ": " + step.Reason
+}

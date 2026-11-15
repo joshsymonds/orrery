@@ -207,7 +207,8 @@ pair() {
 }
 
 # stepdone starts a turn, waits until fakeclaude.release exists in its directory, makes an empty commit there, and ends
-# the turn with a success result whose structured output returns that commit as done.
+# the turn with a success result whose structured output returns that commit as done, with the summary an implementer's
+# return carries.
 stepdone() {
 	turn_open
 	while [ ! -e fakeclaude.release ]; do
@@ -215,7 +216,7 @@ stepdone() {
 	done
 	git -c user.name=fake -c user.email=fake@example.invalid -c commit.gpgsign=false commit -q --allow-empty \
 		-m "fake done $n"
-	structured='{"status":"done","commit":"'"$(git rev-parse HEAD)"'"}'
+	structured='{"status":"done","summary":"fake done","commit":"'"$(git rev-parse HEAD)"'"}'
 	turn_close
 }
 

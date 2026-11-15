@@ -638,7 +638,6 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 		ids  func(epicCalls) []string
 	}{
 		{tool: "epic_pause", ids: func(c epicCalls) []string { return requestIDs(c.pauses) }},
-		{tool: "epic_resume", ids: func(c epicCalls) []string { return requestIDs(c.resumes) }},
 		{tool: "epic_stop", ids: func(c epicCalls) []string { return requestIDs(c.stops) }},
 		{tool: "epic_retry", ids: func(c epicCalls) []string { return requestIDs(c.retries) }},
 	}
@@ -646,10 +645,9 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 		t.Run(tc.tool, func(t *testing.T) {
 			stored := storedEpicOf(fullContract())
 			fake := &fakeEpics{
-				pauseReply:  &v1.PauseEpicResponse{Epic: stored},
-				resumeReply: &v1.ResumeEpicResponse{Epic: stored},
-				stopReply:   &v1.StopEpicResponse{Epic: stored},
-				retryReply:  &v1.RetryEpicResponse{Epic: stored},
+				pauseReply: &v1.PauseEpicResponse{Epic: stored},
+				stopReply:  &v1.StopEpicResponse{Epic: stored},
+				retryReply: &v1.RetryEpicResponse{Epic: stored},
 			}
 			p := newPeer(t, nil, fake)
 
@@ -669,6 +667,59 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 			unmarshalResult(t, outcome.text, &got)
 			if !proto.Equal(&got, stored) {
 				t.Fatalf("%s result = %s, want the stored epic", tc.tool, outcome.text)
+			}
+		})
+	}
+}
+
+func TestEpicResumeResultCarriesEpicResumedAndStillLimited(t *testing.T) {
+	t.Parallel()
+	stored := storedEpicOf(fullContract())
+	cases := []struct {
+		name         string
+		resumed      []string
+		stillLimited []string
+	}{
+		{name: "every limited step resumed", resumed: []string{"step-a", "step-b"}},
+		{name: "one left limited by the cap", resumed: []string{"step-b"}, stillLimited: []string{"step-a"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeEpics{resumeReply: &v1.ResumeEpicResponse{
+				Epic:         stored,
+				Resumed:      tc.resumed,
+				StillLimited: tc.stillLimited,
+			}}
+			p := newPeer(t, nil, fake)
+
+			outcome := p.tool("epic_resume", `{"id":"`+testEpicID+`"}`)
+
+			if outcome.isError {
+				t.Fatalf("epic_resume returned an error: %s", outcome.text)
+			}
+			if n := fake.calls().total(); n != 1 {
+				t.Fatalf("epic_resume made %d service calls, want 1", n)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(outcome.text), &fields); err != nil {
+				t.Fatalf("decode result %q: %v", outcome.text, err)
+			}
+			for _, key := range []string{"epic", "resumed", "stillLimited"} {
+				if _, ok := fields[key]; !ok {
+					t.Fatalf("epic_resume result %s lacks %q", outcome.text, key)
+				}
+			}
+			var got v1.ResumeEpicResponse
+			unmarshalResult(t, outcome.text, &got)
+			if !proto.Equal(got.GetEpic(), stored) {
+				t.Fatalf("epic = %v, want the stored epic", got.GetEpic())
+			}
+			if !slices.Equal(got.GetResumed(), tc.resumed) {
+				t.Fatalf("resumed = %v, want %v", got.GetResumed(), tc.resumed)
+			}
+			if !slices.Equal(got.GetStillLimited(), tc.stillLimited) {
+				t.Fatalf("still_limited = %v, want %v", got.GetStillLimited(), tc.stillLimited)
 			}
 		})
 	}

@@ -75,8 +75,10 @@ func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
 		},
 		{
 			Name: "epic_resume",
-			Description: "Clear the pause of an epic by id. Returns the stored epic. An epic that is not paused is " +
-				"refused. A park stays; epic_retry ends a park.",
+			Description: "Clear the pause of an epic by id, if it is paused, and resume its limited task steps. " +
+				"Returns the stored epic, the ids of the steps resumed, and the ids of the steps a full step cap " +
+				"left limited. An epic that is not paused and holds no limited task step is refused. A park " +
+				"stays; epic_retry ends a park.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     epicResumeHandler(epics),
 		},
@@ -212,7 +214,7 @@ func epicResumeHandler(epics enginev1connect.EpicsClient) mcp.ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return protoResult(resumed.Msg.GetEpic())
+		return protoResult(resumed.Msg)
 	}
 }
 

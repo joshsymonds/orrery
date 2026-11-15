@@ -30,6 +30,7 @@ const (
 	needPark
 	needLimit
 	needQuestions
+	needTell
 )
 
 // epicNotice is the Source data of an epic notice: the epic, its title and the body the owner reads.
@@ -44,6 +45,7 @@ type epicNotice struct {
 type AttentionStore interface {
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
 	MarkTold(ctx context.Context, epic string, seq int64) error
+	MarkTellTold(ctx context.Context, epic string, seq int64) error
 }
 
 // Router routes notices to the owner. *route.Router satisfies it.
@@ -116,28 +118,41 @@ func (a *Attention) pass(ctx context.Context) {
 	}
 }
 
-// attend passes over one epic. An epic that needs nothing has its notice cleared. Otherwise the latest turn, when it
-// has ended and is not told, tells the owner once, if the need is one the owner must answer, and is marked told.
+// attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as the
+// epic's notice and marked told. Last, the latest turn, when it has ended and is not told, tells the owner once, if the
+// need is one the owner must answer, and is marked told.
 func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now time.Time) {
 	need := needOf(entry)
 	if need == needNone {
 		a.router.Seen(ctx, notice.Key{Epic: entry.Epic}, now.Unix())
 	}
+	for _, tell := range entry.Tells {
+		a.tell(ctx, entry, tell)
+	}
 	if entry.Latest.Seq == 0 || entry.Latest.Told {
 		return
 	}
 	if tellsOwner(need, entry) {
-		a.notify(ctx, entry, need)
+		a.notify(ctx, entry, bodyOf(need, entry))
 	}
 	if err := a.store.MarkTold(ctx, entry.Epic, entry.Latest.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark turn told", "epic", entry.Epic, "turn", entry.Latest.Seq, "err", err)
 	}
 }
 
-// notify routes the notice of need for entry. It runs before the turn is marked told, so a restart between the two
-// repeats the notice rather than losing it.
-func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, need attentionNeed) {
-	stored := epicNotice{Epic: entry.Epic, Title: entry.Title, Body: bodyOf(need, entry)}
+// tell routes tell of entry as the epic's notice, with the tell's text, and marks it told. It runs before the tell is
+// marked, so a restart between the two repeats the notice rather than losing it. A tell whose mark fails is routed
+// again on the next pass.
+func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell) {
+	a.notify(ctx, entry, tell.Text)
+	if err := a.store.MarkTellTold(ctx, entry.Epic, tell.Seq); err != nil {
+		a.logger.ErrorContext(ctx, "mark tell told", "epic", entry.Epic, "tell", tell.Seq, "err", err)
+	}
+}
+
+// notify routes a notice of body for entry, keyed by its epic.
+func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, body string) {
+	stored := epicNotice{Epic: entry.Epic, Title: entry.Title, Body: body}
 	incoming := attentionNotice(stored)
 	data, err := json.Marshal(stored)
 	if err != nil {
@@ -175,7 +190,7 @@ func attentionNotice(stored epicNotice) route.Notice {
 }
 
 // needOf returns what entry needs from its owner: a park first, then a usage limit that freed the epic, then open
-// questions.
+// questions, then a latest tell that is newer than the latest ended turn, or than any turn when none has ended.
 func needOf(entry store.EpicAttention) attentionNeed {
 	switch {
 	case entry.Parked != "":
@@ -184,6 +199,8 @@ func needOf(entry store.EpicAttention) attentionNeed {
 		return needLimit
 	case len(entry.Open) > 0:
 		return needQuestions
+	case !entry.LatestTell.IsZero() && (entry.Latest.Seq == 0 || entry.LatestTell.After(entry.Latest.Ended)):
+		return needTell
 	default:
 		return needNone
 	}

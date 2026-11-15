@@ -407,6 +407,79 @@ message EpicTask {
 
   // The evidence that shows the task is done.
   EvidenceItem evidence = 10;
+
+  // The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+  string stage = 11;
+
+  // The attempt the task's build is on; 0 before the build's first attempt starts.
+  int64 attempt = 12;
+
+  // The step of the build's current unit, empty when the unit has no step.
+  string step = 13;
+
+  // The revision the task builds from, empty before the build starts.
+  string base = 14;
+
+  // The revision the build's current unit runs at, empty when the unit runs none.
+  string revision = 15;
+
+  // The reason the build's last failed unit gave, empty when no unit failed.
+  string failure = 16;
+
+  // Whether the task's review gates ran: unreviewed when the task was accepted with none, reviewed when it was accepted
+  // after them; empty until the task is accepted.
+  string review = 17;
+
+  // Why the build stopped: stopped or parked; empty while the build runs.
+  string held = 18;
+
+  // The red evidence run the build names; absent until the build names one.
+  EvidenceRun red = 19;
+
+  // The green evidence run the build names; absent until the build names one.
+  EvidenceRun green = 20;
+
+  // The reviews of the task's build, in attempt then position order.
+  repeated EpicTaskReview reviews = 21;
+}
+
+// EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
+message EpicTaskReview {
+  // The attempt the review ran in.
+  int64 attempt = 1;
+
+  // The review gate the review ran.
+  string gate = 2;
+
+  // The step that ran the review.
+  string step = 3;
+
+  // The review's verdict: holds or fails.
+  string verdict = 4;
+
+  // The findings the review raised, in position order.
+  repeated EpicTaskFinding findings = 5;
+}
+
+// EpicTaskFinding is one finding a review raised, with its verification.
+message EpicTaskFinding {
+  // The finding's id.
+  string id = 1;
+
+  // The claim the finding makes.
+  string claim = 2;
+
+  // Where the finding is located.
+  string location = 3;
+
+  // The step that verified the finding; empty until it is verified.
+  string step = 4;
+
+  // The verification's result: confirmed, dropped or undecided; empty until it is verified.
+  string result = 5;
+
+  // Why the verification gave its result.
+  string reason = 6;
 }
 
 // EpicQuestion is one question a planner turn asked.
@@ -455,6 +528,9 @@ message StoredEpic {
 
   // The questions the epic's planner turns asked, in the order they were asked.
   repeated EpicQuestion questions = 10;
+
+  // The state of the epic's branch: empty before it is created, creating while it is being created, then created.
+  string branch = 11;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -556,10 +632,17 @@ message ResumeEpicRequest {
   string id = 1;
 }
 
-// ResumeEpicResponse carries the resumed epic.
+// ResumeEpicResponse carries the resumed epic, the limited steps it resumed and the limited steps a full step cap left
+// limited.
 message ResumeEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+
+  // The ids of the limited steps the resume resumed, oldest first.
+  repeated string resumed = 2;
+
+  // The ids of the limited steps the resume left limited because the step cap was full, oldest first.
+  repeated string still_limited = 3;
 }
 
 // StopEpicRequest names the epic to stop.

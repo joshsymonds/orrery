@@ -1,0 +1,175 @@
+package planner
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/notice"
+	"github.com/joshsymonds/orrery/internal/store"
+)
+
+// tellingStore is the AttentionStore of the test that refuses a tell's mark while failMark is set. Its other methods
+// are the real store's.
+type tellingStore struct {
+	*store.Store
+	failMark bool
+}
+
+// MarkTellTold marks the tell in the real store, or fails while failMark is set.
+func (s *tellingStore) MarkTellTold(ctx context.Context, epic string, seq int64) error {
+	if s.failMark {
+		return errors.New("mark refused")
+	}
+	return s.Store.MarkTellTold(ctx, epic, seq)
+}
+
+// endWorkTurn claims the pending turn of the runner epic and completes it with no questions at ended.
+func endWorkTurn(t *testing.T, s *store.Store, ended time.Time) {
+	t.Helper()
+	turn := claimAttentionTurn(t, s)
+	plan := store.EpicPlan{Outcome: "work"}
+	if err := s.CompleteTurn(context.Background(), runnerEpicID, turn, plan, ended); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
+	}
+}
+
+// tellRunner adds text to the runner epic as a tell written at at.
+func tellRunner(t *testing.T, s *store.Store, text string, at time.Time) {
+	t.Helper()
+	if err := s.Tell(context.Background(), runnerEpicID, text, at); err != nil {
+		t.Fatalf("Tell %q: %v", text, err)
+	}
+}
+
+// untoldTellsOfRunner returns the tells of the runner epic that Attention reports as untold.
+func untoldTellsOfRunner(t *testing.T, s *store.Store) []store.EpicTell {
+	t.Helper()
+	attention, err := s.Attention(context.Background())
+	if err != nil {
+		t.Fatalf("Attention: %v", err)
+	}
+	for _, entry := range attention {
+		if entry.Epic == runnerEpicID {
+			return entry.Tells
+		}
+	}
+	t.Fatalf("Attention has no entry for %s", runnerEpicID)
+	return nil
+}
+
+func TestAttentionRoutesEachUntoldTellAsTheEpicsNoticeInSeqOrder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	endWorkTurn(t, s, claimedAt())
+	tellRunner(t, s, "first tell", claimedAt().Add(time.Second))
+	tellRunner(t, s, "second tell", claimedAt().Add(2*time.Second))
+	router := &fakeAttentionRouter{}
+
+	attentionOver(s, router).pass(ctx)
+
+	if len(router.notices) != 2 {
+		t.Fatalf("notices after one pass = %d, want one per tell", len(router.notices))
+	}
+	for i, want := range []string{"first tell", "second tell"} {
+		got := shownOf(t, router.notices[i])
+		if got.key != (notice.Key{Epic: runnerEpicID}) || got.desk.Body != want {
+			t.Errorf("notice %d = key %+v body %q, want key %+v body %q",
+				i, got.key, got.desk.Body, notice.Key{Epic: runnerEpicID}, want)
+		}
+	}
+	if tells := untoldTellsOfRunner(t, s); len(tells) != 0 {
+		t.Errorf("untold tells after the pass = %+v, want none", tells)
+	}
+}
+
+func TestAttentionDoesNotRouteAToldTellAgain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	endWorkTurn(t, s, claimedAt())
+	tellRunner(t, s, "only tell", claimedAt().Add(time.Second))
+	router := &fakeAttentionRouter{}
+	attention := attentionOver(s, router)
+
+	attention.pass(ctx)
+	attention.pass(ctx)
+	attentionOver(s, router).pass(ctx)
+
+	if n := len(router.notices); n != 1 {
+		t.Errorf("notices after two passes and a restarted Attention = %d, want still one", n)
+	}
+}
+
+func TestAttentionKeepsTheNoticeUpWhileTheLatestTellIsNewerThanTheLatestEndedTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	endWorkTurn(t, s, claimedAt())
+	tellRunner(t, s, "tell after the turn", claimedAt().Add(time.Second))
+	router := &fakeAttentionRouter{}
+
+	attentionOver(s, router).pass(ctx)
+
+	if len(router.notices) != 1 {
+		t.Fatalf("notices after one pass = %d, want exactly one", len(router.notices))
+	}
+	if len(router.seens) != 0 {
+		t.Errorf("seen reports = %+v, want none while the latest tell is newer than the latest turn's end",
+			router.seens)
+	}
+}
+
+func TestAttentionClearsTheNoticeOnceATurnEndsAfterTheLatestTell(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	tellRunner(t, s, "tell before the turn", claimedAt())
+	endWorkTurn(t, s, claimedAt().Add(time.Second))
+	router := &fakeAttentionRouter{}
+
+	attentionOver(s, router).pass(ctx)
+
+	if len(router.notices) != 1 {
+		t.Fatalf("notices after one pass = %d, want the tell routed once", len(router.notices))
+	}
+	want := attentionSeen{key: notice.Key{Epic: runnerEpicID}, seen: claimedAt().Unix()}
+	if len(router.seens) != 1 || router.seens[0] != want {
+		t.Errorf("seen reports = %+v, want exactly [%+v]", router.seens, want)
+	}
+}
+
+func TestAttentionRoutesATellAgainWhenMarkingItToldFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	endWorkTurn(t, s, claimedAt())
+	tellRunner(t, s, "tell", claimedAt().Add(time.Second))
+	failing := &tellingStore{Store: s, failMark: true}
+	router := &fakeAttentionRouter{}
+	attention := NewAttention(AttentionConfig{Store: failing, Router: router, Now: claimedAt})
+
+	attention.pass(ctx)
+	if len(router.notices) != 1 {
+		t.Fatalf("notices after a pass whose mark fails = %d, want the tell routed once", len(router.notices))
+	}
+	failing.failMark = false
+	attention.pass(ctx)
+
+	if len(router.notices) != 2 {
+		t.Fatalf("notices after the mark succeeds = %d, want the tell routed again", len(router.notices))
+	}
+	if got := shownOf(t, router.notices[1]).desk.Body; got != "tell" {
+		t.Errorf("routed again with body %q, want %q", got, "tell")
+	}
+	if tells := untoldTellsOfRunner(t, s); len(tells) != 0 {
+		t.Errorf("untold tells after the mark succeeds = %+v, want none", tells)
+	}
+}

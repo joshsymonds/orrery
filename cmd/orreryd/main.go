@@ -22,10 +22,12 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
+	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -510,6 +512,8 @@ type sessionHost struct {
 	idleDone    chan struct{}
 	stopPlanner context.CancelFunc
 	plannerDone chan struct{}
+	stopBuild   context.CancelFunc
+	buildDone   chan struct{}
 	// attentionDone is closed when the attention loop returns, and is nil when no loop runs.
 	attentionDone chan struct{}
 	stopLimits    context.CancelFunc
@@ -526,7 +530,8 @@ type sessionHost struct {
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
 // The planner then runs over the store and the steps, and its attention loop routes its epic notices through router
-// when router is not nil; the limit notices tell router which steps a usage limit holds, every limitTick until stop;
+// when router is not nil. The build runner then runs over the store, the steps and the evidence runner until stop; the
+// limit notices tell router which steps a usage limit holds, every limitTick until stop;
 // and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
 // serving goes on; a failed restore serves no Pools, which refuse as
 // unavailable, and the gates fail for want of pools.
@@ -543,6 +548,7 @@ func startSessions(
 		writerDone:  make(chan struct{}),
 		idleDone:    make(chan struct{}),
 		plannerDone: make(chan struct{}),
+		buildDone:   make(chan struct{}),
 		limitsDone:  make(chan struct{}),
 		serveDone:   make(chan error, 1),
 	}
@@ -586,8 +592,8 @@ func startSessions(
 			Haiku:        enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: planner.ReadoptCheck(st, resolve),
-			ReadoptGate:  enginehost.EvidenceReadoptGate(st),
+			ReadoptCheck: readoptCheck(st, resolve),
+			ReadoptGate:  readoptGate(st, getenv),
 		})
 		if err != nil {
 			host.stopBroker()
@@ -608,6 +614,7 @@ func startSessions(
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
 		host.startPlanner(ctx, st, router, getenv, resolve, logger)
+		host.startBuild(ctx, st, getenv, stateDir, logger)
 		host.startLimits(ctx, st, router, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
@@ -627,6 +634,40 @@ func startSessions(
 		host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools, evidence)
 	}()
 	return host, nil
+}
+
+// readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
+// running planner turn, and when that check is nil, the build's verifier check. An error from either is returned.
+func readoptCheck(
+	st *store.Store,
+	resolve planner.Resolver,
+) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
+	plan := planner.ReadoptCheck(st, resolve)
+	verify := build.ReadoptCheck()
+	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
+		check, err := plan(ctx, row)
+		if err != nil || check != nil {
+			return check, err
+		}
+		return verify(ctx, row)
+	}
+}
+
+// readoptGate is the ReadoptGate of the steps. A re-adopted row gets the judge gate of an evidence run when it is a judge
+// step, and when that gate is nil, the review gate of a task's review step. An error from either is returned.
+func readoptGate(
+	st *store.Store,
+	getenv func(string) string,
+) func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
+	judge := enginehost.EvidenceReadoptGate(st)
+	review := build.ReadoptGate(st, getenv)
+	return func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
+		gate, err := judge(ctx, row)
+		if err != nil || gate != nil {
+			return gate, err
+		}
+		return review(ctx, row)
+	}
 }
 
 // reconcile re-adopts the open step rows a previous run left, then reconciles the session rows and the step rows that no
@@ -775,6 +816,31 @@ func (h *sessionHost) startPlanner(
 	}()
 }
 
+// startBuild runs the build Runner over st, the steps and the evidence runner until stop. Each pass moves the builds of
+// the open tasks of accepted epics, and starts their steps and evidence runs through the steps and the evidence runner.
+func (h *sessionHost) startBuild(
+	ctx context.Context,
+	st *store.Store,
+	getenv func(string) string,
+	stateDir string,
+	logger *slog.Logger,
+) {
+	runner := build.New(build.Config{
+		Store:    st,
+		Steps:    h.steps,
+		Evidence: h.evidence,
+		Getenv:   getenv,
+		StateDir: stateDir,
+		Logger:   logger,
+	})
+	var buildCtx context.Context
+	buildCtx, h.stopBuild = context.WithCancel(ctx)
+	go func() {
+		runner.Run(buildCtx)
+		close(h.buildDone)
+	}()
+}
+
 // startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. A limit that holds
 // steps when it starts is remembered, not announced.
 func (h *sessionHost) startLimits(
@@ -800,10 +866,11 @@ func (h *sessionHost) startLimits(
 	}()
 }
 
-// shutdown stops the broker, stops the idle check, stops the planner and the limit notices and waits for the planner's
-// runner, its attention loop and the limit loop to return, closes the evidence runner and waits for its drives, ends
-// every step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started
-// are waited on in serve. Without a broker, manager and writer it does nothing.
+// shutdown stops the broker, stops the idle check, stops the planner and the build runner and waits for each to return,
+// stops the limit notices and waits for the planner's runner, its attention loop and the limit loop to return, closes
+// the evidence runner and waits for its drives, ends every step loop, stops every live session, and ends the writer
+// after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and writer
+// it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -811,6 +878,8 @@ func (h *sessionHost) shutdown() {
 		<-h.idleDone
 		h.stopPlanner()
 		<-h.plannerDone
+		h.stopBuild()
+		<-h.buildDone
 		h.evidence.Close()
 		if h.attentionDone != nil {
 			<-h.attentionDone

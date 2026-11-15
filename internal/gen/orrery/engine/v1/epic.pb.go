@@ -1464,7 +1464,30 @@ type EpicTask struct {
 	// The name of the command gate the task's check runs, from the epic's gates.
 	Gate string `protobuf:"bytes,9,opt,name=gate,proto3" json:"gate,omitempty"`
 	// The evidence that shows the task is done.
-	Evidence      *EvidenceItem `protobuf:"bytes,10,opt,name=evidence,proto3" json:"evidence,omitempty"`
+	Evidence *EvidenceItem `protobuf:"bytes,10,opt,name=evidence,proto3" json:"evidence,omitempty"`
+	// The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+	Stage string `protobuf:"bytes,11,opt,name=stage,proto3" json:"stage,omitempty"`
+	// The attempt the task's build is on; 0 before the build's first attempt starts.
+	Attempt int64 `protobuf:"varint,12,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	// The step of the build's current unit, empty when the unit has no step.
+	Step string `protobuf:"bytes,13,opt,name=step,proto3" json:"step,omitempty"`
+	// The revision the task builds from, empty before the build starts.
+	Base string `protobuf:"bytes,14,opt,name=base,proto3" json:"base,omitempty"`
+	// The revision the build's current unit runs at, empty when the unit runs none.
+	Revision string `protobuf:"bytes,15,opt,name=revision,proto3" json:"revision,omitempty"`
+	// The reason the build's last failed unit gave, empty when no unit failed.
+	Failure string `protobuf:"bytes,16,opt,name=failure,proto3" json:"failure,omitempty"`
+	// Whether the task's review gates ran: unreviewed when the task was accepted with none, reviewed when it was accepted
+	// after them; empty until the task is accepted.
+	Review string `protobuf:"bytes,17,opt,name=review,proto3" json:"review,omitempty"`
+	// Why the build stopped: stopped or parked; empty while the build runs.
+	Held string `protobuf:"bytes,18,opt,name=held,proto3" json:"held,omitempty"`
+	// The red evidence run the build names; absent until the build names one.
+	Red *EvidenceRun `protobuf:"bytes,19,opt,name=red,proto3" json:"red,omitempty"`
+	// The green evidence run the build names; absent until the build names one.
+	Green *EvidenceRun `protobuf:"bytes,20,opt,name=green,proto3" json:"green,omitempty"`
+	// The reviews of the task's build, in attempt then position order.
+	Reviews       []*EpicTaskReview `protobuf:"bytes,21,rep,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1569,6 +1592,256 @@ func (x *EpicTask) GetEvidence() *EvidenceItem {
 	return nil
 }
 
+func (x *EpicTask) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *EpicTask) GetAttempt() int64 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *EpicTask) GetStep() string {
+	if x != nil {
+		return x.Step
+	}
+	return ""
+}
+
+func (x *EpicTask) GetBase() string {
+	if x != nil {
+		return x.Base
+	}
+	return ""
+}
+
+func (x *EpicTask) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *EpicTask) GetFailure() string {
+	if x != nil {
+		return x.Failure
+	}
+	return ""
+}
+
+func (x *EpicTask) GetReview() string {
+	if x != nil {
+		return x.Review
+	}
+	return ""
+}
+
+func (x *EpicTask) GetHeld() string {
+	if x != nil {
+		return x.Held
+	}
+	return ""
+}
+
+func (x *EpicTask) GetRed() *EvidenceRun {
+	if x != nil {
+		return x.Red
+	}
+	return nil
+}
+
+func (x *EpicTask) GetGreen() *EvidenceRun {
+	if x != nil {
+		return x.Green
+	}
+	return nil
+}
+
+func (x *EpicTask) GetReviews() []*EpicTaskReview {
+	if x != nil {
+		return x.Reviews
+	}
+	return nil
+}
+
+// EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
+type EpicTaskReview struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The attempt the review ran in.
+	Attempt int64 `protobuf:"varint,1,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	// The review gate the review ran.
+	Gate string `protobuf:"bytes,2,opt,name=gate,proto3" json:"gate,omitempty"`
+	// The step that ran the review.
+	Step string `protobuf:"bytes,3,opt,name=step,proto3" json:"step,omitempty"`
+	// The review's verdict: holds or fails.
+	Verdict string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
+	// The findings the review raised, in position order.
+	Findings      []*EpicTaskFinding `protobuf:"bytes,5,rep,name=findings,proto3" json:"findings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EpicTaskReview) Reset() {
+	*x = EpicTaskReview{}
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EpicTaskReview) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EpicTaskReview) ProtoMessage() {}
+
+func (x *EpicTaskReview) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EpicTaskReview.ProtoReflect.Descriptor instead.
+func (*EpicTaskReview) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *EpicTaskReview) GetAttempt() int64 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *EpicTaskReview) GetGate() string {
+	if x != nil {
+		return x.Gate
+	}
+	return ""
+}
+
+func (x *EpicTaskReview) GetStep() string {
+	if x != nil {
+		return x.Step
+	}
+	return ""
+}
+
+func (x *EpicTaskReview) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
+	}
+	return ""
+}
+
+func (x *EpicTaskReview) GetFindings() []*EpicTaskFinding {
+	if x != nil {
+		return x.Findings
+	}
+	return nil
+}
+
+// EpicTaskFinding is one finding a review raised, with its verification.
+type EpicTaskFinding struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The finding's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The claim the finding makes.
+	Claim string `protobuf:"bytes,2,opt,name=claim,proto3" json:"claim,omitempty"`
+	// Where the finding is located.
+	Location string `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
+	// The step that verified the finding; empty until it is verified.
+	Step string `protobuf:"bytes,4,opt,name=step,proto3" json:"step,omitempty"`
+	// The verification's result: confirmed, dropped or undecided; empty until it is verified.
+	Result string `protobuf:"bytes,5,opt,name=result,proto3" json:"result,omitempty"`
+	// Why the verification gave its result.
+	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EpicTaskFinding) Reset() {
+	*x = EpicTaskFinding{}
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EpicTaskFinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EpicTaskFinding) ProtoMessage() {}
+
+func (x *EpicTaskFinding) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EpicTaskFinding.ProtoReflect.Descriptor instead.
+func (*EpicTaskFinding) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *EpicTaskFinding) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *EpicTaskFinding) GetClaim() string {
+	if x != nil {
+		return x.Claim
+	}
+	return ""
+}
+
+func (x *EpicTaskFinding) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
+}
+
+func (x *EpicTaskFinding) GetStep() string {
+	if x != nil {
+		return x.Step
+	}
+	return ""
+}
+
+func (x *EpicTaskFinding) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *EpicTaskFinding) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 // EpicQuestion is one question a planner turn asked.
 type EpicQuestion struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1586,7 +1859,7 @@ type EpicQuestion struct {
 
 func (x *EpicQuestion) Reset() {
 	*x = EpicQuestion{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1598,7 +1871,7 @@ func (x *EpicQuestion) String() string {
 func (*EpicQuestion) ProtoMessage() {}
 
 func (x *EpicQuestion) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1611,7 +1884,7 @@ func (x *EpicQuestion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpicQuestion.ProtoReflect.Descriptor instead.
 func (*EpicQuestion) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{16}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *EpicQuestion) GetId() string {
@@ -1664,14 +1937,16 @@ type StoredEpic struct {
 	// The tasks the epic's planner turns planned, in the order they were planned.
 	Tasks []*EpicTask `protobuf:"bytes,9,rep,name=tasks,proto3" json:"tasks,omitempty"`
 	// The questions the epic's planner turns asked, in the order they were asked.
-	Questions     []*EpicQuestion `protobuf:"bytes,10,rep,name=questions,proto3" json:"questions,omitempty"`
+	Questions []*EpicQuestion `protobuf:"bytes,10,rep,name=questions,proto3" json:"questions,omitempty"`
+	// The state of the epic's branch: empty before it is created, creating while it is being created, then created.
+	Branch        string `protobuf:"bytes,11,opt,name=branch,proto3" json:"branch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StoredEpic) Reset() {
 	*x = StoredEpic{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[17]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1683,7 +1958,7 @@ func (x *StoredEpic) String() string {
 func (*StoredEpic) ProtoMessage() {}
 
 func (x *StoredEpic) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[17]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1696,7 +1971,7 @@ func (x *StoredEpic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoredEpic.ProtoReflect.Descriptor instead.
 func (*StoredEpic) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{17}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StoredEpic) GetContract() *EpicContract {
@@ -1769,6 +2044,13 @@ func (x *StoredEpic) GetQuestions() []*EpicQuestion {
 	return nil
 }
 
+func (x *StoredEpic) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
 // EpicSummary is an epic's head fields, without its contract.
 type EpicSummary struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1790,7 +2072,7 @@ type EpicSummary struct {
 
 func (x *EpicSummary) Reset() {
 	*x = EpicSummary{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[18]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1802,7 +2084,7 @@ func (x *EpicSummary) String() string {
 func (*EpicSummary) ProtoMessage() {}
 
 func (x *EpicSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[18]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1815,7 +2097,7 @@ func (x *EpicSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpicSummary.ProtoReflect.Descriptor instead.
 func (*EpicSummary) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{18}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EpicSummary) GetId() string {
@@ -1873,7 +2155,7 @@ type CreateEpicRequest struct {
 
 func (x *CreateEpicRequest) Reset() {
 	*x = CreateEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[19]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1885,7 +2167,7 @@ func (x *CreateEpicRequest) String() string {
 func (*CreateEpicRequest) ProtoMessage() {}
 
 func (x *CreateEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[19]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1898,7 +2180,7 @@ func (x *CreateEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEpicRequest.ProtoReflect.Descriptor instead.
 func (*CreateEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{19}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CreateEpicRequest) GetContract() *EpicContract {
@@ -1926,7 +2208,7 @@ type CreateEpicResponse struct {
 
 func (x *CreateEpicResponse) Reset() {
 	*x = CreateEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[20]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1938,7 +2220,7 @@ func (x *CreateEpicResponse) String() string {
 func (*CreateEpicResponse) ProtoMessage() {}
 
 func (x *CreateEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[20]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1951,7 +2233,7 @@ func (x *CreateEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEpicResponse.ProtoReflect.Descriptor instead.
 func (*CreateEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{20}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CreateEpicResponse) GetEpic() *StoredEpic {
@@ -1972,7 +2254,7 @@ type GetEpicRequest struct {
 
 func (x *GetEpicRequest) Reset() {
 	*x = GetEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[21]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1984,7 +2266,7 @@ func (x *GetEpicRequest) String() string {
 func (*GetEpicRequest) ProtoMessage() {}
 
 func (x *GetEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[21]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1997,7 +2279,7 @@ func (x *GetEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEpicRequest.ProtoReflect.Descriptor instead.
 func (*GetEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{21}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetEpicRequest) GetId() string {
@@ -2018,7 +2300,7 @@ type GetEpicResponse struct {
 
 func (x *GetEpicResponse) Reset() {
 	*x = GetEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[22]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2312,7 @@ func (x *GetEpicResponse) String() string {
 func (*GetEpicResponse) ProtoMessage() {}
 
 func (x *GetEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[22]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2325,7 @@ func (x *GetEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEpicResponse.ProtoReflect.Descriptor instead.
 func (*GetEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{22}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetEpicResponse) GetEpic() *StoredEpic {
@@ -2062,7 +2344,7 @@ type ListEpicsRequest struct {
 
 func (x *ListEpicsRequest) Reset() {
 	*x = ListEpicsRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[23]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2074,7 +2356,7 @@ func (x *ListEpicsRequest) String() string {
 func (*ListEpicsRequest) ProtoMessage() {}
 
 func (x *ListEpicsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[23]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2087,7 +2369,7 @@ func (x *ListEpicsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEpicsRequest.ProtoReflect.Descriptor instead.
 func (*ListEpicsRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{23}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{25}
 }
 
 // ListEpicsResponse carries the summary of every stored epic.
@@ -2101,7 +2383,7 @@ type ListEpicsResponse struct {
 
 func (x *ListEpicsResponse) Reset() {
 	*x = ListEpicsResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[24]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2113,7 +2395,7 @@ func (x *ListEpicsResponse) String() string {
 func (*ListEpicsResponse) ProtoMessage() {}
 
 func (x *ListEpicsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[24]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2126,7 +2408,7 @@ func (x *ListEpicsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEpicsResponse.ProtoReflect.Descriptor instead.
 func (*ListEpicsResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{24}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListEpicsResponse) GetEpics() []*EpicSummary {
@@ -2153,7 +2435,7 @@ type AnswerEpicRequest struct {
 
 func (x *AnswerEpicRequest) Reset() {
 	*x = AnswerEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[25]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2165,7 +2447,7 @@ func (x *AnswerEpicRequest) String() string {
 func (*AnswerEpicRequest) ProtoMessage() {}
 
 func (x *AnswerEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[25]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2178,7 +2460,7 @@ func (x *AnswerEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnswerEpicRequest.ProtoReflect.Descriptor instead.
 func (*AnswerEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{25}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *AnswerEpicRequest) GetEpicId() string {
@@ -2222,7 +2504,7 @@ type AnswerEpicResponse struct {
 
 func (x *AnswerEpicResponse) Reset() {
 	*x = AnswerEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[26]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2234,7 +2516,7 @@ func (x *AnswerEpicResponse) String() string {
 func (*AnswerEpicResponse) ProtoMessage() {}
 
 func (x *AnswerEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[26]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2247,7 +2529,7 @@ func (x *AnswerEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnswerEpicResponse.ProtoReflect.Descriptor instead.
 func (*AnswerEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{26}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *AnswerEpicResponse) GetDecision() *EpicDecision {
@@ -2275,7 +2557,7 @@ type PauseEpicRequest struct {
 
 func (x *PauseEpicRequest) Reset() {
 	*x = PauseEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[27]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2287,7 +2569,7 @@ func (x *PauseEpicRequest) String() string {
 func (*PauseEpicRequest) ProtoMessage() {}
 
 func (x *PauseEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[27]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2300,7 +2582,7 @@ func (x *PauseEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PauseEpicRequest.ProtoReflect.Descriptor instead.
 func (*PauseEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{27}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *PauseEpicRequest) GetId() string {
@@ -2321,7 +2603,7 @@ type PauseEpicResponse struct {
 
 func (x *PauseEpicResponse) Reset() {
 	*x = PauseEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[28]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2333,7 +2615,7 @@ func (x *PauseEpicResponse) String() string {
 func (*PauseEpicResponse) ProtoMessage() {}
 
 func (x *PauseEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[28]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2346,7 +2628,7 @@ func (x *PauseEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PauseEpicResponse.ProtoReflect.Descriptor instead.
 func (*PauseEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{28}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PauseEpicResponse) GetEpic() *StoredEpic {
@@ -2367,7 +2649,7 @@ type ResumeEpicRequest struct {
 
 func (x *ResumeEpicRequest) Reset() {
 	*x = ResumeEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[29]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2379,7 +2661,7 @@ func (x *ResumeEpicRequest) String() string {
 func (*ResumeEpicRequest) ProtoMessage() {}
 
 func (x *ResumeEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[29]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2392,7 +2674,7 @@ func (x *ResumeEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeEpicRequest.ProtoReflect.Descriptor instead.
 func (*ResumeEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{29}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ResumeEpicRequest) GetId() string {
@@ -2402,18 +2684,23 @@ func (x *ResumeEpicRequest) GetId() string {
 	return ""
 }
 
-// ResumeEpicResponse carries the resumed epic.
+// ResumeEpicResponse carries the resumed epic, the limited steps it resumed and the limited steps a full step cap left
+// limited.
 type ResumeEpicResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored epic.
-	Epic          *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	Epic *StoredEpic `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	// The ids of the limited steps the resume resumed, oldest first.
+	Resumed []string `protobuf:"bytes,2,rep,name=resumed,proto3" json:"resumed,omitempty"`
+	// The ids of the limited steps the resume left limited because the step cap was full, oldest first.
+	StillLimited  []string `protobuf:"bytes,3,rep,name=still_limited,json=stillLimited,proto3" json:"still_limited,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResumeEpicResponse) Reset() {
 	*x = ResumeEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[30]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2425,7 +2712,7 @@ func (x *ResumeEpicResponse) String() string {
 func (*ResumeEpicResponse) ProtoMessage() {}
 
 func (x *ResumeEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[30]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2438,12 +2725,26 @@ func (x *ResumeEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeEpicResponse.ProtoReflect.Descriptor instead.
 func (*ResumeEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{30}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ResumeEpicResponse) GetEpic() *StoredEpic {
 	if x != nil {
 		return x.Epic
+	}
+	return nil
+}
+
+func (x *ResumeEpicResponse) GetResumed() []string {
+	if x != nil {
+		return x.Resumed
+	}
+	return nil
+}
+
+func (x *ResumeEpicResponse) GetStillLimited() []string {
+	if x != nil {
+		return x.StillLimited
 	}
 	return nil
 }
@@ -2459,7 +2760,7 @@ type StopEpicRequest struct {
 
 func (x *StopEpicRequest) Reset() {
 	*x = StopEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[31]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2471,7 +2772,7 @@ func (x *StopEpicRequest) String() string {
 func (*StopEpicRequest) ProtoMessage() {}
 
 func (x *StopEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[31]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2484,7 +2785,7 @@ func (x *StopEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopEpicRequest.ProtoReflect.Descriptor instead.
 func (*StopEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{31}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *StopEpicRequest) GetId() string {
@@ -2505,7 +2806,7 @@ type StopEpicResponse struct {
 
 func (x *StopEpicResponse) Reset() {
 	*x = StopEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[32]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2517,7 +2818,7 @@ func (x *StopEpicResponse) String() string {
 func (*StopEpicResponse) ProtoMessage() {}
 
 func (x *StopEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[32]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2530,7 +2831,7 @@ func (x *StopEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopEpicResponse.ProtoReflect.Descriptor instead.
 func (*StopEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{32}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *StopEpicResponse) GetEpic() *StoredEpic {
@@ -2551,7 +2852,7 @@ type RetryEpicRequest struct {
 
 func (x *RetryEpicRequest) Reset() {
 	*x = RetryEpicRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[33]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2563,7 +2864,7 @@ func (x *RetryEpicRequest) String() string {
 func (*RetryEpicRequest) ProtoMessage() {}
 
 func (x *RetryEpicRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[33]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2576,7 +2877,7 @@ func (x *RetryEpicRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryEpicRequest.ProtoReflect.Descriptor instead.
 func (*RetryEpicRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{33}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *RetryEpicRequest) GetId() string {
@@ -2597,7 +2898,7 @@ type RetryEpicResponse struct {
 
 func (x *RetryEpicResponse) Reset() {
 	*x = RetryEpicResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[34]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2609,7 +2910,7 @@ func (x *RetryEpicResponse) String() string {
 func (*RetryEpicResponse) ProtoMessage() {}
 
 func (x *RetryEpicResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[34]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2622,7 +2923,7 @@ func (x *RetryEpicResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryEpicResponse.ProtoReflect.Descriptor instead.
 func (*RetryEpicResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{34}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RetryEpicResponse) GetEpic() *StoredEpic {
@@ -2649,7 +2950,7 @@ type RunEvidenceRequest struct {
 
 func (x *RunEvidenceRequest) Reset() {
 	*x = RunEvidenceRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[35]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2661,7 +2962,7 @@ func (x *RunEvidenceRequest) String() string {
 func (*RunEvidenceRequest) ProtoMessage() {}
 
 func (x *RunEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[35]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2674,7 +2975,7 @@ func (x *RunEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*RunEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{35}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RunEvidenceRequest) GetEpic() string {
@@ -2716,7 +3017,7 @@ type RunEvidenceResponse struct {
 
 func (x *RunEvidenceResponse) Reset() {
 	*x = RunEvidenceResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[36]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2728,7 +3029,7 @@ func (x *RunEvidenceResponse) String() string {
 func (*RunEvidenceResponse) ProtoMessage() {}
 
 func (x *RunEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[36]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2741,7 +3042,7 @@ func (x *RunEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*RunEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{36}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *RunEvidenceResponse) GetRun() *EvidenceRun {
@@ -2762,7 +3063,7 @@ type ListEvidenceRequest struct {
 
 func (x *ListEvidenceRequest) Reset() {
 	*x = ListEvidenceRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[37]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2774,7 +3075,7 @@ func (x *ListEvidenceRequest) String() string {
 func (*ListEvidenceRequest) ProtoMessage() {}
 
 func (x *ListEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[37]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2787,7 +3088,7 @@ func (x *ListEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*ListEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{37}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListEvidenceRequest) GetEpic() string {
@@ -2808,7 +3109,7 @@ type ListEvidenceResponse struct {
 
 func (x *ListEvidenceResponse) Reset() {
 	*x = ListEvidenceResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[38]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2820,7 +3121,7 @@ func (x *ListEvidenceResponse) String() string {
 func (*ListEvidenceResponse) ProtoMessage() {}
 
 func (x *ListEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[38]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2833,7 +3134,7 @@ func (x *ListEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*ListEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{38}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListEvidenceResponse) GetRuns() []*EvidenceRun {
@@ -2856,7 +3157,7 @@ type GetEvidenceArtifactRequest struct {
 
 func (x *GetEvidenceArtifactRequest) Reset() {
 	*x = GetEvidenceArtifactRequest{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[39]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2868,7 +3169,7 @@ func (x *GetEvidenceArtifactRequest) String() string {
 func (*GetEvidenceArtifactRequest) ProtoMessage() {}
 
 func (x *GetEvidenceArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[39]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2881,7 +3182,7 @@ func (x *GetEvidenceArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEvidenceArtifactRequest.ProtoReflect.Descriptor instead.
 func (*GetEvidenceArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{39}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GetEvidenceArtifactRequest) GetRun() string {
@@ -2911,7 +3212,7 @@ type GetEvidenceArtifactResponse struct {
 
 func (x *GetEvidenceArtifactResponse) Reset() {
 	*x = GetEvidenceArtifactResponse{}
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[40]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2923,7 +3224,7 @@ func (x *GetEvidenceArtifactResponse) String() string {
 func (*GetEvidenceArtifactResponse) ProtoMessage() {}
 
 func (x *GetEvidenceArtifactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_epic_proto_msgTypes[40]
+	mi := &file_orrery_engine_v1_epic_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2936,7 +3237,7 @@ func (x *GetEvidenceArtifactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEvidenceArtifactResponse.ProtoReflect.Descriptor instead.
 func (*GetEvidenceArtifactResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{40}
+	return file_orrery_engine_v1_epic_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetEvidenceArtifactResponse) GetData() []byte {
@@ -3080,7 +3381,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\x06 \x01(\tR\aoutcome\x12\x1c\n" +
 	"\tdecisions\x18\a \x03(\tR\tdecisions\x12\x18\n" +
 	"\astarted\x18\b \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\t \x01(\x03R\x05ended\"\x9e\x02\n" +
+	"\x05ended\x18\t \x01(\x03R\x05ended\"\xfa\x04\n" +
 	"\bEpicTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x14\n" +
@@ -3092,12 +3393,36 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06status\x18\b \x01(\tR\x06status\x12\x12\n" +
 	"\x04gate\x18\t \x01(\tR\x04gate\x12:\n" +
 	"\bevidence\x18\n" +
-	" \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\bevidence\"\\\n" +
+	" \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\bevidence\x12\x14\n" +
+	"\x05stage\x18\v \x01(\tR\x05stage\x12\x18\n" +
+	"\aattempt\x18\f \x01(\x03R\aattempt\x12\x12\n" +
+	"\x04step\x18\r \x01(\tR\x04step\x12\x12\n" +
+	"\x04base\x18\x0e \x01(\tR\x04base\x12\x1a\n" +
+	"\brevision\x18\x0f \x01(\tR\brevision\x12\x18\n" +
+	"\afailure\x18\x10 \x01(\tR\afailure\x12\x16\n" +
+	"\x06review\x18\x11 \x01(\tR\x06review\x12\x12\n" +
+	"\x04held\x18\x12 \x01(\tR\x04held\x12/\n" +
+	"\x03red\x18\x13 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x03red\x123\n" +
+	"\x05green\x18\x14 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x05green\x12:\n" +
+	"\areviews\x18\x15 \x03(\v2 .orrery.engine.v1.EpicTaskReviewR\areviews\"\xab\x01\n" +
+	"\x0eEpicTaskReview\x12\x18\n" +
+	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
+	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +
+	"\x04step\x18\x03 \x01(\tR\x04step\x12\x18\n" +
+	"\averdict\x18\x04 \x01(\tR\averdict\x12=\n" +
+	"\bfindings\x18\x05 \x03(\v2!.orrery.engine.v1.EpicTaskFindingR\bfindings\"\x97\x01\n" +
+	"\x0fEpicTaskFinding\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05claim\x18\x02 \x01(\tR\x05claim\x12\x1a\n" +
+	"\blocation\x18\x03 \x01(\tR\blocation\x12\x12\n" +
+	"\x04step\x18\x04 \x01(\tR\x04step\x12\x16\n" +
+	"\x06result\x18\x05 \x01(\tR\x06result\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"\\\n" +
 	"\fEpicQuestion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x14\n" +
-	"\x05state\x18\x04 \x01(\tR\x05state\"\xa2\x03\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\"\xba\x03\n" +
 	"\n" +
 	"StoredEpic\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12\x14\n" +
@@ -3110,7 +3435,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05turns\x18\b \x03(\v2\x1a.orrery.engine.v1.EpicTurnR\x05turns\x120\n" +
 	"\x05tasks\x18\t \x03(\v2\x1a.orrery.engine.v1.EpicTaskR\x05tasks\x12<\n" +
 	"\tquestions\x18\n" +
-	" \x03(\v2\x1e.orrery.engine.v1.EpicQuestionR\tquestions\"\x9d\x01\n" +
+	" \x03(\v2\x1e.orrery.engine.v1.EpicQuestionR\tquestions\x12\x16\n" +
+	"\x06branch\x18\v \x01(\tR\x06branch\"\x9d\x01\n" +
 	"\vEpicSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -3145,9 +3471,11 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x11PauseEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"#\n" +
 	"\x11ResumeEpicRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x85\x01\n" +
 	"\x12ResumeEpicResponse\x120\n" +
-	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"!\n" +
+	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\x12\x18\n" +
+	"\aresumed\x18\x02 \x03(\tR\aresumed\x12#\n" +
+	"\rstill_limited\x18\x03 \x03(\tR\fstillLimited\"!\n" +
 	"\x0fStopEpicRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
 	"\x10StopEpicResponse\x120\n" +
@@ -3203,7 +3531,7 @@ func file_orrery_engine_v1_epic_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_epic_proto_rawDescData
 }
 
-var file_orrery_engine_v1_epic_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_orrery_engine_v1_epic_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_orrery_engine_v1_epic_proto_goTypes = []any{
 	(*EpicContract)(nil),                // 0: orrery.engine.v1.EpicContract
 	(*EpicFailure)(nil),                 // 1: orrery.engine.v1.EpicFailure
@@ -3221,31 +3549,33 @@ var file_orrery_engine_v1_epic_proto_goTypes = []any{
 	(*EpicDecision)(nil),                // 13: orrery.engine.v1.EpicDecision
 	(*EpicTurn)(nil),                    // 14: orrery.engine.v1.EpicTurn
 	(*EpicTask)(nil),                    // 15: orrery.engine.v1.EpicTask
-	(*EpicQuestion)(nil),                // 16: orrery.engine.v1.EpicQuestion
-	(*StoredEpic)(nil),                  // 17: orrery.engine.v1.StoredEpic
-	(*EpicSummary)(nil),                 // 18: orrery.engine.v1.EpicSummary
-	(*CreateEpicRequest)(nil),           // 19: orrery.engine.v1.CreateEpicRequest
-	(*CreateEpicResponse)(nil),          // 20: orrery.engine.v1.CreateEpicResponse
-	(*GetEpicRequest)(nil),              // 21: orrery.engine.v1.GetEpicRequest
-	(*GetEpicResponse)(nil),             // 22: orrery.engine.v1.GetEpicResponse
-	(*ListEpicsRequest)(nil),            // 23: orrery.engine.v1.ListEpicsRequest
-	(*ListEpicsResponse)(nil),           // 24: orrery.engine.v1.ListEpicsResponse
-	(*AnswerEpicRequest)(nil),           // 25: orrery.engine.v1.AnswerEpicRequest
-	(*AnswerEpicResponse)(nil),          // 26: orrery.engine.v1.AnswerEpicResponse
-	(*PauseEpicRequest)(nil),            // 27: orrery.engine.v1.PauseEpicRequest
-	(*PauseEpicResponse)(nil),           // 28: orrery.engine.v1.PauseEpicResponse
-	(*ResumeEpicRequest)(nil),           // 29: orrery.engine.v1.ResumeEpicRequest
-	(*ResumeEpicResponse)(nil),          // 30: orrery.engine.v1.ResumeEpicResponse
-	(*StopEpicRequest)(nil),             // 31: orrery.engine.v1.StopEpicRequest
-	(*StopEpicResponse)(nil),            // 32: orrery.engine.v1.StopEpicResponse
-	(*RetryEpicRequest)(nil),            // 33: orrery.engine.v1.RetryEpicRequest
-	(*RetryEpicResponse)(nil),           // 34: orrery.engine.v1.RetryEpicResponse
-	(*RunEvidenceRequest)(nil),          // 35: orrery.engine.v1.RunEvidenceRequest
-	(*RunEvidenceResponse)(nil),         // 36: orrery.engine.v1.RunEvidenceResponse
-	(*ListEvidenceRequest)(nil),         // 37: orrery.engine.v1.ListEvidenceRequest
-	(*ListEvidenceResponse)(nil),        // 38: orrery.engine.v1.ListEvidenceResponse
-	(*GetEvidenceArtifactRequest)(nil),  // 39: orrery.engine.v1.GetEvidenceArtifactRequest
-	(*GetEvidenceArtifactResponse)(nil), // 40: orrery.engine.v1.GetEvidenceArtifactResponse
+	(*EpicTaskReview)(nil),              // 16: orrery.engine.v1.EpicTaskReview
+	(*EpicTaskFinding)(nil),             // 17: orrery.engine.v1.EpicTaskFinding
+	(*EpicQuestion)(nil),                // 18: orrery.engine.v1.EpicQuestion
+	(*StoredEpic)(nil),                  // 19: orrery.engine.v1.StoredEpic
+	(*EpicSummary)(nil),                 // 20: orrery.engine.v1.EpicSummary
+	(*CreateEpicRequest)(nil),           // 21: orrery.engine.v1.CreateEpicRequest
+	(*CreateEpicResponse)(nil),          // 22: orrery.engine.v1.CreateEpicResponse
+	(*GetEpicRequest)(nil),              // 23: orrery.engine.v1.GetEpicRequest
+	(*GetEpicResponse)(nil),             // 24: orrery.engine.v1.GetEpicResponse
+	(*ListEpicsRequest)(nil),            // 25: orrery.engine.v1.ListEpicsRequest
+	(*ListEpicsResponse)(nil),           // 26: orrery.engine.v1.ListEpicsResponse
+	(*AnswerEpicRequest)(nil),           // 27: orrery.engine.v1.AnswerEpicRequest
+	(*AnswerEpicResponse)(nil),          // 28: orrery.engine.v1.AnswerEpicResponse
+	(*PauseEpicRequest)(nil),            // 29: orrery.engine.v1.PauseEpicRequest
+	(*PauseEpicResponse)(nil),           // 30: orrery.engine.v1.PauseEpicResponse
+	(*ResumeEpicRequest)(nil),           // 31: orrery.engine.v1.ResumeEpicRequest
+	(*ResumeEpicResponse)(nil),          // 32: orrery.engine.v1.ResumeEpicResponse
+	(*StopEpicRequest)(nil),             // 33: orrery.engine.v1.StopEpicRequest
+	(*StopEpicResponse)(nil),            // 34: orrery.engine.v1.StopEpicResponse
+	(*RetryEpicRequest)(nil),            // 35: orrery.engine.v1.RetryEpicRequest
+	(*RetryEpicResponse)(nil),           // 36: orrery.engine.v1.RetryEpicResponse
+	(*RunEvidenceRequest)(nil),          // 37: orrery.engine.v1.RunEvidenceRequest
+	(*RunEvidenceResponse)(nil),         // 38: orrery.engine.v1.RunEvidenceResponse
+	(*ListEvidenceRequest)(nil),         // 39: orrery.engine.v1.ListEvidenceRequest
+	(*ListEvidenceResponse)(nil),        // 40: orrery.engine.v1.ListEvidenceResponse
+	(*GetEvidenceArtifactRequest)(nil),  // 41: orrery.engine.v1.GetEvidenceArtifactRequest
+	(*GetEvidenceArtifactResponse)(nil), // 42: orrery.engine.v1.GetEvidenceArtifactResponse
 }
 var file_orrery_engine_v1_epic_proto_depIdxs = []int32{
 	1,  // 0: orrery.engine.v1.EpicContract.failures:type_name -> orrery.engine.v1.EpicFailure
@@ -3259,50 +3589,54 @@ var file_orrery_engine_v1_epic_proto_depIdxs = []int32{
 	4,  // 8: orrery.engine.v1.EpicGate.needs:type_name -> orrery.engine.v1.EpicGateNeed
 	7,  // 9: orrery.engine.v1.EvidenceRun.artifacts:type_name -> orrery.engine.v1.EvidenceArtifact
 	6,  // 10: orrery.engine.v1.EpicTask.evidence:type_name -> orrery.engine.v1.EvidenceItem
-	0,  // 11: orrery.engine.v1.StoredEpic.contract:type_name -> orrery.engine.v1.EpicContract
-	13, // 12: orrery.engine.v1.StoredEpic.decisions:type_name -> orrery.engine.v1.EpicDecision
-	14, // 13: orrery.engine.v1.StoredEpic.turns:type_name -> orrery.engine.v1.EpicTurn
-	15, // 14: orrery.engine.v1.StoredEpic.tasks:type_name -> orrery.engine.v1.EpicTask
-	16, // 15: orrery.engine.v1.StoredEpic.questions:type_name -> orrery.engine.v1.EpicQuestion
-	0,  // 16: orrery.engine.v1.CreateEpicRequest.contract:type_name -> orrery.engine.v1.EpicContract
-	12, // 17: orrery.engine.v1.CreateEpicRequest.decisions:type_name -> orrery.engine.v1.EpicDecisionInput
-	17, // 18: orrery.engine.v1.CreateEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	17, // 19: orrery.engine.v1.GetEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	18, // 20: orrery.engine.v1.ListEpicsResponse.epics:type_name -> orrery.engine.v1.EpicSummary
-	13, // 21: orrery.engine.v1.AnswerEpicResponse.decision:type_name -> orrery.engine.v1.EpicDecision
-	17, // 22: orrery.engine.v1.PauseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	17, // 23: orrery.engine.v1.ResumeEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	17, // 24: orrery.engine.v1.StopEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	17, // 25: orrery.engine.v1.RetryEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
-	8,  // 26: orrery.engine.v1.RunEvidenceResponse.run:type_name -> orrery.engine.v1.EvidenceRun
-	8,  // 27: orrery.engine.v1.ListEvidenceResponse.runs:type_name -> orrery.engine.v1.EvidenceRun
-	19, // 28: orrery.engine.v1.Epics.CreateEpic:input_type -> orrery.engine.v1.CreateEpicRequest
-	21, // 29: orrery.engine.v1.Epics.GetEpic:input_type -> orrery.engine.v1.GetEpicRequest
-	23, // 30: orrery.engine.v1.Epics.ListEpics:input_type -> orrery.engine.v1.ListEpicsRequest
-	25, // 31: orrery.engine.v1.Epics.AnswerEpic:input_type -> orrery.engine.v1.AnswerEpicRequest
-	27, // 32: orrery.engine.v1.Epics.PauseEpic:input_type -> orrery.engine.v1.PauseEpicRequest
-	29, // 33: orrery.engine.v1.Epics.ResumeEpic:input_type -> orrery.engine.v1.ResumeEpicRequest
-	31, // 34: orrery.engine.v1.Epics.StopEpic:input_type -> orrery.engine.v1.StopEpicRequest
-	33, // 35: orrery.engine.v1.Epics.RetryEpic:input_type -> orrery.engine.v1.RetryEpicRequest
-	35, // 36: orrery.engine.v1.Evidence.RunEvidence:input_type -> orrery.engine.v1.RunEvidenceRequest
-	37, // 37: orrery.engine.v1.Evidence.ListEvidence:input_type -> orrery.engine.v1.ListEvidenceRequest
-	39, // 38: orrery.engine.v1.Evidence.GetEvidenceArtifact:input_type -> orrery.engine.v1.GetEvidenceArtifactRequest
-	20, // 39: orrery.engine.v1.Epics.CreateEpic:output_type -> orrery.engine.v1.CreateEpicResponse
-	22, // 40: orrery.engine.v1.Epics.GetEpic:output_type -> orrery.engine.v1.GetEpicResponse
-	24, // 41: orrery.engine.v1.Epics.ListEpics:output_type -> orrery.engine.v1.ListEpicsResponse
-	26, // 42: orrery.engine.v1.Epics.AnswerEpic:output_type -> orrery.engine.v1.AnswerEpicResponse
-	28, // 43: orrery.engine.v1.Epics.PauseEpic:output_type -> orrery.engine.v1.PauseEpicResponse
-	30, // 44: orrery.engine.v1.Epics.ResumeEpic:output_type -> orrery.engine.v1.ResumeEpicResponse
-	32, // 45: orrery.engine.v1.Epics.StopEpic:output_type -> orrery.engine.v1.StopEpicResponse
-	34, // 46: orrery.engine.v1.Epics.RetryEpic:output_type -> orrery.engine.v1.RetryEpicResponse
-	36, // 47: orrery.engine.v1.Evidence.RunEvidence:output_type -> orrery.engine.v1.RunEvidenceResponse
-	38, // 48: orrery.engine.v1.Evidence.ListEvidence:output_type -> orrery.engine.v1.ListEvidenceResponse
-	40, // 49: orrery.engine.v1.Evidence.GetEvidenceArtifact:output_type -> orrery.engine.v1.GetEvidenceArtifactResponse
-	39, // [39:50] is the sub-list for method output_type
-	28, // [28:39] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	8,  // 11: orrery.engine.v1.EpicTask.red:type_name -> orrery.engine.v1.EvidenceRun
+	8,  // 12: orrery.engine.v1.EpicTask.green:type_name -> orrery.engine.v1.EvidenceRun
+	16, // 13: orrery.engine.v1.EpicTask.reviews:type_name -> orrery.engine.v1.EpicTaskReview
+	17, // 14: orrery.engine.v1.EpicTaskReview.findings:type_name -> orrery.engine.v1.EpicTaskFinding
+	0,  // 15: orrery.engine.v1.StoredEpic.contract:type_name -> orrery.engine.v1.EpicContract
+	13, // 16: orrery.engine.v1.StoredEpic.decisions:type_name -> orrery.engine.v1.EpicDecision
+	14, // 17: orrery.engine.v1.StoredEpic.turns:type_name -> orrery.engine.v1.EpicTurn
+	15, // 18: orrery.engine.v1.StoredEpic.tasks:type_name -> orrery.engine.v1.EpicTask
+	18, // 19: orrery.engine.v1.StoredEpic.questions:type_name -> orrery.engine.v1.EpicQuestion
+	0,  // 20: orrery.engine.v1.CreateEpicRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	12, // 21: orrery.engine.v1.CreateEpicRequest.decisions:type_name -> orrery.engine.v1.EpicDecisionInput
+	19, // 22: orrery.engine.v1.CreateEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	19, // 23: orrery.engine.v1.GetEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	20, // 24: orrery.engine.v1.ListEpicsResponse.epics:type_name -> orrery.engine.v1.EpicSummary
+	13, // 25: orrery.engine.v1.AnswerEpicResponse.decision:type_name -> orrery.engine.v1.EpicDecision
+	19, // 26: orrery.engine.v1.PauseEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	19, // 27: orrery.engine.v1.ResumeEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	19, // 28: orrery.engine.v1.StopEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	19, // 29: orrery.engine.v1.RetryEpicResponse.epic:type_name -> orrery.engine.v1.StoredEpic
+	8,  // 30: orrery.engine.v1.RunEvidenceResponse.run:type_name -> orrery.engine.v1.EvidenceRun
+	8,  // 31: orrery.engine.v1.ListEvidenceResponse.runs:type_name -> orrery.engine.v1.EvidenceRun
+	21, // 32: orrery.engine.v1.Epics.CreateEpic:input_type -> orrery.engine.v1.CreateEpicRequest
+	23, // 33: orrery.engine.v1.Epics.GetEpic:input_type -> orrery.engine.v1.GetEpicRequest
+	25, // 34: orrery.engine.v1.Epics.ListEpics:input_type -> orrery.engine.v1.ListEpicsRequest
+	27, // 35: orrery.engine.v1.Epics.AnswerEpic:input_type -> orrery.engine.v1.AnswerEpicRequest
+	29, // 36: orrery.engine.v1.Epics.PauseEpic:input_type -> orrery.engine.v1.PauseEpicRequest
+	31, // 37: orrery.engine.v1.Epics.ResumeEpic:input_type -> orrery.engine.v1.ResumeEpicRequest
+	33, // 38: orrery.engine.v1.Epics.StopEpic:input_type -> orrery.engine.v1.StopEpicRequest
+	35, // 39: orrery.engine.v1.Epics.RetryEpic:input_type -> orrery.engine.v1.RetryEpicRequest
+	37, // 40: orrery.engine.v1.Evidence.RunEvidence:input_type -> orrery.engine.v1.RunEvidenceRequest
+	39, // 41: orrery.engine.v1.Evidence.ListEvidence:input_type -> orrery.engine.v1.ListEvidenceRequest
+	41, // 42: orrery.engine.v1.Evidence.GetEvidenceArtifact:input_type -> orrery.engine.v1.GetEvidenceArtifactRequest
+	22, // 43: orrery.engine.v1.Epics.CreateEpic:output_type -> orrery.engine.v1.CreateEpicResponse
+	24, // 44: orrery.engine.v1.Epics.GetEpic:output_type -> orrery.engine.v1.GetEpicResponse
+	26, // 45: orrery.engine.v1.Epics.ListEpics:output_type -> orrery.engine.v1.ListEpicsResponse
+	28, // 46: orrery.engine.v1.Epics.AnswerEpic:output_type -> orrery.engine.v1.AnswerEpicResponse
+	30, // 47: orrery.engine.v1.Epics.PauseEpic:output_type -> orrery.engine.v1.PauseEpicResponse
+	32, // 48: orrery.engine.v1.Epics.ResumeEpic:output_type -> orrery.engine.v1.ResumeEpicResponse
+	34, // 49: orrery.engine.v1.Epics.StopEpic:output_type -> orrery.engine.v1.StopEpicResponse
+	36, // 50: orrery.engine.v1.Epics.RetryEpic:output_type -> orrery.engine.v1.RetryEpicResponse
+	38, // 51: orrery.engine.v1.Evidence.RunEvidence:output_type -> orrery.engine.v1.RunEvidenceResponse
+	40, // 52: orrery.engine.v1.Evidence.ListEvidence:output_type -> orrery.engine.v1.ListEvidenceResponse
+	42, // 53: orrery.engine.v1.Evidence.GetEvidenceArtifact:output_type -> orrery.engine.v1.GetEvidenceArtifactResponse
+	43, // [43:54] is the sub-list for method output_type
+	32, // [32:43] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_epic_proto_init() }
@@ -3316,7 +3650,7 @@ func file_orrery_engine_v1_epic_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_epic_proto_rawDesc), len(file_orrery_engine_v1_epic_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

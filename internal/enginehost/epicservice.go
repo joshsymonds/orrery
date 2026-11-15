@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -88,7 +89,11 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.CreateEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
 }
 
 func (s *epicService) GetEpic(
@@ -105,7 +110,11 @@ func (s *epicService) GetEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.GetEpicResponse{Epic: storedEpicMessage(row)}), nil
+	message, err := storedEpicMessage(row)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
 }
 
 func (s *epicService) ListEpics(
@@ -251,10 +260,16 @@ func (s *epicService) PauseEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.PauseEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.PauseEpicResponse{Epic: message}), nil
 }
 
-// ResumeEpic clears the pause of the epic and returns the epic read back. An epic that is not paused is refused.
+// ResumeEpic clears the pause of the epic when it is paused, resumes each limited step of the epic that has a task, and
+// returns the epic read back with the steps resumed and the steps a full step cap left limited. An epic that is not
+// paused and holds no such step is refused.
 func (s *epicService) ResumeEpic(
 	ctx context.Context,
 	req *connect.Request[v1.ResumeEpicRequest],
@@ -266,14 +281,64 @@ func (s *epicService) ResumeEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.epics.ResumeEpic(ctx, id); err != nil {
-		return nil, epicControlError(id, err)
+	head, err := s.epics.Epic(ctx, id)
+	if errors.Is(err, store.ErrNoEpic) {
+		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", id))
+	}
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	limited, err := s.limitedTaskSteps(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if head.Paused || len(limited) == 0 {
+		if err = s.epics.ResumeEpic(ctx, id); err != nil {
+			return nil, epicControlError(id, err)
+		}
+	}
+	var resumed, stillLimited []string
+	for _, row := range limited {
+		err = s.steps.Resume(ctx, row.ID)
+		switch {
+		case err == nil:
+			resumed = append(resumed, row.ID)
+		case errors.Is(err, ErrCapReached):
+			stillLimited = append(stillLimited, row.ID)
+		case errors.Is(err, ErrStepNotLimited), errors.Is(err, ErrStepNotRunning):
+			// The step was resumed or ended after the list, so it is neither resumed nor still limited.
+		default:
+			return nil, epicStoreError(err)
+		}
 	}
 	stored, err := s.epics.Epic(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.ResumeEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.ResumeEpicResponse{
+		Epic:         message,
+		Resumed:      resumed,
+		StillLimited: stillLimited,
+	}), nil
+}
+
+// limitedTaskSteps returns the open steps of epic that a usage limit holds and that have a task, oldest first. A
+// planner turn's step has no task, so it is not among them. Without a step store there are none.
+func (s *epicService) limitedTaskSteps(ctx context.Context, epic string) ([]store.StepRow, error) {
+	if s.steps == nil {
+		return nil, nil
+	}
+	rows, err := s.steps.List(ctx, epic, "")
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return slices.DeleteFunc(rows, func(row store.StepRow) bool {
+		return row.End != "" || !row.LoopLimited || row.Task == ""
+	}), nil
 }
 
 // StopEpic pauses the epic, flags its running turn to stop, stops the turn's step when the turn has one, and returns
@@ -302,7 +367,11 @@ func (s *epicService) StopEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.StopEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.StopEpicResponse{Epic: message}), nil
 }
 
 // RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused.
@@ -324,7 +393,11 @@ func (s *epicService) RetryEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.RetryEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
 }
 
 // epicControlError maps an error from an epic control on id to its Connect error: an unknown epic is NotFound, a
@@ -418,9 +491,14 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 	}
 }
 
-// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, and its
-// paused and parked state with its turns, tasks and questions in order.
-func storedEpicMessage(row store.EpicRow) *v1.StoredEpic {
+// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, its paused
+// and parked state with its turns, tasks and questions in order, and its branch state. It fails when a task's messages
+// fail.
+func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
+	tasks, err := taskMessages(row.Tasks)
+	if err != nil {
+		return nil, err
+	}
 	return &v1.StoredEpic{
 		Contract:  contractMessage(row),
 		Phase:     row.Phase,
@@ -430,9 +508,10 @@ func storedEpicMessage(row store.EpicRow) *v1.StoredEpic {
 		Paused:    row.Paused,
 		Parked:    row.Parked,
 		Turns:     epicMap(row.Turns, turnMessage),
-		Tasks:     epicMap(row.Tasks, taskMessage),
+		Tasks:     tasks,
 		Questions: epicMap(row.Questions, questionMessage),
-	}
+		Branch:    row.Branch,
+	}, nil
 }
 
 // contractMessage returns the EpicContract message of row, every section in order.
@@ -499,9 +578,23 @@ func turnMessage(turn store.EpicTurn) *v1.EpicTurn {
 	}
 }
 
-// taskMessage returns the EpicTask message of task, its id T<seq>.
-func taskMessage(task store.EpicTask) *v1.EpicTask {
-	return &v1.EpicTask{
+// taskMessages returns the EpicTask messages of tasks, in order. It fails when a task's messages fail.
+func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
+	out := make([]*v1.EpicTask, 0, len(tasks))
+	for _, task := range tasks {
+		msg, err := taskMessage(task)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, msg)
+	}
+	return out, nil
+}
+
+// taskMessage returns the EpicTask message of task, its id T<seq>: its status, its build, its reviews in order, and the
+// evidence runs its build names as red and green. It fails when one of those runs fails to convert.
+func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
+	message := &v1.EpicTask{
 		Id:           fmt.Sprintf("T%d", task.Seq),
 		Turn:         task.Turn,
 		Title:        task.Title,
@@ -511,6 +604,54 @@ func taskMessage(task store.EpicTask) *v1.EpicTask {
 		Gate:         task.Gate,
 		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
+		Stage:        task.Build.Stage,
+		Attempt:      task.Build.Attempt,
+		Step:         task.Build.Step,
+		Base:         task.Build.Base,
+		Revision:     task.Build.Revision,
+		Failure:      task.Build.Failure,
+		Review:       task.Build.Review,
+		Held:         task.Build.Held,
+		Reviews:      epicMap(task.Reviews, taskReviewMessage),
+	}
+	if task.Red != nil {
+		red, err := evidenceServiceRunMessage(*task.Red)
+		if err != nil {
+			return nil, fmt.Errorf("task %d red run: %w", task.Seq, err)
+		}
+		message.Red = red
+	}
+	if task.Green != nil {
+		green, err := evidenceServiceRunMessage(*task.Green)
+		if err != nil {
+			return nil, fmt.Errorf("task %d green run: %w", task.Seq, err)
+		}
+		message.Green = green
+	}
+	return message, nil
+}
+
+// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in
+// order.
+func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
+	return &v1.EpicTaskReview{
+		Attempt:  review.Attempt,
+		Gate:     review.Gate,
+		Step:     review.Step,
+		Verdict:  review.Verdict,
+		Findings: epicMap(review.Findings, taskFindingMessage),
+	}
+}
+
+// taskFindingMessage returns the EpicTaskFinding message of finding: its id, claim, location and verification.
+func taskFindingMessage(finding store.TaskFinding) *v1.EpicTaskFinding {
+	return &v1.EpicTaskFinding{
+		Id:       finding.ID,
+		Claim:    finding.Claim,
+		Location: finding.Location,
+		Step:     finding.Step,
+		Result:   finding.Result,
+		Reason:   finding.Reason,
 	}
 }
 

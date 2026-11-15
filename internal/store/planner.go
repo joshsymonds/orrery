@@ -50,6 +50,8 @@ type EpicTurn struct {
 
 // EpicTask is one task an epic's planner turn planned: its title, its deliverable, the files it touches, the
 // Requirements it covers, its gate, its evidence item and its status. Turn is the seq of the turn that planned it.
+// Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
+// its build names, nil when it names none.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -60,6 +62,10 @@ type EpicTask struct {
 	Gate         string
 	Evidence     evidence.Item
 	Status       string
+	Build        TaskBuild
+	Reviews      []TaskReview
+	Red          *EvidenceRun
+	Green        *EvidenceRun
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it.
@@ -174,6 +180,14 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list task requirements: %w", err)
 	}
+	reviews, err := queries.ListEpicTaskReviews(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task reviews: %w", err)
+	}
+	findings, err := queries.ListEpicTaskFindings(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task findings: %w", err)
+	}
 	pathsOf := make(map[int64][]string)
 	for _, file := range files {
 		pathsOf[file.Task] = append(pathsOf[file.Task], file.Path)
@@ -182,8 +196,9 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	for _, requirement := range requirements {
 		requirementsOf[requirement.Task] = append(requirementsOf[requirement.Task], requirement.Requirement)
 	}
+	reviewsOf := taskReviewsOf(reviews, findings)
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
-		return taskOf(task, pathsOf[task.Seq], requirementsOf[task.Seq])
+		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], reviewsOf[task.Seq])
 	})
 	if err != nil {
 		return fmt.Errorf("tasks: %w", err)
@@ -197,17 +212,48 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	return nil
 }
 
-// taskOf returns the task a stored row holds, with the files and Requirements stored under it and its evidence item
-// decoded.
-func taskOf(stored sqlcgen.EpicTask, files, requirements []string) (EpicTask, error) {
+// taskOf returns the task a stored row holds, with the files, Requirements and reviews stored under it, its evidence
+// item decoded, its build state, and the evidence runs its build names as red and green.
+func taskOf(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	stored sqlcgen.EpicTask,
+	files, requirements []string,
+	reviews []TaskReview,
+) (EpicTask, error) {
 	item, err := decodeItem(stored.Evidence)
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d evidence: %w", stored.Seq, err)
 	}
-	return EpicTask{
+	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
 		Files: files, Requirements: requirements, Gate: stored.Gate, Evidence: item, Status: stored.Status,
-	}, nil
+		Build: buildOf(stored), Reviews: reviews,
+	}
+	if task.Build.RedRun != "" {
+		run, runErr := taskRunOf(ctx, queries, task.Build.RedRun)
+		if runErr != nil {
+			return EpicTask{}, fmt.Errorf("task %d red run: %w", stored.Seq, runErr)
+		}
+		task.Red = &run
+	}
+	if task.Build.GreenRun != "" {
+		run, runErr := taskRunOf(ctx, queries, task.Build.GreenRun)
+		if runErr != nil {
+			return EpicTask{}, fmt.Errorf("task %d green run: %w", stored.Seq, runErr)
+		}
+		task.Green = &run
+	}
+	return task, nil
+}
+
+// taskRunOf returns the evidence run with id. The id names a run that must be stored: its absence is an error.
+func taskRunOf(ctx context.Context, queries *sqlcgen.Queries, id string) (EvidenceRun, error) {
+	stored, err := queries.GetEvidenceRun(ctx, id)
+	if err != nil {
+		return EvidenceRun{}, fmt.Errorf("get evidence run %s: %w", id, err)
+	}
+	return evidenceRunOf(ctx, queries, stored)
 }
 
 // questionOf returns the question a stored row holds.

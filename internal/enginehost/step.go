@@ -30,6 +30,12 @@ var ErrBadGate = errors.New("step gate is refused")
 // ErrBadWatchTick reports a StepsConfig whose WatchTick is negative.
 var ErrBadWatchTick = errors.New("step watch tick must not be negative")
 
+// ErrBadStepID reports a StepStart whose ID is not exactly 32 lowercase hex digits.
+var ErrBadStepID = errors.New("step id must be 32 lowercase hex digits")
+
+// ErrStepExists reports a StepStart whose ID is already stored, or is held by a start still in flight.
+var ErrStepExists = errors.New("step id is already in use")
+
 // stepDefaultDone is the status a step's done return carries when its StepStart names none.
 const stepDefaultDone = "done"
 
@@ -48,6 +54,11 @@ const stepDefaultWatchTick = 5 * time.Second
 // HEAD. DoneValue empty means "done", and ModelLimit zero means 60 minutes, the model-time limit the step is stored
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
 //
+// ID, when set, is the step's id in place of a fresh one. It must be 32 lowercase hex digits, the form a fresh id has,
+// or the start is refused with ErrBadStepID. A start under an id that a stored step already has, or that another start
+// is running under, is refused with ErrStepExists. A caller derives ID so it can find the step again by that id. It is
+// Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
+//
 // GateName names a gate to resolve once at start, from GatesFile when it is set and else from the project file for
 // Workspace. GatesFile must be absolute and needs GateName. A start without GateName runs no gate. A named gate takes
 // its argv and limit from its definition, and each pool its needs name must be declared by a pool file for Workspace.
@@ -60,10 +71,17 @@ const stepDefaultWatchTick = 5 * time.Second
 // GateName, GatesFile, Agent, Schema and DoneValue empty. The gate needs a name, an agent, at least one assertion, a
 // limit of at least a second, and no argv or needs. The step is stored with the gate's name and the source "data".
 //
+// CommandGate, when set, is a command gate given as data in place of a named gate, and a writing step runs it as a
+// named command gate does, with no gate resolved by name and no gates file read. Such a start is refused unless it is
+// writing and leaves AgentGate, GateName and GatesFile empty. The gate needs a name, an argv, a limit of at least a
+// second, and no agent or assertions. Its needs are granted from the pools the workspace's pool files declare, and each
+// must be declared by one. The step is stored with the gate's name and the source "data".
+//
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
 type StepStart struct {
+	ID          string
 	Agent       string
 	Prompt      string
 	Schema      string
@@ -78,6 +96,7 @@ type StepStart struct {
 	Epic        string
 	Task        string
 	AgentGate   *gates.Gate
+	CommandGate *gates.Gate
 	ReturnCheck func(value json.RawMessage) []string
 }
 
@@ -133,7 +152,8 @@ type StepAdopter interface {
 // Steps starts steps and reports their rows. Each started step's loop runs under a context Steps owns: loops holds the
 // cancel of every loop that has not returned, causes holds the same cancels with a cause, and runs holds its stepRun, all
 // by step id. idle is broadcast whenever a loop is removed from loops. adopter is what Readopt registered the steps with,
-// and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it.
+// and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it. starting holds the
+// caller-given id of each start in flight, so a second start under that id is refused until the first returns.
 type Steps struct {
 	sessions     stepSessions
 	store        StepStore
@@ -150,13 +170,14 @@ type Steps struct {
 	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 
-	mu      sync.Mutex
-	loops   map[string]context.CancelFunc
-	causes  map[string]context.CancelCauseFunc
-	runs    map[string]*stepRun
-	idle    *sync.Cond
-	adopter StepAdopter
-	adopted map[string]*stepRun
+	mu       sync.Mutex
+	loops    map[string]context.CancelFunc
+	causes   map[string]context.CancelCauseFunc
+	runs     map[string]*stepRun
+	idle     *sync.Cond
+	adopter  StepAdopter
+	adopted  map[string]*stepRun
+	starting map[string]bool
 }
 
 // NewSteps returns a Steps for cfg. A negative cfg.WatchTick returns an error matching ErrBadWatchTick and no Steps.
@@ -191,18 +212,19 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
 		adopted:      map[string]*stepRun{},
+		starting:     map[string]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps, nil
 }
 
 // Start checks start, resolves its gate, which an agent gate turns into the step's agent, schema and prompt, and checks
-// the schema. It then resolves its revision and starts the step under a fresh id and runs its loop. A refusal returns
-// its error with an empty id and stores nothing; a read-only step's worktree is removed then too. A writing step runs
-// in start.Workspace. A read-only step gets a detached worktree at its start commit under the worktrees directory,
-// which is removed when the step ends. A folder whose stamp cannot be read refuses the start the same way. The step's
-// monitor and judge calls carry the env of the stamp in effect for its folder. Any other StartStep error, after the row
-// is written, ends the step failed and returns its id with the error.
+// the schema. It then resolves its revision and starts the step under start.ID, or under a fresh id when it names none,
+// and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only step's worktree is
+// removed then too. A writing step runs in start.Workspace. A read-only step gets a detached worktree at its start
+// commit under the worktrees directory, which is removed when the step ends. A folder whose stamp cannot be read refuses
+// the start the same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any
+// other StartStep error, after the row is written, ends the step failed and returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err := checkStepStart(start); err != nil {
 		return "", err
@@ -225,10 +247,11 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve revision %q: %w", revision, err)
 	}
-	id, err := newSessionID()
+	id, release, err := s.startID(ctx, start.ID)
 	if err != nil {
 		return "", err
 	}
+	defer release()
 
 	doneValue := start.DoneValue
 	if doneValue == "" {
@@ -402,11 +425,14 @@ func (s *Steps) endLoop(id string) {
 	cancel()
 }
 
-// checkStepStart reports whether start's prompt, workspace and owned paths are usable, before anything is stored or any
-// worktree is added. Start checks the schema once the gate has set it.
+// checkStepStart reports whether start's prompt, id, workspace and owned paths are usable, before anything is stored or
+// any worktree is added. Start checks the schema once the gate has set it.
 func checkStepStart(start StepStart) error {
 	if start.Prompt == "" {
 		return ErrEmptyPrompt
+	}
+	if start.ID != "" && checkID(start.ID) != nil {
+		return fmt.Errorf("%w: %q", ErrBadStepID, start.ID)
 	}
 	if err := checkDir(start.Workspace); err != nil {
 		return err
@@ -417,6 +443,39 @@ func checkStepStart(start StepStart) error {
 		}
 	}
 	return nil
+}
+
+// startID returns the id a start runs under and the release that frees it once Start returns. A start with no id gets a
+// fresh one that nothing else holds. A start with an id holds it while it runs, so a second start under that id is
+// refused with ErrStepExists while the first is in flight and before its row is stored. An id a stored step already has
+// is refused the same way, and holds nothing. Any other store read error is returned wrapped, so errors.Is still matches
+// it.
+func (s *Steps) startID(ctx context.Context, id string) (string, func(), error) {
+	if id == "" {
+		fresh, err := newSessionID()
+		return fresh, func() {}, err
+	}
+	s.mu.Lock()
+	held := s.starting[id]
+	s.starting[id] = true
+	s.mu.Unlock()
+	if held {
+		return "", nil, fmt.Errorf("%w: %s", ErrStepExists, id)
+	}
+	release := func() {
+		s.mu.Lock()
+		delete(s.starting, id)
+		s.mu.Unlock()
+	}
+	_, err := s.store.Step(ctx, id)
+	if !errors.Is(err, store.ErrNoStep) {
+		release()
+		if err != nil {
+			return "", nil, fmt.Errorf("read step %s: %w", id, err)
+		}
+		return "", nil, fmt.Errorf("%w: %s", ErrStepExists, id)
+	}
+	return id, release, nil
 }
 
 // stepGate is the gate a step runs: its argv and limit, with the name it was resolved from, the file that declares it,
@@ -432,14 +491,18 @@ type stepGate struct {
 	agent  *gates.Gate
 }
 
-// resolveStepGate returns the gate start runs. An AgentGate is the gate as the start gives it, checked by dataAgentGate,
-// and no file is read for it. A start without GateName runs no gate, and GatesFile set without GateName is refused. A
+// resolveStepGate returns the gate start runs. A CommandGate or an AgentGate is the gate as the start gives it, checked
+// by dataCommandGate or dataAgentGate, and no file is read for it. A CommandGate is checked first, so it also refuses a
+// start that sets an AgentGate. A start without GateName runs no gate, and GatesFile set without GateName is refused. A
 // named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. An agent gate returns
 // here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace declares
 // loaded with it. It is refused with an error matching ErrBadGate when GatesFile is not absolute, when the name does not
 // resolve, when the pool files do not load, and when a need is for a pool no pool file declares. The resolved argv is
 // used as the gate's definition gives it; nothing is looked up on PATH.
 func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
+	if start.CommandGate != nil {
+		return s.dataCommandGate(ctx, start)
+	}
 	if start.AgentGate != nil {
 		return dataAgentGate(start)
 	}
@@ -472,9 +535,44 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 	}, nil
 }
 
-// stepGateSourceData is the source a step is stored with when its agent gate is given as data rather than read from a
-// file.
+// stepGateSourceData is the source a step is stored with when its gate is given as data rather than read from a file.
 const stepGateSourceData = "data"
+
+// dataCommandGate returns the gate of start, whose CommandGate is set, and resolves no gate by name. It is refused with
+// an error matching ErrBadGate when start also sets AgentGate, GateName or GatesFile, when start is read-only, and when
+// the gate has no name, no argv, an agent or assertions, or a limit under a second. Its needs are granted from the pools
+// the workspace's pool files declare, as a named gate's are, and a need for a pool no pool file declares is refused.
+func (s *Steps) dataCommandGate(ctx context.Context, start StepStart) (stepGate, error) {
+	gate := *start.CommandGate
+	switch {
+	case start.AgentGate != nil || start.GateName != "" || start.GatesFile != "":
+		return stepGate{}, fmt.Errorf(
+			"%w: command gate %s is given as data, so the start must leave AgentGate, GateName and GatesFile empty",
+			ErrBadGate, gate.Name,
+		)
+	case start.ReadOnly:
+		return stepGate{}, fmt.Errorf("%w: command gate %s runs only in a writing step", ErrBadGate, gate.Name)
+	case gate.Name == "":
+		return stepGate{}, fmt.Errorf("%w: command gate has no name", ErrBadGate)
+	case len(gate.Argv) == 0:
+		return stepGate{}, fmt.Errorf("%w: command gate %s has no argv", ErrBadGate, gate.Name)
+	case gate.Agent != "" || len(gate.Assertions) > 0:
+		return stepGate{}, fmt.Errorf("%w: command gate %s names an agent or assertions", ErrBadGate, gate.Name)
+	case gate.Limit < time.Second:
+		return stepGate{}, fmt.Errorf(
+			"%w: command gate %s limit %s is under a second", ErrBadGate, gate.Name, gate.Limit,
+		)
+	}
+	grant, err := stepGrant(ctx, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
+		stepGetenv(s.environ))
+	if err != nil {
+		return stepGate{}, err
+	}
+	return stepGate{
+		argv: gate.Argv, limit: gate.Limit, name: gate.Name, source: stepGateSourceData,
+		needs: stepNeeds(gate.Needs), grant: grant,
+	}, nil
+}
 
 // dataAgentGate returns the gate of start, whose AgentGate is set, and reads no file. It is refused with an error
 // matching ErrBadGate when start also names a gate or a gates file, and when the gate has no name, no agent, no

@@ -1,0 +1,18 @@
+{
+  "title": "Implementer return",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["done", "needs_context", "blocked"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    }
+  }
+}
