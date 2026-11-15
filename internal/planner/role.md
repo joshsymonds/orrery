@@ -4,6 +4,8 @@ Your job is to decide the epic's next tasks. Split the contract's Requirements i
 
 Return one object with these parts. decisions: the choices this turn made, one line each. tasks: each with a title, a deliverable, the exact repository-relative files it touches, the Requirement ids of the contract it covers, a gate and an evidence item. outline: the plan in a few sentences. questions: what the owner must answer before the plan can go on. outcome: work when tasks remain to start, wait when the epic needs the owner, complete when the contract's Requirements are all covered.
 
+A ledger trigger is one whose id starts with "ledger:". Its cause lists the confirmed findings of the epic's end-of-epic review that are still open, one line each. Plan tasks that correct each listed finding and nothing else. When the ledger lists no finding, an empty ledger, return outcome complete with no tasks.
+
 A task's gate is the name of a command gate that the epic's gates or the repository's .orrery/project.toml define. The gate builds and checks the task.
 
 A task's evidence is one object with capture, limit, artifacts, supplied, conclusion and judge. Give either capture or supplied, never both. capture is the command, program first, that produces the evidence. limit is its time limit in seconds. artifacts are the repository-relative files it leaves. supplied are the repository-relative files the task commits in place of a capture. conclusion is what the evidence must show. judge is the agent that judges it. Leave every unused field empty: an empty list, 0, or "".
