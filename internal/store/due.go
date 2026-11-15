@@ -26,18 +26,6 @@ type DueResume struct {
 	Resets time.Time
 }
 
-// DueResumeClosed marks the due row ID done. It appends no event.
-type DueResumeClosed struct {
-	ID string
-}
-
-func (op DueResumeClosed) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
-	if err := queries.CloseDueResume(ctx, op.ID); err != nil {
-		return fmt.Errorf("close due resume %s: %w", op.ID, err)
-	}
-	return nil
-}
-
 // StepDueResumesClosed marks every due row of step ID done. It appends no event.
 type StepDueResumesClosed struct {
 	ID string

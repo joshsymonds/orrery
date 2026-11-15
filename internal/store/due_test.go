@@ -156,7 +156,9 @@ func TestClosedDueRowStaysClosedForItsReset(t *testing.T) {
 	t.Parallel()
 	s := openDueStore(t)
 	applyDue(t, s, stepLimitAt("s1", dueResetA))
-	applyDue(t, s, DueResumeClosed{ID: dueStepS1A})
+	if err := s.CloseDueResume(context.Background(), dueStepS1A); err != nil {
+		t.Fatalf("CloseDueResume: %v", err)
+	}
 	applyDue(t, s, stepLimitAt("s1", dueResetA))
 
 	if got := dueIDs(t, s); len(got) != 0 {
@@ -177,7 +179,9 @@ func TestDueResumesListOnlyDueRowsOldestResetFirst(t *testing.T) {
 		t.Fatalf("due rows = %v, want the oldest reset first [%s %s]", got, dueStepS2A, dueStepS1B)
 	}
 
-	applyDue(t, s, DueResumeClosed{ID: dueStepS2A})
+	if err := s.CloseDueResume(context.Background(), dueStepS2A); err != nil {
+		t.Fatalf("CloseDueResume: %v", err)
+	}
 	if got := dueIDs(t, s); !reflect.DeepEqual(got, []string{dueStepS1B}) {
 		t.Fatalf("due rows after closing %s = %v, want [%s]", dueStepS2A, got, dueStepS1B)
 	}
