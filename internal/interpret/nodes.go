@@ -35,15 +35,23 @@ const (
 // store reads the step under the same part.
 const stepPart = "step"
 
-// work carries out one work action of a check node run: the prepare, start or refs check its kind asks for.
+// work carries out one work action of a check node run: the prepare, start, capture, refs check or advance its kind asks
+// for. An integrate run's prepare claims its batch, and its advance moves the epic's branch.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
 	case kinds.ActPrepare:
+		if act.NodeKind == kindIntegrate {
+			return r.prepareBatch(ctx, epic, act)
+		}
 		return r.prepare(ctx, epic, act)
 	case kinds.ActStart:
 		return r.start(ctx, epic, act)
+	case kinds.ActCapture:
+		return r.capture(ctx, epic, act)
 	case kinds.ActRefs:
 		return r.checkRefs(ctx, epic, act, at)
+	case kinds.ActAdvance:
+		return r.advance(ctx, epic, act, at)
 	default:
 		return fmt.Errorf("work %s is not one the executor carries out", act.Work)
 	}
@@ -117,7 +125,7 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 // an owned run's result. The work of a kind whose service the runner was not given is an error, not a start.
 func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) error {
 	switch act.NodeKind {
-	case kindGate, kindCommand:
+	case kindGate, kindCommand, kindIntegrate:
 		if r.checks == nil {
 			return missingService("checks")
 		}
@@ -144,13 +152,17 @@ func missingService(service string) error {
 	return fmt.Errorf("the runner was not given a %s service", service)
 }
 
-// startCheck starts the check of a gate or command run under the id its action names, at the run's revision.
+// startCheck starts the check of a gate or command run under the id its action names, at the run's revision. The check of
+// an integrate run is one of its Done gates, which the action names.
 func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
 	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
 	var err error
-	if act.NodeKind == kindGate {
+	switch act.NodeKind {
+	case kindGate:
 		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
-	} else {
+	case kindIntegrate:
+		check, err = r.withGate(ctx, epic, act.Items[0], check)
+	default:
 		check.Argv = act.Def.Settings.Argv
 		check.Limit = int64(act.Def.Settings.Limit)
 		check.Needs = commandNeeds(act.Def.Settings.Needs)
@@ -211,6 +223,12 @@ func (r *Runner) startEvidence(ctx context.Context, epic store.EpicRow, act Acti
 	if act.Def.Settings.At == atBase {
 		phase = evidence.PhaseRed
 	}
+	return r.runItems(ctx, epic, act, phase)
+}
+
+// runItems runs the evidence item of each Requirement the action names, under the id it names, at the run's revision in
+// phase.
+func (r *Runner) runItems(ctx context.Context, epic store.EpicRow, act Action, phase string) error {
 	for i, id := range act.IDs {
 		if _, err := r.evidence.RunItem(ctx, id, epic.ID, act.Items[i], act.Run.Revision, phase); err != nil {
 			return fmt.Errorf("run evidence %s: %w", act.Items[i], err)

@@ -15,23 +15,29 @@ import (
 // ActionKind names what the interpreter does for an epic's workflow.
 type ActionKind string
 
-// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark and ActParkNode change the node runs in the store,
-// ActWork hands a check node run's work to the interpreter, and ActRun hands a node run to its kind.
+// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch and ActParkEpic change the node
+// runs or the epic in the store, ActWork hands a check node run's work to the interpreter, and ActRun hands a node run
+// to its kind.
 const (
 	ActStart    ActionKind = "start"
 	ActEnd      ActionKind = "end"
 	ActRound    ActionKind = "round"
 	ActPark     ActionKind = "park"
 	ActParkNode ActionKind = "park_node"
+	ActParkEpic ActionKind = "park_epic"
+	ActBatch    ActionKind = "batch"
 	ActWork     ActionKind = "work"
 	ActRun      ActionKind = "run"
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
-// the Ends, and a failed end in a plan body its Trigger. Round and Park name the loop at Path and its current Round,
-// and Park its Reason. Run names the node run at Path of NodeKind, and for a build child its Task. ParkNode parks the
-// node run at Path, whose Attempt ended with Outcome and Output, for Reason. Work carries a check node run's work: Work
-// is the kind's action, prepare, start or refs, and Def, Run, IDs and Items are what it is for.
+// the Ends, a failed end in a plan body its Trigger, and an end that builds the epic Built. Round and Park name the loop
+// at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
+// its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
+// when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
+// parks the epic for Reason, with Trigger. Work carries a check node run's work: Work is the kind's action, prepare,
+// start, capture, refs or advance, and Def, Run, IDs, Items and Tasks are what it is for. An advance carries its Output
+// and the Trigger its passed batch writes.
 type Action struct {
 	Kind     ActionKind
 	Runs     []store.NodeRun
@@ -50,6 +56,9 @@ type Action struct {
 	Run      store.NodeRun
 	IDs      []string
 	Items    []string
+	Tasks    []int64
+	Final    bool
+	Built    bool
 }
 
 // The kinds, spent setting, task status, outcome and trigger prefix the pass reads.
@@ -59,8 +68,10 @@ const (
 	kindLoop      = "loop"
 	spentContinue = "continue"
 	taskOpen      = "open"
+	outcomePassed = "passed"
 	outcomeFailed = "failed"
 	triggerPrefix = "workflow:"
+	kindIntegrate = "integrate"
 )
 
 // place is where a list of nodes sits. A check node that ends failed is decided by its place: at the top level it
@@ -196,9 +207,14 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	}
 	switch act.Kind {
 	case kinds.ActEnd:
-		return p.end(run, act, at)
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActRefs:
-		return []Action{workOf(def, run, act)}
+		return p.end(def, run, act, at)
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance:
+		return []Action{p.work(def, run, act)}
+	case kinds.ActPark:
+		return []Action{{
+			Kind: ActParkNode, Path: run.Path, Attempt: run.Attempt, Outcome: outcomeFailed, Output: act.Output,
+			Reason: act.Output,
+		}}
 	case kinds.ActRun:
 		return []Action{{Kind: ActRun, Path: run.Path, NodeKind: def.Kind, Task: run.Task}}
 	default:
@@ -207,18 +223,36 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 }
 
 // plan decides a running plan run from the act its kind gives. The plan runs while its kind keeps it running, and it
-// ends complete once its kind ends it and its latest settle walk has ended. Its settle walks and its fan-out are
-// decided with it. A plan whose kind leaves it waiting gives no action.
+// ends once its kind ends it and its latest settle walk has ended. Its settle walks and its fan-out are decided with it.
+// A plan whose kind leaves it waiting gives no action.
 func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
 	if act.Kind != kinds.ActEnd && act.Kind != kinds.ActRun {
 		return nil
 	}
 	walks, settled := p.settle(def, run)
 	if act.Kind == kinds.ActEnd && settled {
-		return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, act.Outcome, act.Output)}}
+		return p.complete(def, run, act)
 	}
 	acts := append([]Action{{Kind: ActRun, Path: run.Path, NodeKind: def.Kind, Task: run.Task}}, walks...)
 	return append(acts, p.fanOut(def, run)...)
+}
+
+// complete decides a plan run whose kind ends it and whose latest settle walk has ended. A plan body that holds an
+// integrate node ends built when every Requirement is built. Otherwise it parks the epic, and wakes the planner with a
+// trigger whose cause names what is unbuilt. Any other plan ends as it did.
+func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
+	ends := p.endsUnder(run.Path, act.Outcome, act.Output)
+	if !slices.ContainsFunc(def.Body, func(node workflow.Node) bool { return node.Kind == kindIntegrate }) {
+		return []Action{{Kind: ActEnd, Ends: ends}}
+	}
+	missing := kinds.Unbuilt(p.rows)
+	if len(missing) == 0 {
+		return []Action{{Kind: ActEnd, Ends: ends, Built: true}}
+	}
+	reason := "epic not built: " + strings.Join(missing, "; ")
+	id := store.NodeRunID(p.rows.Epic.ID, run.Path, run.Round, fmt.Sprintf("unbuilt after turn %d", p.highestTurn()))
+	trigger := &store.NodeTrigger{ID: triggerPrefix + id, Cause: reason}
+	return []Action{{Kind: ActParkEpic, Reason: reason, Trigger: trigger}}
 }
 
 // settle decides the settle walks of a running plan run, and reports whether its latest settle walk has ended. A settle
@@ -282,20 +316,23 @@ func (p pass) hasRunUnder(prefix string) bool {
 	return false
 }
 
-// end decides a node run its kind ends. A failed end is decided by where the run sits. Any other end ends the run with
-// its outcome and output, and the running runs under it.
-func (p pass) end(run store.NodeRun, act kinds.Action, at scope) []Action {
+// end decides a node run its kind ends. An integrate run's end is its batch. A failed end is decided by where the run
+// sits. Any other end ends the run with its outcome and output, and the running runs under it.
+func (p pass) end(def workflow.Node, run store.NodeRun, act kinds.Action, at scope) []Action {
+	if def.Kind == kindIntegrate {
+		return []Action{p.batch(run, act)}
+	}
 	if act.Outcome == outcomeFailed {
-		return p.failed(run, act.Output, at)
+		return p.failed(def, run, act.Output, at)
 	}
 	return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, act.Outcome, act.Output)}}
 }
 
 // failed decides a check node run that ended failed with output, by where it sits. At the top level it parks, so the
-// flow holds at it. In a loop body it ends with its output, and the round ends. In a plan body it ends with a trigger
-// that wakes the planner. The trigger's id is derived from the run's path, round and attempt, so a restart records it
-// once.
-func (p pass) failed(run store.NodeRun, output string, at scope) []Action {
+// flow holds at it, and an evidence node at base that found a Requirement met parks for good. In a loop body it ends
+// with its output, and the round ends. In a plan body it ends with a trigger that wakes the planner. The trigger's id is
+// derived from the run's path, round and attempt, so a restart records it once.
+func (p pass) failed(def workflow.Node, run store.NodeRun, output string, at scope) []Action {
 	reason := fmt.Sprintf("workflow node %s failed: %s", run.Path, output)
 	switch at.where {
 	case loopBody:
@@ -305,6 +342,17 @@ func (p pass) failed(run store.NodeRun, output string, at scope) []Action {
 		trigger := &store.NodeTrigger{ID: triggerPrefix + id, Cause: reason}
 		return []Action{{Kind: ActEnd, Ends: p.endsUnder(run.Path, outcomeFailed, output), Trigger: trigger}}
 	default:
+		if met := p.metAtBase(def, run); len(met) > 0 {
+			return []Action{{
+				Kind: ActParkNode, Path: run.Path, Attempt: run.Attempt, Outcome: outcomeFailed, Output: output,
+				Reason: fmt.Sprintf(
+					"workflow node %s: %s met at the epic's base %s; parked for good, "+
+						"and a corrected contract is a new epic",
+					run.Path, strings.Join(met, ", "), p.rows.Epic.Base,
+				),
+				Final: true,
+			}}
+		}
 		return []Action{{
 			Kind: ActParkNode, Path: run.Path, Attempt: run.Attempt, Outcome: outcomeFailed, Output: output,
 			Reason: reason,
@@ -312,13 +360,47 @@ func (p pass) failed(run store.NodeRun, output string, at scope) []Action {
 	}
 }
 
-// workOf returns the work action of a check node run: the kind's prepare, start or refs, and the ids and items the
-// work is for.
-func workOf(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
-	return Action{
-		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
-		Items: act.Items,
+// metAtBase returns the Requirements that an evidence node at base found met at the epic's base, in contract order. It
+// returns none for any other node run.
+func (p pass) metAtBase(def workflow.Node, run store.NodeRun) []string {
+	if def.Kind != kindEvidence || def.Settings.At != atBase {
+		return nil
 	}
+	return kinds.MetAtBase(kinds.Node{Def: def, Run: run}, p.rows)
+}
+
+// batch decides the end of an integrate run. An empty batch ends with no revision, since it claimed no batch, and it
+// writes no trigger. Any other batch ends with a trigger that wakes the planner.
+func (p pass) batch(run store.NodeRun, act kinds.Action) Action {
+	out := Action{Kind: ActBatch, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output}
+	if run.Revision != "" {
+		out.Trigger = p.batchTrigger(run, act.Outcome, act.Output)
+	}
+	return out
+}
+
+// batchTrigger returns the trigger an integrate run writes when it ends with outcome and output. Its id is derived from
+// the run's path, round and attempt, so a restart records it once.
+func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.NodeTrigger {
+	id := store.NodeRunID(p.rows.Epic.ID, run.Path, run.Round, fmt.Sprintf("integrated attempt %d", run.Attempt))
+	return &store.NodeTrigger{
+		ID:    triggerPrefix + id,
+		Cause: fmt.Sprintf("workflow node %s %s: %s", run.Path, outcome, output),
+	}
+}
+
+// work returns the work action of a check node run: the kind's prepare, start, capture, refs or advance, and the ids,
+// items and tasks the work is for. An advance also carries its output and the trigger its passed batch writes.
+func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
+	out := Action{
+		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
+		Items: act.Items, Tasks: act.Tasks,
+	}
+	if act.Kind == kinds.ActAdvance {
+		out.Output = act.Output
+		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)
+	}
+	return out
 }
 
 // loop decides a running loop by its current round. The round's body walks first, and the round ends once every node
@@ -363,16 +445,28 @@ func within(child, path string) bool {
 }
 
 // fanOut returns the fan-out of a running plan run under its first build node. It starts each open task above the
-// plan's mark that has no child run, then decides the running children: a run for each that runs and one end for those
-// that end.
+// plan's mark that has no child run, unless a batch holds the fan-out, then decides the running children: a run for
+// each that runs and one end for those that end.
 func (p pass) fanOut(plan workflow.Node, run store.NodeRun) []Action {
 	build, ok := firstBuild(plan.Body)
 	if !ok {
 		return nil
 	}
 	prefix := run.Path + "/" + build.ID + "/"
-	acts := p.startTasks(run, build, prefix)
+	var acts []Action
+	if !p.batchOpen(run.Path) {
+		acts = p.startTasks(run, build, prefix)
+	}
 	return append(acts, p.decideChildren(build, prefix)...)
+}
+
+// batchOpen reports whether an integrate run under the plan at path is running or parked. While one is, the plan starts
+// no task, so no task starts until its batch is green or red.
+func (p pass) batchOpen(path string) bool {
+	return slices.ContainsFunc(p.rows.Runs, func(run store.NodeRun) bool {
+		return run.Kind == kindIntegrate && within(run.Path, path) &&
+			(run.State == store.NodeRunning || run.State == store.NodeParked)
+	})
 }
 
 // firstBuild returns the first build node of a plan body, the node its tasks fan out under.
