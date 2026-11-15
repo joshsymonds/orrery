@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -134,9 +135,7 @@ func stepReadoptWrite(t *testing.T, path, contents string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("make %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
+	exectest.WriteFile(t, path, []byte(contents), 0o600)
 }
 
 // stepReadoptTouch creates the empty file at path, or truncates it when it exists.

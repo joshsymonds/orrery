@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -617,9 +618,7 @@ func TestRunWithGrantExitsCannotRunWhenCommandFailsToStart(t *testing.T) {
 	fake := newPoolsFake(nil, true, grantedWith("grant-bad", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	notProgram := filepath.Join(t.TempDir(), "notprogram")
-	if err := os.WriteFile(notProgram, []byte("not a program\n"), 0o700); err != nil {
-		t.Fatalf("write %s: %v", notProgram, err)
-	}
+	exectest.WriteFile(t, notProgram, []byte("not a program\n"), 0o700)
 	var stderr bytes.Buffer
 	cfg := runConfig(t, socket, "env", io.Discard, &stderr)
 	cfg.Argv = []string{notProgram}

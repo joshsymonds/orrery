@@ -39,6 +39,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/help"
@@ -786,9 +787,7 @@ func TestDebugSummarizeWritesSummaryAndLabel(t *testing.T) {
 	}
 	fakeClaude := filepath.Join(dir, "fake-claude.sh")
 	script := "#!/bin/sh\ncat >/dev/null\nprintf 'summary: example session in progress\\nlabel: example task name\\n'\n"
-	if err := os.WriteFile(fakeClaude, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, fakeClaude, []byte(script), 0o700)
 
 	out := runOrrery(t, "", []string{"ANTHROPIC_BASE_URL=" + exampleContext},
 		"-L", name, "debug", "summarize", "--pane", pane, "--transcript", transcript, "--claude", fakeClaude)
@@ -1283,9 +1282,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 
 	dir := t.TempDir()
 	fakeClaude := filepath.Join(dir, "fake-claude.sh")
-	if err := os.WriteFile(fakeClaude, []byte(fakeClaudeScript), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, fakeClaude, []byte(fakeClaudeScript), 0o700)
 	project := filepath.Join(dir, exampleProjectName)
 	if err := os.Mkdir(project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
@@ -1367,9 +1364,9 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 // writeFile writes content to path with perm, failing the test on error.
 func writeFile(t *testing.T, path, content string, perm os.FileMode) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), perm); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
+	// Many of the files are programs a test runs, so each is written as exectest writes one: no parallel test's fork
+	// can hold it open for writing when it is exec'd (ETXTBSY).
+	exectest.WriteFile(t, path, []byte(content), perm)
 }
 
 // startSummaryDaemon starts orreryd on a socket in a fresh directory, with script as the summarizer's claude binary,
@@ -2013,9 +2010,7 @@ func installFake(t *testing.T, src, name, reply string) fakeTool {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, name)
-	if err = os.WriteFile(bin, body, 0o755); err != nil {
-		t.Fatalf("install %s: %v", name, err)
-	}
+	exectest.WriteFile(t, bin, body, 0o755)
 	writeFile(t, filepath.Join(dir, "reply"), reply, 0o600)
 	return fakeTool{bin: bin, dir: dir}
 }
