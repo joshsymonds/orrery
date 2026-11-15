@@ -269,12 +269,16 @@
   },
   {
     "name": "epic_retry",
-    "description": "End the park of an epic by id, so the planner starts its turns again. Returns the stored epic. An epic that is not parked is refused.",
+    "description": "End the park of an epic by id, so the planner starts its turns again. With node, rerun the parked workflow node of that id under its next attempt instead, which also ends the park. Returns the stored epic. Without node, an epic that is not parked is refused; with node, a node that is not parked is refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "id": {
           "type": "string"
+        },
+        "node": {
+          "type": "string",
+          "description": "the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"
         }
       },
       "required": [

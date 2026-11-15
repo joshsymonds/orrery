@@ -328,6 +328,16 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 -- name: ListPushedLimitNotices :many
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
+-- name: UpsertPushedAlertNotice :exec
+INSERT INTO pushed_alert_notices (alert, time) VALUES (?, ?)
+ON CONFLICT (alert) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedAlertNotice :exec
+DELETE FROM pushed_alert_notices WHERE alert = ?;
+
+-- name: ListPushedAlertNotices :many
+SELECT * FROM pushed_alert_notices ORDER BY alert;
+
 -- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
 ON CONFLICT (limit_key, step) DO NOTHING;
@@ -429,15 +439,36 @@ INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?,
 SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicNodeRun :exec
-INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended, attempt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (epic, path) DO NOTHING;
 
 -- name: ListEpicNodeRuns :many
 SELECT * FROM epic_node_runs WHERE epic = ? ORDER BY path;
 
 -- name: EndEpicNodeRun :exec
-UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ? WHERE epic = ? AND path = ? AND state = 'running';
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ? WHERE epic = ? AND path = ? AND state = 'running';
+
+-- name: PrepareEpicNodeRun :exec
+UPDATE epic_node_runs SET revision = ?, refs = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
+
+-- name: RecordEpicNodeResult :exec
+UPDATE epic_node_runs SET result = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
+
+-- name: CheckEpicNodeRefs :execrows
+UPDATE epic_node_runs SET refs_checked = 1
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND refs_checked = 0;
+
+-- name: ParkEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'parked', outcome = ?, output = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
+
+-- name: RetryEpicNode :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
 
 -- name: MoveEpicLoopRound :exec
 UPDATE epic_node_runs SET loop_round = loop_round + 1
@@ -734,3 +765,24 @@ UPDATE due_resumes SET state = 'done' WHERE id = ?;
 
 -- name: CloseDueResumesOf :exec
 UPDATE due_resumes SET state = 'done' WHERE kind = ? AND target = ?;
+
+-- name: InsertEpicNodeCheck :exec
+INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO NOTHING;
+
+-- name: GetEpicNodeCheck :one
+SELECT * FROM epic_node_checks WHERE id = ?;
+
+-- name: ListEpicNodeChecks :many
+SELECT * FROM epic_node_checks WHERE epic = ? ORDER BY created, id;
+
+-- name: ListOpenEpicNodeChecks :many
+SELECT * FROM epic_node_checks WHERE state = 'running' ORDER BY created, id;
+
+-- name: SetEpicNodeCheckGrant :exec
+UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'running';
+
+-- name: EndEpicNodeCheck :exec
+UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
+WHERE id = ? AND state = 'running';

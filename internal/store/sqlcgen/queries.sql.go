@@ -10,6 +10,25 @@ import (
 	"database/sql"
 )
 
+const checkEpicNodeRefs = `-- name: CheckEpicNodeRefs :execrows
+UPDATE epic_node_runs SET refs_checked = 1
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND refs_checked = 0
+`
+
+type CheckEpicNodeRefsParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) CheckEpicNodeRefs(ctx context.Context, arg CheckEpicNodeRefsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, checkEpicNodeRefs, arg.Epic, arg.Path, arg.Attempt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimEpicTriggers = `-- name: ClaimEpicTriggers :exec
 UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 'pending'
 `
@@ -259,6 +278,15 @@ func (q *Queries) DeletePendingNotice(ctx context.Context, id int64) error {
 	return err
 }
 
+const deletePushedAlertNotice = `-- name: DeletePushedAlertNotice :exec
+DELETE FROM pushed_alert_notices WHERE alert = ?
+`
+
+func (q *Queries) DeletePushedAlertNotice(ctx context.Context, alert string) error {
+	_, err := q.db.ExecContext(ctx, deletePushedAlertNotice, alert)
+	return err
+}
+
 const deletePushedEpicNotice = `-- name: DeletePushedEpicNotice :exec
 DELETE FROM pushed_epic_notices WHERE epic = ?
 `
@@ -366,13 +394,42 @@ func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
 	return err
 }
 
+const endEpicNodeCheck = `-- name: EndEpicNodeCheck :exec
+UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
+WHERE id = ? AND state = 'running'
+`
+
+type EndEpicNodeCheckParams struct {
+	Exit     int64
+	TimedOut int64
+	NotRun   string
+	Stdout   string
+	Stderr   string
+	Ended    int64
+	ID       string
+}
+
+func (q *Queries) EndEpicNodeCheck(ctx context.Context, arg EndEpicNodeCheckParams) error {
+	_, err := q.db.ExecContext(ctx, endEpicNodeCheck,
+		arg.Exit,
+		arg.TimedOut,
+		arg.NotRun,
+		arg.Stdout,
+		arg.Stderr,
+		arg.Ended,
+		arg.ID,
+	)
+	return err
+}
+
 const endEpicNodeRun = `-- name: EndEpicNodeRun :exec
-UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ? WHERE epic = ? AND path = ? AND state = 'running'
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ? WHERE epic = ? AND path = ? AND state = 'running'
 `
 
 type EndEpicNodeRunParams struct {
 	Outcome string
 	Ended   int64
+	Output  string
 	Epic    string
 	Path    string
 }
@@ -381,6 +438,7 @@ func (q *Queries) EndEpicNodeRun(ctx context.Context, arg EndEpicNodeRunParams) 
 	_, err := q.db.ExecContext(ctx, endEpicNodeRun,
 		arg.Outcome,
 		arg.Ended,
+		arg.Output,
 		arg.Epic,
 		arg.Path,
 	)
@@ -588,6 +646,35 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 		&i.Text,
 		&i.Time,
 		&i.Question,
+	)
+	return i, err
+}
+
+const getEpicNodeCheck = `-- name: GetEpicNodeCheck :one
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE id = ?
+`
+
+func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeCheck, error) {
+	row := q.db.QueryRowContext(ctx, getEpicNodeCheck, id)
+	var i EpicNodeCheck
+	err := row.Scan(
+		&i.ID,
+		&i.Epic,
+		&i.Path,
+		&i.Revision,
+		&i.Argv,
+		&i.LimitSeconds,
+		&i.Needs,
+		&i.State,
+		&i.GrantID,
+		&i.Holder,
+		&i.Exit,
+		&i.TimedOut,
+		&i.NotRun,
+		&i.Stdout,
+		&i.Stderr,
+		&i.Created,
+		&i.Ended,
 	)
 	return i, err
 }
@@ -1218,9 +1305,46 @@ func (q *Queries) InsertEpicGateList(ctx context.Context, arg InsertEpicGateList
 	return err
 }
 
+const insertEpicNodeCheck = `-- name: InsertEpicNodeCheck :exec
+INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO NOTHING
+`
+
+type InsertEpicNodeCheckParams struct {
+	ID           string
+	Epic         string
+	Path         string
+	Revision     string
+	Argv         string
+	LimitSeconds int64
+	Needs        string
+	State        string
+	NotRun       string
+	Created      int64
+	Ended        int64
+}
+
+func (q *Queries) InsertEpicNodeCheck(ctx context.Context, arg InsertEpicNodeCheckParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicNodeCheck,
+		arg.ID,
+		arg.Epic,
+		arg.Path,
+		arg.Revision,
+		arg.Argv,
+		arg.LimitSeconds,
+		arg.Needs,
+		arg.State,
+		arg.NotRun,
+		arg.Created,
+		arg.Ended,
+	)
+	return err
+}
+
 const insertEpicNodeRun = `-- name: InsertEpicNodeRun :exec
-INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended, attempt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (epic, path) DO NOTHING
 `
 
@@ -1239,6 +1363,7 @@ type InsertEpicNodeRunParams struct {
 	Mark      int64
 	Started   int64
 	Ended     int64
+	Attempt   int64
 }
 
 func (q *Queries) InsertEpicNodeRun(ctx context.Context, arg InsertEpicNodeRunParams) error {
@@ -1257,6 +1382,7 @@ func (q *Queries) InsertEpicNodeRun(ctx context.Context, arg InsertEpicNodeRunPa
 		arg.Mark,
 		arg.Started,
 		arg.Ended,
+		arg.Attempt,
 	)
 	return err
 }
@@ -2268,8 +2394,53 @@ func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, e
 	return items, nil
 }
 
+const listEpicNodeChecks = `-- name: ListEpicNodeChecks :many
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE epic = ? ORDER BY created, id
+`
+
+func (q *Queries) ListEpicNodeChecks(ctx context.Context, epic string) ([]EpicNodeCheck, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicNodeChecks, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicNodeCheck
+	for rows.Next() {
+		var i EpicNodeCheck
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Path,
+			&i.Revision,
+			&i.Argv,
+			&i.LimitSeconds,
+			&i.Needs,
+			&i.State,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotRun,
+			&i.Stdout,
+			&i.Stderr,
+			&i.Created,
+			&i.Ended,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicNodeRuns = `-- name: ListEpicNodeRuns :many
-SELECT epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended FROM epic_node_runs WHERE epic = ? ORDER BY path
+SELECT epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended, attempt, revision, refs, refs_checked, result, output FROM epic_node_runs WHERE epic = ? ORDER BY path
 `
 
 func (q *Queries) ListEpicNodeRuns(ctx context.Context, epic string) ([]EpicNodeRun, error) {
@@ -2296,6 +2467,12 @@ func (q *Queries) ListEpicNodeRuns(ctx context.Context, epic string) ([]EpicNode
 			&i.Mark,
 			&i.Started,
 			&i.Ended,
+			&i.Attempt,
+			&i.Revision,
+			&i.Refs,
+			&i.RefsChecked,
+			&i.Result,
+			&i.Output,
 		); err != nil {
 			return nil, err
 		}
@@ -3507,6 +3684,51 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 	return items, nil
 }
 
+const listOpenEpicNodeChecks = `-- name: ListOpenEpicNodeChecks :many
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE state = 'running' ORDER BY created, id
+`
+
+func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEpicNodeChecks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicNodeCheck
+	for rows.Next() {
+		var i EpicNodeCheck
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Path,
+			&i.Revision,
+			&i.Argv,
+			&i.LimitSeconds,
+			&i.Needs,
+			&i.State,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotRun,
+			&i.Stdout,
+			&i.Stderr,
+			&i.Created,
+			&i.Ended,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEpicQuestions = `-- name: ListOpenEpicQuestions :many
 SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
 `
@@ -3693,6 +3915,33 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.Epic,
 			&i.LimitKey,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPushedAlertNotices = `-- name: ListPushedAlertNotices :many
+SELECT alert, time FROM pushed_alert_notices ORDER BY alert
+`
+
+func (q *Queries) ListPushedAlertNotices(ctx context.Context) ([]PushedAlertNotice, error) {
+	rows, err := q.db.QueryContext(ctx, listPushedAlertNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PushedAlertNotice
+	for rows.Next() {
+		var i PushedAlertNotice
+		if err := rows.Scan(&i.Alert, &i.Time); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4164,12 +4413,63 @@ func (q *Queries) ParkEpicLoopRun(ctx context.Context, arg ParkEpicLoopRunParams
 	return result.RowsAffected()
 }
 
+const parkEpicNodeRun = `-- name: ParkEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'parked', outcome = ?, output = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running'
+`
+
+type ParkEpicNodeRunParams struct {
+	Outcome string
+	Output  string
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) ParkEpicNodeRun(ctx context.Context, arg ParkEpicNodeRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, parkEpicNodeRun,
+		arg.Outcome,
+		arg.Output,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const pauseEpic = `-- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?
 `
 
 func (q *Queries) PauseEpic(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, pauseEpic, id)
+	return err
+}
+
+const prepareEpicNodeRun = `-- name: PrepareEpicNodeRun :exec
+UPDATE epic_node_runs SET revision = ?, refs = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = ''
+`
+
+type PrepareEpicNodeRunParams struct {
+	Revision string
+	Refs     string
+	Epic     string
+	Path     string
+	Attempt  int64
+}
+
+func (q *Queries) PrepareEpicNodeRun(ctx context.Context, arg PrepareEpicNodeRunParams) error {
+	_, err := q.db.ExecContext(ctx, prepareEpicNodeRun,
+		arg.Revision,
+		arg.Refs,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+	)
 	return err
 }
 
@@ -4188,6 +4488,28 @@ UPDATE pending_notice_ids SET high = MAX(high, ?1) WHERE id = 1
 
 func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error {
 	_, err := q.db.ExecContext(ctx, raiseNoticeIDFloor, id)
+	return err
+}
+
+const recordEpicNodeResult = `-- name: RecordEpicNodeResult :exec
+UPDATE epic_node_runs SET result = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = ''
+`
+
+type RecordEpicNodeResultParams struct {
+	Result  string
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) RecordEpicNodeResult(ctx context.Context, arg RecordEpicNodeResultParams) error {
+	_, err := q.db.ExecContext(ctx, recordEpicNodeResult,
+		arg.Result,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+	)
 	return err
 }
 
@@ -4286,6 +4608,25 @@ func (q *Queries) RetryEpic(ctx context.Context, arg RetryEpicParams) error {
 	return err
 }
 
+const retryEpicNode = `-- name: RetryEpicNode :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
+    refs = '', refs_checked = 0, result = '', ended = 0
+WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked'
+`
+
+type RetryEpicNodeParams struct {
+	Epic string
+	Node string
+}
+
+func (q *Queries) RetryEpicNode(ctx context.Context, arg RetryEpicNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retryEpicNode, arg.Epic, arg.Node)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const sessionEventsAfter = `-- name: SessionEventsAfter :many
 SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?
@@ -4340,6 +4681,21 @@ type SetEpicBranchParams struct {
 
 func (q *Queries) SetEpicBranch(ctx context.Context, arg SetEpicBranchParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicBranch, arg.Branch, arg.ID)
+	return err
+}
+
+const setEpicNodeCheckGrant = `-- name: SetEpicNodeCheckGrant :exec
+UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'running'
+`
+
+type SetEpicNodeCheckGrantParams struct {
+	GrantID string
+	Holder  string
+	ID      string
+}
+
+func (q *Queries) SetEpicNodeCheckGrant(ctx context.Context, arg SetEpicNodeCheckGrantParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicNodeCheckGrant, arg.GrantID, arg.Holder, arg.ID)
 	return err
 }
 
@@ -4953,6 +5309,21 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.Epic,
 		arg.LimitKey,
 	)
+	return err
+}
+
+const upsertPushedAlertNotice = `-- name: UpsertPushedAlertNotice :exec
+INSERT INTO pushed_alert_notices (alert, time) VALUES (?, ?)
+ON CONFLICT (alert) DO UPDATE SET time = excluded.time
+`
+
+type UpsertPushedAlertNoticeParams struct {
+	Alert string
+	Time  int64
+}
+
+func (q *Queries) UpsertPushedAlertNotice(ctx context.Context, arg UpsertPushedAlertNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPushedAlertNotice, arg.Alert, arg.Time)
 	return err
 }
 

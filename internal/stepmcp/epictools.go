@@ -38,6 +38,13 @@ type epicAnswerArgs struct {
 	Question string `json:"question,omitempty" jsonschema:"the Q<n> the answer names; omit for a note"`
 }
 
+// epicRetryArgs is the arguments of epic_retry, described for its input schema. Node names the workflow node whose
+// parked run reruns; omitted, the epic's park ends instead.
+type epicRetryArgs struct {
+	ID   string `json:"id"`
+	Node string `json:"node,omitempty" jsonschema:"the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"`
+}
+
 // epicTools returns the epic tools, each calling epics.
 func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 	createInput, err := argumentSchema[epicCreateArgs](nil)
@@ -53,6 +60,10 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		return nil, err
 	}
 	answerInput, err := argumentSchema[epicAnswerArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	retryInput, err := argumentSchema[epicRetryArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,9 +125,11 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		},
 		{
 			Name: "epic_retry",
-			Description: "End the park of an epic by id, so the planner starts its turns again. Returns the stored " +
-				"epic. An epic that is not parked is refused.",
-			InputSchema: idInput,
+			Description: "End the park of an epic by id, so the planner starts its turns again. With node, rerun " +
+				"the parked workflow node of that id under its next attempt instead, which also ends the park. " +
+				"Returns the stored epic. Without node, an epic that is not parked is refused; with node, a node " +
+				"that is not parked is refused.",
+			InputSchema: retryInput,
 			Handler:     epicRetryHandler(epics),
 		},
 	}, nil

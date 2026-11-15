@@ -673,6 +673,45 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 	}
 }
 
+// TestEpicRetryPassesTheNodeInOneCall checks that epic_retry sends one RetryEpic call carrying the node it names,
+// and an empty node when it names none.
+func TestEpicRetryPassesTheNodeInOneCall(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		args string
+		node string
+	}{
+		{name: "named node", args: `{"id":"` + testEpicID + `","node":"check"}`, node: "check"},
+		{name: "no node", args: `{"id":"` + testEpicID + `"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stored := storedEpicOf(fullContract())
+			fake := &fakeEpics{retryReply: &v1.RetryEpicResponse{Epic: stored}}
+			p := newPeer(t, nil, fake)
+
+			outcome := p.tool("epic_retry", tc.args)
+
+			if outcome.isError {
+				t.Fatalf("epic_retry returned an error: %s", outcome.text)
+			}
+			calls := fake.calls()
+			if n := calls.total(); n != 1 {
+				t.Fatalf("epic_retry made %d service calls, want 1", n)
+			}
+			if len(calls.retries) != 1 {
+				t.Fatalf("epic_retry made %d RetryEpic calls, want 1", len(calls.retries))
+			}
+			if got := calls.retries[0]; got.GetId() != testEpicID || got.GetNode() != tc.node {
+				t.Fatalf("RetryEpic request = id %q node %q, want id %q node %q",
+					got.GetId(), got.GetNode(), testEpicID, tc.node)
+			}
+		})
+	}
+}
+
 func TestEpicResumeResultCarriesEpicResumedAndStillLimited(t *testing.T) {
 	t.Parallel()
 	stored := storedEpicOf(fullContract())

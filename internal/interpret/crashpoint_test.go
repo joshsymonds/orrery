@@ -48,8 +48,7 @@ func (crashStep) Decide(node kinds.Node, _ kinds.Rows) kinds.Action {
 // parking when its rounds are spent; then a step; then a plan, and a second plan that starts once a plan run exists and
 // so writes a trigger.
 func crashFlow() workflow.Workflow {
-	refine := loopNode(
-		"refine", workflow.Loop{Max: 2, Until: workflow.Outcome{Node: "review", Name: "done"}, Spent: "park"},
+	refine := loopNode(workflow.Loop{Max: 2, Until: workflow.Outcome{Node: "review", Name: "done"}, Spent: "park"},
 		kindNode("work", crashKind), kindNode("review", crashKind),
 	)
 	return workflow.Workflow{Name: "crash", Nodes: []workflow.Node{

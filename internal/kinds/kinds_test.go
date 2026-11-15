@@ -1,6 +1,7 @@
 package kinds
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -128,7 +129,7 @@ func TestPlanDecide(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := Plan{}.Decide(tc.node, tc.rows)
-			if got != tc.want {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("Plan.Decide() = %+v, want %+v", got, tc.want)
 			}
 		})
@@ -202,7 +203,7 @@ func TestBuildDecide(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := Build{}.Decide(tc.node, tc.rows)
-			if got != tc.want {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("Build.Decide() = %+v, want %+v", got, tc.want)
 			}
 		})

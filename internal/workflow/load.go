@@ -29,18 +29,33 @@ const canonicalIndent = 2
 // epicText is the built-in epic: a plan holding build, in canonical form.
 const epicText = "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: build\n"
 
-// canonDoc, canonNode and canonLoop are the shape of a canonical workflow. Their field order is the key order the text
-// is written in, and spent is always written.
+// canonDoc, canonNode, canonSettings and canonLoop are the shape of a canonical workflow. Their field order is the key
+// order the text is written in, and spent is always written.
 type canonDoc struct {
 	Name  string      `yaml:"name"`
 	Nodes []canonNode `yaml:"nodes"`
 }
 
 type canonNode struct {
-	ID   string      `yaml:"id"`
-	Kind string      `yaml:"kind,omitempty"`
-	Loop *canonLoop  `yaml:"loop,omitempty"`
-	Body []canonNode `yaml:"body,omitempty"`
+	ID       string        `yaml:"id"`
+	Kind     string        `yaml:"kind,omitempty"`
+	Settings canonSettings `yaml:",inline"`
+	Loop     *canonLoop    `yaml:"loop,omitempty"`
+	Body     []canonNode   `yaml:"body,omitempty"`
+}
+
+// canonSettings is a check kind's settings in the order the text writes them. A setting the kind does not take is
+// omitted.
+type canonSettings struct {
+	At     string         `yaml:"at,omitempty"`
+	Gate   string         `yaml:"gate,omitempty"`
+	Argv   []string       `yaml:"argv,omitempty"`
+	Limit  int            `yaml:"limit,omitempty"`
+	Needs  map[string]int `yaml:"needs,omitempty"`
+	Paths  []string       `yaml:"paths,omitempty"`
+	Agent  string         `yaml:"agent,omitempty"`
+	Prompt string         `yaml:"prompt,omitempty"`
+	Schema any            `yaml:"schema,omitempty"`
 }
 
 type canonLoop struct {
@@ -175,31 +190,67 @@ func expandInclude(node Node, pos int, read Reader, chain []string, included map
 // canonical returns the canonical YAML text of an expanded workflow: its keys in a fixed order, indented by
 // canonicalIndent.
 func canonical(flow Workflow) (string, error) {
+	nodes, err := canonNodes(flow.Nodes)
+	if err != nil {
+		return "", fmt.Errorf("encode workflow %s: %w", flow.Name, err)
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(canonicalIndent)
-	if err := enc.Encode(canonDoc{Name: flow.Name, Nodes: canonNodes(flow.Nodes)}); err != nil {
+	if err = enc.Encode(canonDoc{Name: flow.Name, Nodes: nodes}); err != nil {
 		return "", fmt.Errorf("encode workflow %s: %w", flow.Name, err)
 	}
-	if err := enc.Close(); err != nil {
+	if err = enc.Close(); err != nil {
 		return "", fmt.Errorf("encode workflow %s: %w", flow.Name, err)
 	}
 	return buf.String(), nil
 }
 
 // canonNodes returns nodes in their canonical shape.
-func canonNodes(nodes []Node) []canonNode {
+func canonNodes(nodes []Node) ([]canonNode, error) {
 	out := make([]canonNode, 0, len(nodes))
 	for _, node := range nodes {
 		canon := canonNode{ID: node.ID, Kind: node.Kind}
+		if node.Settings != nil {
+			settings, err := canonSettingsOf(*node.Settings)
+			if err != nil {
+				return nil, err
+			}
+			canon.Settings = settings
+		}
 		if node.Loop != nil {
 			until := node.Loop.Until.Node + "." + node.Loop.Until.Name
 			canon.Loop = &canonLoop{Max: node.Loop.Max, Until: until, Spent: node.Loop.Spent}
 		}
 		if len(node.Body) > 0 {
-			canon.Body = canonNodes(node.Body)
+			body, err := canonNodes(node.Body)
+			if err != nil {
+				return nil, err
+			}
+			canon.Body = body
 		}
 		out = append(out, canon)
 	}
-	return out
+	return out, nil
+}
+
+// canonSettingsOf returns settings in their canonical shape: needs as a mapping from pool to units, and schema as the
+// mapping its JSON holds.
+func canonSettingsOf(settings Settings) (canonSettings, error) {
+	out := canonSettings{
+		At: settings.At, Gate: settings.Gate, Argv: settings.Argv, Limit: settings.Limit, Paths: settings.Paths,
+		Agent: settings.Agent, Prompt: settings.Prompt,
+	}
+	if len(settings.Needs) > 0 {
+		out.Needs = make(map[string]int, len(settings.Needs))
+		for _, need := range settings.Needs {
+			out.Needs[need.Pool] = need.Count
+		}
+	}
+	if settings.Schema != "" {
+		if err := yaml.Unmarshal([]byte(settings.Schema), &out.Schema); err != nil {
+			return canonSettings{}, fmt.Errorf("schema: %w", err)
+		}
+	}
+	return out, nil
 }

@@ -45,16 +45,16 @@ func kindNode(id, kind string, body ...workflow.Node) workflow.Node {
 	return workflow.Node{ID: id, Kind: kind, Body: body}
 }
 
-// loopNode returns a loop node with id, its settings and its body.
-func loopNode(id string, loop workflow.Loop, body ...workflow.Node) workflow.Node {
-	return workflow.Node{ID: id, Loop: &loop, Body: body}
+// loopNode returns the loop node refine with its settings and its body. loopOf is a run of it.
+func loopNode(loop workflow.Loop, body ...workflow.Node) workflow.Node {
+	return workflow.Node{ID: "refine", Loop: &loop, Body: body}
 }
 
 // refine returns the loop the loop cases run: two rounds at most, until review reports done, spent as given, and a
 // body of work then review.
 func refine(spent string) workflow.Node {
 	settings := workflow.Loop{Max: 2, Until: workflow.Outcome{Node: "review", Name: "done"}, Spent: spent}
-	return loopNode("refine", settings, kindNode("work", "work"), kindNode("review", "review"))
+	return loopNode(settings, kindNode("work", "work"), kindNode("review", "review"))
 }
 
 // planNode returns a plan node whose body is one build node.
@@ -303,9 +303,10 @@ func TestDecidePlan(t *testing.T) {
 		},
 		{
 			name: "plan in a loop body fans out under its round's path",
-			flow: []workflow.Node{loopNode("refine",
-				workflow.Loop{Max: 1, Until: workflow.Outcome{Node: "plan", Name: "complete"}, Spent: "park"},
-				planNode())},
+			flow: []workflow.Node{
+				loopNode(workflow.Loop{Max: 1, Until: workflow.Outcome{Node: "plan", Name: "complete"}, Spent: "park"},
+					planNode()),
+			},
 			rows: rowsOf(
 				[]store.EpicTurn{turnAt(1, "work")},
 				[]store.EpicTask{openTask(1, 1)},
