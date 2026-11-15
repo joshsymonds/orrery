@@ -1,6 +1,7 @@
 # Prometheus alert rules for orrery (orreryd and orrery serve). Series names are
 # frozen by the telemetry package. Each alert's labels are only the scrape's
-# job and instance plus severity, and each summary is a fixed string.
+# job and instance plus severity. Each summary is a fixed string, except the
+# CPU summary, which names the job and the rate from the alert's value.
 groups:
   - name: orrery
     rules:
@@ -58,4 +59,4 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "An orrery process has used over 0.3 of a CPU core for 15 minutes."
+          summary: 'An orrery process ({{ $labels.job }}) has used {{ $value | printf "%.2f" }} CPU cores for 15 minutes.'

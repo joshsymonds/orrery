@@ -165,10 +165,10 @@ tests:
               instance: "busy-host:9464"
               severity: "warning"
             exp_annotations:
-              summary: "An orrery process has used over 0.3 of a CPU core for 15 minutes."
+              summary: "An orrery process (orreryd) has used 1.62 CPU cores for 15 minutes."
           - exp_labels:
               job: "orrery-serve"
               instance: "serve-host:9464"
               severity: "warning"
             exp_annotations:
-              summary: "An orrery process has used over 0.3 of a CPU core for 15 minutes."
+              summary: "An orrery process (orrery-serve) has used 0.50 CPU cores for 15 minutes."
