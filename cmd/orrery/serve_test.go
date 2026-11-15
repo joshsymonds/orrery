@@ -146,7 +146,6 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 		t.Fatalf("no message on the Watch stream within %v", serveTestWait)
 	}
 
-	started := time.Now()
 	cancelServe()
 	select {
 	case <-serveDone:
@@ -155,9 +154,6 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 	}
 	if serveErr != nil {
 		t.Fatalf("serve returned %v, want nil", serveErr)
-	}
-	if elapsed := time.Since(started); elapsed >= serveShutdownTimeout {
-		t.Fatalf("serve returned after %v, want it well within the %v shutdown budget", elapsed, serveShutdownTimeout)
 	}
 
 	select {

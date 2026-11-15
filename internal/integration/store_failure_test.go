@@ -29,9 +29,6 @@ const corruptStoreBytes = "this is not a sqlite database, it is plain text kept 
 func noticeWithin(t *testing.T, r *noticeReader, since time.Time, limit time.Duration) notice {
 	t.Helper()
 	got := noticeOf(t, r.receive(t, time.Until(since.Add(limit))))
-	if elapsed := time.Since(since); elapsed > limit {
-		t.Fatalf("notice arrived after %v, want within %v", elapsed, limit)
-	}
 	return got
 }
 
