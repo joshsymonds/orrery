@@ -141,7 +141,7 @@ func (r stepsRig) startStalledStep(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatalf("Start stalled step: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(r.manager, r.steps), "the stalled block's unfinished text", func() bool {
 		return countRows(t, r.path, "engine_text") == 1
 	})
 	return id, filepath.Join(r.worktrees, id)
@@ -198,7 +198,7 @@ func (f *stepCtlFixture) startScopedGate(t *testing.T, steps *Steps, root string
 	head := stepGitTestRun(t, linked, "rev-parse", "HEAD")
 	raw := fmt.Sprintf(`{"status":%q,"commit":%q}`, stepLoopDone, head)
 	f.started(t, id).Observer.Return(session.TurnEnded{StructuredOutput: []byte(raw)})
-	pid := stepCtlAwaitGatePid(t, pidFile)
+	pid := stepCtlAwaitGatePid(t, engineOf(f.steps, steps), pidFile)
 	dir := holderDir(t, root, id+"-gate")
 	t.Cleanup(func() {
 		ctx := context.WithoutCancel(t.Context())
@@ -240,7 +240,7 @@ func TestReadoptStepReattachedRunsLoopAndJudgesNextReturnOnce(t *testing.T) {
 	}
 	run := stepsRunOf(t, steps, id)
 	run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"done"}`)})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(rig.manager, rig.steps, restarted, steps, run), "step "+id+" to end", func() bool {
 		row, err := steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -284,7 +284,7 @@ func TestReadoptStepCheckoutMovedEndsChecksFailed(t *testing.T) {
 
 	run := stepsRunOf(t, steps, id)
 	run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"done"}`)})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(rig.manager, rig.steps, restarted, steps, run), "step "+id+" to end", func() bool {
 		row, err := steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})

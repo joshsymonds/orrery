@@ -29,9 +29,16 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 		t.Fatalf("Say: %v", err)
 	}
 	releaseHeldTurn(t, dir)
-	waitHistory(t, rig.path, id, "the first turn's stored end", func(h store.EngineHistory) bool {
-		return h.State == "done"
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		id,
+		"the first turn's stored end",
+		func(h store.EngineHistory) bool {
+			return h.State == "done"
+		},
+	)
 
 	restarted, _ := restartDrain(t, rig, rig.store, holder.WireVersion+1)
 	if err := restarted.Reconcile(t.Context()); err != nil {
@@ -43,9 +50,16 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
 		t.Fatalf("write open: %v", err)
 	}
-	waitHistory(t, rig.path, id, "the held prompt's reply", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the held prompt's reply",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "after"}); err != nil {
@@ -53,9 +67,16 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 	}
 	// Say returns once the new holder has the prompt, which can be before its claude has started and logged its
 	// arguments. The reply to the Say comes from that claude, so its start is logged by then.
-	waitHistory(t, rig.path, id, "the reply to the Say after the stop", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 3")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the Say after the stop",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 3")
+		},
+	)
 	starts := fakeStarts(t, dir)
 	if len(starts) != 2 || !strings.Contains(starts[1], "--resume") {
 		t.Fatalf("starts = %q, want a second start with --resume", starts)
@@ -88,9 +109,16 @@ func TestDrainFollowsSaySentBeforeRestartWhileOldHolderRuns(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitHistory(t, rig.path, id, "the reply to the Say sent before the restart", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the reply to the Say sent before the restart",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is live after the reply's turn ended, want it retired", id)
 	}
@@ -127,9 +155,16 @@ func TestDrainFoldsSaySentBeforeRestartIntoRunningTurn(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	history := waitHistory(t, rig.path, id, "the done state of the folded turn", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake fold 1")
-	})
+	history := waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		id,
+		"the done state of the folded turn",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake fold 1")
+		},
+	)
 	if slices.Contains(restarted.Live(), id) {
 		t.Fatalf("session %s is live after the folded turn ended, want it retired", id)
 	}

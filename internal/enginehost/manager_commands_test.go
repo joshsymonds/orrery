@@ -113,14 +113,14 @@ func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	history := waitHistory(t, path, id, "the second reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the second reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	if !workingWithoutQuestion(t, history) {
@@ -135,7 +135,7 @@ func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
@@ -158,7 +158,7 @@ func TestAskWaitsAndAnswerResumesTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	history := waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
 		return h.State == "waiting"
 	})
 	if question, ok := lastQuestion(t, history); !ok || question != "Which color?" {
@@ -176,14 +176,14 @@ func TestAskWaitsAndAnswerResumesTurn(t *testing.T) {
 	if err := m.Answer(t.Context(), id, requestID, "red"); err != nil {
 		t.Fatalf("Answer red: %v", err)
 	}
-	history = waitHistory(t, path, id, "the answered reply block", func(h store.EngineHistory) bool {
+	history = waitHistory(t, engineOf(m), path, id, "the answered reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake answered 1")
 	})
 	if !workingWithoutQuestion(t, history) {
 		t.Fatalf("no engine_changed sets state working with no question in %+v", changedFields(t, history))
 	}
 	// The answer's working state is queued before anything the answer causes, so the turn's end is the last state.
-	waitHistory(t, path, id, "the done state after the answered turn", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the done state after the answered turn", func(h store.EngineHistory) bool {
 		return h.State == "done"
 	})
 }
@@ -195,7 +195,7 @@ func TestAnswerRefusesUnknownRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
 		return h.State == "waiting"
 	})
 	if err := m.Answer(t.Context(), id, "no-such-request", "red"); !errors.Is(err, session.ErrNoPendingRequest) {
@@ -218,9 +218,16 @@ func TestPermitAllowAndDeny(t *testing.T) {
 		t.Fatalf("Start deny session: %v", err)
 	}
 
-	allowHistory := waitHistory(t, path, allowID, "the allow session waiting state", func(h store.EngineHistory) bool {
-		return h.State == "waiting"
-	})
+	allowHistory := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		allowID,
+		"the allow session waiting state",
+		func(h store.EngineHistory) bool {
+			return h.State == "waiting"
+		},
+	)
 	if question, ok := lastQuestion(t, allowHistory); !ok || question != "Write" {
 		t.Fatalf("permission question = %q (set %v), want %q", question, ok, "Write")
 	}
@@ -230,17 +237,24 @@ func TestPermitAllowAndDeny(t *testing.T) {
 	if err := m.Answer(t.Context(), allowID, requestIDOf(t, allowHistory), "allow"); err != nil {
 		t.Fatalf("Answer allow: %v", err)
 	}
-	waitHistory(t, path, allowID, "the allowed reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, allowID, "the allowed reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake allowed 1")
 	})
 
-	denyHistory := waitHistory(t, path, denyID, "the deny session waiting state", func(h store.EngineHistory) bool {
-		return h.State == "waiting"
-	})
+	denyHistory := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		denyID,
+		"the deny session waiting state",
+		func(h store.EngineHistory) bool {
+			return h.State == "waiting"
+		},
+	)
 	if err := m.Answer(t.Context(), denyID, requestIDOf(t, denyHistory), "deny"); err != nil {
 		t.Fatalf("Answer deny: %v", err)
 	}
-	waitHistory(t, path, denyID, "the denied reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, denyID, "the denied reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake denied 1")
 	})
 }
@@ -252,14 +266,14 @@ func TestInterruptEndsTurnWithError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the hanging reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the hanging reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake hanging 1")
 	})
 
 	if err := m.Interrupt(t.Context(), id); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
-	waitHistory(t, path, id, "the turn ended with an error", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the turn ended with an error", func(h store.EngineHistory) bool {
 		return turnEndsWithError(t, h)
 	})
 }
@@ -279,13 +293,13 @@ func TestReplayRebuildsConversationInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	history := waitHistory(t, path, id, "the second reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the second reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 

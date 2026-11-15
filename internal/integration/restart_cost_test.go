@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -145,7 +144,6 @@ func waitForAccept(t *testing.T, daemon *orreryProcess, path string) {
 // it, returning once the daemon has logged its store-open line.
 func startRestartDaemon(t *testing.T, f *engineFixture) *orreryProcess {
 	t.Helper()
-	storetest.Seed(t, f.dbPath)
 	seedRestartRows(t, f.dbPath, restartRows(restartRowCount))
 	daemon := startBinary(t, "orreryd", f.env,
 		"-L", f.server, "--socket", f.socket, "--claude", f.fakeClaude,

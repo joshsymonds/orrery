@@ -31,6 +31,18 @@ type Store interface {
 	ParkNode(
 		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
 	) error
+	ParkNodeFinal(
+		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+	) error
+	ClaimBatch(
+		ctx context.Context, epic, path string, attempt int64, revision, refs, result string, tasks []int64,
+	) error
+	EndBatch(
+		ctx context.Context, epic, path string, attempt int64, outcome, output string, trigger *store.NodeTrigger,
+		at time.Time,
+	) error
+	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
+	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
 	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
 	CheckNodeRefs(
@@ -130,6 +142,7 @@ func New(cfg Config) *Runner {
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
+			kindIntegrate: kinds.Integrate{},
 		},
 	}
 	if runner.tick <= 0 {
@@ -265,9 +278,12 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	case ActStart:
 		err = r.store.StartNodes(ctx, epic.ID, act.Runs, act.Trigger, at)
 	case ActEnd:
-		if act.Trigger != nil {
+		switch {
+		case act.Built:
+			err = r.store.EndPlanBuilt(ctx, epic.ID, act.Ends, at)
+		case act.Trigger != nil:
 			err = r.store.EndNodesWaking(ctx, epic.ID, act.Ends, *act.Trigger, at)
-		} else {
+		default:
 			err = r.store.EndNodes(ctx, epic.ID, act.Ends, at)
 		}
 	case ActRound:
@@ -275,7 +291,15 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	case ActPark:
 		err = r.store.ParkLoop(ctx, epic.ID, act.Path, act.Round, act.Reason, at)
 	case ActParkNode:
-		err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+		if act.Final {
+			err = r.store.ParkNodeFinal(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+		} else {
+			err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+		}
+	case ActParkEpic:
+		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
+	case ActBatch:
+		err = r.store.EndBatch(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Trigger, at)
 	case ActWork:
 		err = r.work(ctx, epic, act, at)
 	default:

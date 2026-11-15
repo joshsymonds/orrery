@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.api
 
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
@@ -10,6 +11,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
@@ -317,6 +320,94 @@ class OrreryClientEpicsTest {
     }
 
     @Test
+    fun epicMapsEveryBuildTaskInPlanOrderWithItsRedAndGreenRunsAndTheirKeptArtifacts() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("T1")
+                            .setTitle("Example build task one.")
+                            .setStatus("done")
+                            .setStage("green")
+                            .setRed(buildRunProto("example-run-1", "red", "example/red-screen.png"))
+                            .setGreen(buildRunProto("example-run-2", "green", "example/green-screen.png")),
+                    )
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("T2")
+                            .setTitle("Example build task two.")
+                            .setStatus("open")
+                            .setStage("implement")
+                            .setRed(buildRunProto("example-run-3", "red", "example/second-red-screen.png"))
+                            .setGreen(buildRunProto("example-run-4", "green", "example/second-green-screen.png")),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(
+                listOf(
+                    EpicBuildTaskRow(
+                        id = "T1",
+                        title = "Example build task one.",
+                        status = "done",
+                        stage = "green",
+                        red = buildRunRow("example-run-1", "red", "example/red-screen.png"),
+                        green = buildRunRow("example-run-2", "green", "example/green-screen.png"),
+                    ),
+                    EpicBuildTaskRow(
+                        id = "T2",
+                        title = "Example build task two.",
+                        status = "open",
+                        stage = "implement",
+                        red = buildRunRow("example-run-3", "red", "example/second-red-screen.png"),
+                        green = buildRunRow("example-run-4", "green", "example/second-green-screen.png"),
+                    ),
+                ),
+                detail?.buildTasks,
+            )
+        }
+    }
+
+    @Test
+    fun aBuildTaskThatNamesNoRunMapsNoRuns() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("T1")
+                            .setTitle("Example build task one.")
+                            .setStatus("open"),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(
+                listOf(
+                    EpicBuildTaskRow(
+                        id = "T1",
+                        title = "Example build task one.",
+                        status = "open",
+                        stage = "",
+                        red = null,
+                        green = null,
+                    ),
+                ),
+                detail?.buildTasks,
+            )
+        }
+    }
+
+    @Test
     fun recordEpicMapsNoRequirementsAndItsSource() {
         FakeOrreryServer().use { server ->
             server.respond(
@@ -496,6 +587,55 @@ class OrreryClientEpicsTest {
         }
     }
 
+    /** A passing red or green run of a build task, with one kept image artifact at [artifact]. */
+    private fun buildRunProto(id: String, phase: String, artifact: String): EvidenceRun =
+        EvidenceRun.newBuilder()
+            .setId(id)
+            .setPhase(phase)
+            .setSource("captured")
+            .setState("ended")
+            .setExit(0)
+            .setTimedOut(false)
+            .setNotCaptured("")
+            .setVerdict("holds")
+            .setJudgeReason("")
+            .setPassed(true)
+            .setRevision(BUILD_REVISION)
+            .setCreated(4102444700L)
+            .setEnded(4102444800L)
+            .setLogBytes(12L)
+            .setStderrBytes(0L)
+            .addArtifacts(
+                EvidenceArtifact.newBuilder()
+                    .setPath(artifact)
+                    .setState("kept")
+                    .setSize(68L)
+                    .setMediaType("image/png"),
+            )
+            .build()
+
+    private fun buildRunRow(id: String, phase: String, artifact: String): EvidenceRunRow =
+        EvidenceRunRow(
+            id = id,
+            phase = phase,
+            source = "captured",
+            state = "ended",
+            exit = 0,
+            timedOut = false,
+            notCaptured = "",
+            verdict = "holds",
+            judgeReason = "",
+            passed = true,
+            revision = BUILD_REVISION,
+            created = 4102444700L,
+            ended = 4102444800L,
+            logBytes = 12L,
+            stderrBytes = 0L,
+            artifacts = listOf(
+                EvidenceArtifactRow(path = artifact, state = "kept", size = 68L, mediaType = "image/png"),
+            ),
+        )
+
     private fun assertConnectRequest(procedure: String, request: RecordedRequest) {
         assertEquals("POST", request.method)
         assertEquals(procedure, request.rawPath)
@@ -509,5 +649,6 @@ class OrreryClientEpicsTest {
         const val STEPS_HOLD = "/orrery.v1.Steps/Hold"
         const val STEPS_NUDGE = "/orrery.v1.Steps/Nudge"
         const val STEPS_STOP = "/orrery.v1.Steps/Stop"
+        const val BUILD_REVISION = "0123456789abcdef0123456789abcdef01234567"
     }
 }

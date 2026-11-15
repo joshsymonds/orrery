@@ -36,16 +36,23 @@ func TestSayStoresPromptID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to the prompt with id p1", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply to the prompt with id p1",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if got := promptIDsOf(t, history); !reflect.DeepEqual(got, []string{"", "p1"}) {
 		t.Fatalf("prompt ids of session = %q, want the start's prompt without an id, then p1", got)
 	}
@@ -59,13 +66,13 @@ func TestSayRepeatedPromptIDIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"}); err != nil {
 		t.Fatalf("Say with p1: %v", err)
 	}
-	waitHistory(t, path, id, "the reply to p1", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the reply to p1", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -85,7 +92,7 @@ func TestSayRepeatedPromptIDIsNoOp(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "sentinel", PromptID: "p2"}); err != nil {
 		t.Fatalf("Say with p2: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to the sentinel", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the reply to the sentinel", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 3")
 	})
 	if got := conversationOf(t, history); !reflect.DeepEqual(got,
@@ -105,20 +112,20 @@ func TestSayWithAnotherPromptIDIsSent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"}); err != nil {
 		t.Fatalf("Say with p1: %v", err)
 	}
-	waitHistory(t, path, id, "the reply to p1", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the reply to p1", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "second", PromptID: "p2"}); err != nil {
 		t.Fatalf("Say with p2: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to p2", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the reply to p2", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 3")
 	})
 	if got := conversationOf(t, history); !reflect.DeepEqual(got,
@@ -136,7 +143,7 @@ func TestConcurrentSaysWithOnePromptIDSendOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -161,14 +168,14 @@ func TestConcurrentSaysWithOnePromptIDSendOnce(t *testing.T) {
 		}
 	}
 
-	waitHistory(t, path, id, "the reply to the one prompt sent", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the reply to the one prompt sent", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	// The sentinel is processed after any duplicate prompt, so its reply shows how many prompts the fake received.
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "sentinel", PromptID: "p2"}); err != nil {
 		t.Fatalf("Say with p2: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to the sentinel", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the reply to the sentinel", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 3")
 	})
 	if got := conversationOf(t, history); !reflect.DeepEqual(got,

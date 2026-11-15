@@ -95,7 +95,7 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitUntil(t, "the turn end to retire session "+id, func() bool {
+	waitUntil(t, engineOf(first, restarted), "the turn end to retire session "+id, func() bool {
 		return !slices.Contains(restarted.Live(), id)
 	})
 	hold.open()
@@ -121,9 +121,16 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say after the stop: %v", err)
 	}
-	waitHistory(t, path, id, "the reply to the Say that waited", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(first, restarted),
+		path,
+		id,
+		"the reply to the Say that waited",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	requireDirPresent(t, oldDir)
 	if starts := fakeStarts(t, dir); len(starts) != 2 || !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want a second with --resume session_1", starts)

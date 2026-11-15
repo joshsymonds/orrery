@@ -30,6 +30,24 @@ func Until(tb testing.TB, ended <-chan struct{}, what string, ok func() bool) {
 	}
 }
 
+// UntilIdle polls ok until it holds, as Until does, and fails tb at once, naming what never happened, when finished
+// reports that the work ok waits for has all finished while ok still does not hold. It suits producers whose end is a
+// state to check rather than a channel that closes. A nil finished never reports so.
+func UntilIdle(tb testing.TB, finished func() bool, what string, ok func() bool) {
+	tb.Helper()
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for !ok() {
+		if finished != nil && finished() {
+			if ok() {
+				return
+			}
+			tb.Fatalf("%s never happened: the work that would do it finished first", what)
+		}
+		<-ticker.C
+	}
+}
+
 // Closed returns a channel that closes once done delivers a value, and the channel the value is passed on to. It lets
 // a wait select on the end of a call whose result arrives on done without taking that result from the test.
 func Closed[T any](done <-chan T) (ended <-chan struct{}, result <-chan T) {

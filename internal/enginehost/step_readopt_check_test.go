@@ -88,7 +88,7 @@ func TestReadoptStepRestoresReturnCheckAndEndsDoneWithoutJudge(t *testing.T) {
 
 	run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"done","note":"refuse"}`)})
 	run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"done","note":"fixed"}`)})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(rig.manager, rig.steps, restarted, steps, run), "step "+id+" to end", func() bool {
 		row, err := steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -192,7 +192,7 @@ func TestReadoptStepWithoutHookIsRebuiltAsBefore(t *testing.T) {
 	}
 
 	run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"done"}`)})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(rig.manager, rig.steps, restarted, steps, run), "step "+id+" to end", func() bool {
 		row, err := steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})

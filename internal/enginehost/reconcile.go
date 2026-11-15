@@ -49,6 +49,7 @@ const resumedBody = "orreryd restarted during the turn; resumed it"
 // with no text and no turn running, is not written. A write that fails stops no other row. It returns the first read or
 // write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
+	defer m.calls.enter()()
 	rows, err := m.store.EngineSessions(ctx)
 	// A failed read leaves no row, so every holder is then cleared.
 	byID := make(map[string]store.EngineRow, len(rows))

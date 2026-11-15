@@ -115,7 +115,7 @@ func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
 			}
 			f.clock.set(2 * time.Minute)
 
-			stepStartAwait(t, "the overtime end", func() bool {
+			stepStartAwait(t, engineOf(f.steps), "the overtime end", func() bool {
 				row, err := f.store.Step(t.Context(), id)
 				return err == nil && row.End != ""
 			})

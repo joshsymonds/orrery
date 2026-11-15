@@ -30,7 +30,7 @@ func TestEvidenceRunTaskRunsOnceUnderID(t *testing.T) {
 	if started.ID != evidenceTaskRunID {
 		t.Fatalf("started run id = %q, want %q", started.ID, evidenceTaskRunID)
 	}
-	got := evidenceRunSettled(t, st, evidenceTaskRunID)
+	got := evidenceRunSettled(t, engineOf(ev), st, evidenceTaskRunID)
 	if got.Item != "T1" || got.ID != evidenceTaskRunID || got.Verdict != evidence.VerdictHolds || !got.Passed {
 		t.Fatalf("run = item %q id %q verdict %q passed %t, want T1, the id, holds, passed",
 			got.Item, got.ID, got.Verdict, got.Passed)

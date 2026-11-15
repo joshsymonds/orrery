@@ -69,10 +69,17 @@ func TestStartStepStoresBriefSender(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	history := waitHistory(t, path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1")
-	})
-	waitReturns(t, obs, 1)
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the step's first reply block",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 1")
+		},
+	)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	want := []storedPrompt{{Text: "hi", Sender: store.PromptSenderBrief}}
 	if got := storedPromptsOf(t, history); !reflect.DeepEqual(got, want) {
@@ -89,15 +96,22 @@ func TestContinueStoresSenderAndRound(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	prompt := StepPrompt{Text: "again", Sender: store.PromptSenderEngine, Round: 2}
 	if err := m.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue: %v", err)
 	}
-	history := waitHistory(t, path, stepA, "the reply to the continued prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the reply to the continued prompt",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 2")
+		},
+	)
 	want := []storedPrompt{
 		{Text: "hi", Sender: store.PromptSenderBrief},
 		{Text: "again", Sender: store.PromptSenderEngine, Round: 2},
@@ -114,13 +128,13 @@ func TestSayStoresNoSenderOrRound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	history := waitHistory(t, path, id, "the reply to the said prompt", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the reply to the said prompt", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	prompts := storedPromptsOf(t, history)

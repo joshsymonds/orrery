@@ -18,7 +18,7 @@ import (
 // owner action only when its select comes round again, so the owner action's round trip follows the handling.
 func (f *stepLoopFixture) loopSettled(t *testing.T) {
 	t.Helper()
-	stepStartAwait(t, "the loop to take the return", func() bool { return len(f.run.returns) == 0 })
+	stepStartAwait(t, engineOf(f.run), "the loop to take the return", func() bool { return len(f.run.returns) == 0 })
 	if err := f.run.do(t.Context(), func(context.Context) error { return nil }); err != nil {
 		t.Fatalf("loop round trip: %v", err)
 	}

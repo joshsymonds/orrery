@@ -78,17 +78,18 @@ const (
 	// needsPrefix is put before a needs pool's key in a refusal, so the key reads needs.<pool>.
 	needsPrefix = "needs."
 
-	kindPlan     = "plan"
-	kindBuild    = "build"
-	kindGate     = "gate"
-	kindEvidence = "evidence"
-	kindOwned    = "owned"
-	kindCommand  = "command"
-	kindAgent    = "agent"
-	kindReview   = "review"
-	kindClosure  = "closure"
-	kindConclude = "conclude"
-	kindRelease  = "release"
+	kindPlan      = "plan"
+	kindBuild     = "build"
+	kindIntegrate = "integrate"
+	kindGate      = "gate"
+	kindEvidence  = "evidence"
+	kindOwned     = "owned"
+	kindCommand   = "command"
+	kindAgent     = "agent"
+	kindReview    = "review"
+	kindClosure   = "closure"
+	kindConclude  = "conclude"
+	kindRelease   = "release"
 
 	outcomeComplete = "complete"
 	outcomePassed   = "passed"
@@ -150,18 +151,21 @@ type kindSpec struct {
 // settingsReader reads a check kind's settings from the pairs of its node.
 type settingsReader func(here site, pairs []pair) (*Settings, error)
 
-// kinds is the table of registered kinds. A plan sits at the top level and in a loop body, holds a build and reports
-// complete. A build sits only in a plan body and takes no settings and reports no outcome. A check kind sits anywhere,
-// takes the settings its reader reads and reports passed or failed. The epic kinds take no settings and no body: a
-// review, a conclude and a release sit at the top level, and a closure sits in a loop body. A review and a conclude
-// report passed, and a closure and a release report passed or failed. Their behavior is reserved for O3e2 (review,
-// closure, conclude) and O3e3 (release); until it lands the interpreter registers none of them, so a node of one waits.
+// kinds is the table of registered kinds. A plan sits at the top level and in a loop body, holds a build and an
+// integrate and reports complete. A build sits only in a plan body and takes no settings and reports no outcome. An
+// integrate sits only in a plan body, takes no settings and no body, and reports passed or failed. A check kind sits
+// anywhere, takes the settings its reader reads and reports passed or failed. The epic kinds take no settings and no
+// body: a review, a conclude and a release sit at the top level, and a closure sits in a loop body. A review and a
+// conclude report passed, and a closure and a release report passed or failed. Their behavior is reserved for O3e2
+// (review, closure, conclude) and O3e3 (release); until it lands the interpreter registers none of them, so a node of
+// one waits.
 func kinds() map[string]kindSpec {
 	checkOutcomes := []string{outcomePassed, outcomeFailed}
 	passed := []string{outcomePassed}
 	return map[string]kindSpec{
-		kindPlan:  {sits: outer(), body: scopePlan, outcomes: []string{outcomeComplete}},
-		kindBuild: {sits: []scope{scopePlan}},
+		kindPlan:      {sits: outer(), body: scopePlan, outcomes: []string{outcomeComplete}},
+		kindBuild:     {sits: []scope{scopePlan}},
+		kindIntegrate: {sits: []scope{scopePlan}, outcomes: checkOutcomes},
 		kindGate: {
 			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt, keyGate}, read: readGateSettings,
 		},

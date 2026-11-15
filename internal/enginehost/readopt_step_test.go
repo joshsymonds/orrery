@@ -92,7 +92,7 @@ func startReplyStep(t *testing.T, rig crashRig, dir string) {
 	if err := rig.manager.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitUntil(t, "the store refuses the batch of the reply's turn end", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of the reply's turn end", rig.crash.isRefusing)
 }
 
 // requireUndrained fails unless the step's row settles as a restart leaves a working row, so the turn end the holder
@@ -120,9 +120,16 @@ func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
 	if err := rig.manager.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 1")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager),
+		rig.path,
+		stepA,
+		"the step's first turn done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 1")
+		},
+	)
 	pid := fakePID(t, dir)
 
 	rig.crash.refuse()
@@ -142,9 +149,16 @@ func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue of the re-adopted step: %v", err)
 	}
-	waitHistory(t, rig.path, stepA, "the re-adopted step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(rig.manager, restarted),
+		rig.path,
+		stepA,
+		"the re-adopted step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	// Stop waits for the step's pump, so the turn end handed to the observer has arrived when it returns.
 	if err := restarted.Stop(t.Context(), stepA); err != nil {
 		t.Fatalf("Stop of the re-adopted step: %v", err)
@@ -164,7 +178,7 @@ func TestReadoptStepWithoutExpectedObserverIsCleared(t *testing.T) {
 	if err := rig.manager.StartStep(t.Context(), stalledStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)
