@@ -100,8 +100,8 @@ func (e epicsServer) List(
 
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
-// the evidence runs of its item, and the tasks of its record when one exists. An id that neither the database nor the
-// record root lists answers not_found, and the id is never joined into a path.
+// the evidence runs of its item, its workflow nodes in the engine's order, and the tasks of its record when one exists.
+// An id that neither the database nor the record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -146,6 +146,7 @@ func (e epicsServer) Get(
 		)
 		runs := e.listEvidence(ctx, id)
 		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
+		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 	} else {
 		resp.Epic = epicMessage(rec, taskProblems, labeled, e.now())
 	}
@@ -340,6 +341,62 @@ func epicRequirementMessages(
 		out = append(out, msg)
 	}
 	return out
+}
+
+// epicNodeMessages converts each workflow node run to its EpicNode, in order.
+func epicNodeMessages(nodes []*enginev1.EpicNode, runs []*enginev1.EvidenceRun) []*orreryv1.EpicNode {
+	runsByID := make(map[string]*enginev1.EvidenceRun, len(runs))
+	for _, run := range runs {
+		runsByID[run.GetId()] = run
+	}
+	out := make([]*orreryv1.EpicNode, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, epicNodeMessage(node, runsByID))
+	}
+	return out
+}
+
+// epicNodeMessage converts node to its EpicNode, with every field the engine gave. An evidence node's runs are the runs
+// its ids name, in the order it names them; an id that runsByID does not hold is left out, as a requirement's runs are.
+func epicNodeMessage(node *enginev1.EpicNode, runsByID map[string]*enginev1.EvidenceRun) *orreryv1.EpicNode {
+	var runs []*orreryv1.EvidenceRun
+	for _, id := range node.GetRuns() {
+		if run, ok := runsByID[id]; ok {
+			runs = append(runs, epicRunMessage(run))
+		}
+	}
+	return &orreryv1.EpicNode{
+		Path:      node.GetPath(),
+		Node:      node.GetNode(),
+		Kind:      node.GetKind(),
+		State:     node.GetState(),
+		Outcome:   node.GetOutcome(),
+		Round:     node.GetRound(),
+		LoopRound: node.GetLoopRound(),
+		Attempt:   node.GetAttempt(),
+		Output:    node.GetOutput(),
+		Revision:  node.GetRevision(),
+		Turns:     node.GetTurns(),
+		Tasks:     node.GetTasks(),
+		Runs:      runs,
+		Check:     epicNodeCheckMessage(node.GetCheck()),
+		Step:      node.GetStep(),
+	}
+}
+
+// epicNodeCheckMessage converts check to its EpicNodeCheck. An unstored check, which is nil, stays nil.
+func epicNodeCheckMessage(check *enginev1.EpicNodeCheck) *orreryv1.EpicNodeCheck {
+	if check == nil {
+		return nil
+	}
+	return &orreryv1.EpicNodeCheck{
+		State:    check.GetState(),
+		Exit:     check.GetExit(),
+		TimedOut: check.GetTimedOut(),
+		NotRun:   check.GetNotRun(),
+		Stdout:   check.GetStdout(),
+		Stderr:   check.GetStderr(),
+	}
 }
 
 // epicRunMessages converts each evidence run to its EvidenceRun, in order.

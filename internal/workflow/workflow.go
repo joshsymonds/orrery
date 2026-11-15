@@ -23,17 +23,18 @@ type Workflow struct {
 	Nodes []Node
 }
 
-// Node is one step of a workflow. Exactly one of Kind, Include and Loop is set: a kind node names a registered kind
-// and holds its Body when the kind has one, an include node names another workflow, and a loop node holds Loop and
-// its Body. File and Line locate the node in the file it was read from.
+// Node is one step of a workflow. Exactly one of Kind, Include and Loop is set: a kind node names a registered kind,
+// holds its Body when the kind has one and its Settings when the kind is a check, an include node names another
+// workflow, and a loop node holds Loop and its Body. File and Line locate the node in the file it was read from.
 type Node struct {
-	ID      string
-	Kind    string
-	Include string
-	Loop    *Loop
-	Body    []Node
-	File    string
-	Line    int
+	ID       string
+	Kind     string
+	Include  string
+	Loop     *Loop
+	Settings *Settings
+	Body     []Node
+	File     string
+	Line     int
 }
 
 // Loop is a loop node's settings: Max rounds at most, the Until outcome that ends it, and Spent, what happens when
@@ -61,14 +62,36 @@ const (
 	keyMax     = "max"
 	keyUntil   = "until"
 	keySpent   = "spent"
+	keyAt      = "at"
+	keyGate    = "gate"
+	keyArgv    = "argv"
+	keyLimit   = "limit"
+	keyNeeds   = "needs"
+	keyPaths   = "paths"
+	keyAgent   = "agent"
+	keyPrompt  = "prompt"
+	keySchema  = "schema"
 
 	// loopPrefix is put before a loop setting's key in a refusal, so the key reads loop.max.
 	loopPrefix = "loop."
 
-	kindPlan  = "plan"
-	kindBuild = "build"
+	// needsPrefix is put before a needs pool's key in a refusal, so the key reads needs.<pool>.
+	needsPrefix = "needs."
+
+	kindPlan     = "plan"
+	kindBuild    = "build"
+	kindGate     = "gate"
+	kindEvidence = "evidence"
+	kindOwned    = "owned"
+	kindCommand  = "command"
+	kindAgent    = "agent"
 
 	outcomeComplete = "complete"
+	outcomePassed   = "passed"
+	outcomeFailed   = "failed"
+
+	atBase = "base"
+	atHead = "head"
 
 	spentPark     = "park"
 	spentContinue = "continue"
@@ -105,20 +128,49 @@ func outer() []scope {
 	return []scope{scopeTop, scopeLoop}
 }
 
-// kindSpec is one registered kind: the scopes it sits in, the scope its body holds, and the outcomes it reports. A
-// body is the one setting a kind takes; a kind with no body leaves body at scopeNone.
+// anywhere is every scope a node can sit in: the top level, a loop body and a plan body.
+func anywhere() []scope {
+	return []scope{scopeTop, scopeLoop, scopePlan}
+}
+
+// kindSpec is one registered kind: the scopes it sits in, the scope its body holds (scopeNone when it takes no body),
+// the outcomes it reports, and, for a check kind, the keys of its settings and the reader of them.
 type kindSpec struct {
 	sits     []scope
 	body     scope
 	outcomes []string
+	keys     []string
+	read     settingsReader
 }
 
+// settingsReader reads a check kind's settings from the pairs of its node.
+type settingsReader func(here site, pairs []pair) (*Settings, error)
+
 // kinds is the table of registered kinds. A plan sits at the top level and in a loop body, holds a build and reports
-// complete. A build sits only in a plan body and takes no settings and reports no outcome.
+// complete. A build sits only in a plan body and takes no settings and reports no outcome. A check kind sits anywhere,
+// takes the settings its reader reads and reports passed or failed.
 func kinds() map[string]kindSpec {
+	checkOutcomes := []string{outcomePassed, outcomeFailed}
 	return map[string]kindSpec{
 		kindPlan:  {sits: outer(), body: scopePlan, outcomes: []string{outcomeComplete}},
 		kindBuild: {sits: []scope{scopePlan}},
+		kindGate: {
+			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt, keyGate}, read: readGateSettings,
+		},
+		kindEvidence: {
+			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt}, read: readEvidenceSettings,
+		},
+		kindOwned: {
+			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyPaths}, read: readOwnedSettings,
+		},
+		kindCommand: {
+			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt, keyArgv, keyLimit, keyNeeds},
+			read: readCommandSettings,
+		},
+		kindAgent: {
+			sits: anywhere(), outcomes: checkOutcomes, keys: []string{keyAt, keyAgent, keyPrompt, keySchema},
+			read: readAgentSettings,
+		},
 	}
 }
 
@@ -280,6 +332,15 @@ func find(pairs []pair, key string) (pair, bool) {
 	return pairs[i], true
 }
 
+// requireKey returns the pair under key, and refuses the node when the mapping holds none.
+func requireKey(here site, pairs []pair, key string) (pair, error) {
+	pr, ok := find(pairs, key)
+	if !ok {
+		return pair{}, here.refusef(here.line, key, "required")
+	}
+	return pr, nil
+}
+
 // text reads a pair's value, which must be a single value.
 func text(here site, pr pair) (string, error) {
 	if pr.value.Kind != yaml.ScalarNode {
@@ -401,9 +462,10 @@ func readKind(here site, pairs []pair, at scope) (Node, error) {
 	return readKindBody(here, pairs, kind, spec)
 }
 
-// readKindBody reads a registered kind's node: its id, and the body the kind holds when it has one.
+// readKindBody reads a registered kind's node: its id, the settings the kind takes, and the body the kind holds when it
+// has one.
 func readKindBody(here site, pairs []pair, kind string, spec kindSpec) (Node, error) {
-	allowed := []string{keyID, keyKind}
+	allowed := append([]string{keyID, keyKind}, spec.keys...)
 	if spec.body != scopeNone {
 		allowed = append(allowed, keyBody)
 	}
@@ -415,6 +477,11 @@ func readKindBody(here site, pairs []pair, kind string, spec kindSpec) (Node, er
 		return Node{}, err
 	}
 	node := Node{ID: id, Kind: kind, File: here.file, Line: here.line}
+	if spec.read != nil {
+		if node.Settings, err = spec.read(here, pairs); err != nil {
+			return Node{}, err
+		}
+	}
 	if spec.body == scopeNone {
 		return node, nil
 	}
@@ -489,18 +556,23 @@ func readLoopFields(here site, pairs []pair) (Loop, error) {
 	return Loop{Max: rounds, Until: until, Spent: spent}, nil
 }
 
-// readMax reads max: an integer of 1 or more, required. The value must resolve to a YAML integer before it is decoded,
-// because decoding a float such as 2.5 into an int truncates it without an error.
+// readMax reads max: an integer of 1 or more, required.
 func readMax(here site, pairs []pair) (int, error) {
 	pr, ok := find(pairs, keyMax)
 	if !ok {
 		return 0, here.refusef(here.line, loopPrefix+keyMax, "required")
 	}
-	var rounds int
-	if pr.value.ShortTag() != "!!int" || pr.value.Decode(&rounds) != nil || rounds < 1 {
+	return countOf(here, pr)
+}
+
+// countOf reads the value under pr, which must be an integer of 1 or more. The value must resolve to a YAML integer
+// before it is decoded, because decoding a float such as 2.5 into an int truncates it without an error.
+func countOf(here site, pr pair) (int, error) {
+	var n int
+	if pr.value.ShortTag() != "!!int" || pr.value.Decode(&n) != nil || n < 1 {
 		return 0, here.refusef(pr.line, pr.path, "must be an integer of 1 or more")
 	}
-	return rounds, nil
+	return n, nil
 }
 
 // readUntil reads until: a node id and an outcome joined by a dot, required.

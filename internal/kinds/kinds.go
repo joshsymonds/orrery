@@ -14,28 +14,40 @@ type Node struct {
 	Run store.NodeRun
 }
 
-// Rows is what a kind reads of an epic: the epic with its turns and tasks, its node runs, and how many of its
-// triggers are pending.
+// Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
+// checks, its evidence runs and its agent steps, and how many of its triggers are pending.
 type Rows struct {
-	Epic    store.EpicRow
-	Runs    []store.NodeRun
-	Pending int
+	Epic     store.EpicRow
+	Runs     []store.NodeRun
+	Checks   []store.NodeCheck
+	Evidence []store.EvidenceRun
+	Steps    []store.StepRow
+	Pending  int
 }
 
 // ActionKind names what a kind does with its node run.
 type ActionKind string
 
-// The actions a kind returns for its node run. ActNone leaves the run running.
+// The actions a kind returns for its node run. ActNone leaves the run running. ActPrepare records the revision the
+// run's work runs at, ActStart starts work and ActRefs checks the refs the run was prepared with.
 const (
-	ActNone ActionKind = "none"
-	ActRun  ActionKind = "run"
-	ActEnd  ActionKind = "end"
+	ActNone    ActionKind = "none"
+	ActRun     ActionKind = "run"
+	ActEnd     ActionKind = "end"
+	ActPrepare ActionKind = "prepare"
+	ActStart   ActionKind = "start"
+	ActRefs    ActionKind = "refs"
 )
 
-// Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none.
+// Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,
+// and Output the output an end reports. IDs are the ids of the work a start starts and Items the Requirement each of
+// them is for, in the same order.
 type Action struct {
 	Kind    ActionKind
 	Outcome string
+	Output  string
+	IDs     []string
+	Items   []string
 }
 
 // Kind decides what happens next to a node run.
@@ -57,7 +69,11 @@ const (
 	turnSucceeded   = "succeeded"
 	taskOpen        = "open"
 	outcomeComplete = "complete"
+	outcomePassed   = "passed"
+	outcomeFailed   = "failed"
 	phaseAccepted   = "accepted"
+	runEnded        = "ended"
+	stepDone        = "done"
 )
 
 // Decide returns end complete when planComplete holds, and run otherwise.

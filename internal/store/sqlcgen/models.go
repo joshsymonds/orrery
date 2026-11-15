@@ -123,21 +123,47 @@ type EpicGateList struct {
 	Gate     string
 }
 
+type EpicNodeCheck struct {
+	ID           string
+	Epic         string
+	Path         string
+	Revision     string
+	Argv         string
+	LimitSeconds int64
+	Needs        string
+	State        string
+	GrantID      string
+	Holder       string
+	Exit         int64
+	TimedOut     int64
+	NotRun       string
+	Stdout       string
+	Stderr       string
+	Created      int64
+	Ended        int64
+}
+
 type EpicNodeRun struct {
-	Epic      string
-	Path      string
-	ID        string
-	Node      string
-	Kind      string
-	Task      int64
-	Round     int64
-	State     string
-	Outcome   string
-	LoopRound int64
-	Granted   int64
-	Mark      int64
-	Started   int64
-	Ended     int64
+	Epic        string
+	Path        string
+	ID          string
+	Node        string
+	Kind        string
+	Task        int64
+	Round       int64
+	State       string
+	Outcome     string
+	LoopRound   int64
+	Granted     int64
+	Mark        int64
+	Started     int64
+	Ended       int64
+	Attempt     int64
+	Revision    string
+	Refs        string
+	RefsChecked int64
+	Result      string
+	Output      string
 }
 
 type EpicPremise struct {
