@@ -16,6 +16,11 @@ default:
 lint:
     golangci-lint run
 
+# Measure, on demand and never in check, how soon a restart over a large store serves sessions.sock, against the
+# contract's restart bound (DL11). Run it on an idle machine: the time counts real store writes, which load inflates.
+measure-restart-cost:
+    env -u TMUX -u TMUX_PANE go test -count=1 -tags measure -run '^TestMeasureRestartCost$' -v ./internal/integration/
+
 # Replay the orrery alert rules against their promtool unit tests.
 alert-check:
     promtool test rules observability/orrery-rules.test.yml
