@@ -515,6 +515,75 @@ message EpicWorkflow {
   string sha256 = 3;
 }
 
+// EpicNodeCheck is the check a gate or command node run ran: its state, how it ended, and its output.
+message EpicNodeCheck {
+  // The check's state: running until it ends, then ended.
+  string state = 1;
+
+  // The check's exit code once it ends.
+  int32 exit = 2;
+
+  // Whether the check was killed at its time limit.
+  bool timed_out = 3;
+
+  // Why the check did not run. Empty otherwise.
+  string not_run = 4;
+
+  // The check's stdout, its newest bytes.
+  string stdout = 5;
+
+  // The check's stderr, its newest bytes.
+  string stderr = 6;
+}
+
+// EpicNode is one workflow node run on an epic: the node it runs, its state and outcome, and the rows its kind holds.
+message EpicNode {
+  // The run's path, unique on the epic.
+  string path = 1;
+
+  // The workflow node's id.
+  string node = 2;
+
+  // The node's kind, or loop for a loop.
+  string kind = 3;
+
+  // The run's state: running, ended or parked.
+  string state = 4;
+
+  // The run's outcome once it ends. Empty before.
+  string outcome = 5;
+
+  // The innermost enclosing loop's round, 0 outside a loop.
+  int64 round = 6;
+
+  // A loop's current round from 1, 0 for any other kind.
+  int64 loop_round = 7;
+
+  // The attempt the run runs at. A retry moves it on by one.
+  int64 attempt = 8;
+
+  // The output the run ended or parked with.
+  string output = 9;
+
+  // The revision the run's work ran at. Empty before the work is prepared.
+  string revision = 10;
+
+  // A plan's turn seqs above its mark, in order. Empty for any other kind.
+  repeated int64 turns = 11;
+
+  // A plan's task seqs of the turns above its mark, or a build's task seq. Empty for any other kind.
+  repeated int64 tasks = 12;
+
+  // An evidence node's evidence run ids for its attempt, in the Requirements' order. Empty for any other kind.
+  repeated string runs = 13;
+
+  // A gate or command node's check. Unset until the check is stored.
+  EpicNodeCheck check = 14;
+
+  // An agent node's step id. Unset until the step is stored.
+  string step = 15;
+}
+
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
   // The epic's contract as created.
@@ -552,6 +621,10 @@ message StoredEpic {
 
   // The workflow the epic pinned when it was created.
   EpicWorkflow workflow = 12;
+
+  // The epic's workflow node runs in the order of the pinned workflow's nodes, then by path, with a run of a node the
+  // workflow does not hold after the others. Every epic RPC that returns the epic fills it.
+  repeated EpicNode nodes = 13;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
