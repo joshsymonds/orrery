@@ -182,6 +182,7 @@ func TestStepsStartNamedGateFromTheProjectFile(t *testing.T) {
 }
 
 func TestStepsStartNamedGateRefusalsStoreNothing(t *testing.T) {
+	t.Parallel()
 	shell := stepGateShell(t)
 	cases := []struct {
 		name   string
@@ -196,6 +197,7 @@ func TestStepsStartNamedGateRefusalsStoreNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepGateFixture(t)
 			gatesFile := filepath.Join(t.TempDir(), "gates.toml")
 			stepGateWriteFile(t, gatesFile, stepGateFileText(shell, "exit 0", 300))

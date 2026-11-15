@@ -361,6 +361,7 @@ func runRetryUntilListen(t *testing.T, args []string, procedure string, mode dae
 }
 
 func TestSessionStartRetriesWithItsIDAfterACutCall(t *testing.T) {
+	t.Parallel()
 	engine := &retryEngine{}
 	daemon := retryServe(t, engine, enginev1connect.EngineStartProcedure, 1)
 	var out strings.Builder
@@ -385,6 +386,7 @@ func TestSessionStartRetriesWithItsIDAfterACutCall(t *testing.T) {
 }
 
 func TestSessionSayRetriesWithItsPromptIDAfterACutCall(t *testing.T) {
+	t.Parallel()
 	engine := &retryEngine{}
 	daemon := retryServe(t, engine, enginev1connect.EngineSayProcedure, 1)
 	var out strings.Builder
@@ -414,6 +416,7 @@ func TestSessionSayRetriesWithItsPromptIDAfterACutCall(t *testing.T) {
 }
 
 func TestSessionStopSucceedsAfterOneUnavailable(t *testing.T) {
+	t.Parallel()
 	engine := &retryEngine{}
 	daemon := retryServe(t, engine, enginev1connect.EngineStopProcedure, 1)
 	var out strings.Builder
@@ -435,6 +438,7 @@ func TestSessionStopSucceedsAfterOneUnavailable(t *testing.T) {
 }
 
 func TestSessionStartFailsAfterTheWindow(t *testing.T) {
+	t.Parallel()
 	engine := &retryEngine{startErr: connect.NewError(connect.CodeUnavailable, errors.New("orreryd is restarting"))}
 	daemon := retryServe(t, engine, enginev1connect.EngineStartProcedure, 0)
 	clock := newRetryClock()

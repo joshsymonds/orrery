@@ -116,6 +116,7 @@ func epicStepIDs(steps []*orreryv1.EpicStep) []string {
 }
 
 func TestEpicsListLiveRuleAndStepCounts(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repoa", "fresh", `{"outcome":"shipped"}`, epicsNow().Add(-time.Hour))
 	writeHead(t, root, "repoa", "old", `{"outcome":"shipped"}`, epicsNow().Add(-48*time.Hour))
@@ -193,6 +194,7 @@ func TestEpicsListLiveRuleAndStepCounts(t *testing.T) {
 }
 
 func TestEpicsGetReturnsTasksAndSteps(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "repo", "epic")
 	writeHead(t, root, "repo", "epic", `{"outcome":"ended_with_gaps"}`, epicsNow())
@@ -276,6 +278,7 @@ func TestEpicsGetReturnsTasksAndSteps(t *testing.T) {
 }
 
 func TestEpicsProblemsNameUnreadableRecords(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	badDir := filepath.Join(root, "repo", "bad")
 	writeHead(t, root, "repo", "bad", `{not json`, epicsNow())
@@ -305,6 +308,7 @@ func TestEpicsProblemsNameUnreadableRecords(t *testing.T) {
 }
 
 func TestEpicsGetRefusesUnlistedIDs(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	root := filepath.Join(parent, "records")
 	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
@@ -319,6 +323,7 @@ func TestEpicsGetRefusesUnlistedIDs(t *testing.T) {
 }
 
 func TestEpicsStepServiceUnavailable(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
 	cases := []struct {
@@ -335,6 +340,7 @@ func TestEpicsStepServiceUnavailable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := epicsServe(t, root, tc.steps)
 			_, err := client.List(context.Background(), connect.NewRequest(&orreryv1.EpicsListRequest{}))
 			requireConnectError(t, err, connect.CodeUnavailable, "step service unavailable")
@@ -345,6 +351,7 @@ func TestEpicsStepServiceUnavailable(t *testing.T) {
 }
 
 func TestEpicsGetAnswersInternalForEffortBeyondInt32(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "repo", "epic")
 	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())

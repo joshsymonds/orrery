@@ -176,6 +176,7 @@ func EventsOnSteppedClock(ctx context.Context, step time.Duration, args []string
 }
 
 func TestEventsResumesAfterUnavailableFromLastSeq(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{
 		sendThen(unavailableError(), 5),
 		sendThen(nil, 6, 7),
@@ -196,6 +197,7 @@ func TestEventsResumesAfterUnavailableFromLastSeq(t *testing.T) {
 }
 
 func TestEventsRetriesStreamCutBeforeMessage(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{sendThen(nil, 5)}}
 	url := serveResume(t, 5, events, 1)
 
@@ -233,6 +235,7 @@ func (c *reopenClock) After(time.Duration) <-chan time.Time {
 }
 
 func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{sendThen(nil, 5)}}
 	first, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -282,6 +285,7 @@ func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
 }
 
 func TestEventsEndWithOtherCodeFailsWithoutResume(t *testing.T) {
+	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{
 		sendThen(connect.NewError(connect.CodeInternal, errors.New("store broke")), 5),
 		sendThen(nil, 6, 7),
@@ -302,6 +306,7 @@ func TestEventsEndWithOtherCodeFailsWithoutResume(t *testing.T) {
 }
 
 func TestEventsRetryWindowRunsFromLastMessage(t *testing.T) {
+	t.Parallel()
 	// Each wait moves the clock half the window. The window measured from the start of the call ends after the third
 	// message, so only a window measured from the last message lets the fourth message through.
 	events := &scriptedEvents{steps: []watchStep{

@@ -200,6 +200,7 @@ func assertWatchLines(t *testing.T, lines []string, want []wantWatchLine) {
 }
 
 func TestSessionWatchPrintsStoppedSessionInSeqOrder(t *testing.T) {
+	t.Parallel()
 	s, getenv := watchStore(t)
 	writeWatchOps(t, s,
 		watchAdd(),
@@ -221,6 +222,7 @@ func TestSessionWatchPrintsStoppedSessionInSeqOrder(t *testing.T) {
 }
 
 func TestSessionWatchFollowsWorkingSessionUntilStopped(t *testing.T) {
+	t.Parallel()
 	s, getenv := watchStore(t)
 	path := watchPath(t, getenv)
 	writeWatchOps(t, s, watchAdd(), store.EnginePrompt{ID: watchTestID, Text: "one"})
@@ -246,6 +248,7 @@ func TestSessionWatchFollowsWorkingSessionUntilStopped(t *testing.T) {
 }
 
 func TestSessionWatchEndsWhenContextIsCancelled(t *testing.T) {
+	t.Parallel()
 	s, getenv := watchStore(t)
 	writeWatchOps(t, s, watchAdd())
 
@@ -262,6 +265,7 @@ func TestSessionWatchEndsWhenContextIsCancelled(t *testing.T) {
 }
 
 func TestSessionWatchRejectsUnknownSession(t *testing.T) {
+	t.Parallel()
 	_, getenv := watchStore(t)
 
 	call := startWatch(func(out io.Writer) error {
@@ -280,6 +284,7 @@ func TestSessionWatchRejectsUnknownSession(t *testing.T) {
 }
 
 func TestSessionWatchRejectsWrongArgumentCount(t *testing.T) {
+	t.Parallel()
 	_, getenv := watchStore(t)
 	cases := []struct {
 		name string
@@ -290,6 +295,7 @@ func TestSessionWatchRejectsWrongArgumentCount(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var out bytes.Buffer
 			err := SessionWatch(t.Context(), tc.args, &out, getenv)
 			if !errors.Is(err, ErrUsage) {

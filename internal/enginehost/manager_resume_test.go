@@ -165,6 +165,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 }
 
 func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		replace func(t *testing.T, dir string)
@@ -187,6 +188,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, path := openStore(t)
 			sink := &fakeSink{}
 			m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)

@@ -230,6 +230,7 @@ func TestStepsNudgeHeldTurnEndedResumesWithTextAndNextTurnEndIsARound(t *testing
 // TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd nudges a held step whose turn has not ended. The turn end
 // is no round and is continued with the text, error or not.
 func TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		isError bool
@@ -239,6 +240,7 @@ func TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepNudgeFixture(t)
 			id := f.start(t)
 			f.beginTurn(t)
@@ -267,6 +269,7 @@ func TestStepsNudgeHeldTurnEndStillToComeResumesAtThatTurnEnd(t *testing.T) {
 // TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound nudges a running turn. The interrupt lands, and the
 // turn end, error or not, is continued with the text and stores no round.
 func TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		isError bool
@@ -276,6 +279,7 @@ func TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepNudgeFixture(t)
 			id := f.start(t)
 			f.beginTurn(t)
@@ -460,6 +464,7 @@ func TestStepsHoldDropsPendingOwnerText(t *testing.T) {
 // TestStepsNudgeAndHoldDuringGateRefusedPromptly checks that Hold and Nudge refuse at once while a step runs its gate.
 // The gate sleeps a minute, so a call that waited for the loop would not return within the test's timeout.
 func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
@@ -475,6 +480,7 @@ func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
 	}
 	for _, tc := range calls {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			errs := make(chan error, 1)
 			go func() { errs <- tc.call() }()
 			err := <-errs

@@ -97,6 +97,7 @@ func listSetOption(t *testing.T, client *tmuxctl.Client, pane, name, value strin
 }
 
 func TestListJSON(t *testing.T) {
+	t.Parallel()
 	client := listNewServer(t)
 	dir := filepath.Join(t.TempDir(), "example dir")
 	if err := os.Mkdir(dir, 0o700); err != nil {
@@ -182,6 +183,7 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestListNotRunningPrintsEmptyArray(t *testing.T) {
+	t.Parallel()
 	client, err := tmuxctl.New(tmuxctl.Server{Socket: filepath.Join(t.TempDir(), "never-started.sock")})
 	if err != nil {
 		t.Fatalf("New(Socket): %v", err)
@@ -197,6 +199,7 @@ func TestListNotRunningPrintsEmptyArray(t *testing.T) {
 }
 
 func TestListReturnsOtherTmuxErrors(t *testing.T) {
+	t.Parallel()
 	// A socket path under a regular file makes tmux fail with "(Not a directory)", which is not a server
 	// that is not running. (A regular file at the socket path itself makes tmux report "no server running".)
 	parent := filepath.Join(t.TempDir(), "not-a-directory")
@@ -222,6 +225,7 @@ func TestListReturnsOtherTmuxErrors(t *testing.T) {
 }
 
 func TestListRejectsBadArguments(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		args    []string
@@ -233,6 +237,7 @@ func TestListRejectsBadArguments(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client, err := tmuxctl.New(tmuxctl.Server{Socket: filepath.Join(t.TempDir(), "unused.sock")})
 			if err != nil {
 				t.Fatalf("New(Socket): %v", err)

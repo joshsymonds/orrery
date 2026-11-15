@@ -35,6 +35,7 @@ func epicsStepsProcedures() []string {
 // guard must refuse, and checks that a well-formed Connect GET carrying login and the client header is answered 405 on
 // every path, since none declares NO_SIDE_EFFECTS.
 func TestEpicsAndStepsRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
+	t.Parallel()
 	handler := newHandler(t, newTmuxClient(t))
 	probes := []struct {
 		name   string
@@ -135,6 +136,7 @@ func (h wiringHeaders) RoundTrip(req *http.Request) (*http.Response, error) {
 // TestServeAnswersEpicsListAndStepsHoldWithLoginAndClientHeader serves the whole guarded handler with a synthetic
 // record root and a labeled step, and checks that Epics.List reads the epic and Steps.Hold forwards to the step client.
 func TestServeAnswersEpicsListAndStepsHoldWithLoginAndClientHeader(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "repoa", "epic-one")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

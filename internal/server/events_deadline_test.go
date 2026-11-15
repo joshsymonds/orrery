@@ -214,6 +214,7 @@ func openHeldStall(t *testing.T, path string) (*watch, net.Conn, string, <-chan 
 // receives a new one, and the stalled connection is still open after. Closing the stalled client then ends its
 // connection.
 func TestStalledStreamLeavesOtherStreamsServed(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, deadlineBigEvents)
@@ -242,6 +243,7 @@ func TestStalledStreamLeavesOtherStreamsServed(t *testing.T) {
 // once the server's send is blocked, the deadline it set is applied as already due, the server closes the connection,
 // and the stream ends with a transport error and no end-of-stream message. No real deadline is waited out.
 func TestStalledStreamEndsAtSendDeadline(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, deadlineBigEvents)
@@ -257,6 +259,7 @@ func TestStalledStreamEndsAtSendDeadline(t *testing.T) {
 }
 
 func TestIdleStreamReceivesEventAfterSeveralDeadlines(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
@@ -279,6 +282,7 @@ func TestIdleStreamReceivesEventAfterSeveralDeadlines(t *testing.T) {
 }
 
 func TestIdleStreamStillEndsWithItsCodeAfterSeveralDeadlines(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)

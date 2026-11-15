@@ -33,6 +33,7 @@ const stepSchemaWithCommit = `{
 }`
 
 func TestCheckStepSchemaRefusesUnsupportedSchemas(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		schema string
@@ -95,6 +96,7 @@ func TestCheckStepSchemaRefusesUnsupportedSchemas(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := checkStepSchema(tc.schema)
 			if !errors.Is(err, ErrBadSchema) {
 				t.Fatalf("checkStepSchema(%s) = %v, want ErrBadSchema", tc.schema, err)
@@ -104,6 +106,7 @@ func TestCheckStepSchemaRefusesUnsupportedSchemas(t *testing.T) {
 }
 
 func TestCheckStepSchemaAcceptsSupportedSchemas(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		schema string
@@ -125,6 +128,7 @@ func TestCheckStepSchemaAcceptsSupportedSchemas(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if err := checkStepSchema(tc.schema); err != nil {
 				t.Fatalf("checkStepSchema(%s) = %v, want nil", tc.schema, err)
 			}
@@ -133,6 +137,7 @@ func TestCheckStepSchemaAcceptsSupportedSchemas(t *testing.T) {
 }
 
 func TestValidateReturnPassesConformingValues(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		value string
@@ -149,6 +154,7 @@ func TestValidateReturnPassesConformingValues(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if err := validateReturn(stepSchemaWithCommit, []byte(tc.value)); err != nil {
 				t.Fatalf("validateReturn(%s) = %v, want nil", tc.value, err)
 			}
@@ -157,6 +163,7 @@ func TestValidateReturnPassesConformingValues(t *testing.T) {
 }
 
 func TestValidateReturnFailsWithPath(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		schema   string
@@ -250,6 +257,7 @@ func TestValidateReturnFailsWithPath(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := validateReturn(tc.schema, tc.value)
 			if err == nil {
 				t.Fatalf("validateReturn(%s) = nil, want an error naming %s", tc.value, tc.wantPath)

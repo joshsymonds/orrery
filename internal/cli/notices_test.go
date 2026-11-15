@@ -96,6 +96,7 @@ func listenNotices(t *testing.T) (string, net.Listener) {
 // TestNoticesWritesSocketBytesToStdout checks that the socket's bytes reach stdout unchanged and in order, and that
 // the socket closing first returns the stream-ended error. Stdin stays open, so the socket is the side that ends.
 func TestNoticesWritesSocketBytesToStdout(t *testing.T) {
+	t.Parallel()
 	path, ln := listenNotices(t)
 	const stream = "{\"kind\":\"hello\",\"host\":\"gnomon\"}\n{\"kind\":\"notice\",\"title\":\"a · b:1\"}\n"
 
@@ -124,6 +125,7 @@ func TestNoticesWritesSocketBytesToStdout(t *testing.T) {
 // TestNoticesRelaysBothWays checks that a stdin line reaches the socket while the stream is open, that the socket's
 // later bytes reach stdout, and that stdin's end closes the connection and returns nil.
 func TestNoticesRelaysBothWays(t *testing.T) {
+	t.Parallel()
 	path, ln := listenNotices(t)
 	const activity = "{\"input\":1700000000}\n"
 	const hello = "{\"kind\":\"hello\",\"host\":\"gnomon\"}\n"
@@ -184,6 +186,7 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 // TestNoticesStdinLinesReachSocket checks that every stdin line is written to the socket, in order, and that stdin
 // ending closes the connection, which the socket sees as EOF.
 func TestNoticesStdinLinesReachSocket(t *testing.T) {
+	t.Parallel()
 	path, ln := listenNotices(t)
 	const lines = "{\"input\":1}\n{\"input\":2}\n"
 
@@ -211,6 +214,7 @@ func TestNoticesStdinLinesReachSocket(t *testing.T) {
 // TestNoticesDialFailureNamesSocket checks that a notices socket nothing listens on fails with the dial message
 // naming that path.
 func TestNoticesDialFailureNamesSocket(t *testing.T) {
+	t.Parallel()
 	path := deskstream.SocketPath(filepath.Join(t.TempDir(), "orreryd.sock"))
 	err := startNotices(t, path, strings.NewReader(""), newNoticesOutput()).wait(t)
 	want := "notices: orreryd serves no notices on " + path
@@ -221,6 +225,7 @@ func TestNoticesDialFailureNamesSocket(t *testing.T) {
 
 // TestNoticesRejectsArguments checks that an argument is a usage error, refused before the socket is dialed.
 func TestNoticesRejectsArguments(t *testing.T) {
+	t.Parallel()
 	err := cli.Notices(t.Context(), "", []string{"extra"}, strings.NewReader(""), newNoticesOutput())
 	if !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("err = %v, want a usage error", err)

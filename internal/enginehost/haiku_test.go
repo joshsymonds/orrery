@@ -139,6 +139,7 @@ func haikuAwaitFile(t *testing.T, path, _ string) {
 }
 
 func TestHaikuCallRunsClaudeWithArgvEnvCwdAndStdin(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
@@ -189,6 +190,7 @@ func TestHaikuCallRunsClaudeWithArgvEnvCwdAndStdin(t *testing.T) {
 }
 
 func TestHaikuCallErrors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		fake   haikuFake
@@ -241,6 +243,7 @@ func TestHaikuCallErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			dir := haikuDir(t)
 			claude := haikuWriteFake(t, dir, tc.fake)
 			h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
@@ -260,6 +263,7 @@ func TestHaikuCallErrors(t *testing.T) {
 }
 
 func TestHaikuCallKillsHungClaudeAtTimeout(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{extra: "sleep 30", status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Timeout: 300 * time.Millisecond})
@@ -271,6 +275,7 @@ func TestHaikuCallKillsHungClaudeAtTimeout(t *testing.T) {
 }
 
 func TestHaikuCallEndsWhenContextEnds(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{extra: "sleep 30", status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Timeout: 10 * time.Second})
@@ -285,6 +290,7 @@ func TestHaikuCallEndsWhenContextEnds(t *testing.T) {
 // TestHaikuCallCapWaitsForSlot holds the only slot with a hung call and checks that a second call waits, never
 // starts claude, and fails when its wait ends.
 func TestHaikuCallCapWaitsForSlot(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
 sleep 30`, status: 0})
@@ -331,6 +337,7 @@ func TestHaikuCallMissingClaude(t *testing.T) {
 }
 
 func TestHaikuCallReleasesSlotAfterCall(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1})
@@ -346,6 +353,7 @@ func TestHaikuCallReleasesSlotAfterCall(t *testing.T) {
 }
 
 func TestNewHaikuDefaults(t *testing.T) {
+	t.Parallel()
 	h := NewHaiku(HaikuConfig{Claude: "/bin/true"})
 	if got := cap(h.slots); got != 2 {
 		t.Fatalf("default cap = %d, want 2", got)
@@ -366,6 +374,7 @@ func haikuBoundEnv() map[string]string {
 // TestHaikuWithEnvPutsEnvInSettings checks that a bound caller runs claude as h.Call does, except that the env
 // rides in the --settings value: the process env keeps no ANTHROPIC_BASE_URL and no bound key.
 func TestHaikuWithEnvPutsEnvInSettings(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
@@ -412,6 +421,7 @@ func TestHaikuWithEnvPutsEnvInSettings(t *testing.T) {
 
 // TestHaikuWithEnvWithoutEnvKeepsTodaysArgv checks that a nil or empty env leaves the --settings value as h.Call's.
 func TestHaikuWithEnvWithoutEnvKeepsTodaysArgv(t *testing.T) {
+	t.Parallel()
 	for _, env := range []map[string]string{nil, {}} {
 		dir := haikuDir(t)
 		claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
@@ -429,6 +439,7 @@ func TestHaikuWithEnvWithoutEnvKeepsTodaysArgv(t *testing.T) {
 // TestHaikuWithEnvSharesCallSlots holds the only slot of h with a hung call and checks that a call bound to an env
 // waits for that slot, never starts claude, and fails when its wait ends.
 func TestHaikuWithEnvSharesCallSlots(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
 sleep 30`, status: 0})
@@ -475,6 +486,7 @@ func haikuCallViaEnv() map[string]string {
 // in its --settings value, and with exactly one ANTHROPIC_BASE_URL, the given one, although the caller's environ holds
 // a different base URL. The env key is not in the process env.
 func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
@@ -516,6 +528,7 @@ func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
 // TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL checks that CallVia with no base URL drops the caller's
 // ANTHROPIC_BASE_URL and sets none.
 func TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
@@ -530,6 +543,7 @@ func TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL(t *testing.T) {
 
 // TestHaikuCallViaEmptyModelRunsDefaultModel checks that CallVia with no model runs the default summary model.
 func TestHaikuCallViaEmptyModelRunsDefaultModel(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})

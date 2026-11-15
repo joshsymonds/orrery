@@ -9,6 +9,7 @@ import (
 // defaultControlTimeout, ten seconds, and that a timeout it is given is kept. TestControlDeadlineExceeded checks that
 // the bound ends a forward that does not return.
 func TestControlZeroTimeoutIsTheDefault(t *testing.T) {
+	t.Parallel()
 	if defaultControlTimeout != 10*time.Second {
 		t.Fatalf("defaultControlTimeout = %v, want 10s", defaultControlTimeout)
 	}

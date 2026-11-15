@@ -398,6 +398,7 @@ func processExited(t *testing.T, pid int) bool {
 }
 
 func TestRunWithGrantGivesCommandItsGrant(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-7",
 		poolMembers("builds", "m1", "m2"),
 		poolMembers("gpu", "g1"),
@@ -441,6 +442,7 @@ func TestRunWithGrantGivesCommandItsGrant(t *testing.T) {
 }
 
 func TestRunWithGrantReturnsCommandStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		mode string
@@ -452,6 +454,7 @@ func TestRunWithGrantReturnsCommandStatus(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := newPoolsFake(nil, true, grantedWith("grant-status", poolMembers("builds", "m1")))
 			socket := runServe(t, fake)
 			cfg := runConfig(t, socket, tc.mode, io.Discard, io.Discard)
@@ -465,6 +468,7 @@ func TestRunWithGrantReturnsCommandStatus(t *testing.T) {
 }
 
 func TestRunWithGrantWritesQueuedPositions(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, queuedAt(2), queuedAt(1), grantedWith("grant-queue", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	var stderr bytes.Buffer
@@ -480,6 +484,7 @@ func TestRunWithGrantWritesQueuedPositions(t *testing.T) {
 }
 
 func TestRunWithGrantExitsNoGrant(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		serve      bool
@@ -507,6 +512,7 @@ func TestRunWithGrantExitsNoGrant(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			socket := filepath.Join(t.TempDir(), "orreryd.sock")
 			if tc.serve {
 				socket = runServe(t, newPoolsFake(tc.fail, false, tc.events...))
@@ -527,6 +533,7 @@ func TestRunWithGrantExitsNoGrant(t *testing.T) {
 }
 
 func TestRunWithGrantExitsNoGrantWhenContextEndsInQueue(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, queuedAt(1))
 	socket := runServe(t, fake)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -552,6 +559,7 @@ func TestRunWithGrantExitsNoGrantWhenContextEndsInQueue(t *testing.T) {
 }
 
 func TestRunWithGrantExitsBeforeAcquiring(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		argv       []string
@@ -568,6 +576,7 @@ func TestRunWithGrantExitsBeforeAcquiring(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := newPoolsFake(nil, false, grantedWith("grant-never", poolMembers("builds", "m1")))
 			socket := runServe(t, fake)
 			var stdout, stderr bytes.Buffer
@@ -588,6 +597,7 @@ func TestRunWithGrantExitsBeforeAcquiring(t *testing.T) {
 }
 
 func TestRunWithGrantExitsCannotRunWhenCommandFailsToStart(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-bad", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	notProgram := filepath.Join(t.TempDir(), "notprogram")
@@ -608,6 +618,7 @@ func TestRunWithGrantExitsCannotRunWhenCommandFailsToStart(t *testing.T) {
 }
 
 func TestRunWithGrantStopsCommandWhenContextEnds(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-stop", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	ready, w := stdoutPipe(t)
@@ -623,6 +634,7 @@ func TestRunWithGrantStopsCommandWhenContextEnds(t *testing.T) {
 }
 
 func TestRunWithGrantStopsCommandWhenGrantEnds(t *testing.T) {
+	t.Parallel()
 	// The stream ends after the grant, and orreryd refuses to reclaim the grant by its id once the command runs.
 	gate := make(chan struct{})
 	fake := newPoolsFakeSteps(
@@ -652,6 +664,7 @@ func TestRunWithGrantStopsCommandWhenGrantEnds(t *testing.T) {
 }
 
 func TestRunWithGrantDiesWithItsClient(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-kill", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	argv, err := helperArgv()

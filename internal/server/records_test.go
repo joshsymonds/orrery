@@ -26,6 +26,7 @@ func writeHead(t *testing.T, root, repo, slug, body string, mtime time.Time) {
 }
 
 func TestReadEpicsListsDirectoriesHoldingState(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	now := time.Unix(1_700_000_000, 0)
 	writeHead(t, root, "repoa", "slug-b", `{"outcome":"released"}`, now)
@@ -73,6 +74,7 @@ func TestReadEpicsListsDirectoriesHoldingState(t *testing.T) {
 }
 
 func TestReadEpicsMissingRootIsEmpty(t *testing.T) {
+	t.Parallel()
 	got, err := readEpics(filepath.Join(t.TempDir(), "missing"), newHeadCache())
 	if err != nil {
 		t.Fatalf("readEpics on a missing root: %v", err)
@@ -83,6 +85,7 @@ func TestReadEpicsMissingRootIsEmpty(t *testing.T) {
 }
 
 func TestReadEpicsOutcomeIsRecordText(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1_700_000_000, 0)
 	cases := []struct {
 		name string
@@ -97,6 +100,7 @@ func TestReadEpicsOutcomeIsRecordText(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			root := t.TempDir()
 			writeHead(t, root, "repo", "slug", tc.body, now)
 			got, err := readEpics(root, newHeadCache())
@@ -114,6 +118,7 @@ func TestReadEpicsOutcomeIsRecordText(t *testing.T) {
 }
 
 func TestReadEpicsUnparseableHeadIsListedWithProblem(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		body string
@@ -123,6 +128,7 @@ func TestReadEpicsUnparseableHeadIsListedWithProblem(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			root := t.TempDir()
 			writeHead(t, root, "repo", "slug", tc.body, time.Unix(1_700_000_000, 0))
 			got, err := readEpics(root, newHeadCache())
@@ -143,6 +149,7 @@ func TestReadEpicsUnparseableHeadIsListedWithProblem(t *testing.T) {
 }
 
 func TestReadEpicsChangedIsHeadMtime(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	mtime := time.Unix(1_699_000_000, 0)
 	writeHead(t, root, "repo", "slug", `{}`, mtime)
@@ -159,6 +166,7 @@ func TestReadEpicsChangedIsHeadMtime(t *testing.T) {
 }
 
 func TestRecordTextForms(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		raw  json.RawMessage
@@ -174,6 +182,7 @@ func TestRecordTextForms(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := recordText(tc.raw); got != tc.want {
 				t.Fatalf("recordText(%s) = %q, want %q", tc.raw, got, tc.want)
 			}
@@ -182,6 +191,7 @@ func TestRecordTextForms(t *testing.T) {
 }
 
 func TestEpicLive(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1_700_000_000, 0)
 	cases := []struct {
 		name    string
@@ -200,6 +210,7 @@ func TestEpicLive(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			rec := epicRecord{Outcome: tc.outcome, Changed: tc.changed}
 			if got := epicLive(rec, now, tc.running); got != tc.want {
 				t.Fatalf("epicLive = %v, want %v", got, tc.want)
@@ -209,6 +220,7 @@ func TestEpicLive(t *testing.T) {
 }
 
 func TestFindEpic(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	now := time.Unix(1_700_000_000, 0)
 	writeHead(t, root, "repoa", "slug", `{"outcome":"shipped"}`, now)

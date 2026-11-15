@@ -168,6 +168,7 @@ func checkResumeLines(t *testing.T, out string, want ...*orreryv1.WatchResponse)
 }
 
 func TestSessionURLWatchResumesAfterUnavailableEnd(t *testing.T) {
+	t.Parallel()
 	// The newest seq is 2, so the stop at seq 5 ends watch. The first stream ends with Unavailable after seq 4, while
 	// s1 is still running. The second stream opens after seq 4 and delivers seq 5, which stops s1.
 	added := resumeAdded(1, "s1")
@@ -200,6 +201,7 @@ func TestSessionURLWatchResumesAfterUnavailableEnd(t *testing.T) {
 }
 
 func TestSessionURLWatchEndingWithOtherCodeFails(t *testing.T) {
+	t.Parallel()
 	// A stream that ends with a code other than Unavailable is an error, and watch does not reopen it.
 	added := resumeAdded(1, "s1")
 	clock := newRetryClock()
@@ -222,6 +224,7 @@ func TestSessionURLWatchEndingWithOtherCodeFails(t *testing.T) {
 }
 
 func TestSessionURLWatchReopensWhenOpenIsUnavailable(t *testing.T) {
+	t.Parallel()
 	// The first Watch fails to open with Unavailable before any message, so watch reopens from cursor 0 and reads the
 	// stop at seq 2.
 	added := resumeAdded(1, "s1")
@@ -247,6 +250,7 @@ func TestSessionURLWatchReopensWhenOpenIsUnavailable(t *testing.T) {
 }
 
 func TestSessionURLWatchGivesUpWindowAfterLastMessage(t *testing.T) {
+	t.Parallel()
 	// The first Watch fails to open, so the retry clock moves by one wait before the second stream delivers seqs 1 to 4
 	// and ends with Unavailable. Every later open fails too. watch keeps reopening after seq 4 until rpcretry.Window has
 	// passed since seq 4 was sent, not since watch began, and then returns the error.
@@ -284,6 +288,7 @@ func TestSessionURLWatchGivesUpWindowAfterLastMessage(t *testing.T) {
 }
 
 func TestSessionURLWatchKeepsSessionStateAcrossReopen(t *testing.T) {
+	t.Parallel()
 	// The newest seq is 3. Seq 2 stops s1 before the newest seq, so it does not end watch, and the stream then ends with
 	// Unavailable. The reopened stream opens after seq 2 and delivers seq 3, which is past the newest seq. s1 is still
 	// stopped, so watch returns there. A watch that forgot the stop would read on and never return.

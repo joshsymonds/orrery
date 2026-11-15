@@ -118,6 +118,7 @@ func wantWatchError(t *testing.T, err error, code connect.Code, message string) 
 // TestSessionWatchStreamsLabeledStepFirstDelta opens a labeled step's stream at seq 0. Its first delta is the one
 // an engine session sends: a reset with the reply, and the whole state of the step session.
 func TestSessionWatchStreamsLabeledStepFirstDelta(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addStepSession(t, s, stepSessionName)
@@ -142,6 +143,7 @@ func TestSessionWatchStreamsLabeledStepFirstDelta(t *testing.T) {
 // TestSessionWatchStepWithoutLabelAnswersNotFound opens the stream of a step the StepStatus lookup finds unlabelled,
 // one it does not find, and a step with no Steps client. Each ends at once with not_found and the session message.
 func TestSessionWatchStepWithoutLabelAnswersNotFound(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		id    string
@@ -153,6 +155,7 @@ func TestSessionWatchStepWithoutLabelAnswersNotFound(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "orrery.db")
 			s := openEventStore(t, path)
 			addStepSession(t, s, stepSessionName)
@@ -169,6 +172,7 @@ func TestSessionWatchStepWithoutLabelAnswersNotFound(t *testing.T) {
 // TestSessionWatchStepStatusFailureAnswersUnavailable makes StepStatus fail with an error that is not not_found. The
 // stream ends with unavailable and the step service message, and sends no delta.
 func TestSessionWatchStepStatusFailureAnswersUnavailable(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addStepSession(t, s, stepSessionName)
@@ -183,6 +187,7 @@ func TestSessionWatchStepStatusFailureAnswersUnavailable(t *testing.T) {
 // only follow a poll after the first, so StepStatus would be asked again on every poll if the stream asked it each
 // time.
 func TestSessionWatchAsksStepStatusOncePerStream(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addStepSession(t, s, stepSessionName)
@@ -207,6 +212,7 @@ func TestSessionWatchAsksStepStatusOncePerStream(t *testing.T) {
 // TestSessionWatchEngineSessionNeverAsksStepStatus streams an engine session with a Steps client present. Its first
 // delta is the engine delta, and StepStatus is never asked.
 func TestSessionWatchEngineSessionNeverAsksStepStatus(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)

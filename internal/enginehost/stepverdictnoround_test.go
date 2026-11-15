@@ -146,6 +146,7 @@ func TestVerdictNoRoundFailsLatchesBeforeOwnerNudge(t *testing.T) {
 }
 
 func TestVerdictNoRoundFailsLatchesAroundHold(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		// nudgeFirst sends the owner's nudge while the turn is held and before it ends, so the held turn end carries
@@ -157,6 +158,7 @@ func TestVerdictNoRoundFailsLatchesAroundHold(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newVerdictFixture(t, nil)
 			_, done := f.start(t)
 			f.run.Event(session.Started{})
@@ -213,6 +215,7 @@ func TestVerdictNoRoundFailsLatchesAtWatchdogNudge(t *testing.T) {
 }
 
 func TestVerdictNoRoundSchemaInvalidLatchesNothing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		// hold holds the turn before its end, which the owner's nudge then releases.
@@ -223,6 +226,7 @@ func TestVerdictNoRoundSchemaInvalidLatchesNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newVerdictFixture(t, nil)
 			_, done := f.start(t)
 			f.run.Event(session.Started{})
