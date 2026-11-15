@@ -476,9 +476,9 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 - `--holder-scope PATH` is the absolute path of `systemd-run`, which runs each session's holder in its own user scope. The default is none, and the holder then starts plainly. A relative path exits 2 (`cmd/orreryd.parseFlags`, `cmd/orreryd.report`). [Headless sessions](#headless-sessions) gives the start under the flag, and [Lifecycle rules](#lifecycle-rules) gives shutdown under it.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
-- `--metrics-listen ADDR` serves `/metrics` on ADDR, a loopback IP literal with a port. Without the flag, `orreryd` records and serves no metrics. [Metrics](#metrics) gives the listener, the series and the alert rules.
+- `--metrics-listen ADDR` serves `/metrics` on ADDR, a loopback IP literal with a port, and takes Alertmanager's webhook at `POST /alerts` (see [Alert intake](#alert-intake)). Without the flag, `orreryd` records and serves no metrics and takes no alerts. [Metrics](#metrics) gives the listener, the series and the alert rules.
 
-`orreryd` listens on unix sockets only, apart from the loopback `/metrics` listener that `--metrics-listen` adds ([Metrics](#metrics)). `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
+`orreryd` listens on unix sockets only, apart from the loopback listener that `--metrics-listen` adds, which serves `/metrics` and `POST /alerts` ([Metrics](#metrics), [Alert intake](#alert-intake)). `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 
 With `--sessions` and an open store, `orreryd` runs every epic through the interpreter, after the step reconcile (`cmd/orreryd.startSessions`, `cmd/orreryd.sessionHost.startEvidence`, `cmd/orreryd.sessionHost.startFlow`). [Workflows](#workflows) gives the interpreter's passes, and the planner and the build Runner are its planner and builder. [Planner turns](#planner-turns) gives the planner's turns, and its attention loop, which runs beside the interpreter and routes the epic notices. The planner's agent is the `planner` key of the role file, `$XDG_CONFIG_HOME/orrery/roles.toml`, or `$HOME/.config/orrery/roles.toml` when `XDG_CONFIG_HOME` is unset. The file's top-level keys are role names and their values are agent names. A missing file, a file that does not parse, a `planner` key with no agent, and a non-string value are each an error that names the file (`roles.Agent`, `roles.rolePath`; `cmd/orreryd.sessionHost.startFlow`). The nix module writes this file from `programs.orrery.roles`, and writes none when that option is empty (`nix/home-manager.nix: options.programs.orrery.roles`, `nix/home-manager.nix: xdg.configFile."orrery/roles.toml"`).
 
@@ -520,7 +520,7 @@ When the router sends a notice to the phone, `orreryd` posts it as an encrypted 
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
 
-`orreryd` keeps, per pane, per session and per epic, the time of the last notice it sent. With the store open, each kept time is also stored (see [Pushed notices in the store](#pushed-notices-in-the-store)), so it outlives a restart: a seen write after the restart clears the push as it would without the restart. Without the store, kept times live in memory only. A seen write made while `orreryd` is down clears nothing. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane, session or epic and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), the `Seen` call of the session socket, and the attention loop's write for an epic that needs nothing (see [Planner turns](#planner-turns)). `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
+`orreryd` keeps, per pane, per session, per epic, per usage limit and per alert, the time of the last notice it sent. With the store open, each kept time is also stored (see [Pushed notices in the store](#pushed-notices-in-the-store)), so it outlives a restart: a seen write after the restart clears the push as it would without the restart. Without the store, kept times live in memory only. A seen write made while `orreryd` is down clears nothing. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane, session, epic, usage limit or alert and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), the `Seen` call of the session socket, and the attention loop's write for an epic that needs nothing (see [Planner turns](#planner-turns)). `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
 
 When neither variable is set, `orreryd` exits 1.
 
@@ -530,16 +530,16 @@ When neither variable is set, `orreryd` exits 1.
 
 #### Notice routing
 
-`orreryd` routes each pane notice, a transition to `waiting` or `done`, each headless session notice (see [Session notifications](#session-notifications)), each epic notice (see [Planner turns](#planner-turns)), and each usage-limit notice (see [Step lifecycle](#step-lifecycle), Usage limit). A notice stays pending until one of the rules below ends it. The rules apply in this order, and each event writes one line to the [notice log](#notice-log).
+`orreryd` routes each pane notice, a transition to `waiting` or `done`, each headless session notice (see [Session notifications](#session-notifications)), each epic notice (see [Planner turns](#planner-turns)), each usage-limit notice (see [Step lifecycle](#step-lifecycle), Usage limit), and each alert notice (see [Alert intake](#alert-intake)). A notice stays pending until one of the rules below ends it. The rules apply in this order, and each event writes one line to the [notice log](#notice-log).
 
 1. **Background work.** A pane's `done` whose `Stop` hook has a `background_tasks` holding a subagent or workflow goes nowhere. It is posted to neither the desk stream nor Web Push, and the log records a silence with reason `background work`. A hook whose `background_tasks` does not decode is logged, and its notice routes by the rules below.
 2. **Watching.** A pane notice is held while its pane is watched. The pane is watched when either of these holds:
    - a tmux client of the pane's server shows the pane's window and had input in the last 30 seconds;
    - a read report for the pane, sent by `serve` (see [orrery serve](#orrery-serve)), arrived in the last 30 seconds.
 
-   A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice and an epic notice are never watched, so they are never held.
+   A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice, an epic notice and an alert notice are never watched, so they are never held.
 
-**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`, unless it comes from a `StopFailure` hook (see **StopFailure** below). The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts), session notices, epic notices and usage-limit notices are never judged.
+**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`, unless it comes from a `StopFailure` hook (see **StopFailure** below). The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts), session notices, epic notices, usage-limit notices and alert notices are never judged.
 
 - **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
 - **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
@@ -1337,6 +1337,8 @@ A requeued request is kept in memory only. A restart of `orreryd` ends it, and a
 - `Watch` streams the in-app notices (see [In-app notices](#in-app-notices)). It sends each notice showing now as a `shown` message. Then it sends each change: a `shown` message for a notice that shows, or replaces the one under its key, and an `ended` message for the key of a notice that ends. The stream ends when the call ends (`enginehost.noticesService.Watch`; `inapp.Hub.Watch`). With no notice source, `Watch` answers `unavailable` (`enginehost.noticesService.Watch`).
 - `Seen` names the key of a notice the owner opened. A key that sets none of its fields, or more than one, answers `invalid_argument` (`enginehost.noticeKeyOf`). A valid key goes to the router as seen at orreryd's clock (`enginehost.PageNotices.Seen`, `enginehost.noticesService.Seen`). The router ends the pending notice for that key when the notice was recorded at or before the seen time (`route.Router.Seen`). With no notice source, `Seen` answers `unavailable`.
 
+A `NoticeKey` (`proto/orrery/engine/v1/notice.proto: NoticeKey`) sets one of five fields: `pane`, `session`, `epic`, `limit`, or `alert`, the name of an alert (see [Alert intake](#alert-intake)). `Seen` takes exactly one. `serve` copies the key field for field (`server.noticeKeyMessage`, `server.engineNoticeKey`), and the page keys each notice by all five fields (`web/src/notices.tsx: noticeKey`).
+
 ### Metrics
 
 `orreryd` and `orrery serve` each export Prometheus metrics on the loopback address that `--metrics-listen` names. A scraper reads `GET /metrics`. Nothing else is exported: no OpenTelemetry traces, no remote write, and no push to a collector (`internal/telemetry/telemetry.go: package telemetry`). Without `--metrics-listen`, the process records no metrics and serves none.
@@ -1348,7 +1350,7 @@ The address is a loopback IP literal with a port, such as `127.0.0.1:9464`. `ser
 - `orreryd`: `run` calls `startMetrics` before `serve` creates any socket (`cmd/orreryd.run`). A refused address exits 1 (`cmd/orreryd.report`). If the metrics server later fails, `orreryd` logs it as `serve metrics` and keeps serving.
 - `orrery serve`: `serveListeners` binds the metrics address before the API address (`cmd/orrery.serveListeners`), so a refused metrics address binds nothing and `serve` exits 1 (`cmd/orrery.report`). A failed API bind closes the metrics listener. In `serveWithMetrics` (`cmd/orrery.serveWithMetrics`), a failure of either server ends the other, and `serve` returns both errors.
 
-Both listeners answer `GET /metrics` and no other path, which answers 404 (`telemetry.Provider.Serve`).
+Both listeners answer `GET /metrics` and no other path, which answers 404 (`telemetry.Provider.Serve`). The one other route is `POST /alerts` on `orreryd`'s listener, the Alertmanager intake of [Alert intake](#alert-intake) (`telemetry.Provider.ServeWithAlerts`). `orrery serve`'s listener does not answer it, and answers 404.
 
 #### Series
 
@@ -1398,6 +1400,23 @@ The traces go in a `traces` directory beside the store (see [Store](#store)). Th
 
 Traces are local files. Nothing exports them.
 
+### Alert intake
+
+`orreryd` takes Alertmanager's webhook on the `--metrics-listen` listener and makes a notice of each firing alert that has a name. The notice routes like any other (see [Notice routing](#notice-routing)). The intake is `alerts.Webhook.ServeHTTP`, which `cmd/orreryd.startMetrics` mounts with `telemetry.Provider.ServeWithAlerts`. `orrery serve` has no intake: its listener is `telemetry.Provider.Serve`, which answers `GET /metrics` only (`cmd/orrery.serveWithMetrics`).
+
+- `POST /alerts` is the only route. Any other method on `/alerts` answers 405 (`telemetry.Provider.serve`).
+- Until `serve` attaches the notice router, the intake answers 503. `serve` attaches it when it builds its relay (`alerts.Webhook.Attach`, `cmd/orreryd.newRelay`).
+- The body is Alertmanager's version 4 webhook, a JSON object whose `version` is `"4"`. A body over 1 MiB (1,048,576 bytes) answers 400, and a body of exactly 1 MiB is read. A body that cannot be read or does not decode as that shape answers 400, and so does one with a label or annotation value, under any key, that is neither a string nor `null`. A `null` value reads as empty, so a `null` name makes no notice and a `null` summary gives an empty body. Otherwise the intake answers 200, including for a body that makes no notice (`alerts.Webhook.ServeHTTP`).
+- Two webhook fields reach a notice. The `alertname` label of an alert is the notice's name, and its `summary` annotation is the notice's body. An alert with no name, or an empty one, makes no notice. No other field of the body or of an alert reaches a notice (`alerts.alertNotice`).
+- Only an alert whose `status` is `firing` makes a notice, one for each, in body order. A resolved alert makes no notice and ends none. A notice that routes at the desk stays pending until a seen write, a newer notice of its name, or the escalation of rule 3 of [Notice routing](#notice-routing) ends it. One that routes away ends at once.
+- The notice's key is its `alert` field, the name, and its state is `firing` (`alerts.alertNotice`). A newer notice for a name ends the pending one with reason `changed` (`route.Router.Notify`). So two firing alerts that share a name in one body leave only the later one pending.
+- The desk notice's title is the name and its body is the summary. It has no state, so its desk line and its in-app notice carry none (`alerts.alertNotice`).
+- An alert notice is never watched and never judged. It routes at once by rules 3 to 6 of [Notice routing](#notice-routing) (`route.Router.decide`), so it shows in-app at the desk like any notice (see [In-app notices](#in-app-notices)).
+- The phone's push is the Push payload of this key. Its `project` and its `alert` are the name, and its `state` is `firing` (`push.boundedPayload`). It is never silent. On the phone, the notification is titled `<name> · firing`, its text is the summary, and its tag is `alert:<name>`. It carries no actions, and a tap opens the app without naming a screen (`android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt: PushNotifier.show`, `android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt: PushNotifier.tagOf`; `android/app/src/main/kotlin/io/github/joshsymonds/orrery/MainActivity.kt: MainActivity.openExtra`).
+- An alert notice has no source, so it has no pending row (`route.Router.rowLocked`). At shutdown a pending alert notice ends `shutdown` and is not sent, and a restart does not restore it (`route.Router.Close`). Its push time is kept in [Pushed notices in the store](#pushed-notices-in-the-store) (`notice.Notices.putRow`).
+- Only the `Notices.Seen` call names an alert key, so only that call clears an alert. The clear carries the `alert` key (see [Clear payload](#clear-payload)).
+- The notice log line of an alert names no alert: its `pane`, `session` and `epic` keys are absent, and its `state` is `firing` (see [Notice log](#notice-log)).
+
 ### Desk stream
 
 `orreryd` serves the desk stream on `notices.sock`, beside the daemon socket (section 5). The socket's directory is created with mode 0700 when it is absent. `orrery notices` reads the stream, and `orrery desk` reads it on this machine and over ssh. Nothing here opens a network listener. `orreryd`, `orrery notices` and `orrery desk` use unix sockets, and a host's notices leave it only through the ssh session that `orrery desk` starts.
@@ -1418,8 +1437,9 @@ The notices on the stream are these:
 - A session notice, on a headless session's transition to `waiting`, `done`, `failed` or `interrupted` (see [Session notifications](#session-notifications)).
 - An epic notice, on an epic that needs its owner (see [Planner turns](#planner-turns)). Its state is `waiting`, its title is the epic's id, and its body is the body that Planner turns gives.
 - A usage-limit notice, on a change to the steps a usage limit holds (see [Step lifecycle](#step-lifecycle), Usage limit). Its state is `limited` and its title is `usage limit`.
+- An alert notice, on a firing alert that a webhook names (see [Alert intake](#alert-intake)). Its title is the alert's name and its body is the alert's summary. It has no state.
 
-The stream carries a pane, session or epic notice only when [Notice routing](#notice-routing) posts it there. A `done` whose `Stop` hook holds a subagent or workflow is never posted, on the stream or to Web Push. The in-app notices of [In-app notices](#in-app-notices) are not on this stream.
+The stream carries a pane, session, epic or alert notice only when [Notice routing](#notice-routing) posts it there. A `done` whose `Stop` hook holds a subagent or workflow is never posted, on the stream or to Web Push. The in-app notices of [In-app notices](#in-app-notices) are not on this stream.
 
 ### In-app notices
 
@@ -1543,10 +1563,10 @@ Each record has these keys, in this order. The example is synthetic:
 |---|---|---|
 | `time` | number | unix seconds of the event |
 | `host` | string | the machine host name |
-| `pane` | string | the tmux pane id, for a pane notice; absent for a session, epic or usage-limit notice |
-| `session` | string | the session id, for a session notice; absent for a pane, epic or usage-limit notice |
-| `epic` | string | the epic id, for an epic notice; absent for a pane, session or usage-limit notice |
-| `state` | string | the notice's state: `waiting`, `done`, `failed`, `interrupted` or `limited`, the last for a usage-limit notice (see [Step lifecycle](#step-lifecycle), Usage limit) |
+| `pane` | string | the tmux pane id, for a pane notice; absent for a session, epic, usage-limit or alert notice |
+| `session` | string | the session id, for a session notice; absent for a pane, epic, usage-limit or alert notice |
+| `epic` | string | the epic id, for an epic notice; absent for a pane, session, usage-limit or alert notice |
+| `state` | string | the notice's state: `waiting`, `done`, `failed`, `interrupted` or `limited`, `limited` for a usage-limit notice (see [Step lifecycle](#step-lifecycle), Usage limit), and `firing` for an alert notice (see [Alert intake](#alert-intake)) |
 | `route` | string | where the notice went, as below |
 | `reason` | string | why, as below |
 
@@ -2131,9 +2151,9 @@ The `pushed_epic_notices` table (migration `00019_planner_controls.sql`) has one
 | `epic` | `TEXT`, primary key | the epic whose push is kept |
 | `time` | `INTEGER` | unix seconds of the kept push |
 
-An epic's push is written and cleared with the same rules as a pane's or session's. `pushed_notices` and `pushed_epic_notices` are read in one read transaction, so both come from one snapshot (`store.Store.Pushed`).
+An epic's push is written and cleared with the same rules as a pane's or session's. `pushed_notices`, `pushed_epic_notices`, `pushed_limit_notices` and `pushed_alert_notices` are read in one read transaction, so they come from one snapshot (`store.Store.Pushed`).
 
-At start, once the store opens and before the router restores its rows, `orreryd` reads both tables, and each row's time becomes that key's kept push time. Rows for gone panes, sessions or epics are not pruned.
+At start, once the store opens and before the router restores its rows, `orreryd` reads the push tables, and each row's time becomes that key's kept push time. Rows for gone panes, sessions or epics are not pruned.
 
 The `pushed_limit_notices` table (migration `00018_pushed_limit.sql`) has one row per kept usage-limit push (see [Step lifecycle](#step-lifecycle), Usage limit):
 
@@ -2143,6 +2163,15 @@ The `pushed_limit_notices` table (migration `00018_pushed_limit.sql`) has one ro
 | `time` | `INTEGER` | unix seconds of the kept push |
 
 `PutPushed` writes the row for a limit key, `DeletePushedLimit` deletes it, and `Pushed` reads it with the rows of the `pushed_notices` table (`internal/store/migrations/00018_pushed_limit.sql: CREATE TABLE pushed_limit_notices`; `store.Store.PutPushed`, `store.Store.DeletePushedLimit`, `store.Store.Pushed`; `notice.Notices.putRow`, `notice.Notices.deleteRow`).
+
+The `pushed_alert_notices` table (migration `00029_pushed_alert.sql`) has one row per kept alert push (see [Alert intake](#alert-intake)):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `alert` | `TEXT`, primary key | the alert's name, the key of the push |
+| `time` | `INTEGER` | unix seconds of the kept push |
+
+`PutPushed` writes the row for an alert, `DeletePushedAlert` deletes it, and `Pushed` reads it with the rows of the other push tables (`internal/store/migrations/00029_pushed_alert.sql: CREATE TABLE pushed_alert_notices`; `store.Store.PutPushed`, `store.Store.DeletePushedAlert`, `store.Store.Pushed`; `notice.Notices.putRow`, `notice.Notices.deleteRow`).
 
 Until the store opens, `orreryd` holds the seen writes it receives in memory. When the store opens, it applies each held seen write to the kept pushes: a seen write clears each kept push at or before its time, once. A pane or session pushed before the store opened keeps only its new time: the row read back for it and any seen held for it are dropped.
 
@@ -2407,11 +2436,11 @@ The web page is the one exception to the 404 rule. After the login check, GET an
 
 ### Push payload
 
-When [Notice routing](#notice-routing) sends a pane's `waiting` or `done` notice to the phone, `orreryd` posts it to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) and an epic notice (see [Planner turns](#planner-turns)) are posted to each subscription the same way when they go to the phone. A usage-limit notice (see [Step lifecycle](#step-lifecycle), Usage limit) is posted the same way too.
+When [Notice routing](#notice-routing) sends a pane's `waiting` or `done` notice to the phone, `orreryd` posts it to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) and an epic notice (see [Planner turns](#planner-turns)) are posted to each subscription the same way when they go to the phone. A usage-limit notice (see [Step lifecycle](#step-lifecycle), Usage limit) is posted the same way too, and so is an alert notice (see [Alert intake](#alert-intake)).
 
 - The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
 - The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
-- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. An epic notice also has the key `epic`, holding the epic's id, with `pane`, `label` and `question` empty and `project` set to the epic's title (`push.boundedPayload`). A usage-limit notice also has the key `limit`, holding its limit key `<kind>@<reset>` (`push.boundedPayload`). A pane notice has none of `session`, `epic` and `limit`, and only the notice of each kind has its key. A silent notice (see [Notice routing](#notice-routing)) also has the key `silent`, holding `"true"`. No other notice has a `silent` key.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. An epic notice also has the key `epic`, holding the epic's id, with `pane`, `label` and `question` empty and `project` set to the epic's title (`push.boundedPayload`). A usage-limit notice also has the key `limit`, holding its limit key `<kind>@<reset>` (`push.boundedPayload`). An alert notice also has the key `alert`, holding the alert's name, and its `project` is that name too (`push.boundedPayload`). A pane notice has none of `session`, `epic`, `limit` and `alert`, and only the notice of each kind has its key. A silent notice (see [Notice routing](#notice-routing)) also has the key `silent`, holding `"true"`. No other notice has a `silent` key.
 - The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
 - `question_hash` always covers the full question, even when the question is cut.
 
@@ -2423,11 +2452,11 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 
 #### Clear payload
 
-A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane, a session, an epic or a usage limit (see [orreryd](#orreryd) and [Step lifecycle](#step-lifecycle), Usage limit). Once the clear is published, the row of that pane, session, epic or limit is deleted from the store (see [Pushed notices in the store](#pushed-notices-in-the-store)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
+A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane, a session, an epic, a usage limit or an alert (see [orreryd](#orreryd) and [Step lifecycle](#step-lifecycle), Usage limit). Once the clear is published, the row of that pane, session, epic, limit or alert is deleted from the store (see [Pushed notices in the store](#pushed-notices-in-the-store)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
 
 - `kind`, which is `clear`.
 - `host`, the machine host name.
-- `pane`, the pane id, for a pane notice, `session`, the full session id, for a session notice, `epic`, the epic's id, for an epic notice, or `limit`, the limit key, for a usage-limit notice. Only the one that applies is set (`push.clearPayload`).
+- `pane`, the pane id, for a pane notice, `session`, the full session id, for a session notice, `epic`, the epic's id, for an epic notice, `limit`, the limit key, for a usage-limit notice, or `alert`, the alert's name, for an alert notice. Only the one that applies is set (`push.clearPayload`).
 - `seen`, the seen time, as decimal unix seconds.
 
 Example clear plaintext. Every value is synthetic:
@@ -2438,11 +2467,12 @@ Example clear plaintext. Every value is synthetic:
 
 On the phone, the notices of a host are shown as follows:
 
-- One notification per host and pane, session, epic or limit (`android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt: PushNotifier.tagOf`).
+- One notification per host and pane, session, epic, limit or alert (`android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt: PushNotifier.tagOf`).
 - A replacement is silent unless its state is `waiting` or `failed`.
 - A clear removes only the notices at or before its `seen` time.
-- Session notices and epic notices carry no actions.
+- Session notices, epic notices and alert notices carry no actions.
 - An epic notice is tagged by the epic's id. A tap on it opens that epic's screen (`android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt: PushNotifier.show`, `android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt: PushNotifier.contentIntent`; `android/app/src/main/kotlin/io/github/joshsymonds/orrery/MainActivity.kt: MainActivity.openExtra`).
+- An alert notice is titled `<name> · firing`, its text is its summary, and a tap on it opens the app without naming a screen (see [Alert intake](#alert-intake)).
 - A silent notice shows on the app's silent channel, with no sound or vibration.
 
 ### Connect API
@@ -3005,3 +3035,5 @@ orrery attention B (notices follow the web view) added, additively: the `orrery.
 orrery followups 3b (turn answers and the judge's command) added, additively: the `answered` column of the `events` table, which an `engine_turn_ended` event fills with the uuids its turn answered, from migration `00027_turn_answered.sql` (see [Engine sessions in the store](#engine-sessions-in-the-store)). orrery followups 3b changed, and these changes are not additive: a turn that ends while a background task is listed is a return when its return's `status` is the step's `done_value`, where it was never a return while a task was listed (see [Step lifecycle](#step-lifecycle)); a prompt is sent under its write id, a random version-4 UUID, as its user-message uuid, where the write id was 128 random bits in hex and the uuid was generated apart from it (see [Engine sessions in the store](#engine-sessions-in-the-store) and [Engine protocol](engine-protocol.md#3-turns)); a re-adopted session owes every prompt that no later stored turn end answers, where it owed the prompts written after its newest turn end (see [Reconcile at start](#lifecycle-rules)); and the evidence judge's prompt names a capture's command, which a supplied run does not name (see [Evidence](#evidence)).
 
 orrery O3f2 (workflow interpreter) added, additively: the `epic_node_runs` table and its migration `00028_node_runs.sql` (see [Node runs in the store](#node-runs-in-the-store)); the node runs of each epic, with their paths, ids, rounds and loop state, and the interpreter that runs every epic's workflow over them (see [Workflows](#workflows) and [Planner turns](#planner-turns)); the build child runs of a plan node run (see [Task builds](#task-builds)); the `workflow:` trigger that a later plan node's start writes (see [Planner turns](#planner-turns)); and the grant of a parked loop's round by `RetryEpic` and `epic_retry`, in the write that ends the park (see [Epics](#epics) and [epic_retry](engine-protocol.md#epic_retry)). One value changes, and it is not additive: an epic whose pinned text does not hash to its pinned sha256, or does not parse and check, is parked with `workflow <name>: <error>`, where the planner and the build ran that epic before (see [Workflows](#workflows)). No existing name changes.
+
+orrery ops alert notices (effort 1) added, additively: the `POST /alerts` route of `orreryd`'s `--metrics-listen` listener, which takes Alertmanager's webhook and reads its `alertname` label and its `summary` annotation (see [Alert intake](#alert-intake)); the alert notice, with its `firing` state, its desk notice and its routing like any other notice (see [Alert intake](#alert-intake) and [Notice routing](#notice-routing)); the `alert` key of the Push payload and of the Clear payload, and the phone's notification for it (see [Push payload](#push-payload) and [Clear payload](#clear-payload)); the `alert` field of `NoticeKey` (see [Notices](#notices)); and the `pushed_alert_notices` table, from migration `00029_pushed_alert.sql` (see [Pushed notices in the store](#pushed-notices-in-the-store)). One value changes, and it is not additive: `orreryd`'s `--metrics-listen` listener answers `POST /alerts`, where it answered 404 for every path but `GET /metrics` (see [Listeners](#listeners)). No existing name changes.
