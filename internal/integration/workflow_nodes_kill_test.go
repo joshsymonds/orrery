@@ -119,7 +119,6 @@ func newNodesRig(t *testing.T) *buildRig {
 func seedNodesEpic(t *testing.T, r *buildRig, text string, epicGates []store.EpicGate) {
 	t.Helper()
 	ctx := t.Context()
-	storetest.Seed(t, r.f.dbPath)
 	st, err := store.Open(ctx, r.f.dbPath, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
