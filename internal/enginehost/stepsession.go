@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -25,13 +26,14 @@ type StepObserver interface {
 }
 
 // StepSession is one step session: its id, its directory, the prompt it starts with, the claude agent it runs, the JSON
-// schema its result must match, the engine ops written with its row, and the observer of its hand-offs. A nil Observer
-// receives nothing.
+// object of inline agent definitions claude is started with, the JSON schema its result must match, the engine ops
+// written with its row, and the observer of its hand-offs. A nil Observer receives nothing.
 type StepSession struct {
 	ID       string
 	Dir      string
 	Prompt   string
 	Agent    string
+	Agents   string
 	Schema   string
 	Ops      []store.EngineOp
 	Observer StepObserver
@@ -40,6 +42,9 @@ type StepSession struct {
 // ErrBadAgent reports a StartStep whose agent is empty or is not 1 to 64 bytes of letters, digits and . _ - [ ] : that
 // does not start with -.
 var ErrBadAgent = errors.New("step agent must be 1 to 64 letters, digits or . _ - [ ] : and not start with -")
+
+// ErrBadAgents reports a StartStep whose Agents is not a JSON object with an object as each member's definition.
+var ErrBadAgents = errors.New("step agents must be a JSON object of agent definitions")
 
 // stepRefusedError is a StartStep error for a step refused before its row was written. Steps.Start returns its error
 // without ending the step. Unwrap keeps the error matching its sentinel.
@@ -50,10 +55,10 @@ func (r stepRefusedError) Error() string { return r.err.Error() }
 func (r stepRefusedError) Unwrap() error { return r.err }
 
 // StartStep starts the step session step as step describes. It checks step and that claude would resolve its agent,
-// takes a slot under StepCap, records the row as working with its Ops in one write, spawns claude with its agent and
-// schema, then records and sends its prompt. A step is listed as a step, never as a session, and sends no notice. A
-// step refused before anything is stored, for a bad step, an agent that does not resolve, a closed manager or a full
-// step cap, returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure,
+// takes a slot under StepCap, records the row as working with its Ops in one write, spawns claude with its agent, inline
+// agents and schema, then records and sends its prompt. A step is listed as a step, never as a session, and sends no
+// notice. A step refused before anything is stored, for a bad step, an agent that does not resolve, a closed manager or
+// a full step cap, returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure,
 // records the row failed and returns the error. A step's slot frees when its pump ends, unless the step is drained at its
 // hand-off and keeps its slot (see retireLocked).
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
@@ -72,7 +77,7 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 		return fmt.Errorf("record step %s: %w", step.ID, err)
 	}
 	live, err := m.spawnLive(ctx, step.ID, step.Dir,
-		spawnSpec{agent: step.Agent, schema: step.Schema, step: true, observer: step.Observer})
+		spawnSpec{agent: step.Agent, agents: step.Agents, schema: step.Schema, step: true, observer: step.Observer})
 	if err != nil {
 		m.releaseStep()
 		recordErr := m.writeFailed(ctx, step.ID, err)
@@ -143,17 +148,46 @@ func checkStep(step StepSession) error {
 }
 
 // resolveStepAgent returns an error unless claude would resolve the agent of step for its directory under the manager's
-// environment. Claude reads agents under the HOME and CLAUDE_CONFIG_DIR of that environment and under the managed root.
-// An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve refuses. The error
-// names the agent and each place checked.
+// environment. An agent that step's Agents defines resolves, except web-fetch, which claude never runs as a step's
+// agent. Any other agent is resolved as claude reads agents under the HOME and CLAUDE_CONFIG_DIR of that environment and
+// under the managed root. An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve
+// refuses. The error names the agent and each place checked, and an Agents that is not a JSON object of definitions is
+// refused with an error matching ErrBadAgents.
 func (m *Manager) resolveStepAgent(step StepSession) error {
+	defined, err := inlineAgents(step.Agents)
+	if err != nil {
+		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
+	}
+	if _, ok := defined[step.Agent]; ok && step.Agent != "web-fetch" {
+		return nil
+	}
 	home, _ := environValue(m.environ, "HOME")
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
 	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir}
-	if err := agents.Resolve(step.Agent, where); err != nil {
+	if err = agents.Resolve(step.Agent, where); err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}
 	return nil
+}
+
+// inlineAgents returns the agent definitions of agents, the JSON object a step's Agents holds, keyed by agent name. Empty
+// agents defines none. It returns an error matching ErrBadAgents unless agents is a JSON object whose every member is a
+// JSON object.
+func inlineAgents(agents string) (map[string]json.RawMessage, error) {
+	if agents == "" {
+		return map[string]json.RawMessage{}, nil
+	}
+	var defs map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(agents), &defs); err != nil || defs == nil {
+		return nil, fmt.Errorf("%w: the value is not a JSON object", ErrBadAgents)
+	}
+	for name, def := range defs {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(def, &fields); err != nil || fields == nil {
+			return nil, fmt.Errorf("%w: agent %q is not a JSON object", ErrBadAgents, name)
+		}
+	}
+	return defs, nil
 }
 
 // reserveStep takes one step slot for the step id under StepCap. A step drained at its hand-off keeps its slot (see
