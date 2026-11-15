@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -54,10 +55,17 @@ func (o *noticesOutput) waitFor(t *testing.T, call noticesCall, want string) {
 		if got := o.String(); got == want {
 			return
 		}
+		// Notices writes all it writes before it returns, so once its result is queued the output is final. The result
+		// is read by its length, so it stays on the channel for call.wait.
+		if len(call.done) > 0 {
+			if got := o.String(); got != want {
+				t.Fatalf("Notices returned with output %q, want %q first", got, want)
+			}
+			return
+		}
 		select {
 		case <-o.wrote:
-		case err := <-call.done:
-			t.Fatalf("Notices returned %v with output %q, want %q first", err, o.String(), want)
+		case <-time.After(pollInterval):
 		}
 	}
 }

@@ -210,12 +210,10 @@ func nextLine(t *testing.T, lines <-chan string) string {
 }
 
 // awaitStopRequests waits until pools has received n requests. It has no deadline of its own, and fails at once when
-// the run that sends the requests returns first (see awaitRunPoll).
+// the run whose result arrives on status has returned without them (see awaitRunRequests).
 func awaitStopRequests(t *testing.T, pools *stopPools, n int, status <-chan int) {
 	t.Helper()
-	for len(pools.received()) < n {
-		awaitRunPoll(t, status, len(pools.received()), n)
-	}
+	awaitRunRequests(t, status, func() int { return len(pools.received()) }, n)
 }
 
 // remainingLines returns the lines that out delivers after the test has closed its write end.

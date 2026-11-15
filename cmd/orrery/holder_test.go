@@ -200,6 +200,10 @@ func (hc *holderCommand) awaitFile(path string) string {
 		select {
 		case res := <-hc.ch:
 			hc.res, hc.done = res, true
+			// The child may have written the line just before the holder exited.
+			if data, err := os.ReadFile(path); err == nil && strings.HasSuffix(string(data), "\n") {
+				return string(data)
+			}
 			hc.t.Fatalf("the holder exited %d before %s held a line; stderr %q", res.code, path, res.stderr)
 		case <-time.After(holderPollInterval):
 		}

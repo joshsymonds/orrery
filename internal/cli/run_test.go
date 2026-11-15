@@ -238,22 +238,26 @@ func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
 }
 
 // awaitRequests waits until fake has received n requests. It has no deadline of its own, and fails at once when the
-// run that sends the requests returns first, with the status it returned on status.
+// run whose result arrives on status has returned without them (see awaitRunRequests).
 func awaitRequests(t *testing.T, fake *poolsFake, n int, status <-chan int) {
 	t.Helper()
-	for len(fake.received()) < n {
-		awaitRunPoll(t, status, len(fake.received()), n)
-	}
+	awaitRunRequests(t, status, func() int { return len(fake.received()) }, n)
 }
 
-// awaitRunPoll waits one poll interval for a run whose result arrives on status, and fails the test when the run
-// returns in that time: it returned after had of the want requests.
-func awaitRunPoll(t *testing.T, status <-chan int, had, want int) {
+// awaitRunRequests waits until received reports want requests. It has no deadline of its own. It fails the test once
+// the run whose result arrives on status has returned and received still reports fewer: a fake records each request
+// before it answers it, so a run that has returned sends no more. It reads whether the run has returned from the
+// channel's length, so the status stays on the channel for the test to read.
+func awaitRunRequests(t *testing.T, status <-chan int, received func() int, want int) {
 	t.Helper()
-	select {
-	case got := <-status:
-		t.Fatalf("RunWithGrant returned %d after %d requests, want %d first", got, had, want)
-	case <-time.After(pollInterval):
+	for received() < want {
+		if len(status) > 0 {
+			if had := received(); had < want {
+				t.Fatalf("RunWithGrant returned after %d requests, want %d first", had, want)
+			}
+			return
+		}
+		time.Sleep(pollInterval)
 	}
 }
 
