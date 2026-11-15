@@ -23,10 +23,6 @@ import (
 // crashEpic is the epic a crash run drives.
 const crashEpic = "acme/epic"
 
-// crashStoreDeadline is the router's bound on one store call in the harness: long enough that no call under test load
-// reads as late, so the harness's action order does not depend on the machine's speed.
-const crashStoreDeadline = time.Minute
-
 // crashRounds is how many rounds a run takes, and crashEpoch and crashRoundSeconds set the fake clock: round r is at the
 // epoch plus r rounds of crashRoundSeconds. Round 0 is when the epic is created.
 const (
@@ -193,6 +189,12 @@ func crashRunKilledAt(t *testing.T, action int) crashResult {
 	return w.result(t)
 }
 
+// crashStoreAfter arms the router's store-call bound with a timer that never fires. The harness's clock moves by rounds
+// and by nothing else, so no store call reads as late and the action order does not depend on the machine's speed.
+func crashStoreAfter(time.Duration, func()) func() bool {
+	return func() bool { return true }
+}
+
 // newCrashWorld returns a world over a new store that holds the epic in its accepted phase, with its planner's first
 // turn pending, in a new scratch repository.
 func newCrashWorld(t *testing.T) *crashWorld {
@@ -244,9 +246,9 @@ func (w *crashWorld) incarnation(limit, from int) (int, bool) {
 		Host: "crash", Now: w.now, Desk: crashDesk{w: w}, Phone: crashPhone{w: w},
 		Subscribed: func() (bool, error) { return true, nil }, Log: crashLog{w: w},
 		Rebuild: map[string]route.Rebuild{planner.EpicSource: planner.RestoreNotice},
-		// A row write the store is slow to finish under load would read as late and be written again, which adds
-		// actions; the harness's actions are counted, so no store call is late.
-		StoreDeadline: crashStoreDeadline,
+		// A store call that reads as late is written again, which adds actions; the harness's actions are counted, so
+		// its store-call bound never fires.
+		StoreAfter: crashStoreAfter,
 	})
 	router.Attach(ctx, kstore)
 	router.Wait()
