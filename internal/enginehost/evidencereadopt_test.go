@@ -242,7 +242,7 @@ func TestEvidenceReadoptCapturingWithAGrantReadsTheHoldersExitAndIsNotRunAgain(t
 		defer close(done)
 		_, runErr = c.run(ctx, repo, head, evidenceReadoptRun, item, started)
 	}()
-	gateWaitFile(t, startedFile)
+	gateWaitFile(t, startedFile, done)
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) {

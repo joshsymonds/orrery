@@ -428,7 +428,7 @@ func TestPanesSendTextParity(t *testing.T) {
 	}
 
 	want := "\x1b[200~" + synthText + "\x1b[201~\r"
-	awaitInput(t, file, want)
+	awaitInput(t, paneExited(t, tmux, pane), file, want)
 }
 
 func TestPanesSendTextErrorParity(t *testing.T) {
@@ -489,7 +489,7 @@ func TestPanesSendKeysParity(t *testing.T) {
 		t.Fatalf("Panes.SendKeys guarded: %v", err)
 	}
 
-	awaitInput(t, file, "ab")
+	awaitInput(t, paneExited(t, tmux, pane), file, "ab")
 }
 
 func TestPanesSendKeysErrorParity(t *testing.T) {
@@ -536,7 +536,7 @@ func TestPanesSendKeysErrorParity(t *testing.T) {
 		connect.NewRequest(&orreryv1.SendKeysRequest{Pane: pane, Keys: []string{"ok"}})); err != nil {
 		t.Fatalf("Panes.SendKeys after refusals: %v", err)
 	}
-	awaitInput(t, file, "ok")
+	awaitInput(t, paneExited(t, tmux, pane), file, "ok")
 }
 
 func TestPanesMarkSeenParity(t *testing.T) {

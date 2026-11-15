@@ -150,14 +150,14 @@ func TestGateLeftoversKillsMemberLeftByExitedChild(t *testing.T) {
 		StateDir: stateDir,
 		Environ:  gateEnv("MEMBER="+member, "RECORD="+filepath.Join(holderDir, holder.PidsName)),
 	})
-	gateKillDetachedAtCleanup(t, member)
+	gateKillDetachedAtCleanup(t, member, gateReturned())
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
 	}
 	if result.Exit != 0 {
 		t.Fatalf("Exit = %d, want 0", result.Exit)
 	}
-	pid, err := strconv.Atoi(gateWaitFile(t, member))
+	pid, err := strconv.Atoi(gateWaitFile(t, member, gateReturned()))
 	if err != nil {
 		t.Fatalf("member pid in %s: %v", member, err)
 	}

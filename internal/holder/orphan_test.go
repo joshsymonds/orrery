@@ -74,15 +74,50 @@ func awaitStopped(t *testing.T, pid int, start string) {
 	}
 }
 
-// awaitState waits until /proc holds process pid in state want, with no deadline of its own.
+// awaitState waits until /proc holds process pid in state want, with no deadline of its own. It fails at once if the
+// process is gone from /proc first, or is a zombie while want is another state: it can reach no other state then.
 func awaitState(t *testing.T, pid int, want string) {
 	t.Helper()
 	for {
-		if state, _, ok := procStatOf(t, pid); ok && state == want {
+		state, _, ok := procStatOf(t, pid)
+		if ok && state == want {
 			return
+		}
+		if !ok || state == "Z" {
+			t.Fatalf("process %d never reached state %s: it ended first", pid, want)
 		}
 		time.Sleep(holderPoll)
 	}
+}
+
+// pidExited returns a channel that closes once process pid has exited: /proc no longer holds it, or holds it as a
+// zombie. The poll stops when the test ends.
+func pidExited(t *testing.T, pid int) <-chan struct{} {
+	t.Helper()
+	ctx := t.Context()
+	stat := filepath.Join("/proc", strconv.Itoa(pid), "stat")
+	exited := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(holderPoll)
+		defer ticker.Stop()
+		for {
+			raw, err := os.ReadFile(stat)
+			if err != nil {
+				break
+			}
+			if fields := strings.Fields(string(raw[bytes.LastIndexByte(raw, ')')+1:])); len(fields) == 0 ||
+				fields[0] == "Z" || fields[0] == "X" {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+		close(exited)
+	}()
+	return exited
 }
 
 // killGroupAndAwait SIGKILLs the process group led by pid when process pid with start still runs, and waits until it
@@ -145,7 +180,7 @@ func startOrphan(t *testing.T) (string, Pids) {
 	}
 	t.Cleanup(func() { reap(t, holder) })
 	recordPath := filepath.Join(dir, PidsName)
-	awaitFile(t, recordPath)
+	awaitFile(t, pidExited(t, holder.Process.Pid), recordPath)
 	pids := readPidsRecord(t, recordPath)
 	t.Cleanup(func() { killGroupAndAwait(t, pids.Child, pids.ChildStart) })
 

@@ -228,7 +228,7 @@ func TestClientStopStopsTheHolderAndItsExitSaysStopped(t *testing.T) {
 	run := startHolder(t.Context(), t, cfg)
 	sock := socketOf(t, cfg.Dir)
 	conn := awaitDial(t, run, func() (*Conn, error) { return Dial(t.Context(), sock) })
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	if err := conn.Stop(); err != nil {
 		t.Fatalf("Stop = %v, want nil", err)
@@ -256,7 +256,7 @@ func TestClientRollbackRefusesANewerHolderByNameAndLeavesItRunning(t *testing.T)
 	if conn.Version() != WireVersion+1 {
 		t.Fatalf("Dial got version %d from a holder at %d, want Dial to accept it", conn.Version(), WireVersion+1)
 	}
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	_, err := conn.Attach(0)
 	versionErr := requireVersionError(t, err)
@@ -317,7 +317,7 @@ func TestClientControllerTwoNewerRefusesAHolderTwoVersionsBehind(t *testing.T) {
 	run := startHolder(t.Context(), t, cfg)
 	sock := socketOf(t, cfg.Dir)
 	conn := awaitDial(t, run, func() (*Conn, error) { return dial(t.Context(), sock, WireVersion+2) })
-	pid := awaitChildPid(t, cfg.Child.Dir)
+	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
 	_, err := conn.Attach(0)
 	versionErr := requireVersionError(t, err)

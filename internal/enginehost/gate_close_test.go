@@ -12,6 +12,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // queuedClosePools is a PoolCommands whose Acquire queues each request until closing is closed, then returns
@@ -168,9 +169,10 @@ func TestGateCloseWithoutScopeStopsGate(t *testing.T) {
 		done <- err
 	}()
 
-	group, child := gateParsePids(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
 	pools.drop <- grants.ErrClosed
-	err := <-done
+	err := <-doneResult
 	if errors.Is(err, errGateDetach) {
 		t.Fatalf("err = %v: a gate with no scope must not detach", err)
 	}
@@ -242,7 +244,7 @@ func TestStepDoneGateCloseStoresNoEndAndStopsNoSession(t *testing.T) {
 	_, done := f.start(t)
 
 	f.run.Return(stepDoneReturn(commit))
-	gateWaitFile(t, started)
+	gateWaitFile(t, started, done)
 	pools.drop <- grants.ErrClosed
 	waitRunEnd(t, done)
 

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // gateGrantPoll is how often a test reads the fake pools while it waits for a request to reach them.
@@ -320,7 +321,7 @@ func TestGrantedGateEachAttemptGetsItsOwnLimit(t *testing.T) {
 					`else echo 1 > "$FIRST"; sleep 60; fi; exit 0`,
 			},
 			Dir:      t.TempDir(),
-			Limit:    time.Second,
+			Limit:    time.Hour,
 			StateDir: gateShortStateDir(t),
 			Environ:  gateEnv("FIRST="+first, "SECOND="+second, "RELEASE="+release),
 			Started: func(_ context.Context, _, dir string) error {
@@ -332,25 +333,26 @@ func TestGrantedGateEachAttemptGetsItsOwnLimit(t *testing.T) {
 	}()
 
 	firstDir := gateWaitStarted(t, started)
-	gateWaitFile(t, first)
-	if got := gateHolderLimit(t, firstDir); got != "1" {
-		t.Fatalf("first attempt's holder --gate-limit = %s, want the whole 1 s Limit", got)
+	ended, doneResult := waittest.Closed(done)
+	gateWaitFile(t, first, ended)
+	if got := gateHolderLimit(t, firstDir); got != "3600" {
+		t.Fatalf("first attempt's holder --gate-limit = %s, want the whole one-hour Limit", got)
 	}
 	pools.stopGrant()
 
 	rerunDir := gateWaitStarted(t, started)
-	gateWaitFile(t, second)
+	gateWaitFile(t, second, ended)
 	if rerunDir == firstDir {
 		t.Fatalf("the rerun ran under the first attempt's holder directory %s, want a holder of its own", rerunDir)
 	}
-	if got := gateHolderLimit(t, rerunDir); got != "1" {
-		t.Fatalf("rerun's holder --gate-limit = %s, want the whole 1 s Limit", got)
+	if got := gateHolderLimit(t, rerunDir); got != "3600" {
+		t.Fatalf("rerun's holder --gate-limit = %s, want the whole one-hour Limit", got)
 	}
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatalf("release the rerun: %v", err)
 	}
 
-	got := <-done
+	got := <-doneResult
 	if got.err != nil {
 		t.Fatalf("runGrantedGate: %v", got.err)
 	}
@@ -394,10 +396,11 @@ func TestGrantedGateStopKillsGroupAndReclaimsItsGrant(t *testing.T) {
 		done <- outcome{result, err}
 	}()
 
-	group, child := gateParsePids(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
 	pools.stopGrant()
 
-	got := <-done
+	got := <-doneResult
 	if got.err != nil {
 		t.Fatalf("runGrantedGate: %v", got.err)
 	}
@@ -439,9 +442,10 @@ func TestGrantedGateCancelKillsGroupAndErrors(t *testing.T) {
 		done <- outcome{result, err}
 	}()
 
-	group, child := gateParsePids(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
 	cancel()
-	got := <-done
+	got := <-doneResult
 	if got.err == nil {
 		t.Fatalf("runGrantedGate returned no error after its context ended: %+v", got.result)
 	}
@@ -469,9 +473,10 @@ func TestGrantedGateKillsGateWhenItsGrantEndsEarly(t *testing.T) {
 		done <- outcome{result, err}
 	}()
 
-	group, child := gateParsePids(t, pids)
+	ended, doneResult := waittest.Closed(done)
+	group, child := gateParsePids(t, pids, ended)
 	pools.drop <- errBroker
-	got := <-done
+	got := <-doneResult
 	if !errors.Is(got.err, errGateUngranted) || !errors.Is(got.err, errBroker) {
 		t.Fatalf("err = %v, want errGateUngranted wrapping the grant's error", got.err)
 	}
