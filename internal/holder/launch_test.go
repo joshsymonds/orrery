@@ -111,7 +111,8 @@ func neverServingOrrery(t *testing.T) (string, string) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "holder.pid")
 	orrery := filepath.Join(dir, "orrery")
-	script := "#!/bin/sh\necho $$ > " + pidFile + "\nexec sleep 3600\n"
+	// The pid lands under a temporary name and is renamed into place, so the file appears only with its contents.
+	script := "#!/bin/sh\necho $$ > " + pidFile + ".tmp\nmv " + pidFile + ".tmp " + pidFile + "\nexec sleep 3600\n"
 	if err := os.WriteFile(orrery, []byte(script), 0o700); err != nil {
 		t.Fatalf("write %s: %v", orrery, err)
 	}
