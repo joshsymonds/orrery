@@ -37,7 +37,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
-private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val PANE_ROW_TAG = "pane-row:%1"
@@ -126,7 +125,7 @@ class MainActivityInsetsTest {
             MainActivity::class.java,
             Intent(context, MainActivity::class.java),
         ).setup().also { launched += it }
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodes(hasTestTag("pane-row:%1"), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
@@ -153,12 +152,12 @@ class MainActivityInsetsTest {
             MainActivity::class.java,
             Intent(context, MainActivity::class.java),
         ).setup().also { launched += it }
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodes(hasTestTag(PANE_ROW_TAG), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag(PANE_ROW_TAG, useUnmergedTree = true).performClick()
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodes(hasText(REPLY_TEXT), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }

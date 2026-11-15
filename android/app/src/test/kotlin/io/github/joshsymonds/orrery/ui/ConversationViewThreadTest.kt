@@ -8,6 +8,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -80,7 +81,7 @@ class ConversationViewThreadTest {
         composeRule.waitForIdle()
 
         assertEquals("the resize never measured", 0L, measuring.count)
-        composeRule.waitUntil(LATCH_SECONDS * 1_000) { resumed.count == 0L }
+        composeRule.awaitUntil { resumed.count == 0L }
         composeRule.onNodeWithText("synthetic reply $ENTRY_COUNT").assertIsDisplayed()
     }
 

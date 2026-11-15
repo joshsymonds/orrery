@@ -20,12 +20,14 @@ import androidx.compose.ui.test.performScrollTo
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
+import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.awaitUntilAfterIdle
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.waitUntilAfterIdle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -40,7 +42,6 @@ private const val KEYS_PATH = "/orrery.v1.Panes/SendKeys"
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val NOT_SENT = "key not sent"
 private const val NOTHING_CHANGED = "nothing changed"
-private const val TIMEOUT_MILLIS = 5_000L
 private const val FLASH_MILLIS = 300L
 private const val WINDOW_MILLIS = 5_000L
 private const val CHANGED_AT = 1_000L
@@ -88,7 +89,7 @@ class QuickKeysTest {
 
             labelToKey.forEachIndexed { index, (label, key) ->
                 composeRule.onNodeWithText(label).performScrollTo().performClick()
-                composeRule.waitUntil(TIMEOUT_MILLIS) { server.requests.size == index + 1 }
+                composeRule.awaitUntil { server.requests.size == index + 1 }
 
                 val request = server.requests[index]
                 assertEquals("POST", request.method)
@@ -107,7 +108,7 @@ class QuickKeysTest {
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { notSentShown() }
+            composeRule.awaitUntil { notSentShown() }
             composeRule.onNodeWithText(NOT_SENT).assertIsDisplayed()
         }
     }
@@ -119,7 +120,7 @@ class QuickKeysTest {
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { notSentShown() }
+            composeRule.awaitUntil { notSentShown() }
             composeRule.onNodeWithText(NOT_SENT).assertIsDisplayed()
         }
     }
@@ -131,7 +132,7 @@ class QuickKeysTest {
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { server.requests.size == 1 }
+            composeRule.awaitUntil { server.requests.size == 1 }
 
             assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
         }
@@ -144,9 +145,9 @@ class QuickKeysTest {
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { server.requests.size == 1 }
+            composeRule.awaitUntil { server.requests.size == 1 }
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { server.requests.size == 2 }
+            composeRule.awaitUntil { server.requests.size == 2 }
 
             assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
         }
@@ -201,13 +202,13 @@ class QuickKeysTest {
             composeRule.mainClock.autoAdvance = false
 
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { server.requests.size == 1 }
+            composeRule.awaitUntilAfterIdle { server.requests.size == 1 }
 
             assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
             assertTrue("Enter flashes although the send failed", flashing("Enter"))
 
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntil(TIMEOUT_MILLIS) { notSentShown() }
+            composeRule.awaitUntil { notSentShown() }
             assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
         }
     }
@@ -222,10 +223,10 @@ class QuickKeysTest {
 
             composeRule.onNodeWithText("Esc").performClick()
             composeRule.waitForIdle()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntil { keyRequests(server) == 1 }
 
             composeRule.runOnIdle { shown.state = "done" }
-            composeRule.waitUntilExactlyOneExists(hasText("now done"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("now done"))
             assertEquals("the change shows the result without a read", 0, panesRequests(server))
         }
     }
@@ -240,10 +241,10 @@ class QuickKeysTest {
 
             composeRule.onNodeWithText("Esc").performClick()
             composeRule.waitForIdle()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntil { keyRequests(server) == 1 }
 
             composeRule.runOnIdle { shown.changed = LATER }
-            composeRule.waitUntilExactlyOneExists(hasText("now working"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("now working"))
         }
     }
 
@@ -257,10 +258,10 @@ class QuickKeysTest {
 
             composeRule.onNodeWithText("Ctrl-C").performClick()
             composeRule.waitForIdle()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntil { keyRequests(server) == 1 }
 
             composeRule.runOnIdle { shown.state = "" }
-            composeRule.waitUntilExactlyOneExists(hasText("now ended"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("now ended"))
         }
     }
 
@@ -274,7 +275,7 @@ class QuickKeysTest {
 
             composeRule.onNodeWithText("Esc").performClick()
             composeRule.waitForIdle()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { notSentShown() }
+            composeRule.awaitUntil { notSentShown() }
 
             composeRule.mainClock.autoAdvance = false
             composeRule.runOnIdle { shown.state = "done" }
@@ -296,7 +297,7 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Ctrl-C").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS - 1, ignoreFrameDuration = true)
@@ -306,7 +307,7 @@ class QuickKeysTest {
 
             composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
             assertEquals("one read at 5 s", 1, panesRequests(server))
         }
     }
@@ -321,12 +322,12 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
         }
     }
 
@@ -340,13 +341,13 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
 
             // The shown pane is still "working"; the read finds the pane "done".
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntilExactlyOneExists(hasText("now done"), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText("now done"))
         }
     }
 
@@ -360,12 +361,12 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntil(TIMEOUT_MILLIS) { panesRequests(server) == 1 }
+            composeRule.awaitUntil { panesRequests(server) == 1 }
             settleReads()
             assertNoResultShown("a failed read")
             assertFalse("a failed read is not a send failure", notSentShown())
@@ -382,13 +383,13 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
 
             composeRule.mainClock.advanceTimeBy(3_000, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 2 }
+            composeRule.awaitUntil { keyRequests(server) == 2 }
             composeRule.mainClock.autoAdvance = false
 
             composeRule.mainClock.advanceTimeBy(2_000, ignoreFrameDuration = true)
@@ -399,7 +400,7 @@ class QuickKeysTest {
             assertFalse("no result at 5 s", resultShown(NOTHING_CHANGED))
 
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
             assertEquals("one read, at 8 s", 1, panesRequests(server))
         }
     }
@@ -414,14 +415,14 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
             composeRule.mainClock.autoAdvance = true
-            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+            composeRule.awaitExactlyOne(hasText(NOTHING_CHANGED))
 
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 2 }
+            composeRule.awaitUntil { keyRequests(server) == 2 }
             assertFalse("the tap clears the result", resultShown(NOTHING_CHANGED))
         }
     }
@@ -436,13 +437,13 @@ class QuickKeysTest {
             // The clock is still from before the tap, so the window opens at the time the test advances from.
             composeRule.mainClock.autoAdvance = false
             composeRule.onNodeWithText("Esc").performClick()
-            composeRule.waitUntilAfterIdle(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.awaitUntilAfterIdle { keyRequests(server) == 1 }
             settleReads()
             composeRule.mainClock.advanceTimeBy(3_000, ignoreFrameDuration = true)
 
             composeRule.mainClock.autoAdvance = true
             composeRule.onNodeWithText("Enter").performScrollTo().performClick()
-            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 2 }
+            composeRule.awaitUntil { keyRequests(server) == 2 }
             composeRule.mainClock.autoAdvance = false
 
             composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
@@ -463,7 +464,7 @@ class QuickKeysTest {
             listOf("Enter", "←", "↑", "↓", "→").forEachIndexed { index, label ->
                 composeRule.onNodeWithText(label).performScrollTo().performClick()
                 composeRule.waitForIdle()
-                composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == index + 1 }
+                composeRule.awaitUntil { keyRequests(server) == index + 1 }
             }
             composeRule.runOnIdle { shown.state = "done" }
             composeRule.mainClock.autoAdvance = false
