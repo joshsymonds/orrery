@@ -197,9 +197,9 @@ func TestLoadRefuses(t *testing.T) {
 			load: "flow",
 			files: map[string]string{
 				flow:            lines("name: flow", "nodes:", "  - include: mid"),
-				repoPath("mid"): lines("name: mid", "nodes:", "  - id: x", "    kind: review"),
+				repoPath("mid"): lines("name: mid", "nodes:", "  - id: x", "    kind: survey"),
 			},
-			want: inFile(repoPath("mid"), 4, `node x: key kind: unknown kind "review"`),
+			want: inFile(repoPath("mid"), 4, `node x: key kind: unknown kind "survey"`),
 		},
 		{
 			name: "duplicate id across files",
