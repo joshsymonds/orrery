@@ -31,25 +31,38 @@ func List(ctx context.Context, client *tmuxctl.Client, args []string, out io.Wri
 		return errors.New("orrery list: --json is required")
 	}
 
-	panes, err := client.ListPanes(ctx)
-	if err != nil && !listNotRunning(err) {
+	panes, err := Panes(ctx, client)
+	if err != nil {
 		return fmt.Errorf("orrery list: %w", err)
 	}
-
-	host, err := os.Hostname()
-	if err != nil {
-		return fmt.Errorf("orrery list: hostname: %w", err)
-	}
 	result := make([]protocol.Pane, 0, len(panes))
-	for _, pane := range panes {
-		pane.Host = host
-		result = append(result, pane)
+	for _, entry := range panes {
+		result = append(result, entry.Pane)
 	}
 
 	if err = json.NewEncoder(out).Encode(result); err != nil {
 		return fmt.Errorf("orrery list: encode: %w", err)
 	}
 	return nil
+}
+
+// Panes returns every pane of client's server from one list-panes call, with Host set to os.Hostname().
+// A server that is not running has no panes and no error.
+func Panes(ctx context.Context, client *tmuxctl.Client) ([]tmuxctl.Listed, error) {
+	listed, err := client.List(ctx)
+	if err != nil && !listNotRunning(err) {
+		// The wrap adds no text: List prefixes "orrery list: " and that is the whole error message.
+		return nil, fmt.Errorf("%w", err)
+	}
+
+	host, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("hostname: %w", err)
+	}
+	for i := range listed {
+		listed[i].Host = host
+	}
+	return listed, nil
 }
 
 // listNotRunning reports whether err is tmux saying that no server is running on its socket.
