@@ -30,15 +30,22 @@ import (
 // stopGrace is the grace a stopped command gets before SIGKILL when a run does not set one.
 const stopGrace = 30 * time.Second
 
-// stopScript is the command the stop tests run, under the grant each test names. Under grant-term it exits on SIGTERM.
-// Under grant-stubborn it ignores SIGTERM and runs until killed. Under grant-orphan it exits on SIGTERM and leaves a
-// child in its group that ignores SIGTERM and runs until killed; the child prints a child line once it ignores
-// SIGTERM. Under any other grant it prints the grant and exits 3. The first two print a ready line once their traps are
-// set, so a test can send its stop only after that.
+// termWatch begins a script that must see SIGTERM come. It starts a sleep that SIGTERM ends, then ignores SIGTERM
+// itself, so `wait $watch` returns once SIGTERM reaches the command's group, whenever it lands. sh catches no SIGTERM
+// before the trap, so the sleep dies on it even before its exec. A trap that runs on SIGTERM cannot do this while sh
+// waits in a read: a SIGTERM that lands after sh checks for traps and before it enters read(2) runs the trap only
+// once a line comes in, and stdin never sends one.
+const termWatch = `sleep 1000 </dev/null >/dev/null 2>&1 & watch=$!; trap '' TERM; `
+
+// stopScript is the command the stop tests run, under the grant each test names. Under grant-term it prints term and
+// exits 0 on SIGTERM. Under grant-stubborn it ignores SIGTERM and runs until killed. Under grant-orphan it prints term
+// and exits 0 on SIGTERM, and leaves a child in its group that ignores SIGTERM and runs until killed; the child prints a
+// child line once it ignores SIGTERM. Under any other grant it prints the grant and exits 3. The first two print a
+// ready line once they ignore SIGTERM, so a test can send its stop only after that.
 const stopScript = `case "$ORRERY_GRANT" in
-grant-term) trap 'echo term; exit 0' TERM; echo "ready $$"; read -r line ;;
+grant-term) ` + termWatch + `echo "ready $$"; wait $watch; echo term; exit 0 ;;
 grant-stubborn) trap '' TERM; echo "ready $$"; read -r line ;;
-grant-orphan) trap 'echo term; exit 0' TERM; sh -c 'trap "" TERM; echo "child $$"; exec sleep 1000' & read -r line ;;
+grant-orphan) ` + termWatch + `sh -c 'trap "" TERM; echo "child $$"; exec sleep 1000' & wait $watch; echo term; exit 0 ;;
 *) echo "rerun $ORRERY_GRANT"; exit 3 ;;
 esac`
 
@@ -199,10 +206,11 @@ func outputLines(r io.Reader) <-chan string {
 	return lines
 }
 
-// nextLine returns the next line lines delivers. It has no deadline of its own.
-func nextLine(t *testing.T, lines <-chan string) string {
+// nextLine returns the next line lines delivers while the run whose result arrives on status runs. It has no deadline
+// of its own, and fails at once when the run returns first (see receiveDuringRun).
+func nextLine(t *testing.T, lines <-chan string, status <-chan int) string {
 	t.Helper()
-	line, ok := <-lines
+	line, ok := receiveDuringRun(t, lines, status, "the command's next line")
 	if !ok {
 		t.Fatal("the command's output ended before the next line")
 	}
@@ -241,7 +249,7 @@ func TestRunStopSendsSIGTERMAndRerunsCommand(t *testing.T) {
 		return nil
 	}
 	status := runAsync(context.Background(), cfg)
-	if line := nextLine(t, lines); !strings.HasPrefix(line, "ready ") {
+	if line := nextLine(t, lines, status); !strings.HasPrefix(line, "ready ") {
 		t.Fatalf("first line = %q, want the ready line", line)
 	}
 	close(ready)
@@ -286,10 +294,10 @@ func TestRunStopKillsCommandOnlyAfterGrace(t *testing.T) {
 		return fire
 	}
 	status := runAsync(context.Background(), cfg)
-	pid := readyPID(t, nextLine(t, lines))
+	pid := readyPID(t, nextLine(t, lines, status))
 	close(ready)
 
-	d := <-graces
+	d, _ := receiveDuringRun(t, graces, status, "the stop's grace")
 	if d != stopGrace {
 		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}
@@ -335,13 +343,13 @@ func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
 		return fire
 	}
 	status := runAsync(context.Background(), cfg)
-	// The child line is printed after the child ignores SIGTERM, and after CMD set its own trap, so the stop is sent
-	// only once both hold.
-	child := childPID(t, nextLine(t, lines))
+	// The child line is printed after the child ignores SIGTERM, and after CMD started its watch and ignores SIGTERM,
+	// so the stop is sent only once both hold.
+	child := childPID(t, nextLine(t, lines, status))
 	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
 	close(ready)
 
-	d := <-graces
+	d, _ := receiveDuringRun(t, graces, status, "the stop's grace")
 	if d != stopGrace {
 		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}
@@ -394,7 +402,7 @@ func TestRunStopExitsNoGrantWhenReclaimIsRefused(t *testing.T) {
 			lines := outputLines(r)
 			var stderr bytes.Buffer
 			status := runAsync(context.Background(), stopConfig(t, socket, w, &stderr, stdinR))
-			nextLine(t, lines)
+			nextLine(t, lines, status)
 			close(ready)
 			if got := awaitStatus(t, status); got != cli.ExitNoGrant {
 				t.Errorf("RunWithGrant = %d, want ExitNoGrant %d", got, cli.ExitNoGrant)
@@ -424,7 +432,7 @@ func TestRunStopExitsWhenContextEndsWhileWaitingAgain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	status := runAsync(ctx, stopConfig(t, socket, w, io.Discard, stdinR))
-	nextLine(t, lines)
+	nextLine(t, lines, status)
 	close(ready)
 	awaitStopRequests(t, pools, 2, status)
 	cancel()

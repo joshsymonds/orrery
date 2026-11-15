@@ -2,6 +2,7 @@
 package exectest
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 	"testing"
@@ -15,9 +16,17 @@ import (
 // os/exec forks only while it holds syscall.ForkLock for writing, so no fork can happen between this open and close.
 func WriteFile(tb testing.TB, path string, data []byte, perm os.FileMode) {
 	tb.Helper()
+	if err := Write(path, data, perm); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+// Write is WriteFile for a caller with no testing.TB, such as a TestMain. It returns the write's error.
+func Write(path string, data []byte, perm os.FileMode) error {
 	syscall.ForkLock.RLock()
 	defer syscall.ForkLock.RUnlock()
 	if err := os.WriteFile(path, data, perm); err != nil {
-		tb.Fatalf("write %s: %v", path, err)
+		return fmt.Errorf("write %s: %w", path, err)
 	}
+	return nil
 }

@@ -16,11 +16,43 @@ import (
 // pinTestEpicPath is the repository path of the workflow the tests commit under the name epic.
 const pinTestEpicPath = ".orrery/workflows/epic.yaml"
 
-// pinTestEpicText is the canonical text of the built-in epic, as E2 freezes it, and pinTestEpicSHA its sha256.
-const (
-	pinTestEpicText = "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: build\n"
-	pinTestEpicSHA  = "8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e"
-)
+// pinTestEpicText is the canonical text of the built-in epic, as E41 freezes it, and pinTestEpicSHA its sha256.
+const pinTestEpicText = `name: epic
+nodes:
+  - id: red
+    kind: evidence
+    at: base
+  - id: plan
+    kind: plan
+    body:
+      - id: build
+        kind: build
+      - id: integrate
+        kind: integrate
+  - id: review
+    kind: review
+  - id: correct
+    loop:
+      max: 2
+      until: closure.passed
+      spent: continue
+    body:
+      - id: fix
+        kind: plan
+        body:
+          - id: rebuild
+            kind: build
+          - id: reintegrate
+            kind: integrate
+      - id: closure
+        kind: closure
+  - id: conclude
+    kind: conclude
+  - id: release
+    kind: release
+`
+
+const pinTestEpicSHA = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
 
 // pinTestOutline is a committed epic: an outline plan holding one write build.
 const pinTestOutline = "name: epic\nnodes:\n  - id: outline\n    kind: plan\n    body:\n      - id: write\n        kind: build\n"
@@ -71,8 +103,18 @@ func TestPinWorkflowEmptyNamePinsBuiltInEpic(t *testing.T) {
 		Text:   pinTestEpicText,
 		SHA256: pinTestEpicSHA,
 		Nodes: []store.EpicWorkflowNode{
+			{ID: "red", Parent: "", Kind: "evidence"},
 			{ID: "plan", Parent: "", Kind: "plan"},
 			{ID: "build", Parent: "plan", Kind: "build"},
+			{ID: "integrate", Parent: "plan", Kind: "integrate"},
+			{ID: "review", Parent: "", Kind: "review"},
+			{ID: "correct", Parent: "", Kind: "loop"},
+			{ID: "fix", Parent: "correct", Kind: "plan"},
+			{ID: "rebuild", Parent: "fix", Kind: "build"},
+			{ID: "reintegrate", Parent: "fix", Kind: "integrate"},
+			{ID: "closure", Parent: "correct", Kind: "closure"},
+			{ID: "conclude", Parent: "", Kind: "conclude"},
+			{ID: "release", Parent: "", Kind: "release"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

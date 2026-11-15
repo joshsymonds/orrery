@@ -50,7 +50,7 @@ func storedKinds(t *testing.T, db *sql.DB) int64 {
 	return kinds
 }
 
-// TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike stores items and a run spec at version 32 and reads them back
+// TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike stores items and a run spec at version 33 and reads them back
 // after Open migrates the store: an item or spec whose capture is a list gains the capture kind, one whose supplied
 // files are a list gains the supplied kind, and the item with neither and the empty item stay as they were. The run
 // kept its Requirement's item, and both migrate to the same kinded item, so the run stays current with it.
@@ -70,7 +70,7 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 			`"conclusion":"the task holds","judge":"a judge"}`
 	)
 	const id = seededEpic
-	fixture := openStoreAtVersion(t, path, 32)
+	fixture := openStoreAtVersion(t, path, 33)
 	seedEpic(t, fixture)
 	seeds := []struct {
 		stmt string
@@ -102,7 +102,7 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 32: %v", err)
+		t.Fatalf("Open at version 33: %v", err)
 	}
 	defer s.Close()
 
@@ -128,10 +128,10 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 	if got := requirements["R2"].Item; !reflect.DeepEqual(got, wantSupplied) {
 		t.Errorf("supplied requirement item = %+v, want %+v", got, wantSupplied)
 	}
-	if got := textOf(t, s.db, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R3'`, id); got != neither {
+	if got := textOf(t, s.db.DB, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R3'`, id); got != neither {
 		t.Errorf("neither requirement item after migration = %s, want %s", got, neither)
 	}
-	if got := textOf(t, s.db, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R4'`, id); got != "" {
+	if got := textOf(t, s.db.DB, `SELECT item FROM epic_requirements WHERE epic = ? AND id = 'R4'`, id); got != "" {
 		t.Errorf("no-item requirement item after migration = %q, want empty", got)
 	}
 
@@ -152,7 +152,7 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 	}
 }
 
-// TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim stores three tasks that claim R1 at version 32, seq 1 failed,
+// TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim stores three tasks that claim R1 at version 33, seq 1 failed,
 // seq 2 open and seq 3 done, and reads them back after Open migrates the store: the failed task and the lowest
 // unfailed task keep R1, the later unfailed task holds it as a contribution, and the claims that are not R1 stay.
 func TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim(t *testing.T) {
@@ -161,7 +161,7 @@ func TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	const id = seededEpic
-	fixture := openStoreAtVersion(t, path, 32)
+	fixture := openStoreAtVersion(t, path, 33)
 	seedEpic(t, fixture)
 	seeds := []struct {
 		stmt string
@@ -190,7 +190,7 @@ func TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 32: %v", err)
+		t.Fatalf("Open at version 33: %v", err)
 	}
 	defer s.Close()
 
@@ -267,7 +267,7 @@ func TestEpicTaskContributesReadBackInOrder(t *testing.T) {
 }
 
 // TestAssertionsMigrationDownAndUpRoundTrips stores kinds, a claim and a contribution to it, and a run spec, then takes
-// the store down to version 32 and back up: the kinds are removed by the Down and derived again by the Up, the
+// the store down to version 33 and back up: the kinds are removed by the Down and derived again by the Up, the
 // contribution moves back to a claim after the task's own claim and returns as a contribution, and the epic reads back
 // as it did before.
 func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
@@ -325,25 +325,25 @@ func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvidenceRun before Down: %v", err)
 	}
-	if kinds := storedKinds(t, s.db); kinds != 4 {
+	if kinds := storedKinds(t, s.db.DB); kinds != 4 {
 		t.Fatalf("stored kinds before Down = %d, want 4: the requirement, both tasks and the run spec", kinds)
 	}
 
-	provider := assertionsProvider(t, s.db)
-	if _, err := provider.DownTo(ctx, 32); err != nil {
-		t.Fatalf("DownTo 32: %v", err)
+	provider := assertionsProvider(t, s.db.DB)
+	if _, err := provider.DownTo(ctx, 33); err != nil {
+		t.Fatalf("DownTo 33: %v", err)
 	}
 	if tableNames(t, s)["epic_task_contributes"] {
 		t.Errorf("epic_task_contributes after Down: present, want absent")
 	}
-	if kinds := storedKinds(t, s.db); kinds != 0 {
+	if kinds := storedKinds(t, s.db.DB); kinds != 0 {
 		t.Errorf("stored kinds after Down = %d, want 0", kinds)
 	}
 	// The contribution returns as a claim after the task's own claims, so no position is taken twice.
 	wantClaims := [][]any{
 		{id, int64(1), int64(1), "R1"}, {id, int64(2), int64(1), "R2"}, {id, int64(2), int64(2), "R1"},
 	}
-	if got := rowsOf(t, s.db, "epic_task_requirements"); !reflect.DeepEqual(got, wantClaims) {
+	if got := rowsOf(t, s.db.DB, "epic_task_requirements"); !reflect.DeepEqual(got, wantClaims) {
 		t.Errorf("claims after Down = %v, want %v", got, wantClaims)
 	}
 

@@ -133,6 +133,7 @@ type Daemon struct {
 	holderLosses     metric.Int64Counter
 	writerWait       metric.Float64Counter
 	writerBacklogAge metric.Float64Gauge
+	storeSlowCalls   metric.Int64Counter
 }
 
 // NewDaemon registers the orreryd series on p and records start as the start timestamp. Every other series is present
@@ -181,12 +182,20 @@ func NewDaemon(ctx context.Context, p *Provider, start time.Time) (*Daemon, erro
 	if err != nil {
 		return nil, fmt.Errorf("create writer backlog age gauge: %w", err)
 	}
+	storeSlowCalls, err := meter.Int64Counter(
+		"orrery_store_slow_calls_total",
+		metric.WithDescription("Store calls that took longer than 100 ms."),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create store slow calls counter: %w", err)
+	}
 
 	startGauge.Record(ctx, unixSeconds(start))
 	ready.Record(ctx, 0)
 	writerBacklogAge.Record(ctx, 0)
 	holderLosses.Add(ctx, 0)
 	writerWait.Add(ctx, 0)
+	storeSlowCalls.Add(ctx, 0)
 	for _, class := range []string{classTransport, class4xx, class5xx, classOther} {
 		pushFailures.Add(ctx, 0, metric.WithAttributes(attribute.String("class", class)))
 	}
@@ -196,6 +205,7 @@ func NewDaemon(ctx context.Context, p *Provider, start time.Time) (*Daemon, erro
 		holderLosses:     holderLosses,
 		writerWait:       writerWait,
 		writerBacklogAge: writerBacklogAge,
+		storeSlowCalls:   storeSlowCalls,
 	}, nil
 }
 
@@ -230,6 +240,14 @@ func (d *Daemon) WriterWaited(ctx context.Context, wait time.Duration) {
 		return
 	}
 	d.writerWait.Add(ctx, wait.Seconds())
+}
+
+// StoreSlowCall counts one store call that took longer than 100 ms.
+func (d *Daemon) StoreSlowCall(ctx context.Context) {
+	if d == nil {
+		return
+	}
+	d.storeSlowCalls.Add(ctx, 1)
 }
 
 // WriterBacklog records age as the age of the oldest write in the writer backlog.

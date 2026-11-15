@@ -202,17 +202,17 @@ func TestTaskRunReadsAsRedAndGreenOnlyWhileCurrentWithTheTaskEvidence(t *testing
 	}
 }
 
-// TestEvidenceRunStoredAtVersion32IsCurrentAfterOpenMigrates checks that a run stored at version 32 with its
+// TestEvidenceRunStoredAtVersion33IsCurrentAfterOpenMigrates checks that a run stored at version 33 with its
 // Requirement's item still counts in EpicFlow once Open migrates the store: the migration gives the item and the run's
 // spec the same kind, so the run stays current.
-func TestEvidenceRunStoredAtVersion32IsCurrentAfterOpenMigrates(t *testing.T) {
+func TestEvidenceRunStoredAtVersion33IsCurrentAfterOpenMigrates(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	const item = `{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,` +
 		`"conclusion":"the capture holds","judge":"a judge"}`
 
-	fixture := openStoreAtVersion(t, path, 32)
+	fixture := openStoreAtVersion(t, path, 33)
 	seedEpic(t, fixture)
 	seeds := []struct {
 		stmt string
@@ -236,7 +236,7 @@ func TestEvidenceRunStoredAtVersion32IsCurrentAfterOpenMigrates(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 32: %v", err)
+		t.Fatalf("Open at version 33: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := s.Close(); err != nil {

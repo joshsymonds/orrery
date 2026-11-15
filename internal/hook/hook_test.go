@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -20,8 +21,6 @@ const (
 	testBaseURL = "https://patchbay.example.com/ctx/example-context"
 	testHook    = `{"hook_event_name":"Stop","session_id":"example-session"}`
 
-	// quietWindow is how long TestHookSentinel waits for a stray connection to arrive.
-	quietWindow = 200 * time.Millisecond
 	// oversize is larger than a default unix socket buffer, so an unread write blocks.
 	oversize = 4 << 20
 	// whitespace is scanned by the JSON encoder but dropped from the frame it writes, so
@@ -134,112 +133,106 @@ func TestHookDaemonDown(t *testing.T) {
 	}
 }
 
-func TestHookEncodingOutsideDeadline(t *testing.T) {
+// A frame whose encoding is slow, here for its whitespace, reaches the daemon compacted, and the hook reads no clock for
+// it: a frame that fits the socket never waits on the daemon, so neither its encoding nor any stall counts against the
+// deadline.
+func TestHookEncodingNeverCountsAgainstTheDeadline(t *testing.T) {
 	path, ln := listen(t)
-
-	got := make(chan received, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			got <- received{err: err}
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		frame, err := protocol.ReadFrame(conn)
-		got <- received{frame: frame, err: err}
-	}()
-
 	hook := `{"hook_event_name":"Stop",` + strings.Repeat(" ", whitespace) + `"session_id":"example-session"}`
-	Run(strings.NewReader(hook), testEnv(map[string]string{"TMUX_PANE": testPane}), path)
-
-	result := <-got
+	clockRead := false
+	result := receiveAfter(t, path, ln, func() {
+		run(strings.NewReader(hook), testEnv(map[string]string{"TMUX_PANE": testPane}), path, func() time.Time {
+			clockRead = true
+			return time.Now()
+		})
+	})
 	if result.err != nil {
-		t.Fatalf("read frame: %v (the frame was dropped; encoding ran inside the deadline)", result.err)
+		t.Fatalf("read frame: %v (a frame that fits the socket was dropped)", result.err)
 	}
 	if string(result.frame.Hook) != testHook {
 		t.Errorf("hook = %s, want %s", result.frame.Hook, testHook)
 	}
+	if clockRead {
+		t.Error("the hook read the clock for a frame that fit the socket: something waited on the daemon")
+	}
 }
 
+// A daemon that never reads holds up the hook no longer than the deadline: the part of a frame too big for the socket
+// waits for room until then, and the rest is dropped. The stalled clock puts the deadline in the past, so Run returns
+// at once with only what fit written.
 func TestHookDeadline(t *testing.T) {
 	path, ln := listen(t)
-
-	// accepted records when the daemon accepted the connection: the deadline governs the time
-	// from there to Run's return.
 	accepted := make(chan net.Conn, 1)
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
+			close(accepted)
 			return
 		}
 		accepted <- conn
 	}()
 
 	hook := `{"hook_event_name":"Stop","padding":"` + strings.Repeat("x", oversize) + `"}`
-	env := testEnv(map[string]string{"TMUX_PANE": testPane})
+	run(strings.NewReader(hook), testEnv(map[string]string{"TMUX_PANE": testPane}), path, stalledClock)
 
-	Run(strings.NewReader(hook), env, path)
-
-	conn := <-accepted
+	conn, ok := <-accepted
+	if !ok {
+		t.Fatal("the daemon accepted no connection")
+	}
 	t.Cleanup(func() { _ = conn.Close() })
+	got, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("read what the hook wrote: %v", err)
+	}
+	if len(got) == 0 || len(got) >= oversize {
+		t.Fatalf(
+			"the daemon got %d bytes, want part of the %d-byte frame: what fit, without the wait",
+			len(got),
+			oversize,
+		)
+	}
+}
+
+// requireNothingSent fails t unless the daemon on ln got no connection from send: once send has returned, the first
+// connection accepted must be receiveAfter's sentinel, whose read is EOF.
+func requireNothingSent(t *testing.T, path string, ln net.Listener, what string, send func()) {
+	t.Helper()
+	if result := receiveAfter(t, path, ln, send); !errors.Is(result.err, io.EOF) {
+		t.Fatalf("%s reached the daemon: first connection read %+v, %v; want the sentinel's EOF", what, result.frame,
+			result.err)
+	}
 }
 
 func TestHookSentinel(t *testing.T) {
 	path, ln := listen(t)
-
-	dialed := make(chan struct{}, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		_ = conn.Close()
-		dialed <- struct{}{}
-	}()
-
 	env := map[string]string{
 		protocol.EnvSummarizer: protocol.SummarizerValue,
 		"TMUX_PANE":            testPane,
 	}
-	Run(strings.NewReader(testHook), testEnv(env), path)
+	requireNothingSent(t, path, ln, "the summarizer hook", func() {
+		Run(strings.NewReader(testHook), testEnv(env), path)
+	})
+}
 
-	select {
-	case <-dialed:
-		t.Fatal("summarizer hook dialed the daemon")
-	case <-time.After(quietWindow):
-	}
+// unreadStdin is a stdin a session-marked hook must not read: a read fails the test and ends the input.
+type unreadStdin struct{ t *testing.T }
+
+func (r unreadStdin) Read([]byte) (int, error) {
+	r.t.Error("the session-marked hook read its stdin")
+	return 0, io.EOF
 }
 
 func TestHookSessionMarker(t *testing.T) {
-	path, ln := listen(t)
-
-	dialed := make(chan struct{}, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		_ = conn.Close()
-		dialed <- struct{}{}
-	}()
-
 	for _, value := range []string{"1", "headless"} {
 		t.Run(value, func(t *testing.T) {
-			// The write end stays open and never writes, so a Run that reads stdin blocks forever.
-			stdin, writer := io.Pipe()
-			t.Cleanup(func() { _ = writer.Close() })
-
+			path, ln := listen(t)
 			env := map[string]string{
 				protocol.EnvSession: value,
 				"TMUX_PANE":         testPane,
 			}
-			Run(stdin, testEnv(env), path)
-
-			select {
-			case <-dialed:
-				t.Fatal("session-marked hook dialed the daemon")
-			case <-time.After(quietWindow):
-			}
+			requireNothingSent(t, path, ln, "the session-marked hook", func() {
+				Run(unreadStdin{t: t}, testEnv(env), path)
+			})
 		})
 	}
 }
@@ -478,5 +471,54 @@ func TestReportInputFailure(t *testing.T) {
 
 	if err := ReportInput(path, testInput); err == nil {
 		t.Fatal("ReportInput with an unreachable socket path returned nil, want an error")
+	}
+}
+
+// stalledClock reads an hour before the real time, as the clock reads for a hook that stalled an hour, a GC pause or a
+// busy CPU drawn out, after it read the time and before it reached the daemon.
+func stalledClock() time.Time {
+	return time.Now().Add(-time.Hour)
+}
+
+// receiveAfter runs send and returns the first frame the daemon on ln gets. A send that drops the frame before it
+// connects would leave nothing to accept, so once send has returned a sentinel connects and closes: connections are
+// accepted in the order they arrive, so the sentinel is accepted first only when send made none, and its read is EOF.
+func receiveAfter(t *testing.T, path string, ln net.Listener, send func()) received {
+	t.Helper()
+	got := make(chan received, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			got <- received{err: err}
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		frame, err := protocol.ReadFrame(conn)
+		got <- received{frame: frame, err: err}
+	}()
+	send()
+	var dialer net.Dialer
+	sentinel, err := dialer.DialContext(t.Context(), "unix", path)
+	if err != nil {
+		t.Fatalf("dial the sentinel: %v", err)
+	}
+	if err = sentinel.Close(); err != nil {
+		t.Fatalf("close the sentinel: %v", err)
+	}
+	return <-got
+}
+
+// A healthy daemon takes a frame that fits its socket however long the hook stalled first: nothing waits on the daemon,
+// so no deadline can have passed. The stalled clock forces the stall between reading the time and reaching the daemon.
+func TestHookDeliversAFrameAfterAStall(t *testing.T) {
+	path, ln := listen(t)
+	result := receiveAfter(t, path, ln, func() {
+		run(strings.NewReader(testHook), testEnv(map[string]string{"TMUX_PANE": testPane}), path, stalledClock)
+	})
+	if result.err != nil {
+		t.Fatalf("read frame: %v (a frame the daemon could take at once was dropped after the stall)", result.err)
+	}
+	if string(result.frame.Hook) != testHook {
+		t.Errorf("hook = %s, want %s", result.frame.Hook, testHook)
 	}
 }

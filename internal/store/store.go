@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/pressly/goose/v3"
 	"modernc.org/sqlite"
@@ -26,7 +28,7 @@ var ErrTooNew = errors.New("store schema is newer than this binary")
 
 // Store is an open orrery SQLite store.
 type Store struct {
-	db        *sql.DB
+	db        *pool
 	connector *trackedConnector
 
 	liveMu     sync.Mutex
@@ -82,9 +84,31 @@ type Option func(*openConfig)
 
 type openConfig struct {
 	synchronous Synchronous
+	logger      *slog.Logger
+	slowCounted func(context.Context)
 	// connectGate and closeWaiting are the trackedConnector's gate and waiting. They are for tests and nil otherwise.
 	connectGate  func(context.Context)
 	closeWaiting func()
+	// callClock is the clock store calls are timed on. It is for tests, and time.Now otherwise.
+	callClock func() time.Time
+}
+
+// WithLogger sets the logger the store warns on for each call that takes longer than 100 ms, from the call until the
+// store's one connection is free again. The warning names the call's queries and splits its time into the wait for the
+// connection and the run on it. Without WithLogger the warnings are discarded.
+func WithLogger(logger *slog.Logger) Option {
+	return func(c *openConfig) { c.logger = logger }
+}
+
+// WithSlowCallCounter sets counted, which the store runs once for each call that takes longer than 100 ms, after its
+// warning (see WithLogger).
+func WithSlowCallCounter(counted func(context.Context)) Option {
+	return func(c *openConfig) { c.slowCounted = counted }
+}
+
+// withCallClock sets the clock store calls are timed on, in place of time.Now. It is for tests.
+func withCallClock(now func() time.Time) Option {
+	return func(c *openConfig) { c.callClock = now }
 }
 
 // WithSynchronous sets the connection's synchronous mode in place of SQLite's default, FULL. It is for tests: OFF
@@ -131,7 +155,14 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	connector := &trackedConnector{inner: inner, gate: cfg.connectGate, waiting: cfg.closeWaiting}
 	db := sql.OpenDB(connector)
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db, connector: connector}
+	slow := &slowCalls{now: cfg.callClock, logger: cfg.logger, counted: cfg.slowCounted}
+	if slow.now == nil {
+		slow.now = time.Now
+	}
+	if slow.logger == nil {
+		slow.logger = slog.New(slog.DiscardHandler)
+	}
+	s := &Store{db: &pool{DB: db, slow: slow}, connector: connector}
 	if err = s.migrate(ctx); err != nil {
 		return nil, errors.Join(err, s.Close())
 	}
@@ -158,7 +189,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		return fmt.Errorf("sub migrations fs: %w", err)
 	}
 	// The provider does not own s.db: Provider.Close would close the store, so it is never called.
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		return fmt.Errorf("create goose provider: %w", err)
 	}

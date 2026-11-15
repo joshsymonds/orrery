@@ -256,7 +256,12 @@ func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the hanging block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(m),
+		"the hanging block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 
 	if err := m.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)

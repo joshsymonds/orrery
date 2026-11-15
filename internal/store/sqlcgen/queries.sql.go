@@ -29,6 +29,51 @@ func (q *Queries) CheckEpicNodeRefs(ctx context.Context, arg CheckEpicNodeRefsPa
 	return result.RowsAffected()
 }
 
+const claimEpicNodeRunWork = `-- name: ClaimEpicNodeRunWork :execrows
+UPDATE epic_node_runs SET revision = ?, refs = ?, result = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = ''
+`
+
+type ClaimEpicNodeRunWorkParams struct {
+	Revision string
+	Refs     string
+	Result   string
+	Epic     string
+	Path     string
+	Attempt  int64
+}
+
+func (q *Queries) ClaimEpicNodeRunWork(ctx context.Context, arg ClaimEpicNodeRunWorkParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimEpicNodeRunWork,
+		arg.Revision,
+		arg.Refs,
+		arg.Result,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const claimEpicTaskBatch = `-- name: ClaimEpicTaskBatch :exec
+UPDATE epic_tasks SET batch = ?1
+WHERE epic = ?2 AND seq = ?3 AND status = 'done' AND (batch = '' OR batch = ?1)
+`
+
+type ClaimEpicTaskBatchParams struct {
+	Batch string
+	Epic  string
+	Seq   int64
+}
+
+func (q *Queries) ClaimEpicTaskBatch(ctx context.Context, arg ClaimEpicTaskBatchParams) error {
+	_, err := q.db.ExecContext(ctx, claimEpicTaskBatch, arg.Batch, arg.Epic, arg.Seq)
+	return err
+}
+
 const claimEpicTriggers = `-- name: ClaimEpicTriggers :exec
 UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 'pending'
 `
@@ -159,6 +204,22 @@ func (q *Queries) CountEpicQuestionsOfTurn(ctx context.Context, arg CountEpicQue
 	return column_1, err
 }
 
+const countEpicTrigger = `-- name: CountEpicTrigger :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND id = ?
+`
+
+type CountEpicTriggerParams struct {
+	Epic string
+	ID   string
+}
+
+func (q *Queries) CountEpicTrigger(ctx context.Context, arg CountEpicTriggerParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEpicTrigger, arg.Epic, arg.ID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countHolderPromptsUnanswered = `-- name: CountHolderPromptsUnanswered :one
 SELECT COUNT(*) FROM events AS prompts
 WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
@@ -195,6 +256,22 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = '
 
 func (q *Queries) CountPendingEpicTriggers(ctx context.Context, epic string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countPendingEpicTriggers, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRunningEpicNodeRun = `-- name: CountRunningEpicNodeRun :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_node_runs WHERE epic = ? AND path = ? AND state = 'running'
+`
+
+type CountRunningEpicNodeRunParams struct {
+	Epic string
+	Path string
+}
+
+func (q *Queries) CountRunningEpicNodeRun(ctx context.Context, arg CountRunningEpicNodeRunParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningEpicNodeRun, arg.Epic, arg.Path)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -445,6 +522,35 @@ func (q *Queries) EndEpicNodeRun(ctx context.Context, arg EndEpicNodeRunParams) 
 	return err
 }
 
+const endEpicNodeRunAttempt = `-- name: EndEpicNodeRunAttempt :execrows
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running'
+`
+
+type EndEpicNodeRunAttemptParams struct {
+	Outcome string
+	Ended   int64
+	Output  string
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) EndEpicNodeRunAttempt(ctx context.Context, arg EndEpicNodeRunAttemptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endEpicNodeRunAttempt,
+		arg.Outcome,
+		arg.Ended,
+		arg.Output,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const endEpicTurn = `-- name: EndEpicTurn :execrows
 UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running'
 `
@@ -595,7 +701,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -623,6 +729,8 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.WorkflowText,
 		&i.WorkflowSha256,
 		&i.PauseSource,
+		&i.StoredBase,
+		&i.Candidate,
 	)
 	return i, err
 }
@@ -675,6 +783,43 @@ func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeChec
 		&i.Stderr,
 		&i.Created,
 		&i.Ended,
+	)
+	return i, err
+}
+
+const getEpicNodeRun = `-- name: GetEpicNodeRun :one
+SELECT epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended, attempt, revision, refs, refs_checked, result, output FROM epic_node_runs WHERE epic = ? AND path = ?
+`
+
+type GetEpicNodeRunParams struct {
+	Epic string
+	Path string
+}
+
+func (q *Queries) GetEpicNodeRun(ctx context.Context, arg GetEpicNodeRunParams) (EpicNodeRun, error) {
+	row := q.db.QueryRowContext(ctx, getEpicNodeRun, arg.Epic, arg.Path)
+	var i EpicNodeRun
+	err := row.Scan(
+		&i.Epic,
+		&i.Path,
+		&i.ID,
+		&i.Node,
+		&i.Kind,
+		&i.Task,
+		&i.Round,
+		&i.State,
+		&i.Outcome,
+		&i.LoopRound,
+		&i.Granted,
+		&i.Mark,
+		&i.Started,
+		&i.Ended,
+		&i.Attempt,
+		&i.Revision,
+		&i.Refs,
+		&i.RefsChecked,
+		&i.Result,
+		&i.Output,
 	)
 	return i, err
 }
@@ -1095,15 +1240,16 @@ func (q *Queries) InsertEngineTurnEndedEvent(ctx context.Context, arg InsertEngi
 }
 
 const insertEpic = `-- name: InsertEpic :exec
-INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,
-    changed, workflow, workflow_text, workflow_sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
+    phase, created, changed, workflow, workflow_text, workflow_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicParams struct {
 	ID             string
 	Repository     string
 	Base           string
+	StoredBase     string
 	Title          string
 	Approved       string
 	Intent         string
@@ -1124,6 +1270,7 @@ func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
 		arg.ID,
 		arg.Repository,
 		arg.Base,
+		arg.StoredBase,
 		arg.Title,
 		arg.Approved,
 		arg.Intent,
@@ -2901,7 +3048,7 @@ func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicT
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -2937,6 +3084,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Refs,
 			&i.GatePos,
 			&i.FindingPos,
+			&i.Batch,
 		); err != nil {
 			return nil, err
 		}
@@ -3135,7 +3283,7 @@ func (q *Queries) ListEpicWorkflowNodes(ctx context.Context, epic string) ([]Epi
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -3169,6 +3317,8 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.WorkflowText,
 			&i.WorkflowSha256,
 			&i.PauseSource,
+			&i.StoredBase,
+			&i.Candidate,
 		); err != nil {
 			return nil, err
 		}
@@ -3184,7 +3334,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 }
 
 const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
 ORDER BY epics.id
 `
@@ -3220,6 +3370,8 @@ func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
 			&i.WorkflowText,
 			&i.WorkflowSha256,
 			&i.PauseSource,
+			&i.StoredBase,
+			&i.Candidate,
 		); err != nil {
 			return nil, err
 		}
@@ -4438,6 +4590,20 @@ func (q *Queries) MoveEpicLoopRound(ctx context.Context, arg MoveEpicLoopRoundPa
 	return err
 }
 
+const moveEpicStoredBase = `-- name: MoveEpicStoredBase :exec
+UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?
+`
+
+type MoveEpicStoredBaseParams struct {
+	StoredBase string
+	ID         string
+}
+
+func (q *Queries) MoveEpicStoredBase(ctx context.Context, arg MoveEpicStoredBaseParams) error {
+	_, err := q.db.ExecContext(ctx, moveEpicStoredBase, arg.StoredBase, arg.ID)
+	return err
+}
+
 const newestEventSeq = `-- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 `
@@ -4750,6 +4916,20 @@ func (q *Queries) SetEpicBranch(ctx context.Context, arg SetEpicBranchParams) er
 	return err
 }
 
+const setEpicCandidate = `-- name: SetEpicCandidate :exec
+UPDATE epics SET candidate = ? WHERE id = ?
+`
+
+type SetEpicCandidateParams struct {
+	Candidate string
+	ID        string
+}
+
+func (q *Queries) SetEpicCandidate(ctx context.Context, arg SetEpicCandidateParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicCandidate, arg.Candidate, arg.ID)
+	return err
+}
+
 const setEpicNodeCheckGrant = `-- name: SetEpicNodeCheckGrant :exec
 UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'running'
 `
@@ -4793,6 +4973,20 @@ type SetEpicPauseSourceParams struct {
 
 func (q *Queries) SetEpicPauseSource(ctx context.Context, arg SetEpicPauseSourceParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicPauseSource, arg.PauseSource, arg.ID)
+	return err
+}
+
+const setEpicPhase = `-- name: SetEpicPhase :exec
+UPDATE epics SET phase = ? WHERE id = ?
+`
+
+type SetEpicPhaseParams struct {
+	Phase string
+	ID    string
+}
+
+func (q *Queries) SetEpicPhase(ctx context.Context, arg SetEpicPhaseParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicPhase, arg.Phase, arg.ID)
 	return err
 }
 

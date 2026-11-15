@@ -383,7 +383,12 @@ func TestStepDoneNonStringCommitSendsBackHeadAndReadOnlyIgnoresIt(t *testing.T) 
 
 	bad := session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"DONE","commit":123}`)}
 	f.run.Return(bad)
-	waitUntil(t, "the bad commit is sent back", func() bool { return len(f.sessions.continuedTexts()) == 1 })
+	waitUntil(
+		t,
+		engineOf(f.run),
+		"the bad commit is sent back",
+		func() bool { return len(f.sessions.continuedTexts()) == 1 },
+	)
 	if text := f.sessions.continuedTexts()[0]; !strings.Contains(text, stepGitHeadName) {
 		t.Errorf("Continue text %q does not name the head check", text)
 	}

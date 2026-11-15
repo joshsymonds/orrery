@@ -61,6 +61,8 @@ type Epic struct {
 	WorkflowText   string
 	WorkflowSha256 string
 	PauseSource    string
+	StoredBase     string
+	Candidate      string
 }
 
 type EpicAddition struct {
@@ -224,6 +226,7 @@ type EpicTask struct {
 	Refs        string
 	GatePos     int64
 	FindingPos  int64
+	Batch       string
 }
 
 type EpicTaskContribute struct {

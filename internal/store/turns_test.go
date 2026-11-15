@@ -212,7 +212,7 @@ func TestLastTurnEndsReadsThroughTurnEndIndex(t *testing.T) {
 	if got := lastTurnEndsOf(t, path); !reflect.DeepEqual(got, want) {
 		t.Fatalf("turn ends: got %v, want %v", got, want)
 	}
-	plan := strings.Join(queryPlanOf(t, s.db, lastTurnEndsSQL), "\n")
+	plan := strings.Join(queryPlanOf(t, s.db.DB, lastTurnEndsSQL), "\n")
 	if !strings.Contains(plan, "events_turn_end") {
 		t.Fatalf("LastTurnEnds plan: got %q, want it to name events_turn_end", plan)
 	}
@@ -255,7 +255,7 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 			t.Errorf("Close writer: %v", err)
 		}
 	})
-	if !indexExists(t, s.db, "events_turn_end") {
+	if !indexExists(t, s.db.DB, "events_turn_end") {
 		t.Fatalf("events_turn_end after Open at version 23: absent, want present")
 	}
 
@@ -274,7 +274,7 @@ func TestLastTurnEndsTurnEndIndexMigrationDownAndUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sub migrations fs: %v", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
@@ -282,14 +282,14 @@ func TestLastTurnEndsTurnEndIndexMigrationDownAndUp(t *testing.T) {
 	if _, err := provider.DownTo(ctx, 23); err != nil {
 		t.Fatalf("DownTo 23: %v", err)
 	}
-	if indexExists(t, s.db, "events_turn_end") {
+	if indexExists(t, s.db.DB, "events_turn_end") {
 		t.Fatalf("events_turn_end after Down: present, want absent")
 	}
 
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatalf("Up: %v", err)
 	}
-	if !indexExists(t, s.db, "events_turn_end") {
+	if !indexExists(t, s.db.DB, "events_turn_end") {
 		t.Fatalf("events_turn_end after Up: absent, want present")
 	}
 }

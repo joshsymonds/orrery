@@ -20,6 +20,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/closer"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -942,9 +943,7 @@ func TestClaudeAddsWindowInCursorSessionAndDirectory(t *testing.T) {
 	bin := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "ran")
 	script := "#!/bin/sh\npwd > '" + marker + "'\nexec sleep 300\n"
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
-		t.Fatalf("write synthetic claude: %v", err)
-	}
+	exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	a := newActionTree(t, actionLayout())
@@ -985,9 +984,7 @@ func TestClaudeAddsWindowInCursorSessionAndDirectory(t *testing.T) {
 func TestClaudeWindowStartsInDirectoryWithFormatsAndSemicolon(t *testing.T) {
 	bin := t.TempDir()
 	script := "#!/bin/sh\nexec sleep 300\n"
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
-		t.Fatalf("write synthetic claude: %v", err)
-	}
+	exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	// Each name is the directory of the cursor pane in s2. The new window's -c must carry the

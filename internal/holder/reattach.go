@@ -190,7 +190,7 @@ func attachBounded(
 	dialer := net.Dialer{Deadline: due}
 	raw, err := dialer.DialContext(ctx, "unix", sock)
 	if err != nil {
-		return nil, Frame{}, fmt.Errorf("holder: dial %s: %w", sock, err)
+		return nil, Frame{}, fmt.Errorf("holder: dial %s: %w", sock, dialRanOut(ctx, err))
 	}
 	conn := &Conn{conn: raw, frames: NewFrameReader(raw), controllerVersion: version}
 	if err = raw.SetDeadline(due); err != nil {
@@ -213,6 +213,18 @@ func attachBounded(
 		}
 		return conn, res.attached, nil
 	}
+}
+
+// dialRanOut returns err, the error of a dial within an attach's bound and ctx, with os.ErrDeadlineExceeded added when
+// the dial ran out of the bound. net reports a dial past its deadline as its i/o timeout, which matches
+// context.DeadlineExceeded and not os.ErrDeadlineExceeded as a read or write past its deadline does. With ctx still
+// live, the deadline the dial ran out of is the bound's, so the holder gave no answer within it, the same as when a hello
+// or an attach runs out of the bound.
+func dialRanOut(ctx context.Context, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		return fmt.Errorf("%w: %w", os.ErrDeadlineExceeded, err)
+	}
+	return err
 }
 
 // exchangeAttach greets the holder on conn and attaches it at replayFrom. A failure closes conn.

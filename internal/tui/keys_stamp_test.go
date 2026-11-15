@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 // stampedSettings is the settings file of the synthetic stamp. Its env holds a loopback base URL
@@ -22,9 +24,7 @@ func recordingClaude(t *testing.T) string {
 	bin := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "argv")
 	script := "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\0' \"$a\"; done > '" + marker + "'\nexec sleep 300\n"
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
-		t.Fatalf("write synthetic claude: %v", err)
-	}
+	exectest.WriteFile(t, filepath.Join(bin, "claude"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return marker
 }

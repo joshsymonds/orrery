@@ -14,10 +14,42 @@ import (
 )
 
 // builtInEpicText is the canonical text of the built-in epic, and builtInEpicSHA256 the sha256 of that text.
-const (
-	builtInEpicText   = "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: build\n"
-	builtInEpicSHA256 = "8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e"
-)
+const builtInEpicText = `name: epic
+nodes:
+  - id: red
+    kind: evidence
+    at: base
+  - id: plan
+    kind: plan
+    body:
+      - id: build
+        kind: build
+      - id: integrate
+        kind: integrate
+  - id: review
+    kind: review
+  - id: correct
+    loop:
+      max: 2
+      until: closure.passed
+      spent: continue
+    body:
+      - id: fix
+        kind: plan
+        body:
+          - id: rebuild
+            kind: build
+          - id: reintegrate
+            kind: integrate
+      - id: closure
+        kind: closure
+  - id: conclude
+    kind: conclude
+  - id: release
+    kind: release
+`
+
+const builtInEpicSHA256 = "635c8150d032f47b09ad509c244e39db5d3c098f1dd18b379cc1eb3cb4c6b7ba"
 
 // demoWorkflowFile is a repository workflow named demo. Its comment is not in its canonical text.
 const demoWorkflowFile = "# Synthetic demo workflow.\nname: demo\nnodes:\n  - id: plan\n    kind: plan\n    body:\n" +

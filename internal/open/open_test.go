@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -827,9 +828,7 @@ func TestMostRecentTieBreaksByLowestNameAndSkipsShell(t *testing.T) {
 func claudeScript(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
-		t.Fatalf("write claude stand-in: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte("#!/bin/sh\nexec sleep 300\n"), 0o755)
 	return path
 }
 

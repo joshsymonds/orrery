@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -22,9 +23,7 @@ func probeShell(t *testing.T, name string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
 	script := "#!/bin/sh\nexport " + paneMarker + "=1\nexec /bin/sh \"$@\"\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write probe shell: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o755)
 	return path
 }
 
@@ -42,9 +41,7 @@ printf '%s\000' "$@" > "$D/argv"
 : > "$D/done"
 exec sleep 300
 `
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write claude stand-in: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o755)
 	return path
 }
 

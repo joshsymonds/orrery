@@ -45,6 +45,8 @@ type DuePassConfig struct {
 // state a pass reads.
 type DuePass struct {
 	cfg DuePassConfig
+	// calls counts the passes under way (see callsInFlight).
+	calls callsInFlight
 }
 
 // NewDuePass returns a DuePass for cfg.
@@ -71,6 +73,7 @@ func (d *DuePass) Run(ctx context.Context) {
 // Pass resumes each due row whose reset is at least dueGrace before the clock's time, oldest reset first. A row before
 // its time is left alone. A failed read is logged and the pass changes nothing.
 func (d *DuePass) Pass(ctx context.Context) {
+	defer d.calls.enter()()
 	rows, err := d.cfg.Store.DueResumes(ctx)
 	if err != nil {
 		d.cfg.Logger.ErrorContext(ctx, "read due resumes", "error", err)

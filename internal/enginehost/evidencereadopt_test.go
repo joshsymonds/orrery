@@ -65,8 +65,8 @@ func evidenceReadoptNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evi
 	})
 }
 
-// evidenceReadoptClose closes ev and fails the test when Close does not return within evidenceRunDeadline, which it does when
-// a drive it does not know of keeps running.
+// evidenceReadoptClose closes ev and returns once Close has. A drive Close does not know of would keep it waiting until
+// the test binary's timeout.
 func evidenceReadoptClose(t *testing.T, ev *Evidence) {
 	t.Helper()
 	closed := make(chan struct{})
@@ -173,7 +173,7 @@ func TestEvidenceReadoptCapturingWithNoGrantIsCapturedOnceAndJudged(t *testing.T
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "fresh")
+	got := evidenceRunSettled(t, engineOf(ev), st, "fresh")
 	if got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 1 || steps.startCount() != 1 {
 		t.Fatalf("run = verdict %q passed %t judges %d starts %d, want holds, passed, one judge, one start",
 			got.Verdict, got.Passed, got.Judges, steps.startCount())
@@ -203,7 +203,7 @@ func TestEvidenceReadoptCapturingWithNoGrantClearsTheWorktreeAStopLeft(t *testin
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "left")
+	got := evidenceRunSettled(t, engineOf(ev), st, "left")
 	if got.NotCaptured != "" || got.Verdict != evidence.VerdictHolds || !got.Passed || steps.startCount() != 1 {
 		t.Fatalf("run = not captured %q verdict %q passed %t starts %d, want captured, holds, passed, one start",
 			got.NotCaptured, got.Verdict, got.Passed, steps.startCount())
@@ -274,7 +274,7 @@ func TestEvidenceReadoptCapturingWithAGrantReadsTheHoldersExitAndIsNotRunAgain(t
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, evidenceReadoptRun)
+	got := evidenceRunSettled(t, engineOf(ev), st, evidenceReadoptRun)
 	if got.NotCaptured != "" || got.Exit != 3 || got.LogHash == "" || got.Verdict != evidence.VerdictHolds ||
 		got.Passed || got.Judges != 1 || steps.startCount() != 1 {
 		t.Fatalf(
@@ -309,7 +309,7 @@ func TestEvidenceReadoptJudgingRunWhoseStepEndsHoldsRecordsOnce(t *testing.T) {
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "judged")
+	got := evidenceRunSettled(t, engineOf(ev), st, "judged")
 	if got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 1 || steps.startCount() != 0 {
 		t.Fatalf("run = verdict %q passed %t judges %d starts %d, want holds, passed, one judge, no start",
 			got.Verdict, got.Passed, got.Judges, steps.startCount())
@@ -345,7 +345,7 @@ func TestEvidenceReadoptJudgingRunWithNoStoredStepAdoptsItsDerivedStep(t *testin
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "adopt")
+	got := evidenceRunSettled(t, engineOf(ev), st, "adopt")
 	if got.JudgeStep != first || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 1 ||
 		steps.startCount() != 0 {
 		t.Fatalf(
@@ -385,7 +385,7 @@ func TestEvidenceReadoptJudgingRunAdoptsANewerJudgeThanItsStoredOne(t *testing.T
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "newer")
+	got := evidenceRunSettled(t, engineOf(ev), st, "newer")
 	if got.JudgeStep != second || got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 ||
 		steps.startCount() != 0 {
 		t.Fatalf(
@@ -417,7 +417,7 @@ func TestEvidenceReadoptJudgeStartsCarryTheDerivedIDOfEachJudge(t *testing.T) {
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "fresh")
+	got := evidenceRunSettled(t, engineOf(ev), st, "fresh")
 	first, second := "61b04f6e1d4b02210ada8ecd11226496", "0580241a3520094d961bf03184e0fcf2"
 	if ids := steps.startIDs(); !reflect.DeepEqual(ids, []string{first, second}) {
 		t.Fatalf("judge start ids = %q, want the derived ids of judges 1 and 2 %q", ids, []string{first, second})
@@ -447,7 +447,7 @@ func TestEvidenceReadoptJudgingRunRejudgesUnderTheNextDerivedID(t *testing.T) {
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "rejudged")
+	got := evidenceRunSettled(t, engineOf(ev), st, "rejudged")
 	if ids := steps.startIDs(); !reflect.DeepEqual(ids, []string{second}) {
 		t.Fatalf("judge start ids = %q, want the derived id of judge 2 %q", ids, second)
 	}
@@ -478,7 +478,7 @@ func TestEvidenceReadoptFailedJudgeStartIsCountedAndRetriedUnderTheNextID(t *tes
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "failed")
+	got := evidenceRunSettled(t, engineOf(ev), st, "failed")
 	first, second := "216b3db2193649102c12c582b1d0fd61", "1e2d554126c2140aeb63d4b88707e4d5"
 	if ids := steps.startIDs(); !reflect.DeepEqual(ids, []string{first, second}) {
 		t.Fatalf("judge start ids = %q, want the derived ids of judges 1 and 2 %q", ids, []string{first, second})
@@ -506,7 +506,7 @@ func TestEvidenceReadoptJudgingRunWhoseStepEndedEngineRestartedIsRejudged(t *tes
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	got := evidenceRunSettled(t, st, "restarted")
+	got := evidenceRunSettled(t, engineOf(ev), st, "restarted")
 	if got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 2 || steps.startCount() != 1 {
 		t.Fatalf("run = verdict %q passed %t judges %d starts %d, want holds, passed, two judges, one start",
 			got.Verdict, got.Passed, got.Judges, steps.startCount())
@@ -527,7 +527,7 @@ func TestEvidenceReadoptResumeDrivesARunOnce(t *testing.T) {
 	if err := ev.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	evidenceRunEventually(t, "the judge step is recorded", func() bool {
+	evidenceRunEventually(t, engineOf(ev), "the judge step is recorded", func() bool {
 		run, err := st.EvidenceRun(t.Context(), "driven")
 		if err != nil {
 			t.Fatalf("read evidence run: %v", err)

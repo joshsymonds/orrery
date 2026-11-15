@@ -198,6 +198,8 @@ type Manager struct {
 	metrics   *telemetry.Daemon
 
 	pumps sync.WaitGroup
+	// calls counts the calls under way that can start or end work (see callsInFlight).
+	calls callsInFlight
 
 	mu sync.Mutex
 	// sessions holds the running sessions whose pump has not finished.
@@ -285,6 +287,7 @@ type StartRequest struct {
 // the process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns
 // the id with no error.
 func (m *Manager) Start(ctx context.Context, req StartRequest) (string, error) {
+	defer m.calls.enter()()
 	if req.ID == "" {
 		id, err := newSessionID()
 		if err != nil {
@@ -410,6 +413,7 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 // session is recorded stopped the same way, and its kept slot is freed (see stopDrained). It returns ErrNoSession when id
 // is neither. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
+	defer m.calls.enter()()
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	m.mu.Lock()
@@ -455,6 +459,7 @@ func (m *Manager) dropKeptLocked(id string) {
 // Seen marks the engine row id as seen now, and once that is stored reports the seen time to the notifier, which clears
 // the session's notice. It returns an error wrapping ErrNoSession when no engine row has that id.
 func (m *Manager) Seen(ctx context.Context, id string) error {
+	defer m.calls.enter()()
 	if _, err := m.engineRow(ctx, id); err != nil {
 		return fmt.Errorf("mark session %s seen: %w", id, err)
 	}
@@ -490,6 +495,7 @@ type SayRequest struct {
 // empty text, an error wrapping ErrNoSession when no engine row has the id, and the errors of resumeSession when a live
 // session cannot be started.
 func (m *Manager) Say(ctx context.Context, req SayRequest) error {
+	defer m.calls.enter()()
 	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
@@ -544,6 +550,7 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 // ErrNotResumable, saying which condition failed, when the row is not interrupted or has no Claude session. A refused
 // Resume sends nothing.
 func (m *Manager) Resume(ctx context.Context, id string) error {
+	defer m.calls.enter()()
 	row, err := m.engineRow(ctx, id)
 	if err != nil {
 		return fmt.Errorf("resume session %s: %w", id, err)
@@ -604,6 +611,7 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 // records one without the sender and round, and a failed send records the step failed without a notice. It returns an
 // error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for empty text.
 func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	defer m.calls.enter()()
 	if prompt.Text == "" {
 		return ErrEmptyPrompt
 	}
@@ -696,6 +704,7 @@ func (m *Manager) stepLaunch(ctx context.Context, id string) (store.EngineRow, s
 // message. Any other answer returns an error matching ErrBadAnswer and leaves the request open. On success Answer
 // records the session working with no question. It returns an error wrapping ErrNoSession when id is not live.
 func (m *Manager) Answer(ctx context.Context, id, requestID, answer string) error {
+	defer m.calls.enter()()
 	live, err := m.live(id)
 	if err != nil {
 		return fmt.Errorf("answer session %s: %w", id, err)
@@ -751,6 +760,7 @@ func answerPermission(sess *session.Session, requestID, answer string) error {
 // Interrupt asks the live session id to end the turn in progress. The turn's end is recorded when the session reports
 // it, and that end sends no notice. It returns an error wrapping ErrNoSession when id is not live.
 func (m *Manager) Interrupt(_ context.Context, id string) error {
+	defer m.calls.enter()()
 	live, err := m.live(id)
 	if err != nil {
 		return fmt.Errorf("interrupt session %s: %w", id, err)
@@ -1017,6 +1027,7 @@ func unwrittenPrompts(prompts []store.HolderPrompt, written []string) []store.Ho
 // sessions retired before the close, whose holder directories are gone once those stops return. Start refuses from the
 // moment Close begins, and later calls to Close return at once.
 func (m *Manager) Close() {
+	defer m.calls.enter()()
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -1090,6 +1101,7 @@ func (m *Manager) RunIdle(ctx context.Context) {
 // the lock before it is stopped, and resumeMu is held through the stop, so a Say that finds no live session waits, then
 // resumes it from its row.
 func (m *Manager) checkIdle(ctx context.Context) {
+	defer m.calls.enter()()
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	now := m.now()

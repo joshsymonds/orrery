@@ -101,7 +101,7 @@ func TestHolderLostCountsGoneWorkingEngineHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)
@@ -135,7 +135,7 @@ func TestHolderLostCountsUnattachableEngineHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)
@@ -212,7 +212,7 @@ func TestHolderLostCountsNothingForFailedRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)
@@ -244,7 +244,7 @@ func TestHolderLostCountsNothingForReadoptedHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 

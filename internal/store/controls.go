@@ -133,12 +133,16 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 
 // RetryEpic ends the park of epic in one write and leaves its triggers pending. The failed turns up to the epic's
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
-// granted round in the same write. An unknown epic is ErrNoEpic, and an epic that is not parked is a RefusalError.
+// granted round in the same write. An unknown epic is ErrNoEpic, an epic that is not parked is a RefusalError, and an
+// epic parked for good by ParkNodeFinal is a RefusalError that changes nothing.
 func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
 		if err != nil {
 			return err
+		}
+		if head.Phase == phaseMetAtBase {
+			return metAtBaseRefusal(epic, head.Parked)
 		}
 		if head.Parked == "" {
 			return RefusalError(fmt.Sprintf("epic %s is not parked", epic))

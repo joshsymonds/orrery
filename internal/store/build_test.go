@@ -109,12 +109,12 @@ func TestSetTaskBuildStoresEveryFieldFromTheReadBuild(t *testing.T) {
 		t.Errorf("red = %v, green = %v; want the red-run and green-run runs", task.Red, task.Green)
 	}
 
-	before := rowsOf(t, s.db, "epic_tasks")
+	before := rowsOf(t, s.db.DB, "epic_tasks")
 	err := s.SetTaskBuild(ctx, buildEpic, 1, from, TaskBuild{Stage: "green", Base: buildBase})
 	if !errors.Is(err, ErrTaskMoved) {
 		t.Fatalf("SetTaskBuild from the old build: err = %v, want ErrTaskMoved", err)
 	}
-	if got := rowsOf(t, s.db, "epic_tasks"); !reflect.DeepEqual(got, before) {
+	if got := rowsOf(t, s.db.DB, "epic_tasks"); !reflect.DeepEqual(got, before) {
 		t.Errorf("epic_tasks after refused SetTaskBuild = %v, want %v", got, before)
 	}
 }
@@ -132,14 +132,14 @@ func TestSetTaskBuildOnDoneFailedOrUnknownTaskIsErrTaskMoved(t *testing.T) {
 		t.Fatalf("mark task 2 failed: %v", err)
 	}
 
-	before := rowsOf(t, s.db, "epic_tasks")
+	before := rowsOf(t, s.db.DB, "epic_tasks")
 	for _, seq := range []int64{1, 2, 9} {
 		err := s.SetTaskBuild(ctx, buildEpic, seq, TaskBuild{}, TaskBuild{Stage: "red", Base: buildBase})
 		if !errors.Is(err, ErrTaskMoved) {
 			t.Errorf("SetTaskBuild on task %d: err = %v, want ErrTaskMoved", seq, err)
 		}
 	}
-	if got := rowsOf(t, s.db, "epic_tasks"); !reflect.DeepEqual(got, before) {
+	if got := rowsOf(t, s.db.DB, "epic_tasks"); !reflect.DeepEqual(got, before) {
 		t.Errorf("epic_tasks after refused SetTaskBuild calls = %v, want %v", got, before)
 	}
 }

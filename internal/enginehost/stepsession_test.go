@@ -127,7 +127,7 @@ func TestStartStepRunsAgentWithSchemaAndRecordsRowOpsAndPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	history := waitHistory(t, path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
@@ -189,7 +189,7 @@ func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
 	); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's turn end", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's turn end", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
 	})
 	// Stop returns once the step's pump has finished, so any notice the step sent is already in the sink.
@@ -204,7 +204,7 @@ func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start of the session: %v", err)
 	}
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	if len(got) != 1 || got[0].Session != sid || got[0].State != string(protocol.StateDone) {
 		t.Fatalf("notices = %+v, want only the session's done notice", got)
 	}
@@ -220,7 +220,7 @@ func TestStepInterruptedByCloseSendsNoNotice(t *testing.T) {
 	); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the hanging reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the hanging reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake hanging 1")
 	})
 
@@ -255,7 +255,7 @@ func TestStepWithUnfindableClaudeFailsWithoutNotice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start with a missing claude: %v", err)
 	}
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	if len(got) != 1 || got[0].Session != sid || got[0].State != "failed" {
 		t.Fatalf("notices = %+v, want only the session's failed notice", got)
 	}
@@ -270,7 +270,7 @@ func TestSayToStepIsRefusedAndNeverResumes(t *testing.T) {
 	if err := m.StartStep(t.Context(), StepSession{ID: stepA, Dir: dir, Prompt: "hi", Agent: "reviewer"}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), stepA); err != nil {

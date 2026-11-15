@@ -334,6 +334,19 @@ func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing
 	}
 }
 
+// TestReattachWhoseDialRunsOutOfTimeGaveNoAnswer gives the attach a bound that has run out before the dial, as a busy
+// machine can for a short bound, so the dial itself times out. net reports that as its i/o timeout, not as
+// os.ErrDeadlineExceeded, and it is still a holder that gave no answer within the bound.
+func TestReattachWhoseDialRunsOutOfTimeGaveNoAnswer(t *testing.T) {
+	t.Parallel()
+
+	dir, _ := startWedged(t)
+	_, _, err := Reattach(t.Context(), dir, 0, WireVersion, WithAttachTimeout(-time.Second))
+	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, ErrNoAnswer) {
+		t.Fatalf("Reattach whose dial ran out of time = %v, want ErrUnattachable and ErrNoAnswer", err)
+	}
+}
+
 func TestReattachCanceledWhileAttachingIsUnattachable(t *testing.T) {
 	t.Parallel()
 

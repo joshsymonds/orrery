@@ -29,7 +29,8 @@ type Rows struct {
 type ActionKind string
 
 // The actions a kind returns for its node run. ActNone leaves the run running. ActPrepare records the revision the
-// run's work runs at, ActStart starts work and ActRefs checks the refs the run was prepared with.
+// run's work runs at, ActStart starts work and ActRefs checks the refs the run was prepared with. ActCapture starts
+// Requirement captures. ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run.
 const (
 	ActNone    ActionKind = "none"
 	ActRun     ActionKind = "run"
@@ -37,17 +38,21 @@ const (
 	ActPrepare ActionKind = "prepare"
 	ActStart   ActionKind = "start"
 	ActRefs    ActionKind = "refs"
+	ActCapture ActionKind = "capture"
+	ActAdvance ActionKind = "advance"
+	ActPark    ActionKind = "park"
 )
 
 // Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,
 // and Output the output an end reports. IDs are the ids of the work a start starts and Items the Requirement each of
-// them is for, in the same order.
+// them is for, in the same order. Tasks are the seqs of the tasks a prepare claims for its batch, in seq order.
 type Action struct {
 	Kind    ActionKind
 	Outcome string
 	Output  string
 	IDs     []string
 	Items   []string
+	Tasks   []int64
 }
 
 // Kind decides what happens next to a node run.
@@ -68,6 +73,7 @@ const (
 	turnRunning     = "running"
 	turnSucceeded   = "succeeded"
 	taskOpen        = "open"
+	taskDone        = "done"
 	outcomeComplete = "complete"
 	outcomePassed   = "passed"
 	outcomeFailed   = "failed"

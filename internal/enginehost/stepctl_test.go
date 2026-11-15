@@ -146,7 +146,7 @@ func (f *stepCtlFixture) endStep(t *testing.T, id string) {
 	t.Helper()
 	raw := fmt.Sprintf(`{"status":%q}`, stepDefaultDone)
 	f.started(t, id).Observer.Return(session.TurnEnded{StructuredOutput: []byte(raw)})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "step "+id+" to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -163,9 +163,10 @@ func stepCtlGatePid(path string) (int, bool) {
 }
 
 // stepCtlAwaitGatePid waits until a gate writes its pid to path and returns it.
-func stepCtlAwaitGatePid(t *testing.T, path string) int {
+// It fails at once when the work of eng has finished first.
+func stepCtlAwaitGatePid(t *testing.T, eng engine, path string) int {
 	t.Helper()
-	stepStartAwait(t, "the gate to start", func() bool {
+	stepStartAwait(t, eng, "the gate to start", func() bool {
 		_, ok := stepCtlGatePid(path)
 		return ok
 	})
@@ -219,7 +220,7 @@ func TestStepsStopKillsGateAndReturnsPromptly(t *testing.T) {
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
 	id := f.startGated(t, linked, pidFile)
-	pid := stepCtlAwaitGatePid(t, pidFile)
+	pid := stepCtlAwaitGatePid(t, engineOf(f.steps), pidFile)
 
 	if err := f.steps.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -245,7 +246,12 @@ func TestStepsStopOfEndedStepChangesNothing(t *testing.T) {
 	id := f.startReadOnly(t, repo)
 	f.endStep(t, id)
 	wt := filepath.Join(f.worktrees, id)
-	stepStartAwait(t, "the worktree of the ended step to go", func() bool { return stepStartGone(wt) })
+	stepStartAwait(
+		t,
+		engineOf(f.steps),
+		"the worktree of the ended step to go",
+		func() bool { return stepStartGone(wt) },
+	)
 	before, err := f.steps.Status(t.Context(), id)
 	if err != nil {
 		t.Fatalf("Status: %v", err)
@@ -464,7 +470,7 @@ func TestStepsCloseKillsGateAndLeavesRowsOpen(t *testing.T) {
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
 	id := f.startGated(t, linked, pidFile)
-	pid := stepCtlAwaitGatePid(t, pidFile)
+	pid := stepCtlAwaitGatePid(t, engineOf(f.steps), pidFile)
 
 	f.steps.Close()
 

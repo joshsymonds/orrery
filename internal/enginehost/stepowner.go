@@ -194,6 +194,7 @@ func (w *stepWatch) turnRunning() bool {
 // ErrStepNotRunning when the step has ended or has no loop. An id with no row returns an error matching store.ErrNoStep.
 // An interrupt error is returned and leaves the step unheld.
 func (s *Steps) Hold(ctx context.Context, id string) error {
+	defer s.calls.enter()()
 	s.mu.Lock()
 	run := s.runs[id]
 	s.mu.Unlock()
@@ -221,6 +222,7 @@ func (s *Steps) Held(id string) bool {
 // empty text, an error matching store.ErrNoStep for an id with no row, and ErrStepNotRunning when the step has ended or
 // has no loop. An interrupt or continue error is returned.
 func (s *Steps) Nudge(ctx context.Context, id, text string) error {
+	defer s.calls.enter()()
 	if text == "" {
 		return ErrEmptyPrompt
 	}
@@ -245,6 +247,7 @@ func (s *Steps) Nudge(ctx context.Context, id, text string) error {
 // Continue refused by the step cap returns an error matching ErrCapReached and leaves the step limited. Any other
 // Continue error ends the step failed and is returned.
 func (s *Steps) Resume(ctx context.Context, id string) error {
+	defer s.calls.enter()()
 	run, err := s.runOf(ctx, id)
 	if err != nil {
 		return err
@@ -259,6 +262,7 @@ func (s *Steps) Resume(ctx context.Context, id string) error {
 // closes the due rows. Its other errors are Resume's: an error matching ErrCapReached leaves the step limited, and an
 // error matching ErrStepGating, ErrStepNotRunning or store.ErrNoStep is returned as Resume returns it.
 func (s *Steps) AutoResume(ctx context.Context, id string, resets time.Time) error {
+	defer s.calls.enter()()
 	run, err := s.runOf(ctx, id)
 	if err != nil {
 		return err

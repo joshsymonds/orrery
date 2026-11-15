@@ -2287,7 +2287,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11EpicsListResponse\x12%\n" +
 	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x8e\x03\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xe1\x02\n" +
 	"\x10EpicsGetResponse\x12#\n" +
 	"\x04epic\x18\x01 \x01(\v2\x0f.orrery.v1.EpicR\x04epic\x12)\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x13.orrery.v1.EpicTaskR\x05tasks\x12)\n" +
@@ -2296,7 +2296,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\frequirements\x18\x05 \x03(\v2\x1a.orrery.v1.EpicRequirementR\frequirements\x12)\n" +
 	"\x05nodes\x18\x06 \x03(\v2\x13.orrery.v1.EpicNodeR\x05nodes\x129\n" +
 	"\vbuild_tasks\x18\a \x03(\v2\x18.orrery.v1.EpicBuildTaskR\n" +
-	"buildTasksJ\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0fJ\x04\b\x0f\x10\x10R\x06ledgerR\breleasesR\areviews\"\x9f\x02\n" +
+	"buildTasks\"\x9f\x02\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +

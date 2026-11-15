@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -857,9 +858,7 @@ func installFake(t *testing.T, src, name, reply string, status int) string {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, name)
-	if err := os.WriteFile(bin, body, 0o755); err != nil {
-		t.Fatalf("install %s: %v", name, err)
-	}
+	exectest.WriteFile(t, bin, body, 0o755)
 	if reply != "" {
 		writeFile(t, filepath.Join(dir, "reply"), reply)
 	}

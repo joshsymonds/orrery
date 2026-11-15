@@ -134,17 +134,27 @@ func TestStepStageSurvivesRestartAtEachStage(t *testing.T) {
 	// The turn ends at a minute, and its return's checks start there and queue the gate.
 	rig.clock.set(time.Minute)
 	stepStageWrite(t, filepath.Join(dir, "fakeclaude.release"), "")
-	waitUntil(t, "the gate's grant request", func() bool { return len(rig.pools.requested()) == 1 })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"the gate's grant request",
+		func() bool { return len(rig.pools.requested()) == 1 },
+	)
 	requireStepStage(t, rig.steps, id, store.StepStageChecks, time.Minute)
 	rig.restartStepStage(t, true)
 	requireStepStage(t, rig.steps, id, store.StepStageChecks, time.Minute)
 
 	// The clock moves on while the gate waits for its grant, and the checks start does not.
 	rig.clock.set(2 * time.Minute)
-	waitUntil(t, "the gate's grant request after the restart", func() bool { return len(rig.pools.requested()) == 1 })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"the gate's grant request after the restart",
+		func() bool { return len(rig.pools.requested()) == 1 },
+	)
 	requireStepStage(t, rig.steps, id, store.StepStageChecks, time.Minute)
 	rig.restartStepStage(t, true)
-	waitUntil(t, "the gate's grant request after the second restart", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the gate's grant request after the second restart", func() bool {
 		return len(rig.pools.requested()) == 1
 	})
 	requireStepStage(t, rig.steps, id, store.StepStageChecks, time.Minute)
@@ -152,7 +162,7 @@ func TestStepStageSurvivesRestartAtEachStage(t *testing.T) {
 	// The grant lands at three minutes, and the gate runs from there.
 	rig.clock.set(3 * time.Minute)
 	close(rig.pools.queue)
-	waitUntil(t, "the gate running", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the gate running", func() bool {
 		_, err := os.Stat(gateStarted)
 		return err == nil
 	})
@@ -165,7 +175,12 @@ func TestStepStageSurvivesRestartAtEachStage(t *testing.T) {
 	rig.clock.set(4 * time.Minute)
 	stepStageWrite(t, filepath.Join(dir, "fakeclaude.next"), "LIMIT")
 	stepStageWrite(t, gateRelease, "")
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireStepStage(t, rig.steps, id, store.StepStageLimited, 4*time.Minute)
 	rig.restartStepStage(t, true)
 	requireStepStage(t, rig.steps, id, store.StepStageLimited, 4*time.Minute)

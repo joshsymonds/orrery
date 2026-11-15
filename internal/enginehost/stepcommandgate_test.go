@@ -121,7 +121,7 @@ func TestStepsCommandGateDoneReturnEndsDoneWhenGateExitsZero(t *testing.T) {
 	t.Parallel()
 	f, _, id := stepCommandGateSubmit(t, "exit 0")
 
-	stepStartAwait(t, "step end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "step end", func() bool {
 		row, err := f.store.Step(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -141,7 +141,7 @@ func TestStepsCommandGateDoneReturnSendsBackWhenGateExitsOne(t *testing.T) {
 	t.Parallel()
 	f, sessions, id := stepCommandGateSubmit(t, "exit 1")
 
-	stepStartAwait(t, "return sent back", func() bool { return sessions.continuedCount() == 1 })
+	stepStartAwait(t, engineOf(f.steps), "return sent back", func() bool { return sessions.continuedCount() == 1 })
 	row, err := f.store.Step(t.Context(), id)
 	if err != nil {
 		t.Fatalf("Step: %v", err)

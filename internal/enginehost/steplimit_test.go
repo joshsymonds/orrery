@@ -96,7 +96,7 @@ func limitTurn(run *stepRun) {
 func (f *stepLoopFixture) awaitLimited(t *testing.T) store.StepRow {
 	t.Helper()
 	var row store.StepRow
-	waitUntil(t, "step limited", func() bool {
+	waitUntil(t, engineOf(f.run), "step limited", func() bool {
 		row = f.row(t)
 		return row.LoopLimited
 	})
@@ -107,7 +107,7 @@ func (f *stepLoopFixture) awaitLimited(t *testing.T) store.StepRow {
 func (f *stepLoopFixture) awaitEnded(t *testing.T) store.StepRow {
 	t.Helper()
 	var row store.StepRow
-	waitUntil(t, "step ended", func() bool {
+	waitUntil(t, engineOf(f.run), "step ended", func() bool {
 		row = f.row(t)
 		return row.End != ""
 	})
@@ -148,7 +148,7 @@ func TestStepLimitSevenDayHoldsStepAndFreesSlot(t *testing.T) {
 	pid := fakePID(t, filepath.Join(rig.worktrees, id))
 
 	var row store.StepRow
-	waitUntil(t, "step limited", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "step limited", func() bool {
 		row = stepRowOf(t, rig.steps, id)
 		return row.LoopLimited
 	})
@@ -181,7 +181,7 @@ func TestStepLimitWithoutResetHoldsStepWithNoKind(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMITNORESET")
 
 	var row store.StepRow
-	waitUntil(t, "step limited", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "step limited", func() bool {
 		row = stepRowOf(t, rig.steps, id)
 		return row.LoopLimited
 	})
@@ -206,7 +206,7 @@ func TestStepErrorWithoutLimitIsNotLimited(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "DIE")
 
 	var row store.StepRow
-	waitUntil(t, "step ended", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "step ended", func() bool {
 		row = stepRowOf(t, rig.steps, id)
 		return row.End != ""
 	})
@@ -254,7 +254,7 @@ func TestStepLimitedRunIgnoresExit(t *testing.T) {
 	limitTurn(f.run)
 	f.awaitLimited(t)
 	f.run.Exited("claude died")
-	waitUntil(t, "the exit taken", func() bool { return len(f.run.exits) == 0 })
+	waitUntil(t, engineOf(f.run), "the exit taken", func() bool { return len(f.run.exits) == 0 })
 	if err := f.run.do(t.Context(), func(context.Context) error { return nil }); err != nil {
 		t.Fatalf("owner action on a limited run after its exit: %v, want the run still running", err)
 	}

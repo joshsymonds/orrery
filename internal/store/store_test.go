@@ -236,7 +236,7 @@ func fixtureTables(t *testing.T, path string) map[string]bool {
 		t.Fatalf("open for inspection: %v", err)
 	}
 	defer db.Close()
-	return tableNames(t, &Store{db: db})
+	return tableNames(t, &Store{db: &pool{DB: db}})
 }
 
 // synchronousOf returns the store connection's PRAGMA synchronous: 0 OFF, 1 NORMAL, 2 FULL.

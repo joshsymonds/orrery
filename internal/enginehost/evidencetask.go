@@ -18,6 +18,7 @@ import (
 func (e *Evidence) RunTask(
 	ctx context.Context, id, epic string, task int64, revision, phase string,
 ) (store.EvidenceRun, error) {
+	defer e.calls.enter()()
 	if err := checkID(id); err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("%w: id %q is not 32 lowercase hex digits", ErrEvidenceRefused, id)
 	}
@@ -71,6 +72,7 @@ func (e *Evidence) RunTask(
 func (e *Evidence) RunItem(
 	ctx context.Context, id, epic, item, revision, phase string,
 ) (store.EvidenceRun, error) {
+	defer e.calls.enter()()
 	if err := checkID(id); err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("%w: id %q is not 32 lowercase hex digits", ErrEvidenceRefused, id)
 	}

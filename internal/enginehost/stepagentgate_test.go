@@ -340,7 +340,7 @@ func TestStepsStartAgentGateFailedAssertionEndsGateFailed(t *testing.T) {
 		verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds"),
 	}, []verdictTestFinding{verdictTestCiting(verdictTestMust)})
 	step.Observer.Return(session.TurnEnded{StructuredOutput: raw})
-	stepStartAwait(t, "the step to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})

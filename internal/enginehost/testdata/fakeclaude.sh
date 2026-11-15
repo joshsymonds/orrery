@@ -2,10 +2,11 @@
 # fakeclaude.sh stands in for the claude binary in the engine host tests. It writes its pid to fakeclaude.pid in its
 # working directory, then answers each user prompt with a scripted turn. The prompt number n counts from 1. A prompt
 # containing ASK asks one AskUserQuestion, PERMIT asks for a Write permission, HANG streams text until an interrupt,
-# FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, TRICKLEHELD streams
-# them as TRICKLE does but waits until fakeclaude.release exists in its directory before the last one, STALL streams the
-# start of a text block and never finishes it, TERMPROOF ignores SIGTERM and then stalls as STALL does, DIE streams
-# the same start, writes fake died to stderr and exits with status 3, BACKGROUND starts a background task and ends
+# FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks one line each, as fakeclaude.pace
+# releases them when it exists (see pace), TRICKLEHELD streams them as TRICKLE does but waits until fakeclaude.release
+# exists in its directory before the last one, STALL streams the start of a text block and never finishes it, TERMPROOF
+# ignores SIGTERM and then stalls as STALL does, DIE streams the same start, writes fake died to stderr and exits with
+# status 3, BACKGROUND starts a background task and ends
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, BGDONE answers with a
 # success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two tasks and
 # ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
@@ -179,11 +180,24 @@ trickle() {
 				sleep 0.05
 			done
 		fi
+		pace "$k"
 		text_block $((k - 1)) "fake trickle $n.$k" "fake trickle $n.$k"
-		sleep 0.05
 		k=$((k + 1))
 	done
 	turn_close
+}
+
+# pace waits, while fakeclaude.pace exists in its directory, until the number it holds is at least $1, so a test
+# releases a trickle a block at a time by raising it. The test replaces the file whole, so a read sees a number or no
+# file. With no fakeclaude.pace a trickle streams without waiting.
+pace() {
+	while [ -e fakeclaude.pace ]; do
+		allowed=$(cat fakeclaude.pace 2>/dev/null)
+		if [ "${allowed:-0}" -ge "$1" ]; then
+			return
+		fi
+		sleep 0.01
+	done
 }
 
 # stall streams the start of a text block, never finishes it, and reads stdin until it ends.

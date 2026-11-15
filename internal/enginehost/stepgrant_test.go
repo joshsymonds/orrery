@@ -201,12 +201,17 @@ func TestStepsNamedGateRunsOnlyOnItsGrantAndRecordsItsCheck(t *testing.T) {
 	f.sessions.first(t).Observer.Return(stepDoneReturn(commit))
 
 	// The gate launches only once its grant holds, so with the request queued it has not run.
-	stepStartAwait(t, "the gate's grant request", func() bool { return len(commands.requested()) == 1 })
+	stepStartAwait(
+		t,
+		engineOf(f.steps),
+		"the gate's grant request",
+		func() bool { return len(commands.requested()) == 1 },
+	)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("gate ran before its grant")
 	}
 	closeQueue()
-	stepStartAwait(t, "the step to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -258,7 +263,7 @@ func TestStepsNamedGateStopStoresNoCheckAndRerunStoresItsCheck(t *testing.T) {
 
 	gateWaitFile(t, first, nil)
 	commands.stopGrant()
-	stepStartAwait(t, "the step to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})

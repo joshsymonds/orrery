@@ -57,6 +57,7 @@ func (r stepRefusedError) Unwrap() error { return r.err }
 // records the row failed and returns the error. A step's slot frees when its pump ends, unless the step is drained at its
 // hand-off and keeps its slot (see retireLocked).
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
+	defer m.calls.enter()()
 	if err := checkStep(step); err != nil {
 		return stepRefusedError{err}
 	}
@@ -103,6 +104,7 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 // A drained step with no live session has its kept slot freed (see retireLocked). It returns nil for an id with no live
 // session, or a session Close has begun closing.
 func (m *Manager) Release(ctx context.Context, id string) error {
+	defer m.calls.enter()()
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	m.mu.Lock()

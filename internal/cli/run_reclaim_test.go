@@ -26,7 +26,7 @@ func TestRunReclaimRequestCarriesGrantID(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	status := runAsync(ctx, runConfig(t, socket, "sleep", io.Discard, io.Discard))
-	waitClosed(t, fake.held, "the reclaim was never held")
+	awaitClosed(t, fake.held, status, "the reclaim to be held")
 	cancel()
 	if got := awaitStatus(t, status); got != stoppedStatus {
 		t.Errorf("RunWithGrant = %d, want the command's SIGTERM status %d", got, stoppedStatus)
@@ -51,7 +51,7 @@ func TestRunReclaimResumesHolding(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	status := runAsync(ctx, runConfig(t, socket, "sleep", io.Discard, io.Discard))
-	waitClosed(t, fake.held, "the reclaim was never held")
+	awaitClosed(t, fake.held, status, "the reclaim to be held")
 
 	// A reclaimed grant that is granted and held is not reclaimed again, so the command keeps running.
 	select {
@@ -79,7 +79,7 @@ func TestRunReclaimRetriesUntilGranted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	status := runAsync(ctx, runConfig(t, socket, "sleep", io.Discard, io.Discard))
-	waitClosed(t, fake.held, "the reclaim was never granted")
+	awaitClosed(t, fake.held, status, "the reclaim to be granted")
 
 	// The command runs through the refused reclaim: RunWithGrant has not returned.
 	select {
@@ -120,7 +120,7 @@ func TestRunReclaimRefusedStopsCommand(t *testing.T) {
 			ready, w := stdoutPipe(t)
 			var stderr bytes.Buffer
 			status := runAsync(context.Background(), runConfig(t, socket, "sleep", w, &stderr))
-			pid := readyPID(t, awaitReady(t, ready))
+			pid := readyPID(t, awaitReady(t, ready, status))
 			close(gate)
 			if got := awaitStatus(t, status); got != cli.ExitNoGrant {
 				t.Errorf("RunWithGrant = %d, want ExitNoGrant %d", got, cli.ExitNoGrant)
@@ -140,7 +140,7 @@ func TestRunReclaimCommandExitsWhileReconnecting(t *testing.T) {
 	ready, w := stdoutPipe(t)
 	var stderr bytes.Buffer
 	status := runAsync(context.Background(), runConfig(t, socket, "sleep", w, &stderr))
-	pid := readyPID(t, awaitReady(t, ready))
+	pid := readyPID(t, awaitReady(t, ready, status))
 	// Unavailable is not a refusal, so the run keeps reconnecting while the command runs.
 	awaitRequests(t, fake, 2, status)
 	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
@@ -186,7 +186,7 @@ func TestRunWithGrantHoldsGrantUntilCommandExits(t *testing.T) {
 	cfg := runConfig(t, socket, "stop", w, io.Discard)
 	cfg.Stdin = stdinR
 	status := runAsync(ctx, cfg)
-	awaitReady(t, ready)
+	awaitReady(t, ready, status)
 	cancel()
 
 	// The command keeps running until its stdin closes, so the grant must stay held until then.

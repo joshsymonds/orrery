@@ -16,6 +16,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // engineFakeClaude is the scripted claude the engine host tests run in place of the real one.
@@ -96,6 +97,9 @@ func newEngineFixture(t *testing.T) *engineFixture {
 			"ORRERY_SOCKET="+socket,
 		),
 	}
+	// The store starts as a migrated image, so each orreryd the test starts opens it without applying every migration.
+	// A test of the store's own creation uses storeFixture, which starts with none.
+	storetest.Seed(t, f.dbPath)
 	f.reader = store.NewReader(f.dbPath)
 	return f
 }

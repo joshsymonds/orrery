@@ -48,7 +48,7 @@ func TestStepStartedWithoutItsAgentInInitEndsFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps, f.manager), "step "+id+" to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -79,7 +79,7 @@ func TestStepWhoseInitListsItsAgentKeepsRunning(t *testing.T) {
 		t.Fatalf("StartStep: %v", err)
 	}
 	// Text arrives after the init event, which the pump hands to the observer before any later event.
-	waitUntil(t, "the step's first text delta", func() bool { return hasTextDelta(obs) })
+	waitUntil(t, engineOf(m), "the step's first text delta", func() bool { return hasTextDelta(obs) })
 	if reasons := obs.exited(); len(reasons) != 0 {
 		t.Fatalf("step exited with %q, want it running", reasons)
 	}
