@@ -199,13 +199,9 @@ func TestServeAnswersMetricsUntilCancelled(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case err := <-served:
-		if err != nil {
-			t.Fatalf("Serve after cancel: %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve did not return after its context ended")
+	err = <-served
+	if err != nil {
+		t.Fatalf("Serve after cancel: %v", err)
 	}
 }
 

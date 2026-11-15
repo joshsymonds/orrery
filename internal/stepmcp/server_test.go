@@ -7,12 +7,11 @@ import (
 	"io"
 	"reflect"
 	"testing"
-	"time"
 )
 
 // servePipes serves server over pipes and returns the peer that drives it, with the function that cancels the
-// serving. The test's cleanup cancels the serving and closes the pipes, and fails the test unless Serve returns nil
-// within testTimeout.
+// serving. The test's cleanup cancels the serving and closes the pipes, and fails the test unless Serve returns nil.
+// It has no deadline of its own.
 func servePipes(t *testing.T, server *Server) (*peer, context.CancelFunc) {
 	t.Helper()
 	serverInput, clientInput := io.Pipe()
@@ -24,13 +23,9 @@ func servePipes(t *testing.T, server *Server) (*peer, context.CancelFunc) {
 		cancel()
 		_ = clientInput.Close()
 		_ = outputRead.Close()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Serve: %v", err)
-			}
-		case <-time.After(testTimeout):
-			t.Errorf("Serve did not return within %v", testTimeout)
+		err := <-done
+		if err != nil {
+			t.Errorf("Serve: %v", err)
 		}
 	})
 	return &peer{
@@ -182,15 +177,7 @@ func TestCancelEndsRunningToolHandler(t *testing.T) {
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "block", "arguments": map[string]any{}},
 	})
-	select {
-	case <-started:
-	case <-time.After(testTimeout):
-		t.Fatal("the tool handler did not start")
-	}
+	<-started
 	cancel()
-	select {
-	case <-returned:
-	case <-time.After(testTimeout):
-		t.Fatal("canceling the context did not end the running tool handler")
-	}
+	<-returned
 }

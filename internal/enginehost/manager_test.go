@@ -21,9 +21,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// managerGuard bounds each wait for a process or a stored row. It is a hang guard, never a timing assumption.
-const managerGuard = 30 * time.Second
-
 // pollEvery is the pause between checks inside a bounded wait.
 const pollEvery = 10 * time.Millisecond
 
@@ -72,14 +69,10 @@ func newTestManager(t *testing.T, limit int, claude string) (*Manager, string) {
 	return m, path
 }
 
-// waitUntil polls ok until it returns true, failing the test when managerGuard passes first.
-func waitUntil(t *testing.T, what string, ok func() bool) {
+// waitUntil polls ok until it returns true. It has no deadline of its own.
+func waitUntil(t *testing.T, _ string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(managerGuard)
 	for !ok() {
-		if time.Now().After(deadline) {
-			t.Fatalf("%s did not happen within %v", what, managerGuard)
-		}
 		time.Sleep(pollEvery)
 	}
 }
@@ -168,7 +161,7 @@ func fakePID(t *testing.T, dir string) int {
 	return pid
 }
 
-// requireGone waits until no process has pid, failing the test when managerGuard passes first.
+// requireGone waits until no process has pid. It has no deadline of its own.
 func requireGone(t *testing.T, pid int) {
 	t.Helper()
 	waitUntil(t, "fake claude process "+strconv.Itoa(pid)+" exit", func() bool {

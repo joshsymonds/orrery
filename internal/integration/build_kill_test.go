@@ -22,9 +22,9 @@ func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 	dir := r.stepDir(id)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
-	r.awaitStep(t, daemon, id)
+	r.awaitStep(t, id)
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
-	waitUntil(t, "the fake claude to read the brief", func() bool { return fileContains(t, stdin, buildRigMarker) })
+	waitUntil(t, func() bool { return fileContains(t, stdin, buildRigMarker) })
 	pid := fakeClaudePID(t, dir)
 
 	killOrreryd(t, daemon)
@@ -46,7 +46,7 @@ func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
 	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, id))
-	waitUntil(t, "task 1 to reach green", func() bool { return r.task(t).GetStage() == build.StageGreen })
+	waitUntil(t, func() bool { return r.task(t).GetStage() == build.StageGreen })
 	if got := r.task(t).GetRevision(); got != commit {
 		t.Fatalf("revision of task 1 at green = %q, want the fake's commit %s", got, commit)
 	}

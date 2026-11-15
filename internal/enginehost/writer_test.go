@@ -54,7 +54,6 @@ func (a *recordingApplier) callsOf() [][]store.EngineOp {
 // waitCalls blocks until at least n ApplyEngine calls have been made.
 func (a *recordingApplier) waitCalls(t *testing.T, n int) {
 	t.Helper()
-	timeout := time.After(waitTimeout)
 	for {
 		a.mu.Lock()
 		got := len(a.calls)
@@ -62,11 +61,7 @@ func (a *recordingApplier) waitCalls(t *testing.T, n int) {
 		if got >= n {
 			return
 		}
-		select {
-		case <-a.notify:
-		case <-timeout:
-			t.Fatalf("waited for %d ApplyEngine calls, got %d", n, got)
-		}
+		<-a.notify
 	}
 }
 
@@ -175,17 +170,10 @@ func lockWrites(t *testing.T, path string) (release func()) {
 	return release
 }
 
-// receive returns the value sent on ch, failing the test if none arrives within waitTimeout.
+// receive returns the value sent on ch. It has no deadline of its own.
 func receive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(waitTimeout):
-		t.Fatal("timed out waiting for a result")
-		var zero T
-		return zero
-	}
+	return <-ch
 }
 
 func prompt(id, text string) store.EngineOp {
@@ -516,19 +504,15 @@ func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
 	}
 }
 
-// waitQueued blocks until the writer's queue holds at least n ops, failing the test after waitTimeout.
+// waitQueued blocks until the writer's queue holds at least n ops. It has no deadline of its own.
 func waitQueued(t *testing.T, w *Writer, n int) {
 	t.Helper()
-	deadline := time.Now().Add(waitTimeout)
 	for {
 		w.mu.Lock()
 		got := len(w.queue)
 		w.mu.Unlock()
 		if got >= n {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("waited for %d queued ops, got %d", n, got)
 		}
 		time.Sleep(time.Millisecond)
 	}

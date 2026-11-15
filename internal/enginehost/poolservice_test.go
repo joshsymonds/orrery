@@ -22,10 +22,6 @@ import (
 // The Broker must satisfy PoolCommands, or orreryd cannot serve it.
 var _ PoolCommands = (*grants.Broker)(nil)
 
-// acquireWait bounds how long a test waits for one event from the pools service. It is a hang guard, never a timing
-// assumption.
-const acquireWait = 10 * time.Second
-
 // fakePools is a PoolCommands that sends events in order, then returns err. With hold set it blocks after its events
 // until its context ends, then reports that context's error on ended. Each Acquire puts its request on got, which
 // holds one request. Status returns status. Hold and Free put their member on held and freed, which each hold one, and
@@ -133,18 +129,11 @@ func drain(stream *connect.ServerStreamForClient[v1.AcquireResponse]) ([]*v1.Acq
 	return msgs, stream.Err()
 }
 
-// receiveWithin returns the next value on ch. It fails the test when none arrives within acquireWait, and what names
-// the value in that failure.
-func receiveWithin[T any](t *testing.T, ch <-chan T, what string) T {
+// receiveWithin returns the next value on ch; its last argument names the value. It has no deadline of its own: the
+// value comes from real broker work, and the test binary's timeout ends a wait that never ends.
+func receiveWithin[T any](t *testing.T, ch <-chan T, _ string) T {
 	t.Helper()
-	select {
-	case value := <-ch:
-		return value
-	case <-time.After(acquireWait):
-		t.Fatalf("no %s within %v", what, acquireWait)
-		var zero T
-		return zero
-	}
+	return <-ch
 }
 
 // wantRequest is the request a new acquire of newAcquire carries into the broker.
@@ -389,13 +378,9 @@ func TestAcquireEndsTheGrantWhenTheClientClosesItsStream(t *testing.T) {
 	if err = stream.Close(); err != nil {
 		t.Fatalf("close stream: %v", err)
 	}
-	select {
-	case ctxErr := <-fake.ended:
-		if !errors.Is(ctxErr, context.Canceled) {
-			t.Fatalf("Acquire ctx ended with %v, want context.Canceled", ctxErr)
-		}
-	case <-time.After(acquireWait):
-		t.Fatalf("Acquire ctx did not end within %v of the client closing its stream", acquireWait)
+	ctxErr := <-fake.ended
+	if !errors.Is(ctxErr, context.Canceled) {
+		t.Fatalf("Acquire ctx ended with %v, want context.Canceled", ctxErr)
 	}
 }
 

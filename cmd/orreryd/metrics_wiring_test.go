@@ -34,7 +34,6 @@ import (
 // Synthetic values only. The metrics address is a loopback port the test picks, and the rules file is the repository's.
 const (
 	metricsWiringRules = "../../observability/orrery-rules.yml"
-	metricsWiringWait  = 10 * time.Second
 	metricsWiringStart = "orrery_start_timestamp_seconds"
 	metricsWiringReady = "orrery_ready_timestamp_seconds"
 	metricsWiringPush  = "orrery_push_failures_total"
@@ -54,12 +53,7 @@ func TestMetricsListenRefusesNonLoopback(t *testing.T) {
 			go func() {
 				codes <- run([]string{"--socket", socket, "--metrics-listen", addr}, &stderr, getenv)
 			}()
-			var code int
-			select {
-			case code = <-codes:
-			case <-time.After(metricsWiringWait):
-				t.Fatal("run did not return for a non-loopback --metrics-listen")
-			}
+			code := <-codes
 			if code != exitFailure {
 				t.Fatalf("exit code = %d, want %d; stderr %q", code, exitFailure, stderr.String())
 			}
@@ -141,8 +135,9 @@ func TestMetricsReadySetOnceReady(t *testing.T) {
 	}
 
 	close(release)
-	if err := ln.SetReadDeadline(time.Now().Add(metricsWiringWait)); err != nil {
-		t.Fatalf("set notify deadline: %v", err)
+	// The read waits for READY=1 with no deadline of its own, so it clears the absence window's deadline.
+	if err := ln.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatalf("clear notify deadline: %v", err)
 	}
 	buf := make([]byte, 64)
 	n, _, err := ln.ReadFromUnix(buf)
@@ -226,9 +221,6 @@ func TestSessionsHandlerOptionsRecordRPCs(t *testing.T) {
 	})
 	addr, socket, release := metricsWiringHeld(t, notify)
 	close(release)
-	if err := ln.SetReadDeadline(time.Now().Add(metricsWiringWait)); err != nil {
-		t.Fatalf("set notify deadline: %v", err)
-	}
 	if _, _, err := ln.ReadFromUnix(make([]byte, 64)); err != nil {
 		t.Fatalf("read READY=1: %v", err)
 	}
@@ -314,11 +306,7 @@ func metricsWiringHeld(t *testing.T, notify string) (string, string, chan struct
 		}
 	}
 	metricsWiringServe(t, opts, getenv)
-	select {
-	case <-reached:
-	case <-time.After(metricsWiringWait):
-		t.Fatal("reconcile was not reached")
-	}
+	<-reached
 	return addr, socket, release
 }
 
@@ -336,13 +324,9 @@ func metricsWiringServe(t *testing.T, opts options, getenv func(string) string) 
 	go func() { errc <- serve(ctx, opts, logger, getenv) }()
 	t.Cleanup(func() {
 		cancel()
-		select {
-		case err := <-errc:
-			if err != nil {
-				t.Errorf("serve: %v", err)
-			}
-		case <-time.After(metricsWiringWait):
-			t.Error("serve did not return after its context ended")
+		err := <-errc
+		if err != nil {
+			t.Errorf("serve: %v", err)
 		}
 	})
 }
@@ -427,8 +411,7 @@ func metricsWiringFamilies(t *testing.T, addr string) map[string]*dto.MetricFami
 	if err != nil {
 		t.Fatalf("request %s: %v", url, err)
 	}
-	client := &http.Client{Timeout: metricsWiringWait}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}

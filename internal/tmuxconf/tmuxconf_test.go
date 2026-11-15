@@ -2,7 +2,6 @@ package tmuxconf_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -32,7 +31,6 @@ const (
 	synthetic    = "synthetic"
 	changedAt    = "100"
 	seenAfter    = "200"
-	waitLimit    = 10 * time.Second
 	pollEvery    = 10 * time.Millisecond
 	quietWindow  = 1500 * time.Millisecond
 )
@@ -217,11 +215,10 @@ func (s testServer) setPane(t *testing.T, pane, state, seen string) {
 	}
 }
 
-// waitFor polls check every pollEvery until it reports true, and fails the test at waitLimit.
+// waitFor polls check every pollEvery until it reports true, failing the test on its error. It has no deadline of its
+// own.
 func waitFor(t *testing.T, what string, check func() (bool, error)) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -232,11 +229,7 @@ func waitFor(t *testing.T, what string, check func() (bool, error)) {
 		if ok {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("%s: not true after %v", what, waitLimit)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 

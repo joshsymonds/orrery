@@ -28,8 +28,6 @@ const (
 	eventAt = 1_700_000_000
 	// eventPoll is the Watch poll interval the tests inject.
 	eventPoll = 10 * time.Millisecond
-	// watchWait bounds every wait on a stream, so a stalled stream fails its test instead of hanging the run.
-	watchWait = 10 * time.Second
 	// replayCount is more events than one page holds (eventPageSize is 100), so a replay reads several pages.
 	replayCount = 250
 	// eventPane is the row id of the pane every test event is about.
@@ -158,31 +156,22 @@ func (w *watch) run(ctx context.Context, events orreryv1connect.EventsClient, af
 	w.err = stream.Err()
 }
 
-// next returns the next message, failing the test when none arrives within watchWait or the stream ends first.
+// next returns the next message, failing the test when the stream ends first. It has no deadline of its own.
 func (w *watch) next(t *testing.T) *orreryv1.WatchResponse {
 	t.Helper()
-	select {
-	case msg, ok := <-w.msgs:
-		if !ok {
-			t.Fatalf("stream ended before the next message: %v", w.err)
-		}
-		return msg
-	case <-time.After(watchWait):
-		t.Fatalf("no message within %v", watchWait)
+	msg, ok := <-w.msgs
+	if !ok {
+		t.Fatalf("stream ended before the next message: %v", w.err)
 	}
-	return nil
+	return msg
 }
 
 // finish waits for the stream to end without sending another message, and returns the error it ended with.
 func (w *watch) finish(t *testing.T) error {
 	t.Helper()
-	select {
-	case msg, ok := <-w.msgs:
-		if ok {
-			t.Fatalf("stream sent %v, want it to end", msg)
-		}
-	case <-time.After(watchWait):
-		t.Fatalf("stream did not end within %v", watchWait)
+	msg, ok := <-w.msgs
+	if ok {
+		t.Fatalf("stream sent %v, want it to end", msg)
 	}
 	return w.err
 }

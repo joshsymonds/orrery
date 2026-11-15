@@ -53,7 +53,6 @@ const (
 	synthQuestion = "synthetic question for the list route?"
 	// synthScreen is the synthetic text one pane prints for Panes.Screen to return.
 	synthScreen = "synthetic screen marker"
-	screenWait  = 10 * time.Second
 	screenPoll  = 10 * time.Millisecond
 )
 
@@ -524,8 +523,7 @@ func startInputPane(t *testing.T, tmux *tmuxctl.Client, session, screen string) 
 // waitForScreen waits until want appears in the captured screen of pane.
 func waitForScreen(t *testing.T, tmux *tmuxctl.Client, pane, want string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
 	for {
@@ -548,8 +546,7 @@ func waitForScreen(t *testing.T, tmux *tmuxctl.Client, pane, want string) {
 // exactly. The options must share one length.
 func awaitInput(t *testing.T, file string, options ...string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
 	for {
@@ -824,8 +821,7 @@ func connectPaneObject(t *testing.T, pane *orreryv1.Pane) map[string]any {
 // until it settles.
 func listUntilAgreed(t *testing.T, tmux *tmuxctl.Client, handler http.Handler) ([]*orreryv1.Pane, []map[string]any) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
 	client := panesClient(t, handler)
@@ -925,8 +921,7 @@ func paneScreen(t *testing.T, client orreryv1connect.PanesClient, req *orreryv1.
 // screenUntil polls Panes.Screen for req until the screen contains want, and returns that screen.
 func screenUntil(t *testing.T, client orreryv1connect.PanesClient, req *orreryv1.ScreenRequest, want string) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
 	for {

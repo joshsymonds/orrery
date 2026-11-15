@@ -364,13 +364,9 @@ func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 	})
 	cancel()
 
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatalf("Send after caller canceled: %v", err)
-		}
-	case <-time.After(sendDeadline):
-		t.Fatalf("Send did not return within %v", sendDeadline)
+	err := <-result
+	if err != nil {
+		t.Fatalf("Send after caller canceled: %v", err)
 	}
 	sendAwaitInput(t, file, text+"\r")
 }

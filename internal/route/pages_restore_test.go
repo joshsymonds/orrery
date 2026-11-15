@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -223,16 +222,8 @@ func TestRestoredDeskBuildRunsOffTheLock(t *testing.T) {
 		defer close(attached)
 		r.Attach(t.Context(), reopened)
 	}()
-	select {
-	case <-attached:
-	case <-time.After(waitLimit):
-		t.Fatal("Attach waited for the desk build")
-	}
-	select {
-	case <-building:
-	case <-time.After(waitLimit):
-		t.Fatal("the desk build did not start")
-	}
+	<-attached
+	<-building
 	releaseOnce()
 	r.Wait()
 

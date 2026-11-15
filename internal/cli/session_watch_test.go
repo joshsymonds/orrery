@@ -23,8 +23,6 @@ const (
 	watchTestAt = 1_700_000_000
 	// watchTestPoll is the poll interval the watch tests inject.
 	watchTestPoll = 5 * time.Millisecond
-	// watchTestWait bounds every wait, so a stalled watch fails its test instead of hanging the run.
-	watchTestWait = 10 * time.Second
 )
 
 // watchOutput collects what watch writes. Each write signals wrote without blocking, so a test waits for output
@@ -78,26 +76,18 @@ func startWatch(watch func(out io.Writer) error) *watchCall {
 // await waits for the watch to return and reports what it returned.
 func (c *watchCall) await(t *testing.T) error {
 	t.Helper()
-	select {
-	case err := <-c.done:
-		return err
-	case <-time.After(watchTestWait):
-		t.Fatalf("watch did not return within %v, with %d lines", watchTestWait, len(c.out.lines()))
-		return nil
-	}
+	err := <-c.done
+	return err
 }
 
 // awaitLines waits until the watch has written want lines. It fails when the watch returns first.
 func (c *watchCall) awaitLines(t *testing.T, want int) {
 	t.Helper()
-	deadline := time.After(watchTestWait)
 	for len(c.out.lines()) < want {
 		select {
 		case <-c.out.wrote:
 		case err := <-c.done:
 			t.Fatalf("watch returned %v with %d lines, want %d", err, len(c.out.lines()), want)
-		case <-deadline:
-			t.Fatalf("waited %v for %d lines, have %d", watchTestWait, len(c.out.lines()), want)
 		}
 	}
 }

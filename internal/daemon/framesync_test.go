@@ -317,24 +317,19 @@ func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 	}
 }
 
-// burstPanes is how many panes send a frame at once in the locked-store burst test. Frames that waited on each
-// other's store writes would put the last observer past lockedStoreBudget.
+// burstPanes is how many panes send a frame at once in the locked-store burst test.
 const burstPanes = 8
 
 // sendFrameErr sends frame to the daemon socket and waits for the daemon to close the connection, returning any
-// failure instead of failing the test, so it can run on its own goroutine.
+// failure instead of failing the test, so it can run on its own goroutine. It has no deadline of its own.
 func sendFrameErr(socketPath string, frame protocol.HookFrame) error {
-	ctx, cancel := context.WithTimeout(context.Background(), ioTimeout)
-	defer cancel()
+	ctx := context.Background()
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", socketPath, err)
 	}
 	defer conn.Close()
-	if err = conn.SetDeadline(time.Now().Add(ioTimeout)); err != nil {
-		return fmt.Errorf("set deadline: %w", err)
-	}
 	if err = protocol.WriteFrame(conn, frame); err != nil {
 		return fmt.Errorf("write frame: %w", err)
 	}

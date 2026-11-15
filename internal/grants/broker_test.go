@@ -20,8 +20,6 @@ import (
 
 const (
 	testHost = "box"
-	// guard bounds how long a test waits for one event. Tests order their steps by events and handshakes, not by time.
-	guard = 10 * time.Second
 	// healthy and failing are fake command bodies that exit 0 and 1.
 	healthy = "exit 0"
 	failing = "exit 1"
@@ -103,7 +101,7 @@ func start(ctx context.Context, b *Broker, req Request) *call {
 	return c
 }
 
-// next returns the call's next event, failing the test if the call returns first or the guard passes.
+// next returns the call's next event, failing the test if the call returns first. It has no deadline of its own.
 func (c *call) next(t *testing.T) Event {
 	t.Helper()
 	select {
@@ -111,8 +109,6 @@ func (c *call) next(t *testing.T) Event {
 		return e
 	case err := <-c.result:
 		t.Fatalf("Acquire returned %v before its next event", err)
-	case <-time.After(guard):
-		t.Fatal("no event within the guard")
 	}
 	return Event{}
 }
@@ -120,13 +116,7 @@ func (c *call) next(t *testing.T) Event {
 // finish waits for the call's Acquire to return, and returns its error.
 func (c *call) finish(t *testing.T) error {
 	t.Helper()
-	select {
-	case err := <-c.result:
-		return err
-	case <-time.After(guard):
-		t.Fatal("Acquire did not return within the guard")
-	}
-	return nil
+	return <-c.result
 }
 
 // startTimeOf returns the start time /proc records for the process with pid, read by the test itself: field 22 of its
@@ -197,13 +187,9 @@ func awaitSignal(t *testing.T, path string) {
 		_, err := os.ReadFile(path)
 		read <- err
 	}()
-	select {
-	case err := <-read:
-		if err != nil {
-			t.Fatalf("read signal %s: %v", path, err)
-		}
-	case <-time.After(guard):
-		t.Fatalf("fake command never signaled on %s", path)
+	err := <-read
+	if err != nil {
+		t.Fatalf("read signal %s: %v", path, err)
 	}
 }
 
@@ -551,11 +537,7 @@ func unavailableAfterFailure(t *testing.T, b *Broker, s *store.Store, c *call, s
 	if started != "" {
 		awaitSignal(t, started)
 	}
-	deadline := time.Now().Add(guard)
 	for runningCommands(b, "p") != 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the member's command did not end within the guard")
-		}
 		time.Sleep(time.Millisecond)
 	}
 	b.Close()

@@ -96,14 +96,10 @@ func TestWatchConversationReadsEachKeepalive(t *testing.T) {
 	stream := openConversation(t, client, &orreryv1.WatchConversationRequest{Pane: pane})
 
 	// The stream sends a keepalive each interval, so reading its messages keeps it moving until the reads arrive.
-	deadline := time.Now().Add(watchWait)
-	for len(reads.snapshot()) < watchReadsWanted && time.Now().Before(deadline) {
+	for len(reads.snapshot()) < watchReadsWanted {
 		stream.next(t)
 	}
 	got := reads.snapshot()
-	if len(got) < watchReadsWanted {
-		t.Fatalf("reads = %d while the stream stayed open, want at least %d", len(got), watchReadsWanted)
-	}
 	for i, read := range got {
 		if read.pane != pane || read.at != readFixtureAt {
 			t.Fatalf("read %d = pane %q at %d, want pane %q at %d", i, read.pane, read.at, pane, readFixtureAt)

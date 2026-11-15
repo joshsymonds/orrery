@@ -82,7 +82,7 @@ func memberNamed(t *testing.T, pool PoolStatus, name string) MemberStatus {
 // awaitAwake polls until member of pool p is awake, which is when its first status has ended.
 func awaitAwake(t *testing.T, b *Broker, member string) {
 	t.Helper()
-	await(t, "member "+member+" of pool p to be awake", func() bool {
+	await(t, func() bool {
 		state, _ := memberOf(t, b, "p", member)
 		return state == Awake
 	})

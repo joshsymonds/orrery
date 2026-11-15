@@ -30,8 +30,6 @@ import (
 const (
 	// runHelperEnv picks the fake command TestRunHelperProcess runs when the test binary re-runs as that command.
 	runHelperEnv = "ORRERY_RUN_TEST_HELPER"
-	// runTimeout bounds every wait on a run or on a fake command.
-	runTimeout = 10 * time.Second
 	// helperExitStatus is the status the exit helper ends with.
 	helperExitStatus = 3
 	// sigtermStatus is the status of a command ended by SIGTERM: 128 plus the signal.
@@ -548,17 +546,12 @@ func TestRunSignalEndsGrant(t *testing.T) {
 			if got.code != sigtermStatus {
 				t.Errorf("exit status %d, want %d; stderr %q", got.code, sigtermStatus, got.stderr)
 			}
-			select {
-			case <-fake.ended:
-			case <-time.After(runTimeout):
-				t.Error("the grant's stream did not end")
-			}
+			<-fake.ended
 		})
 	}
 }
 
-// awaitReadyLine returns once r yields the ready line a sleep command prints. It fails the test when no line comes
-// within runTimeout.
+// awaitReadyLine returns once r yields the ready line a sleep command prints. It has no deadline of its own.
 func awaitReadyLine(t *testing.T, r io.Reader) {
 	t.Helper()
 	line := make(chan string, 1)
@@ -569,13 +562,9 @@ func awaitReadyLine(t *testing.T, r io.Reader) {
 		}
 		line <- text
 	}()
-	select {
-	case text := <-line:
-		if !strings.HasPrefix(text, "ready ") {
-			t.Fatalf("command output %q, want its ready line", text)
-		}
-	case <-time.After(runTimeout):
-		t.Fatal("the command did not print its ready line")
+	text := <-line
+	if !strings.HasPrefix(text, "ready ") {
+		t.Fatalf("command output %q, want its ready line", text)
 	}
 }
 

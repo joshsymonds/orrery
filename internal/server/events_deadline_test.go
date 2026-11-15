@@ -151,18 +151,13 @@ func seedBigEvents(t *testing.T, s *store.Store, count int) {
 	}
 }
 
-// waitClosed fails the test unless the connection with remote address addr closes within watchWait.
+// waitClosed waits until the connection with remote address addr closes. It has no deadline of its own.
 func waitClosed(t *testing.T, closed <-chan string, addr string) {
 	t.Helper()
-	timeout := time.After(watchWait)
 	for {
-		select {
-		case got := <-closed:
-			if got == addr {
-				return
-			}
-		case <-timeout:
-			t.Fatalf("connection %s still open after %v", addr, watchWait)
+		got := <-closed
+		if got == addr {
+			return
 		}
 	}
 }
@@ -182,15 +177,10 @@ func assertStillOpen(t *testing.T, closed <-chan string, addr string) {
 // drainUntilEnd receives and discards the messages of w until its stream ends, and returns the error it ended with.
 func drainUntilEnd(t *testing.T, w *watch) error {
 	t.Helper()
-	timeout := time.After(watchWait)
 	for {
-		select {
-		case _, ok := <-w.msgs:
-			if !ok {
-				return w.err
-			}
-		case <-timeout:
-			t.Fatalf("stream did not end within %v", watchWait)
+		_, ok := <-w.msgs
+		if !ok {
+			return w.err
 		}
 	}
 }

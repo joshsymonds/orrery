@@ -109,7 +109,7 @@ func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
 	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// The router decides the notice after the frame is applied, so the push is awaited before orreryd stops. Stopping
 	// earlier would end the undecided notice with a shutdown line.
-	assertPushed(t, endpoint, pane, protocol.StateWaiting, waitLimit)
+	assertPushed(t, endpoint, pane, protocol.StateWaiting)
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
@@ -166,7 +166,7 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops. The
 	// store is attached once its open line is logged, so stopping then keeps the held notice for the next start, with
 	// no shutdown line.
-	waitUntil(t, "the watching line", func() bool { return noticeLogHas(logPath, "watching") })
+	waitUntil(t, func() bool { return noticeLogHas(logPath, "watching") })
 	daemon.waitForStoreOpen(t)
 	wantExit(t, daemon.stop(t), 0)
 
@@ -199,7 +199,7 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("host name: %v", err)
 	}
-	if hello := nextDeskLine(t, conn, r, waitLimit); hello.Kind != deskstream.KindHello || hello.Host != host {
+	if hello := nextDeskLine(t, r); hello.Kind != deskstream.KindHello || hello.Host != host {
 		t.Fatalf("hello %+v, want kind %q host %q", hello, deskstream.KindHello, host)
 	}
 	since := time.Now().Unix()
@@ -209,7 +209,7 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 	sendInput(t, socket, time.Now().Unix())
 	sendHook(t, socket, pane, project, permissionRequestHook())
 	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
-	line := nextDeskLine(t, conn, r, waitLimit)
+	line := nextDeskLine(t, r)
 	if line.Kind != deskstream.KindNotice || line.Host != host || line.State != string(protocol.StateWaiting) ||
 		line.Title != exampleTitle {
 		t.Fatalf("desk line %+v, want a waiting notice from host %q titled %q", line, host, exampleTitle)
@@ -239,7 +239,7 @@ func TestOrrerydRouteWithoutSubscriptionReachesDeskOnly(t *testing.T) {
 	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// No push marks the decision, so the notice's own line is awaited before orreryd stops.
 	logPath := noticeLogPath(stateHome)
-	waitUntil(t, "the no-subscription line", func() bool { return noticeLogHas(logPath, "away; no push subscription") })
+	waitUntil(t, func() bool { return noticeLogHas(logPath, "away; no push subscription") })
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
@@ -277,8 +277,8 @@ func stopHook(transcript string) map[string]any {
 	}
 }
 
-// dialDesk dials the desk stream beside socket, reads its hello line, and returns the connection and its reader.
-func dialDesk(t *testing.T, socket string) (net.Conn, *bufio.Reader) {
+// dialDesk dials the desk stream beside socket, reads its hello line, and returns the connection's reader.
+func dialDesk(t *testing.T, socket string) *bufio.Reader {
 	t.Helper()
 	conn, err := net.Dial("unix", deskstream.SocketPath(socket))
 	if err != nil {
@@ -286,10 +286,10 @@ func dialDesk(t *testing.T, socket string) (net.Conn, *bufio.Reader) {
 	}
 	t.Cleanup(func() { conn.Close() })
 	r := bufio.NewReader(conn)
-	if hello := nextDeskLine(t, conn, r, waitLimit); hello.Kind != deskstream.KindHello {
+	if hello := nextDeskLine(t, r); hello.Kind != deskstream.KindHello {
 		t.Fatalf("hello %+v, want kind %q", hello, deskstream.KindHello)
 	}
-	return conn, r
+	return r
 }
 
 // TestOrrerydRouteJudgedDoneRoutesByVerdict drives one plain done per case, judged after route.JudgeDelay. The verdict
@@ -330,7 +330,7 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			registerPush(t, stateHome, endpoint)
 			daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
 			writeJudgeReply(t, dir, tc.reply)
-			conn, r := dialDesk(t, socket)
+			r := dialDesk(t, socket)
 			project := filepath.Join(dir, exampleProjectName)
 			if err := os.Mkdir(project, 0o700); err != nil {
 				t.Fatalf("make project: %v", err)
@@ -342,13 +342,13 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 			// The notice waits out route.JudgeDelay before the judge runs; route's own tests check that wait on fake
 			// timers, so this test checks only what the judged notice carries.
 			sendHook(t, socket, pane, project, stopHook(transcript))
-			line := nextDeskLine(t, conn, r, judgedLimit)
+			line := nextDeskLine(t, r)
 			if line.Kind != deskstream.KindNotice || line.State != string(protocol.StateDone) ||
 				line.Title != exampleTitle || line.Body != exampleSummary || line.Quiet != tc.quiet {
 				t.Fatalf("desk line %+v, want a done notice titled %q with body %q, quiet %t",
 					line, exampleTitle, exampleSummary, tc.quiet)
 			}
-			note := assertPushed(t, endpoint, pane, protocol.StateDone, waitLimit)
+			note := assertPushed(t, endpoint, pane, protocol.StateDone)
 			if _, silent := note["silent"]; silent != tc.silent {
 				t.Fatalf("notification %v silent %t, want %t", note, silent, tc.silent)
 			}
@@ -424,7 +424,7 @@ func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
 	since := time.Now().Unix()
 
 	sendHook(t, socket, pane, dir, stopHook(transcript))
-	note := assertPushed(t, endpoint, pane, protocol.StateDone, judgedLimit)
+	note := assertPushed(t, endpoint, pane, protocol.StateDone)
 	if _, silent := note["silent"]; !silent {
 		t.Fatalf("notification %v, want the unneeded done silent", note)
 	}
