@@ -844,6 +844,8 @@ func evidenceItemMessage(item evidence.Item) *v1.EvidenceItem {
 		Supplied:   item.Supplied,
 		Conclusion: item.Conclusion,
 		Judge:      item.Judge,
+		Kind:       string(item.Kind),
+		Tests:      item.Tests,
 	}
 }
 

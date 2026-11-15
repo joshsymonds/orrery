@@ -151,6 +151,15 @@ message EpicRequirement {
 
   // The evidence that shows the requirement is true. Empty for epics stored before O3d2, which keep evidence and kind.
   EvidenceItem item = 5;
+
+  // The id of the task not failed that claims the requirement, T<seq>; empty when no task claims it.
+  string owner = 6;
+
+  // The ids of the tasks not failed that contribute to the requirement, T<seq>, in seq order.
+  repeated string contributors = 7;
+
+  // How far the requirement is shown: pending, red or green, from the runs of its current item.
+  string state = 8;
 }
 
 // EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
@@ -205,6 +214,13 @@ message EvidenceItem {
 
   // The agent that judges the evidence.
   string judge = 6;
+
+  // How the evidence shows the requirement or task is done: test, capture or supplied; empty for an item stored without
+  // a kind.
+  string kind = 7;
+
+  // The repository-relative test files a test item runs beside its capture; empty for an item that is not a test.
+  repeated string tests = 8;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -447,6 +463,9 @@ message EpicTask {
 
   // The reviews of the task's build, in attempt then position order.
   repeated EpicTaskReview reviews = 21;
+
+  // The Requirement ids the task contributes to without claiming them, R<n>.
+  repeated string contributes = 22;
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.

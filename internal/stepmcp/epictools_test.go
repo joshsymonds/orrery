@@ -211,7 +211,12 @@ func fullContract() *v1.EpicContract {
 				Supplied:   []string{"docs/roundtrip.md"},
 				Conclusion: "Every contract field reaches the service.",
 				Judge:      "reviewer",
+				Kind:       "test",
+				Tests:      []string{"internal/roundtrip/roundtrip_test.go"},
 			},
+			Owner:        "T1",
+			Contributors: []string{"T2"},
+			State:        "pending",
 		}},
 		Premises: []*v1.EpicPremise{{
 			Id:      "P1",
