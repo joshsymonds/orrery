@@ -222,7 +222,7 @@ public interface EvidenceRunOrBuilder extends
 
   /**
    * <pre>
-   * The size of the run's log in bytes.
+   * The size of the run's stdout log in bytes.
    * </pre>
    *
    * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -255,4 +255,14 @@ public interface EvidenceRunOrBuilder extends
    * <code>repeated .orrery.v1.EvidenceArtifact artifacts = 15 [json_name = "artifacts"];</code>
    */
   int getArtifactsCount();
+
+  /**
+   * <pre>
+   * The size of the run's stderr log in bytes.
+   * </pre>
+   *
+   * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+   * @return The stderrBytes.
+   */
+  long getStderrBytes();
 }

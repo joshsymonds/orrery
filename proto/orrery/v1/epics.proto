@@ -162,6 +162,12 @@ message EpicStepCheck {
 
   // Whether the check passed.
   bool ok = 3;
+
+  // The tail of the check's stdout, redacted; set only for a failed gate check.
+  string stdout = 4;
+
+  // The tail of the check's stderr, redacted; set only for a failed gate check.
+  string stderr = 5;
 }
 
 // EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
@@ -268,11 +274,14 @@ message EvidenceRun {
   // When the run ended, in unix seconds; 0 while it runs.
   int64 ended = 13;
 
-  // The size of the run's log in bytes.
+  // The size of the run's stdout log in bytes.
   int64 log_bytes = 14;
 
   // The artifacts the run kept, each with the state it was kept in.
   repeated EvidenceArtifact artifacts = 15;
+
+  // The size of the run's stderr log in bytes.
+  int64 stderr_bytes = 16;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -297,6 +306,9 @@ message EvidenceArtifactRequest {
 
   // The artifact's repository-relative path; empty for the run's log.
   string name = 2;
+
+  // Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+  bool stderr = 3;
 }
 
 // EvidenceArtifactResponse carries one artifact's bytes.

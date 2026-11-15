@@ -582,7 +582,11 @@ type EpicStepCheck struct {
 	// The check's name.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// Whether the check passed.
-	Ok            bool `protobuf:"varint,3,opt,name=ok,proto3" json:"ok,omitempty"`
+	Ok bool `protobuf:"varint,3,opt,name=ok,proto3" json:"ok,omitempty"`
+	// The tail of the check's stdout, redacted; set only for a failed gate check.
+	Stdout string `protobuf:"bytes,4,opt,name=stdout,proto3" json:"stdout,omitempty"`
+	// The tail of the check's stderr, redacted; set only for a failed gate check.
+	Stderr        string `protobuf:"bytes,5,opt,name=stderr,proto3" json:"stderr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -636,6 +640,20 @@ func (x *EpicStepCheck) GetOk() bool {
 		return x.Ok
 	}
 	return false
+}
+
+func (x *EpicStepCheck) GetStdout() string {
+	if x != nil {
+		return x.Stdout
+	}
+	return ""
+}
+
+func (x *EpicStepCheck) GetStderr() string {
+	if x != nil {
+		return x.Stderr
+	}
+	return ""
 }
 
 // EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
@@ -894,10 +912,12 @@ type EvidenceRun struct {
 	Created int64 `protobuf:"varint,12,opt,name=created,proto3" json:"created,omitempty"`
 	// When the run ended, in unix seconds; 0 while it runs.
 	Ended int64 `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
-	// The size of the run's log in bytes.
+	// The size of the run's stdout log in bytes.
 	LogBytes int64 `protobuf:"varint,14,opt,name=log_bytes,json=logBytes,proto3" json:"log_bytes,omitempty"`
 	// The artifacts the run kept, each with the state it was kept in.
-	Artifacts     []*EvidenceArtifact `protobuf:"bytes,15,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
+	Artifacts []*EvidenceArtifact `protobuf:"bytes,15,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
+	// The size of the run's stderr log in bytes.
+	StderrBytes   int64 `protobuf:"varint,16,opt,name=stderr_bytes,json=stderrBytes,proto3" json:"stderr_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1037,6 +1057,13 @@ func (x *EvidenceRun) GetArtifacts() []*EvidenceArtifact {
 	return nil
 }
 
+func (x *EvidenceRun) GetStderrBytes() int64 {
+	if x != nil {
+		return x.StderrBytes
+	}
+	return 0
+}
+
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
 type EvidenceArtifact struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1116,7 +1143,9 @@ type EvidenceArtifactRequest struct {
 	// The evidence run's id.
 	Run string `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
 	// The artifact's repository-relative path; empty for the run's log.
-	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+	Stderr        bool `protobuf:"varint,3,opt,name=stderr,proto3" json:"stderr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1163,6 +1192,13 @@ func (x *EvidenceArtifactRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *EvidenceArtifactRequest) GetStderr() bool {
+	if x != nil {
+		return x.Stderr
+	}
+	return false
 }
 
 // EvidenceArtifactResponse carries one artifact's bytes.
@@ -1526,11 +1562,13 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05doing\x18\t \x01(\tR\x05doing\x120\n" +
 	"\x06checks\x18\n" +
 	" \x03(\v2\x18.orrery.v1.EpicStepCheckR\x06checks\x12\x16\n" +
-	"\x06reason\x18\v \x01(\tR\x06reason\"I\n" +
+	"\x06reason\x18\v \x01(\tR\x06reason\"y\n" +
 	"\rEpicStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
-	"\x02ok\x18\x03 \x01(\bR\x02ok\"\x81\x02\n" +
+	"\x02ok\x18\x03 \x01(\bR\x02ok\x12\x16\n" +
+	"\x06stdout\x18\x04 \x01(\tR\x06stdout\x12\x16\n" +
+	"\x06stderr\x18\x05 \x01(\tR\x06stderr\"\x81\x02\n" +
 	"\tEpicSlice\x12\x12\n" +
 	"\x04task\x18\x01 \x01(\tR\x04task\x12\x10\n" +
 	"\x03hue\x18\x02 \x01(\tR\x03hue\x12\x19\n" +
@@ -1552,7 +1590,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x04runs\x18\x05 \x03(\v2\x16.orrery.v1.EvidenceRunR\x04runs\x12\x1e\n" +
 	"\n" +
 	"conclusion\x18\x06 \x01(\tR\n" +
-	"conclusion\"\xae\x03\n" +
+	"conclusion\"\xd1\x03\n" +
 	"\vEvidenceRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x16\n" +
@@ -1569,16 +1607,18 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\acreated\x18\f \x01(\x03R\acreated\x12\x14\n" +
 	"\x05ended\x18\r \x01(\x03R\x05ended\x12\x1b\n" +
 	"\tlog_bytes\x18\x0e \x01(\x03R\blogBytes\x129\n" +
-	"\tartifacts\x18\x0f \x03(\v2\x1b.orrery.v1.EvidenceArtifactR\tartifacts\"o\n" +
+	"\tartifacts\x18\x0f \x03(\v2\x1b.orrery.v1.EvidenceArtifactR\tartifacts\x12!\n" +
+	"\fstderr_bytes\x18\x10 \x01(\x03R\vstderrBytes\"o\n" +
 	"\x10EvidenceArtifact\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x12\n" +
 	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x1d\n" +
 	"\n" +
-	"media_type\x18\x04 \x01(\tR\tmediaType\"?\n" +
+	"media_type\x18\x04 \x01(\tR\tmediaType\"W\n" +
 	"\x17EvidenceArtifactRequest\x12\x10\n" +
 	"\x03run\x18\x01 \x01(\tR\x03run\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"M\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06stderr\x18\x03 \x01(\bR\x06stderr\"M\n" +
 	"\x18EvidenceArtifactResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1d\n" +
 	"\n" +

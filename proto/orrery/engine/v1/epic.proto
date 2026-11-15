@@ -255,10 +255,10 @@ message EvidenceRun {
   // Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
   string not_captured = 10;
 
-  // The sha256 of the run's log; empty until the log is stored.
+  // The sha256 of the run's stdout log; empty until the log is stored.
   string log_hash = 11;
 
-  // The size of the run's log in bytes.
+  // The size of the run's stdout log in bytes.
   int64 log_bytes = 12;
 
   // The artifacts the run kept, each with the state it was kept in.
@@ -281,6 +281,12 @@ message EvidenceRun {
 
   // When the run ended, in unix seconds; 0 while it runs.
   int64 ended = 19;
+
+  // The sha256 of the run's stderr log; empty until the log is stored.
+  string stderr_hash = 20;
+
+  // The size of the run's stderr log in bytes.
+  int64 stderr_bytes = 21;
 }
 
 // EpicPremise is one assumption the contract makes.
@@ -709,6 +715,9 @@ message GetEvidenceArtifactRequest {
 
   // The artifact's repository-relative path; empty for the run's log.
   string name = 2;
+
+  // Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+  bool stderr = 3;
 }
 
 // GetEvidenceArtifactResponse carries one artifact's bytes.
