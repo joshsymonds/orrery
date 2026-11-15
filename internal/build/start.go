@@ -166,18 +166,6 @@ func (r *Runner) verifierStart(epic store.EpicRow, view View, id string) (engine
 		return enginehost.StepStart{}, fmt.Errorf("finding %d of the review of T%d is not defined", pos, view.Task.Seq)
 	}
 	task := view.Task
-	base, revision := task.Build.Base, task.Build.Revision
-	return enginehost.StepStart{
-		ID:          id,
-		ReadOnly:    true,
-		Workspace:   epic.Repository,
-		Revision:    revision,
-		Agent:       agent,
-		Schema:      VerifierSchema,
-		Prompt:      VerifierPrompt(epic, task, base, revision, findings[pos]),
-		ReturnCheck: VerifierCheck,
-		DoneValue:   "done",
-		Epic:        epic.ID,
-		Task:        taskLabel(task.Seq),
-	}, nil
+	subject := Subject{Epic: epic, Task: &task, Base: task.Build.Base, Revision: task.Build.Revision}
+	return VerifierStart(subject, findings[pos], id, agent), nil
 }
