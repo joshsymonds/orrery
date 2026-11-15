@@ -321,8 +321,28 @@ func TestMirrorDropsSyncWhenLockWaitExceedsBudget(t *testing.T) {
 	logs := &bytes.Buffer{}
 	m := NewMirror(st, mirrorNow, slog.New(slog.NewTextHandler(logs, nil)))
 
+	// The sync's wait for the held lock runs on a channel the test closes, so it drops only once the test lets the
+	// wait expire.
+	armed := make(chan struct{}, 1)
+	expire := make(chan time.Time)
+	m.lockWait = func() <-chan time.Time {
+		armed <- struct{}{}
+		return expire
+	}
 	m.lock <- struct{}{}
-	m.SyncPane(t.Context(), ms.server, ms.pane)
+	synced := make(chan struct{})
+	go func() {
+		m.SyncPane(t.Context(), ms.server, ms.pane)
+		close(synced)
+	}()
+	<-armed
+	select {
+	case <-synced:
+		t.Fatal("SyncPane with the lock held returned before its wait expired")
+	default:
+	}
+	close(expire)
+	<-synced
 	<-m.lock
 
 	if logs.Len() == 0 {
