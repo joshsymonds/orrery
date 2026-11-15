@@ -61,6 +61,12 @@ type DeskSink interface {
 	Desk() int64
 }
 
+// PageSink shows a notice in open web pages until it ends. *inapp.Hub satisfies it.
+type PageSink interface {
+	Show(key notice.Key, n deskstream.Notice)
+	End(key notice.Key)
+}
+
 // PhoneSink sends push notices and clears. *notice.Notices satisfies it.
 type PhoneSink interface {
 	Notify(ctx context.Context, key notice.Key, build func(context.Context) (push.Notification, error), sent func())
@@ -105,15 +111,16 @@ var (
 // with.
 type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
-// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. Rebuild maps
-// each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each Rebuild under
-// the Router's lock, so a Rebuild must not call the Router.
+// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. A nil Pages shows
+// nothing. Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls
+// each Rebuild under the Router's lock, so a Rebuild must not call the Router.
 type Config struct {
 	Host       string
 	Now        func() time.Time
 	After      func(d time.Duration, f func()) (stop func() bool)
 	Desk       DeskSink
 	Phone      PhoneSink
+	Pages      PageSink
 	Subscribed func() (bool, error)
 	Log        Recorder
 	Logger     *slog.Logger
@@ -147,7 +154,7 @@ type Router struct {
 
 // entry is a notice waiting for its route. Its fields are guarded by Router.mu, except n, which never changes. phase
 // is the wait ent is in, due is when that wait runs out in unix ms, and row is the id of ent's stored row, 0 for none.
-// silent is the Silent flag of that row.
+// silent is the Silent flag of that row. shown is whether ent's desk notice is showing on Pages.
 type entry struct {
 	seq         uint64
 	n           Notice
@@ -156,6 +163,7 @@ type entry struct {
 	due         int64
 	row         int64
 	silent      bool
+	shown       bool
 	ended       bool
 	watchLogged bool
 	delayed     bool
@@ -381,7 +389,7 @@ func (r *Router) route(ctx context.Context, ent *entry, clause string) {
 	r.deliver(ctx, ent, dn, built, ent.n.Push, false, reasonAway+clause)
 }
 
-// atDesk posts the desk notice and arms the escalation that pushes the phone if ent stays unseen.
+// atDesk posts the desk notice, shows it on Pages, and arms the escalation that pushes the phone if ent stays unseen.
 func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, clause string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -391,6 +399,10 @@ func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, c
 	ent.phase, ent.due = phaseDesk, r.dueIn(Escalation)
 	r.rowLocked(ent)
 	r.cfg.Desk.Post(dn)
+	if r.cfg.Pages != nil {
+		r.cfg.Pages.Show(ent.n.Key, dn)
+		ent.shown = true
+	}
 	r.lineLocked(ent.n.Key, ent.n.State, Desk, reasonAtDesk+clause)
 	r.laterLocked(ent, Escalation, func() { r.escalate(ctx, ent) })
 }
@@ -474,7 +486,8 @@ func (r *Router) endLocked(ent *entry, routed, reason string) {
 	}
 }
 
-// stopLocked stops ent's timer and stops treating ent as pending, without a line. The caller holds r.mu.
+// stopLocked stops ent's timer and stops treating ent as pending, without a line. When ent was shown on Pages, its
+// notice there ends. The caller holds r.mu.
 func (r *Router) stopLocked(ent *entry) {
 	ent.ended = true
 	if ent.stop != nil {
@@ -483,6 +496,10 @@ func (r *Router) stopLocked(ent *entry) {
 	ent.stop = nil
 	if r.pending[ent.n.Key] == ent {
 		delete(r.pending, ent.n.Key)
+	}
+	if ent.shown {
+		ent.shown = false
+		r.cfg.Pages.End(ent.n.Key)
 	}
 }
 
