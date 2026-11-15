@@ -67,6 +67,10 @@ message EpicsGetResponse {
 
   // The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
   repeated EpicBuildTask build_tasks = 7;
+
+  // Reserved for O3e4 (ledger, releases, reviews). Style A1b declares 8 to 12.
+  reserved 13, 14, 15;
+  reserved "ledger", "releases", "reviews";
 }
 
 // Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
