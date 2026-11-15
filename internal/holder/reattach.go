@@ -44,6 +44,11 @@ func newReattachOptions(opts []ReattachOption) reattachOptions {
 // did not answer in time, spoke a wire version this controller does not attach, refused the attach, or was cut off.
 var ErrUnattachable = errors.New("holder: live holder cannot be attached")
 
+// ErrNoAnswer means the holder's socket took the connection but the holder did not answer within the attach's bound: a
+// dial, hello or attach ran out of time. Reattach wraps it in ErrUnattachable. A holder that gave no answer is not asked
+// again; Kill ends it.
+var ErrNoAnswer = errors.New("holder: no answer in time")
+
 // Reattach takes over the holder that serves dir, a session's holder directory, although this controller did not start
 // it. It attaches to the holder at replayFrom, with the hello and the attach bounded by AttachTimeout, or the timeout
 // WithAttachTimeout gives, and by ctx. It returns
@@ -104,6 +109,9 @@ func reattach(
 		return nil, nil, failedAttach(lock, err)
 	}
 	conn, attached, err := attachBounded(ctx, sock, replayFrom, version, settings.attachTimeout)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		err = fmt.Errorf("%w: %w", ErrNoAnswer, err)
+	}
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}

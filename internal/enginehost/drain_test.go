@@ -43,11 +43,14 @@ func (s *textSpy) storedTexts() []string {
 	return slices.Clone(s.texts)
 }
 
-// textTrigger accepts a batch that stores unfinished text whose streamed text is text.
-func textTrigger(text string) func([]store.EngineOp) bool {
+// stalledText is the streamed text of the fake's first stalled block.
+const stalledText = "fake stalling 1"
+
+// stalledTextTrigger accepts a batch that stores unfinished text whose streamed text is stalledText.
+func stalledTextTrigger() func([]store.EngineOp) bool {
 	return func(ops []store.EngineOp) bool {
 		for _, op := range ops {
-			if streamed, ok := op.(store.EngineText); ok && streamed.Text == text {
+			if streamed, ok := op.(store.EngineText); ok && streamed.Text == stalledText {
 				return true
 			}
 		}
@@ -185,7 +188,7 @@ func TestDrainStoresDieTurnWrittenWhileDownOnce(t *testing.T) {
 
 func TestDrainKilledHolderStoresStalledTextAndResumesTurn(t *testing.T) {
 	t.Parallel()
-	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
+	rig := newCrashRig(t, stalledTextTrigger(), false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
 	if err != nil {
@@ -225,7 +228,7 @@ func TestDrainKilledHolderStoresStalledTextAndResumesTurn(t *testing.T) {
 
 func TestDrainOfAWorkingTurnWhoseChildDiedRecordsItFailed(t *testing.T) {
 	t.Parallel()
-	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
+	rig := newCrashRig(t, stalledTextTrigger(), false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
 	if err != nil {
