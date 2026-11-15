@@ -23,7 +23,9 @@ const (
 		`conclusion and judge."},` +
 		`"decisions":{"type":"array","items":{"type":"object","properties":{` +
 		`"id":{"type":"string"},"text":{"type":"string"}},` +
-		`"required":["id","text"],"additionalProperties":false}}` +
+		`"required":["id","text"],"additionalProperties":false}},` +
+		`"workflow":{"type":"string","description":"the workflow the epic pins, read at the contract's base: ` +
+		`a repository file .orrery/workflows/<name>.yaml, else the built-in of that name; omit it to pin epic"}` +
 		`},"required":["contract"],"additionalProperties":false}`
 
 	epicListSchema = `{"type":"object","properties":{},"required":[],"additionalProperties":false}`
@@ -40,14 +42,16 @@ func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
 		{
 			Name: "epic_create",
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
-				"decisions. Returns the stored epic. A refusal names the field that failed.",
+				"decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. " +
+				"A refusal names the field that failed.",
 			InputSchema: json.RawMessage(epicCreateSchema),
 			Handler:     epicCreateHandler(epics),
 		},
 		{
 			Name: "epic_get",
-			Description: "Return a stored epic by id: its contract, phase, timestamps, decisions, whether it is " +
-				"paused and why it is parked, and its planner turns, tasks and questions.",
+			Description: "Return a stored epic by id: its contract, the workflow it pins with its name, text and " +
+				"sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner " +
+				"turns, tasks and questions.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     epicGetHandler(epics),
 		},

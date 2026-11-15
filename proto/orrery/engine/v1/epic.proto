@@ -497,6 +497,18 @@ message EpicQuestion {
   string state = 4;
 }
 
+// EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
+message EpicWorkflow {
+  // The workflow's name.
+  string name = 1;
+
+  // The workflow's canonical text, as the epic pinned it.
+  string text = 2;
+
+  // The sha256 of text, in lowercase hex.
+  string sha256 = 3;
+}
+
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
   // The epic's contract as created.
@@ -531,6 +543,9 @@ message StoredEpic {
 
   // The state of the epic's branch: empty before it is created, creating while it is being created, then created.
   string branch = 11;
+
+  // The workflow the epic pinned when it was created.
+  EpicWorkflow workflow = 12;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -561,6 +576,9 @@ message CreateEpicRequest {
 
   // The seed decisions, recorded in order as the epic's first decisions.
   repeated EpicDecisionInput decisions = 2;
+
+  // The name of the workflow the epic pins, read at the contract's base. Empty pins the built-in epic.
+  string workflow = 3;
 }
 
 // CreateEpicResponse carries the stored epic.
