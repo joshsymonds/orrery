@@ -38,6 +38,7 @@ func engineHistoryStore(t *testing.T) string {
 }
 
 func TestEngineHistoryReadsEachSessionInSeqOrder(t *testing.T) {
+	t.Parallel()
 	r := NewReader(engineHistoryStore(t))
 
 	type wantEvent struct {
@@ -71,6 +72,7 @@ func TestEngineHistoryReadsEachSessionInSeqOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
 			history, err := r.EngineHistory(context.Background(), tc.id, 0, 10)
 			if err != nil {
 				t.Fatalf("EngineHistory(%s): %v", tc.id, err)

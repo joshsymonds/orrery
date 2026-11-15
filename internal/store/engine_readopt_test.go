@@ -160,6 +160,7 @@ func TestEngineHolderPromptsListsLaterPromptsWithWriteIDs(t *testing.T) {
 }
 
 func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -178,6 +179,7 @@ func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			err := s.ApplyEngine(ctx, []EngineOp{tc.op}, engineNowAt())
 			if !errors.Is(err, ErrNoEngineSession) {
 				t.Fatalf("ApplyEngine: got %v, want ErrNoEngineSession", err)

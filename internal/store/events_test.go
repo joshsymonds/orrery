@@ -57,6 +57,7 @@ func pageSeqs(events []Event) []int64 {
 }
 
 func TestEventsPageReturnsEventsAfterCursorInSeqOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, path := eventPageStore(t)
 	r := NewReader(path)
@@ -74,6 +75,7 @@ func TestEventsPageReturnsEventsAfterCursorInSeqOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			page, err := r.Events(ctx, tc.after, tc.limit)
 			if err != nil {
 				t.Fatalf("Events(%d, %d): %v", tc.after, tc.limit, err)
@@ -279,6 +281,7 @@ func TestEventsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		kind    string
@@ -294,6 +297,7 @@ func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			path := filepath.Join(t.TempDir(), "orrery.db")
 			s := openWriterAt(t, path)

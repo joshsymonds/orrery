@@ -192,12 +192,14 @@ func TestSyncServerKeepsLiveEngineSessionPastRetention(t *testing.T) {
 }
 
 func TestSyncServerEmptyLiveListStillRemovesStaleEngineSession(t *testing.T) {
+	t.Parallel()
 	lives := map[string]func() []string{
 		"empty slice": func() []string { return []string{} },
 		"nil slice":   func() []string { return nil },
 	}
 	for name, live := range lives {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			s := openSyncStore(t)
 			t0 := time.Unix(1_700_000_000, 0)

@@ -501,6 +501,7 @@ func TestLabelledStepsLeavesOutUnlabelledRows(t *testing.T) {
 }
 
 func TestLabelledStepsFiltersByEpicAndTask(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
@@ -525,6 +526,7 @@ func TestLabelledStepsFiltersByEpicAndTask(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			rows, err := s.LabelledSteps(ctx, tc.epic, tc.task)
 			if err != nil {
 				t.Fatalf("LabelledSteps(%q, %q): %v", tc.epic, tc.task, err)
