@@ -363,7 +363,7 @@ func readoptGrantedGate(
 	if err != nil {
 		return gateResult{}, err
 	}
-	process, err := holder.ReattachGate(ctx, plan.dir)
+	process, err := holder.ReattachGate(ctx, plan.dir, holder.WithScope(run.Scope))
 	switch {
 	case err == nil:
 		return readoptServed(ctx, pools, req, run, plan, process, grantID)

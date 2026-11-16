@@ -16,17 +16,14 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/holdertest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// fakeSystemdRunPath returns the absolute path of the fake systemd-run the holder tests share.
+// fakeSystemdRunPath returns the absolute path of the test's fake systemd-run, with a fake systemctl beside it.
 func fakeSystemdRunPath(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join("..", "holder", "testdata", "fakesystemdrun.sh"))
-	if err != nil {
-		t.Fatalf("absolute fake systemd-run path: %v", err)
-	}
-	return path
+	return holdertest.FakeScope(t)
 }
 
 // scopeArgs returns the arguments that put the holder of session id in its own user scope, before the holder's argv.

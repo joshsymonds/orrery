@@ -52,7 +52,8 @@ type EngineAdd struct {
 	Kind  string
 }
 
-// EngineChanges holds the fields an EngineSet may change. A nil field is left as it is.
+// EngineChanges holds the fields an EngineSet may change. A nil field is left as it is, except Reason: a State with a nil
+// Reason clears a reason the row has, since the reason belongs to the state change that set it.
 type EngineChanges struct {
 	State         *string
 	Seen          *string
@@ -331,6 +332,12 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 	set("question", op.Changes.Question, &params.Question)
 	set("claudeSession", op.Changes.ClaudeSession, &params.ClaudeSession)
 	set("reason", op.Changes.Reason, &params.Reason)
+	// A row's reason is the reason of the state change that set it: a failed or an interrupted state carries one. A later
+	// state change that carries none, such as working after a resume, clears it.
+	if op.Changes.State != nil && op.Changes.Reason == nil && row.Reason != "" {
+		empty := ""
+		set("reason", &empty, &params.Reason)
+	}
 	if len(fields) == 0 {
 		return nil
 	}

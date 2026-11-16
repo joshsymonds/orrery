@@ -19,7 +19,11 @@
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
 # exists in its directory, then folds the next line it reads from stdin into its turn: the turn streams one text block
 # and ends with a success result that lists the uuids of both prompts as answered, WAITOPEN waits until fakeclaude.open
-# exists in its directory before it opens its turn, then answers as any other prompt does, LIMIT plays a usage-limit turn (a
+# exists in its directory before it opens its turn, then answers as any other prompt does, DAEMON starts a daemon with
+# its stdio closed that it leaves running, as ssh leaves a ControlPersist master, which writes its pid to
+# fakeclaude.daemon in its directory, and answers as any other prompt does once that pid is written, GRADLE runs
+# $FAKE_GRADLE in its directory, as a build a tool call runs, and answers "fake gradle ok n" when it exits 0 and "fake
+# gradle failed n" otherwise, LIMIT plays a usage-limit turn (a
 # rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
@@ -35,6 +39,11 @@
 #
 # Its init line lists the --agent it was given, or nothing when it was given none. A prompt that contains NOAGENT gets an
 # init line that lists nothing, as a claude that did not load the agent would.
+#
+# Its init line also lists the tools it runs under, as Claude Code does. When the --agents JSON defines the --agent with a
+# tools array, the init line lists exactly those tools. Otherwise it lists a full tool set that holds StructuredOutput. A
+# turn returns structured_output only when StructuredOutput is among the listed tools, so an agent whose tools omit it
+# returns no structured output, as Claude Code's agent does.
 
 # assistant_line CONTENT [ERROR]: the assistant line that carries CONTENT, the JSON of its finished content blocks. It
 # carries the error field ERROR when ERROR is given.
@@ -79,26 +88,27 @@ next() {
 }
 
 # turn_open starts a turn: the system init, the status and the message start. The init lists $agent, or nothing when
-# omit_agent is set for the prompt that opened the turn.
+# omit_agent is set for the prompt that opened the turn, and lists the tools in $tools.
 turn_open() {
 	agents='[]'
 	if [ -n "$agent" ] && [ -z "$omit_agent" ]; then
 		agents='["'"$agent"'"]'
 	fi
-	printf '%s\n' '{"type":"system","subtype":"init","cwd":"redacted","session_id":"session_1","tools":[],"mcp_servers":[],"model":"claude-haiku-5-5","permissionMode":"default","slash_commands":["redacted"],"terminal_slash_commands":["redacted"],"apiKeySource":"redacted","claude_code_version":"2.1.321","output_style":"redacted","agents":'"$agents"',"skills":["redacted"],"plugins":[{"name":"redacted","path":"redacted","source":"redacted"}],"capabilities":["redacted"],"analytics_disabled":false,"product_feedback_disabled":false,"uuid":"uuid_4","memory_paths":{"auto":"redacted"},"original_cwd":"redacted","additional_directories":[],"messaging_socket_path":"redacted","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","per_turn_effort_active":false,"ultrathink_available":false,"ultrathink_typed_raises":false,"view_mode":"redacted","user_message_uuids":'"$answered"'}'
+	printf '%s\n' '{"type":"system","subtype":"init","cwd":"redacted","session_id":"session_1","tools":['"$tools"'],"mcp_servers":[],"model":"claude-haiku-5-5","permissionMode":"default","slash_commands":["redacted"],"terminal_slash_commands":["redacted"],"apiKeySource":"redacted","claude_code_version":"2.1.321","output_style":"redacted","agents":'"$agents"',"skills":["redacted"],"plugins":[{"name":"redacted","path":"redacted","source":"redacted"}],"capabilities":["redacted"],"analytics_disabled":false,"product_feedback_disabled":false,"uuid":"uuid_4","memory_paths":{"auto":"redacted"},"original_cwd":"redacted","additional_directories":[],"messaging_socket_path":"redacted","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","per_turn_effort_active":false,"ultrathink_available":false,"ultrathink_typed_raises":false,"view_mode":"redacted","user_message_uuids":'"$answered"'}'
 	printf '%s\n' '{"type":"system","subtype":"status","status":"requesting","session_id":"session_1","uuid":"uuid_5","user_message_uuids":'"$answered"'}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":[],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_6","ttft_ms":0,"thinking_display":"redacted","api_message_id":"redacted","user_message_uuid":"uuid_1","user_message_uuids":'"$answered"'}'
 }
 
 # turn_close ends a completed turn: the message delta, the message stop and the success result. The result carries
-# structured_output set to the JSON in structured when structured is set, and origin set to the JSON in origin when origin
-# is set. Its result_index is result_index, 0 by default. Its is_error and result come from the variables is_error and
-# result_text, which each prompt sets to false and redacted by default.
+# structured_output set to the JSON in structured when structured is set and structured_tool is set, which it is only
+# when StructuredOutput is among the listed tools, and origin set to the JSON in origin when origin is set. Its
+# result_index is result_index, 0 by default. Its is_error and result come from the variables is_error and result_text,
+# which each prompt sets to false and redacted by default.
 turn_close() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null,"container":null},"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}]},"context_management":{"applied_edits":[]}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_11","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_12","api_message_id":"redacted"}'
 	printf '%s' '{'
-	if [ -n "$structured" ]; then
+	if [ -n "$structured" ] && [ -n "$structured_tool" ]; then
 		printf '%s' '"structured_output":'"$structured"','
 	fi
 	if [ -n "$origin" ]; then
@@ -366,6 +376,30 @@ waitopen() {
 }
 
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
+# daemon starts a daemon with its stdio closed, in a session of its own, and leaves it running. The daemon writes its
+# own pid to fakeclaude.daemon and then becomes a sleep. daemon waits until that pid is written and answers as reply
+# does. The subshell that starts the daemon exits at once, so the daemon is no child of this claude.
+daemon() {
+	(setsid sh -c 'echo $$ > fakeclaude.daemon.tmp && mv fakeclaude.daemon.tmp fakeclaude.daemon; exec sleep 3600' \
+		</dev/null >/dev/null 2>&1 &)
+	until [ -e fakeclaude.daemon ]; do
+		sleep 0.01
+	done
+	reply
+}
+
+# gradle_build runs $FAKE_GRADLE in this directory with its output dropped, then answers "fake gradle ok n" when it exited
+# 0 and "fake gradle failed n" otherwise. The session's login shell resets PATH, so the fake is named by its path.
+gradle_build() {
+	outcome=failed
+	if "$FAKE_GRADLE" </dev/null >/dev/null 2>&1; then
+		outcome=ok
+	fi
+	turn_open
+	text_block 0 "fake gradle $outcome $n" "fake gradle $outcome $n"
+	turn_close
+}
+
 die() {
 	turn_open
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
@@ -377,10 +411,32 @@ die() {
 echo $$ > fakeclaude.pid.tmp && mv fakeclaude.pid.tmp fakeclaude.pid
 printf '%s\n' "$*" >> fakeclaude.args
 
+# agent_tools prints the tools array of the agent named $agent in the --agents JSON $agents_flag, and returns 1 when that
+# definition has none. The array is the agent's own only when no other agent's definition opens before it.
+agent_tools() {
+	key='"'"$agent"'":{'
+	case $agents_flag in
+		*"$key"*) ;;
+		*) return 1 ;;
+	esac
+	rest=${agents_flag#*"$key"}
+	case $rest in
+		*'"tools":['*) ;;
+		*) return 1 ;;
+	esac
+	before=${rest%%'"tools":['*}
+	case $before in
+		*'":{'*) return 1 ;;
+	esac
+	rest=${rest#"$before"'"tools":['}
+	printf '%s' "${rest%%']'*}"
+}
+
 # A start with --resume continues the prompt count of the earlier start, and only resumes session_1. Its init lists the
-# --agent of the start.
+# --agent of the start, and the tools of that agent's --agents definition when the definition has a tools array.
 resume=
 agent=
+agents_flag=
 prev=
 for arg in "$@"; do
 	if [ "$prev" = --resume ]; then
@@ -389,8 +445,21 @@ for arg in "$@"; do
 	if [ "$prev" = --agent ]; then
 		agent=$arg
 	fi
+	if [ "$prev" = --agents ]; then
+		agents_flag=$arg
+	fi
 	prev=$arg
 done
+# The tools the init lists are those of the --agent's definition when it restricts them, and otherwise a full set that
+# holds StructuredOutput.
+tools='"Bash","Edit","NotebookEdit","Read","Skill","StructuredOutput","Task","ToolSearch","WebSearch","Write"'
+if [ -n "$agent" ] && [ -n "$agents_flag" ] && listed=$(agent_tools); then
+	tools=$listed
+fi
+structured_tool=
+case $tools in
+	*'"StructuredOutput"'*) structured_tool=1 ;;
+esac
 n=0
 if [ -n "$resume" ]; then
 	if [ "$resume" != session_1 ]; then
@@ -446,6 +515,8 @@ while next; do
 				*WAITOPEN*) waitopen ;;
 				*LIMITNORESET*) limit noreset ;;
 				*LIMIT*) limit ;;
+				*DAEMON*) daemon ;;
+				*GRADLE*) gradle_build ;;
 				*) reply ;;
 			esac
 			;;

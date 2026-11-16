@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>orrery: the flows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<style>
+  body { background: var(--crust); }
+  .fl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; min-height: 40px; padding: 6px 16px; border-bottom: 1px solid var(--surface0); font: 12px/20px var(--mono); color: var(--overlay1); }
+  .fl-bar b { font-size: 13px; color: var(--text); }
+  .fl-bar a { color: var(--subtext0); text-decoration: none; }
+  .fl-bar a:hover { color: var(--text); }
+  .fl-bar .sp { flex: 1; }
+  .fl { max-width: 900px; margin: 0 auto; padding: 34px 22px 90px; font: 16px/1.55 var(--prose); color: var(--subtext1); overflow-wrap: break-word; }
+  .fl h1 { margin: 0 0 12px; font: 700 22px/30px var(--mono); color: var(--text); }
+  .fl h2 { margin: 40px 0 10px; font: 700 17px/26px var(--mono); color: var(--text); }
+  .fl p { margin: 0 0 12px; }
+  .fl ul { margin: 0 0 12px; padding-left: 1.25em; }
+  .fl ol { margin: 2px 0 6px; padding-left: 1.6em; }
+  .fl li { margin-bottom: 5px; }
+  .fl li > ul, .fl li > ol { margin-top: 5px; }
+  .fl code { padding: 1px 5px 2px; border-radius: 4px; background: var(--surface0); font: .84em var(--mono); color: var(--lavender); }
+  .fl .tw { overflow-x: auto; margin: 0 0 14px; }
+  .fl table { width: 100%; border-collapse: collapse; font-size: 15px; line-height: 1.45; }
+  .fl th { padding: 0 16px 5px 0; text-align: left; font: 700 10.5px/16px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--overlay1); }
+  .fl td { padding: 7px 16px 7px 0; border-top: 1px solid var(--surface0); vertical-align: top; }
+  .fl td:first-child { color: var(--text); }
+</style>
+</head>
+<body>
+<header class="fl-bar"><b>orrery</b><span>the flows · round 4</span><span class="sp"></span><a href="map.html">the map</a><a href="./">web view</a><a href="phone.html">phone app</a></header>
+<main class="fl" data-flows></main>
+<script>
+  // Renders flows.md, the one source of this text: headings, paragraphs, nested lists, tables, code and nothing else.
+  const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const inline = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+  function render(md) {
+    const out = [], lines = md.split('\n'), stack = [];
+    let para = [], table = [];
+    const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; } };
+    const closeLists = (to) => { while (stack.length > to) out.push(`</li></${stack.pop().tag}>`); };
+    const flushTable = () => {
+      if (!table.length) return;
+      const cells = (row) => row.replace(/^\||\|$/g, '').split('|').map((c) => inline(c.trim()));
+      out.push(`<div class="tw"><table><tr>${cells(table[0]).map((c) => `<th>${c}</th>`).join('')}</tr>${table.slice(2).map((r) => `<tr>${cells(r).map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</table></div>`);
+      table = [];
+    };
+    for (const line of lines) {
+      const item = /^(\s*)(-|\d+\.)\s+(.*)$/.exec(line), head = /^(#+)\s+(.*)$/.exec(line);
+      if (/^\|/.test(line)) { flushPara(); closeLists(0); table.push(line); continue; }
+      flushTable();
+      if (head) { flushPara(); closeLists(0); out.push(`<h${head[1].length}>${inline(head[2])}</h${head[1].length}>`); continue; }
+      if (item) {
+        flushPara();
+        const depth = item[1].length, tag = item[2] === '-' ? 'ul' : 'ol';
+        while (stack.length && stack[stack.length - 1].depth > depth) out.push(`</li></${stack.pop().tag}>`);
+        if (stack.length && stack[stack.length - 1].depth === depth) out.push('</li>'); else { out.push(`<${tag}>`); stack.push({ depth, tag }); }
+        out.push(`<li>${inline(item[3])}`);
+        continue;
+      }
+      if (!line.trim()) { flushPara(); closeLists(0); continue; }
+      // A line indented under a list item continues it.
+      if (stack.length && /^\s+/.test(line)) out.push(` ${inline(line.trim())}`); else para.push(line.trim());
+    }
+    flushPara(); flushTable(); closeLists(0);
+    return out.join('\n');
+  }
+  fetch('flows.md').then((r) => r.text()).then((md) => { document.querySelector('[data-flows]').innerHTML = render(md); });
+</script>
+</body>
+</html>

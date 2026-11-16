@@ -262,7 +262,7 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	if err != nil {
 		return err
 	}
-	var opts []holder.ReattachOption
+	opts := []holder.ReattachOption{holder.WithScope(m.holderScope)}
 	if m.attachTimeout != 0 {
 		opts = append(opts, holder.WithAttachTimeout(m.attachTimeout))
 	}
@@ -318,7 +318,7 @@ func (m *Manager) owedPrompts(ctx context.Context, id string, written []string) 
 }
 
 // readoptSpec returns the spec the session of row is registered with when it is re-adopted. An engine session has none. A
-// step has the agent of its steps row and the observer expected for it, so it is registered as a step.
+// step has the agent and schema of its steps row and the observer expected for it, so it is registered as a step.
 func (m *Manager) readoptSpec(ctx context.Context, row store.EngineRow) (spawnSpec, error) {
 	if row.Kind != store.KindStep {
 		return spawnSpec{}, nil
@@ -330,7 +330,7 @@ func (m *Manager) readoptSpec(ctx context.Context, row store.EngineRow) (spawnSp
 	m.mu.Lock()
 	observer := m.stepObservers[row.ID]
 	m.mu.Unlock()
-	return spawnSpec{agent: step.Agent, step: true, observer: observer}, nil
+	return spawnSpec{agent: step.Agent, schema: step.Schema, step: true, observer: observer}, nil
 }
 
 // expectsStep reports whether ExpectStep registered an observer for the step id.

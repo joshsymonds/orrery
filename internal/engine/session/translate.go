@@ -79,6 +79,7 @@ func (t *translator) variantEvents(variant wire.SDKMessageVariant, line []byte) 
 			SessionID:      message.SessionID,
 			PermissionMode: message.PermissionMode,
 			Agents:         message.Agents,
+			Tools:          message.Tools,
 		}}, nil
 	case wire.SDKAssistantMessage:
 		return assistantEvents(message)
