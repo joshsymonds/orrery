@@ -957,6 +957,29 @@ test("the artifacts are a 4px grid of wrapping rows, a path wraps, and a drawn i
   assert.match(image, /height:\s*auto;/);
 });
 
+test("the evidence runs read the same inside the phase output as on the epic page", () => {
+  const runRules = [
+    ".runs",
+    ".run",
+    ".run .run-head",
+    ".run .phase",
+    ".run .pass.ok",
+    ".run .log-toggle",
+    ".run .pending",
+    ".run .unavailable",
+    ".run .artifacts",
+    ".artifact",
+    ".artifact .path",
+    ".artifact-image",
+    ".log",
+  ];
+  for (const rule of runRules) {
+    const inPhaseOutput = declarationsFor(css, `.phase-output ${rule}`);
+    assert.notEqual(inPhaseOutput, "", `.phase-output ${rule} has a rule`);
+    assert.equal(inPhaseOutput, declarationsFor(css, `.epic-page ${rule}`), `.phase-output ${rule} matches the epic page`);
+  }
+});
+
 test("no rule selects the old epic column or the old view", () => {
   assert.doesNotMatch(css, /\.side(?![\w-])/);
   assert.doesNotMatch(css, /\.epic-(view|head)\b/);

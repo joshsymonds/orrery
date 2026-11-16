@@ -571,22 +571,22 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .release .then { font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
 /* Evidence runs, in a proof card and in a workflow node alike: each run a card of its head line, its log toggles and its
    artifacts. */
-.epic-page .runs { display: grid; gap: 4px; }
-.epic-page .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
-.epic-page .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
-.epic-page .run .phase { font-weight: 700; color: var(--subtext1); }
-.epic-page .run .pass.ok { color: var(--green); }
-.epic-page .run .log-toggle {
+.epic-page .runs, .phase-output .runs { display: grid; gap: 4px; }
+.epic-page .run, .phase-output .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
+.epic-page .run .run-head, .phase-output .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-page .run .phase, .phase-output .run .phase { font-weight: 700; color: var(--subtext1); }
+.epic-page .run .pass.ok, .phase-output .run .pass.ok { color: var(--green); }
+.epic-page .run .log-toggle, .phase-output .run .log-toggle {
   justify-self: start; padding: 0; border: 0; background: none; cursor: pointer;
   font: 11px/17px var(--mono); color: var(--overlay1); appearance: none; -webkit-appearance: none;
 }
-.epic-page .run .pending { color: var(--overlay0); }
-.epic-page .run .unavailable { color: var(--red); }
-.epic-page .run .artifacts { display: grid; gap: 4px; }
-.epic-page .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
-.epic-page .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
-.epic-page .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
-.epic-page .log {
+.epic-page .run .pending, .phase-output .run .pending { color: var(--overlay0); }
+.epic-page .run .unavailable, .phase-output .run .unavailable { color: var(--red); }
+.epic-page .run .artifacts, .phase-output .run .artifacts { display: grid; gap: 4px; }
+.epic-page .artifact, .phase-output .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-page .artifact .path, .phase-output .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
+.epic-page .artifact-image, .phase-output .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.epic-page .log, .phase-output .log {
   margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
   font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
 }
