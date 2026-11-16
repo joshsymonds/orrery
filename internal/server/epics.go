@@ -932,14 +932,6 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 	return out, nil
 }
 
-// Seen answers CodeUnimplemented until the seen mark is forwarded.
-func (e epicsServer) Seen(
-	_ context.Context,
-	_ *connect.Request[orreryv1.EpicsSeenRequest],
-) (*connect.Response[orreryv1.EpicsSeenResponse], error) {
-	return nil, listError(connect.CodeUnimplemented, "orrery.v1.Epics.Seen is not implemented")
-}
-
 // newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, the
 // epic commands commands forwards, the runs evidence lists, the labeled steps of steps, and the sessions that called
 // each epic in sessions, reading at most maxControlBody bytes of each request. A zero timeout is defaultControlTimeout.

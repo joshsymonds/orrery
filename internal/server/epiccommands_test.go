@@ -91,6 +91,16 @@ func (f *epicCommandsFake) AnswerEpic(
 	return connect.NewResponse(&enginev1.AnswerEpicResponse{Decision: f.decision, Warning: f.warning}), nil
 }
 
+func (f *epicCommandsFake) SeeEpic(
+	_ context.Context,
+	req *connect.Request[enginev1.SeeEpicRequest],
+) (*connect.Response[enginev1.SeeEpicResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.SeeEpicResponse{}), nil
+}
+
 // record appends req to the calls and returns the next queued failure, or nil when the call succeeds.
 func (f *epicCommandsFake) record(req proto.Message) error {
 	f.mu.Lock()
@@ -130,9 +140,17 @@ type epicCommandCase struct {
 	want proto.Message
 }
 
-// epicCommandCases returns the five epic commands, each naming syntheticEpicID.
+// epicCommandCases returns the six epic commands, each naming syntheticEpicID.
 func epicCommandCases() []epicCommandCase {
 	return []epicCommandCase{
+		{
+			name: "seen",
+			call: func(ctx context.Context, client orreryv1connect.EpicsClient) error {
+				_, err := client.Seen(ctx, connect.NewRequest(&orreryv1.EpicsSeenRequest{Id: syntheticEpicID}))
+				return err
+			},
+			want: &enginev1.SeeEpicRequest{Id: syntheticEpicID},
+		},
 		{
 			name: "pause",
 			call: func(ctx context.Context, client orreryv1connect.EpicsClient) error {

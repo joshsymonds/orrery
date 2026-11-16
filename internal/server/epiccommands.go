@@ -110,6 +110,22 @@ func (e epicsServer) Answer(
 	}), nil
 }
 
+// Seen forwards the seen mark of the named epic to orreryd, which stores the time of this call as the mark.
+func (e epicsServer) Seen(
+	ctx context.Context,
+	req *connect.Request[orreryv1.EpicsSeenRequest],
+) (*connect.Response[orreryv1.EpicsSeenResponse], error) {
+	id := req.Msg.GetId()
+	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
+		_, err := commands.SeeEpic(ctx, connect.NewRequest(&enginev1.SeeEpicRequest{Id: id}))
+		return wrapEngine("seen", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.EpicsSeenResponse{}), nil
+}
+
 // forwardCommand runs call against the epic command client. A nil client answers unavailable. A call whose connection
 // was never made is retried while rpcretry.NeverConnected accepts its error: a call cut after it connected may already
 // have been taken, so it is answered and not sent again. Any other error answers as translateError does.
