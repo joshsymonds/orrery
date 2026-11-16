@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import v8 from "node:v8";
+import vm from "node:vm";
 
 import { create } from "@bufbuild/protobuf";
 import { render } from "preact";
@@ -102,7 +104,10 @@ test("an ended notice under a key that is not showing leaves the list as it was"
 });
 
 // FakeWatch answers Notices.Watch streams through the transport's fetch. Each stream is recorded, and the test decides
-// what it sends and when it ends. Like fetch, aborting a call errors its body, so a reader stops.
+// what it sends and when it ends. Like fetch, aborting a call errors its body, so a reader stops. The abort is heard on
+// the signal the transport passed, not on the Request built from it: a Request's signal follows its init's only while
+// the Request lives, so once the garbage collector takes the Request its signal never aborts, and a reader of the body
+// would wait forever.
 class FakeWatch {
   readonly paths: string[] = [];
   readonly streams: (ReadableStreamDefaultController<Uint8Array> | null)[] = [];
@@ -115,7 +120,8 @@ class FakeWatch {
     const body = new ReadableStream<Uint8Array>({
       start: (controller) => {
         this.streams[index] = controller;
-        request.signal.addEventListener("abort", () => controller.error(request.signal.reason), { once: true });
+        const signal = init?.signal ?? request.signal;
+        signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
       },
     });
     return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
@@ -251,6 +257,30 @@ test("aborting an open stream ends watchNotices and nothing reaches onChange aft
   await done;
   await sleep(retryMs * 3);
   assert.equal(fake.streams.length, 1, "a stream opened after the abort");
+  assert.equal(lists.length, 1, "onChange ran after the abort");
+});
+
+// collectGarbage runs a full garbage collection, as V8 may at any moment between two awaits.
+function collectGarbage(): void {
+  v8.setFlagsFromString("--expose-gc");
+  const gc = vm.runInNewContext("gc") as () => void;
+  gc();
+}
+
+test("aborting an open stream ends watchNotices after the garbage collector has run", async () => {
+  // The forced order of the hang: the stream is open and reading, the garbage collector runs, and only then does the
+  // abort come. The Request the fetch built is unreachable by then, so an abort heard only on its signal would never
+  // reach the body, and watchNotices would wait on the body forever.
+  const fake = new FakeWatch();
+  const controller = new AbortController();
+  const lists: string[][] = [];
+  const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
+  await until(() => fake.streams.length === 1, "the first stream");
+  fake.emitShown(0, "%1", "one");
+  await until(() => lists.length === 1, "the first change");
+  collectGarbage();
+  controller.abort();
+  await done;
   assert.equal(lists.length, 1, "onChange ran after the abort");
 });
 

@@ -149,7 +149,9 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         const body = decodeRequest(new Uint8Array(await request.arrayBuffer()));
         const watch: Watch = {
           after: BigInt(String(body.after ?? "0")),
-          signal: request.signal,
+          // The signal the transport passed: a Request's own signal stops following it once the garbage collector
+          // takes the Request.
+          signal: init?.signal ?? request.signal,
           header: request.headers.get(clientHeader),
           controller: null,
         };

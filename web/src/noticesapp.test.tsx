@@ -84,10 +84,13 @@ function fakeServer(): FakeServer {
             server.notices = controller;
           },
         });
-        request.signal.addEventListener(
+        // The abort is heard on the signal the transport passed: a Request's own signal stops following it once the
+        // garbage collector takes the Request.
+        const signal = init?.signal ?? request.signal;
+        signal.addEventListener(
           "abort",
           () => {
-            server.notices?.error(request.signal.reason);
+            server.notices?.error(signal.reason);
             server.notices = null;
           },
           { once: true },
