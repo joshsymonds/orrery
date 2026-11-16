@@ -181,7 +181,7 @@ func QuestionHash(question string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// DefaultSummaryModel is the summary model used when the patchbay context has no mapping.
+// DefaultSummaryModel is the summary model used when the proxy context has no mapping.
 const DefaultSummaryModel = "claude-haiku-5-5"
 
 // SummaryContext returns the name in the first /ctx/<name> path segment pair of baseURL,

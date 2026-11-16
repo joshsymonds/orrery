@@ -29,7 +29,7 @@ const (
 	noConfig        = "/dev/null"
 	testCommand     = "sleep 300"
 	exampleContext  = "example-context"
-	exampleBaseURL  = "https://patchbay.example.com/ctx/example-context"
+	exampleBaseURL  = "https://proxy.example.com/ctx/example-context"
 	exampleModel    = "example-model"
 	exampleInput    = "example transcript excerpt"
 	validReply      = "summary: example session summary\n"
@@ -401,7 +401,7 @@ func TestSummarizerFlags(t *testing.T) {
 }
 
 func TestSummarizerEnv(t *testing.T) {
-	t.Setenv("ANTHROPIC_BASE_URL", "https://patchbay.example.com/ctx/leftover")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://proxy.example.com/ctx/leftover")
 
 	t.Run("base url set", func(t *testing.T) {
 		r := newRig(t, nil, 0)
@@ -459,7 +459,7 @@ func TestSummarizerModel(t *testing.T) {
 	t.Run("unmapped context", func(t *testing.T) {
 		r := newRig(t, models, 0)
 		r.place(t, "reply", validReply)
-		const otherURL = "https://patchbay.example.com/ctx/other-context"
+		const otherURL = "https://proxy.example.com/ctx/other-context"
 		job := r.job(false)
 		job.BaseURL = otherURL
 		if err := r.s.Summarize(t.Context(), job); err != nil {
@@ -517,7 +517,7 @@ func TestSummarizerStamp(t *testing.T) {
 	models := map[string]string{"example": "example-stamp-model", exampleContext: exampleModel}
 	stampBody := `{"env":{"ANTHROPIC_BASE_URL":"` + stampURL + `","EXAMPLE_SETTING":"example-value"}}`
 	stampSettings := `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + stampURL + `","EXAMPLE_SETTING":"example-value"}}`
-	t.Setenv("ANTHROPIC_BASE_URL", "https://patchbay.example.com/ctx/leftover")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://proxy.example.com/ctx/leftover")
 
 	t.Run("stamp above dir wins over base url", func(t *testing.T) {
 		home := t.TempDir()

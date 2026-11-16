@@ -41,16 +41,16 @@ class PaneTreeTest {
 
     @Test
     fun panesNestUnderTheirHomeRelativeFolders() {
-        val home = pane("home", "/home/josh")
-        val a = pane("a", "/home/josh/a")
-        val ab = pane("ab", "/home/josh/a/b")
+        val home = pane("home", "/home/user")
+        val a = pane("a", "/home/user/a")
+        val ab = pane("ab", "/home/user/a/b")
         val rows = treeRows(listOf(home, a, ab), emptySet())
         assertEquals(
             listOf(
                 at(home, 0),
-                folder("/home/josh/a", "a", 0),
+                folder("/home/user/a", "a", 0),
                 at(a, 1),
-                folder("/home/josh/a/b", "b", 1),
+                folder("/home/user/a/b", "b", 1),
                 at(ab, 2),
             ),
             rows,
@@ -59,17 +59,17 @@ class PaneTreeTest {
 
     @Test
     fun bothWorktreeFormsSitUnderTheirRepo() {
-        val repo = pane("repo", "/home/josh/repo")
-        val dot = pane("dot", "/home/josh/repo.worktrees/feat")
-        val dash = pane("dash", "/home/josh/repo-worktrees/fix")
+        val repo = pane("repo", "/home/user/repo")
+        val dot = pane("dot", "/home/user/repo.worktrees/feat")
+        val dash = pane("dash", "/home/user/repo-worktrees/fix")
         val rows = treeRows(listOf(repo, dot, dash), emptySet())
         assertEquals(
             listOf(
-                folder("/home/josh/repo", "repo", 0),
+                folder("/home/user/repo", "repo", 0),
                 at(repo, 1),
-                folder("/home/josh/repo.worktrees/feat", "feat", 1),
+                folder("/home/user/repo.worktrees/feat", "feat", 1),
                 at(dot, 2),
-                folder("/home/josh/repo-worktrees/fix", "fix", 1),
+                folder("/home/user/repo-worktrees/fix", "fix", 1),
                 at(dash, 2),
             ),
             rows,
@@ -78,21 +78,21 @@ class PaneTreeTest {
 
     @Test
     fun worktreeFoldersWithoutAMainCheckoutShareOneRepoFolder() {
-        val dot = pane("dot", "/home/josh/repo.worktrees/feat")
-        val dash = pane("dash", "/home/josh/repo-worktrees/fix")
+        val dot = pane("dot", "/home/user/repo.worktrees/feat")
+        val dash = pane("dash", "/home/user/repo-worktrees/fix")
         val rows = treeRows(listOf(dot, dash), emptySet())
         val repoFolders = rows.filterIsInstance<Folder>().filter { it.name == "repo" }
-        assertEquals(listOf(folder("/home/josh/repo", "repo", 0)), repoFolders)
+        assertEquals(listOf(folder("/home/user/repo", "repo", 0)), repoFolders)
     }
 
     @Test
     fun bareWorktreesSegmentIsAnOrdinaryFolder() {
-        val bare = pane("bare", "/home/josh/.worktrees/feat")
+        val bare = pane("bare", "/home/user/.worktrees/feat")
         val rows = treeRows(listOf(bare), emptySet())
         assertEquals(
             listOf(
-                folder("/home/josh/.worktrees", ".worktrees", 0),
-                folder("/home/josh/.worktrees/feat", "feat", 1),
+                folder("/home/user/.worktrees", ".worktrees", 0),
+                folder("/home/user/.worktrees/feat", "feat", 1),
                 at(bare, 2),
             ),
             rows,
@@ -117,16 +117,16 @@ class PaneTreeTest {
 
     @Test
     fun sameNamedFoldersInDifferentPlacesStayApartWithDistinctKeys() {
-        val work = pane("work", "/home/josh/work/api")
-        val oss = pane("oss", "/home/josh/oss/api")
+        val work = pane("work", "/home/user/work/api")
+        val oss = pane("oss", "/home/user/oss/api")
         val rows = treeRows(listOf(work, oss), emptySet())
         assertEquals(
             listOf(
-                folder("/home/josh/oss", "oss", 0),
-                folder("/home/josh/oss/api", "api", 1),
+                folder("/home/user/oss", "oss", 0),
+                folder("/home/user/oss/api", "api", 1),
                 at(oss, 2),
-                folder("/home/josh/work", "work", 0),
-                folder("/home/josh/work/api", "api", 1),
+                folder("/home/user/work", "work", 0),
+                folder("/home/user/work/api", "api", 1),
                 at(work, 2),
             ),
             rows,
@@ -153,25 +153,25 @@ class PaneTreeTest {
 
     @Test
     fun usersHomeIsAHomeToo() {
-        val mac = pane("mac", "/Users/josh/code")
+        val mac = pane("mac", "/Users/user/code")
         val rows = treeRows(listOf(mac), emptySet())
         assertEquals(
-            listOf(folder("/Users/josh/code", "code", 0), at(mac, 1)),
+            listOf(folder("/Users/user/code", "code", 0), at(mac, 1)),
             rows,
         )
     }
 
     @Test
     fun collapsingAFolderHidesEverythingBeneathButKeepsItsHeader() {
-        val ab = pane("ab", "/home/josh/a/b")
-        val abDeep = pane("deep", "/home/josh/a/b/deep")
-        val a = pane("a", "/home/josh/a")
-        val d = pane("d", "/home/josh/d")
-        val rows = treeRows(listOf(ab, abDeep, a, d), setOf("/home/josh/a"))
+        val ab = pane("ab", "/home/user/a/b")
+        val abDeep = pane("deep", "/home/user/a/b/deep")
+        val a = pane("a", "/home/user/a")
+        val d = pane("d", "/home/user/d")
+        val rows = treeRows(listOf(ab, abDeep, a, d), setOf("/home/user/a"))
         assertEquals(
             listOf(
-                folder("/home/josh/a", "a", 0, collapsed = true),
-                folder("/home/josh/d", "d", 0),
+                folder("/home/user/a", "a", 0, collapsed = true),
+                folder("/home/user/d", "d", 0),
                 at(d, 1),
             ),
             rows,
@@ -180,17 +180,17 @@ class PaneTreeTest {
 
     @Test
     fun collapsingASubfolderHidesOnlyItsOwnDescendants() {
-        val ab = pane("ab", "/home/josh/a/b")
-        val abDeep = pane("deep", "/home/josh/a/b/deep")
-        val ac = pane("ac", "/home/josh/a/c")
-        val a = pane("a", "/home/josh/a")
-        val rows = treeRows(listOf(ab, abDeep, ac, a), setOf("/home/josh/a/b"))
+        val ab = pane("ab", "/home/user/a/b")
+        val abDeep = pane("deep", "/home/user/a/b/deep")
+        val ac = pane("ac", "/home/user/a/c")
+        val a = pane("a", "/home/user/a")
+        val rows = treeRows(listOf(ab, abDeep, ac, a), setOf("/home/user/a/b"))
         assertEquals(
             listOf(
-                folder("/home/josh/a", "a", 0),
+                folder("/home/user/a", "a", 0),
                 at(a, 1),
-                folder("/home/josh/a/b", "b", 1, collapsed = true),
-                folder("/home/josh/a/c", "c", 1),
+                folder("/home/user/a/b", "b", 1, collapsed = true),
+                folder("/home/user/a/c", "c", 1),
                 at(ac, 2),
             ),
             rows,
@@ -200,10 +200,10 @@ class PaneTreeTest {
     @Test
     fun eachPaneAppearsExactlyOnce() {
         val panes = listOf(
-            pane("p1", "/home/josh"),
-            pane("p2", "/home/josh/repo"),
-            pane("p3", "/home/josh/repo.worktrees/feat/src"),
-            pane("p4", "/home/josh/repo-worktrees/fix"),
+            pane("p1", "/home/user"),
+            pane("p2", "/home/user/repo"),
+            pane("p3", "/home/user/repo.worktrees/feat/src"),
+            pane("p4", "/home/user/repo-worktrees/fix"),
             pane("p5", "/srv/app/x"),
             pane("p6", "/srv"),
             pane("p7", "/"),
@@ -215,19 +215,19 @@ class PaneTreeTest {
 
     @Test
     fun foldersSortByNameAndListTheirPanesBeforeSubfolders() {
-        val zeta = pane("zeta", "/home/josh/zeta")
-        val alphaSub = pane("sub", "/home/josh/alpha/sub")
-        val alpha = pane("alpha", "/home/josh/alpha")
-        val alphaSecond = pane("alpha2", "/home/josh/alpha")
+        val zeta = pane("zeta", "/home/user/zeta")
+        val alphaSub = pane("sub", "/home/user/alpha/sub")
+        val alpha = pane("alpha", "/home/user/alpha")
+        val alphaSecond = pane("alpha2", "/home/user/alpha")
         val rows = treeRows(listOf(zeta, alphaSub, alpha, alphaSecond), emptySet())
         assertEquals(
             listOf(
-                folder("/home/josh/alpha", "alpha", 0),
+                folder("/home/user/alpha", "alpha", 0),
                 at(alpha, 1),
                 at(alphaSecond, 1),
-                folder("/home/josh/alpha/sub", "sub", 1),
+                folder("/home/user/alpha/sub", "sub", 1),
                 at(alphaSub, 2),
-                folder("/home/josh/zeta", "zeta", 0),
+                folder("/home/user/zeta", "zeta", 0),
                 at(zeta, 1),
             ),
             rows,
@@ -236,9 +236,9 @@ class PaneTreeTest {
 
     @Test
     fun trailingSlashesDoNotChangeThePlace() {
-        val a = pane("a", "/home/josh/a///")
+        val a = pane("a", "/home/user/a///")
         val rows = treeRows(listOf(a), emptySet())
-        assertEquals(listOf(folder("/home/josh/a", "a", 0), at(a, 1)), rows)
+        assertEquals(listOf(folder("/home/user/a", "a", 0), at(a, 1)), rows)
     }
 
     // R2: new flat list, newest first, unread rule, with project.
@@ -268,11 +268,11 @@ class PaneTreeTest {
 
     @Test
     fun projectOfIsTheFolderPathUnderHomeOrTheAbsolutePathOutside() {
-        assertEquals("~", projectOf(pane("h", "/home/josh")))
-        assertEquals("~", projectOf(pane("h2", "/home/josh/")))
-        assertEquals("a", projectOf(pane("a", "/home/josh/a/")))
-        assertEquals("a/b", projectOf(pane("ab", "/home/josh/a/b")))
-        assertEquals("repo/feat", projectOf(pane("w", "/home/josh/repo.worktrees/feat")))
+        assertEquals("~", projectOf(pane("h", "/home/user")))
+        assertEquals("~", projectOf(pane("h2", "/home/user/")))
+        assertEquals("a", projectOf(pane("a", "/home/user/a/")))
+        assertEquals("a/b", projectOf(pane("ab", "/home/user/a/b")))
+        assertEquals("repo/feat", projectOf(pane("w", "/home/user/repo.worktrees/feat")))
         assertEquals("/srv/app/x", projectOf(pane("s", "/srv/app/x")))
         assertEquals("/", projectOf(pane("root", "/")))
     }

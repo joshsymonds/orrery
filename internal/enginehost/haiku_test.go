@@ -62,7 +62,7 @@ exit %d
 func haikuEnviron() []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
-		"ANTHROPIC_BASE_URL=http://patchbay.invalid/ctx/work",
+		"ANTHROPIC_BASE_URL=http://proxy.invalid/ctx/work",
 		"ORRERY_SUMMARIZER=0",
 		"HAIKU_TEST_MARK=kept",
 	}
@@ -484,7 +484,7 @@ sleep 30`, status: 0})
 
 // haikuCallViaBaseURL and haikuCallViaModel are the base URL and model the CallVia tests pass.
 const (
-	haikuCallViaBaseURL = "http://patchbay.invalid/ctx/example"
+	haikuCallViaBaseURL = "http://proxy.invalid/ctx/example"
 	haikuCallViaModel   = "example-model"
 )
 
@@ -517,7 +517,7 @@ func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
 	wantArgv := []string{
 		"-p",
 		"--model", haikuCallViaModel,
-		"--settings", `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://patchbay.invalid/ctx/example",` +
+		"--settings", `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://proxy.invalid/ctx/example",` +
 			`"CTX_EXAMPLE":"example"}}`,
 		"--no-session-persistence",
 		"--tools", "",

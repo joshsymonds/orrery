@@ -18,7 +18,7 @@ import (
 const (
 	testPane    = "%1"
 	testTmux    = "/tmp/example-tmux,1234,0"
-	testBaseURL = "https://patchbay.example.com/ctx/example-context"
+	testBaseURL = "https://proxy.example.com/ctx/example-context"
 	testHook    = `{"hook_event_name":"Stop","session_id":"example-session"}`
 
 	// oversize is larger than a default unix socket buffer, so an unread write blocks.

@@ -594,8 +594,8 @@ type contextObservation struct {
 
 func TestDaemonRecordsContext(t *testing.T) {
 	const (
-		contextURL = "https://patchbay.example.com/ctx/example-context"
-		plainURL   = "https://patchbay.example.com/v1"
+		contextURL = "https://proxy.example.com/ctx/example-context"
+		plainURL   = "https://proxy.example.com/v1"
 	)
 	srv := startServer(t)
 	observed := make(chan contextObservation, 16)

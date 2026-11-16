@@ -1193,7 +1193,7 @@ class OrreryClientTest {
 
     @Test
     fun schemeLessAddressConstructsAndEveryCallRaisesIOException() {
-        assertUnusableAddressConstructsAndEveryCallRaisesIOException("vermissian.example:8490")
+        assertUnusableAddressConstructsAndEveryCallRaisesIOException("host.example:8490")
     }
 
     @Test

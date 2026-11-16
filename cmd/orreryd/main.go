@@ -112,7 +112,7 @@ flags:
   --socket PATH     daemon socket (default ORRERY_SOCKET, then $XDG_RUNTIME_DIR/orrery/orreryd.sock)
   --claude PATH     claude binary the summarizer runs (default claude)
   --summary-model CONTEXT=MODEL
-                    summary model for a patchbay context; repeat for each context
+                    summary model for a proxy context; repeat for each context
   --push-host HOST  push relay host a Web Push subscription may name; repeat for each host
                     (default ntfy.sh)
   --sessions        serve the engine session service on sessions.sock beside the daemon socket
@@ -200,7 +200,7 @@ func (h *repeatFlag) Set(value string) error {
 	return nil
 }
 
-// modelFlag is the repeatable --summary-model flag. It maps each patchbay context to its summary model.
+// modelFlag is the repeatable --summary-model flag. It maps each proxy context to its summary model.
 type modelFlag map[string]string
 
 // String implements flag.Value.
