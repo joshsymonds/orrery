@@ -2,6 +2,7 @@ package interpret
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -49,29 +50,47 @@ const rpTwoResults = `{"status":"done","results":[` +
 	`{"id":"correctness-2","evidence":"a","result":"open"},` +
 	`{"id":"correctness-3","evidence":"b","result":"closed"}]}`
 
-func TestEpicVerifierStartSetsAReadOnlyStepAtTheFrozenRevision(t *testing.T) {
+func TestEpicVerifierStartIsBuildsVerifierStartOfTheEpicAndTheConvertedFinding(t *testing.T) {
 	t.Parallel()
-	epic := rpEpic()
-	got := epicVerifierStart(epic, "base111", "frozen222", rpFinding(), "step-7", "verifier")
-	if got.ID != "step-7" || got.Agent != "verifier" {
-		t.Errorf("ID, Agent = %q, %q; want step-7, verifier", got.ID, got.Agent)
+	noRequirements := rpEpic()
+	noRequirements.Requirements = nil
+	tests := []struct {
+		name string
+		epic store.EpicRow
+	}{
+		{"with Requirements", rpEpic()},
+		{"with no Requirements", noRequirements},
 	}
-	if !got.ReadOnly || got.Workspace != epic.Repository || got.Revision != "frozen222" {
-		t.Errorf("ReadOnly, Workspace, Revision = %t, %q, %q; want true, %q, frozen222",
-			got.ReadOnly, got.Workspace, got.Revision, epic.Repository)
-	}
-	if got.Schema != build.VerifierSchema || got.DoneValue != "done" || got.Epic != epic.ID {
-		t.Errorf("Schema, DoneValue, Epic = %t, %q, %q; want the verifier schema, done, %q",
-			got.Schema == build.VerifierSchema, got.DoneValue, got.Epic, epic.ID)
-	}
-	if got.ReturnCheck == nil {
-		t.Fatal("ReturnCheck is nil, want the one-result check")
-	}
-	if lines := got.ReturnCheck(json.RawMessage(rpOneResult)); lines != nil {
-		t.Errorf("ReturnCheck(one result) = %q, want nil", lines)
-	}
-	if lines := got.ReturnCheck(json.RawMessage(rpTwoResults)); len(lines) != 1 {
-		t.Errorf("ReturnCheck(two results) = %q, want one line refusing the count", lines)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := epicVerifierStart(tt.epic, "base111", "frozen222", rpFinding(), "step-7", "verifier")
+			finding := store.TaskFinding{
+				Position: 2, ID: "correctness-2", Claim: "the brief drops a Requirement", Citation: "R2",
+				Location: "internal/build/brief.go:42", Evidence: "requirementLines skips R2",
+				VerifyBy: "go test ./internal/build -run Brief", Step: "verify-step", Result: "confirmed",
+				Reason: "brief.go:42 drops R2",
+			}
+			want := build.VerifierStart(
+				build.Subject{Epic: tt.epic, Base: "base111", Revision: "frozen222"}, finding, "step-7", "verifier",
+			)
+			if got.ReturnCheck == nil {
+				t.Fatal("ReturnCheck is nil, want the one-result check")
+			}
+			if lines := got.ReturnCheck(json.RawMessage(rpOneResult)); lines != nil {
+				t.Errorf("ReturnCheck(one result) = %q, want nil", lines)
+			}
+			if lines := got.ReturnCheck(json.RawMessage(rpTwoResults)); len(lines) != 1 {
+				t.Errorf("ReturnCheck(two results) = %q, want one line refusing the count", lines)
+			}
+			if got.Prompt != want.Prompt {
+				t.Fatalf("Prompt\n got:\n%s\nwant:\n%s", got.Prompt, want.Prompt)
+			}
+			got.ReturnCheck, want.ReturnCheck = nil, nil
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("start\n got: %+v\nwant: %+v", got, want)
+			}
+		})
 	}
 }
 

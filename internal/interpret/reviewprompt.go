@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/build"
@@ -44,55 +43,20 @@ const ClosureSchema = `{
 }`
 
 // epicVerifierStart returns the start of the epic-stage verifier step id for finding, a ledger finding of the review of
-// epic over base..frozen. The step runs agent read-only at frozen, with the verifier schema and its return check. Its
-// Task label is set by the caller.
+// epic over base..frozen. It is the start build.VerifierStart gives for the epic subject, with finding converted to the
+// store.TaskFinding the verifier checks, its ID the ledger id.
 func epicVerifierStart(
 	epic store.EpicRow, base, frozen string, finding store.LedgerFinding, id, agent string,
 ) enginehost.StepStart {
-	return enginehost.StepStart{
-		ID:          id,
-		ReadOnly:    true,
-		Workspace:   epic.Repository,
-		Revision:    frozen,
-		Agent:       agent,
-		Schema:      build.VerifierSchema,
-		Prompt:      epicVerifierPrompt(epic, base, frozen, finding),
-		ReturnCheck: build.VerifierCheck,
-		DoneValue:   "done",
-		Epic:        epic.ID,
-	}
-}
-
-// epicVerifierPrompt renders the prompt of the epic-stage verifier for finding: the role, the epic and its Requirements,
-// the range the change spans from base to frozen, and the finding with its claim, citation, location, evidence and
-// verify-by step.
-func epicVerifierPrompt(epic store.EpicRow, base, frozen string, finding store.LedgerFinding) string {
-	body := slices.Concat(
-		[]string{
-			fmt.Sprintf("Epic %s (%s)", epic.ID, epic.Title),
-			"Requirements:",
+	return build.VerifierStart(
+		build.Subject{Epic: epic, Base: base, Revision: frozen},
+		store.TaskFinding{
+			Position: finding.Position, ID: finding.ID, Claim: finding.Claim, Citation: finding.Citation,
+			Location: finding.Location, Evidence: finding.Evidence, VerifyBy: finding.VerifyBy,
+			Step: finding.Step, Result: finding.Result, Reason: finding.Reason, Unverified: finding.Unverified,
 		},
-		epicRequirementLines(epic.Requirements),
-		[]string{
-			fmt.Sprintf("The change is %s..%s; this worktree is checked out at %s.", base, frozen, frozen),
-			"Finding " + finding.ID + ": " + finding.Claim,
-			"Citation: " + finding.Citation,
-			"Location: " + finding.Location,
-			"Evidence: " + finding.Evidence,
-			"Verify by: " + finding.VerifyBy,
-			"Return exactly one result, for " + finding.ID + ".",
-		},
+		id, agent,
 	)
-	return build.VerifierRole + "\n" + strings.Join(body, "\n")
-}
-
-// epicRequirementLines returns one bullet per Requirement of an epic, in declared order.
-func epicRequirementLines(requirements []store.EpicRequirement) []string {
-	lines := make([]string, len(requirements))
-	for i, r := range requirements {
-		lines[i] = "- " + r.ID + ": " + r.Text
-	}
-	return lines
 }
 
 // closureStart returns the start of the closure verifier step id for finding, a confirmed ledger finding, at revision,
