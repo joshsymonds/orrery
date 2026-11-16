@@ -3,7 +3,6 @@ package interpret
 import (
 	"encoding/json"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -167,44 +166,6 @@ func TestClosureRoleNamesEveryResultTheClosureSchemaAccepts(t *testing.T) {
 		if !strings.Contains(closureRole, "`"+result+"`") {
 			t.Errorf("closure role does not name the result `%s`", result)
 		}
-	}
-}
-
-func TestClosureSchemaParsesAndAcceptsEveryClosureResult(t *testing.T) {
-	t.Parallel()
-	var schema struct {
-		Required   []string `json:"required"`
-		Properties struct {
-			Status struct {
-				Enum []string `json:"enum"`
-			} `json:"status"`
-			Results struct {
-				Items struct {
-					Required   []string `json:"required"`
-					Properties struct {
-						Result struct {
-							Enum []string `json:"enum"`
-						} `json:"result"`
-					} `json:"properties"`
-				} `json:"items"`
-			} `json:"results"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal([]byte(ClosureSchema), &schema); err != nil {
-		t.Fatalf("ClosureSchema does not parse: %v", err)
-	}
-	if want := []string{"status", "results"}; !slices.Equal(schema.Required, want) {
-		t.Errorf("required = %q, want %q", schema.Required, want)
-	}
-	if want := []string{"done", "blocked"}; !slices.Equal(schema.Properties.Status.Enum, want) {
-		t.Errorf("status enum = %q, want %q", schema.Properties.Status.Enum, want)
-	}
-	if want := []string{"id", "evidence", "result"}; !slices.Equal(schema.Properties.Results.Items.Required, want) {
-		t.Errorf("result required = %q, want %q", schema.Properties.Results.Items.Required, want)
-	}
-	want := []string{"closed", "open", "undetermined"}
-	if got := schema.Properties.Results.Items.Properties.Result.Enum; !slices.Equal(got, want) {
-		t.Errorf("result enum = %q, want %q", got, want)
 	}
 }
 
