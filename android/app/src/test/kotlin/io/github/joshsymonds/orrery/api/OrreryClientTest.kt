@@ -45,7 +45,27 @@ import org.junit.Test
 import java.io.IOException
 import java.net.SocketTimeoutException
 
+/** The scaled standard tier: shorter than [TIER_ANSWER_MILLIS], so a standard call times out on that answer. */
+private const val SHORT_TIER_MILLIS = 100
+
+/** The scaled compose and picker tiers: far longer than [TIER_ANSWER_MILLIS], so a loaded machine still sees the answer. */
+private const val LONG_TIER_MILLIS = 5_000
+
+/** When the fake server answers a tier test: after the short tier, well before the long one. */
+private const val TIER_ANSWER_MILLIS = 400L
+
 class OrreryClientTest {
+    /**
+     * A client whose tiers keep the app's order (standard, then compose and picker far longer) at scales the tests can
+     * wait out: an answer at [TIER_ANSWER_MILLIS] times out the standard tier and is waited for by the others.
+     */
+    private fun tieredClient(server: FakeOrreryServer) = OrreryClient(
+        server.baseUrl,
+        composeReadTimeoutMillis = LONG_TIER_MILLIS,
+        pickerReadTimeoutMillis = LONG_TIER_MILLIS,
+        standardReadTimeoutMillis = SHORT_TIER_MILLIS,
+    )
+
     private val panesProto = PanesListResponse.newBuilder()
         .addPanes(
             PaneProto.newBuilder()
@@ -264,42 +284,34 @@ class OrreryClientTest {
     }
 
     @Test
-    fun sendComposedAnsweredAfterTenSecondsSucceeds() {
+    fun sendComposedOutlastsTheStandardTimeout() {
         FakeOrreryServer().use { server ->
-            server.respond(
-                SEND_TEXT,
-                SendTextResponse.getDefaultInstance(),
-                delayMillis = 11_000,
-            )
+            server.respond(SEND_TEXT, SendTextResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
 
-            OrreryClient(server.baseUrl).sendComposed("%3", "echo hi")
+            tieredClient(server).sendComposed("%3", "echo hi")
 
             assertEquals(1, server.requests.size)
         }
     }
 
     @Test
-    fun sendTextAnsweredAfterTenSecondsIsNoAnswer() {
+    fun sendTextAnsweredAfterTheStandardTimeoutIsNoAnswer() {
         FakeOrreryServer().use { server ->
-            server.respond(
-                SEND_TEXT,
-                SendTextResponse.getDefaultInstance(),
-                delayMillis = 11_000,
-            )
+            server.respond(SEND_TEXT, SendTextResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
 
             assertThrows(NoAnswerException::class.java) {
-                OrreryClient(server.baseUrl).sendText("%3", "echo hi")
+                tieredClient(server).sendText("%3", "echo hi")
             }
         }
     }
 
     @Test
-    fun panesAnsweredAfterTenSecondsTimesOut() {
+    fun panesAnsweredAfterTheStandardTimeoutTimesOut() {
         FakeOrreryServer().use { server ->
-            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance(), delayMillis = 11_000)
+            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
 
             assertThrows(SocketTimeoutException::class.java) {
-                OrreryClient(server.baseUrl).panes()
+                tieredClient(server).panes()
             }
         }
     }
@@ -504,11 +516,11 @@ class OrreryClientTest {
     }
 
     @Test
-    fun sayAnsweredAfterTenSecondsSucceeds() {
+    fun sayOutlastsTheStandardTimeout() {
         FakeOrreryServer().use { server ->
-            server.respond(CONTROL_SAY, SayResponse.getDefaultInstance(), delayMillis = 11_000)
+            server.respond(CONTROL_SAY, SayResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
 
-            OrreryClient(server.baseUrl).say("session-1", "echo hi", "prompt-1")
+            tieredClient(server).say("session-1", "echo hi", "prompt-1")
 
             assertEquals(1, server.requests.size)
         }
@@ -550,15 +562,15 @@ class OrreryClientTest {
     }
 
     @Test
-    fun startAnsweredAfterElevenSecondsSucceeds() {
+    fun startOutlastsTheStandardTimeout() {
         FakeOrreryServer().use { server ->
             server.respond(
                 CONTROL_START,
                 StartResponse.newBuilder().setId(SESSION_ID).build(),
-                delayMillis = 11_000,
+                delayMillis = TIER_ANSWER_MILLIS,
             )
 
-            val id = OrreryClient(server.baseUrl).start("/home/user/project", "echo hi", SESSION_ID)
+            val id = tieredClient(server).start("/home/user/project", "echo hi", SESSION_ID)
 
             assertEquals(SESSION_ID, id)
             assertEquals(1, server.requests.size)
@@ -1087,16 +1099,22 @@ class OrreryClientTest {
     }
 
     @Test
-    fun askAnsweredAfterTenSecondsSucceeds() {
+    fun askOutlastsTheStandardTimeout() {
         FakeOrreryServer().use { server ->
-            server.respond(
-                PICKER_ASK,
-                AskResponse.getDefaultInstance(),
-                delayMillis = 11_000,
-            )
+            server.respond(PICKER_ASK, AskResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
 
-            assertEquals(emptyList<PickRow>(), OrreryClient(server.baseUrl).ask("example request"))
+            assertEquals(emptyList<PickRow>(), tieredClient(server).ask("example request"))
         }
+    }
+
+    @Test
+    fun theTiersDefaultToTenTwentyFiveAndNinetySeconds() {
+        // The tier tests above run on scaled timeouts; these are the ones the app uses. An answer at 11 s times out a
+        // standard call and is waited for by the compose (send, say, start) and picker (ask) calls.
+        assertEquals(
+            mapOf("standard" to 10_000, "compose" to 25_000, "picker" to 90_000, "stream" to 10_000),
+            OrreryClient("http://127.0.0.1:1").readTimeoutsMillis,
+        )
     }
 
     @Test
