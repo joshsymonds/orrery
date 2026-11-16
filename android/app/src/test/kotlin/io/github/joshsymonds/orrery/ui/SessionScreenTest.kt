@@ -109,7 +109,7 @@ class SessionScreenTest {
         server.route(WATCH_PATH) { _ ->
             val index = requests.getAndIncrement()
             if (index > 0) gate?.acquire()
-            if (index < streams.size) streams[index] else Reply.Stream(emptyList(), StreamEnd.Silent)
+            if (index < streams.size) streams[index] else Reply.Stream(emptyList(), StreamEnd.Open)
         }
     }
 
@@ -159,7 +159,7 @@ class SessionScreenTest {
             .setText(text)
             .build()
 
-    private fun streamOf(vararg messages: MessageLite, end: StreamEnd = StreamEnd.Silent): Reply.Stream =
+    private fun streamOf(vararg messages: MessageLite, end: StreamEnd = StreamEnd.Open): Reply.Stream =
         Reply.Stream(messages.toList(), end)
 
     private fun countPosts(server: FakeOrreryServer, path: String): Int =

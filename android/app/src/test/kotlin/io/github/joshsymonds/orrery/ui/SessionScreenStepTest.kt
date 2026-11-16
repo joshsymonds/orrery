@@ -85,16 +85,16 @@ class SessionScreenStepTest {
         }
     }
 
-    /** Scripts the watch stream with one reply: the first request gets [stream], later ones a silent stream. */
+    /** Scripts the watch stream with one reply: the first request gets [stream], later ones a quiet open stream. */
     private fun serveStream(server: FakeOrreryServer, stream: Reply) {
         val requests = AtomicInteger()
         server.route(WATCH_PATH) { _ ->
-            if (requests.getAndIncrement() == 0) stream else Reply.Stream(emptyList(), StreamEnd.Silent)
+            if (requests.getAndIncrement() == 0) stream else Reply.Stream(emptyList(), StreamEnd.Open)
         }
     }
 
     private fun streamOf(vararg messages: MessageLite): Reply.Stream =
-        Reply.Stream(messages.toList(), StreamEnd.Silent)
+        Reply.Stream(messages.toList(), StreamEnd.Open)
 
     private fun stateOf(state: String, request: OpenRequest? = null): ConversationState {
         val builder = ConversationState.newBuilder()

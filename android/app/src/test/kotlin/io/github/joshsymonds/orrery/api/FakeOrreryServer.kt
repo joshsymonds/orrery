@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger
 private const val STREAM_CONTENT_TYPE = "application/connect+proto"
 private const val ENVELOPE_MESSAGE_FLAG = 0
 private const val ENVELOPE_END_FLAG = 0x02
-private const val SILENT_STREAM_MILLIS = 5_000L
+/** How often a silent or open stream looks whether its client has closed the connection. */
+private const val CLIENT_CLOSE_CHECK_MILLIS = 10L
 private const val HELD_STREAM_INTERVAL_MILLIS = 50L
 
 data class RecordedRequest(
@@ -56,8 +57,17 @@ sealed interface StreamEnd {
     /** An end envelope carrying the Connect error [code] and [message]. */
     data class Error(val code: Code, val message: String) : StreamEnd
 
-    /** No end envelope: the stream sends nothing for a few seconds, then ends without error. */
+    /**
+     * No end envelope: the stream sends nothing more until the client gives up on it and closes the connection (its
+     * stream read timeout), then ends. Work in flight until then, so a wait sees the client's timeout through.
+     */
     data object Silent : StreamEnd
+
+    /**
+     * No end envelope and no keepalives: the stream stays open, quietly, until the client or the server closes it. It
+     * only waits, so it is not work in flight: a stream that has said all it will say, as a quiet session's does.
+     */
+    data object Open : StreamEnd
 
     /**
      * No end envelope: the stream sends an empty message every 50 ms until a write fails, which
@@ -217,13 +227,23 @@ class FakeOrreryServer : AutoCloseable {
                     val json = JSONObject().put("error", JSONObject().put("code", end.code.codeName).put("message", end.message))
                     body.writeEnvelope(ENVELOPE_END_FLAG, json.toString().toByteArray(Charsets.UTF_8))
                 }
-                StreamEnd.Silent -> {
-                    Thread.sleep(SILENT_STREAM_MILLIS)
-                    body.writeEnvelope(ENVELOPE_END_FLAG, "{}".toByteArray(Charsets.UTF_8))
+                StreamEnd.Silent -> waitForClientToClose(exchange)
+                StreamEnd.Open -> {
+                    // From here the stream only waits, so it no longer counts as work in flight.
+                    if (holding.compareAndSet(false, true)) busy.decrementAndGet()
+                    waitForClientToClose(exchange)
                 }
                 StreamEnd.Held -> holdUntilClientCloses(exchange, body, ByteArray(0), holding)
                 is StreamEnd.HeldWith -> holdUntilClientCloses(exchange, body, end.keepalive.toByteArray(), holding)
             }
+        }
+    }
+
+    /** Returns once the client has closed the connection [exchange] arrived on, or the server is closing. */
+    private fun waitForClientToClose(exchange: HttpExchange) {
+        val port = exchange.remoteAddress.port
+        while (Quiescence.clientConnectionOpen(port)) {
+            Thread.sleep(CLIENT_CLOSE_CHECK_MILLIS)
         }
     }
 

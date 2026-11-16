@@ -66,10 +66,16 @@ const stepDefaultWatchTick = 5 * time.Second
 // its prompt is built from Prompt. Such a start is refused unless it is read-only and leaves Agent, Schema and
 // DoneValue empty.
 //
+// Agents, when set, is the JSON object of inline agent definitions the step's claude is started with as its --agents
+// argument, and Agent may name one of them. Agent resolves when Agents defines it. The step stores Agents with its row,
+// and a respawn of the step passes it again. Agents that is not a JSON object whose every member is a JSON object is
+// refused with an error matching ErrBadAgents, and nothing is stored.
+//
 // AgentGate, when set, is an agent gate given as data in place of a named gate, and the step runs it as a named agent
 // gate does, without reading any gates or project file. Such a start is refused unless it is read-only and leaves
-// GateName, GatesFile, Agent, Schema and DoneValue empty. The gate needs a name, an agent, at least one assertion, a
-// limit of at least a second, and no argv or needs. The step is stored with the gate's name and the source "data".
+// GateName, GatesFile, Agent, Schema and DoneValue empty. It may carry Agents, which defines the gate's agent inline.
+// The gate needs a name, an agent, at least one assertion, a limit of at least a second, and no argv or needs. The
+// step is stored with the gate's name and the source "data".
 //
 // CommandGate, when set, is a command gate given as data in place of a named gate, and a writing step runs it as a
 // named command gate does, with no gate resolved by name and no gates file read. Such a start is refused unless it is
@@ -77,18 +83,24 @@ const stepDefaultWatchTick = 5 * time.Second
 // second, and no agent or assertions. Its needs are granted from the pools the workspace's pool files declare, and each
 // must be declared by one. The step is stored with the gate's name and the source "data".
 //
+// Unowned, set on a writing step, skips the owned check on each done return: the step may change any path, and its
+// head, ancestry and clean checks and its gate run as they do for an owned step. The row stores it, so a re-adopted
+// step skips the check too.
+//
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
 type StepStart struct {
 	ID          string
 	Agent       string
+	Agents      string
 	Prompt      string
 	Schema      string
 	Workspace   string
 	Revision    string
 	ReadOnly    bool
 	Owned       []string
+	Unowned     bool
 	GateName    string
 	GatesFile   string
 	ModelLimit  time.Duration
@@ -275,19 +287,23 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		modelLimit = stepDefaultModelLimit
 	}
 	add := store.StepAdd{
-		ID: id, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
-		Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly, Owned: start.Owned, Gate: gate.argv,
-		GateName: gate.name, GateSource: gate.source, GateNeeds: gate.needs, GateLimit: gateLimit,
-		ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
+		ID: id, Agent: start.Agent, Agents: start.Agents, Prompt: start.Prompt, Schema: start.Schema,
+		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
+		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
+		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,
-		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv,
+		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, unowned: start.Unowned,
+		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,
 	}
-	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
+	step := StepSession{
+		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
+		Schema: start.Schema,
+	}
 	if start.ReadOnly {
 		if err = s.addReadOnlyStep(ctx, start, id, commit, &add, &cfg); err != nil {
 			return s.refuseStart(ctx, id, cfg.cleanup, err)

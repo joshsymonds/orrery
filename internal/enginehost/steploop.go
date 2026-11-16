@@ -90,7 +90,8 @@ const stepLoopBuffer = 8
 const apiErrorRateLimit = "rate_limit"
 
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
-// with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. gate
+// with commitChecks against start and owned in dir, without its owned check when unowned, and with gate when every
+// commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
 // the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
@@ -124,6 +125,7 @@ type stepRunConfig struct {
 	checkout   stepCheckout
 	start      string
 	owned      []string
+	unowned    bool
 	gate       []string
 	gateLimit  time.Duration
 	environ    []string
@@ -741,15 +743,22 @@ func stepLoopReturnRecord(round int, failures []string) store.StepCheck {
 }
 
 // doneChecks appends the checks of a writing step's done return to checks, and returns the holder directory of the
-// gate it ran, which the caller clears once the return is stored, or at once when the checks fail. The four commit
-// checks run first. The gate runs only when they all pass and a gate is set. A gate that cannot run is an error:
+// gate it ran, which the caller clears once the return is stored, or at once when the checks fail. The commit checks
+// run first: the four of commitChecks, or without the owned check when the step is unowned. The gate runs only when
+// they all pass and a gate is set. A gate that cannot run is an error:
 // errGateLost when its outcome is lost, and errGateDetach when it is left running under its holder. The gate's check
 // opens with the record of its run, stepGateRecord. The step row stores the gate's grant, holder and round before the
 // gate launches. runDoneGate re-adopts a gate the restored row stores as running in this round.
 func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	checks []store.StepCheck) ([]store.StepCheck, string, error) {
 	passed := true
-	for _, c := range commitChecks(ctx, r.dir, r.start, commit, r.owned) {
+	var ran []stepCheck
+	if r.unowned {
+		ran = commitChecksWithoutOwned(ctx, r.dir, r.start, commit)
+	} else {
+		ran = commitChecks(ctx, r.dir, r.start, commit, r.owned)
+	}
+	for _, c := range ran {
 		checks = append(checks, stepLoopRecord(round, c))
 		passed = passed && c.OK
 	}

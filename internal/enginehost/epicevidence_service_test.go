@@ -57,8 +57,8 @@ func TestEpicCreateStoresBaseAsFullCommit(t *testing.T) {
 	}
 }
 
-// TestEpicCreateStoresGatesListsAndItems asserts the gates, the Done and review lists and each Requirement's capture
-// or supplied item come back from CreateEpic and GetEpic equal to the request, in order.
+// TestEpicCreateStoresGatesListsAndItems asserts the gates, the Done list and each Requirement's capture or supplied
+// item come back from CreateEpic and GetEpic equal to the request, in order.
 func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
@@ -68,8 +68,8 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 	req.Contract.Base = "HEAD"
 	req.Contract.Gates = epicEvidenceGates()
 	req.Contract.DoneGates = []string{"check", "unit"}
-	req.Contract.ReviewGates = []string{"audit", "review"}
 	req.Contract.Requirements[0].Item = &v1.EvidenceItem{
+		Kind:       "capture",
 		Capture:    []string{"scripts/unit"},
 		Limit:      120,
 		Artifacts:  []string{"out/unit.json"},
@@ -77,6 +77,7 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		Judge:      "reviewer",
 	}
 	req.Contract.Requirements[1].Item = &v1.EvidenceItem{
+		Kind:       "supplied",
 		Supplied:   []string{"docs/report.md"},
 		Conclusion: "Synthetic conclusion.",
 		Judge:      "reviewer",
@@ -86,6 +87,9 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		t.Fatal("clone of the contract is not an EpicContract")
 	}
 	want.Base = epicTestBase(repo)
+	for _, requirement := range want.GetRequirements() {
+		requirement.State = "pending"
+	}
 
 	stored := createEpicOK(t, client, req)
 	if !proto.Equal(stored.GetContract(), want) {

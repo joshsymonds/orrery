@@ -94,9 +94,9 @@ func decideGreen(view View) Action {
 }
 
 // decideReview returns the action for the review of the build's gate, once its step has ended. A done review holds
-// and moves to the next gate. A failed review with findings stores them and moves to their verification. Any other
-// end gives no verdict. Past the last gate the task is accepted as reviewed, or as unreviewed when the epic has no review
-// gates.
+// and moves to the next gate. A failed review with findings stores them and moves to their verification, or with
+// verify off stores them settled as confirmed and unverified. Any other end gives no verdict. Past the last gate the
+// task is accepted as reviewed, or as unreviewed when the epic has no review gates.
 func decideReview(view View) Action {
 	build := view.Task.Build
 	if build.GatePos >= int64(len(view.ReviewGates)) {
@@ -132,20 +132,19 @@ func decideReview(view View) Action {
 		build.NoVerdict = 0
 		return Action{Kind: ActReview, Review: review, Next: build}
 	case endGateFailed:
-		if ret, ok := parseGateReturn(step.Result); ok && failedWithFindings(ret) {
-			findings := make([]store.TaskFinding, 0, len(ret.Findings))
-			for i, f := range ret.Findings {
-				findings = append(findings, store.TaskFinding{
-					Position: int64(i), ID: f["id"], Claim: f["claim"], Citation: f["citation"],
-					Location: f["location"], Evidence: f["evidence"], VerifyBy: f["verify_by"],
-				})
-			}
+		if findings, ok := raisedFindings(step.Result); ok {
 			review := store.TaskReview{
 				Attempt: build.Attempt, Position: build.GatePos, Gate: gate, Step: step.ID, Verdict: verdictFails,
 				Findings: findings,
 			}
 			build.Stage = StageVerify
 			build.FindingPos = 0
+			if view.NoVerify {
+				// Verify off settles the findings here, so the verify unit has none left to verify and spends the
+				// attempt with them.
+				review.Findings = settleUnverified(findings, step.ID)
+				build.FindingPos = int64(len(findings))
+			}
 			build.Rerun = 0
 			build.NoVerdict = 0
 			return Action{Kind: ActReview, Review: review, Next: build}
@@ -198,6 +197,46 @@ func decideVerify(view View) Action {
 		return verifiedAction(view, step.ID, resultUndecided, "blocked: "+step.Reason)
 	}
 	return noVerdict(view, "verify "+finding.ID, endText(step))
+}
+
+// UnverifiedFindings returns the findings a failed review step raised in result, each settled as confirmed and
+// unverified, with stepID as the step that raised it. An epic-stage verdict settles its findings through it the way a
+// task-stage review does when its reviewer has verify off. It reports false when result is not a failed review with
+// findings.
+func UnverifiedFindings(stepID, result string) ([]store.TaskFinding, bool) {
+	findings, ok := raisedFindings(result)
+	if !ok {
+		return nil, false
+	}
+	return settleUnverified(findings, stepID), true
+}
+
+// raisedFindings returns the findings of a failed review's kept return, in position order, each with the fields its
+// schema gives. It reports false when result is not a failed review with findings.
+func raisedFindings(result string) ([]store.TaskFinding, bool) {
+	ret, ok := parseGateReturn(result)
+	if !ok || !failedWithFindings(ret) {
+		return nil, false
+	}
+	findings := make([]store.TaskFinding, 0, len(ret.Findings))
+	for i, f := range ret.Findings {
+		findings = append(findings, store.TaskFinding{
+			Position: int64(i), ID: f["id"], Claim: f["claim"], Citation: f["citation"],
+			Location: f["location"], Evidence: f["evidence"], VerifyBy: f["verify_by"],
+		})
+	}
+	return findings, true
+}
+
+// settleUnverified marks each of findings confirmed and unverified, with stepID as the step that raised it, and
+// returns them.
+func settleUnverified(findings []store.TaskFinding, stepID string) []store.TaskFinding {
+	for i := range findings {
+		findings[i].Step = stepID
+		findings[i].Result = resultConfirmed
+		findings[i].Unverified = true
+	}
+	return findings
 }
 
 // failedWithFindings reports whether a review's kept return is a finished review that failed with findings: its

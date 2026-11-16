@@ -36,6 +36,7 @@ type recordingEpics struct {
 	err      error
 	epic     *v1.StoredEpic
 	answer   *v1.AnswerEpicResponse
+	follow   *v1.FollowEpicsResponse
 }
 
 // newRecordingEpics returns a recordingEpics whose replies name epicTestID.
@@ -48,6 +49,7 @@ func newRecordingEpics() *recordingEpics {
 		answer: &v1.AnswerEpicResponse{
 			Decision: &v1.EpicDecision{Id: "d2", Text: "yes, OIDC", Question: "Q1"},
 		},
+		follow: &v1.FollowEpicsResponse{},
 	}
 }
 
@@ -111,11 +113,25 @@ func (f *recordingEpics) StopEpic(
 	return respond(f, req.Msg, &v1.StopEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) ReleaseEpic(
+	_ context.Context,
+	req *connect.Request[v1.ReleaseEpicRequest],
+) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	return respond(f, req.Msg, &v1.ReleaseEpicResponse{Epic: f.epic})
+}
+
 func (f *recordingEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
 ) (*connect.Response[v1.RetryEpicResponse], error) {
 	return respond(f, req.Msg, &v1.RetryEpicResponse{Epic: f.epic})
+}
+
+func (f *recordingEpics) FollowEpics(
+	_ context.Context,
+	req *connect.Request[v1.FollowEpicsRequest],
+) (*connect.Response[v1.FollowEpicsResponse], error) {
+	return respond(f, req.Msg, f.follow)
 }
 
 // recorded returns the requests the fake received, under its lock.
@@ -136,12 +152,23 @@ func runEpicCommand(
 	return stdout.String(), stderr.String(), err
 }
 
-// epicVerbCase is one CLI form and the MCP tool, with the arguments, that it must call.
+// epicVerbCase is one CLI form and the MCP tool, with the arguments, that it must call. setup, when set, configures
+// the fake the form and the tool each run against.
 type epicVerbCase struct {
 	name  string
 	args  []string
 	tool  string
 	input string
+	setup func(*recordingEpics)
+}
+
+// fake returns a recordingEpics configured for the case.
+func (tc epicVerbCase) fake() *recordingEpics {
+	f := newRecordingEpics()
+	if tc.setup != nil {
+		tc.setup(f)
+	}
+	return f
 }
 
 func epicVerbCases() []epicVerbCase {
@@ -151,6 +178,21 @@ func epicVerbCases() []epicVerbCase {
 			args:  []string{"get", epicTestID},
 			tool:  "epic_get",
 			input: `{"id":"demo-0a1b2c3/epic-login"}`,
+			setup: func(f *recordingEpics) {
+				f.epic.Questions = []*v1.EpicQuestion{{
+					Id:      "Q1",
+					Turn:    1,
+					Text:    "Retry the parked build?",
+					State:   "open",
+					Label:   "retry-policy",
+					Choices: []*v1.EpicQuestionChoice{{Id: "retry", Does: "runs the epic again"}},
+					Recommendation: &v1.EpicRecommendation{
+						Choice:     "retry",
+						Why:        "retry runs the epic again",
+						Confidence: "low",
+					},
+				}}
+			},
 		},
 		{
 			name:  "list",
@@ -169,6 +211,31 @@ func epicVerbCases() []epicVerbCase {
 			args:  []string{"answer", epicTestID, "--id", "n1", "a note"},
 			tool:  "epic_answer",
 			input: `{"epicId":"demo-0a1b2c3/epic-login","id":"n1","text":"a note"}`,
+		},
+		{
+			name:  "answer a declared choice without text",
+			args:  []string{"answer", epicTestID, "--id", "d2", "--question", "Q1", "--choice", "retry"},
+			tool:  "epic_answer",
+			input: `{"epicId":"demo-0a1b2c3/epic-login","id":"d2","question":"Q1","choice":"retry"}`,
+		},
+		{
+			name: "answer other with text",
+			args: []string{"answer", epicTestID, "--id", "d2", "--question", "Q1", "--choice", "other",
+				"yes, OIDC"},
+			tool:  "epic_answer",
+			input: `{"epicId":"demo-0a1b2c3/epic-login","id":"d2","question":"Q1","choice":"other","text":"yes, OIDC"}`,
+		},
+		{
+			name:  "follow",
+			args:  []string{"follow"},
+			tool:  "epic_follow",
+			input: `{}`,
+			setup: func(f *recordingEpics) {
+				f.follow = &v1.FollowEpicsResponse{Follows: []*v1.EpicFollow{
+					{Label: "retry-policy", Answered: 4, Followed: 3},
+					{Label: "scope", Answered: 2, Followed: 0},
+				}}
+			},
 		},
 		{
 			name:  "pause",
@@ -200,6 +267,18 @@ func epicVerbCases() []epicVerbCase {
 			tool:  "epic_retry",
 			input: `{"id":"demo-0a1b2c3/epic-login","node":"build"}`,
 		},
+		{
+			name:  "release",
+			args:  []string{"release", epicTestID},
+			tool:  "epic_release",
+			input: `{"id":"demo-0a1b2c3/epic-login"}`,
+		},
+		{
+			name:  "release names undo-none steps in order",
+			args:  []string{"release", epicTestID, "--undo-none", "2", "--undo-none", "3"},
+			tool:  "epic_release",
+			input: `{"id":"demo-0a1b2c3/epic-login","undoNone":[2,3]}`,
+		},
 	}
 }
 
@@ -210,13 +289,13 @@ func TestEpicVerbsSendTheMCPToolsRequest(t *testing.T) {
 	for _, tc := range epicVerbCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cliFake := newRecordingEpics()
+			cliFake := tc.fake()
 			stdout, stderr, err := runEpicCommand(t, cliFake, nil, tc.args...)
 			if err != nil {
 				t.Fatalf("epicCommand(%v) = %v, want nil", tc.args, err)
 			}
 
-			mcpFake := newRecordingEpics()
+			mcpFake := tc.fake()
 			result, err := stepmcp.CallEpicTool(t.Context(), mcpFake, tc.tool, json.RawMessage(tc.input))
 			if err != nil {
 				t.Fatalf("CallEpicTool(%s) = %v, want nil", tc.tool, err)
@@ -357,7 +436,8 @@ func TestEpicAnswerWritesWarningToStderr(t *testing.T) {
 // calls no tool.
 func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 	t.Parallel()
-	const answerForm = "answer EPIC --id ID [--question QN] TEXT"
+	const answerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
+	const releaseForm = "release ID [--undo-none N]..."
 	cases := []struct {
 		args []string
 		form string
@@ -369,9 +449,12 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 		{args: []string{"get"}, form: "get ID"},
 		{args: []string{"get", "a", "b"}, form: "get ID"},
 		{args: []string{"list", "extra"}, form: "list"},
+		{args: []string{"follow", "extra"}, form: "follow"},
 		{args: []string{"answer", epicTestID, "text"}, form: answerForm},
 		{args: []string{"answer", epicTestID, "--id", "d2"}, form: answerForm},
+		{args: []string{"answer", epicTestID, "--id", "d2", "--question", "Q1"}, form: answerForm},
 		{args: []string{"answer", epicTestID, "--id", "d2", "a", "b"}, form: answerForm},
+		{args: []string{"answer", epicTestID, "--id", "d2", "--choice", "retry", "a", "b"}, form: answerForm},
 		{args: []string{"answer", epicTestID, "--bogus", "x", "--id", "d2", "text"}, form: answerForm},
 		{args: []string{"answer", "--id", "d2", epicTestID, "text"}, form: answerForm},
 		{args: []string{"pause"}, form: "pause ID"},
@@ -380,6 +463,14 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 		{args: []string{"retry"}, form: "retry ID [NODE]"},
 		{args: []string{"retry", epicTestID, "build", "extra"}, form: "retry ID [NODE]"},
 		{args: []string{"retry", epicTestID, ""}, form: "retry ID [NODE]"},
+		{args: []string{"release"}, form: releaseForm},
+		{args: []string{"release", "--undo-none", "2"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "extra"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "0"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "-1"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "two"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "1.5"}, form: releaseForm},
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
@@ -399,6 +490,24 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 				t.Errorf("epicCommand(%v) made %d calls, want none", tc.args, n)
 			}
 		})
+	}
+}
+
+// TestEpicUsageNamesTheAnswerChoiceAndFollowForms checks that the usage text and the forms of `orrery epic` name
+// `epic answer` with --choice and `epic follow`.
+func TestEpicUsageNamesTheAnswerChoiceAndFollowForms(t *testing.T) {
+	t.Parallel()
+	const answerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
+	for _, named := range []string{answerForm, "follow"} {
+		if !strings.Contains(epicForms, named) {
+			t.Errorf("epicForms = %q, want it to name %q", epicForms, named)
+		}
+	}
+	if !strings.Contains(usageText, "epic "+answerForm) {
+		t.Errorf("usage text does not name epic %s", answerForm)
+	}
+	if !strings.Contains(usageText, "epic follow") {
+		t.Errorf("usage text does not name epic follow")
 	}
 }
 

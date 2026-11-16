@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -64,17 +65,33 @@ func claimedAt() time.Time {
 	return time.Unix(1700000500, 0)
 }
 
-// validPlan is a planner return that passes the check: one task on R1 that names a file no task owns, a gate, and an
-// evidence item whose lists are empty.
+// storeQuestion is the question validPlan asks: a shaped question with two choices and a recommendation.
+const storeQuestion = `{"label":"which-store","text":"which store?","choices":[` +
+	`{"id":"sqlite","does":"Keep the store in SQLite."},{"id":"files","does":"Write the store to files."}],` +
+	`"recommended":"sqlite","why":"The tables already hold the epic.","confidence":"high","replaces":""}`
+
+// validPlan is a planner return that passes the check: one task on R1 that names a file no task owns, a gate, an
+// evidence item whose lists are empty, and the question storeQuestion.
 const validPlan = `{"status":"done","decisions":["use the store"],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":["which store?"],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task","questions":[` +
+	storeQuestion + `],` +
+	`"outcome":"work"}`
+
+// badQuestionPlan is validPlan with its question declaring one choice, which the store refuses.
+const badQuestionPlan = `{"status":"done","decisions":["use the store"],` +
+	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
+	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task","questions":[` +
+	`{"label":"which-store","text":"which store?","choices":[{"id":"sqlite","does":"Keep the store in SQLite."}],` +
+	`"recommended":"sqlite","why":"The tables already hold the epic.","confidence":"high","replaces":""}],` +
 	`"outcome":"work"}`
 
 // runnerEvidenceItem returns the evidence item validPlan's task stores and reads back as.
 func runnerEvidenceItem() evidence.Item {
 	return evidence.Item{
+		Kind:    evidence.KindCapture,
 		Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
 		Conclusion: "the runner runs", Judge: "a judge",
 	}
@@ -84,19 +101,22 @@ func runnerEvidenceItem() evidence.Item {
 const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R9"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task",` +
+	`"questions":[],"outcome":"work"}`
 
 // unknownGatePlan is validPlan with its task's gate named missing, which no gate defines.
 const unknownGatePlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"missing","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task",` +
+	`"questions":[],"outcome":"work"}`
 
 // unknownJudgePlan is validPlan with its task's judge named nobody, which no agent answers to.
 const unknownJudgePlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"nobody"}}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"supplied":[],"conclusion":"the runner runs","judge":"nobody","kind":"capture"}}],"outline":"one task",` +
+	`"questions":[],"outcome":"work"}`
 
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start and each Stop. The first
 // stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does.
@@ -393,7 +413,14 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	if !reflect.DeepEqual(epic.Tasks, wantTasks) {
 		t.Errorf("tasks = %+v, want %+v", epic.Tasks, wantTasks)
 	}
-	wantQuestions := []store.EpicQuestion{{Seq: 1, Turn: 1, Text: "which store?", State: "open"}}
+	wantQuestions := []store.EpicQuestion{{
+		Seq: 1, Turn: 1, Text: "which store?", State: "open", Label: "which-store",
+		Choices: []store.EpicChoice{
+			{ID: "sqlite", Does: "Keep the store in SQLite."},
+			{ID: "files", Does: "Write the store to files."},
+		},
+		Recommended: "sqlite", Why: "The tables already hold the epic.", Confidence: "high",
+	}}
 	if !reflect.DeepEqual(epic.Questions, wantQuestions) {
 		t.Errorf("questions = %+v, want %+v", epic.Questions, wantQuestions)
 	}
@@ -410,6 +437,29 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	}
 	if len(states) != 0 {
 		t.Errorf("PlanStates after the return = %+v, want none: the trigger is consumed", states)
+	}
+}
+
+func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
+	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+
+	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "use sqlite", 1, "sqlite",
+		claimedAt()); err != nil {
+		t.Fatalf("AnswerQuestion: %v", err)
+	}
+	waitFor(t, "a second planner step to start", func() bool { return len(steps.started()) == 2 })
+
+	want := "## Advice followed\n- which-store: 1 of 1 answers took the recommendation\n"
+	if prompt := steps.started()[1].Prompt; !strings.Contains(prompt, want) {
+		t.Errorf("prompt of turn 2 lacks %q; prompt is:\n%s", want, prompt)
 	}
 }
 
@@ -492,6 +542,30 @@ func TestRunnerChecksFailedEndFailsTurnWithReasonAndFreesTrigger(t *testing.T) {
 	}
 	if len(triggers) != 1 || triggers[0].ID != "created" {
 		t.Errorf("triggers of turn 2 = %+v, want the created trigger claimed again", triggers)
+	}
+}
+
+func TestRunnerDoneReturnWithBadQuestionFailsTurnWithRefusal(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+
+	steps.end("step-1", store.StepRow{End: "done", Result: badQuestionPlan})
+	waitFor(t, "turn 1 to fail", func() bool { return epicOf(t, s).Turns[0].State == "failed" })
+
+	epic := epicOf(t, s)
+	const want = "complete turn 1 of epic " + runnerEpicID + `: bad planner question: ` +
+		`question 1 "which-store": choices: fewer than two choices`
+	if got := epic.Turns[0].Reason; got != want {
+		t.Errorf("turn 1 reason = %q, want %q", got, want)
+	}
+	if len(epic.Questions) != 0 {
+		t.Errorf("questions = %+v, want none stored", epic.Questions)
 	}
 }
 
@@ -606,11 +680,13 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 	const touchA = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}],"outline":"o",` +
+		`"questions":[],"outcome":"work"}`
 	const touchB = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch b","deliverable":"d","files":["internal/b.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}],"outline":"o",` +
+		`"questions":[],"outcome":"work"}`
 
 	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
 	if got := check(json.RawMessage(touchA)); !reflect.DeepEqual(got, want) {

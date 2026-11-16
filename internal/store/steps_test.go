@@ -105,6 +105,7 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 	add.GateName = "lint"
 	add.GateSource = "gates.toml"
 	add.GateNeeds = []StepNeed{{Pool: "pool-a", Count: 2}, {Pool: "pool-b", Count: 1}}
+	add.Agents = `{"orrery-reviewer-scale":{"description":"scale","prompt":"check scale","model":"haiku"}}`
 	if err := s.ApplyEngine(ctx, []EngineOp{add}, now); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 		GateLimit: 90 * time.Second, ModelLimit: 60 * time.Minute, Started: now, Checks: []StepCheck{},
 		Verdicts: []StepVerdict{}, GateName: "lint", GateSource: "gates.toml",
 		GateNeeds: []StepNeed{{Pool: "pool-a", Count: 2}, {Pool: "pool-b", Count: 1}},
-		LoopStage: StepStageTurn, LoopStageFrom: now,
+		Agents:    add.Agents, LoopStage: StepStageTurn, LoopStageFrom: now,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Step: got %+v, want %+v", got, want)
@@ -162,6 +163,50 @@ func TestStepGateReadsBackThroughEveryReader(t *testing.T) {
 	}
 	if len(labeled) != 1 || !reflect.DeepEqual(labeled[0], got) {
 		t.Fatalf("LabelledSteps: got %+v, want the row Step read %+v", labeled, got)
+	}
+}
+
+func TestStepAgentsReadBackThroughEveryReader(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+	const agents = `{"orrery-reviewer-scale":{"description":"scale","prompt":"check scale","model":"haiku"}}`
+	withAgents := labelledStepOf("s1", "E1", "T1")
+	withAgents.Agents = agents
+	withoutAgents := labelledStepOf("s2", "E1", "T1")
+	if err := s.ApplyEngine(ctx, []EngineOp{withAgents, withoutAgents}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if got.Agents != agents {
+		t.Fatalf("Step agents: got %q, want %q", got.Agents, agents)
+	}
+	none, err := s.Step(ctx, "s2")
+	if err != nil {
+		t.Fatalf("Step without agents: %v", err)
+	}
+	if none.Agents != "" {
+		t.Fatalf("Step agents without any: got %q, want empty", none.Agents)
+	}
+
+	open, err := s.OpenSteps(ctx)
+	if err != nil {
+		t.Fatalf("OpenSteps: %v", err)
+	}
+	if len(open) != 2 || !reflect.DeepEqual(open[0], got) || open[1].Agents != "" {
+		t.Fatalf("OpenSteps: got %+v, want the row Step read %+v and an empty agents second", open, got)
+	}
+
+	labeled, err := s.LabelledSteps(ctx, "", "")
+	if err != nil {
+		t.Fatalf("LabelledSteps: %v", err)
+	}
+	if len(labeled) != 2 || !reflect.DeepEqual(labeled[0], got) || labeled[1].Agents != "" {
+		t.Fatalf("LabelledSteps: got %+v, want the row Step read %+v and an empty agents second", labeled, got)
 	}
 }
 
@@ -561,5 +606,42 @@ func TestLabelledStepsOrdersByStartedThenID(t *testing.T) {
 	}
 	if got, want := stepIDsOf(rows), []string{"a", "c", "b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("LabelledSteps order: got %v, want %v (started, then id)", got, want)
+	}
+}
+
+func TestStepUnownedReadsBackWithItsRowAndDefaultsFalse(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+	unowned := stepAddOf("s1")
+	unowned.ReadOnly = false
+	unowned.Unowned = true
+	owned := stepAddOf("s2")
+	owned.ReadOnly = false
+	if err := s.ApplyEngine(ctx, []EngineOp{unowned, owned}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step s1: %v", err)
+	}
+	if !got.Unowned {
+		t.Fatalf("Step s1: Unowned = false, want true for a step added with Unowned")
+	}
+	other, err := s.Step(ctx, "s2")
+	if err != nil {
+		t.Fatalf("Step s2: %v", err)
+	}
+	if other.Unowned {
+		t.Fatalf("Step s2: Unowned = true, want false for a step added without Unowned")
+	}
+
+	open, err := s.OpenSteps(ctx)
+	if err != nil {
+		t.Fatalf("OpenSteps: %v", err)
+	}
+	if len(open) != 2 || !reflect.DeepEqual(open[0], got) || open[1].Unowned {
+		t.Fatalf("OpenSteps: got %+v, want s1 read as Step read it and s2 with Unowned false", open)
 	}
 }

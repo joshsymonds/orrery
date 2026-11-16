@@ -73,11 +73,16 @@ private class MainThreadDrain(private val scheduler: TestCoroutineScheduler) : I
     }
 }
 
+/** A rule whose composition runs on [scheduler], the queue of continuations its main thread runs. */
+interface MainThreadScheduled {
+    val scheduler: TestCoroutineScheduler
+}
+
 /** A compose rule over [inner] whose composition runs on [scheduler] and drains on the main thread. */
 class MainThreadComposeRule internal constructor(
     private val inner: ComposeContentTestRule,
-    scheduler: TestCoroutineScheduler,
-) : ComposeContentTestRule by inner {
+    override val scheduler: TestCoroutineScheduler,
+) : ComposeContentTestRule by inner, MainThreadScheduled {
     private val drain = MainThreadDrain(scheduler)
 
     override fun apply(base: Statement, description: Description): Statement =
@@ -87,8 +92,8 @@ class MainThreadComposeRule internal constructor(
 /** [MainThreadComposeRule] without a host: the test launches the activity that sets the content. */
 class MainThreadEmptyComposeRule internal constructor(
     private val inner: ComposeTestRule,
-    scheduler: TestCoroutineScheduler,
-) : ComposeTestRule by inner {
+    override val scheduler: TestCoroutineScheduler,
+) : ComposeTestRule by inner, MainThreadScheduled {
     private val drain = MainThreadDrain(scheduler)
 
     override fun apply(base: Statement, description: Description): Statement =
@@ -98,8 +103,8 @@ class MainThreadEmptyComposeRule internal constructor(
 /** [MainThreadComposeRule] hosted in an activity of class [A], which [activity] and [activityRule] reach. */
 class MainThreadAndroidComposeRule<A : ComponentActivity> internal constructor(
     private val inner: AndroidComposeTestRule<ActivityScenarioRule<A>, A>,
-    scheduler: TestCoroutineScheduler,
-) : ComposeContentTestRule by inner {
+    override val scheduler: TestCoroutineScheduler,
+) : ComposeContentTestRule by inner, MainThreadScheduled {
     private val drain = MainThreadDrain(scheduler)
 
     val activity: A get() = inner.activity
@@ -140,8 +145,11 @@ fun <A : ComponentActivity> mainThreadAndroidComposeRule(activityClass: Class<A>
     )
 }
 
-/** How long a wait yields while real work is in flight, so the threads doing it can run. */
-private const val CHECK_PAUSE_MILLIS = 10L
+/**
+ * How long a wait yields while real work is in flight, so the threads doing it can run. A fake-server round trip takes
+ * a millisecond or two, so a longer yield is mostly time spent after the work has finished.
+ */
+private const val CHECK_PAUSE_MILLIS = 1L
 
 /**
  * How much virtual time a wait lets pass, with nothing in flight, before it fails. Virtual time moves only while no
@@ -168,11 +176,18 @@ fun ComposeTestRule.awaitUntil(description: String = "the awaited condition", co
             Thread.sleep(CHECK_PAUSE_MILLIS)
             continue
         }
+        // Checked after inFlight: work on another thread queues its continuation here before it stops counting as in
+        // flight, and only this thread runs the queue, so one of the two always shows it.
+        if (mainThreadWorkDue()) {
+            waitForIdle()
+            continue
+        }
         if (!mainClock.autoAdvance) {
             // The clock is stopped and nothing is in flight: run what the main thread has queued, then judge.
             waitForIdle()
             if (condition()) return
-            if (Quiescence.inFlight() != null) continue
+            beforeStoppedClockJudgment()
+            if (Quiescence.inFlight() != null || mainThreadWorkDue()) continue
             throw AssertionError(
                 "$description never held: the clock is stopped and nothing is in flight; ${Quiescence.serverState()}",
             )
@@ -187,6 +202,35 @@ fun ComposeTestRule.awaitUntil(description: String = "the awaited condition", co
         mainClock.advanceTimeByFrame()
     }
 }
+
+/**
+ * Runs just before a stopped-clock wait makes its final judgment. Tests use it to force work to finish on another
+ * thread in that moment (QuiescentWaitTest); otherwise it does nothing.
+ */
+@Volatile
+internal var beforeStoppedClockJudgment: () -> Unit = {}
+
+/**
+ * Whether the main thread has work due now that has not run: a continuation on this rule's scheduler, or a message on
+ * Robolectric's main looper (Dispatchers.Main). Neither is in flight on another thread, but either can still change
+ * what the test sees, so a wait runs them before it judges.
+ */
+private fun ComposeTestRule.mainThreadWorkDue(): Boolean {
+    if (!shadowOf(Looper.getMainLooper()).isIdle) return true
+    val scheduler = (this as? MainThreadScheduled)?.scheduler ?: return false
+    val events = SCHEDULER_EVENTS.get(scheduler)
+    val now = scheduler.currentTime
+    return HEAP_FIND.invoke(events, { event: Any -> EVENT_TIME.getLong(event) <= now }) != null
+}
+
+/*
+ * kotlinx-coroutines-test keeps the scheduler's queue private. These read it, and fail loudly if an upgrade renames
+ * them, rather than letting the waits miss queued work.
+ */
+private val SCHEDULER_EVENTS = TestCoroutineScheduler::class.java.getDeclaredField("events").apply { isAccessible = true }
+private val HEAP_FIND = Class.forName("kotlinx.coroutines.internal.ThreadSafeHeap").getMethod("find", Function1::class.java)
+private val EVENT_TIME =
+    Class.forName("kotlinx.coroutines.test.TestDispatchEvent").getDeclaredField("time").apply { isAccessible = true }
 
 /** Waits until exactly one node matches [matcher]. */
 fun ComposeTestRule.awaitExactlyOne(matcher: SemanticsMatcher) {

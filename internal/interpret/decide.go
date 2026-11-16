@@ -16,8 +16,8 @@ import (
 type ActionKind string
 
 // The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch and ActParkEpic change the node
-// runs or the epic in the store, ActWork hands a check node run's work to the interpreter, and ActRun hands a node run
-// to its kind.
+// runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the review. ActWork hands
+// a check or release node run's work to the interpreter, and ActRun hands a node run to its kind.
 const (
 	ActStart    ActionKind = "start"
 	ActEnd      ActionKind = "end"
@@ -26,6 +26,10 @@ const (
 	ActParkNode ActionKind = "park_node"
 	ActParkEpic ActionKind = "park_epic"
 	ActBatch    ActionKind = "batch"
+	ActHold     ActionKind = "hold"
+	ActReview   ActionKind = "review"
+	ActClosure  ActionKind = "closure"
+	ActConclude ActionKind = "conclude"
 	ActWork     ActionKind = "work"
 	ActRun      ActionKind = "run"
 )
@@ -35,30 +39,40 @@ const (
 // at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
 // its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
 // when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
-// parks the epic for Reason, with Trigger. Work carries a check node run's work: Work is the kind's action, prepare,
-// start, capture, refs or advance, and Def, Run, IDs, Items and Tasks are what it is for. An advance carries its Output
-// and the Trigger its passed batch writes.
+// parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
+// prepare, start, capture, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
+// Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance
+// the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
+// the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path,
+// whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path,
+// whose Attempt ended with Phase and Output.
 type Action struct {
-	Kind     ActionKind
-	Runs     []store.NodeRun
-	Trigger  *store.NodeTrigger
-	Ends     []store.NodeEnd
-	Path     string
-	Round    int64
-	Reason   string
-	NodeKind string
-	Task     int64
-	Attempt  int64
-	Outcome  string
-	Output   string
-	Work     kinds.ActionKind
-	Def      workflow.Node
-	Run      store.NodeRun
-	IDs      []string
-	Items    []string
-	Tasks    []int64
-	Final    bool
-	Built    bool
+	Kind        ActionKind
+	Runs        []store.NodeRun
+	Trigger     *store.NodeTrigger
+	Ends        []store.NodeEnd
+	Path        string
+	Round       int64
+	Reason      string
+	NodeKind    string
+	Task        int64
+	Attempt     int64
+	Outcome     string
+	Output      string
+	Work        kinds.ActionKind
+	Def         workflow.Node
+	Run         store.NodeRun
+	IDs         []string
+	Items       []string
+	Tasks       []int64
+	Units       []kinds.Unit
+	Verdicts    []store.ReviewVerdict
+	Ledger      []store.LedgerFinding
+	ReviewRound store.ReviewRound
+	Closures    []store.Closure
+	Phase       string
+	Final       bool
+	Built       bool
 }
 
 // The kinds, spent setting, task status, outcome and trigger prefix the pass reads.
@@ -72,6 +86,21 @@ const (
 	outcomeFailed = "failed"
 	triggerPrefix = "workflow:"
 	kindIntegrate = "integrate"
+	kindRelease   = "release"
+)
+
+// The kinds of the end-of-epic review nodes. Each ends with an action of its own.
+const (
+	reviewNodeKind   = "review"
+	closureNodeKind  = "closure"
+	concludeNodeKind = "conclude"
+)
+
+// The phase an epic is in while its review's ledger is corrected, and the prefix of the trigger a plan that starts then
+// writes in place of the started one.
+const (
+	ledgerPhase         = "correcting"
+	ledgerTriggerPrefix = "ledger:"
 )
 
 // place is where a list of nodes sits. A check node that ends failed is decided by its place: at the top level it
@@ -141,7 +170,7 @@ func (p pass) walk(nodes []workflow.Node, at scope) ([]Action, bool) {
 
 // start returns the action that starts def, which has no run at its path in its scope. A loop starts at its first
 // round. A plan starts with Mark 0 and no trigger when the epic has no plan run yet, and otherwise with the highest
-// turn seq and a trigger that asks the planner for a turn.
+// turn seq and the trigger that asks the planner for a turn.
 func (p pass) start(def workflow.Node, at scope) Action {
 	path := at.prefix + def.ID
 	run := store.NodeRun{
@@ -154,13 +183,26 @@ func (p pass) start(def workflow.Node, at scope) Action {
 		run.LoopRound = 1
 	case def.Kind == kindPlan && p.hasPlanRun():
 		run.Mark = p.highestTurn()
-		act.Trigger = &store.NodeTrigger{
-			ID:    triggerPrefix + store.NodeRunID(p.rows.Epic.ID, path, at.round, "trigger"),
-			Cause: "workflow node " + path + " started",
-		}
+		act.Trigger = p.planTrigger(path, at.round)
 	}
 	act.Runs = []store.NodeRun{run}
 	return act
+}
+
+// planTrigger returns the trigger that asks the planner for a turn when a plan starts at path in round. While the
+// epic is correcting, it is the ledger trigger, which wakes the planner with the round's open findings. Its id is
+// derived from the path and round, so a restart writes it once. Otherwise it names the start.
+func (p pass) planTrigger(path string, round int64) *store.NodeTrigger {
+	if p.rows.Epic.Phase == ledgerPhase {
+		return &store.NodeTrigger{
+			ID:    ledgerTriggerPrefix + store.NodeRunID(p.rows.Epic.ID, path, round, "ledger"),
+			Cause: kinds.LedgerCause(p.rows.Review, round),
+		}
+	}
+	return &store.NodeTrigger{
+		ID:    triggerPrefix + store.NodeRunID(p.rows.Epic.ID, path, round, "trigger"),
+		Cause: "workflow node " + path + " started",
+	}
 }
 
 // kindOf returns the kind a node run of def has: its kind, or loop for a loop.
@@ -208,13 +250,16 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	switch act.Kind {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance:
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance,
+		kinds.ActTake, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop, kinds.ActEnding, kinds.ActFree:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
 			Kind: ActParkNode, Path: run.Path, Attempt: run.Attempt, Outcome: outcomeFailed, Output: act.Output,
 			Reason: act.Output,
 		}}
+	case kinds.ActHold:
+		return []Action{{Kind: ActHold, Path: run.Path, IDs: act.IDs, Reason: act.Output}}
 	case kinds.ActRun:
 		return []Action{{Kind: ActRun, Path: run.Path, NodeKind: def.Kind, Task: run.Task}}
 	default:
@@ -316,11 +361,25 @@ func (p pass) hasRunUnder(prefix string) bool {
 	return false
 }
 
-// end decides a node run its kind ends. An integrate run's end is its batch. A failed end is decided by where the run
-// sits. Any other end ends the run with its outcome and output, and the running runs under it.
+// end decides a node run its kind ends. An integrate run's end is its batch. A review, closure or conclusion ends with
+// its own action, whatever its outcome and wherever it sits. A failed end is decided by where the run sits. Any other
+// end ends the run with its outcome and output, and the running runs under it.
 func (p pass) end(def workflow.Node, run store.NodeRun, act kinds.Action, at scope) []Action {
-	if def.Kind == kindIntegrate {
+	switch def.Kind {
+	case kindIntegrate:
 		return []Action{p.batch(run, act)}
+	case reviewNodeKind:
+		return []Action{{
+			Kind: ActReview, Path: run.Path, Attempt: run.Attempt, Output: act.Output, Verdicts: act.Verdicts,
+			Ledger: act.Ledger,
+		}}
+	case closureNodeKind:
+		return []Action{{
+			Kind: ActClosure, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output,
+			ReviewRound: act.Round, Closures: act.Closures,
+		}}
+	case concludeNodeKind:
+		return []Action{{Kind: ActConclude, Path: run.Path, Attempt: run.Attempt, Phase: act.Phase, Output: act.Output}}
 	}
 	if act.Outcome == outcomeFailed {
 		return p.failed(def, run, act.Output, at)
@@ -389,15 +448,14 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 	}
 }
 
-// work returns the work action of a check node run: the kind's prepare, start, capture, refs or advance, and the ids,
-// items and tasks the work is for. An advance also carries its output and the trigger its passed batch writes.
+// work returns the work action of a check or release node run: the kind's action, and the ids, items, tasks, units,
+// output and outcome the work is for. An advance also carries the trigger its passed batch writes.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
-		Items: act.Items, Tasks: act.Tasks,
+		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,
 	}
 	if act.Kind == kinds.ActAdvance {
-		out.Output = act.Output
 		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)
 	}
 	return out

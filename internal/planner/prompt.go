@@ -22,10 +22,10 @@ const (
 )
 
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
-// new notes, the open questions, the tasks, the triggers and the last failure. epic is read after the turn is claimed,
-// so its Turns include turn, and triggers are the triggers turn claimed. It returns an error when a task's evidence
-// item cannot be encoded.
-func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger) (string, error) {
+// new notes, the open questions, the advice followed, the tasks, the triggers and the last failure. epic is read after
+// the turn is claimed, so its Turns include turn, and triggers are the triggers turn claimed. follows are the store's
+// follow counts per label. It returns an error when a task's evidence item cannot be encoded.
+func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
 	last, found := lastTurn(epic.Turns, turn)
@@ -33,6 +33,7 @@ func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger) (strin
 	writeSection(&out, "Decisions", decisionLines(epic, turn))
 	writeSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
 	writeSection(&out, "Open questions", questionLines(epic.Questions))
+	writeSection(&out, "Advice followed", followLines(follows))
 	tasks, err := taskLines(epic.Tasks)
 	if err != nil {
 		return "", fmt.Errorf("tasks section: %w", err)
@@ -153,12 +154,17 @@ func releaseStepItems(steps []store.EpicReleaseStep) []string {
 	return items
 }
 
-// decisionLines returns every epic decision as `- id: text`, or as `- id (answers Qn): text` when it answers question n,
-// then the decisions of each turn before turn as `- turn n: text`.
+// decisionLines returns every epic decision as `- id: text`, as `- id (answers Qn): text` when it answers question n,
+// or as `- id (answers Qn with choice): text` when the question was answered with a choice, then the decisions of each
+// turn before turn as `- turn n: text`.
 func decisionLines(epic store.EpicRow, turn int64) []string {
+	choices := make(map[int64]string, len(epic.Questions))
+	for _, q := range epic.Questions {
+		choices[q.Seq] = q.Choice
+	}
 	lines := make([]string, 0, len(epic.Decisions))
 	for _, d := range epic.Decisions {
-		lines = append(lines, decisionLine(d))
+		lines = append(lines, decisionLine(d, choices[d.Question]))
 	}
 	for _, t := range epic.Turns {
 		if t.Seq >= turn {
@@ -171,12 +177,20 @@ func decisionLines(epic store.EpicRow, turn int64) []string {
 	return lines
 }
 
-// decisionLine returns one epic decision as `- id: text`, or as `- id (answers Qn): text` when it answers question n.
-func decisionLine(d store.EpicDecision) string {
-	if d.Question != 0 {
-		return fmt.Sprintf("- %s (answers Q%d): %s", d.ID, d.Question, d.Text)
+// decisionLine returns one epic decision as `- id: text`. A decision that answers question n is `- id (answers Qn):
+// text`. When choice is the choice it answered with, it is `- id (answers Qn with choice): text`, which has no `: text`
+// when its text is empty.
+func decisionLine(decision store.EpicDecision, choice string) string {
+	switch {
+	case decision.Question == 0:
+		return fmt.Sprintf("- %s: %s", decision.ID, decision.Text)
+	case choice == "":
+		return fmt.Sprintf("- %s (answers Q%d): %s", decision.ID, decision.Question, decision.Text)
+	case decision.Text == "":
+		return fmt.Sprintf("- %s (answers Q%d with %s)", decision.ID, decision.Question, choice)
+	default:
+		return fmt.Sprintf("- %s (answers Q%d with %s): %s", decision.ID, decision.Question, choice, decision.Text)
 	}
-	return fmt.Sprintf("- %s: %s", d.ID, d.Text)
 }
 
 // newNoteLines returns the notes, the epic decisions answering no question, recorded after the point last had seen.
@@ -188,27 +202,59 @@ func newNoteLines(decisions []store.EpicDecision, last store.EpicTurn, found boo
 	lines := make([]string, 0, len(decisions))
 	for _, d := range decisions {
 		if d.Seq > last.Seen && d.Question == 0 {
-			lines = append(lines, decisionLine(d))
+			lines = append(lines, decisionLine(d, ""))
 		}
 	}
 	return lines
 }
 
-// questionLines returns each open question as `- Qseq (turn n): text`.
+// questionLines returns each open question as its questionHead, then each declared choice as `  id: does`, then its
+// recommendation as `  recommended: id (confidence): why` when it recommends one.
 func questionLines(questions []store.EpicQuestion) []string {
 	lines := make([]string, 0, len(questions))
-	for _, q := range questions {
-		if q.State == questionOpen {
-			lines = append(lines, fmt.Sprintf("- Q%d (turn %d): %s", q.Seq, q.Turn, q.Text))
+	for _, question := range questions {
+		if question.State != questionOpen {
+			continue
+		}
+		lines = append(lines, questionHead(question))
+		for _, choice := range question.Choices {
+			lines = append(lines, fmt.Sprintf("  %s: %s", choice.ID, choice.Does))
+		}
+		if question.Recommended != "" {
+			lines = append(lines, fmt.Sprintf("  recommended: %s (%s): %s",
+				question.Recommended, question.Confidence, question.Why))
 		}
 	}
 	return lines
 }
 
-// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, gate, and its
-// evidence item as compact JSON.
+// questionHead returns question q as `- Qseq (park): text` when it is a park question, as
+// `- Qseq (turn n, label): text` when it has a label, and as `- Qseq (turn n): text` when it has none.
+func questionHead(question store.EpicQuestion) string {
+	switch {
+	case question.Turn == 0 && question.Label == store.ParkLabel:
+		return fmt.Sprintf("- Q%d (park): %s", question.Seq, question.Text)
+	case question.Label == "":
+		return fmt.Sprintf("- Q%d (turn %d): %s", question.Seq, question.Turn, question.Text)
+	default:
+		return fmt.Sprintf("- Q%d (turn %d, %s): %s", question.Seq, question.Turn, question.Label, question.Text)
+	}
+}
+
+// followLines returns each label's follow counts as `- label: followed of answered answers took the recommendation`.
+func followLines(follows []store.LabelFollow) []string {
+	lines := make([]string, 0, len(follows))
+	for _, follow := range follows {
+		lines = append(lines, fmt.Sprintf("- %s: %d of %d answers took the recommendation",
+			follow.Label, follow.Followed, follow.Answered))
+	}
+	return lines
+}
+
+// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, contributes,
+// gate, and its evidence item as compact JSON.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
-	lines := make([]string, 0, 6*len(tasks))
+	lines := make([]string, 0, 7*len(tasks))
 	for _, task := range tasks {
 		evidence, err := json.Marshal(task.Evidence)
 		if err != nil {
@@ -219,6 +265,7 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 			"  deliverable: "+task.Deliverable,
 			"  files: "+strings.Join(task.Files, ", "),
 			"  requirements: "+strings.Join(task.Requirements, ", "),
+			"  contributes: "+strings.Join(task.Contributes, ", "),
 			"  gate: "+task.Gate,
 			"  evidence: "+string(evidence),
 		)

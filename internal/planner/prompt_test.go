@@ -52,7 +52,7 @@ func syntheticEpic() store.EpicRow {
 		},
 		Tasks: []store.EpicTask{{
 			Seq: 1, Turn: 1, Title: "a task", Deliverable: "a deliverable",
-			Files: []string{"internal/planner/prompt.go"}, Requirements: []string{"R1"},
+			Files: []string{"internal/planner/prompt.go"}, Requirements: []string{"R1"}, Contributes: []string{"R2"},
 			Gate: "check", Evidence: evidence.Item{
 				Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the task is done", Judge: "a judge",
 			},
@@ -73,7 +73,7 @@ func syntheticTriggers() []store.EpicTrigger {
 // promptOf returns the prompt of turn of epic, and fails the test when it cannot be rendered.
 func promptOf(t *testing.T, epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string {
 	t.Helper()
-	prompt, err := Prompt(epic, turn, triggers)
+	prompt, err := Prompt(epic, turn, triggers, nil)
 	if err != nil {
 		t.Fatalf("Prompt of turn %d: %v", turn, err)
 	}
@@ -141,11 +141,13 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"- answer-3: a note after turn one",
 		"## Open questions",
 		"- Q1 (turn 1): which store?",
+		"## Advice followed",
 		"## Tasks",
 		"- T1 [open] a task",
 		"  deliverable: a deliverable",
 		"  files: internal/planner/prompt.go",
 		"  requirements: R1",
+		"  contributes: R2",
 		"  gate: check",
 		`  evidence: {"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,`+
 			`"conclusion":"the task is done","judge":"a judge"}`,
@@ -154,6 +156,16 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"- answered-1: owner answered Q1",
 		"## Last failure",
 		"planner return refused",
+	)
+}
+
+func TestPromptRendersEmptyContributesWhenTaskContributesNothing(t *testing.T) {
+	t.Parallel()
+	epic := syntheticEpic()
+	epic.Tasks[0].Contributes = nil
+	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	inOrder(t, prompt,
+		"  requirements: R1\n  contributes: \n  gate: check\n",
 	)
 }
 
@@ -197,5 +209,106 @@ func TestPromptSkipsFreeTurnWhenFindingLastTurn(t *testing.T) {
 	}
 	if !strings.HasSuffix(prompt, "## Last failure\nfirst failure\n") {
 		t.Fatalf("last failure is not the failed turn's reason; prompt ends %q", prompt[len(prompt)-60:])
+	}
+}
+
+// adviceEpic is syntheticEpic with the questions and decisions that carry advice. Q1 is labeled, with two choices and
+// a recommendation. Q2 is a park question with its one choice retry. Q3 is answered with choice short, Q4 is an
+// unlabelled open question with no choices, and Q5 is answered with choice long. Decision ans-4 answers Q3 with its
+// text, and decision ans-5 answers Q5 with no text.
+func adviceEpic() store.EpicRow {
+	epic := syntheticEpic()
+	epic.Questions = []store.EpicQuestion{
+		{
+			Seq: 1, Turn: 1, Text: "which store?", State: "open", Label: "which-store",
+			Choices: []store.EpicChoice{
+				{ID: "sqlite", Does: "Keep the store in SQLite."},
+				{ID: "files", Does: "Write the store to files."},
+			},
+			Recommended: "sqlite", Why: "The tables already hold the epic.", Confidence: "high",
+		},
+		{
+			Seq: 2, Turn: 0, Text: "usage limit reached", State: "open", Label: store.ParkLabel,
+			Choices: []store.EpicChoice{
+				{ID: "retry", Does: "End the park and start a turn on the waiting triggers."},
+			},
+			Recommended: "retry", Why: "No model judges a park.", Confidence: "low",
+		},
+		{
+			Seq: 3, Turn: 1, Text: "how long to cache?", State: "answered", Label: "cache-ttl", Choice: "short",
+			Choices: []store.EpicChoice{
+				{ID: "short", Does: "Cache for a minute."},
+				{ID: "long", Does: "Cache for a day."},
+			},
+			Recommended: "short", Why: "Minutes are enough.", Confidence: "medium",
+		},
+		{Seq: 4, Turn: 2, Text: "name the epic?", State: "open"},
+		{
+			Seq: 5, Turn: 2, Text: "keep the logs?", State: "answered", Choice: "long",
+			Choices: []store.EpicChoice{
+				{ID: "long", Does: "Keep them for a day."},
+				{ID: "short", Does: "Drop them at once."},
+			},
+		},
+	}
+	epic.Decisions = append(epic.Decisions,
+		store.EpicDecision{Seq: 4, ID: "ans-4", Text: "keep it short", Question: 3},
+		store.EpicDecision{Seq: 5, ID: "ans-5", Question: 5},
+	)
+	return epic
+}
+
+// TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts renders adviceEpic with two follow rows. Each question
+// shows its label or park, its declared choices and its recommendation; an answer with a choice names it, and one
+// with no text has no `: text`. The follow rows render in the order given, under Advice followed.
+func TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts(t *testing.T) {
+	t.Parallel()
+	follows := []store.LabelFollow{
+		{Label: "cache-ttl", Answered: 2, Followed: 1},
+		{Label: "which-store", Answered: 3, Followed: 2},
+	}
+	prompt, err := Prompt(adviceEpic(), 2, syntheticTriggers(), follows)
+	if err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	want := "## Open questions\n" +
+		"- Q1 (turn 1, which-store): which store?\n" +
+		"  sqlite: Keep the store in SQLite.\n" +
+		"  files: Write the store to files.\n" +
+		"  recommended: sqlite (high): The tables already hold the epic.\n" +
+		"- Q2 (park): usage limit reached\n" +
+		"  retry: End the park and start a turn on the waiting triggers.\n" +
+		"  recommended: retry (low): No model judges a park.\n" +
+		"- Q4 (turn 2): name the epic?\n" +
+		"\n## Advice followed\n" +
+		"- cache-ttl: 1 of 2 answers took the recommendation\n" +
+		"- which-store: 2 of 3 answers took the recommendation\n" +
+		"\n## Tasks\n"
+	if !strings.Contains(prompt, want) {
+		t.Fatalf("prompt lacks the Open questions and Advice followed sections %q; prompt is:\n%s", want, prompt)
+	}
+	inOrder(t, prompt,
+		"## Decisions",
+		"- ans-4 (answers Q3 with short): keep it short\n",
+		"- ans-5 (answers Q5 with long)\n",
+		"## New notes",
+	)
+}
+
+// TestPromptSaysNoneForAdviceFollowedWithoutFollows renders adviceEpic with no follow rows: Advice followed is None.
+func TestPromptSaysNoneForAdviceFollowedWithoutFollows(t *testing.T) {
+	t.Parallel()
+	prompt := promptOf(t, adviceEpic(), 2, syntheticTriggers())
+	if !strings.Contains(prompt, "\n## Advice followed\nNone.\n\n## Tasks\n") {
+		t.Fatalf("prompt does not say None. under Advice followed; prompt is:\n%s", prompt)
+	}
+}
+
+// TestRoleSaysToReuseALabelForTheSameKindOfQuestion asserts that the role text tells the planner to reuse a label for
+// the same kind of question, so the follow counts of that label add up across epics.
+func TestRoleSaysToReuseALabelForTheSameKindOfQuestion(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(role, "reuse a label for the same kind of question") {
+		t.Errorf("role text does not tell the planner to reuse a label for the same kind of question")
 	}
 }

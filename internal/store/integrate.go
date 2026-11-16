@@ -8,10 +8,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The epic phases the integration writes set. An epic is built once the integrate batches of its plan have passed and
-// every Requirement is green at its stored base. An evidence node at the epic's base that finds a Requirement already
-// met parks the epic met_at_base, which is final.
+// The epic phases the integration writes set or reads. An epic is built once the integrate batches of its plan have
+// passed and every Requirement is green at its stored base. An evidence node at the epic's base that finds a Requirement
+// already met parks the epic met_at_base, which is final. A plan that ends built sets built only on an accepted epic.
 const (
+	phaseAccepted  = "accepted"
 	phaseBuilt     = "built"
 	phaseMetAtBase = "met_at_base"
 )
@@ -145,8 +146,9 @@ func parkWithTrigger(
 	return insertNodeTrigger(ctx, queries, epic, trigger, at)
 }
 
-// EndPlanBuilt ends each of ends at its running run and sets the phase of epic to built, in one write, when the run of
-// the first end is still running. A first end whose run has ended already, and no end, change nothing.
+// EndPlanBuilt ends each of ends at its running run, in one write, when the run of the first end is still running. The
+// phase of epic becomes built only when it is accepted, so a plan that ends built while the epic is correcting leaves
+// the phase correcting. A first end whose run has ended already, and no end, change nothing.
 func (s *Store) EndPlanBuilt(ctx context.Context, epic string, ends []NodeEnd, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if len(ends) == 0 {
@@ -165,30 +167,49 @@ func (s *Store) EndPlanBuilt(ctx context.Context, epic string, ends []NodeEnd, a
 	})
 }
 
-// endAndBuild ends each of ends at its running run and sets the phase of epic to built, in the caller's write.
+// endAndBuild ends each of ends at its running run, in the caller's write. It sets the phase of epic to built when the
+// phase is accepted and leaves any other phase as it is.
 func endAndBuild(ctx context.Context, queries *sqlcgen.Queries, epic string, ends []NodeEnd, at time.Time) error {
 	if err := endNodeRuns(ctx, queries, epic, ends, at); err != nil {
 		return err
+	}
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if head.Phase != phaseAccepted {
+		return nil
 	}
 	return setEpicPhase(ctx, queries, epic, phaseBuilt)
 }
 
 // ParkNodeFinal parks the running run at path of epic at attempt as ParkNode does, and sets the phase of epic to
-// met_at_base, in one write. A park that changes nothing sets no phase. RetryEpic and RetryNode refuse an epic in that
-// phase.
+// met_at_base before it parks epic, so the park question is final, in one write. A park that changes nothing sets no
+// phase. RetryEpic and RetryNode refuse an epic in that phase.
 func (s *Store) ParkNodeFinal(
 	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		parked, err := parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, reason, at)
+		parked, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
+			Outcome: outcome, Output: capNodeOutput(output), Epic: epic, Path: path, Attempt: attempt,
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 		}
-		if !parked {
+		if parked == 0 {
 			return nil
 		}
-		return setEpicPhase(ctx, queries, epic, phaseMetAtBase)
+		return parkFinal(ctx, queries, epic, reason, at)
 	})
+}
+
+// parkFinal sets the phase of epic to met_at_base and then parks epic with reason and adds reason as a tell, in the
+// caller's write. The phase comes first, so the park question the park opens is final.
+func parkFinal(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
+	if err := setEpicPhase(ctx, queries, epic, phaseMetAtBase); err != nil {
+		return err
+	}
+	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
 }
 
 // setEpicPhase stores phase as the phase of epic in the caller's write.

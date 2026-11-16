@@ -1,22 +1,22 @@
 package enginehost
 
 import (
-	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/holder"
 )
 
-// serveStopSpy replaces the socket of the live holder in dir with one that answers each hello as the holder would and
-// then answers nothing, so an attach and a stop over it both go unanswered. It returns a channel that is closed when a
-// stop frame arrives while the holder still holds its session lock: that stop asks a live holder that gave no answer.
-// A stop that arrives once the lock is free is the clear of a gone holder; its connection is closed, as a gone holder's
-// refused connection would end it.
-func serveStopSpy(t *testing.T, dir string) <-chan struct{} {
+// serveStopSpy replaces the socket of the live holder in dir, whose processes pids records, with one that answers each
+// hello as the holder would and then answers nothing, so an attach and a stop over it both go unanswered. It returns a
+// channel that is closed when a stop frame arrives while the holder's process still runs: that stop asks a live holder
+// that gave no answer. A stop that arrives once the holder's process has ended is the clear of a gone holder; its
+// connection is closed, as a gone holder's refused connection would end it.
+func serveStopSpy(t *testing.T, dir string, pids holder.Pids) <-chan struct{} {
 	t.Helper()
 	sock, err := holder.SocketPath(dir)
 	if err != nil {
@@ -31,7 +31,11 @@ func serveStopSpy(t *testing.T, dir string) <-chan struct{} {
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 	asked := make(chan struct{})
-	lockPath := filepath.Join(dir, holder.LockName)
+	spy := stopSpy{
+		lockPath: filepath.Join(dir, holder.LockName),
+		pids:     pids,
+		ask:      sync.OnceFunc(func() { close(asked) }),
+	}
 	go func() {
 		for {
 			conn, acceptErr := listener.Accept()
@@ -39,14 +43,26 @@ func serveStopSpy(t *testing.T, dir string) <-chan struct{} {
 				return
 			}
 			t.Cleanup(func() { _ = conn.Close() })
-			go spyOnStop(conn, lockPath, asked)
+			go spy.serve(conn)
 		}
 	}()
 	return asked
 }
 
-// spyOnStop answers the hello on conn, then closes asked when the next frame is a stop and the lock at lockPath is held.
-func spyOnStop(conn net.Conn, lockPath string, asked chan struct{}) {
+// stopSpy judges each stop frame that reaches serveStopSpy's socket. lockPath is the holder's session lock, pids the
+// holder's pids record, and ask is called for a stop that reaches a holder whose process still runs.
+type stopSpy struct {
+	lockPath string
+	pids     holder.Pids
+	ask      func()
+}
+
+// serve answers the hello on conn, then judges the next frame when it is a stop. The holder's process decides it, not
+// the session lock: a fork anywhere in this test binary copies whatever lock file is open at that moment, and the copy
+// keeps the lock held until the forked child execs, after the holder has ended and the file it copied is closed. So the
+// spy holds a lock of its own across the judgment whenever the lock is free, as such a copy would, and the judgment still
+// finds the holder gone.
+func (s stopSpy) serve(conn net.Conn) {
 	frames := holder.NewFrameReader(conn)
 	if hello, err := frames.Read(); err != nil || hello.Type != holder.TypeHello {
 		return
@@ -59,13 +75,13 @@ func spyOnStop(conn net.Conn, lockPath string, asked chan struct{}) {
 	if err != nil || next.Type != holder.TypeStop {
 		return
 	}
-	lock, lockErr := holder.Lock(lockPath)
-	if errors.Is(lockErr, holder.ErrLocked) {
-		close(asked)
-		return
+	copied, lockErr := holder.Lock(s.lockPath)
+	running, runErr := holder.Running(s.pids.Holder, s.pids.HolderStart)
+	if runErr != nil || running {
+		s.ask()
 	}
 	if lockErr == nil {
-		_ = lock.Close()
+		_ = copied.Close()
 	}
 	_ = conn.Close()
 }
@@ -85,7 +101,7 @@ func TestReadoptStepThatGaveNoAnswerIsKilledThenClearedWithoutAsking(t *testing.
 	restarted, sink := restartBeforeReconcile(t, rig)
 	// The spy answers no attach, so the attach runs out of time however short its bound is.
 	restarted.attachTimeout = time.Millisecond
-	asked := serveStopSpy(t, hdir)
+	asked := serveStopSpy(t, hdir, pids)
 	obs := &stepObserver{}
 	restarted.ExpectStep(stepA, obs)
 	reconciled := make(chan error, 1)

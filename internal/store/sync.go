@@ -252,17 +252,104 @@ func (s *Store) write(ctx context.Context, fn func(queries *sqlcgen.Queries) err
 	return err
 }
 
-func runWrite(ctx context.Context, conn *sql.Conn, fn func(queries *sqlcgen.Queries) error) error {
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+func runWrite(ctx context.Context, conn *sql.Conn, fn func(queries *sqlcgen.Queries) error) (err error) {
+	if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("begin store write: %w", err)
 	}
-	if err := fn(sqlcgen.New(conn)); err != nil {
+	statements := &writeConn{conn: conn}
+	defer func() { err = errors.Join(err, statements.close()) }()
+	if err = fn(sqlcgen.New(statements)); err != nil {
 		return errors.Join(err, rollback(ctx, conn))
 	}
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+	if _, err = conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return errors.Join(fmt.Errorf("commit store write: %w", err), rollback(ctx, conn))
 	}
 	return nil
+}
+
+// writeConn runs the statements of one store write on its connection, preparing each query once. A write's ops run the
+// same few queries once per op, so a batch of many ops would otherwise have sqlite parse each query again for every op.
+// The statements are closed when the write ends.
+type writeConn struct {
+	conn       *sql.Conn
+	statements map[string]writeStatement
+}
+
+// writeStatement is a statement a writeConn prepared. The writeConn owns it, and its close closes the statement.
+type writeStatement struct {
+	stmt *sql.Stmt
+}
+
+// prepared returns the statement of query, prepared on the write's connection the first time the write runs query.
+func (w *writeConn) prepared(ctx context.Context, query string) (writeStatement, error) {
+	if st, ok := w.statements[query]; ok {
+		return st, nil
+	}
+	stmt, err := w.conn.PrepareContext(ctx, query)
+	if err != nil {
+		return writeStatement{}, fmt.Errorf("%w", err)
+	}
+	if w.statements == nil {
+		w.statements = map[string]writeStatement{}
+	}
+	w.statements[query] = writeStatement{stmt: stmt}
+	return w.statements[query], nil
+}
+
+// ExecContext runs query with args as its prepared statement.
+func (w *writeConn) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	st, err := w.prepared(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	result, err := st.stmt.ExecContext(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return result, nil
+}
+
+// QueryContext runs query with args as its prepared statement.
+func (w *writeConn) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	st, err := w.prepared(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := st.stmt.QueryContext(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return rows, nil
+}
+
+// QueryRowContext runs query with args as its prepared statement. A query that cannot be prepared runs on the connection
+// unprepared, so its row carries the error.
+func (w *writeConn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	st, err := w.prepared(ctx, query)
+	if err != nil {
+		return w.conn.QueryRowContext(ctx, query, args...)
+	}
+	return st.stmt.QueryRowContext(ctx, args...)
+}
+
+// PrepareContext prepares query on the write's connection, apart from the statements the write keeps.
+func (w *writeConn) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	stmt, err := w.conn.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return stmt, nil
+}
+
+// close closes the statements the write prepared.
+func (w *writeConn) close() error {
+	var errs []error
+	for _, st := range w.statements {
+		if err := st.stmt.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close store statement: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // rollback runs even when ctx is done, so a canceled write does not leave its transaction open on the

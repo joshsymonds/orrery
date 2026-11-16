@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -50,10 +51,11 @@ type EpicTurn struct {
 }
 
 // EpicTask is one task an epic's planner turn planned: its title, its deliverable, the files it touches, the
-// Requirements it covers, its gate, its evidence item and its status. Turn is the seq of the turn that planned it.
+// Requirements it covers, the Requirements it contributes to, its gate, its evidence item and its status. Turn is the
+// seq of the turn that planned it.
 // Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
-// its build names, nil when it names none. Batch is the path of the integrate run that claimed the task, "" while none
-// has.
+// its build names, nil when it names none or when the run is not current with Evidence. Batch is the path of the
+// integrate run that claimed the task, "" while none has.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -61,6 +63,7 @@ type EpicTask struct {
 	Deliverable  string
 	Files        []string
 	Requirements []string
+	Contributes  []string
 	Gate         string
 	Evidence     evidence.Item
 	Status       string
@@ -71,12 +74,23 @@ type EpicTask struct {
 	Batch        string
 }
 
-// EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it.
+// EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
+// Choices, Recommended, Why, Confidence and Replaces are the question's shape as the turn stored it. ReplacedBy is the
+// seq of the question that replaced it, and Choice is the choice that answered it: ChoiceOther for words, "" while it
+// is open or replaced.
 type EpicQuestion struct {
-	Seq   int64
-	Turn  int64
-	Text  string
-	State string
+	Seq         int64
+	Turn        int64
+	Text        string
+	State       string
+	Label       string
+	Choices     []EpicChoice
+	Recommended string
+	Why         string
+	Confidence  string
+	Replaces    int64
+	ReplacedBy  int64
+	Choice      string
 }
 
 // EpicTrigger is one trigger of an epic: its cause, its state, the turn that claimed it (0 while pending) and when it
@@ -95,17 +109,18 @@ type EpicPlan struct {
 	Decisions []string
 	Tasks     []EpicTaskInput
 	Outline   string
-	Questions []string
+	Questions []EpicQuestionInput
 	Outcome   string
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
-// it covers, its gate and its evidence item.
+// it covers, the Requirements it contributes to, its gate and its evidence item.
 type EpicTaskInput struct {
 	Title        string
 	Deliverable  string
 	Files        []string
 	Requirements []string
+	Contributes  []string
 	Gate         string
 	Evidence     evidence.Item
 }
@@ -157,7 +172,7 @@ func (s *Store) TurnTriggers(ctx context.Context, epic string, turn int64) ([]Ep
 }
 
 // loadPlanSections fills the turns, tasks and questions of row from the rows stored under row.ID, each in seq order.
-// A task carries its files and Requirements in position order.
+// A task carries its files, Requirements and contributions in position order.
 func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
 	turns, err := queries.ListEpicTurns(ctx, row.ID)
 	if err != nil {
@@ -183,6 +198,10 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list task requirements: %w", err)
 	}
+	contributes, err := queries.ListEpicTaskContributes(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task contributes: %w", err)
+	}
 	reviews, err := queries.ListEpicTaskReviews(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list task reviews: %w", err)
@@ -199,29 +218,43 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	for _, requirement := range requirements {
 		requirementsOf[requirement.Task] = append(requirementsOf[requirement.Task], requirement.Requirement)
 	}
+	contributesOf := make(map[int64][]string)
+	for _, contribute := range contributes {
+		contributesOf[contribute.Task] = append(contributesOf[contribute.Task], contribute.Requirement)
+	}
 	reviewsOf := taskReviewsOf(reviews, findings)
 	row.Tasks, err = convertInOrder(tasks, func(task sqlcgen.EpicTask) (EpicTask, error) {
-		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], reviewsOf[task.Seq])
+		return taskOf(ctx, queries, task, pathsOf[task.Seq], requirementsOf[task.Seq], contributesOf[task.Seq],
+			reviewsOf[task.Seq])
 	})
 	if err != nil {
 		return fmt.Errorf("tasks: %w", err)
 	}
 
+	return loadQuestions(ctx, queries, row)
+}
+
+// loadQuestions fills the questions of row from the rows stored under row.ID, in seq order.
+func loadQuestions(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
 	questions, err := queries.ListEpicQuestions(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list questions: %w", err)
 	}
-	row.Questions = mapInOrder(questions, questionOf)
+	row.Questions, err = convertInOrder(questions, questionOf)
+	if err != nil {
+		return fmt.Errorf("questions: %w", err)
+	}
 	return nil
 }
 
-// taskOf returns the task a stored row holds, with the files, Requirements and reviews stored under it, its evidence
-// item decoded, its build state, and the evidence runs its build names as red and green.
+// taskOf returns the task a stored row holds, with the files, Requirements, contributions and reviews stored under it,
+// its evidence item decoded, its build state, and the evidence runs its build names as red and green, each kept only
+// while its spec is current with the evidence item.
 func taskOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	stored sqlcgen.EpicTask,
-	files, requirements []string,
+	files, requirements, contributes []string,
 	reviews []TaskReview,
 ) (EpicTask, error) {
 	item, err := decodeItem(stored.Evidence)
@@ -230,22 +263,26 @@ func taskOf(
 	}
 	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
-		Files: files, Requirements: requirements, Gate: stored.Gate, Evidence: item, Status: stored.Status,
-		Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
+		Files: files, Requirements: requirements, Contributes: contributes, Gate: stored.Gate, Evidence: item,
+		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 	}
 	if task.Build.RedRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.RedRun)
 		if runErr != nil {
 			return EpicTask{}, fmt.Errorf("task %d red run: %w", stored.Seq, runErr)
 		}
-		task.Red = &run
+		if evidence.Current(run.Spec, item) {
+			task.Red = &run
+		}
 	}
 	if task.Build.GreenRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.GreenRun)
 		if runErr != nil {
 			return EpicTask{}, fmt.Errorf("task %d green run: %w", stored.Seq, runErr)
 		}
-		task.Green = &run
+		if evidence.Current(run.Spec, item) {
+			task.Green = &run
+		}
 	}
 	return task, nil
 }
@@ -259,9 +296,18 @@ func taskRunOf(ctx context.Context, queries *sqlcgen.Queries, id string) (Eviden
 	return evidenceRunOf(ctx, queries, stored)
 }
 
-// questionOf returns the question a stored row holds.
-func questionOf(question sqlcgen.EpicQuestion) EpicQuestion {
-	return EpicQuestion{Seq: question.Seq, Turn: question.Turn, Text: question.Text, State: question.State}
+// questionOf returns the question a stored row holds, its choices decoded from their JSON.
+func questionOf(question sqlcgen.EpicQuestion) (EpicQuestion, error) {
+	choices, err := choicesOf(question.Choices)
+	if err != nil {
+		return EpicQuestion{}, fmt.Errorf("choices of question %d: %w", question.Seq, err)
+	}
+	return EpicQuestion{
+		Seq: question.Seq, Turn: question.Turn, Text: question.Text, State: question.State,
+		Label: question.Label, Choices: choices, Recommended: question.Recommended, Why: question.Why,
+		Confidence: question.Confidence, Replaces: question.Replaces, ReplacedBy: question.ReplacedBy,
+		Choice: question.Choice,
+	}, nil
 }
 
 // turnOf returns the stored turn with its decisions in position order. Ended and Resets are zero while the turn runs
@@ -374,8 +420,12 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 // their files and Requirements, its outline, its questions and its outcome. The turn succeeds ended at at, and every
 // trigger the turn claimed is consumed. When epic has a running plan run whose pinned workflow holds a build node
 // under the plan, each task also gets a running build child run under that node in the same write. A turn that is not
-// running, or does not exist, is ErrTurnNotRunning and writes nothing.
+// running, or does not exist, is ErrTurnNotRunning and writes nothing. A question of the plan that breaks a rule of
+// QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing.
 func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
+	if err := checkQuestions(plan.Questions); err != nil {
+		return err
+	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		rows, err := queries.CompleteEpicTurn(ctx, sqlcgen.CompleteEpicTurnParams{
 			Outline: plan.Outline, Outcome: plan.Outcome, Ended: at.Unix(), Epic: epic, Seq: turn,
@@ -447,9 +497,9 @@ func planFanOutOf(ctx context.Context, queries *sqlcgen.Queries, epic string) (t
 	return taskFanOut{}, nil
 }
 
-// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files and Requirements in
-// order. When fan has a build node, each task also gets a running build child run under the plan run at fan.plan, with
-// an id from its turn and its 1-based position in the turn, started at at.
+// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files, Requirements and
+// contributions in order. When fan has a build node, each task also gets a running build child run under the plan run
+// at fan.plan, with an id from its turn and its 1-based position in the turn, started at at.
 func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, tasks []EpicTaskInput,
 	fan taskFanOut, at time.Time,
 ) error {
@@ -483,6 +533,13 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 		}); err != nil {
 			return fmt.Errorf("requirements of task %d of epic %s: %w", seq, epic, err)
 		}
+		if err = insertInOrder(task.Contributes, func(position int64, requirement string) error {
+			return queries.InsertEpicTaskContribute(ctx, sqlcgen.InsertEpicTaskContributeParams{
+				Epic: epic, Task: seq, Position: position, Requirement: requirement,
+			})
+		}); err != nil {
+			return fmt.Errorf("contributes of task %d of epic %s: %w", seq, epic, err)
+		}
 		if fan.build == "" {
 			return nil
 		}
@@ -498,15 +555,37 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 	})
 }
 
-// insertQuestions stores questions as the next question seqs of epic after its highest, each open.
-func insertQuestions(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, questions []string) error {
+// insertQuestions stores questions as the next question seqs of epic after its highest, each open, with its label,
+// choices, recommendation and replacement, and closes each question a question replaces.
+func insertQuestions(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	turn int64,
+	questions []EpicQuestionInput,
+) error {
 	highest, err := queries.MaxEpicQuestionSeq(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read question count of epic %s: %w", epic, err)
 	}
-	return insertInOrder(questions, func(position int64, text string) error {
+	return insertInOrder(questions, func(position int64, question EpicQuestionInput) error {
+		seq := highest + position
+		choices, encodeErr := json.Marshal(question.Choices)
+		if encodeErr != nil {
+			return fmt.Errorf("choices of question %d of epic %s: %w", seq, epic, encodeErr)
+		}
+		replaces, ok := replacesSeq(question.Replaces)
+		if !ok {
+			return fmt.Errorf("replaces of question %d of epic %s: %q is not Q<n>", seq, epic, question.Replaces)
+		}
+		if replaces != 0 {
+			if replaceErr := replaceQuestion(ctx, queries, epic, replaces, seq); replaceErr != nil {
+				return fmt.Errorf("question %q: %w", question.Label, replaceErr)
+			}
+		}
 		return queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
-			Epic: epic, Seq: highest + position, Turn: turn, Text: text,
+			Epic: epic, Seq: seq, Turn: turn, Text: question.Text, Label: question.Label, Choices: string(choices),
+			Recommended: question.Recommended, Why: question.Why, Confidence: question.Confidence, Replaces: replaces,
 		})
 	})
 }
@@ -632,7 +711,8 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 		if !failedInARow(recent) {
 			return nil
 		}
-		return setParked(ctx, queries, epic, parkedAfterFailures+stored)
+		_, err = setParked(ctx, queries, epic, parkedAfterFailures+stored)
+		return err
 	})
 }
 
@@ -661,7 +741,8 @@ func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free Turn
 		if free.Park == "" {
 			return nil
 		}
-		return setParked(ctx, queries, epic, free.Park)
+		_, err := setParked(ctx, queries, epic, free.Park)
+		return err
 	})
 }
 
@@ -699,16 +780,19 @@ func failedInARow(states []string) bool {
 	return true
 }
 
-// setParked sets the park reason of epic to reason, cut to TurnReasonMax bytes. An unknown epic is ErrNoEpic.
-func setParked(ctx context.Context, queries *sqlcgen.Queries, epic, reason string) error {
-	rows, err := queries.SetEpicParked(ctx, sqlcgen.SetEpicParkedParams{Parked: capTurnText(reason), ID: epic})
+// setParked sets the park reason of epic to reason, cut to TurnReasonMax bytes, and opens the park question of epic for
+// it in the caller's write. The question is final when the epic's phase is met_at_base, which a final park sets before
+// it parks. setParked returns the seq of the question. An unknown epic is ErrNoEpic.
+func setParked(ctx context.Context, queries *sqlcgen.Queries, epic, reason string) (int64, error) {
+	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
-		return fmt.Errorf("park epic %s: %w", epic, err)
+		return 0, err
 	}
-	if rows == 0 {
-		return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
+	park := capTurnText(reason)
+	if _, err = queries.SetEpicParked(ctx, sqlcgen.SetEpicParkedParams{Parked: park, ID: epic}); err != nil {
+		return 0, fmt.Errorf("park epic %s: %w", epic, err)
 	}
-	return nil
+	return insertParkQuestion(ctx, queries, epic, parkQuestion(park, head.Phase == phaseMetAtBase))
 }
 
 // capTurnText cuts text to at most TurnReasonMax bytes at a UTF-8 rune start.

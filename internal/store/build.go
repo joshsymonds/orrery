@@ -30,11 +30,13 @@ type TaskBuild struct {
 
 // TaskFinding is one finding a review raised: its position among the review's findings, its id, the claim it makes,
 // where it is cited and located, its evidence and how to verify it. Step, Result and Reason are its verification: the
-// step that checked it, whether it is confirmed, dropped or undecided, and why.
+// step that checked it, whether it is confirmed, dropped or undecided, and why. Unverified is whether it was settled
+// as confirmed without a verification.
 type TaskFinding struct {
 	Position                                          int64
 	ID, Claim, Citation, Location, Evidence, VerifyBy string
 	Step, Result, Reason                              string
+	Unverified                                        bool
 }
 
 // TaskReview is one review of a task: its attempt, its position among the review gates, the gate it ran, its step,
@@ -52,13 +54,14 @@ type TaskFindingResult struct {
 	Step, Result, Reason      string
 }
 
-// EpicTell is one tell an epic holds for its owner: its seq, its text, when it was written, and whether the owner
-// has been told it.
+// EpicTell is one tell an epic holds for its owner: its seq, its text, when it was written, whether the owner has been
+// told it, and the question it belongs to, nil when it belongs to none.
 type EpicTell struct {
-	Seq  int64
-	Text string
-	At   time.Time
-	Told bool
+	Seq      int64
+	Text     string
+	At       time.Time
+	Told     bool
+	Question *EpicQuestion
 }
 
 // buildOf returns the build state a stored task row holds.
@@ -85,6 +88,7 @@ func taskReviewsOf(reviews []sqlcgen.EpicTaskReview, findings []sqlcgen.EpicTask
 		findingsOf[key] = append(findingsOf[key], TaskFinding{
 			Position: f.Position, ID: f.ID, Claim: f.Claim, Citation: f.Citation, Location: f.Location,
 			Evidence: f.Evidence, VerifyBy: f.VerifyBy, Step: f.Step, Result: f.Result, Reason: f.Reason,
+			Unverified: f.Unverified != 0,
 		})
 	}
 	out := make(map[int64][]TaskReview)
@@ -129,8 +133,8 @@ func (s *Store) SetTaskBuild(ctx context.Context, epic string, seq int64, from, 
 	})
 }
 
-// BuildEpics returns the ids, ordered by id, of the epics that have a base, are accepted, and hold at least one open
-// task.
+// BuildEpics returns the ids, ordered by id, of the epics that have a base, are not in an ended phase (met_at_base,
+// clean, ended_with_gaps, released, done or stopped), and hold at least one open task.
 func (s *Store) BuildEpics(ctx context.Context) ([]string, error) {
 	ids, err := sqlcgen.New(s.db).ListBuildEpics(ctx)
 	if err != nil {

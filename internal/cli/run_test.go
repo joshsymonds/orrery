@@ -53,13 +53,16 @@ const (
 )
 
 // TestRunHelperProcess is not a test. Tests re-run the test binary with runHelperEnv set to run one of these helpers
-// as the command or as the client. Without the variable it does nothing.
+// as the command or as the client. Without the variable it does nothing. A helper exits by syscall.Exit, not os.Exit:
+// os.Exit(0) runs the exit hooks, and in a test binary built with coverage, the coverage hook spends about a second
+// on the counters before it finds no GOCOVERDIR to write them to. A helper's output is written unbuffered, so nothing
+// is left to flush.
 func TestRunHelperProcess(_ *testing.T) {
 	mode := os.Getenv(runHelperEnv)
 	if mode == "" {
 		return
 	}
-	os.Exit(runHelper(mode))
+	syscall.Exit(runHelper(mode))
 }
 
 // runHelper runs the helper mode and returns the status it exits with.

@@ -208,9 +208,10 @@ reap-test-tmux:
 check-changed BASE="": reap-test-tmux
     scripts/check-changed.sh {{BASE}}
 
-# Run a gate command on the orrery-gate EC2 box, or here through /tmp/claude-1000/heavy when no box answers; see
-# scripts/gate-remote.sh for the steps, the environment and the exit codes (75 is an environment result, such as a spot
-# interruption, never a test failure). For example: just remote just check, just remote nix flake check.
+# Run a gate command on the orrery-gate EC2 box. When the box is gone it waits for the one its wake brings up, and runs
+# here through /tmp/claude-1000/heavy only when no box can come up; see scripts/gate-remote.sh for the steps, the
+# environment and the exit codes (75 is an environment result, such as a spot interruption, never a test failure).
+# For example: just remote just check, just remote nix flake check.
 [positional-arguments]
 remote *args:
     scripts/gate-remote.sh "$@"

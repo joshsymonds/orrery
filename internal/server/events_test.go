@@ -96,13 +96,36 @@ func writeState(t *testing.T, s *store.Store, i int) {
 // store then holds count+1 events with seqs 1 through count+1.
 func seedEvents(t *testing.T, s *store.Store, count int) {
 	t.Helper()
+	if err := writeStateEvents(t.Context(), s, count); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeStateEvents writes the events seedEvents describes and returns the first write's error.
+func writeStateEvents(ctx context.Context, s *store.Store, count int) error {
 	pane := store.Pane{ID: eventPane, Pane: "%1"}
-	if err := s.SyncServer(t.Context(), "-L a", []store.Pane{pane}, time.Unix(eventAt, 0)); err != nil {
-		t.Fatalf("SyncServer: %v", err)
+	if err := s.SyncServer(ctx, "-L a", []store.Pane{pane}, time.Unix(eventAt, 0)); err != nil {
+		return fmt.Errorf("SyncServer: %w", err)
 	}
 	for i := 1; i <= count; i++ {
-		writeState(t, s, i)
+		pane := store.Pane{ID: eventPane, Pane: "%1", Fields: store.Fields{State: fmt.Sprintf("state-%d", i)}}
+		if err := s.SyncPane(ctx, "-L a", pane, time.Unix(eventAt, 0)); err != nil {
+			return fmt.Errorf("SyncPane state-%d: %w", i, err)
+		}
 	}
+	return nil
+}
+
+// openFilledEventStore opens at path, as openEventStore does, a store that already holds the count events write
+// writes. The test's setup is not its subject, so the store is a copy of an image made once per test binary for name
+// and count (see storetest.SeedFilled), not count writes of its own.
+func openFilledEventStore(
+	t *testing.T, path, name string, count int, write func(context.Context, *store.Store, int) error,
+) *store.Store {
+	t.Helper()
+	storetest.SeedFilled(t, path, fmt.Sprintf("server %s events %d", name, count),
+		func(ctx context.Context, s *store.Store) error { return write(ctx, s, count) })
+	return openEventStore(t, path)
 }
 
 // watch runs one Watch call and reads its stream on one goroutine. The generated client's Watch call returns only once
@@ -192,8 +215,7 @@ func optional(value string) *string {
 func TestWatchReplaysMoreThanOnePageThenFollows(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s := openEventStore(t, path)
-	seedEvents(t, s, replayCount)
+	s := openFilledEventStore(t, path, "state", replayCount, writeStateEvents)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
 
 	w := openWatch(t, events, 0)

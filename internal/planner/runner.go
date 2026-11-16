@@ -31,6 +31,7 @@ type Store interface {
 	FreeTurn(ctx context.Context, epic string, turn int64, free store.TurnFree, at time.Time) error
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
+	Follows(ctx context.Context) ([]store.LabelFollow, error)
 }
 
 // Steps starts planner steps, waits for them and stops them. *enginehost.Steps satisfies it.
@@ -77,8 +78,11 @@ const stepCapFull = "step cap full"
 // taskOpen is the status of a task that is not yet accepted or failed. Only an open task owns its files.
 const taskOpen = "open"
 
-// plannerNamespace starts the parts every planner turn's step id hashes, so the ids are this package's. turnStepIDLength
-// is the number of hex digits of a step id, the form a fresh id has.
+// taskFailed is the status of a task whose build failed. A failed task's claims do not count toward coverage.
+const taskFailed = "failed"
+
+// plannerNamespace starts the parts every planner turn's step id hashes, so the ids are this package's.
+// turnStepIDLength is the number of hex digits of a step id, the form a fresh id has.
 const (
 	plannerNamespace = "orrery-planner"
 	turnStepIDLength = 32
@@ -243,7 +247,11 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
-	prompt, err := Prompt(row, turn.Seq, triggers)
+	follows, err := r.store.Follows(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read advice follows: %w", err)
+	}
+	prompt, err := Prompt(row, turn.Seq, triggers, follows)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
@@ -490,16 +498,21 @@ func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, 
 	}
 }
 
-// complete completes turn seq of epic with the plan that result holds. A result that does not parse fails the turn.
+// complete completes turn seq of epic with the plan that result holds. A result that does not parse fails the turn, and
+// so does a plan with a question the store refuses, with the refusal as the reason.
 func (r *Runner) complete(ctx context.Context, epic string, seq int64, result string) error {
 	ret, err := Parse(json.RawMessage(result))
 	if err != nil {
 		return r.failTurn(ctx, epic, seq, err.Error())
 	}
 	plan, at := planOf(ret), r.now()
-	return r.retry(ctx, fmt.Sprintf("complete turn %d of epic %s", seq, epic), func() error {
+	err = r.retry(ctx, fmt.Sprintf("complete turn %d of epic %s", seq, epic), func() error {
 		return r.store.CompleteTurn(ctx, epic, seq, plan, at)
 	})
+	if errors.Is(err, store.ErrBadQuestion) {
+		return r.failTurn(ctx, epic, seq, err.Error())
+	}
+	return err
 }
 
 // fail fails turn seq of epic with reason. An error the write ends with is logged.
@@ -532,9 +545,10 @@ func (r *Runner) freeTurn(ctx context.Context, epic string, seq int64, free stor
 	})
 }
 
-// retry runs op, a store call that settles a turn, until it succeeds or the store answers ErrTurnNotRunning, which it
-// returns wrapped with what. Until then each failed call is logged and run again after a tick with the same arguments.
-// Once ctx has ended, retry calls nothing more and returns nil, which leaves the turn running for the next start.
+// retry runs op, a store call that settles a turn, until it succeeds or the store answers ErrTurnNotRunning or
+// ErrBadQuestion, which no later call changes, and returns that error wrapped with what. Until then each failed call is
+// logged and run again after a tick with the same arguments. Once ctx has ended, retry calls nothing more and returns
+// nil, which leaves the turn running for the next start.
 func (r *Runner) retry(ctx context.Context, what string, op func() error) error {
 	for ctx.Err() == nil {
 		err := op()
@@ -542,7 +556,7 @@ func (r *Runner) retry(ctx context.Context, what string, op func() error) error 
 			return nil
 		}
 		err = fmt.Errorf("%s: %w", what, err)
-		if errors.Is(err, store.ErrTurnNotRunning) {
+		if errors.Is(err, store.ErrTurnNotRunning) || errors.Is(err, store.ErrBadQuestion) {
 			return err
 		}
 		r.logger.ErrorContext(ctx, "retry planner turn write", "err", err)
@@ -560,18 +574,34 @@ func planOf(ret Return) store.EpicPlan {
 	for _, task := range ret.Tasks {
 		tasks = append(tasks, store.EpicTaskInput{
 			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
-			Requirements: task.Requirements, Gate: task.Gate, Evidence: task.Evidence,
+			Requirements: task.Requirements, Contributes: task.Contributes, Gate: task.Gate, Evidence: task.Evidence,
 		})
 	}
+	questions := make([]store.EpicQuestionInput, 0, len(ret.Questions))
+	for _, question := range ret.Questions {
+		questions = append(questions, questionInputOf(question))
+	}
 	return store.EpicPlan{
-		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: ret.Questions, Outcome: ret.Outcome,
+		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
+	}
+}
+
+// questionInputOf returns the store's input for a question of a planner return.
+func questionInputOf(question Question) store.EpicQuestionInput {
+	choices := make([]store.EpicChoice, 0, len(question.Choices))
+	for _, choice := range question.Choices {
+		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does})
+	}
+	return store.EpicQuestionInput{
+		Label: question.Label, Text: question.Text, Choices: choices, Recommended: question.Recommended,
+		Why: question.Why, Confidence: question.Confidence, Replaces: question.Replaces,
 	}
 }
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic. The gate resolves under ctx without its cancellation, so the turn
-// that started the step ending does not refuse its return.
+// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks. The gate
+// resolves under ctx without its cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -586,7 +616,7 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		if err != nil {
 			return []string{err.Error()}
 		}
-		return Check(ret, requirements, owned, gate, judge)
+		return append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
 	}
 }
 

@@ -25,7 +25,13 @@ func TestAttentionNeverPairsANewLatestTurnWithOpenQuestionsItLacks(t *testing.T)
 		t.Fatalf("second ClaimTurn: %v", err)
 	}
 
-	later := EpicPlan{Questions: []string{"Is the second turn right?", "Which module?"}, Outcome: "wait"}
+	later := EpicPlan{
+		Questions: []EpicQuestionInput{
+			shapedQuestion("is-second-turn-right", "Is the second turn right?"),
+			shapedQuestion("which-module", "Which module?"),
+		},
+		Outcome: "wait",
+	}
 	fired := false
 	got, err := s.attention(ctx, func(epic string) {
 		if epic != id || fired {

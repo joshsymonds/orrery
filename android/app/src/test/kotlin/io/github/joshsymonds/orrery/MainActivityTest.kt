@@ -144,7 +144,7 @@ class MainActivityTest {
             if (session == null) {
                 Reply.Failure(Code.NOT_FOUND, "", 0L)
             } else {
-                Reply.Stream(listOf(stateDelta(session)), StreamEnd.Silent)
+                Reply.Stream(listOf(stateDelta(session)), StreamEnd.Open)
             }
         }
     }

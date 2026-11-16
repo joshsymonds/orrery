@@ -842,7 +842,7 @@ func startSessions(
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
 			ReadoptCheck: readoptCheck(st, resolve),
-			ReadoptGate:  readoptGate(st, getenv),
+			ReadoptGate:  readoptGate(st),
 			Notifier:     notifier,
 		})
 		if err != nil {
@@ -899,12 +899,9 @@ func readoptCheck(
 
 // readoptGate is the ReadoptGate of the steps. A re-adopted row gets the judge gate of an evidence run when it is a judge
 // step, and when that gate is nil, the review gate of a task's review step. An error from either is returned.
-func readoptGate(
-	st *store.Store,
-	getenv func(string) string,
-) func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
+func readoptGate(st *store.Store) func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
 	judge := enginehost.EvidenceReadoptGate(st)
-	review := build.ReadoptGate(st, getenv)
+	review := build.ReadoptGate(st)
 	return func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
 		gate, err := judge(ctx, row)
 		if err != nil || gate != nil {
@@ -1103,16 +1100,19 @@ func (h *sessionHost) startFlow(
 	flowCtx, h.stopFlow = context.WithCancel(ctx)
 	ticks, passed := flowSeam(flowCtx, flowTicks, logger)
 	flow := interpret.New(interpret.Config{
-		Store:    st,
-		Planner:  plannerRun,
-		Builder:  buildRun,
-		Checks:   h.checks,
-		Evidence: h.evidence,
-		Steps:    h.steps,
-		Getenv:   getenv,
-		Logger:   logger,
-		Ticks:    ticks,
-		Passed:   passed,
+		Store:     st,
+		Planner:   plannerRun,
+		Builder:   buildRun,
+		Checks:    h.checks,
+		Evidence:  h.evidence,
+		Steps:     h.steps,
+		Reviewers: interpret.NewEpicReviewers(),
+		Ending:    st,
+		StateDir:  stateDir,
+		Getenv:    getenv,
+		Logger:    logger,
+		Ticks:     ticks,
+		Passed:    passed,
 	})
 	go func() {
 		flow.Run(flowCtx)

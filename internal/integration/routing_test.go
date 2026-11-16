@@ -103,7 +103,7 @@ func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
 	since := time.Now().Unix()
 
 	sendHook(t, socket, pane, dir, permissionRequestHook())
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// The router decides the notice after the frame is applied, so the push is awaited before orreryd stops. Stopping
 	// earlier would end the undecided notice with a shutdown line.
 	assertPushed(t, endpoint, pane, protocol.StateWaiting)
@@ -132,7 +132,7 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 	since := time.Now().Unix()
 
 	sendHook(t, socket, pane, dir, stopHookInput(t, transcript, quietSubagentTasks))
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
@@ -159,7 +159,7 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 		t.Fatalf("report read: %v", err)
 	}
 	sendHook(t, socket, pane, dir, permissionRequestHook())
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops. The
 	// store is attached once its open line is logged, so stopping then keeps the held notice for the next start, with
 	// no shutdown line.
@@ -202,7 +202,7 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 	// orreryd decides the notice.
 	sendInput(t, socket, time.Now().Unix())
 	sendHook(t, socket, pane, project, permissionRequestHook())
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	line := nextDeskLine(t, r)
 	if line.Kind != deskstream.KindNotice || line.Host != host || line.State != string(protocol.StateWaiting) ||
 		line.Title != exampleTitle {
@@ -230,7 +230,7 @@ func TestOrrerydRouteWithoutSubscriptionReachesDeskOnly(t *testing.T) {
 	since := time.Now().Unix()
 
 	sendHook(t, socket, pane, dir, permissionRequestHook())
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// No push marks the decision, so the notice's own line is awaited before orreryd stops.
 	logPath := noticeLogPath(stateHome)
 	waitUntil(t, func() bool { return noticeLogHas(logPath, "away; no push subscription") })
@@ -385,12 +385,12 @@ func TestOrrerydRouteWorkAfterDoneIsChanged(t *testing.T) {
 	since := time.Now().Unix()
 
 	sendHook(t, socket, pane, dir, stopHook(transcript))
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
 	sendHook(t, socket, pane, dir, map[string]any{
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
 	})
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
@@ -419,7 +419,7 @@ func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
 	// sessions.sock listens only after the store open, which has no bound, so the listen's wait limit starts at the
 	// store-open line.
 	daemon.waitForStoreOpen(t)
-	daemon.waitForListener(t, "unix", protocol.SessionSocketPath(socket))
+	daemon.waitForListener(t, protocol.SessionSocketPath(socket))
 	writeJudgeReply(t, dir, judgeUnneededReply)
 	transcript := filepath.Join(dir, "transcript.jsonl")
 	writeFile(t, transcript, exampleTranscript, 0o600)

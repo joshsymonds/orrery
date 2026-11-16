@@ -195,7 +195,7 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
 	id := tellNoticeID(entry.Epic, tell.Seq)
 	if !stored[id] {
-		a.notify(ctx, entry, id, tell.Text, store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true})
+		a.notify(ctx, entry, id, tellBody(tell), store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true})
 	}
 	if err := a.store.MarkTellTold(ctx, entry.Epic, tell.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark tell told", "epic", entry.Epic, "tell", tell.Seq, "err", err)
@@ -283,12 +283,12 @@ func tellsOwner(need attentionNeed, entry store.EpicAttention) bool {
 	}
 }
 
-// bodyOf returns the body of the notice of need for entry: the park reason, the limit's reset time or that it names
-// none, or the open questions, one Q<seq> line each.
+// bodyOf returns the body of the notice of need for entry: the park reason with the advice of its open park question,
+// the limit's reset time or that it names none, or each open question with its advice.
 func bodyOf(need attentionNeed, entry store.EpicAttention) string {
 	switch need {
 	case needPark:
-		return "parked: " + entry.Parked
+		return parkBody(entry)
 	case needLimit:
 		if entry.Latest.Resets.IsZero() {
 			return "usage limit, reset time unknown"
@@ -297,8 +297,72 @@ func bodyOf(need attentionNeed, entry store.EpicAttention) string {
 	default:
 		lines := make([]string, 0, len(entry.Open))
 		for _, question := range entry.Open {
-			lines = append(lines, fmt.Sprintf("Q%d: %s", question.Seq, question.Text))
+			lines = append(lines, noticeHead(question))
+			lines = append(lines, adviceLines(question)...)
 		}
 		return strings.Join(lines, "\n")
 	}
+}
+
+// parkBody returns the park reason of entry, then the advice head and advice lines of its open park question when it
+// has one.
+func parkBody(entry store.EpicAttention) string {
+	lines := []string{"parked: " + entry.Parked}
+	if question := openParkQuestion(entry); question != nil {
+		lines = append(lines, adviceHead(*question))
+		lines = append(lines, adviceLines(*question)...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// openParkQuestion returns the open park question of entry, or nil when it has none.
+func openParkQuestion(entry store.EpicAttention) *store.EpicQuestion {
+	for i := range entry.Open {
+		if entry.Open[i].Label == store.ParkLabel {
+			return &entry.Open[i]
+		}
+	}
+	return nil
+}
+
+// tellBody returns the body of the notice of tell: its text, and when it belongs to a question, the question's advice
+// head and advice lines.
+func tellBody(tell store.EpicTell) string {
+	if tell.Question == nil {
+		return tell.Text
+	}
+	advice := adviceLines(*tell.Question)
+	lines := make([]string, 0, len(advice)+2)
+	lines = append(lines, tell.Text, adviceHead(*tell.Question))
+	return strings.Join(append(lines, advice...), "\n")
+}
+
+// noticeHead returns question as `Qseq label: text`, or as `Qseq: text` when it has no label.
+func noticeHead(question store.EpicQuestion) string {
+	if question.Label == "" {
+		return fmt.Sprintf("Q%d: %s", question.Seq, question.Text)
+	}
+	return fmt.Sprintf("Q%d %s: %s", question.Seq, question.Label, question.Text)
+}
+
+// adviceHead returns the line that heads the advice of question in a park's notice or tell, where its text is already
+// shown: `Qseq label:`.
+func adviceHead(question store.EpicQuestion) string {
+	return fmt.Sprintf("Q%d %s:", question.Seq, question.Label)
+}
+
+// adviceLines returns the advice question gives the owner, one line each: each declared choice as `  id: does`, then
+// other, which orrery offers on every question, then the recommendation as `  recommended: id (confidence): why` when
+// it recommends one.
+func adviceLines(question store.EpicQuestion) []string {
+	lines := make([]string, 0, len(question.Choices)+2)
+	for _, choice := range question.Choices {
+		lines = append(lines, fmt.Sprintf("  %s: %s", choice.ID, choice.Does))
+	}
+	lines = append(lines, fmt.Sprintf("  %s: answer in your own words", store.ChoiceOther))
+	if question.Recommended != "" {
+		lines = append(lines, fmt.Sprintf("  recommended: %s (%s): %s",
+			question.Recommended, question.Confidence, question.Why))
+	}
+	return lines
 }

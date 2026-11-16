@@ -23,6 +23,7 @@ import io.github.joshsymonds.orrery.ui.PaneScreen
 import java.util.Timer
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.schedule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -39,7 +40,8 @@ import java.util.concurrent.atomic.AtomicReference
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val STREAM_PATH = "/orrery.v1.Panes/WatchConversation"
 private const val PANE_ID = "%3"
-private const val SLOW_ANSWER_MILLIS = 3_000L
+private const val SLOW_ANSWER_MILLIS = 300L
+private const val RETRY_SLEEP_MILLIS = 100L
 private const val NOW = 1_700_000_000L
 private const val LATE_START_MILLIS = 300L
 private const val LATE_TEXT_MILLIS = 1_000L
@@ -87,7 +89,8 @@ class QuiescentWaitTest {
             server.route(STREAM_PATH) {
                 Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, "synthetic pane has no stream"))
             }
-            composeRule.setContent { MaterialTheme { PaneScreen(PANE_ID, OrreryClient(server.baseUrl)) } }
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent { MaterialTheme { PaneScreen(PANE_ID, client) } }
 
             val failure = assertThrows(AssertionError::class.java) {
                 composeRule.awaitExactlyOne(hasTestTag("synthetic-never-shown"))
@@ -232,7 +235,9 @@ class QuiescentWaitTest {
         FakeOrreryServer().use { server ->
             server.fail(REGISTER_PATH, Code.UNAVAILABLE, "synthetic refusal")
             BackgroundWork.run("push registration") {
-                PushRegistration(OrreryClient(server.baseUrl)).register("https://push.example.com/up", "key", "auth")
+                // A short retry sleep: the end judges the sleep itself, not its length.
+                PushRegistration(OrreryClient(server.baseUrl), sleep = { Thread.sleep(RETRY_SLEEP_MILLIS) })
+                    .register("https://push.example.com/up", "key", "auth")
             }
 
             val failure = assertThrows(AssertionError::class.java) { Quiescence.endTest() }
@@ -242,6 +247,26 @@ class QuiescentWaitTest {
             server.respond(REGISTER_PATH, RegisterResponse.getDefaultInstance())
             Quiescence.awaitUntil("the registration to be accepted") { Quiescence.backgroundWorkRunning() == 0 }
         }
+    }
+
+    @Test
+    fun workThatFinishesJustBeforeAStoppedClockJudgmentIsRunNotJudged() {
+        // The order PaneScreenTest.paneRefreshesEverySecondWhileVisible hit: work on another thread finished after the
+        // wait's last drain and before its judgment, so its continuation sat queued on the main thread with nothing in
+        // flight, and the wait failed ("the clock is stopped and nothing is in flight") with the answer in hand.
+        val answer = CompletableDeferred<String>()
+        val shown = AtomicReference<String?>()
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent { LaunchedEffect(Unit) { shown.set(answer.await()) } }
+        beforeStoppedClockJudgment = {
+            if (!answer.isCompleted) Thread { answer.complete("synthetic answer") }.apply { start() }.join()
+        }
+        try {
+            composeRule.awaitUntilAfterIdle("the answer to be shown") { shown.get() != null }
+        } finally {
+            beforeStoppedClockJudgment = {}
+        }
+        assertEquals("synthetic answer", shown.get())
     }
 
     private fun showFirstPaneLabel(server: FakeOrreryServer) {
