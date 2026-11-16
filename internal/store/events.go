@@ -103,7 +103,8 @@ func (r *Reader) Events(ctx context.Context, after int64, limit int) (EventPage,
 	if err != nil {
 		return EventPage{}, fmt.Errorf("open store reader: %w", err)
 	}
-	page, err := readEventPage(ctx, db, after, limit)
+	r.reach(readOpened)
+	page, err := readEventPage(ctx, db, after, limit, r.reach)
 	if closeErr := db.Close(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
@@ -118,12 +119,15 @@ func (r *Reader) Events(ctx context.Context, after int64, limit int) (EventPage,
 
 // readEventPage runs the page read and both bounds in one read transaction, so the page and its bounds describe the
 // same state.
-func readEventPage(ctx context.Context, db *sql.DB, after int64, limit int) (EventPage, error) {
+func readEventPage(
+	ctx context.Context, db *sql.DB, after int64, limit int, reach func(readPoint),
+) (EventPage, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return EventPage{}, fmt.Errorf("begin store read: %w", err)
 	}
-	page, err := readEventPageInTx(ctx, tx, after, limit)
+	reach(readBegun)
+	page, err := readEventPageInTx(ctx, tx, after, limit, reach)
 	if err != nil {
 		return EventPage{}, errors.Join(err, tx.Rollback())
 	}
@@ -133,12 +137,15 @@ func readEventPage(ctx context.Context, db *sql.DB, after int64, limit int) (Eve
 	return page, nil
 }
 
-func readEventPageInTx(ctx context.Context, tx *sql.Tx, after int64, limit int) (EventPage, error) {
+func readEventPageInTx(
+	ctx context.Context, tx *sql.Tx, after int64, limit int, reach func(readPoint),
+) (EventPage, error) {
 	queries := sqlcgen.New(tx)
 	rows, err := queries.EventPageAfter(ctx, sqlcgen.EventPageAfterParams{Seq: after, Limit: int64(limit)})
 	if err != nil {
 		return EventPage{}, fmt.Errorf("read event page after seq %d: %w", after, err)
 	}
+	reach(readQueried)
 	oldest, err := queries.OldestEventSeq(ctx)
 	if err != nil {
 		return EventPage{}, fmt.Errorf("read oldest event seq: %w", err)

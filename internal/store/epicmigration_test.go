@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -217,7 +218,10 @@ func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -244,7 +248,10 @@ func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -284,7 +291,10 @@ func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -317,7 +327,10 @@ func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -346,29 +359,27 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 }
 
 // openStoreAtVersion creates the store file at path with the embedded migrations applied only up to version,
-// the schema a binary from before the epic migration left behind, and returns the open database.
+// the schema a binary from before the epic migration left behind, and returns the open database. The file is a copy
+// of the version's image (see storeImages), so the fixture costs its copy, not a migration.
 func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 	t.Helper()
-	// The fixture is a throwaway file, so its migrations skip the fsyncs, as noSync's stores do.
+	images, err := storeImages.versions()
+	if err != nil {
+		t.Fatalf("make store version images: %v", err)
+	}
+	image, ok := images[version]
+	if !ok {
+		t.Fatalf("no store image at version %d", version)
+	}
+	if err = os.WriteFile(path, image, 0o600); err != nil {
+		t.Fatalf("write store at version %d: %v", version, err)
+	}
+	// The fixture is a throwaway file, so it skips the fsyncs, as noSync's stores do.
 	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
 	db.SetMaxOpenConns(1)
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		db.Close()
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationsFS)
-	if err != nil {
-		db.Close()
-		t.Fatalf("create fixture provider: %v", err)
-	}
-	if _, err = provider.UpTo(context.Background(), version); err != nil {
-		db.Close()
-		t.Fatalf("migrate fixture to %d: %v", version, err)
-	}
 	return db
 }
 
