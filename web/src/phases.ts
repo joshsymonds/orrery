@@ -193,7 +193,7 @@ export function wedgesOf(detail: EpicsGetResponse): Wedge[] {
 
 // Whether a requirement is proven: its own green run passed, or, with no requirement of that id, every wedge naming
 // it is integrated.
-function provenOf(id: string, wedges: Wedge[], requirements: EpicRequirement[]): boolean {
+export function provenOf(id: string, wedges: Wedge[], requirements: EpicRequirement[]): boolean {
   const requirement = requirements.find((candidate) => candidate.id === id);
   if (requirement !== undefined) {
     return requirement.runs.some((run) => run.phase === "green" && run.passed);

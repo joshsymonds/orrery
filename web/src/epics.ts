@@ -1,6 +1,9 @@
+import { blockerLine, stateLine } from "./epicpage";
 import type { Epic, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { type CellKind, cellKind, RINGS, type StatusTone, taskReadout } from "./orbitcells";
+import { provenOf, wedgesOf } from "./phases";
 import type { Row, Section } from "./rows";
+import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
 
 // A strip segment's tone: its record task's status tone, or none when no slice names the task.
@@ -17,6 +20,14 @@ export interface EpicItem {
   done: number;
   total: number;
   strip: StripTone[];
+  detail: EpicsGetResponse | undefined;
+}
+
+// An epic's line words: its count, its state and its blocker, each empty when it has nothing to say.
+export interface EpicLine {
+  count: string;
+  state: string;
+  blocker: string;
 }
 
 export interface StepItem {
@@ -134,7 +145,41 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     done: doneOf(tasks),
     total: tasks.length,
     strip: stripOf(tasks, detail?.slices ?? []),
+    detail,
   };
+}
+
+// An epic's line words from its detail: the count, the state with the units integrated, and the blocker. An epic with
+// no detail reads its count as unavailable, and its state and blocker stay empty.
+export function epicLine(item: EpicItem, now: number): EpicLine {
+  const detail = item.detail;
+  if (detail === undefined) {
+    return { count: "epic unavailable", state: "", blocker: "" };
+  }
+  return {
+    count: countOf(item, detail),
+    state: stateWords(detail, now),
+    blocker: blockerLine(blockerOf(detail), now) ?? "",
+  };
+}
+
+// The count: the requirements proven, as the orrery's arcs prove them, out of all of them, else the record tasks done.
+function countOf(item: EpicItem, detail: EpicsGetResponse): string {
+  const requirements = detail.requirements;
+  if (requirements.length > 0) {
+    const wedges = wedgesOf(detail);
+    const proven = requirements.filter((requirement) => provenOf(requirement.id, wedges, requirements)).length;
+    return `${proven} of ${requirements.length} proven`;
+  }
+  return `${item.done} of ${item.total} tasks done`;
+}
+
+// The state: the title row's state phrase, then the units integrated when the epic has any units.
+function stateWords(detail: EpicsGetResponse, now: number): string {
+  const wedges = wedgesOf(detail);
+  const integrated = wedges.filter((wedge) => wedge.place === "integrated").length;
+  const units = wedges.length > 0 ? `${integrated} of ${wedges.length} units integrated` : "";
+  return [stateLine(detail, now), units].filter((part) => part !== "").join(" · ");
 }
 
 // The record tasks whose status is done.

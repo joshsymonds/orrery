@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import {
+  EpicRequirementSchema,
   EpicSchema,
   EpicSliceSchema,
   EpicStepSchema,
@@ -12,7 +13,17 @@ import {
   type EpicsGetResponse,
   type EpicStep,
 } from "./gen/orrery/v1/epics_pb";
-import { epicsView, noEpics, placeEpics, repositoryName, withEpicsGroup, type EpicBlock, type EpicItem } from "./epics";
+import {
+  epicLine,
+  epicsView,
+  noEpics,
+  placeEpics,
+  repositoryName,
+  withEpicsGroup,
+  type EpicBlock,
+  type EpicItem,
+  type EpicLine,
+} from "./epics";
 import type { Row, Section } from "./rows";
 
 function makeEpic(init: MessageInitShape<typeof EpicSchema>): Epic {
@@ -596,4 +607,88 @@ test("unmatched repositories get sections in first-seen order", () => {
   assert.deepEqual(titlesOf(result), ["gadgets-0e1f2a3", "widgets-5d0c1a7"]);
   assert.deepEqual(blockIds(result[0].epics), ["gadgets-0e1f2a3/first", "gadgets-0e1f2a3/second"]);
   assert.deepEqual(blockIds(result[1].epics), ["widgets-5d0c1a7/first"]);
+});
+
+// The clock the epic line tests read at: unix seconds.
+const lineNow = 100000;
+
+// The line of an epic whose Get detail is the given one, read from the view that holds it.
+function lineOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicLine {
+  const details = detail === undefined ? new Map() : new Map([[epic.id, detail]]);
+  const view = epicsView([epic], details);
+  const item = [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.folded][0];
+  return epicLine(item, lineNow);
+}
+
+test("the count is the requirements a passing green run proves, out of all of them", () => {
+  const epic = makeEpic({});
+  const requirements = [
+    create(EpicRequirementSchema, { id: "R1", runs: [{ phase: "green", passed: true }] }),
+    create(EpicRequirementSchema, { id: "R2", runs: [{ phase: "green", passed: false }] }),
+    create(EpicRequirementSchema, { id: "R3", runs: [{ phase: "green", passed: true }] }),
+  ];
+  const detail = create(EpicsGetResponseSchema, { epic, requirements });
+
+  assert.equal(lineOf(epic, detail).count, "2 of 3 proven");
+});
+
+test("a requirement with only a red run is not proven", () => {
+  const epic = makeEpic({});
+  const requirements = [create(EpicRequirementSchema, { id: "R1", runs: [{ phase: "red", passed: true }] })];
+  const detail = create(EpicsGetResponseSchema, { epic, requirements });
+
+  assert.equal(lineOf(epic, detail).count, "0 of 1 proven");
+});
+
+test("with no requirements the count is the record tasks done, out of all of them", () => {
+  const epic = makeEpic({});
+  const detail = detailWith(epic, ["done", "pending", "pending", "pending"]);
+
+  assert.equal(lineOf(epic, detail).count, "1 of 4 tasks done");
+});
+
+test("the state is the state phrase with its time, then the units integrated", () => {
+  const epic = makeEpic({ phaseAt: 97060n });
+  const detail = detailWith(epic, ["done", "done", "pending", "pending", "pending", "pending", "pending"]);
+
+  assert.equal(lineOf(epic, detail).state, "building · 49 min · 2 of 7 units integrated");
+});
+
+test("a state with no units has no units clause", () => {
+  const epic = makeEpic({ phaseAt: 97060n });
+  const detail = create(EpicsGetResponseSchema, { epic });
+
+  assert.equal(lineOf(epic, detail).state, "planning · 49 min");
+});
+
+test("units alone read without a leading separator when the epic has no state phrase", () => {
+  const epic = makeEpic({ live: false });
+  const detail = detailWith(epic, ["done", "pending"]);
+
+  assert.equal(lineOf(epic, detail).state, "1 of 2 units integrated");
+});
+
+test("the blocker of an open question is its wait with its time", () => {
+  const epic = makeEpic({});
+  const detail = create(EpicsGetResponseSchema, {
+    epic,
+    questions: [{ id: "Q1", text: "Which way?", asked: 99880n }],
+  });
+
+  assert.equal(lineOf(epic, detail).blocker, "waits on your answer · 2 min");
+});
+
+test("an epic with an open question never has an empty blocker, even when paused and waiting", () => {
+  const epic = makeEpic({ waiting: true });
+  const detail = create(EpicsGetResponseSchema, {
+    epic,
+    paused: true,
+    questions: [{ id: "Q1", text: "Which way?", asked: 0n }],
+  });
+
+  assert.equal(lineOf(epic, detail).blocker, "waits on your answer");
+});
+
+test("an epic with no detail reads epic unavailable, and its state and blocker are empty", () => {
+  assert.deepEqual(lineOf(makeEpic({}), undefined), { count: "epic unavailable", state: "", blocker: "" });
 });

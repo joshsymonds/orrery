@@ -21,7 +21,7 @@ export interface EpicCommands {
 }
 
 // blockerLine is the blocker's text for the title row: its text, and its time once it has begun.
-function blockerLine(blocker: Blocker | null, now: number): string | undefined {
+export function blockerLine(blocker: Blocker | null, now: number): string | undefined {
   if (blocker === null) {
     return undefined;
   }
@@ -30,7 +30,7 @@ function blockerLine(blocker: Blocker | null, now: number): string | undefined {
 
 // stateLine is the epic's state for the title row: its state word, and its time once its phase has begun, never below
 // zero when the browser's clock is behind the server's stamp.
-function stateLine(detail: EpicsGetResponse, now: number): string {
+export function stateLine(detail: EpicsGetResponse, now: number): string {
   const state = stateOf(detail);
   const phaseAt = Number(detail.epic?.phaseAt ?? 0);
   return state !== "" && phaseAt > 0 ? `${state} · ${durationText(Math.max(0, now - phaseAt))}` : state;
