@@ -93,14 +93,14 @@ func (e epicsServer) List(
 			continue
 		}
 		epics = append(epics, storedEpicMessage(
-			rec.ID, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(),
+			rec.ID, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), summary.GetSeen(),
 			recordProblems(rec, taskProblems), byEpic[rec.ID],
 		))
 		delete(storedByID, rec.ID)
 	}
 	for id, summary := range storedByID {
 		epics = append(epics, storedEpicMessage(
-			id, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), nil, byEpic[id],
+			id, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), summary.GetSeen(), nil, byEpic[id],
 		))
 	}
 	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
@@ -161,7 +161,8 @@ func (e epicsServer) Get(
 	}
 	if inStore {
 		resp.Epic = storedEpicMessage(
-			id, stored.GetPhase(), stored.GetPhaseAt(), stored.GetChanged(), recordProblems(rec, taskProblems), labeled,
+			id, stored.GetPhase(), stored.GetPhaseAt(), stored.GetChanged(), stored.GetSeen(),
+			recordProblems(rec, taskProblems), labeled,
 		)
 		runs := e.listEvidence(ctx, id)
 		roles := storedStepRoles(stored, runs)
@@ -346,12 +347,12 @@ func epicMessage(
 }
 
 // storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its phase time is
-// phaseAt, its changed time is the database's, and it is live unless the phase is released or done, which end an epic;
-// ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's when a record of the id
-// exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
+// phaseAt, its changed time is the database's, its seen time is seen, and it is live unless the phase is released or
+// done, which end an epic; ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's
+// when a record of the id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
 func storedEpicMessage(
 	id, phase string,
-	phaseAt, changed int64,
+	phaseAt, changed, seen int64,
 	problems []string,
 	labeled []*enginev1.Step,
 ) *orreryv1.Epic {
@@ -364,6 +365,7 @@ func storedEpicMessage(
 		Outcome:      phase,
 		PhaseAt:      phaseAt,
 		Changed:      changed,
+		Seen:         seen,
 		Live:         phase != "released" && phase != "done",
 		RunningSteps: running,
 		EndedSteps:   ended,

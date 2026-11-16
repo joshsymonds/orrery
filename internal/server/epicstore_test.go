@@ -41,6 +41,7 @@ func (f *epicStoreFake) ListEpics(
 			PhaseAt: epic.GetPhaseAt(),
 			Created: epic.GetCreated(),
 			Changed: epic.GetChanged(),
+			Seen:    epic.GetSeen(),
 		})
 	}
 	return connect.NewResponse(&enginev1.ListEpicsResponse{Epics: summaries}), nil
@@ -372,6 +373,44 @@ func TestEpicsPhaseAtIsStoredPhaseTime(t *testing.T) {
 		}
 		if got := epicsGet(t, client, id).GetEpic().GetPhaseAt(); got != phaseAt {
 			t.Errorf("Get %s phase_at = %d, want %d", id, got, phaseAt)
+		}
+	}
+}
+
+// TestEpicsSeenIsStoredSeenTime answers the seen mark of each epic through List and Get: an orreryd epic carries the
+// seen mark its store holds, from both its summary and its stored epic, and a record-only epic carries none.
+func TestEpicsSeenIsStoredSeenTime(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow())
+	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
+	const seenAt = int64(1_700_000_500)
+	dbOnly := storedEpicOf("repoa/dbonly", "accepted", epicsAgo(time.Hour))
+	dbOnly.Seen = seenAt
+	shared := storedEpicOf("repoa/shared", "accepted", epicsAgo(time.Hour))
+	shared.Seen = seenAt
+	client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{stored: []*enginev1.StoredEpic{dbOnly, shared}})
+
+	want := map[string]int64{
+		"repoa/dbonly": seenAt,
+		"repoa/shared": seenAt,
+		"repoa/record": 0,
+	}
+	listed := make(map[string]*orreryv1.Epic, len(want))
+	for _, epic := range epicsList(t, client) {
+		listed[epic.GetId()] = epic
+	}
+	for id, seen := range want {
+		epic, ok := listed[id]
+		if !ok {
+			t.Errorf("List has no %s", id)
+			continue
+		}
+		if epic.GetSeen() != seen {
+			t.Errorf("List %s seen = %d, want %d", id, epic.GetSeen(), seen)
+		}
+		if got := epicsGet(t, client, id).GetEpic().GetSeen(); got != seen {
+			t.Errorf("Get %s seen = %d, want %d", id, got, seen)
 		}
 	}
 }
