@@ -741,3 +741,36 @@ func TestRowWriteFails(t *testing.T) {
 		checkRows(t, s, want)
 	})
 }
+
+// TestSentRowWhoseDeleteFailsIsDeletedByTheRetry: once a sending row's push publishes, its delete fails, so the row
+// stays in the store. The retry RowRetry later fails again while the store does, and arms the next; the one after the
+// store recovers deletes the row. A restart then finds no row, so the push is not sent to the phone again.
+func TestSentRowWhoseDeleteFailsIsDeletedByTheRetry(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := newFlakyRows(t)
+	f := newFake()
+	r := newRestartRouter(t, f, nil)
+	r.Attach(ctx, s)
+	r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+	r.Wait()
+	sending := rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0)
+	checkRows(t, s, sending)
+
+	s.set(faults{deletes: true})
+	f.publish()
+	checkRows(t, s, sending)
+	f.fire(t, route.RowRetry)
+	checkRows(t, s, sending)
+
+	s.set(faults{})
+	f.fire(t, route.RowRetry)
+	checkRows(t, s)
+	f.checkActiveTimers(t, 0)
+
+	restarted := newFake()
+	again := newRestartRouter(t, restarted, nil)
+	again.Attach(ctx, s)
+	again.Wait()
+	restarted.check(t, nil, nil, nil)
+}

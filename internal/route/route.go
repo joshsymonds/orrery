@@ -156,9 +156,13 @@ type Router struct {
 	deleteRow func(int64) error
 	rowID     int64
 	// rowPuts are the entries whose last row write failed, and rowDeletes the ids whose delete failed, each with the
-	// key it is logged under. A later row write or Close retries them.
+	// key it is logged under. A later row write, the retry RowRetry after a failure, or Close retries them.
 	rowPuts    map[int64]*entry
 	rowDeletes map[int64]notice.Key
+	// rowRetry stops the armed retry of the failed row writes, and is nil while none is armed. closed is set once Close
+	// has begun, after which no retry is armed.
+	rowRetry func() bool
+	closed   bool
 	// beforeAttach holds the keys that saw a Notify before Attach, so a stored row for one of them is older than a
 	// notice. It is nil once Attach has run.
 	beforeAttach map[notice.Key]bool
@@ -269,6 +273,11 @@ func (r *Router) Wait() {
 // stops with no line, and its row keeps it for the next start. One whose row could not be stored ends `shutdown`.
 func (r *Router) Close() {
 	r.mu.Lock()
+	r.closed = true
+	if r.rowRetry != nil {
+		r.rowRetry()
+		r.rowRetry = nil
+	}
 	r.retryLocked()
 	for _, ent := range r.sortedPendingLocked() {
 		if r.rowStoredLocked(ent) {
