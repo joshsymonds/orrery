@@ -10,6 +10,8 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import {
   type Epic,
+  EpicLedgerFindingSchema,
+  EpicReviewVerdictSchema,
   EpicSchema,
   EpicSliceSchema,
   type EpicStep,
@@ -2899,6 +2901,44 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     );
     assert.equal(container.querySelector("aside.side") === null, true, "no aside.side remains");
     assert.equal(pageSlug(container), "first", "the page names the epic");
+  }));
+
+test("an epic page shows the handover of its verdicts and ledger findings, with their texts", () =>
+  withApp(
+    {
+      epics: pageEpic({
+        reviews: [
+          create(EpicReviewVerdictSchema, { reviewer: "reviewer-one", verdict: "holds", reason: "the verdict reason" }),
+        ],
+        ledger: [
+          create(EpicLedgerFindingSchema, {
+            id: "reviewer-one-1",
+            reviewer: "reviewer-one",
+            claim: "the ledger claim",
+            result: "holds",
+          }),
+        ],
+      }),
+    },
+    async (container) => {
+      await press("j");
+      const handover = container.querySelector('section.page[aria-label="epic"] section.handover');
+      assert.ok(handover, "the epic page shows the handover section");
+      const text = handover.textContent ?? "";
+      assert.equal(text.includes("the verdict reason"), true, "the handover shows the verdict's reason");
+      assert.equal(text.includes("the ledger claim"), true, "the handover shows the ledger's claim");
+    },
+  ));
+
+test("an epic page with no reviews, ledger findings or releases shows no handover section", () =>
+  withApp({ epics: pageEpic() }, async (container) => {
+    await press("j");
+    assert.equal(epicPageDrawn(container), true, "the page draws the epic page");
+    assert.equal(
+      container.querySelector('section.page[aria-label="epic"] section.handover') === null,
+      true,
+      "no handover section is drawn",
+    );
   }));
 
 test("a step entry shows its reader alone, and no epic page", () =>

@@ -21,6 +21,7 @@ import { type Followed, follow } from "./follow";
 import type { EpicHistoryEntry } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
+import { Handover } from "./handover";
 import { Mark } from "./mark";
 import { MetersButton, MetersPanel } from "./meters";
 import { NoticeBanner } from "./notices";
@@ -878,6 +879,7 @@ export function App({
                 commands={epicCommands(clients, epicEntry.id, setCommandError)}
                 onOpenContract={openContract}
                 onBack={closeEpicPage}
+                handover={Handover({ detail: epicDetail })}
               />
             ))}
         </section>
