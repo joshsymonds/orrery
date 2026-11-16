@@ -101,6 +101,17 @@ message EpicsGetResponse {
   // The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
   // epic.
   string summary = 12;
+
+  // The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+  // epic.
+  repeated EpicLedgerFinding ledger = 13;
+
+  // The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+  // before its release and for a record epic.
+  repeated EpicReleaseRun releases = 14;
+
+  // The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+  repeated EpicReviewVerdict reviews = 15;
 }
 
 // EpicQuestion is one open question a planner turn of an orreryd epic asked.
@@ -453,7 +464,7 @@ message Epic {
   int64 changed = 5;
 
   // Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-  // orreryd epic is live until its phase is released.
+  // orreryd epic is live until its phase is released or done.
   bool live = 6;
 
   // The epic's steps that have not ended, held ones included, oldest first.
@@ -558,6 +569,117 @@ message EpicTaskFinding {
 
   // Why the verification gave its result.
   string reason = 6;
+}
+
+// EpicReviewVerdict is the verdict of one epic-stage reviewer of an orreryd epic.
+message EpicReviewVerdict {
+  // The reviewer's position among the epic-stage reviewers, counted from 1.
+  int64 position = 1;
+
+  // The reviewer's name.
+  string reviewer = 2;
+
+  // The step that ran the review.
+  string step = 3;
+
+  // The review's verdict: holds, fails or gap.
+  string verdict = 4;
+
+  // Why the review gave its verdict.
+  string reason = 5;
+}
+
+// EpicLedgerFinding is one finding of an orreryd epic's end-of-epic review ledger, with its verification and closures.
+message EpicLedgerFinding {
+  // The finding's id, <reviewer>-<k>.
+  string id = 1;
+
+  // The position of the finding in the ledger, counted from 1.
+  int64 position = 2;
+
+  // The reviewer that raised the finding.
+  string reviewer = 3;
+
+  // The claim the finding makes.
+  string claim = 4;
+
+  // The citation the finding gives for its claim.
+  string citation = 5;
+
+  // Where the finding is located.
+  string location = 6;
+
+  // The evidence the finding gives for its claim.
+  string evidence = 7;
+
+  // The verifier step that verified the finding; empty when it is unverified.
+  string step = 8;
+
+  // The verification's result: confirmed, dropped or undetermined.
+  string result = 9;
+
+  // Whether the finding was left unverified.
+  bool unverified = 10;
+
+  // Why the verification gave its result, or why the finding was left unverified.
+  string reason = 11;
+
+  // The closures the finding went through, in round order.
+  repeated EpicClosure closures = 12;
+}
+
+// EpicClosure is one round of closing an orreryd epic's ledger finding.
+message EpicClosure {
+  // The round, counted from 1.
+  int64 round = 1;
+
+  // The step that ran the closing check.
+  string step = 2;
+
+  // The closing check's result: closed, open or undetermined.
+  string result = 3;
+
+  // Why the closing check gave its result.
+  string reason = 4;
+}
+
+// EpicReleaseRun is one run of an orreryd epic's release, by part, attempt and position.
+message EpicReleaseRun {
+  // The part the run belongs to: candidate, release, judge or named.
+  string part = 1;
+
+  // The run's position within its part and attempt, counted from 1.
+  int64 position = 2;
+
+  // The attempt the run belongs to, counted from 1.
+  int64 attempt = 3;
+
+  // The release step the run is for.
+  string step = 4;
+
+  // The commit the run started from.
+  string start = 5;
+
+  // The head the run recorded.
+  string head = 6;
+
+  // The end of the run's step, such as done or failed; empty when it has none.
+  string end = 7;
+
+  // The commits the run made, in order.
+  repeated string commits = 8;
+
+  // The evidence the run gave for its result.
+  string evidence = 9;
+
+  // Whether the run passed.
+  bool passed = 10;
+
+  // Why the run passed or failed.
+  string reason = 11;
+
+  // When the run was recorded, in unix seconds.
+  int64 at = 12;
 }
 
 // EpicStep is one labelled step of an epic.

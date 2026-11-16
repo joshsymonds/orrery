@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/epics.proto.
  */
 export const file_orrery_v1_epics: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIqwDChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSIgoFbm9kZXMYBiADKAsyEy5vcnJlcnkudjEuRXBpY05vZGUSLQoLYnVpbGRfdGFza3MYByADKAsyGC5vcnJlcnkudjEuRXBpY0J1aWxkVGFzaxIqCglxdWVzdGlvbnMYCCADKAsyFy5vcnJlcnkudjEuRXBpY1F1ZXN0aW9uEikKCGNvbnRyYWN0GAkgASgLMhcub3JyZXJ5LnYxLkVwaWNDb250cmFjdBIOCgZwYXVzZWQYCiABKAgSDgoGcGFya2VkGAsgASgJEg8KB3N1bW1hcnkYDCABKAkiRQoMRXBpY1F1ZXN0aW9uEgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSDAoEdHVybhgDIAEoAxINCgVhc2tlZBgEIAEoAyKeAwoMRXBpY0NvbnRyYWN0Eg0KBXRpdGxlGAEgASgJEhAKCGFwcHJvdmVkGAIgASgJEg4KBmludGVudBgDIAEoCRIoCghmYWlsdXJlcxgEIAMoCzIWLm9ycmVyeS52MS5FcGljRmFpbHVyZRIMCgRjYXJlGAUgASgJEioKCWFkZGl0aW9ucxgGIAMoCzIXLm9ycmVyeS52MS5FcGljQWRkaXRpb24SKAoIcHJlbWlzZXMYByADKAsyFi5vcnJlcnkudjEuRXBpY1ByZW1pc2USEgoKZXhjbHVzaW9ucxgIIAMoCRIQCghhcHByb2FjaBgJIAEoCRIwCgxhbHRlcm5hdGl2ZXMYCiADKAsyGi5vcnJlcnkudjEuRXBpY0FsdGVybmF0aXZlEjEKDXJlbGVhc2Vfc3RlcHMYCyADKAsyGi5vcnJlcnkudjEuRXBpY1JlbGVhc2VTdGVwEhQKDHJlbGVhc2VfdGhlbhgMIAEoCRIOCgZjaGVja3MYDSABKAkSDAoEYmFzZRgOIAEoCRIQCghhY2NlcHRlZBgPIAEoAyJJCgtFcGljRmFpbHVyZRIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEg4KBnJhdGluZxgDIAEoCRIQCghyZXNwb25zZRgEIAEoCSJJCgxFcGljQWRkaXRpb24SEAoIbG9jYXRpb24YASABKAkSDAoEd2hhdBgCIAEoCRILCgN3aHkYAyABKAkSDAoEY29zdBgEIAEoCSI5CgtFcGljUHJlbWlzZRIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCGlmX3dyb25nGAMgASgJIksKD0VwaWNBbHRlcm5hdGl2ZRITCgthbHRlcm5hdGl2ZRgBIAEoCRIPCgd3aHlfbm90GAIgASgJEhIKCnJlY29uc2lkZXIYAyABKAkiPQoPRXBpY1JlbGVhc2VTdGVwEgwKBHN0ZXAYASABKAkSDgoGdGFyZ2V0GAIgASgJEgwKBHVuZG8YAyABKAkiPwoTRXBpY3NIaXN0b3J5UmVxdWVzdBIKCgJpZBgBIAEoCRINCgVhZnRlchgCIAEoCRINCgVsaW1pdBgDIAEoBSJSChRFcGljc0hpc3RvcnlSZXNwb25zZRIsCgdlbnRyaWVzGAEgAygLMhsub3JyZXJ5LnYxLkVwaWNIaXN0b3J5RW50cnkSDAoEbmV4dBgCIAEoCSKrAgoQRXBpY0hpc3RvcnlFbnRyeRIMCgR0aW1lGAEgASgDEg4KBmN1cnNvchgCIAEoCRIjCgR0dXJuGAMgASgLMhMub3JyZXJ5LnYxLkVwaWNUdXJuSAASKQoHdHJpZ2dlchgEIAEoCzIWLm9ycmVyeS52MS5FcGljVHJpZ2dlckgAEiMKBHN0ZXAYBSABKAsyEy5vcnJlcnkudjEuRXBpY1N0ZXBIABIqCghldmlkZW5jZRgGIAEoCzIWLm9ycmVyeS52MS5FdmlkZW5jZVJ1bkgAEisKCGRlY2lzaW9uGAcgASgLMhcub3JyZXJ5LnYxLkVw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aWFfdHlwZRgCIAEoCSIeChBTdGVwc0hvbGRSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzSG9sZFJlc3BvbnNlIi0KEVN0ZXBzTnVkZ2VSZXF1ZXN0EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkiFAoSU3RlcHNOdWRnZVJlc3BvbnNlIh4KEFN0ZXBzU3RvcFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNTdG9wUmVzcG9uc2UytwQKBUVwaWNzEkEKBExpc3QSGy5vcnJlcnkudjEuRXBpY3NMaXN0UmVxdWVzdBocLm9ycmVyeS52MS5FcGljc0xpc3RSZXNwb25zZRI+CgNHZXQSGi5vcnJlcnkudjEuRXBpY3NHZXRSZXF1ZXN0Ghsub3JyZXJ5LnYxLkVwaWNzR2V0UmVzcG9uc2USSgoHSGlzdG9yeRIeLm9ycmVyeS52MS5FcGljc0hpc3RvcnlSZXF1ZXN0Gh8ub3JyZXJ5LnYxLkVwaWNzSGlzdG9yeVJlc3BvbnNlEkQKBVBhdXNlEhwub3JyZXJ5LnYxLkVwaWNzUGF1c2VSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkVwaWNzUGF1c2VSZXNwb25zZRJHCgZSZXN1bWUSHS5vcnJlcnkudjEuRXBpY3NSZXN1bWVSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkVwaWNzUmVzdW1lUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5FcGljc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLkVwaWNzU3RvcFJlc3BvbnNlEkQKBVJldHJ5Ehwub3JyZXJ5LnYxLkVwaWNzUmV0cnlSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkVwaWNzUmV0cnlSZXNwb25zZRJHCgZBbnN3ZXISHS5vcnJlcnkudjEuRXBpY3NBbnN3ZXJSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkVwaWNzQW5zd2VyUmVzcG9uc2Uy0wEKBVN0ZXBzEkEKBEhvbGQSGy5vcnJlcnkudjEuU3RlcHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc0hvbGRSZXNwb25zZRJECgVOdWRnZRIcLm9ycmVyeS52MS5TdGVwc051ZGdlUmVxdWVzdBodLm9ycmVyeS52MS5TdGVwc051ZGdlUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5TdGVwc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlc3BvbnNlMl8KCEV2aWRlbmNlElMKCEFydGlmYWN0EiIub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3RSZXF1ZXN0GiMub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3RSZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIrYEChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSIgoFbm9kZXMYBiADKAsyEy5vcnJlcnkudjEuRXBpY05vZGUSLQoLYnVpbGRfdGFza3MYByADKAsyGC5vcnJlcnkudjEuRXBpY0J1aWxkVGFzaxIqCglxdWVzdGlvbnMYCCADKAsyFy5vcnJlcnkudjEuRXBpY1F1ZXN0aW9uEikKCGNvbnRyYWN0GAkgASgLMhcub3JyZXJ5LnYxLkVwaWNDb250cmFjdBIOCgZwYXVzZWQYCiABKAgSDgoGcGFya2VkGAsgASgJEg8KB3N1bW1hcnkYDCABKAkSLAoGbGVkZ2VyGA0gAygLMhwub3JyZXJ5LnYxLkVwaWNMZWRnZXJGaW5kaW5nEisKCHJlbGVhc2VzGA4gAygLMhkub3JyZXJ5LnYxLkVwaWNSZWxlYXNlUnVuEi0KB3Jldmlld3MYDyADKAsyHC5vcnJlcnkudjEuRXBpY1Jldmlld1ZlcmRpY3QiRQoMRXBpY1F1ZXN0aW9uEgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSDAoEdHVybhgDIAEoAxINCgVhc2tlZBgEIAEoAyKeAwoMRXBpY0NvbnRyYWN0Eg0KBXRpdGxlGAEgASgJEhAKCGFwcHJvdmVkGAIgASgJEg4KBmludGVudBgDIAEoCRIoCghmYWlsdXJlcxgEIAMoCzIWLm9ycmVyeS52MS5FcGljRmFpbHVyZRIMCgRjYXJlGAUgASgJEioKCWFkZGl0aW9ucxgGIAMoCzIXLm9ycmVyeS52MS5FcGljQWRkaXRpb24SKAoIcHJlbWlzZXMYByADKAsyFi5vcnJlcnkudjEuRXBpY1ByZW1pc2USEgoKZXhjbHVzaW9ucxgIIAMoCRIQCghhcHByb2FjaBgJIAEoCRIwCgxhbHRlcm5hdGl2ZXMYCiADKAsyGi5vcnJlcnkudjEuRXBpY0FsdGVybmF0aXZlEjEKDXJlbGVhc2Vfc3RlcHMYCyADKAsyGi5vcnJlcnkudjEuRXBpY1JlbGVhc2VTdGVwEhQKDHJlbGVhc2VfdGhlbhgMIAEoCRIOCgZjaGVja3MYDSABKAkSDAoEYmFzZRgOIAEoCRIQCghhY2NlcHRlZBgPIAEoAyJJCgtFcGljRmFpbHVyZRIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEg4KBnJhdGluZxgDIAEoCRIQCghyZXNwb25zZRgEIAEoCSJJCgxFcGljQWRkaXRpb24SEAoIbG9jYXRpb24YASABKAkSDAoEd2hhdBgCIAEoCRILCgN3aHkYAyABKAkSDAoEY29zdBgEIAEoCSI5CgtFcGljUHJlbWlzZRIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCGlmX3dyb25nGAMgASgJIksKD0VwaWNBbHRlcm5hdGl2ZRITCgthbHRlcm5hdGl2ZRgBIAEoCRIPCgd3aHlfbm90GAIgASgJEhIKCnJlY29uc2lkZXIYAyABKAkiPQoPRXBpY1JlbGVhc2VTdGVwEgwKBHN0ZXAYASABKAkSDgoGdGFyZ2V0GAIgASgJEgwKBHVuZG8YAyABKAkiPwoTRXBpY3NIaXN0b3J5UmVxdWVzdBIKCgJpZBgBIAEoCRINCgVhZnRlchgCIAEoCRINCgVsaW1pdBgDIAEoBSJSChRFcGljc0hpc3RvcnlSZXNwb25zZRIsCgdlbnRyaWVzGAEgAygLMhsub3JyZXJ5LnYxLkVwaWNIaXN0b3J5RW50cnkSDAoEbmV4dBgCIAEoCSKrAgoQRXBpY0hpc3RvcnlFbnRyeRIMCgR0aW1lGAEgASgDEg4KBmN1cnNvchgCIAEoCRIjCgR0dXJuGAMgASgLMhMub3JyZXJ5LnYxLkVwaWNUdXJuSAASKQoHdHJpZ2dlchgEIAEoCzIWLm9ycmVyeS52MS5FcGljVHJpZ2dlckgAEiMKBHN0ZXAYBSABKAsyEy5vcnJlcnkudjEuRXBpY1N0ZXBIABIqCghldmlkZW5jZRgGIAEoCzIWLm9ycmVyeS52MS5FdmlkZW5jZVJ1bkgAEisKCGRlY2lzaW9uGAcgASgLMhcub3JyZXJ5LnYxLkVwaWNEZWNpc2lvbkgAEiMKBHRlbGwYCCABKAsyEy5vcnJlcnkudjEuRXBpY1RlbGxIAEIGCgRpdGVtIpkBCghFcGljVHVybhILCgNzZXEYASABKAMSDAoEc3RlcBgCIAEoCRINCgVzdGF0ZRgDIAEoCRIOCgZyZWFzb24YBCABKAkSDwoHb3V0bGluZRgFIAEoCRIPCgdvdXRjb21lGAYgASgJEhEKCWRlY2lzaW9ucxgHIAMoCRIPCgdzdGFydGVkGAggASgDEg0KBWVuZGVkGAkgASgDIlYKC0VwaWNUcmlnZ2VyEgoKAmlkGAEgASgJEg0KBWNhdXNlGAIgASgJEg0KBXN0YXRlGAMgASgJEgwKBHR1cm4YBCABKAMSDwoHY3JlYXRlZBgFIAEoAyJVCgxFcGljRGVjaXNpb24SCwoDc2VxGAEgASgDEgoKAmlkGAIgASgJEgwKBHRleHQYAyABKAkSDAoEdGltZRgEIAEoAxIQCghxdWVzdGlvbhgFIAEoCSI/CghFcGljVGVsbBILCgNzZXEYASABKAMSDAoEdGV4dBgCIAEoCRIKCgJhdBgDIAEoAxIMCgR0b2xkGAQgASgIIh8KEUVwaWNzUGF1c2VSZXF1ZXN0EgoKAmlkGAEgASgJIhQKEkVwaWNzUGF1c2VSZXNwb25zZSIgChJFcGljc1Jlc3VtZVJlcXVlc3QSCgoCaWQYASABKAkiPQoTRXBpY3NSZXN1bWVSZXNwb25zZRIPCgdyZXN1bWVkGAEgAygJEhUKDXN0aWxsX2xpbWl0ZWQYAiADKAkiHgoQRXBpY3NTdG9wUmVxdWVzdBIKCgJpZBgBIAEoCSITChFFcGljc1N0b3BSZXNwb25zZSItChFFcGljc1JldHJ5UmVxdWVzdBIKCgJpZBgBIAEoCRIMCgRub2RlGAIgASgJIhQKEkVwaWNzUmV0cnlSZXNwb25zZSJRChJFcGljc0Fuc3dlclJlcXVlc3QSDwoHZXBpY19pZBgB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bnNlIh4KEFN0ZXBzU3RvcFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNTdG9wUmVzcG9uc2UytwQKBUVwaWNzEkEKBExpc3QSGy5vcnJlcnkudjEuRXBpY3NMaXN0UmVxdWVzdBocLm9ycmVyeS52MS5FcGljc0xpc3RSZXNwb25zZRI+CgNHZXQSGi5vcnJlcnkudjEuRXBpY3NHZXRSZXF1ZXN0Ghsub3JyZXJ5LnYxLkVwaWNzR2V0UmVzcG9uc2USSgoHSGlzdG9yeRIeLm9ycmVyeS52MS5FcGljc0hpc3RvcnlSZXF1ZXN0Gh8ub3JyZXJ5LnYxLkVwaWNzSGlzdG9yeVJlc3BvbnNlEkQKBVBhdXNlEhwub3JyZXJ5LnYxLkVwaWNzUGF1c2VSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkVwaWNzUGF1c2VSZXNwb25zZRJHCgZSZXN1bWUSHS5vcnJlcnkudjEuRXBpY3NSZXN1bWVSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkVwaWNzUmVzdW1lUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5FcGljc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLkVwaWNzU3RvcFJlc3BvbnNlEkQKBVJldHJ5Ehwub3JyZXJ5LnYxLkVwaWNzUmV0cnlSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkVwaWNzUmV0cnlSZXNwb25zZRJHCgZBbnN3ZXISHS5vcnJlcnkudjEuRXBpY3NBbnN3ZXJSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkVwaWNzQW5zd2VyUmVzcG9uc2Uy0wEKBVN0ZXBzEkEKBEhvbGQSGy5vcnJlcnkudjEuU3RlcHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc0hvbGRSZXNwb25zZRJECgVOdWRnZRIcLm9ycmVyeS52MS5TdGVwc051ZGdlUmVxdWVzdBodLm9ycmVyeS52MS5TdGVwc051ZGdlUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5TdGVwc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlc3BvbnNlMl8KCEV2aWRlbmNlElMKCEFydGlmYWN0EiIub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3RSZXF1ZXN0GiMub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3RSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * EpicsListRequest asks for every epic. It has no fields.
@@ -160,6 +160,29 @@ export type EpicsGetResponse = Message<"orrery.v1.EpicsGetResponse"> & {
    * @generated from field: string summary = 12;
    */
   summary: string;
+
+  /**
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   *
+   * @generated from field: repeated orrery.v1.EpicLedgerFinding ledger = 13;
+   */
+  ledger: EpicLedgerFinding[];
+
+  /**
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   *
+   * @generated from field: repeated orrery.v1.EpicReleaseRun releases = 14;
+   */
+  releases: EpicReleaseRun[];
+
+  /**
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   *
+   * @generated from field: repeated orrery.v1.EpicReviewVerdict reviews = 15;
+   */
+  reviews: EpicReviewVerdict[];
 };
 
 /**
@@ -1161,7 +1184,7 @@ export type Epic = Message<"orrery.v1.Epic"> & {
 
   /**
    * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-   * orreryd epic is live until its phase is released.
+   * orreryd epic is live until its phase is released or done.
    *
    * @generated from field: bool live = 6;
    */
@@ -1443,6 +1466,293 @@ export const EpicTaskFindingSchema: GenMessage<EpicTaskFinding> = /*@__PURE__*/
   messageDesc(file_orrery_v1_epics, 32);
 
 /**
+ * EpicReviewVerdict is the verdict of one epic-stage reviewer of an orreryd epic.
+ *
+ * @generated from message orrery.v1.EpicReviewVerdict
+ */
+export type EpicReviewVerdict = Message<"orrery.v1.EpicReviewVerdict"> & {
+  /**
+   * The reviewer's position among the epic-stage reviewers, counted from 1.
+   *
+   * @generated from field: int64 position = 1;
+   */
+  position: bigint;
+
+  /**
+   * The reviewer's name.
+   *
+   * @generated from field: string reviewer = 2;
+   */
+  reviewer: string;
+
+  /**
+   * The step that ran the review.
+   *
+   * @generated from field: string step = 3;
+   */
+  step: string;
+
+  /**
+   * The review's verdict: holds, fails or gap.
+   *
+   * @generated from field: string verdict = 4;
+   */
+  verdict: string;
+
+  /**
+   * Why the review gave its verdict.
+   *
+   * @generated from field: string reason = 5;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicReviewVerdict.
+ * Use `create(EpicReviewVerdictSchema)` to create a new message.
+ */
+export const EpicReviewVerdictSchema: GenMessage<EpicReviewVerdict> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 33);
+
+/**
+ * EpicLedgerFinding is one finding of an orreryd epic's end-of-epic review ledger, with its verification and closures.
+ *
+ * @generated from message orrery.v1.EpicLedgerFinding
+ */
+export type EpicLedgerFinding = Message<"orrery.v1.EpicLedgerFinding"> & {
+  /**
+   * The finding's id, <reviewer>-<k>.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The position of the finding in the ledger, counted from 1.
+   *
+   * @generated from field: int64 position = 2;
+   */
+  position: bigint;
+
+  /**
+   * The reviewer that raised the finding.
+   *
+   * @generated from field: string reviewer = 3;
+   */
+  reviewer: string;
+
+  /**
+   * The claim the finding makes.
+   *
+   * @generated from field: string claim = 4;
+   */
+  claim: string;
+
+  /**
+   * The citation the finding gives for its claim.
+   *
+   * @generated from field: string citation = 5;
+   */
+  citation: string;
+
+  /**
+   * Where the finding is located.
+   *
+   * @generated from field: string location = 6;
+   */
+  location: string;
+
+  /**
+   * The evidence the finding gives for its claim.
+   *
+   * @generated from field: string evidence = 7;
+   */
+  evidence: string;
+
+  /**
+   * The verifier step that verified the finding; empty when it is unverified.
+   *
+   * @generated from field: string step = 8;
+   */
+  step: string;
+
+  /**
+   * The verification's result: confirmed, dropped or undetermined.
+   *
+   * @generated from field: string result = 9;
+   */
+  result: string;
+
+  /**
+   * Whether the finding was left unverified.
+   *
+   * @generated from field: bool unverified = 10;
+   */
+  unverified: boolean;
+
+  /**
+   * Why the verification gave its result, or why the finding was left unverified.
+   *
+   * @generated from field: string reason = 11;
+   */
+  reason: string;
+
+  /**
+   * The closures the finding went through, in round order.
+   *
+   * @generated from field: repeated orrery.v1.EpicClosure closures = 12;
+   */
+  closures: EpicClosure[];
+};
+
+/**
+ * Describes the message orrery.v1.EpicLedgerFinding.
+ * Use `create(EpicLedgerFindingSchema)` to create a new message.
+ */
+export const EpicLedgerFindingSchema: GenMessage<EpicLedgerFinding> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 34);
+
+/**
+ * EpicClosure is one round of closing an orreryd epic's ledger finding.
+ *
+ * @generated from message orrery.v1.EpicClosure
+ */
+export type EpicClosure = Message<"orrery.v1.EpicClosure"> & {
+  /**
+   * The round, counted from 1.
+   *
+   * @generated from field: int64 round = 1;
+   */
+  round: bigint;
+
+  /**
+   * The step that ran the closing check.
+   *
+   * @generated from field: string step = 2;
+   */
+  step: string;
+
+  /**
+   * The closing check's result: closed, open or undetermined.
+   *
+   * @generated from field: string result = 3;
+   */
+  result: string;
+
+  /**
+   * Why the closing check gave its result.
+   *
+   * @generated from field: string reason = 4;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicClosure.
+ * Use `create(EpicClosureSchema)` to create a new message.
+ */
+export const EpicClosureSchema: GenMessage<EpicClosure> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 35);
+
+/**
+ * EpicReleaseRun is one run of an orreryd epic's release, by part, attempt and position.
+ *
+ * @generated from message orrery.v1.EpicReleaseRun
+ */
+export type EpicReleaseRun = Message<"orrery.v1.EpicReleaseRun"> & {
+  /**
+   * The part the run belongs to: candidate, release, judge or named.
+   *
+   * @generated from field: string part = 1;
+   */
+  part: string;
+
+  /**
+   * The run's position within its part and attempt, counted from 1.
+   *
+   * @generated from field: int64 position = 2;
+   */
+  position: bigint;
+
+  /**
+   * The attempt the run belongs to, counted from 1.
+   *
+   * @generated from field: int64 attempt = 3;
+   */
+  attempt: bigint;
+
+  /**
+   * The release step the run is for.
+   *
+   * @generated from field: string step = 4;
+   */
+  step: string;
+
+  /**
+   * The commit the run started from.
+   *
+   * @generated from field: string start = 5;
+   */
+  start: string;
+
+  /**
+   * The head the run recorded.
+   *
+   * @generated from field: string head = 6;
+   */
+  head: string;
+
+  /**
+   * The end of the run's step, such as done or failed; empty when it has none.
+   *
+   * @generated from field: string end = 7;
+   */
+  end: string;
+
+  /**
+   * The commits the run made, in order.
+   *
+   * @generated from field: repeated string commits = 8;
+   */
+  commits: string[];
+
+  /**
+   * The evidence the run gave for its result.
+   *
+   * @generated from field: string evidence = 9;
+   */
+  evidence: string;
+
+  /**
+   * Whether the run passed.
+   *
+   * @generated from field: bool passed = 10;
+   */
+  passed: boolean;
+
+  /**
+   * Why the run passed or failed.
+   *
+   * @generated from field: string reason = 11;
+   */
+  reason: string;
+
+  /**
+   * When the run was recorded, in unix seconds.
+   *
+   * @generated from field: int64 at = 12;
+   */
+  at: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.EpicReleaseRun.
+ * Use `create(EpicReleaseRunSchema)` to create a new message.
+ */
+export const EpicReleaseRunSchema: GenMessage<EpicReleaseRun> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 36);
+
+/**
  * EpicStep is one labelled step of an epic.
  *
  * @generated from message orrery.v1.EpicStep
@@ -1612,7 +1922,7 @@ export type EpicStep = Message<"orrery.v1.EpicStep"> & {
  * Use `create(EpicStepSchema)` to create a new message.
  */
 export const EpicStepSchema: GenMessage<EpicStep> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 33);
+  messageDesc(file_orrery_v1_epics, 37);
 
 /**
  * EpicStepCheck is one check a step ran in one round.
@@ -1682,7 +1992,7 @@ export type EpicStepCheck = Message<"orrery.v1.EpicStepCheck"> & {
  * Use `create(EpicStepCheckSchema)` to create a new message.
  */
 export const EpicStepCheckSchema: GenMessage<EpicStepCheck> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 34);
+  messageDesc(file_orrery_v1_epics, 38);
 
 /**
  * EpicStepVerdict is one done-judge verdict a step got.
@@ -1717,7 +2027,7 @@ export type EpicStepVerdict = Message<"orrery.v1.EpicStepVerdict"> & {
  * Use `create(EpicStepVerdictSchema)` to create a new message.
  */
 export const EpicStepVerdictSchema: GenMessage<EpicStepVerdict> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 35);
+  messageDesc(file_orrery_v1_epics, 39);
 
 /**
  * EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
@@ -1809,7 +2119,7 @@ export type EpicSlice = Message<"orrery.v1.EpicSlice"> & {
  * Use `create(EpicSliceSchema)` to create a new message.
  */
 export const EpicSliceSchema: GenMessage<EpicSlice> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 36);
+  messageDesc(file_orrery_v1_epics, 40);
 
 /**
  * EpicRequirement is one requirement of an orreryd epic's contract.
@@ -1865,7 +2175,7 @@ export type EpicRequirement = Message<"orrery.v1.EpicRequirement"> & {
  * Use `create(EpicRequirementSchema)` to create a new message.
  */
 export const EpicRequirementSchema: GenMessage<EpicRequirement> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 37);
+  messageDesc(file_orrery_v1_epics, 41);
 
 /**
  * EpicNodeCheck is the check a gate or command node run ran: its state, how it ended, and its output.
@@ -1921,7 +2231,7 @@ export type EpicNodeCheck = Message<"orrery.v1.EpicNodeCheck"> & {
  * Use `create(EpicNodeCheckSchema)` to create a new message.
  */
 export const EpicNodeCheckSchema: GenMessage<EpicNodeCheck> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 38);
+  messageDesc(file_orrery_v1_epics, 42);
 
 /**
  * EpicNode is one workflow node run on an epic: the node it runs, its state and outcome, and the rows its kind holds.
@@ -2041,7 +2351,7 @@ export type EpicNode = Message<"orrery.v1.EpicNode"> & {
  * Use `create(EpicNodeSchema)` to create a new message.
  */
 export const EpicNodeSchema: GenMessage<EpicNode> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 39);
+  messageDesc(file_orrery_v1_epics, 43);
 
 /**
  * EvidenceRun is one evidence run: an item's evidence captured or supplied for one phase at a revision, with its
@@ -2176,7 +2486,7 @@ export type EvidenceRun = Message<"orrery.v1.EvidenceRun"> & {
  * Use `create(EvidenceRunSchema)` to create a new message.
  */
 export const EvidenceRunSchema: GenMessage<EvidenceRun> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 40);
+  messageDesc(file_orrery_v1_epics, 44);
 
 /**
  * EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -2218,7 +2528,7 @@ export type EvidenceArtifact = Message<"orrery.v1.EvidenceArtifact"> & {
  * Use `create(EvidenceArtifactSchema)` to create a new message.
  */
 export const EvidenceArtifactSchema: GenMessage<EvidenceArtifact> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 41);
+  messageDesc(file_orrery_v1_epics, 45);
 
 /**
  * EvidenceArtifactRequest names one artifact of an evidence run.
@@ -2253,7 +2563,7 @@ export type EvidenceArtifactRequest = Message<"orrery.v1.EvidenceArtifactRequest
  * Use `create(EvidenceArtifactRequestSchema)` to create a new message.
  */
 export const EvidenceArtifactRequestSchema: GenMessage<EvidenceArtifactRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 42);
+  messageDesc(file_orrery_v1_epics, 46);
 
 /**
  * EvidenceArtifactResponse carries one artifact's bytes.
@@ -2281,7 +2591,7 @@ export type EvidenceArtifactResponse = Message<"orrery.v1.EvidenceArtifactRespon
  * Use `create(EvidenceArtifactResponseSchema)` to create a new message.
  */
 export const EvidenceArtifactResponseSchema: GenMessage<EvidenceArtifactResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 43);
+  messageDesc(file_orrery_v1_epics, 47);
 
 /**
  * StepsHoldRequest names the step to hold.
@@ -2302,7 +2612,7 @@ export type StepsHoldRequest = Message<"orrery.v1.StepsHoldRequest"> & {
  * Use `create(StepsHoldRequestSchema)` to create a new message.
  */
 export const StepsHoldRequestSchema: GenMessage<StepsHoldRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 44);
+  messageDesc(file_orrery_v1_epics, 48);
 
 /**
  * StepsHoldResponse confirms a held step.
@@ -2317,7 +2627,7 @@ export type StepsHoldResponse = Message<"orrery.v1.StepsHoldResponse"> & {
  * Use `create(StepsHoldResponseSchema)` to create a new message.
  */
 export const StepsHoldResponseSchema: GenMessage<StepsHoldResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 45);
+  messageDesc(file_orrery_v1_epics, 49);
 
 /**
  * StepsNudgeRequest names the step to nudge and the text to send it.
@@ -2345,7 +2655,7 @@ export type StepsNudgeRequest = Message<"orrery.v1.StepsNudgeRequest"> & {
  * Use `create(StepsNudgeRequestSchema)` to create a new message.
  */
 export const StepsNudgeRequestSchema: GenMessage<StepsNudgeRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 46);
+  messageDesc(file_orrery_v1_epics, 50);
 
 /**
  * StepsNudgeResponse confirms a nudge that landed.
@@ -2360,7 +2670,7 @@ export type StepsNudgeResponse = Message<"orrery.v1.StepsNudgeResponse"> & {
  * Use `create(StepsNudgeResponseSchema)` to create a new message.
  */
 export const StepsNudgeResponseSchema: GenMessage<StepsNudgeResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 47);
+  messageDesc(file_orrery_v1_epics, 51);
 
 /**
  * StepsStopRequest names the step to stop.
@@ -2381,7 +2691,7 @@ export type StepsStopRequest = Message<"orrery.v1.StepsStopRequest"> & {
  * Use `create(StepsStopRequestSchema)` to create a new message.
  */
 export const StepsStopRequestSchema: GenMessage<StepsStopRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 48);
+  messageDesc(file_orrery_v1_epics, 52);
 
 /**
  * StepsStopResponse confirms a stopped step.
@@ -2396,7 +2706,7 @@ export type StepsStopResponse = Message<"orrery.v1.StepsStopResponse"> & {
  * Use `create(StepsStopResponseSchema)` to create a new message.
  */
 export const StepsStopResponseSchema: GenMessage<StepsStopResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 49);
+  messageDesc(file_orrery_v1_epics, 53);
 
 /**
  * Epics reads the epics under the gambit record root and the epics orreryd's database holds.

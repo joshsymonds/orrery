@@ -28,6 +28,9 @@ public  final class EpicsGetResponse extends
     questions_ = emptyProtobufList();
     parked_ = "";
     summary_ = "";
+    ledger_ = emptyProtobufList();
+    releases_ = emptyProtobufList();
+    reviews_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -1316,6 +1319,442 @@ public  final class EpicsGetResponse extends
     checkByteStringIsUtf8(value);
     summary_ = value.toStringUtf8();
 
+  }
+
+  public static final int LEDGER_FIELD_NUMBER = 13;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> ledger_;
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> getLedgerList() {
+    return ledger_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFindingOrBuilder> 
+      getLedgerOrBuilderList() {
+    return ledger_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  @java.lang.Override
+  public int getLedgerCount() {
+    return ledger_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding getLedger(int index) {
+    return ledger_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFindingOrBuilder getLedgerOrBuilder(
+      int index) {
+    return ledger_.get(index);
+  }
+  private void ensureLedgerIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> tmp = ledger_;
+    if (!tmp.isModifiable()) {
+      ledger_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  private void setLedger(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLedgerIsMutable();
+    ledger_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  private void addLedger(io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLedgerIsMutable();
+    ledger_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  private void addLedger(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding value) {
+    java.util.Objects.requireNonNull(value);
+    ensureLedgerIsMutable();
+    ledger_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  private void addAllLedger(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> values) {
+    ensureLedgerIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, ledger_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  private void clearLedger() {
+    ledger_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  private void removeLedger(int index) {
+    ensureLedgerIsMutable();
+    ledger_.remove(index);
+  }
+
+  public static final int RELEASES_FIELD_NUMBER = 14;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> releases_;
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> getReleasesList() {
+    return releases_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRunOrBuilder> 
+      getReleasesOrBuilderList() {
+    return releases_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  @java.lang.Override
+  public int getReleasesCount() {
+    return releases_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun getReleases(int index) {
+    return releases_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRunOrBuilder getReleasesOrBuilder(
+      int index) {
+    return releases_.get(index);
+  }
+  private void ensureReleasesIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> tmp = releases_;
+    if (!tmp.isModifiable()) {
+      releases_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  private void setReleases(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReleasesIsMutable();
+    releases_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  private void addReleases(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReleasesIsMutable();
+    releases_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  private void addReleases(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReleasesIsMutable();
+    releases_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  private void addAllReleases(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> values) {
+    ensureReleasesIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, releases_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  private void clearReleases() {
+    releases_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  private void removeReleases(int index) {
+    ensureReleasesIsMutable();
+    releases_.remove(index);
+  }
+
+  public static final int REVIEWS_FIELD_NUMBER = 15;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> reviews_;
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> getReviewsList() {
+    return reviews_;
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdictOrBuilder> 
+      getReviewsOrBuilderList() {
+    return reviews_;
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  @java.lang.Override
+  public int getReviewsCount() {
+    return reviews_.size();
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict getReviews(int index) {
+    return reviews_.get(index);
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdictOrBuilder getReviewsOrBuilder(
+      int index) {
+    return reviews_.get(index);
+  }
+  private void ensureReviewsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> tmp = reviews_;
+    if (!tmp.isModifiable()) {
+      reviews_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void setReviews(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReviewsIsMutable();
+    reviews_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void addReviews(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReviewsIsMutable();
+    reviews_.add(value);
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void addReviews(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReviewsIsMutable();
+    reviews_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void addAllReviews(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> values) {
+    ensureReviewsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, reviews_);
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void clearReviews() {
+    reviews_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  private void removeReviews(int index) {
+    ensureReviewsIsMutable();
+    reviews_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -2806,6 +3245,480 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> getLedgerList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getLedgerList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    @java.lang.Override
+    public int getLedgerCount() {
+      return instance.getLedgerCount();
+    }/**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding getLedger(int index) {
+      return instance.getLedger(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder setLedger(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding value) {
+      copyOnWrite();
+      instance.setLedger(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder setLedger(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding.Builder builderForValue) {
+      copyOnWrite();
+      instance.setLedger(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder addLedger(io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding value) {
+      copyOnWrite();
+      instance.addLedger(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder addLedger(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding value) {
+      copyOnWrite();
+      instance.addLedger(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder addLedger(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding.Builder builderForValue) {
+      copyOnWrite();
+      instance.addLedger(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder addLedger(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding.Builder builderForValue) {
+      copyOnWrite();
+      instance.addLedger(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder addAllLedger(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> values) {
+      copyOnWrite();
+      instance.addAllLedger(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder clearLedger() {
+      copyOnWrite();
+      instance.clearLedger();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+     */
+    public Builder removeLedger(int index) {
+      copyOnWrite();
+      instance.removeLedger(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> getReleasesList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getReleasesList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    @java.lang.Override
+    public int getReleasesCount() {
+      return instance.getReleasesCount();
+    }/**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun getReleases(int index) {
+      return instance.getReleases(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder setReleases(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun value) {
+      copyOnWrite();
+      instance.setReleases(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder setReleases(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.setReleases(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder addReleases(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun value) {
+      copyOnWrite();
+      instance.addReleases(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder addReleases(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun value) {
+      copyOnWrite();
+      instance.addReleases(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder addReleases(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.addReleases(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder addReleases(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.addReleases(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder addAllReleases(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> values) {
+      copyOnWrite();
+      instance.addAllReleases(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder clearReleases() {
+      copyOnWrite();
+      instance.clearReleases();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+     * before its release and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+     */
+    public Builder removeReleases(int index) {
+      copyOnWrite();
+      instance.removeReleases(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> getReviewsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getReviewsList());
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    @java.lang.Override
+    public int getReviewsCount() {
+      return instance.getReviewsCount();
+    }/**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict getReviews(int index) {
+      return instance.getReviews(index);
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder setReviews(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict value) {
+      copyOnWrite();
+      instance.setReviews(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder setReviews(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict.Builder builderForValue) {
+      copyOnWrite();
+      instance.setReviews(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder addReviews(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict value) {
+      copyOnWrite();
+      instance.addReviews(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder addReviews(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict value) {
+      copyOnWrite();
+      instance.addReviews(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder addReviews(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict.Builder builderForValue) {
+      copyOnWrite();
+      instance.addReviews(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder addReviews(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict.Builder builderForValue) {
+      copyOnWrite();
+      instance.addReviews(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder addAllReviews(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> values) {
+      copyOnWrite();
+      instance.addAllReviews(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder clearReviews() {
+      copyOnWrite();
+      instance.clearReviews();
+      return this;
+    }
+    /**
+     * <pre>
+     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+     */
+    public Builder removeReviews(int index) {
+      copyOnWrite();
+      instance.removeReviews(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -2842,11 +3755,17 @@ public  final class EpicsGetResponse extends
             "paused_",
             "parked_",
             "summary_",
+            "ledger_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding.class,
+            "releases_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun.class,
+            "reviews_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict.class,
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0007\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
-              "\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009\u0001\n\u0007" +
-              "\u000b\u0208\f\u0208";
+              "\u0000\u000f\u0000\u0001\u0001\u000f\u000f\u0000\n\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
+              "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
