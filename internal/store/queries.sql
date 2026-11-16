@@ -382,6 +382,17 @@ SELECT * FROM epics WHERE summary = '' ORDER BY id;
 -- name: SetEpicSummary :exec
 UPDATE epics SET summary = ? WHERE id = ? AND summary = '';
 
+-- name: ListUnreportedEpics :many
+SELECT * FROM epics
+WHERE phase IN ('released', 'done', 'ended_with_gaps') AND report_phase <> phase
+ORDER BY id;
+
+-- name: SetEpicReport :exec
+UPDATE epics
+SET report_phase = sqlc.arg(report_phase), report_shipped = sqlc.arg(shipped),
+    report_not_shipped = sqlc.arg(not_shipped), report_why = sqlc.arg(why)
+WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> sqlc.arg(report_phase);
+
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 

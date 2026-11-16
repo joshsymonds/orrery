@@ -40,31 +40,35 @@ type EngineText struct {
 }
 
 type Epic struct {
-	ID             string
-	Repository     string
-	Title          string
-	Approved       string
-	Intent         string
-	Care           string
-	Approach       string
-	ReleaseThen    string
-	Checks         string
-	Phase          string
-	Created        int64
-	Changed        int64
-	Paused         int64
-	Parked         string
-	Retried        int64
-	Base           string
-	Branch         string
-	Workflow       string
-	WorkflowText   string
-	WorkflowSha256 string
-	PauseSource    string
-	StoredBase     string
-	Candidate      string
-	Summary        string
-	PhaseAt        int64
+	ID               string
+	Repository       string
+	Title            string
+	Approved         string
+	Intent           string
+	Care             string
+	Approach         string
+	ReleaseThen      string
+	Checks           string
+	Phase            string
+	Created          int64
+	Changed          int64
+	Paused           int64
+	Parked           string
+	Retried          int64
+	Base             string
+	Branch           string
+	Workflow         string
+	WorkflowText     string
+	WorkflowSha256   string
+	PauseSource      string
+	StoredBase       string
+	Candidate        string
+	Summary          string
+	PhaseAt          int64
+	ReportPhase      string
+	ReportShipped    string
+	ReportNotShipped string
+	ReportWhy        string
 }
 
 type EpicAddition struct {

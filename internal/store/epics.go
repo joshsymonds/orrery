@@ -68,6 +68,7 @@ type EpicRow struct {
 	Paused      bool
 	Parked      string
 	Summary     string
+	Report      EpicReport
 	Workflow    EpicWorkflow
 
 	Failures     []EpicFailure
@@ -452,10 +453,15 @@ func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow
 // readEpicOf returns the stored epic whose head is head, every section in order and its pinned workflow's nodes.
 func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicRow, error) {
 	row := epicHeadOf(head)
-	if err := loadEpicSections(ctx, queries, &row); err != nil {
+	report, err := epicReportOf(head)
+	if err != nil {
+		return EpicRow{}, fmt.Errorf("read report of epic %s: %w", row.ID, err)
+	}
+	row.Report = report
+	if err = loadEpicSections(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", row.ID, err)
 	}
-	if err := loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
+	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", row.ID, err)
 	}
 	return row, nil
