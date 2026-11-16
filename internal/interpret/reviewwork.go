@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -24,12 +25,12 @@ const (
 
 // prepareReview freezes the review of epic at its stored base, which gives the review run at act's path that revision and
 // sets the epic reviewing.
-func (r *Runner) prepareReview(ctx context.Context, epic store.EpicRow, act Action) error {
+func (r *Runner) prepareReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	base, err := storedBaseOf(epic)
 	if err != nil {
 		return err
 	}
-	if err = r.store.FreezeReview(ctx, epic.ID, act.Path, act.Run.Attempt, base); err != nil {
+	if err = r.store.FreezeReview(ctx, epic.ID, act.Path, act.Run.Attempt, base, at); err != nil {
 		return fmt.Errorf("freeze review of epic %s: %w", epic.ID, err)
 	}
 	return nil

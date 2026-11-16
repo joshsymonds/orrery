@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 
 import { EvidenceRuns, type LoadArtifact } from "./evidence";
-import type { EpicContract, EpicRequirement } from "./gen/orrery/v1/epics_pb";
+import type { EpicContract, EpicReleaseProof, EpicReport, EpicRequirement } from "./gen/orrery/v1/epics_pb";
 import type { Phase, Wedge } from "./phases";
 
 type OpenPhase = (task: string, phase: Phase) => void;
@@ -98,23 +98,36 @@ function CardsSection(props: {
   );
 }
 
-// ReleaseProof is the epic's release proof: each of the contract's release steps with its target and undo, then the line
-// that closes the release. The section is reached when the epic is released. With no contract it is the heading alone.
-export function ReleaseProof(props: { contract: EpicContract | undefined; released: boolean }): JSX.Element {
-  const { contract, released } = props;
+// ReleaseProof is the epic's release proof: each of the contract's release steps with its target and undo, its state
+// and, when a run has decided it, its evidence and reason, then the line that closes the release. A step's proof is the
+// one at its position, counted from 1. The section is reached when the epic is released or a step is not waiting. With
+// no contract it is the heading alone.
+export function ReleaseProof(props: {
+  contract: EpicContract | undefined;
+  releaseSteps: EpicReleaseProof[];
+  released: boolean;
+}): JSX.Element {
+  const { contract, releaseSteps, released } = props;
+  const reached = released || releaseSteps.some((proof) => proof.state !== "waiting");
   return (
-    <section class={released ? "proof release" : "proof release dim"}>
+    <section class={reached ? "proof release" : "proof release dim"}>
       <h3>Release proof</h3>
       {contract !== undefined && (
         <>
           <ol>
-            {contract.releaseSteps.map((step, index) => (
-              <li key={index} class="release-step">
-                <span class="step">{step.step}</span>
-                <span class="target">{step.target}</span>
-                <span class="undo">{step.undo}</span>
-              </li>
-            ))}
+            {contract.releaseSteps.map((step, index) => {
+              const proof = releaseSteps.find((candidate) => Number(candidate.position) === index + 1);
+              return (
+                <li key={index} class="release-step">
+                  <span class="step">{step.step}</span>
+                  <span class="target">{step.target}</span>
+                  <span class="undo">{step.undo}</span>
+                  {proof !== undefined && <span class="state">{proof.state}</span>}
+                  {proof !== undefined && proof.evidence !== "" && <span class="evidence">{proof.evidence}</span>}
+                  {proof !== undefined && proof.reason !== "" && <span class="reason">{proof.reason}</span>}
+                </li>
+              );
+            })}
           </ol>
           <p class="then">{contract.releaseThen}</p>
         </>
@@ -123,11 +136,22 @@ export function ReleaseProof(props: { contract: EpicContract | undefined; releas
   );
 }
 
-// Report is the epic's report, which is its heading alone and always dim.
-export function Report(): JSX.Element {
+// Report is the epic's report: its heading alone and dim until the epic writes one. Once it has one, the section is
+// reached and shows the outcome, the Requirement ids shipped and not shipped, each list named and drawn only when it has
+// an id, and why.
+export function Report(props: { report: EpicReport | undefined }): JSX.Element {
+  const { report } = props;
   return (
-    <section class="proof report dim">
+    <section class={report !== undefined ? "proof report" : "proof report dim"}>
       <h3>Report</h3>
+      {report !== undefined && (
+        <>
+          <p class="outcome">{report.outcome}</p>
+          {report.shipped.length > 0 && <p class="shipped">{`shipped ${report.shipped.join(", ")}`}</p>}
+          {report.notShipped.length > 0 && <p class="not-shipped">{`not shipped ${report.notShipped.join(", ")}`}</p>}
+          <p class="why">{report.why}</p>
+        </>
+      )}
     </section>
   );
 }

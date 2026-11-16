@@ -352,8 +352,8 @@ SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -382,6 +382,17 @@ SELECT * FROM epics WHERE summary = '' ORDER BY id;
 -- name: SetEpicSummary :exec
 UPDATE epics SET summary = ? WHERE id = ? AND summary = '';
 
+-- name: ListUnreportedEpics :many
+SELECT * FROM epics
+WHERE phase IN ('released', 'done', 'ended_with_gaps') AND report_phase <> phase
+ORDER BY id;
+
+-- name: SetEpicReport :exec
+UPDATE epics
+SET report_phase = sqlc.arg(report_phase), report_shipped = sqlc.arg(shipped),
+    report_not_shipped = sqlc.arg(not_shipped), report_why = sqlc.arg(why)
+WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> sqlc.arg(report_phase);
+
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 
@@ -389,7 +400,9 @@ UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 UPDATE epics SET candidate = ? WHERE id = ?;
 
 -- name: SetEpicPhase :exec
-UPDATE epics SET phase = ? WHERE id = ?;
+UPDATE epics
+SET phase = sqlc.arg(phase), phase_at = CASE WHEN phase = sqlc.arg(phase) THEN phase_at ELSE sqlc.arg(at) END
+WHERE id = sqlc.arg(id);
 
 -- name: InsertEpicFailure :exec
 INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);
@@ -453,13 +466,13 @@ SELECT epic FROM epic_release_slots WHERE repository = ?;
 DELETE FROM epic_release_slots WHERE epic = ?;
 
 -- name: StartEpicRelease :exec
-UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'clean';
+UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'clean';
 
 -- name: ResumeEpicRelease :exec
-UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'stopped';
+UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'stopped';
 
 -- name: StopEpicRelease :exec
-UPDATE epics SET phase = 'stopped' WHERE id = ? AND phase = 'releasing';
+UPDATE epics SET phase = 'stopped', phase_at = ? WHERE id = ? AND phase = 'releasing';
 
 -- name: InsertEpicGate :exec
 INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)

@@ -10,7 +10,14 @@ import (
 func reviewendStartFrozen(t *testing.T, s *Store) {
 	t.Helper()
 	startIntegrateRuns(t, s, NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1})
-	if err := s.FreezeReview(context.Background(), integrateEpic, "review", 1, "rev-7"); err != nil {
+	if err := s.FreezeReview(
+		context.Background(),
+		integrateEpic,
+		"review",
+		1,
+		"rev-7",
+		integrateEndedAt(),
+	); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
 }

@@ -45,7 +45,7 @@ func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 	if err := st.CreateEpic(ctx, row); err != nil {
 		t.Fatalf("CreateEpic clean: %v", err)
 	}
-	if _, err := st.TakeReleaseSlot(ctx, epicServiceID); err != nil {
+	if _, err := st.TakeReleaseSlot(ctx, epicServiceID, now); err != nil {
 		t.Fatalf("TakeReleaseSlot: %v", err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}
@@ -182,6 +182,19 @@ func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 	})
 	if slot := stopped.GetReleaseSlot(); slot != epicServiceID {
 		t.Fatalf("release_slot = %q in GetEpic, want the holder %s", slot, epicServiceID)
+	}
+	wantProtos(t, "GetEpic release proof", stopped.GetReleaseProof(), []*v1.EpicReleaseProof{
+		{
+			Position: 1, Step: "push tag", Target: "origin", Undo: "delete tag", State: store.ReleasePassed,
+			Evidence: "run-push", Attempt: 1, At: turnStarted,
+		},
+		{
+			Position: 2, Step: "publish", Target: "registry", Undo: "none", State: store.ReleaseFailed,
+			Evidence: "run-publish", Reason: "publish rejected", Attempt: 1, At: turnFreed,
+		},
+	})
+	if at := stopped.GetPhaseAt(); at != turnFreed {
+		t.Fatalf("phase_at = %d in GetEpic, want the stop time %d", at, turnFreed)
 	}
 
 	const waitingID = "synthetic-repo-0a1b2c3/epic-waiting"

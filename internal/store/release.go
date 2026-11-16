@@ -79,7 +79,7 @@ func recordRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, r
 // holds it, and only a clean epic that holds it moves to releasing. When another epic holds the slot nothing changes
 // and that epic is returned. An epic in any other phase takes nothing. It returns an error matching ErrNoEpic when no
 // epic has the id.
-func (s *Store) TakeReleaseSlot(ctx context.Context, epic string) (string, error) {
+func (s *Store) TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error) {
 	var holder string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		row, err := queries.GetEpic(ctx, epic)
@@ -100,7 +100,10 @@ func (s *Store) TakeReleaseSlot(ctx context.Context, epic string) (string, error
 			return err
 		}
 		if holder == epic && row.Phase == PhaseClean {
-			if err = queries.StartEpicRelease(ctx, epic); err != nil {
+			if err = queries.StartEpicRelease(
+				ctx,
+				sqlcgen.StartEpicReleaseParams{PhaseAt: at.Unix(), ID: epic},
+			); err != nil {
 				return fmt.Errorf("start release of epic %s: %w", epic, err)
 			}
 		}
@@ -164,7 +167,7 @@ func stopEpicRelease(ctx context.Context, queries *sqlcgen.Queries, epic, reason
 	if err := parkWithTell(ctx, queries, epic, capTurnText(reason), at); err != nil {
 		return err
 	}
-	if err := queries.StopEpicRelease(ctx, epic); err != nil {
+	if err := queries.StopEpicRelease(ctx, sqlcgen.StopEpicReleaseParams{PhaseAt: at.Unix(), ID: epic}); err != nil {
 		return fmt.Errorf("stop release of epic %s: %w", epic, err)
 	}
 	return nil
@@ -189,4 +192,106 @@ func readReleaseRuns(ctx context.Context, queries *sqlcgen.Queries, epic string)
 		})
 	}
 	return runs, nil
+}
+
+// The states a release step reads as in its ReleaseProof.
+const (
+	ReleaseWaiting = "waiting"
+	ReleaseRunning = "running"
+	ReleasePassed  = "passed"
+	ReleaseFailed  = "failed"
+)
+
+// ReleaseProof is one contract release step of an epic with the state its stored release runs give it. Position
+// numbers the step from 1 in contract order, and Step, Target and Undo are the step as the contract names it. State
+// is one of the ReleaseWaiting, ReleaseRunning, ReleasePassed and ReleaseFailed constants. Evidence, Reason, Attempt
+// and At are those of the run that decides the state, and are empty and zero when no run does.
+type ReleaseProof struct {
+	Position                                    int64
+	Step, Target, Undo, State, Evidence, Reason string
+	Attempt                                     int64
+	At                                          time.Time
+}
+
+// ReleaseProofs returns each contract release step of flow's epic in contract order, with the state its release runs
+// give it. For a position p, the step passed when a release run of part `release` at p passed, the latest passed run
+// deciding. Otherwise it is running when the running release node run has a work step for `release p` with no end. Its
+// work step is the one under the run's id, attempt and part. Otherwise it failed when a release run at p did not pass,
+// the highest-attempt run deciding. Otherwise it is waiting.
+func ReleaseProofs(flow EpicFlow) []ReleaseProof {
+	proofs := make([]ReleaseProof, 0, len(flow.Epic.ReleaseSteps))
+	for i, step := range flow.Epic.ReleaseSteps {
+		proofs = append(proofs, releaseProofOf(flow, int64(i+1), step))
+	}
+	return proofs
+}
+
+// releaseProofOf decides the proof of the release step at position of flow's epic, as ReleaseProofs describes.
+func releaseProofOf(flow EpicFlow, position int64, step EpicReleaseStep) ReleaseProof {
+	proof := ReleaseProof{
+		Position: position, Step: step.Step, Target: step.Target, Undo: step.Undo, State: ReleaseWaiting,
+	}
+	runs := releaseStepRuns(flow.Releases, position)
+	if run, ok := highestAttempt(runs, func(r ReleaseRun) bool { return r.Passed }); ok {
+		return decidedProof(proof, ReleasePassed, run)
+	}
+	if runningStep(flow, position) {
+		proof.State = ReleaseRunning
+		return proof
+	}
+	if run, ok := highestAttempt(runs, func(r ReleaseRun) bool { return !r.Passed }); ok {
+		return decidedProof(proof, ReleaseFailed, run)
+	}
+	return proof
+}
+
+// releaseStepRuns returns the release runs of part `release` at position, in the order of runs.
+func releaseStepRuns(runs []ReleaseRun, position int64) []ReleaseRun {
+	var matched []ReleaseRun
+	for _, run := range runs {
+		if run.Part == ReleasePartStep && run.Position == position {
+			matched = append(matched, run)
+		}
+	}
+	return matched
+}
+
+// highestAttempt returns the run of runs that keep accepts with the highest attempt, and whether one is accepted.
+func highestAttempt(runs []ReleaseRun, keep func(ReleaseRun) bool) (ReleaseRun, bool) {
+	var best ReleaseRun
+	var found bool
+	for _, run := range runs {
+		if keep(run) && (!found || run.Attempt > best.Attempt) {
+			best, found = run, true
+		}
+	}
+	return best, found
+}
+
+// runningStep reports whether a running release node run of flow's epic has the work step for `release position` at
+// its attempt, and that step has no end yet.
+func runningStep(flow EpicFlow, position int64) bool {
+	label := fmt.Sprintf("release %d", position)
+	for _, run := range flow.Runs {
+		if run.Kind != releaseKind || run.State != NodeRunning {
+			continue
+		}
+		id := NodeWorkID(run.ID, run.Attempt, label)
+		for _, step := range flow.Steps {
+			if step.ID == id && step.End == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// decidedProof returns proof in state, with the evidence, reason, attempt and time of run, the run that decides it.
+func decidedProof(proof ReleaseProof, state string, run ReleaseRun) ReleaseProof {
+	proof.State = state
+	proof.Evidence = run.Evidence
+	proof.Reason = run.Reason
+	proof.Attempt = run.Attempt
+	proof.At = run.At
+	return proof
 }

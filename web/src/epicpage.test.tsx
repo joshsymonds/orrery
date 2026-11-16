@@ -223,6 +223,19 @@ test("a running epic shows its state as building, with Pause and Stop", async ()
   });
 });
 
+test("the title row's state reads its time once the phase has begun, and the state alone at phase zero", async () => {
+  await withPage(detail({ ...build, epic: { ...liveEpic, phaseAt: 7_060n } }), (container) => {
+    assert.equal(textOf(container, ".title-row .state"), "building · 49 min");
+  });
+  await withPage(detail({ ...build, epic: { ...liveEpic, phaseAt: 0n } }), (container) => {
+    assert.equal(textOf(container, ".title-row .state"), "building");
+  });
+  // A browser clock behind the server's stamp reads no time below zero.
+  await withPage(detail({ ...build, epic: { ...liveEpic, phaseAt: 10_003n } }), (container) => {
+    assert.equal(textOf(container, ".title-row .state"), "building · 0 s");
+  });
+});
+
 test("a paused epic shows its state as paused, with Resume and Stop", async () => {
   await withPage(detail({ ...build, paused: true }), (container) => {
     assert.equal(textOf(container, ".title-row .state"), "paused");
@@ -370,6 +383,53 @@ test("the release proof is dim until the outcome begins with released", async ()
   await withPage(detail({ ...build, epic: { ...liveEpic, live: false, outcome: "released to production" } }), (container) => {
     assert.equal(has(container, ".proof.release.dim"), false);
   });
+});
+
+test("the release proof is reached by a step that is running or failed, and draws each step's state, evidence and reason", async () => {
+  const contract = {
+    title: "Ship the demo",
+    releaseSteps: [{ step: "tag the release", target: "the git remote", undo: "delete the tag" }],
+    releaseThen: "The epic is released.",
+  };
+  await withPage(detail({ ...build, contract, releaseSteps: [{ position: 1n, state: "running" }] }), (container) => {
+    assert.equal(has(container, ".proof.release.dim"), false);
+    assert.deepEqual(textsOf(container, ".release-step .state"), ["running"]);
+  });
+  await withPage(
+    detail({
+      ...build,
+      contract,
+      releaseSteps: [{ position: 1n, state: "failed", evidence: "push rejected", reason: "the remote refused the tag" }],
+    }),
+    (container) => {
+      assert.equal(has(container, ".proof.release.dim"), false);
+      assert.deepEqual(textsOf(container, ".release-step .state"), ["failed"]);
+      assert.deepEqual(textsOf(container, ".release-step .evidence"), ["push rejected"]);
+      assert.deepEqual(textsOf(container, ".release-step .reason"), ["the remote refused the tag"]);
+    },
+  );
+  await withPage(detail({ ...build, contract, releaseSteps: [{ position: 1n, state: "waiting" }] }), (container) => {
+    assert.equal(has(container, ".proof.release.dim"), true);
+  });
+});
+
+test("the report is dim until the epic writes one, then it shows the outcome, the ids and why", async () => {
+  await withPage(detail({ ...build }), (container) => {
+    assert.equal(has(container, ".proof.report.dim"), true);
+  });
+  await withPage(
+    detail({
+      ...build,
+      report: { outcome: "released to production", shipped: ["R1"], notShipped: ["R2"], why: "R2 failed its green run" },
+    }),
+    (container) => {
+      assert.equal(has(container, ".proof.report.dim"), false);
+      assert.equal(textOf(container, ".report .outcome"), "released to production");
+      assert.equal(textOf(container, ".report .shipped"), "shipped R1");
+      assert.equal(textOf(container, ".report .not-shipped"), "not shipped R2");
+      assert.equal(textOf(container, ".report .why"), "R2 failed its green run");
+    },
+  );
 });
 
 test("the actions render first in the title row, before Pause and Stop", async () => {

@@ -735,7 +735,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -766,6 +766,11 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.StoredBase,
 		&i.Candidate,
 		&i.Summary,
+		&i.PhaseAt,
+		&i.ReportPhase,
+		&i.ReportShipped,
+		&i.ReportNotShipped,
+		&i.ReportWhy,
 	)
 	return i, err
 }
@@ -1324,8 +1329,8 @@ func (q *Queries) InsertEngineTurnEndedEvent(ctx context.Context, arg InsertEngi
 
 const insertEpic = `-- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicParams struct {
@@ -1346,6 +1351,7 @@ type InsertEpicParams struct {
 	Workflow       string
 	WorkflowText   string
 	WorkflowSha256 string
+	PhaseAt        int64
 }
 
 func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
@@ -1367,6 +1373,7 @@ func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
 		arg.Workflow,
 		arg.WorkflowText,
 		arg.WorkflowSha256,
+		arg.PhaseAt,
 	)
 	return err
 }
@@ -4108,7 +4115,7 @@ func (q *Queries) ListEpicWorkflowNodes(ctx context.Context, epic string) ([]Epi
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -4145,6 +4152,11 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.StoredBase,
 			&i.Candidate,
 			&i.Summary,
+			&i.PhaseAt,
+			&i.ReportPhase,
+			&i.ReportShipped,
+			&i.ReportNotShipped,
+			&i.ReportWhy,
 		); err != nil {
 			return nil, err
 		}
@@ -4160,7 +4172,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 }
 
 const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
 ORDER BY epics.id
 `
@@ -4199,6 +4211,11 @@ func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
 			&i.StoredBase,
 			&i.Candidate,
 			&i.Summary,
+			&i.PhaseAt,
+			&i.ReportPhase,
+			&i.ReportShipped,
+			&i.ReportNotShipped,
+			&i.ReportWhy,
 		); err != nil {
 			return nil, err
 		}
@@ -5367,8 +5384,67 @@ func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, e
 	return items, nil
 }
 
+const listUnreportedEpics = `-- name: ListUnreportedEpics :many
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why FROM epics
+WHERE phase IN ('released', 'done', 'ended_with_gaps') AND report_phase <> phase
+ORDER BY id
+`
+
+func (q *Queries) ListUnreportedEpics(ctx context.Context) ([]Epic, error) {
+	rows, err := q.db.QueryContext(ctx, listUnreportedEpics)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Epic
+	for rows.Next() {
+		var i Epic
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Approved,
+			&i.Intent,
+			&i.Care,
+			&i.Approach,
+			&i.ReleaseThen,
+			&i.Checks,
+			&i.Phase,
+			&i.Created,
+			&i.Changed,
+			&i.Paused,
+			&i.Parked,
+			&i.Retried,
+			&i.Base,
+			&i.Branch,
+			&i.Workflow,
+			&i.WorkflowText,
+			&i.WorkflowSha256,
+			&i.PauseSource,
+			&i.StoredBase,
+			&i.Candidate,
+			&i.Summary,
+			&i.PhaseAt,
+			&i.ReportPhase,
+			&i.ReportShipped,
+			&i.ReportNotShipped,
+			&i.ReportWhy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnsummarizedEpics = `-- name: ListUnsummarizedEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary FROM epics WHERE summary = '' ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why FROM epics WHERE summary = '' ORDER BY id
 `
 
 func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
@@ -5405,6 +5481,11 @@ func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
 			&i.StoredBase,
 			&i.Candidate,
 			&i.Summary,
+			&i.PhaseAt,
+			&i.ReportPhase,
+			&i.ReportShipped,
+			&i.ReportNotShipped,
+			&i.ReportWhy,
 		); err != nil {
 			return nil, err
 		}
@@ -5761,11 +5842,16 @@ func (q *Queries) ResumeEpic(ctx context.Context, id string) error {
 }
 
 const resumeEpicRelease = `-- name: ResumeEpicRelease :exec
-UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'stopped'
+UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'stopped'
 `
 
-func (q *Queries) ResumeEpicRelease(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, resumeEpicRelease, id)
+type ResumeEpicReleaseParams struct {
+	PhaseAt int64
+	ID      string
+}
+
+func (q *Queries) ResumeEpicRelease(ctx context.Context, arg ResumeEpicReleaseParams) error {
+	_, err := q.db.ExecContext(ctx, resumeEpicRelease, arg.PhaseAt, arg.ID)
 	return err
 }
 
@@ -5920,16 +6006,19 @@ func (q *Queries) SetEpicPauseSource(ctx context.Context, arg SetEpicPauseSource
 }
 
 const setEpicPhase = `-- name: SetEpicPhase :exec
-UPDATE epics SET phase = ? WHERE id = ?
+UPDATE epics
+SET phase = ?1, phase_at = CASE WHEN phase = ?1 THEN phase_at ELSE ?2 END
+WHERE id = ?3
 `
 
 type SetEpicPhaseParams struct {
 	Phase string
+	At    int64
 	ID    string
 }
 
 func (q *Queries) SetEpicPhase(ctx context.Context, arg SetEpicPhaseParams) error {
-	_, err := q.db.ExecContext(ctx, setEpicPhase, arg.Phase, arg.ID)
+	_, err := q.db.ExecContext(ctx, setEpicPhase, arg.Phase, arg.At, arg.ID)
 	return err
 }
 
@@ -5964,6 +6053,32 @@ func (q *Queries) SetEpicQuestionReplaced(ctx context.Context, arg SetEpicQuesti
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicReport = `-- name: SetEpicReport :exec
+UPDATE epics
+SET report_phase = ?1, report_shipped = ?2,
+    report_not_shipped = ?3, report_why = ?4
+WHERE id = ?5 AND phase = ?1 AND report_phase <> ?1
+`
+
+type SetEpicReportParams struct {
+	ReportPhase string
+	Shipped     string
+	NotShipped  string
+	Why         string
+	ID          string
+}
+
+func (q *Queries) SetEpicReport(ctx context.Context, arg SetEpicReportParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicReport,
+		arg.ReportPhase,
+		arg.Shipped,
+		arg.NotShipped,
+		arg.Why,
+		arg.ID,
+	)
+	return err
 }
 
 const setEpicReviewClean = `-- name: SetEpicReviewClean :exec
@@ -6218,20 +6333,30 @@ func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJud
 }
 
 const startEpicRelease = `-- name: StartEpicRelease :exec
-UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'clean'
+UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'clean'
 `
 
-func (q *Queries) StartEpicRelease(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, startEpicRelease, id)
+type StartEpicReleaseParams struct {
+	PhaseAt int64
+	ID      string
+}
+
+func (q *Queries) StartEpicRelease(ctx context.Context, arg StartEpicReleaseParams) error {
+	_, err := q.db.ExecContext(ctx, startEpicRelease, arg.PhaseAt, arg.ID)
 	return err
 }
 
 const stopEpicRelease = `-- name: StopEpicRelease :exec
-UPDATE epics SET phase = 'stopped' WHERE id = ? AND phase = 'releasing'
+UPDATE epics SET phase = 'stopped', phase_at = ? WHERE id = ? AND phase = 'releasing'
 `
 
-func (q *Queries) StopEpicRelease(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, stopEpicRelease, id)
+type StopEpicReleaseParams struct {
+	PhaseAt int64
+	ID      string
+}
+
+func (q *Queries) StopEpicRelease(ctx context.Context, arg StopEpicReleaseParams) error {
+	_, err := q.db.ExecContext(ctx, stopEpicRelease, arg.PhaseAt, arg.ID)
 	return err
 }
 

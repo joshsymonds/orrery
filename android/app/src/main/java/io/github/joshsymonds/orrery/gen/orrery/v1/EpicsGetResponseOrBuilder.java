@@ -416,4 +416,52 @@ public interface EpicsGetResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRepositoryBytes();
+
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> 
+      getReleaseStepsList();
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof getReleaseSteps(int index);
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  int getReleaseStepsCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   * @return Whether the report field is set.
+   */
+  boolean hasReport();
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   * @return The report.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport getReport();
 }

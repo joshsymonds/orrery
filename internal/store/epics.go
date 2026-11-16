@@ -64,9 +64,11 @@ type EpicRow struct {
 	Phase       string
 	Created     time.Time
 	Changed     time.Time
+	PhaseAt     time.Time
 	Paused      bool
 	Parked      string
 	Summary     string
+	Report      EpicReport
 	Workflow    EpicWorkflow
 
 	Failures     []EpicFailure
@@ -195,7 +197,7 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
 			Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-			WorkflowSha256: row.Workflow.SHA256,
+			WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert epic %s: %w", row.ID, err)
 		}
@@ -451,10 +453,15 @@ func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow
 // readEpicOf returns the stored epic whose head is head, every section in order and its pinned workflow's nodes.
 func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicRow, error) {
 	row := epicHeadOf(head)
-	if err := loadEpicSections(ctx, queries, &row); err != nil {
+	report, err := epicReportOf(head)
+	if err != nil {
+		return EpicRow{}, fmt.Errorf("read report of epic %s: %w", row.ID, err)
+	}
+	row.Report = report
+	if err = loadEpicSections(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", row.ID, err)
 	}
-	if err := loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
+	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", row.ID, err)
 	}
 	return row, nil
@@ -919,6 +926,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Phase:       head.Phase,
 		Created:     time.Unix(head.Created, 0),
 		Changed:     time.Unix(head.Changed, 0),
+		PhaseAt:     time.Unix(head.PhaseAt, 0),
 		Paused:      head.Paused != 0,
 		Parked:      head.Parked,
 		Summary:     head.Summary,

@@ -180,7 +180,7 @@ func endAndBuild(ctx context.Context, queries *sqlcgen.Queries, epic string, end
 	if head.Phase != phaseAccepted {
 		return nil
 	}
-	return setEpicPhase(ctx, queries, epic, phaseBuilt)
+	return setEpicPhase(ctx, queries, epic, phaseBuilt, at)
 }
 
 // ParkNodeFinal parks the running run at path of epic at attempt as ParkNode does, and sets the phase of epic to
@@ -206,15 +206,18 @@ func (s *Store) ParkNodeFinal(
 // parkFinal sets the phase of epic to met_at_base and then parks epic with reason and adds reason as a tell, in the
 // caller's write. The phase comes first, so the park question the park opens is final.
 func parkFinal(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
-	if err := setEpicPhase(ctx, queries, epic, phaseMetAtBase); err != nil {
+	if err := setEpicPhase(ctx, queries, epic, phaseMetAtBase, at); err != nil {
 		return err
 	}
 	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
 }
 
-// setEpicPhase stores phase as the phase of epic in the caller's write.
-func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase string) error {
-	if err := queries.SetEpicPhase(ctx, sqlcgen.SetEpicPhaseParams{Phase: phase, ID: epic}); err != nil {
+// setEpicPhase stores phase as the phase of epic in the caller's write, at as the time it was set. A phase that epic
+// already has keeps the time it was set.
+func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase string, at time.Time) error {
+	if err := queries.SetEpicPhase(ctx, sqlcgen.SetEpicPhaseParams{
+		Phase: phase, At: at.Unix(), ID: epic,
+	}); err != nil {
 		return fmt.Errorf("set phase of epic %s: %w", epic, err)
 	}
 	return nil

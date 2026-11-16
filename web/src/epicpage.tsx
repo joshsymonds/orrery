@@ -28,6 +28,14 @@ function blockerLine(blocker: Blocker | null, now: number): string | undefined {
   return blocker.since > 0 ? `${blocker.text} · ${durationText(now - blocker.since)}` : blocker.text;
 }
 
+// stateLine is the epic's state for the title row: its state word, and its time once its phase has begun, never below
+// zero when the browser's clock is behind the server's stamp.
+function stateLine(detail: EpicsGetResponse, now: number): string {
+  const state = stateOf(detail);
+  const phaseAt = Number(detail.epic?.phaseAt ?? 0);
+  return state !== "" && phaseAt > 0 ? `${state} · ${durationText(Math.max(0, now - phaseAt))}` : state;
+}
+
 // EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the now sentence
 // and blocker, the red proof, the implementation (the orrery, Now, Next, Just happened and the workflow), the green
 // proof, the handover when given, the release proof and the report. A section the epic has not reached is dim. The
@@ -45,7 +53,7 @@ export function EpicPage(props: {
   handover?: ComponentChildren;
 }): JSX.Element {
   const { detail, history, now, loadArtifact, commands, onOpenContract, onBack, onOpenPhase, actions, handover } = props;
-  const { epic, contract, requirements, steps, nodes } = detail;
+  const { epic, contract, requirements, steps, nodes, releaseSteps, report } = detail;
   const wedges = wedgesOf(detail);
   const blocker = blockerOf(detail);
   const slug = epic?.slug ?? "";
@@ -56,7 +64,7 @@ export function EpicPage(props: {
       <TitleRow
         crumbs={[{ label: "orrery", onGo: onBack }, { label: slug }]}
         onBack={onBack}
-        state={stateOf(detail)}
+        state={stateLine(detail, now)}
         blocker={blockerLine(blocker, now)}
       >
         {actions}
@@ -104,8 +112,8 @@ export function EpicPage(props: {
       </section>
       <GreenProof requirements={requirements} wedges={wedges} loadArtifact={loadArtifact} onOpenPhase={onOpenPhase} />
       {handover !== undefined && handover !== null && <section class="handover">{handover}</section>}
-      <ReleaseProof contract={contract} released={released} />
-      <Report />
+      <ReleaseProof contract={contract} releaseSteps={releaseSteps} released={released} />
+      <Report report={report} />
     </div>
   );
 }

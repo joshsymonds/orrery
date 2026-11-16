@@ -18,7 +18,7 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 	case kinds.ActPrepare:
 		return r.prepareRelease(ctx, epic, act)
 	case kinds.ActTake:
-		return r.takeSlot(ctx, epic)
+		return r.takeSlot(ctx, epic, at)
 	case kinds.ActFree:
 		return r.freeSlot(ctx, epic)
 	case kinds.ActStop:
@@ -55,8 +55,8 @@ func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Acti
 
 // takeSlot takes the release slot of epic's repository for epic. When another epic holds the slot nothing changes, and
 // the holder shows in the epic's rows.
-func (r *Runner) takeSlot(ctx context.Context, epic store.EpicRow) error {
-	if _, err := r.store.TakeReleaseSlot(ctx, epic.ID); err != nil {
+func (r *Runner) takeSlot(ctx context.Context, epic store.EpicRow, at time.Time) error {
+	if _, err := r.store.TakeReleaseSlot(ctx, epic.ID, at); err != nil {
 		return fmt.Errorf("take release slot of epic %s: %w", epic.ID, err)
 	}
 	return nil

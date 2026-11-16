@@ -165,9 +165,7 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	req := fullEpicRequest(repo, epicServiceID)
 
-	before := time.Now().Unix()
 	stored := createEpicOK(t, client, req)
-	after := time.Now().Unix()
 
 	want := fullEpicRequest(repo, epicServiceID).GetContract()
 	// A stored Requirement reads with the state its runs give; none has run yet.
@@ -180,11 +178,14 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	if stored.GetPhase() != "accepted" {
 		t.Fatalf("phase = %q, want accepted", stored.GetPhase())
 	}
-	if created := stored.GetCreated(); created < before || created > after {
-		t.Fatalf("created = %d, want between %d and %d", created, before, after)
-	}
 	if stored.GetChanged() != stored.GetCreated() {
 		t.Fatalf("changed = %d, want created %d", stored.GetChanged(), stored.GetCreated())
+	}
+	if stored.GetPhaseAt() != stored.GetCreated() {
+		t.Fatalf("phase_at = %d, want created %d", stored.GetPhaseAt(), stored.GetCreated())
+	}
+	if report := stored.GetReport(); report != nil {
+		t.Fatalf("report = %v before one is stored, want unset", report)
 	}
 	seeds := req.GetDecisions()
 	if len(stored.GetDecisions()) != len(seeds) {
@@ -208,6 +209,9 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	}
 	if row.ID != epicServiceID || row.Phase != "accepted" {
 		t.Fatalf("stored row = %q phase %q, want %q accepted", row.ID, row.Phase, epicServiceID)
+	}
+	if created := stored.GetCreated(); created != row.Created.Unix() {
+		t.Fatalf("created = %d, want the stored time %d", created, row.Created.Unix())
 	}
 }
 
@@ -451,6 +455,43 @@ func TestEpicGetUnknownIsNotFound(t *testing.T) {
 	wantConnectError(t, err, connect.CodeNotFound, "id: no epic "+epicServiceID)
 }
 
+// TestEpicGetShowsStoredReportOnceWritten checks that GetEpic carries the report of an ending epic only after the store
+// holds one, and then as the store's report, its outcome the report's phase.
+func TestEpicGetShowsStoredReportOnceWritten(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st := epicTestStore(t)
+	now := time.Unix(turnStarted, 0)
+	row := store.EpicRow{
+		ID:         epicServiceID,
+		Repository: releaseTestRepo,
+		Base:       releaseTestBase,
+		Phase:      "released",
+		Created:    now,
+		Changed:    now,
+	}
+	if err := st.CreateEpic(ctx, row); err != nil {
+		t.Fatalf("CreateEpic released: %v", err)
+	}
+	client := newEpicsClient(t, startEpicServer(t, st))
+	if report := getEpicOK(t, client).GetReport(); report != nil {
+		t.Fatalf("report = %v before one is stored, want unset", report)
+	}
+
+	err := st.SetEpicReport(ctx, epicServiceID, store.EpicReport{
+		Phase: "released", Shipped: []string{"R1"}, NotShipped: []string{"R2"}, Why: "Synthetic why.",
+	})
+	if err != nil {
+		t.Fatalf("SetEpicReport: %v", err)
+	}
+	want := &v1.EpicReport{
+		Outcome: "released", Shipped: []string{"R1"}, NotShipped: []string{"R2"}, Why: "Synthetic why.",
+	}
+	if got := getEpicOK(t, client).GetReport(); !proto.Equal(got, want) {
+		t.Fatalf("report = %v, want %v", got, want)
+	}
+}
+
 func TestEpicListReturnsSummariesByID(t *testing.T) {
 	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
@@ -468,19 +509,23 @@ func TestEpicListReturnsSummariesByID(t *testing.T) {
 		t.Fatalf("ListEpics returned %d epics, want %d", len(got), len(want))
 	}
 	for i := range want {
+		if phaseAt := got[i].GetPhaseAt(); phaseAt != got[i].GetCreated() {
+			t.Fatalf("summary %d phase_at = %d, want created %d", i, phaseAt, got[i].GetCreated())
+		}
 		if !proto.Equal(got[i], want[i]) {
 			t.Fatalf("summary %d = %v, want %v", i, got[i], want[i])
 		}
 	}
 }
 
-// summaryOf returns the summary of a stored epic: its id, repository, title, phase, created and changed.
+// summaryOf returns the summary of a stored epic: its id, repository, title, phase, phase time, created and changed.
 func summaryOf(epic *v1.StoredEpic) *v1.EpicSummary {
 	return &v1.EpicSummary{
 		Id:         epic.GetContract().GetId(),
 		Repository: epic.GetContract().GetRepository(),
 		Title:      epic.GetContract().GetTitle(),
 		Phase:      epic.GetPhase(),
+		PhaseAt:    epic.GetPhaseAt(),
 		Created:    epic.GetCreated(),
 		Changed:    epic.GetChanged(),
 	}
@@ -488,22 +533,28 @@ func summaryOf(epic *v1.StoredEpic) *v1.EpicSummary {
 
 func TestEpicAnswerAppendsOnceAndRepeatsStoredDecision(t *testing.T) {
 	t.Parallel()
-	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
 	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	answer := &v1.AnswerEpicRequest{EpicId: epicServiceID, Id: "A1", Text: "Ship it."}
 
-	before := time.Now().Unix()
 	first, err := client.AnswerEpic(t.Context(), connect.NewRequest(answer))
 	if err != nil {
 		t.Fatalf("AnswerEpic: %v", err)
 	}
-	after := time.Now().Unix()
 	decision := first.Msg.GetDecision()
 	if decision.GetSeq() != 4 || decision.GetId() != "A1" || decision.GetText() != "Ship it." {
 		t.Fatalf("decision = %v, want seq 4 A1 %q", decision, "Ship it.")
 	}
-	if at := decision.GetTime(); at < before || at > after {
-		t.Fatalf("decision time = %d, want between %d and %d", at, before, after)
+	row, err := st.Epic(t.Context(), epicServiceID)
+	if err != nil {
+		t.Fatalf("store Epic: %v", err)
+	}
+	if len(row.Decisions) != 4 {
+		t.Fatalf("stored decisions = %d, want 4", len(row.Decisions))
+	}
+	if at := decision.GetTime(); at != row.Decisions[3].Time.Unix() {
+		t.Fatalf("decision time = %d, want the stored time %d", at, row.Decisions[3].Time.Unix())
 	}
 
 	repeat, err := client.AnswerEpic(t.Context(), connect.NewRequest(answer))

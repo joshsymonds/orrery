@@ -48,11 +48,11 @@ type Store interface {
 	CheckNodeRefs(
 		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
 	) error
-	TakeReleaseSlot(ctx context.Context, epic string) (string, error)
+	TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error)
 	FreeReleaseSlot(ctx context.Context, epic string) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
 	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
-	FreezeReview(ctx context.Context, epic, path string, attempt int64, revision string) error
+	FreezeReview(ctx context.Context, epic, path string, attempt int64, revision string, at time.Time) error
 	EndReview(
 		ctx context.Context, epic, path string, attempt int64, output string, verdicts []store.ReviewVerdict,
 		ledger []store.LedgerFinding, at time.Time,

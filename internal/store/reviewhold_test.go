@@ -14,7 +14,14 @@ func reviewHoldStore(t *testing.T) *Store {
 	t.Helper()
 	s := openIntegrateStore(t)
 	startIntegrateRuns(t, s, NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1})
-	if err := s.FreezeReview(context.Background(), integrateEpic, "review", 1, "rev-7"); err != nil {
+	if err := s.FreezeReview(
+		context.Background(),
+		integrateEpic,
+		"review",
+		1,
+		"rev-7",
+		integrateEndedAt(),
+	); err != nil {
 		t.Fatalf("FreezeReview of epic %s: %v", integrateEpic, err)
 	}
 	return s

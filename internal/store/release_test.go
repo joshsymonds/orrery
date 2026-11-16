@@ -127,7 +127,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 		releaseEpicIn(releaseFree, releaseOtherRepo, store.PhaseClean),
 	)
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseEpic)
+	holder, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
@@ -136,7 +136,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 	}
 	requirePhase(t, s, releaseEpic, store.PhaseReleasing)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseOther)
+	holder, err = s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseOther, err)
 	}
@@ -145,7 +145,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 	}
 	requirePhase(t, s, releaseOther, store.PhaseClean)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseEpic)
+	holder, err = s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
 	if err != nil {
 		t.Fatalf("repeat TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
@@ -154,7 +154,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 	}
 	requirePhase(t, s, releaseEpic, store.PhaseReleasing)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseFree)
+	holder, err = s.TakeReleaseSlot(ctx, releaseFree, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseFree, err)
 	}
@@ -173,11 +173,11 @@ func TestTakeReleaseSlotStoppedRetakesFreeSlotWithoutPhaseChange(t *testing.T) {
 		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
 		releaseEpicIn(releaseOther, releaseRepo, store.PhaseStopped),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseOther)
+	holder, err := s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of stopped %s: %v", releaseOther, err)
 	}
@@ -188,7 +188,7 @@ func TestTakeReleaseSlotStoppedRetakesFreeSlotWithoutPhaseChange(t *testing.T) {
 	if err := s.FreeReleaseSlot(ctx, releaseEpic); err != nil {
 		t.Fatalf("FreeReleaseSlot of %s: %v", releaseEpic, err)
 	}
-	holder, err = s.TakeReleaseSlot(ctx, releaseOther)
+	holder, err = s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of stopped %s after the free: %v", releaseOther, err)
 	}
@@ -206,7 +206,7 @@ func TestTakeReleaseSlotTakesNothingElse(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openReleaseStore(t, releaseEpicIn(releaseEpic, releaseRepo, "accepted"))
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseEpic)
+	holder, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of accepted %s: %v", releaseEpic, err)
 	}
@@ -216,7 +216,8 @@ func TestTakeReleaseSlotTakesNothingElse(t *testing.T) {
 	requirePhase(t, s, releaseEpic, "accepted")
 	requireSlot(t, s, releaseEpic, "")
 
-	if _, err := s.TakeReleaseSlot(ctx, "orrery-8b9c0d1/no-such-epic"); !errors.Is(err, store.ErrNoEpic) {
+	_, err = s.TakeReleaseSlot(ctx, "orrery-8b9c0d1/no-such-epic", releaseRunAt())
+	if !errors.Is(err, store.ErrNoEpic) {
 		t.Errorf("TakeReleaseSlot of an unknown epic: err = %v, want ErrNoEpic", err)
 	}
 }
@@ -230,7 +231,7 @@ func TestFreeReleaseSlotRemovesOnlyTheSlotItHolds(t *testing.T) {
 		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
 		releaseEpicIn(releaseOther, releaseRepo, store.PhaseClean),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 
@@ -252,7 +253,7 @@ func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean))
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}
@@ -295,7 +296,7 @@ func TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps(t *testing.T) {
 		{Step: "publish", Target: "registry", Undo: "yank"},
 	}
 	s, _ := openReleaseStore(t, row)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 
@@ -327,6 +328,68 @@ func TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps(t *testing.T) {
 	}
 	if !reflect.DeepEqual(flow.Steps, steps) {
 		t.Errorf("EpicFlow steps = %+v, want the release steps %+v", flow.Steps, steps)
+	}
+}
+
+// TestReleaseProofsReadsEachStepFromItsStoredRuns checks that ReleaseProofs gives each release step of an epic in
+// contract order the state its stored release runs give it: passed with the evidence and attempt of its passed run,
+// failed with the reason and evidence of its highest-attempt run, running while the running release node run has its
+// work step with no end, and waiting with no run. A judge run decides no step.
+func TestReleaseProofsReadsEachStepFromItsStoredRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	row := releaseEpicIn(releaseEpic, releaseRepo, store.PhaseReleasing)
+	row.ReleaseSteps = []store.EpicReleaseStep{
+		{Step: "push tag", Target: "origin", Undo: "delete tag"},
+		{Step: "publish", Target: "registry", Undo: "yank"},
+		{Step: "announce", Target: "mailing list", Undo: "retract"},
+		{Step: "close issue", Target: "tracker", Undo: "reopen"},
+	}
+	s, _ := openReleaseStore(t, row)
+
+	failedAt := releaseRunAt()
+	laterAt := time.Unix(1700002060, 0)
+	runs := []store.ReleaseRun{
+		{Part: store.ReleasePartStep, Position: 1, Attempt: 1, Step: "push tag", Evidence: "run-11",
+			Reason: "push rejected", At: failedAt},
+		{Part: store.ReleasePartStep, Position: 1, Attempt: 2, Step: "push tag", Evidence: "run-12", Passed: true,
+			At: laterAt},
+		{Part: store.ReleasePartStep, Position: 2, Attempt: 1, Step: "publish", Evidence: "run-21",
+			Reason: "registry refused", At: failedAt},
+		{Part: store.ReleasePartStep, Position: 2, Attempt: 2, Step: "publish", Evidence: "run-22",
+			Reason: "registry refused again", At: laterAt},
+		{Part: store.ReleasePartJudge, Position: 4, Attempt: 1, Evidence: "run-judge",
+			Reason: "the release is not whole", At: failedAt},
+	}
+	for _, record := range runs {
+		if err := s.RecordRelease(ctx, releaseEpic, record); err != nil {
+			t.Fatalf("RecordRelease %s %d at attempt %d: %v", record.Part, record.Position, record.Attempt, err)
+		}
+	}
+
+	node := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 2}
+	if err := s.StartNodes(ctx, releaseEpic, []store.NodeRun{node}, nil, releaseRunAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	id := store.NodeWorkID("id-release", 2, "release 3")
+	if err := s.ApplyEngine(ctx, []store.EngineOp{checkStepAdd(id)}, checkTime(0)); err != nil {
+		t.Fatalf("ApplyEngine adding step %s: %v", id, err)
+	}
+
+	flow, err := s.EpicFlow(ctx, releaseEpic)
+	if err != nil {
+		t.Fatalf("EpicFlow: %v", err)
+	}
+	want := []store.ReleaseProof{
+		{Position: 1, Step: "push tag", Target: "origin", Undo: "delete tag", State: "passed", Evidence: "run-12",
+			Attempt: 2, At: laterAt},
+		{Position: 2, Step: "publish", Target: "registry", Undo: "yank", State: "failed", Evidence: "run-22",
+			Reason: "registry refused again", Attempt: 2, At: laterAt},
+		{Position: 3, Step: "announce", Target: "mailing list", Undo: "retract", State: "running"},
+		{Position: 4, Step: "close issue", Target: "tracker", Undo: "reopen", State: "waiting"},
+	}
+	if got := store.ReleaseProofs(flow); !reflect.DeepEqual(got, want) {
+		t.Errorf("ReleaseProofs of epic %s = %+v, want %+v", releaseEpic, got, want)
 	}
 }
 

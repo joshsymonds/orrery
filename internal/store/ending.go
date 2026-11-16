@@ -36,6 +36,6 @@ func (s *Store) EndEpic(ctx context.Context, epic, phase, body string, ends []No
 		} else if err = insertTell(ctx, queries, epic, body, at); err != nil {
 			return fmt.Errorf("end epic %s: %w", epic, err)
 		}
-		return setEpicPhase(ctx, queries, epic, phase)
+		return setEpicPhase(ctx, queries, epic, phase, at)
 	})
 }

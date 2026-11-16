@@ -5,6 +5,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -13,7 +14,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.api.EpicContractRow
+import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicReleaseStepRow
+import io.github.joshsymonds.orrery.api.EpicReportRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
@@ -109,10 +112,38 @@ class EpicProofTest {
             slices = emptyList(),
         )
 
+    private fun releaseProof(
+        position: Long,
+        state: String,
+        evidence: String = "",
+        reason: String = "",
+    ): EpicReleaseProofRow =
+        EpicReleaseProofRow(
+            position = position,
+            step = "example proof step",
+            target = "example proof target",
+            undo = "example proof undo",
+            state = state,
+            evidence = evidence,
+            reason = reason,
+            attempt = 1L,
+            at = CHANGED - 60,
+        )
+
+    private fun report(
+        outcome: String,
+        shipped: List<String>,
+        notShipped: List<String>,
+        why: String,
+    ): EpicReportRow =
+        EpicReportRow(outcome = outcome, shipped = shipped, notShipped = notShipped, why = why)
+
     private fun setSections(
         requirements: List<EpicRequirementRow>,
         contract: EpicContractRow? = null,
         released: Boolean = false,
+        releaseProof: List<EpicReleaseProofRow> = emptyList(),
+        report: EpicReportRow? = null,
         wedges: List<Wedge> = emptyList(),
         onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
     ) {
@@ -130,8 +161,8 @@ class EpicProofTest {
                     wedges = wedges,
                     onOpenPhase = onOpenPhase,
                 )
-                ReleaseProof(contract = contract, released = released)
-                Report()
+                ReleaseProof(contract = contract, releaseProof = releaseProof, released = released)
+                Report(report = report)
             }
         }
     }
@@ -310,7 +341,72 @@ class EpicProofTest {
     }
 
     @Test
-    fun theReportIsAlwaysDimAndCarriesOnlyItsHeading() {
+    fun aReleaseStepShowsItsStateEvidenceAndReasonFromItsProof() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            contract = contract(listOf(EpicReleaseStepRow("example step one", "example target one", "example undo one"))),
+            releaseProof = listOf(releaseProof(1L, "failed", evidence = "example evidence one", reason = "example reason one")),
+        )
+
+        composeRule.onNodeWithTag("release-step-state:0", useUnmergedTree = true).assertTextEquals("failed")
+        composeRule.onNodeWithTag("release-step-evidence:0", useUnmergedTree = true).assertTextEquals("example evidence one")
+        composeRule.onNodeWithTag("release-step-reason:0", useUnmergedTree = true).assertTextEquals("example reason one")
+    }
+
+    @Test
+    fun aReleaseStepWithNoEvidenceOrReasonDrawsOnlyItsState() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            contract = contract(listOf(EpicReleaseStepRow("example step one", "example target one", "example undo one"))),
+            releaseProof = listOf(releaseProof(1L, "waiting")),
+        )
+
+        composeRule.onNodeWithTag("release-step-state:0", useUnmergedTree = true).assertTextEquals("waiting")
+        assertEquals(0, composeRule.onAllNodesWithTag("release-step-evidence:0", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithTag("release-step-reason:0", useUnmergedTree = true).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun aReleaseStepTakesTheProofAtItsPosition() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            contract = contract(
+                listOf(
+                    EpicReleaseStepRow("example step one", "example target one", "example undo one"),
+                    EpicReleaseStepRow("example step two", "example target two", "example undo two"),
+                ),
+            ),
+            releaseProof = listOf(releaseProof(2L, "passed")),
+        )
+
+        assertEquals(0, composeRule.onAllNodesWithTag("release-step-state:0", useUnmergedTree = true).fetchSemanticsNodes().size)
+        composeRule.onNodeWithTag("release-step-state:1", useUnmergedTree = true).assertTextEquals("passed")
+    }
+
+    @Test
+    fun aWaitingStepLeavesTheReleaseProofDim() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            contract = contract(listOf(EpicReleaseStepRow("example step one", "example target one", "example undo one"))),
+            releaseProof = listOf(releaseProof(1L, "waiting")),
+        )
+
+        assertEquals(DIM, stateOf("proof:release"))
+    }
+
+    @Test
+    fun aRunningStepReachesTheReleaseProof() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            contract = contract(listOf(EpicReleaseStepRow("example step one", "example target one", "example undo one"))),
+            releaseProof = listOf(releaseProof(1L, "running")),
+        )
+
+        assertEquals(REACHED, stateOf("proof:release"))
+    }
+
+    @Test
+    fun theReportWithoutOneIsDimAndCarriesOnlyItsHeading() {
         setSections(
             listOf(requirement("R1", "example requirement one", runs = listOf(run("example-run-1", "red", "example red one")))),
             contract = contract(listOf(EpicReleaseStepRow("example step one", "example target one", "example undo one"))),
@@ -319,6 +415,48 @@ class EpicProofTest {
 
         assertEquals(DIM, stateOf("proof:report"))
         assertEquals(1, countIn("proof:report", SemanticsMatcher("any text") { it.config.contains(SemanticsProperties.Text) }))
+    }
+
+    @Test
+    fun theReportShowsItsOutcomeListsAndWhyAndIsReached() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            report = report(
+                outcome = "example outcome",
+                shipped = listOf("R1", "R2"),
+                notShipped = listOf("R3"),
+                why = "example why",
+            ),
+        )
+
+        composeRule.onNodeWithTag("report-outcome", useUnmergedTree = true).assertTextEquals("example outcome")
+        composeRule.onNodeWithTag("report-shipped", useUnmergedTree = true).assertTextEquals("shipped R1, R2")
+        composeRule.onNodeWithTag("report-not-shipped", useUnmergedTree = true).assertTextEquals("not shipped R3")
+        composeRule.onNodeWithTag("report-why", useUnmergedTree = true).assertTextEquals("example why")
+        assertEquals(REACHED, stateOf("proof:report"))
+    }
+
+    @Test
+    fun aReportListWithNoIdsIsNotDrawn() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            report = report(outcome = "example outcome", shipped = emptyList(), notShipped = listOf("R3"), why = "example why"),
+        )
+
+        assertEquals(0, composeRule.onAllNodesWithTag("report-shipped", useUnmergedTree = true).fetchSemanticsNodes().size)
+        composeRule.onNodeWithTag("report-not-shipped", useUnmergedTree = true).assertTextEquals("not shipped R3")
+    }
+
+    @Test
+    fun aReportWithNoIdsDrawsNeitherList() {
+        setSections(
+            listOf(requirement("R1", "example requirement one")),
+            report = report(outcome = "example outcome", shipped = emptyList(), notShipped = emptyList(), why = "example why"),
+        )
+
+        assertEquals(0, composeRule.onAllNodesWithTag("report-shipped", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithTag("report-not-shipped", useUnmergedTree = true).fetchSemanticsNodes().size)
+        composeRule.onNodeWithTag("report-why", useUnmergedTree = true).assertTextEquals("example why")
     }
 
     @Test

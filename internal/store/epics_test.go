@@ -17,7 +17,8 @@ func epicCreated() time.Time {
 }
 
 // fullEpic returns a synthetic contract with every section at two or more rows. Its seed decisions carry a seq and
-// a time that CreateEpic must ignore: the seeds are numbered from 1 and dated at the epic's creation.
+// a time that CreateEpic must ignore: the seeds are numbered from 1 and dated at the epic's creation. Its phase time is
+// its creation, since CreateEpic stores the created time as the time the phase was set.
 func fullEpic(id string) EpicRow {
 	return EpicRow{
 		ID:          id,
@@ -32,6 +33,7 @@ func fullEpic(id string) EpicRow {
 		Phase:       "accepted",
 		Created:     epicCreated(),
 		Changed:     time.Unix(1700000060, 0),
+		PhaseAt:     epicCreated(),
 		Failures: []EpicFailure{
 			{ID: "F1", Text: "Rows come back reordered", Rating: "serious", Response: "Order by position"},
 			{ID: "F2", Text: "A decision changes later", Rating: "severe", Response: "No update query"},
@@ -347,4 +349,73 @@ func TestAnswerEpicOfUnknownEpicIsErrNoEpic(t *testing.T) {
 	if !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("AnswerEpic of unknown epic err = %v, want ErrNoEpic", err)
 	}
+}
+
+// requirePhaseAt fails unless integrateEpic is in phase and its phase time is the second at.
+func requirePhaseAt(t *testing.T, s *Store, phase string, at int64) {
+	t.Helper()
+	row := integrateEpicRow(t, s)
+	if row.Phase != phase {
+		t.Fatalf("phase of epic %s = %q, want %q", integrateEpic, row.Phase, phase)
+	}
+	if want := time.Unix(at, 0); !row.PhaseAt.Equal(want) {
+		t.Errorf("phase time of epic %s in %s = %v, want %v", integrateEpic, phase, row.PhaseAt, want)
+	}
+}
+
+// TestPhaseAtFollowsEachPhaseWrite checks that the phase time of an epic is the second its phase was last set: its
+// created time at creation, the time of each write that changes the phase, and the stored time through a write that
+// leaves the phase as it is. A release stop and a release resume each set it.
+func TestPhaseAtFollowsEachPhaseWrite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	requirePhaseAt(t, s, "accepted", 1700000000)
+
+	startIntegrateRuns(t, s, NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1})
+	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7", time.Unix(1700002400, 0)); err != nil {
+		t.Fatalf("FreezeReview: %v", err)
+	}
+	requirePhaseAt(t, s, "reviewing", 1700002400)
+
+	// A second run's freeze sets the phase reviewing again, which leaves the phase time where it was.
+	startIntegrateRuns(t, s, NodeRun{
+		Path: "review/again", ID: "id-review-again", Node: "review", Kind: "review", Attempt: 1,
+	})
+	if err := s.FreezeReview(ctx, integrateEpic, "review/again", 1, "rev-7", time.Unix(1700002500, 0)); err != nil {
+		t.Fatalf("FreezeReview of a second run: %v", err)
+	}
+	requirePhaseAt(t, s, "reviewing", 1700002400)
+
+	if err := s.EndEpic(ctx, integrateEpic, "clean", "", nil, time.Unix(1700002600, 0)); err != nil {
+		t.Fatalf("EndEpic: %v", err)
+	}
+	requirePhaseAt(t, s, "clean", 1700002600)
+
+	holder, err := s.TakeReleaseSlot(ctx, integrateEpic, time.Unix(1700002700, 0))
+	if err != nil {
+		t.Fatalf("TakeReleaseSlot: %v", err)
+	}
+	if holder != integrateEpic {
+		t.Errorf("slot holder = %q, want %q", holder, integrateEpic)
+	}
+	requirePhaseAt(t, s, "releasing", 1700002700)
+
+	startIntegrateRuns(t, s, NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1})
+	if err := s.StopRelease(
+		ctx,
+		integrateEpic,
+		"release",
+		1,
+		"publish rejected",
+		time.Unix(1700002800, 0),
+	); err != nil {
+		t.Fatalf("StopRelease: %v", err)
+	}
+	requirePhaseAt(t, s, "stopped", 1700002800)
+
+	if err := s.ReleaseEpic(ctx, integrateEpic, nil, time.Unix(1700002900, 0)); err != nil {
+		t.Fatalf("ReleaseEpic: %v", err)
+	}
+	requirePhaseAt(t, s, "releasing", 1700002900)
 }

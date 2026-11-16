@@ -35,14 +35,15 @@ func (s *Store) EndReview(
 		if ended == 0 {
 			return nil
 		}
-		return storeEndedReview(ctx, queries, epic, verdicts, ledger)
+		return storeEndedReview(ctx, queries, epic, verdicts, ledger, at)
 	})
 }
 
 // storeEndedReview stores verdicts and ledger as the verdicts and ledger of the review of epic, and sets the phase of
-// epic to correcting, in the caller's write.
+// epic to correcting at at, in the caller's write.
 func storeEndedReview(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, verdicts []ReviewVerdict, ledger []LedgerFinding,
+	at time.Time,
 ) error {
 	for _, v := range verdicts {
 		if err := queries.InsertEpicReviewVerdict(ctx, sqlcgen.InsertEpicReviewVerdictParams{
@@ -61,5 +62,5 @@ func storeEndedReview(
 			return fmt.Errorf("insert finding %s of epic %s: %w", finding.ID, epic, err)
 		}
 	}
-	return setEpicPhase(ctx, queries, epic, phaseCorrecting)
+	return setEpicPhase(ctx, queries, epic, phaseCorrecting, at)
 }

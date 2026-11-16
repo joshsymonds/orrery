@@ -9,6 +9,9 @@ import { act } from "preact/test-utils";
 import type { LoadArtifact } from "./evidence";
 import {
   EpicContractSchema,
+  type EpicReleaseProof,
+  EpicReleaseProofSchema,
+  EpicReportSchema,
   type EpicRequirement,
   EpicRequirementSchema,
   type EvidenceRun,
@@ -102,6 +105,37 @@ const contract = create(EpicContractSchema, {
   releaseThen: "The epic is released.",
 });
 
+// proofOf makes a release step's proof from its fields.
+function proofOf(init: MessageInitShape<typeof EpicReleaseProofSchema>): EpicReleaseProof {
+  return create(EpicReleaseProofSchema, init);
+}
+
+// passed is the first release step's proof: its run passed, with evidence and a reason.
+const passed = proofOf({
+  position: 1n,
+  state: "passed",
+  evidence: "tag v1.2.0 pushed",
+  reason: "the remote accepted the tag",
+  attempt: 1n,
+  at: 9_900n,
+});
+
+// failed is the first release step's proof: its run failed, with evidence and a reason.
+const failed = proofOf({
+  position: 1n,
+  state: "failed",
+  evidence: "push rejected",
+  reason: "the remote refused the tag",
+  attempt: 1n,
+  at: 9_900n,
+});
+
+// running is the second release step's proof: it runs, and no run has decided it, so it has no evidence or reason.
+const running = proofOf({ position: 2n, state: "running" });
+
+// waiting is the first release step's proof with no run yet.
+const waiting = proofOf({ position: 1n, state: "waiting" });
+
 // wedge is a task's wedge with the fields a proof card reads: its task and the requirements it names.
 function wedge(task: string, requirements: string[]): Wedge {
   return { task, title: `the task ${task}`, requirements, place: "implementing", tone: "run", slices: [] };
@@ -142,6 +176,11 @@ function textOf(root: ParentNode, selector: string): string | null {
 // perCard is the text of the first match of a selector in each proof card, null for a card without one.
 function perCard(root: ParentNode, selector: string): (string | null)[] {
   return [...root.querySelectorAll(".proof-card")].map((card) => textOf(card, selector));
+}
+
+// perStep is the text of the first match of a selector in each release step row, null for a row without one.
+function perStep(root: ParentNode, selector: string): (string | null)[] {
+  return [...root.querySelectorAll(".release-step")].map((row) => textOf(row, selector));
 }
 
 // runCountsOf is how many evidence runs each proof card draws.
@@ -243,7 +282,7 @@ test("the green proof is reached only by a green run that passed", async () => {
 });
 
 test("the release proof draws each step with its target and undo, then the line after them", async () => {
-  const drawn = await mounted(<ReleaseProof contract={contract} released={true} />, (c) => ({
+  const drawn = await mounted(<ReleaseProof contract={contract} releaseSteps={[]} released={true} />, (c) => ({
     section: c.querySelector("section")?.className ?? null,
     steps: textsOf(c, ".release-step .step"),
     targets: textsOf(c, ".release-step .target"),
@@ -260,7 +299,7 @@ test("the release proof draws each step with its target and undo, then the line 
 });
 
 test("the release proof is dim until released, and draws its steps either way", async () => {
-  const drawn = await mounted(<ReleaseProof contract={contract} released={false} />, (c) => ({
+  const drawn = await mounted(<ReleaseProof contract={contract} releaseSteps={[]} released={false} />, (c) => ({
     section: c.querySelector("section")?.className ?? null,
     steps: textsOf(c, ".release-step .step"),
   }));
@@ -268,8 +307,49 @@ test("the release proof is dim until released, and draws its steps either way", 
   assert.deepEqual(drawn.steps, ["tag the release", "publish the image"]);
 });
 
+test("each release step draws its state, and its evidence and reason when a run has decided it", async () => {
+  const drawn = await mounted(
+    <ReleaseProof contract={contract} releaseSteps={[passed, running]} released={false} />,
+    (c) => ({
+      states: perStep(c, ".state"),
+      evidence: perStep(c, ".evidence"),
+      reasons: perStep(c, ".reason"),
+    }),
+  );
+  assert.deepEqual(drawn.states, ["passed", "running"]);
+  assert.deepEqual(drawn.evidence, ["tag v1.2.0 pushed", null]);
+  assert.deepEqual(drawn.reasons, ["the remote accepted the tag", null]);
+});
+
+test("a release step's proof is matched by its position from 1, not by its place in the list", async () => {
+  const drawn = await mounted(
+    <ReleaseProof contract={contract} releaseSteps={[running, passed]} released={false} />,
+    (c) => ({ states: perStep(c, ".state") }),
+  );
+  assert.deepEqual(drawn.states, ["passed", "running"]);
+});
+
+test("the release proof is reached by a step that is running or failed, and dim while every step waits", async () => {
+  assert.equal(
+    await sectionClass(<ReleaseProof contract={contract} releaseSteps={[running]} released={false} />),
+    "proof release",
+  );
+  assert.equal(
+    await sectionClass(<ReleaseProof contract={contract} releaseSteps={[failed]} released={false} />),
+    "proof release",
+  );
+  assert.equal(
+    await sectionClass(<ReleaseProof contract={contract} releaseSteps={[waiting]} released={false} />),
+    "proof release dim",
+  );
+  assert.equal(
+    await sectionClass(<ReleaseProof contract={contract} releaseSteps={[]} released={false} />),
+    "proof release dim",
+  );
+});
+
 test("the release proof with no contract is its heading alone, dim until released", async () => {
-  const released = await mounted(<ReleaseProof contract={undefined} released={true} />, (c) => ({
+  const released = await mounted(<ReleaseProof contract={undefined} releaseSteps={[]} released={true} />, (c) => ({
     section: c.querySelector("section")?.className ?? null,
     text: c.textContent,
     steps: textsOf(c, ".release-step"),
@@ -278,18 +358,51 @@ test("the release proof with no contract is its heading alone, dim until release
   assert.equal(released.text, "Release proof");
   assert.deepEqual(released.steps, []);
   assert.equal(
-    await sectionClass(<ReleaseProof contract={undefined} released={false} />),
+    await sectionClass(<ReleaseProof contract={undefined} releaseSteps={[]} released={false} />),
     "proof release dim",
   );
 });
 
-test("the report is its heading alone and always dim", async () => {
-  const drawn = await mounted(<Report />, (c) => ({
+test("the report is its heading alone and dim until the epic writes one", async () => {
+  const drawn = await mounted(<Report report={undefined} />, (c) => ({
     section: c.querySelector("section")?.className ?? null,
     text: c.textContent,
   }));
   assert.equal(drawn.section, "proof report dim");
   assert.equal(drawn.text, "Report");
+});
+
+test("a report shows its outcome, shipped and not-shipped ids and why, and is reached", async () => {
+  const report = create(EpicReportSchema, {
+    outcome: "released to production",
+    shipped: ["R1", "R2"],
+    notShipped: ["R3"],
+    why: "R3 failed its green run",
+  });
+  const drawn = await mounted(<Report report={report} />, (c) => ({
+    section: c.querySelector("section")?.className ?? null,
+    heading: textOf(c, "section h3"),
+    outcome: textOf(c, ".report .outcome"),
+    shipped: textOf(c, ".report .shipped"),
+    notShipped: textOf(c, ".report .not-shipped"),
+    why: textOf(c, ".report .why"),
+  }));
+  assert.equal(drawn.section, "proof report");
+  assert.equal(drawn.heading, "Report");
+  assert.equal(drawn.outcome, "released to production");
+  assert.equal(drawn.shipped, "shipped R1, R2");
+  assert.equal(drawn.notShipped, "not shipped R3");
+  assert.equal(drawn.why, "R3 failed its green run");
+});
+
+test("a report draws no line for an empty list", async () => {
+  const report = create(EpicReportSchema, { outcome: "done", shipped: [], notShipped: ["R1"], why: "R1 has no green run" });
+  const drawn = await mounted(<Report report={report} />, (c) => ({
+    shipped: c.querySelector(".report .shipped") !== null,
+    notShipped: textOf(c, ".report .not-shipped"),
+  }));
+  assert.equal(drawn.shipped, false);
+  assert.equal(drawn.notShipped, "not shipped R1");
 });
 
 test("a red card is a button, and a press opens the first wedge naming its requirement in implementing", async () => {

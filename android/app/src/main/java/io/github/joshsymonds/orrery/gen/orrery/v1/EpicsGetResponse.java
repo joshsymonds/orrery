@@ -33,6 +33,7 @@ public  final class EpicsGetResponse extends
     reviews_ = emptyProtobufList();
     sessions_ = emptyProtobufList();
     repository_ = "";
+    releaseSteps_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -1967,6 +1968,222 @@ public  final class EpicsGetResponse extends
     checkByteStringIsUtf8(value);
     repository_ = value.toStringUtf8();
 
+  }
+
+  public static final int RELEASE_STEPS_FIELD_NUMBER = 18;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> releaseSteps_;
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> getReleaseStepsList() {
+    return releaseSteps_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProofOrBuilder> 
+      getReleaseStepsOrBuilderList() {
+    return releaseSteps_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  @java.lang.Override
+  public int getReleaseStepsCount() {
+    return releaseSteps_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof getReleaseSteps(int index) {
+    return releaseSteps_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProofOrBuilder getReleaseStepsOrBuilder(
+      int index) {
+    return releaseSteps_.get(index);
+  }
+  private void ensureReleaseStepsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> tmp = releaseSteps_;
+    if (!tmp.isModifiable()) {
+      releaseSteps_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  private void setReleaseSteps(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReleaseStepsIsMutable();
+    releaseSteps_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  private void addReleaseSteps(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReleaseStepsIsMutable();
+    releaseSteps_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  private void addReleaseSteps(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReleaseStepsIsMutable();
+    releaseSteps_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  private void addAllReleaseSteps(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> values) {
+    ensureReleaseStepsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, releaseSteps_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  private void clearReleaseSteps() {
+    releaseSteps_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+   * record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+   */
+  private void removeReleaseSteps(int index) {
+    ensureReleaseStepsIsMutable();
+    releaseSteps_.remove(index);
+  }
+
+  public static final int REPORT_FIELD_NUMBER = 19;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport report_;
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   */
+  @java.lang.Override
+  public boolean hasReport() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport getReport() {
+    return report_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport.getDefaultInstance() : report_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   */
+  private void setReport(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport value) {
+    java.util.Objects.requireNonNull(value);
+    report_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeReport(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport value) {
+    java.util.Objects.requireNonNull(value);
+    if (report_ != null &&
+        report_ != io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport.getDefaultInstance()) {
+      report_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport.newBuilder(report_).mergeFrom(value).buildPartial();
+    } else {
+      report_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+   */
+  private void clearReport() {
+    report_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -4155,6 +4372,239 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> getReleaseStepsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getReleaseStepsList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    @java.lang.Override
+    public int getReleaseStepsCount() {
+      return instance.getReleaseStepsCount();
+    }/**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof getReleaseSteps(int index) {
+      return instance.getReleaseSteps(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder setReleaseSteps(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof value) {
+      copyOnWrite();
+      instance.setReleaseSteps(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder setReleaseSteps(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof.Builder builderForValue) {
+      copyOnWrite();
+      instance.setReleaseSteps(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder addReleaseSteps(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof value) {
+      copyOnWrite();
+      instance.addReleaseSteps(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder addReleaseSteps(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof value) {
+      copyOnWrite();
+      instance.addReleaseSteps(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder addReleaseSteps(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof.Builder builderForValue) {
+      copyOnWrite();
+      instance.addReleaseSteps(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder addReleaseSteps(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof.Builder builderForValue) {
+      copyOnWrite();
+      instance.addReleaseSteps(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder addAllReleaseSteps(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> values) {
+      copyOnWrite();
+      instance.addAllReleaseSteps(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder clearReleaseSteps() {
+      copyOnWrite();
+      instance.clearReleaseSteps();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
+     * record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
+     */
+    public Builder removeReleaseSteps(int index) {
+      copyOnWrite();
+      instance.removeReleaseSteps(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+     */
+    @java.lang.Override
+    public boolean hasReport() {
+      return instance.hasReport();
+    }
+    /**
+     * <pre>
+     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport getReport() {
+      return instance.getReport();
+    }
+    /**
+     * <pre>
+     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+     */
+    public Builder setReport(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport value) {
+      copyOnWrite();
+      instance.setReport(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+     */
+    public Builder setReport(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport.Builder builderForValue) {
+      copyOnWrite();
+      instance.setReport(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+     */
+    public Builder mergeReport(io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport value) {
+      copyOnWrite();
+      instance.mergeReport(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
+     */
+    public Builder clearReport() {  copyOnWrite();
+      instance.clearReport();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -4200,12 +4650,15 @@ public  final class EpicsGetResponse extends
             "sessions_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession.class,
             "repository_",
+            "releaseSteps_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof.class,
+            "report_",
           };
           java.lang.String info =
-              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u000b\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0013\u0000\u0001\u0001\u0013\u0013\u0000\f\u0000\u0001\u1009\u0000\u0002" +
               "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
               "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
-              "\u0208";
+              "\u0208\u0012\u001b\u0013\u1009\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

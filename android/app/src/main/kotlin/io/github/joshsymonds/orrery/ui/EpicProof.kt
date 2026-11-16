@@ -16,10 +16,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicContractRow
+import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
+import io.github.joshsymonds.orrery.api.EpicReportRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 
 private const val RED = "red"
 private const val GREEN = "green"
+private const val WAITING = "waiting"
 private const val DIM_ALPHA = 0.4f
 
 /** The red proof: a card per requirement with its red runs. It is reached once any requirement has a red run. */
@@ -72,17 +75,41 @@ fun GreenProof(
 }
 
 /**
- * The release proof: the contract's release steps with their target and undo, then its then line. It is reached only
- * once the epic is released.
+ * The release proof: the contract's release steps with their target and undo, each step's state and, when a run has
+ * decided it, its evidence and reason, then its then line. A step's proof is the one at its position, counted from 1.
+ * It is reached once the epic is released or a step is not waiting.
  */
 @Composable
-fun ReleaseProof(contract: EpicContractRow?, released: Boolean) {
-    ProofSection(name = "release", title = "Release proof", reached = released) {
+fun ReleaseProof(contract: EpicContractRow?, releaseProof: List<EpicReleaseProofRow>, released: Boolean) {
+    val reached = released || releaseProof.any { it.state != WAITING }
+    ProofSection(name = "release", title = "Release proof", reached = reached) {
         contract?.releaseSteps?.forEachIndexed { index, step ->
+            val proof = releaseProof.firstOrNull { it.position == index + 1L }
             Column(modifier = Modifier.fillMaxWidth().testTag("release-step:$index")) {
                 Text(step.step, style = MaterialTheme.typography.bodyMedium)
                 Text(step.target, style = MaterialTheme.typography.bodySmall)
                 Text(step.undo, style = MaterialTheme.typography.labelSmall)
+                if (proof != null) {
+                    Text(
+                        proof.state,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("release-step-state:$index"),
+                    )
+                    if (proof.evidence.isNotEmpty()) {
+                        Text(
+                            proof.evidence,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.testTag("release-step-evidence:$index"),
+                        )
+                    }
+                    if (proof.reason.isNotEmpty()) {
+                        Text(
+                            proof.reason,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.testTag("release-step-reason:$index"),
+                        )
+                    }
+                }
             }
         }
         if (contract != null) {
@@ -91,10 +118,32 @@ fun ReleaseProof(contract: EpicContractRow?, released: Boolean) {
     }
 }
 
-/** The report section. It has no content yet and is always drawn dim. */
+/**
+ * The report: its heading alone and dim until the epic has one. Once it has one, the section is reached and shows the
+ * outcome, the Requirement ids shipped and not shipped, each list drawn only when it has an id, and why.
+ */
 @Composable
-fun Report() {
-    ProofSection(name = "report", title = "Report", reached = false) {}
+fun Report(report: EpicReportRow?) {
+    ProofSection(name = "report", title = "Report", reached = report != null) {
+        if (report != null) {
+            Text(report.outcome, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("report-outcome"))
+            if (report.shipped.isNotEmpty()) {
+                Text(
+                    "shipped ${report.shipped.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("report-shipped"),
+                )
+            }
+            if (report.notShipped.isNotEmpty()) {
+                Text(
+                    "not shipped ${report.notShipped.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("report-not-shipped"),
+                )
+            }
+            Text(report.why, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("report-why"))
+        }
+    }
 }
 
 /**

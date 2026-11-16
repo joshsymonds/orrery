@@ -110,7 +110,14 @@ func reviewWorkStartRun(t *testing.T, s *store.Store, nodeKind string) store.Nod
 func reviewWorkFrozenRun(t *testing.T, s *store.Store) store.NodeRun {
 	t.Helper()
 	run := reviewWorkStartRun(t, s, reviewNodeKind)
-	if err := s.FreezeReview(context.Background(), runEpic, run.Path, run.Attempt, reviewWorkFrozen); err != nil {
+	if err := s.FreezeReview(
+		context.Background(),
+		runEpic,
+		run.Path,
+		run.Attempt,
+		reviewWorkFrozen,
+		runClock(),
+	); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
 	return runAt(t, s, reviewNodeKind)
