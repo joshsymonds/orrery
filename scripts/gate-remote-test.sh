@@ -12,7 +12,15 @@ set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gate-remote.sh"
 root="$(mktemp -d)"
-trap 'rm -rf -- "$root"' EXIT
+# Ends what the tests left running on purpose (the orphans of the scope cases) before removing the directory.
+cleanup() {
+    local f
+    for f in "$root"/orphan*; do
+        [ ! -s "$f" ] || kill "$(cat "$f")" 2>/dev/null || true
+    done
+    rm -rf -- "$root" || true
+}
+trap cleanup EXIT
 
 failures=0
 fail() {
@@ -23,7 +31,7 @@ pass() {
     echo "ok: $*"
 }
 
-mkdir -p "$root/bin" "$root/box" "$root/run"
+mkdir -p "$root/bin" "$root/boxbin" "$root/box" "$root/run"
 
 # The fake ssh drops options, then runs the command in the box directory with HOME set to it. Switches:
 #   $root/box-down    every connection fails with 255, as ssh does when the box is gone;
@@ -62,8 +70,48 @@ if [ -e "$FAKE_ROOT/drop-run" ] && [[ $cmd == *orrery-gate-run* ]]; then
     exit 255
 fi
 unset $(git rev-parse --local-env-vars)
-cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" exec bash -c "$cmd"
+# ssh closes every descriptor above stderr when it starts, so the box never inherits one of the caller's.
+for fd in /proc/$$/fd/*; do
+    fd="${fd##*/}"
+    if [ "$fd" -gt 2 ]; then
+        eval "exec $fd>&-" 2>/dev/null || true
+    fi
+done
+cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" PATH="$FAKE_ROOT/boxbin:$PATH" exec bash -c "$cmd"
 EOF
+# The box's fake systemd: a scope is a process group. systemd-run --scope records "<unit> <pid>" in $root/scopes and
+# runs the command as the leader of a new session; systemctl --user stop <unit>.scope records the unit in $root/stops
+# and kills that group. systemctl --user show-environment fails while $root/no-user-manager exists.
+cat >"$root/boxbin/systemd-run" <<'EOF'
+#!/usr/bin/env bash
+unit=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --unit=*) unit="${1#--unit=}"; shift ;;
+        -p) shift 2 ;;
+        --) shift; break ;;
+        *) shift ;;
+    esac
+done
+echo "$unit $$" >>"$FAKE_ROOT/scopes"
+exec setsid "$@"
+EOF
+cat >"$root/boxbin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+    "--user show-environment") [ ! -e "$FAKE_ROOT/no-user-manager" ] ;;
+    "--user stop "*.scope)
+        unit="${3%.scope}"
+        echo "$unit" >>"$FAKE_ROOT/stops"
+        pid="$(awk -v u="$unit" '$1 == u { print $2 }' "$FAKE_ROOT/scopes")"
+        [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$root/boxbin/"*
+
 # The fake wake: with a destination in $root/wake-brings it writes it to the host file, as a wake that found or launched
 # a box does; otherwise it fails as a refused launch does.
 cat >"$root/bin/wake" <<'EOF'
@@ -227,6 +275,70 @@ expect_status 0 "sync removes deleted files and keeps the box's ignored output"
 # A remote command that exits 255 itself is the command's result, not a lost box.
 gate "$root/out" "$root/err" bash -c 'exit 255'
 expect_status 255 "a command's own 255 comes back as 255"
+
+# gone <pid>: true once the process has ended; the scope's stop signals it, so wait for it a little.
+gone() {
+    local i
+    for ((i = 0; i < 100; i++)); do
+        kill -0 "$1" 2>/dev/null || return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# The command runs in its own scope, which is stopped when the run ends: a child the command left behind ends with it,
+# and the checkout's lock is free once the run is over.
+rm -f "$root/scopes" "$root/stops"
+leave=$(cat <<'EOF'
+sleep 300 </dev/null >/dev/null 2>&1 &
+echo "$!" >"$FAKE_ROOT/orphan-left"
+exit 9
+EOF
+)
+gate "$root/out" "$root/err" bash -c "$leave"
+expect_status 9 "a run in a scope returns the command's status"
+unit="$(awk 'NR == 1 { print $1 }' "$root/scopes" 2>/dev/null)"
+expect "the run gets its own orrery-gate scope" test -n "$unit" -a "${unit#orrery-gate-}" != "$unit"
+expect "the run's scope is stopped when it ends" grep -qxF "$unit" "$root/stops"
+expect "a child the command left behind ends with the run" gone "$(cat "$root/orphan-left")"
+expect "the checkout's lock is free after the run" flock -n "$root/box/gate/$sub.lock" true
+
+# flock -o: only flock holds the lock, so a process that escapes the scope (here, into its own session) does not hold
+# it, and the next run in the checkout starts.
+escape=$(cat <<'EOF'
+setsid sleep 300 </dev/null >/dev/null 2>&1 &
+echo "$!" >"$FAKE_ROOT/orphan-escaped"
+EOF
+)
+gate "$root/out" "$root/err" bash -c "$escape"
+expect_status 0 "a run that leaves an escaped process"
+expect "the escaped process outlives the fake scope" kill -0 "$(cat "$root/orphan-escaped")"
+expect "an escaped process does not hold the checkout's lock" flock -n "$root/box/gate/$sub.lock" true
+# holds_no <pid> <path>: the process has no descriptor open on the path.
+holds_no() {
+    local fd
+    for fd in /proc/"$1"/fd/*; do
+        [ "$(readlink "$fd" 2>/dev/null)" != "$2" ] || return 1
+    done
+}
+expect "the escaped process holds no descriptor of the lock" \
+    holds_no "$(cat "$root/orphan-escaped")" "$root/box/gate/$sub.lock"
+if flock -n "$root/box/gate/$sub.lock" true; then
+    gate "$root/out" "$root/err" true
+    expect_status 0 "the next run in the checkout starts"
+else
+    fail "the next run in the checkout would wait on the lock the escaped process holds"
+fi
+kill "$(cat "$root/orphan-escaped")"
+
+# A box whose user manager does not answer runs nothing there, since its run could not be scoped.
+touch "$root/no-user-manager"
+rm -f "$root/scopes"
+gate "$root/out" "$root/err" bash -c 'exit 8'
+expect_status 8 "a box without a user manager runs the command here"
+expect_line "$root/err" 'here \(orrery@fake-box has no user manager for the run.s scope' "a box without a user manager says so"
+expect "a box without a user manager starts no scope" test ! -e "$root/scopes"
+rm "$root/no-user-manager"
 
 # The box does not answer: the run waits for the wake, which brings another box, and runs there, never here.
 touch "$root/down-orrery@fake-box"

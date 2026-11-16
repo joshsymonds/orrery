@@ -23,7 +23,11 @@
 #       5. points the checkout's HEAD, origin/main and tags at this work tree's, rebuilds its index from HEAD plus this
 #          work tree's staged changes, then runs the command, each argument one word and never evaluated, from the top of
 #          the checkout through scripts/in-devenv, under a shell named orrery-gate-run (the box's busyCommand looks for
-#          it). The command's output streams back as it runs;
+#          it). The command's output streams back as it runs. The run holds the checkout's lock through flock -o, so
+#          only flock holds it and nothing the command starts inherits it. The command runs in its own systemd user
+#          scope, orrery-gate-<run>.scope, which is stopped when the run ends, also when its connection drops: whatever
+#          the command left behind (a timed-out test's daemons, a Gradle daemon) ends with it, since a process stays in
+#          its scope's cgroup however it detaches. A box whose user manager does not answer runs nothing;
 #       6. a run here goes through $ORRERY_GATE_LOCAL (default /tmp/claude-1000/heavy when it is executable, else the
 #          command runs directly).
 #       When steps 2-4 fail because the box stopped answering, it goes back to step 1 once; when they fail on a box that
@@ -61,7 +65,8 @@
 # Exit codes: the command's status, wherever it ran. 75 is an environment result: the box went away or the connection
 # to it dropped after the command started (a spot interruption, for one), and the line before it says so. It is never
 # a test failure; run again, and the next run waits for the replacement box that the lost one's wake brings up. A
-# checkout the box cannot set up in step 5 runs the command here. 2 for bad usage or outside a git work tree.
+# checkout the box cannot set up in step 5, or a box without a user manager for the scope, runs the command here. 2 for
+# bad usage or outside a git work tree.
 
 set -euo pipefail
 
@@ -98,12 +103,13 @@ host_file_dest() {
     printf '%s' "$line"
 }
 
-# Starts the wake detached and returns at once, so a box is coming up for the next run.
+# Starts the wake detached and returns at once, so a box is coming up for the next run. The wake never inherits this
+# run's work-tree lock (fd 8), so it never holds up the next run from this work tree.
 start_wake() {
     local -a command
     read -ra command <<<"${ORRERY_GATE_WAKE:-$self wake}"
     echo "gate-remote: waking an orrery-gate box for the next run (log: $wake_log)" >&2
-    setsid "${command[@]}" </dev/null >>"$wake_log" 2>&1 &
+    setsid "${command[@]}" </dev/null >>"$wake_log" 2>&1 8>&- &
 }
 
 # Runs the wake in its own session and waits for it to end, so a run killed while it waits leaves the launch going.
@@ -114,7 +120,7 @@ wait_for_wake() {
     local out status
     read -ra command <<<"${ORRERY_GATE_WAKE:-$self wake}"
     out="$(mktemp)"
-    { setsid -w "${command[@]}" </dev/null 2>&1 && echo 0 >"$out.status" || echo "$?" >"$out.status"; } \
+    { setsid -w "${command[@]}" </dev/null 2>&1 8>&- && echo 0 >"$out.status" || echo "$?" >"$out.status"; } \
         | tee -a "$wake_log" >"$out" &
     wait "$!" || true
     status="$(cat "$out.status" 2>/dev/null || echo 1)"
@@ -213,6 +219,22 @@ echo "load $one $five $fifteen nproc $(nproc)"
 EOF
 }
 
+# What the box runs, holding the checkout's lock, as `bash -c <this> orrery-gate-run <unit> <command...>`: the command in
+# its own user scope, stopped whenever this shell ends, so nothing the command started outlives the run. The command
+# runs in the background and this shell waits for it, so a hangup or TERM (a dropped connection) is acted on at once.
+box_run() {
+    cat <<'EOF'
+unit="$1"
+shift
+trap 'systemctl --user stop "$unit.scope" 2>/dev/null || true' EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+systemd-run --user --scope --quiet --collect -p TimeoutStopSec=15 --unit="$unit" -- \
+    scripts/in-devenv -c '"$@"; exit $?' orrery-gate-run "$@" &
+wait "$!"
+EOF
+}
+
 # Steps 2-4 on dest; prepared holds the box's output.
 prepared=""
 prepare() {
@@ -285,7 +307,8 @@ run_remote() {
     script+=" && { [ ! -s ../$(printf '%q' "$sub").meta/staged.patch ] || git apply --cached ../$(printf '%q' "$sub").meta/staged.patch; }"
     script+=" && { git update-index -q --refresh || true; }"
     script+=" || { echo \"$run_id setup\" >$exit_file; exit 1; }"
-    script+="; flock -x ../$(printf '%q' "$sub").lock scripts/in-devenv -c '\"\$@\"; exit \$?' orrery-gate-run $(printf '%q ' "$@")"
+    script+="; systemctl --user show-environment >/dev/null 2>&1 || { echo \"$run_id noscope\" >$exit_file; exit 1; }"
+    script+="; flock -o -x ../$(printf '%q' "$sub").lock bash -c $(printf '%q' "$(box_run)") orrery-gate-run orrery-gate-$run_id $(printf '%q ' "$@")"
     script+="; rc=\$?; echo \"$run_id \$rc\" >$exit_file; exit \$rc"
 
     echo "gate-remote: running $(printf '%q ' "$@")on $dest (load $one $five $fifteen, nproc $cpus)" >&2
@@ -302,6 +325,10 @@ run_remote() {
         if [ "${record##* }" = setup ]; then
             exec 8>&-
             run_here "$dest could not set up its checkout" "$@"
+        fi
+        if [ "${record##* }" = noscope ]; then
+            exec 8>&-
+            run_here "$dest has no user manager for the run's scope" "$@"
         fi
         finished "${record##* }" "on $dest" "$@"
         exit "${record##* }"
