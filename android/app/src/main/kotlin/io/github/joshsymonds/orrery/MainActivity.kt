@@ -8,6 +8,13 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,8 +25,10 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +38,7 @@ import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
+import io.github.joshsymonds.orrery.ui.ContractScreen
 import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
@@ -37,7 +47,10 @@ import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
+import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
+import io.github.joshsymonds.orrery.ui.theme.animationsOn
+import io.github.joshsymonds.orrery.ui.theme.spec
 
 internal const val ROOT_CONTENT_TAG = "root-content"
 internal const val TOP_BAND_TAG = "top-band"
@@ -45,6 +58,10 @@ internal const val TOP_BAND_TAG = "top-band"
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.Panes)
     private val paneListState = PaneListState()
+
+    // Each epic's list state, by epic id, kept here rather than in the epic's screen so a visit to its contract leaves
+    // the list where it was.
+    private val epicListStates = mutableMapOf<String, LazyListState>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
+                    val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
                             modifier = Modifier
@@ -72,70 +90,98 @@ class MainActivity : ComponentActivity() {
                                 .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
                                 .testTag(ROOT_CONTENT_TAG),
                         ) {
-                            when (val current = screen) {
-                                Screen.Panes -> PaneListScreen(
-                                    client = client,
-                                    onOpenPane = {
-                                        screen = if (it.headless) Screen.Session(it.id) else Screen.Pane(it.id)
-                                    },
-                                    onOpenPaneId = { screen = Screen.Pane(it) },
-                                    onStartedSession = { screen = Screen.Session(it) },
-                                    onOpenEpic = { screen = Screen.Epic(it) },
-                                    onOpenSettings = { screen = Screen.Settings },
-                                    onOpenPools = { screen = Screen.Pools },
-                                    state = paneListState,
-                                )
-                                is Screen.Epic -> {
-                                    BackHandler { screen = Screen.Panes }
-                                    EpicScreen(
+                            // Each screen, drawn by itself. With animations on, a change of screen moves between the
+                            // two; at animator scale 0 the new screen replaces the old at once and no animation runs.
+                            val screenContent: @Composable (Screen) -> Unit = { current ->
+                                when (current) {
+                                    Screen.Panes -> PaneListScreen(
                                         client = client,
-                                        epicId = current.id,
-                                        onBack = { screen = Screen.Panes },
-                                        onOpenStep = { screen = Screen.Step(it.id, epicId = current.id, held = it.held) },
-                                    )
-                                }
-                                is Screen.Step -> {
-                                    BackHandler { screen = Screen.Epic(current.epicId) }
-                                    SessionScreen(
-                                        sessionId = current.id,
-                                        client = client,
-                                        onBack = { screen = Screen.Epic(current.epicId) },
-                                        step = StepMode(held = current.held),
-                                    )
-                                }
-                                is Screen.Pane -> {
-                                    BackHandler { screen = Screen.Panes }
-                                    PaneScreen(
-                                        paneId = current.id,
-                                        client = client,
-                                        onBack = { screen = Screen.Panes },
-                                    )
-                                }
-                                is Screen.Session -> {
-                                    BackHandler { screen = Screen.Panes }
-                                    SessionScreen(
-                                        sessionId = current.id,
-                                        client = client,
-                                        onBack = { screen = Screen.Panes },
-                                    )
-                                }
-                                Screen.Pools -> {
-                                    BackHandler { screen = Screen.Panes }
-                                    PoolsScreen(
-                                        client = client,
-                                        onBack = { screen = Screen.Panes },
-                                    )
-                                }
-                                Screen.Settings -> {
-                                    BackHandler { screen = Screen.Panes }
-                                    SettingsScreen(
-                                        settings = settings,
-                                        onSaved = {
-                                            client = OrreryClient(settings.serverUrl)
-                                            screen = Screen.Panes
+                                        onOpenPane = {
+                                            screen = if (it.headless) Screen.Session(it.id) else Screen.Pane(it.id)
                                         },
+                                        onOpenPaneId = { screen = Screen.Pane(it) },
+                                        onStartedSession = { screen = Screen.Session(it) },
+                                        onOpenEpic = { screen = Screen.Epic(it) },
+                                        onOpenSettings = { screen = Screen.Settings },
+                                        onOpenPools = { screen = Screen.Pools },
+                                        state = paneListState,
                                     )
+                                    is Screen.Epic -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        EpicScreen(
+                                            client = client,
+                                            epicId = current.id,
+                                            onBack = { screen = Screen.Panes },
+                                            onOpenStep = {
+                                                screen = Screen.Step(it.id, epicId = current.id, held = it.held)
+                                            },
+                                            onOpenContract = { screen = Screen.Contract(current.id) },
+                                            listState = epicListStates.getOrPut(current.id) { LazyListState() },
+                                        )
+                                    }
+                                    is Screen.Contract -> {
+                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        ContractScreen(
+                                            client = client,
+                                            epicId = current.epicId,
+                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            onHome = { screen = Screen.Panes },
+                                        )
+                                    }
+                                    is Screen.Step -> {
+                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        SessionScreen(
+                                            sessionId = current.id,
+                                            client = client,
+                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            step = StepMode(held = current.held),
+                                        )
+                                    }
+                                    is Screen.Pane -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        PaneScreen(
+                                            paneId = current.id,
+                                            client = client,
+                                            onBack = { screen = Screen.Panes },
+                                        )
+                                    }
+                                    is Screen.Session -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        SessionScreen(
+                                            sessionId = current.id,
+                                            client = client,
+                                            onBack = { screen = Screen.Panes },
+                                        )
+                                    }
+                                    Screen.Pools -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        PoolsScreen(
+                                            client = client,
+                                            onBack = { screen = Screen.Panes },
+                                        )
+                                    }
+                                    Screen.Settings -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        SettingsScreen(
+                                            settings = settings,
+                                            onSaved = {
+                                                client = OrreryClient(settings.serverUrl)
+                                                screen = Screen.Panes
+                                            },
+                                        )
+                                    }
                                 }
+                            }
+                            if (animated) {
+                                AnimatedContent(
+                                    targetState = screen,
+                                    modifier = Modifier.fillMaxSize(),
+                                    transitionSpec = {
+                                        moveBetween(deeper = targetState.depth >= initialState.depth)
+                                    },
+                                ) { screenContent(it) }
+                            } else {
+                                screenContent(screen)
                             }
                         }
                         // A solid band over the status bar's inset, drawn last so nothing that
@@ -164,6 +210,29 @@ class MainActivity : ComponentActivity() {
             ?: intent.getStringExtra(PushNotifier.EXTRA_SESSION)?.let { Screen.Session(it) }
             ?: intent.getStringExtra(PushNotifier.EXTRA_EPIC)?.let { Screen.Epic(it) }
 
+    /**
+     * The move between two screens. A deeper screen enters from the right and the one it covers leaves to the left, on
+     * [Move.DRILL]; coming back is the mirror, on [Move.LEAVE]. It is used only while animations are on.
+     */
+    private fun moveBetween(deeper: Boolean): ContentTransform {
+        val move = if (deeper) Move.DRILL else Move.LEAVE
+        val side = if (deeper) 1 else -1
+        val enter = slideInHorizontally(move.spec(true)) { side * it / 4 } + fadeIn(move.spec(true))
+        val exit = slideOutHorizontally(move.spec(true)) { -side * it / 4 } + fadeOut(move.spec(true))
+        return enter togetherWith exit
+    }
+
+    /**
+     * How deep a screen sits: the home list is 0; a pane, a session, the pools, the settings or an epic is 1; an epic's
+     * contract or step is 2.
+     */
+    private val Screen.depth: Int
+        get() = when (this) {
+            Screen.Panes -> 0
+            Screen.Pools, Screen.Settings, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
+            is Screen.Contract, is Screen.Step -> 2
+        }
+
     private sealed interface Screen {
         data object Panes : Screen
         data object Settings : Screen
@@ -171,6 +240,9 @@ class MainActivity : ComponentActivity() {
         data class Pane(val id: String) : Screen
         data class Session(val id: String) : Screen
         data class Epic(val id: String) : Screen
+
+        /** An epic's accepted contract, reached from the epic's summary: back returns to the epic. */
+        data class Contract(val epicId: String) : Screen
 
         /**
          * A step's session, reached through its epic: back returns to [epicId]. [held] is the step's
