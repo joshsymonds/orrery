@@ -46,6 +46,7 @@ type EpicCommands interface {
 	RetryEpic(ctx context.Context, epic string) error
 	RetryNode(ctx context.Context, epic, node string) error
 	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
+	SeeEpic(ctx context.Context, epic string, at time.Time) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -512,12 +513,23 @@ func (s *epicService) ReleaseEpic(
 	return connect.NewResponse(&v1.ReleaseEpicResponse{Epic: message}), nil
 }
 
-// SeeEpic answers CodeUnimplemented until the seen mark is stored.
+// SeeEpic stores the time of this call as the seen mark of the epic, replacing the earlier mark, and answers an empty
+// reply. An empty id is refused, and an unknown epic is NotFound, as PauseEpic refuses them.
 func (s *epicService) SeeEpic(
-	_ context.Context,
-	_ *connect.Request[v1.SeeEpicRequest],
+	ctx context.Context,
+	req *connect.Request[v1.SeeEpicRequest],
 ) (*connect.Response[v1.SeeEpicResponse], error) {
-	return nil, refuseEpic(connect.CodeUnimplemented, "orrery.engine.v1.Epics.SeeEpic is not implemented")
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.SeeEpic(ctx, id, time.Now()); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
 }
 
 // retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
@@ -637,7 +649,7 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
 // merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
-// its pinned workflow, its phase time and its report. It fails when a task's messages fail.
+// its pinned workflow, its phase time, its seen mark and its report. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
@@ -650,6 +662,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Created:   row.Created.Unix(),
 		Changed:   row.Changed.Unix(),
 		PhaseAt:   row.PhaseAt.Unix(),
+		Seen:      unixOrZero(row.Seen),
 		Decisions: epicMap(row.Decisions, decisionMessage),
 		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
 		Paused:    row.Paused,
@@ -1132,7 +1145,8 @@ func unixOrZero(t time.Time) int64 {
 	return t.Unix()
 }
 
-// summaryMessage returns the EpicSummary message of row: its head fields, its phase time, with no sections.
+// summaryMessage returns the EpicSummary message of row: its head fields, its phase time and its seen mark, with no
+// sections.
 func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 	return &v1.EpicSummary{
 		Id:         row.ID,
@@ -1140,6 +1154,7 @@ func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 		Title:      row.Title,
 		Phase:      row.Phase,
 		PhaseAt:    row.PhaseAt.Unix(),
+		Seen:       unixOrZero(row.Seen),
 		Created:    row.Created.Unix(),
 		Changed:    row.Changed.Unix(),
 	}
