@@ -1601,6 +1601,29 @@ func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestion
 	return err
 }
 
+const insertEpicQuestionTell = `-- name: InsertEpicQuestionTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?)
+`
+
+type InsertEpicQuestionTellParams struct {
+	Epic     string
+	Seq      int64
+	Text     string
+	At       int64
+	Question int64
+}
+
+func (q *Queries) InsertEpicQuestionTell(ctx context.Context, arg InsertEpicQuestionTellParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicQuestionTell,
+		arg.Epic,
+		arg.Seq,
+		arg.Text,
+		arg.At,
+		arg.Question,
+	)
+	return err
+}
+
 const insertEpicReleaseStep = `-- name: InsertEpicReleaseStep :exec
 INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?, ?, ?, ?)
 `
@@ -1784,15 +1807,14 @@ func (q *Queries) InsertEpicTaskReview(ctx context.Context, arg InsertEpicTaskRe
 }
 
 const insertEpicTell = `-- name: InsertEpicTell :exec
-INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?)
+INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0)
 `
 
 type InsertEpicTellParams struct {
-	Epic     string
-	Seq      int64
-	Text     string
-	At       int64
-	Question int64
+	Epic string
+	Seq  int64
+	Text string
+	At   int64
 }
 
 func (q *Queries) InsertEpicTell(ctx context.Context, arg InsertEpicTellParams) error {
@@ -1801,7 +1823,6 @@ func (q *Queries) InsertEpicTell(ctx context.Context, arg InsertEpicTellParams) 
 		arg.Seq,
 		arg.Text,
 		arg.At,
-		arg.Question,
 	)
 	return err
 }

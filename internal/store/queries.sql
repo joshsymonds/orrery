@@ -681,6 +681,9 @@ SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, 
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 
 -- name: InsertEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0);
+
+-- name: InsertEpicQuestionTell :exec
 INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?);
 
 -- name: ListEpicTells :many

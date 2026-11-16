@@ -180,9 +180,16 @@ func insertTell(ctx context.Context, queries *sqlcgen.Queries, epic, text string
 	if err != nil {
 		return fmt.Errorf("read tells of epic %s: %w", epic, err)
 	}
-	if err = queries.InsertEpicTell(ctx, sqlcgen.InsertEpicTellParams{
-		Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(), Question: question,
-	}); err != nil {
+	if question == 0 {
+		err = queries.InsertEpicTell(ctx, sqlcgen.InsertEpicTellParams{
+			Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(),
+		})
+	} else {
+		err = queries.InsertEpicQuestionTell(ctx, sqlcgen.InsertEpicQuestionTellParams{
+			Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(), Question: question,
+		})
+	}
+	if err != nil {
 		return fmt.Errorf("insert tell of epic %s: %w", epic, err)
 	}
 	return nil
