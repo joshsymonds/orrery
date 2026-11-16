@@ -6,6 +6,7 @@ import { loadRows } from "./load";
 
 const panesPath = "/orrery.v1.Panes/List";
 const sessionsPath = "/orrery.v1.Sessions/List";
+const headlessPath = "/orrery.v1.Sessions/ListHeadless";
 
 // Synthetic fixtures: one pane and one headless session, no real hosts or paths.
 const syntheticPane = {
@@ -30,6 +31,18 @@ const syntheticSession = {
   question: "",
   changed: "30",
   seen: "30",
+};
+
+// A headless session as Sessions.ListHeadless answers it, under a synthetic directory.
+const syntheticHeadless = {
+  id: "170bf619aa00bb11cc22dd33ee44ff55",
+  dir: "/work/gatehouse",
+  label: "gatehouse · 170bf619",
+  state: "working",
+  changed: "50",
+  seen: "0",
+  summary: "",
+  question: "",
 };
 
 interface Answer {
@@ -67,6 +80,7 @@ const syntheticSeq = "42";
 const answered: Record<string, Answer> = {
   [panesPath]: { status: 200, body: { panes: [syntheticPane] } },
   [sessionsPath]: { status: 200, body: { sessions: [syntheticSession], seq: syntheticSeq } },
+  [headlessPath]: { status: 200, body: { sessions: [syntheticHeadless] } },
 };
 
 const sessionsUnavailable: Answer = {
@@ -79,7 +93,7 @@ const panesUnavailable: Answer = {
   body: { code: "unavailable", message: "panes server detail" },
 };
 
-test("both lists answer: rows come from the panes and the sessions, with no error", async () => {
+test("every list answers: rows come from the panes, the sessions and the headless sessions, with no error", async () => {
   const { clients, unexpected } = clientsWith(answered);
 
   const result = await loadRows(clients);
@@ -88,18 +102,38 @@ test("both lists answer: rows come from the panes and the sessions, with no erro
   assert.equal(result.error, "");
   assert.equal(result.seq, 42n);
   assert.deepEqual(
-    result.rows.map((row) => [row.kind, row.key, row.label]),
+    result.rows.map((row) => [row.kind, row.key, row.label, row.project]),
     [
-      ["pane", "pane:box:%1", "api"],
-      ["session", "session:s1", "notes"],
+      ["pane", "pane:box:%1", "api", "/work/api"],
+      ["session", "session:s1", "notes", ""],
+      ["session", `session:${syntheticHeadless.id}`, "gatehouse · 170bf619", "/work/gatehouse"],
     ],
   );
 });
 
-test("Sessions.List fails: rows come from the panes alone, with no error", async () => {
+test("Sessions.ListHeadless fails: rows come from the panes and the sessions, with no error", async () => {
+  const { clients, unexpected } = clientsWith({
+    [panesPath]: answered[panesPath],
+    [sessionsPath]: answered[sessionsPath],
+    [headlessPath]: sessionsUnavailable,
+  });
+
+  const result = await loadRows(clients);
+
+  assert.deepEqual(unexpected, []);
+  assert.equal(result.error, "");
+  assert.equal(result.seq, 42n);
+  assert.deepEqual(
+    result.rows.map((row) => row.key),
+    ["pane:box:%1", "session:s1"],
+  );
+});
+
+test("Sessions.List fails: rows come from the panes and the headless sessions, with no error", async () => {
   const { clients, unexpected } = clientsWith({
     [panesPath]: answered[panesPath],
     [sessionsPath]: sessionsUnavailable,
+    [headlessPath]: answered[headlessPath],
   });
 
   const result = await loadRows(clients);
@@ -109,14 +143,15 @@ test("Sessions.List fails: rows come from the panes alone, with no error", async
   assert.equal(result.seq, 0n);
   assert.deepEqual(
     result.rows.map((row) => row.key),
-    ["pane:box:%1"],
+    ["pane:box:%1", `session:${syntheticHeadless.id}`],
   );
 });
 
-test("Panes.List fails: the error names the panes list without server text, and rows come from the sessions alone", async () => {
+test("Panes.List fails: the error names the panes list without server text, and rows come from the sessions and the headless sessions", async () => {
   const { clients, unexpected } = clientsWith({
     [panesPath]: panesUnavailable,
     [sessionsPath]: answered[sessionsPath],
+    [headlessPath]: answered[headlessPath],
   });
 
   const result = await loadRows(clients);
@@ -127,7 +162,7 @@ test("Panes.List fails: the error names the panes list without server text, and 
   assert.equal(result.seq, 42n);
   assert.deepEqual(
     result.rows.map((row) => row.key),
-    ["session:s1"],
+    ["session:s1", `session:${syntheticHeadless.id}`],
   );
 });
 
@@ -154,6 +189,12 @@ test("both calls are in flight at once: the panes answer waits for the sessions 
         headers: { "content-type": "application/json" },
       });
     }
+    if (path === headlessPath) {
+      return new Response(JSON.stringify(answered[headlessPath].body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     unexpected.push(path);
     return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
   };
@@ -163,5 +204,5 @@ test("both calls are in flight at once: the panes answer waits for the sessions 
 
   assert.deepEqual(unexpected, []);
   assert.equal(result.error, "");
-  assert.equal(result.rows.length, 2);
+  assert.equal(result.rows.length, 3);
 });

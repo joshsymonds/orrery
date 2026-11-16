@@ -1,4 +1,4 @@
-import type { Pane, Session } from "./gen/orrery/v1/orrery_pb";
+import type { HeadlessSession, Pane, Session } from "./gen/orrery/v1/orrery_pb";
 
 // One line of the list: a pane, or a headless session that names no pane.
 export interface Row {
@@ -42,7 +42,10 @@ const rankUnseen = 1;
 const rankWorking = 2;
 const rankRest = 3;
 
-export function rowsFrom(panes: Pane[], sessions: Session[]): Row[] {
+// rowsFrom makes a row of each pane outside orrery's own shells, of each session that names no pane, and of each headless
+// session: a session row whose label is the server's, whose project is the session's directory, and that the session
+// row path, Sessions.WatchConversation and Control, drives by its id.
+export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessSession[] = []): Row[] {
   const rows: Row[] = [];
   for (const pane of panes) {
     if (pane.session.startsWith(shellSessionPrefix)) {
@@ -78,6 +81,25 @@ export function rowsFrom(panes: Pane[], sessions: Session[]): Row[] {
       kind: "session",
       label: session.label || session.id.slice(0, sessionLabelLength),
       project: "",
+      host: "",
+      state: session.state,
+      summary: session.summary,
+      question: session.question,
+      questionHash: "",
+      changed,
+      seen,
+      unseen: isUnseen(session.state, changed, seen),
+    });
+  }
+  for (const session of headless) {
+    const changed = Number(session.changed);
+    const seen = Number(session.seen);
+    rows.push({
+      key: `session:${session.id}`,
+      id: session.id,
+      kind: "session",
+      label: session.label || session.id.slice(0, sessionLabelLength),
+      project: session.dir,
       host: "",
       state: session.state,
       summary: session.summary,
