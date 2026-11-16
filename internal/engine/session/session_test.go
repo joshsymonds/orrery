@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -372,9 +373,22 @@ func TestInterruptThenPromptReachTheirTurns(t *testing.T) {
 	}
 	requireUserEnvelope(t, lines[2], "after the interrupt")
 
-	next := translateFixture(t, "two-turns")
+	// The fixture's turns answer the uuids its capture sent, not write-3, so write-3 is still unanswered after each.
+	next := withUnanswered(translateFixture(t, "two-turns"), 1)
 	emit(t, process, fixtureLines(t, "two-turns")...)
 	requireEvents(t, readEvents(t, session, len(next)), next)
+}
+
+// withUnanswered returns events with each turn end's Unanswered set to n, as the session's reader counts it.
+func withUnanswered(events []Event, n int) []Event {
+	out := slices.Clone(events)
+	for i, event := range out {
+		if ended, ok := event.(TurnEnded); ok {
+			ended.Unanswered = n
+			out[i] = ended
+		}
+	}
+	return out
 }
 
 // observedFixture returns the events of the named fixture as the session delivers them: each line translated in
