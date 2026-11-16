@@ -18,7 +18,7 @@ import (
 
 // shutdownReplayCount is more events than one page holds (eventPageSize is 100), so the replaying stream is
 // mid-replay across a page boundary when the signal closes. The store holds shutdownReplayCount+1 events: the
-// session_added event of seedBigEvents' row, then shutdownReplayCount session_changed events.
+// session_added event of writeBigEvents' row, then shutdownReplayCount session_changed events.
 const shutdownReplayCount = 150
 
 // shutdownReplayTotal is the number of events a replay from seq 0 delivers when nothing ends it early.
@@ -99,8 +99,7 @@ func countUntilEnd(t *testing.T, w *watch) (int, error) {
 func TestShutdownEndsEveryOpenStream(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s := openEventStore(t, path)
-	seedBigEvents(t, s, shutdownReplayCount)
+	s := openFilledEventStore(t, path, "big", shutdownReplayCount, writeBigEvents)
 	shutdown := make(chan struct{})
 	srv := startShutdownServer(t, path, shutdown)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), srv.URL)
@@ -130,8 +129,7 @@ func TestShutdownEndsEveryOpenStream(t *testing.T) {
 func TestShutdownEndsReplayBetweenSends(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s := openEventStore(t, path)
-	seedBigEvents(t, s, shutdownReplayCount)
+	openFilledEventStore(t, path, "big", shutdownReplayCount, writeBigEvents)
 	shutdown := make(chan struct{})
 	srv := startStalledShutdownServer(t, path, shutdown)
 	stalledHTTP := &http.Client{Transport: headerTransport{

@@ -173,8 +173,7 @@ func waitBlockedSend(t *testing.T, obs *observedListener) {
 func TestShutdownEndsBlockedSendWithinGrace(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s := openEventStore(t, path)
-	seedBigEvents(t, s, shutdownReplayCount)
+	openFilledEventStore(t, path, "big", shutdownReplayCount, writeBigEvents)
 	shutdown := make(chan struct{})
 	srv := httptest.NewUnstartedServer(newShutdownHandler(t, path, shutdown, stallSendTimeout))
 	obs := &observedListener{Listener: smallBufferListener{Listener: srv.Listener}}
