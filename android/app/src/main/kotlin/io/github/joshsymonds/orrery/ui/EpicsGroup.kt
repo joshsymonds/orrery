@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -194,7 +195,8 @@ private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEp
             MiniOrrery(wedges, arcs, Modifier.size(MINI_SIZE).testTag("mini-orrery:${epic.id}"))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Its words wrap whole onto the next line when the width runs out, rather than squeezing the last ones.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Text(epic.slug, style = MaterialTheme.typography.bodyLarge)
                 Text(epic.repository, style = MaterialTheme.typography.labelSmall)
                 Text(words.count, style = MaterialTheme.typography.labelSmall)
@@ -250,14 +252,15 @@ internal fun EnteringRow(animated: Boolean, content: @Composable () -> Unit) {
 
 @Composable
 private fun EpicLine(epic: EpicRow, onOpenEpic: (String) -> Unit, start: Dp, words: String = "") {
-    Row(
+    // Its words wrap whole onto the next line when the width runs out, rather than squeezing the last ones.
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("epic:${epic.id}")
             .clickable { onOpenEpic(epic.id) }
             .padding(start = start, top = 4.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         Text(epic.slug, style = MaterialTheme.typography.bodyLarge)
         Text(epic.repository, style = MaterialTheme.typography.labelSmall)
