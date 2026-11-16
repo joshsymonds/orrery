@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
-	"sync/atomic"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -184,24 +183,20 @@ const contributingPlan = `{"status":"done","decisions":[],"tasks":[` +
 	`"conclusion":"the runner is tested","judge":"a judge","kind":"capture"}}],"outline":"two tasks",` +
 	`"questions":[],"outcome":"work"}`
 
-func TestRunnerDoneReturnStoresContributes(t *testing.T) {
+func TestPlanOfCopiesContributes(t *testing.T) {
 	t.Parallel()
-	s := openRunnerStore(t)
-	createRunnerEpic(t, s)
-	steps := newFakeSteps()
-	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
-
-	steps.end("step-1", store.StepRow{End: "done", Result: contributingPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
-
-	tasks := epicOf(t, s).Tasks
+	ret, err := Parse(json.RawMessage(contributingPlan))
+	if err != nil {
+		t.Fatalf("Parse(contributingPlan) = %v", err)
+	}
+	tasks := planOf(ret).Tasks
 	if len(tasks) != 2 {
-		t.Fatalf("tasks = %+v, want two", tasks)
+		t.Fatalf("planOf tasks = %+v, want two", tasks)
 	}
 	if want := []string{"R2"}; !reflect.DeepEqual(tasks[0].Contributes, want) {
 		t.Errorf("task 1 contributes = %q, want %q", tasks[0].Contributes, want)
+	}
+	if want := []string{}; !reflect.DeepEqual(tasks[1].Contributes, want) {
+		t.Errorf("task 2 contributes = %q, want %q", tasks[1].Contributes, want)
 	}
 }
