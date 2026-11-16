@@ -80,6 +80,9 @@ private val RING_NAMES = listOf("planned") + Phase.entries.map { it.word }
 // Unreached cells are Surface1 at 60% over the ground.
 private val TRACK: Color = lerp(Mocha.Base, Mocha.Surface1, 0.6f)
 
+// The now slice of an accepted wedge. Mocha names no teal, so this is Catppuccin Mocha's own, as the launcher icon uses.
+private val TEAL = Color(0xFF94E2D5)
+
 /**
  * The epic's orrery: a wedge per task, a ring of cells per phase inward from the planned rim, the requirement arcs around
  * them, the now slice of each running wedge glowing, and the count of integrated wedges at the centre. A tap on a phase cell
@@ -185,15 +188,26 @@ private fun DrawScope.drawCells(wedges: List<Wedge>, unit: Float) {
         val rim = if (wedge.place == WedgePlace.PLANNED) TRACK else Mocha.Green
         drawPath(cellPath(wedges.size, index, RIM, unit), rim)
         wedge.slices.forEach { slice ->
-            drawPath(cellPath(wedges.size, index, ringOf(slice.phase), unit), sliceColour(slice.state))
+            drawPath(cellPath(wedges.size, index, ringOf(slice.phase), unit), sliceColour(slice.state, wedge.tone))
         }
     }
 }
 
-private fun sliceColour(state: SliceState): Color = when (state) {
+private fun sliceColour(state: SliceState, tone: WedgeTone): Color = when (state) {
     SliceState.PASSED -> Mocha.Green
-    SliceState.NOW -> Mocha.Yellow
+    SliceState.NOW -> nowColour(tone)
     SliceState.AHEAD -> TRACK
+}
+
+// The colour of a now slice, by its wedge's tone: running yellow, waits on you peach, ended short red, accepted teal and
+// integrated green. A planned wedge has no now slice, so its colour is the track's.
+private fun nowColour(tone: WedgeTone): Color = when (tone) {
+    WedgeTone.PLAN -> TRACK
+    WedgeTone.RUN -> Mocha.Yellow
+    WedgeTone.MINE -> Mocha.Peach
+    WedgeTone.BAD -> Mocha.Red
+    WedgeTone.ACC -> TEAL
+    WedgeTone.OK -> Mocha.Green
 }
 
 // The glowing cells as one path.
