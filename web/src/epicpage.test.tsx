@@ -312,6 +312,20 @@ test("the summary is absent without a contract", async () => {
   });
 });
 
+test("the epic's problem shows as an error line right before the now block, and only when it is not empty", async () => {
+  await withPage(
+    detail({ ...build, epic: { ...liveEpic, problem: "state.json: unexpected end of input" } }),
+    (container) => {
+      assert.equal(textOf(container, "p.problem.error"), "state.json: unexpected end of input");
+      const sections = labelsOf(container, ".epic-page");
+      assert.equal(sections[sections.indexOf("now-block") - 1], "problem error");
+    },
+  );
+  await withPage(detail({ ...build, epic: { ...liveEpic, problem: "" } }), (container) => {
+    assert.equal(has(container, ".problem"), false);
+  });
+});
+
 test("a running step draws one glow in each stage: turn, checks, gate, judge and a read-only step", async () => {
   const stages = [
     { phase: "turn", stage: { stage: "turn" } },
