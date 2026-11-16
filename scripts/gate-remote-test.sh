@@ -681,24 +681,65 @@ wait "$pid_a" || rc=$?
 expect "the full check that waited on a dead holder ends with its status" test "$rc" -eq 0
 expect "no slot waiter outlives the waits" test -z "$(pgrep -f "$root/box/gate/slots/full-" || true)"
 
-# The slot directory goes while a run is queued: once the holder lets its slot go, the queued run cannot take or wait
-# for a slot, so it ends with 75, naming the cause, instead of going round the wait again.
-check_in work
-pid_a=$spawned
-appears "$root/started-work" || fail "the holder of the slot never started"
-check_in work2
-pid_b=$spawned
-expect_line_eventually "$root/work2.err" 'queued until one is let go$' "a full check queues before its slot directory goes"
+# waiter_group: the process group of the queued run's slot waiters, once one of them is in flock on its slot file
+# (waiting a little, like appears).
+waiter_group() {
+    local i p
+    for ((i = 0; i < 100; i++)); do
+        p="$(pgrep -f "^flock $root/box/gate/slots/full-" | head -n 1 || true)"
+        if [ -n "$p" ]; then
+            ps -o pgid= -p "$p" | tr -d ' '
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
+# queue_behind_holder: a full check from work holds the one slot and one from work2 queues behind it; their pids go in
+# pid_a and pid_b.
+queue_behind_holder() {
+    check_in work
+    pid_a=$spawned
+    appears "$root/started-work" || fail "the holder of the slot never started"
+    check_in work2
+    pid_b=$spawned
+    expect_line_eventually "$root/work2.err" 'queued until one is let go$' "a full check queues behind the holder"
+}
+
+# release_holder: the holder's run ends with its status.
+release_holder() {
+    echo released >"$root/release-work"
+    rc=0
+    wait "$pid_a" || rc=$?
+    expect "the holder ends with its status" test "$rc" -eq 0
+}
+
+# The queued run's slot waiters all end without a slot while the slot directory is still there (here they are killed):
+# the run ends with 75, naming the waiters, instead of going round the wait again.
+queue_behind_holder
+group="$(waiter_group)" || fail "the queued run's slot waiters never started"
+[ -z "$group" ] || kill -TERM -- "-$group"
+rc=""
+ends "$pid_b" || fail "a run whose slot waiters ended never ended"
+expect "a run whose slot waiters ended ends with 75" test "${rc:-none}" = 75
+expect_line "$root/work2.err" '^gate-remote: every slot waiter ended without a slot in .*/gate/slots on .*; the run ends without a slot \(exit 75\)$' "a run whose slot waiters ended names them"
+expect "a run whose slot waiters ended never started its command" test ! -e "$root/started-work2"
+release_holder
+
+# The slot directory goes while a run is queued, and then its waiters end: the run ends with 75 and names the gone
+# directory, which ended the waiters too, as the cause. The waiters are killed after the directory goes, so this takes
+# the branch where the waiters' end is seen first.
+queue_behind_holder
+group="$(waiter_group)" || fail "the queued run's slot waiters never started"
 rm -rf -- "$root/box/gate/slots"
-echo released >"$root/release-work"
-rc=0
-wait "$pid_a" || rc=$?
-expect "the holder ends with its status" test "$rc" -eq 0
+[ -z "$group" ] || kill -TERM -- "-$group"
 rc=""
 ends "$pid_b" || fail "a run whose slot directory went never ended"
 expect "a run whose slot directory went ends with 75" test "${rc:-none}" = 75
 expect_line "$root/work2.err" '^gate-remote: the slot directory .*/gate/slots is gone on .*; the run ends without a slot \(exit 75\)$' "a run whose slot directory went names the cause"
 expect "a run whose slot directory went never started its command" test ! -e "$root/started-work2"
+release_holder
 expect "no slot waiter outlives a gone slot directory" test -z "$(pgrep -f "$root/box/gate/slots/" || true)"
 unset ORRERY_GATE_FULL_SLOTS
 

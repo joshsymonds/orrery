@@ -311,6 +311,9 @@ while [ -z "$slot_fd" ]; do
     waiters=$!
     if ! read -r _ <&"$wake_fd"; then
         end_waiters
+        # A gone directory also ends the waiters (one that had not yet opened its slot file fails at once), so it is
+        # checked first and named as the cause whichever of the two was seen first.
+        [ -d "$dir" ] || slot_failed "the slot directory $dir is gone"
         slot_failed "every slot waiter ended without a slot in $dir"
     fi
     end_waiters
