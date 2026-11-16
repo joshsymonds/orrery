@@ -33,7 +33,7 @@ func scopeDaemon(t *testing.T, dir string) int {
 // TestSayResumesASessionWhoseChildLeftADaemonInItsScope plays the session that ran git over ssh: its claude starts a
 // daemon, as ssh starts a ControlPersist master in the holder's scope, and then dies, so its holder ends while the daemon
 // runs on. The ended holder's scope is stopped, which ends the daemon, so the next Say resumes the session under a new
-// holder in a scope of the same name, and the resumed turn clears the failure's reason.
+// holder in a new scope with its own launch's name, and the resumed turn clears the failure's reason.
 func TestSayResumesASessionWhoseChildLeftADaemonInItsScope(t *testing.T) {
 	t.Parallel()
 	root := holderRoot(t)

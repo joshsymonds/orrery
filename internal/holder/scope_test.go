@@ -19,9 +19,6 @@ import (
 const daemonChildScript = "(setsid sh -c 'echo $$ > daemon.pid.tmp && mv daemon.pid.tmp daemon.pid; exec sleep 3600' " +
 	"</dev/null >/dev/null 2>&1 &); IFS= read -r line; printf '%s\\n' \"$line\""
 
-// scopeStopLine is the line the fake systemctl records for a stop of testSession's scope.
-const scopeStopLine = "--user stop orrery-hold-" + testSession + ".scope"
-
 // recordSystemctl points the fake systemctl's record at a fresh file and returns its path.
 func recordSystemctl(t *testing.T) string {
 	t.Helper()
@@ -78,6 +75,7 @@ func echoLine(t *testing.T, p *Process) {
 func TestLaunchScopeStopsTheScopeOnceTheHolderEnds(t *testing.T) {
 	root := launchRoot(t)
 	record := recordSystemctl(t)
+	runs := recordSystemdRun(t)
 	child := launchChild(t, daemonChildScript)
 	p, err := Launch(t.Context(), LaunchConfig{Scope: fakeSystemdRunPath(t), StateDir: root, Session: testSession,
 		Child: child})
@@ -85,6 +83,7 @@ func TestLaunchScopeStopsTheScopeOnceTheHolderEnds(t *testing.T) {
 		t.Fatalf("Launch: %v", err)
 	}
 	daemon := awaitDaemon(t, p, child.Dir)
+	scopes := launchedScopes(t, runs)
 
 	echoLine(t, p)
 	if err = p.Wait(); err != nil {
@@ -93,25 +92,26 @@ func TestLaunchScopeStopsTheScopeOnceTheHolderEnds(t *testing.T) {
 	if processLive(t, daemon) {
 		t.Fatalf("daemon %d the child left still runs after its holder ended", daemon)
 	}
-	// The launch stops the scope before it starts the holder, and the Process stops it once the holder has ended.
-	if got, want := systemctlCalls(t, record), []string{scopeStopLine, scopeStopLine}; !slices.Equal(got, want) {
+	// The launch stops the session's loaded scopes before it starts the holder, and the Process stops the launch's own
+	// scope once the holder has ended.
+	want := []string{scopeGlobStopLine, "--user stop " + scopes[0]}
+	if got := systemctlCalls(t, record); !slices.Equal(got, want) {
 		t.Fatalf("systemctl calls %q, want %q", got, want)
 	}
 }
 
-// TestLaunchScopeStopsAScopeAnEndedHolderLeft starts a session whose scope is still loaded: a process in it stands in
-// for the daemon of a holder that ended while no controller watched it, so no stop ran. systemd-run refuses a loaded
-// scope name, so the launch stops that scope first, and then the new holder serves.
-func TestLaunchScopeStopsAScopeAnEndedHolderLeft(t *testing.T) {
-	root := launchRoot(t)
-	scope := fakeSystemdRunPath(t)
+// startLoadedScope starts a process that stands in for a daemon left in the scope unit, as the fake systemd-run names
+// it, so the scope is loaded with a live member. It returns the process's pid. The process is killed at cleanup, should a
+// failed test leave it running.
+func startLoadedScope(t *testing.T, scope, unit string) int {
+	t.Helper()
 	// The fake systemd-run names its scopes within its own directory, with its symlinks resolved.
 	scopes, err := filepath.EvalSymlinks(filepath.Dir(scope))
 	if err != nil {
 		t.Fatalf("resolve the fake scope's directory: %v", err)
 	}
 	stale := exec.Command("sleep", "3600")
-	stale.Env = append(os.Environ(), "FAKE_SCOPE_UNIT="+filepath.Join(scopes, "orrery-hold-"+testSession+".scope"))
+	stale.Env = append(os.Environ(), "FAKE_SCOPE_UNIT="+filepath.Join(scopes, unit+scopeUnitSuffix))
 	stale.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err = stale.Start(); err != nil {
 		t.Fatalf("start the stale scope's daemon: %v", err)
@@ -122,14 +122,7 @@ func TestLaunchScopeStopsAScopeAnEndedHolderLeft(t *testing.T) {
 		_ = stale.Process.Kill()
 		<-waited
 	})
-
-	p := mustLaunch(t, LaunchConfig{Scope: scope, StateDir: root, Session: testSession,
-		Child: launchChild(t, "exec cat")})
-	if processLive(t, stale.Process.Pid) {
-		t.Fatalf("the stale scope's daemon %d still runs after the launch", stale.Process.Pid)
-	}
-	echoLine(t, p)
-	stopProcess(t, p)
+	return stale.Process.Pid
 }
 
 // TestReattachWithScopeKeepsALiveHolderAndStopsItsScopeOnceItEnds detaches a scoped holder, as a controller's shutdown
@@ -138,6 +131,7 @@ func TestLaunchScopeStopsAScopeAnEndedHolderLeft(t *testing.T) {
 func TestReattachWithScopeKeepsALiveHolderAndStopsItsScopeOnceItEnds(t *testing.T) {
 	root := launchRoot(t)
 	record := recordSystemctl(t)
+	runs := recordSystemdRun(t)
 	scope := fakeSystemdRunPath(t)
 	child := launchChild(t, daemonChildScript)
 	first, err := Launch(t.Context(), LaunchConfig{Scope: scope, StateDir: root, Session: testSession, Child: child})
@@ -145,6 +139,7 @@ func TestReattachWithScopeKeepsALiveHolderAndStopsItsScopeOnceItEnds(t *testing.
 		t.Fatalf("Launch: %v", err)
 	}
 	daemon := awaitDaemon(t, first, child.Dir)
+	scopes := launchedScopes(t, runs)
 	if err = first.Detach(); err != nil {
 		t.Fatalf("Detach: %v", err)
 	}
@@ -157,7 +152,7 @@ func TestReattachWithScopeKeepsALiveHolderAndStopsItsScopeOnceItEnds(t *testing.
 	if err != nil {
 		t.Fatalf("Reattach: %v", err)
 	}
-	if got, want := systemctlCalls(t, record), []string{scopeStopLine}; !slices.Equal(got, want) {
+	if got, want := systemctlCalls(t, record), []string{scopeGlobStopLine}; !slices.Equal(got, want) {
 		t.Fatalf("systemctl calls after the re-adoption %q, want only the launch's %q", got, want)
 	}
 	if !processLive(t, daemon) {
@@ -170,7 +165,8 @@ func TestReattachWithScopeKeepsALiveHolderAndStopsItsScopeOnceItEnds(t *testing.
 	if processLive(t, daemon) {
 		t.Fatalf("daemon %d still runs after the re-adopted holder ended", daemon)
 	}
-	if got, want := systemctlCalls(t, record), []string{scopeStopLine, scopeStopLine}; !slices.Equal(got, want) {
+	want := []string{scopeGlobStopLine, "--user stop " + scopes[0]}
+	if got := systemctlCalls(t, record); !slices.Equal(got, want) {
 		t.Fatalf("systemctl calls %q, want %q", got, want)
 	}
 }

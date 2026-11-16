@@ -34,7 +34,8 @@ func WithAttachTimeout(d time.Duration) ReattachOption {
 }
 
 // WithScope names scope, the systemd-run path the holder was launched under, as LaunchConfig.Scope does. The Process
-// then stops the holder's user scope once the holder has ended, as a launched holder's Process does.
+// then stops the holder's user scope once the holder has ended, as a launched holder's Process does. The scope is the
+// one the holder's launch named, read from the holder's directory.
 func WithScope(scope string) ReattachOption {
 	return func(o *reattachOptions) {
 		o.scope = scope
@@ -118,6 +119,11 @@ func reattach(
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
+	// The scope is the one this holder's launch named, which its directory's nonce gives, so it is read before the attach.
+	scope, err := readScopeStopper(dir, settings.scope)
+	if err != nil {
+		return nil, nil, failedAttach(lock, err)
+	}
 	conn, attached, err := attachBounded(ctx, sock, replayFrom, version, settings.attachTimeout)
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		err = fmt.Errorf("%w: %w", ErrNoAnswer, err)
@@ -126,7 +132,6 @@ func reattach(
 		return nil, nil, failedAttach(lock, err)
 	}
 	held := watchHolder(dir, lock)
-	scope := newScopeStopper(settings.scope, filepath.Base(dir))
 	// The scope is stopped once the holder ends, long after the attach, so its stop does not end with ctx.
 	process := newAttachedProcess(context.WithoutCancel(ctx), held, conn, sock, remove, replayFrom, attached, scope)
 	return process, attached.Written, nil

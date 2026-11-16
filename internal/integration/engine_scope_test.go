@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -46,11 +47,12 @@ func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 	pid := fakeClaudePID(t, dir)
 
 	orreryBin := filepath.Join(os.Getenv(binDirEnv), "orrery")
+	argv := recordedArgv(t, argsFile)
+	unit := scopeUnitOf(t, argv, id)
 	wantPrefix := []string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", "orrery-hold-" + id,
+		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit,
 		orreryBin, "holder", "--session", id, "--state-dir", stateDir, "--",
 	}
-	argv := recordedArgv(t, argsFile)
 	if len(argv) <= len(wantPrefix) || !slices.Equal(argv[:len(wantPrefix)], wantPrefix) {
 		t.Fatalf("systemd-run argv %q does not start with %q", argv, wantPrefix)
 	}
@@ -165,6 +167,21 @@ func requireProcessRunning(t *testing.T, pid int) {
 }
 
 // recordedArgv returns the arguments the fake systemd-run recorded, one per line in argsFile.
+// scopeUnitOf returns the unit name argv gives --unit for the holder of session id. A launch's unit is the session's name
+// with a 16-digit hex nonce, so each launch of a session has a name of its own.
+func scopeUnitOf(t *testing.T, argv []string, id string) string {
+	t.Helper()
+	i := slices.Index(argv, "--unit")
+	if i < 0 || i+1 >= len(argv) {
+		t.Fatalf("systemd-run argv %q has no --unit", argv)
+	}
+	unit := argv[i+1]
+	if !regexp.MustCompile("^orrery-hold-" + regexp.QuoteMeta(id) + "-[0-9a-f]{16}$").MatchString(unit) {
+		t.Fatalf("scope unit %q, want orrery-hold-%s with a 16-digit hex nonce", unit, id)
+	}
+	return unit
+}
+
 func recordedArgv(t *testing.T, argsFile string) []string {
 	t.Helper()
 	raw, err := os.ReadFile(argsFile)
