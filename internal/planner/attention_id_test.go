@@ -206,7 +206,7 @@ func TestAttentionRoutesALaterTurnAfterARestartThatFollowedARoute(t *testing.T) 
 	}
 	later := claimAttentionTurn(t, s)
 	if err := s.CompleteTurn(ctx, runnerEpicID, later, store.EpicPlan{
-		Questions: []string{"which ticket?"}, Outcome: "wait",
+		Questions: []store.EpicQuestionInput{shapedQuestion("which-ticket", "which ticket?")}, Outcome: "wait",
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn of the later turn: %v", err)
 	}

@@ -61,7 +61,9 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	if _, err := s.ClaimTurn(ctx, id, claimedAt().Add(time.Minute)); err != nil {
 		t.Fatalf("second ClaimTurn: %v", err)
 	}
-	later := EpicPlan{Questions: []string{"Is the second turn right?", "Which module?"}, Outcome: "wait"}
+	secondTurn := shapedQuestion("is-second-turn-right", "Is the second turn right?")
+	which := shapedQuestion("which-module", "Which module?")
+	later := EpicPlan{Questions: []EpicQuestionInput{secondTurn, which}, Outcome: "wait"}
 	if err := s.CompleteTurn(ctx, id, 2, later, completedAt().Add(time.Minute)); err != nil {
 		t.Fatalf("second CompleteTurn: %v", err)
 	}
@@ -70,7 +72,7 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 		t.Fatalf("third ClaimTurn: %v", err)
 	}
 	if err := sqlcgen.New(s.db).SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
-		Epic: id, Seq: 1,
+		Choice: ChoiceOther, Epic: id, Seq: 1,
 	}); err != nil {
 		t.Fatalf("answer question 1: %v", err)
 	}
@@ -85,10 +87,7 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	}
 	want := []EpicAttention{{
 		Epic: id, Title: "Synthetic epic", Parked: "credit ran out", Paused: true,
-		Open: []EpicQuestion{
-			{Seq: 2, Turn: 2, Text: "Is the second turn right?", State: "open"},
-			{Seq: 3, Turn: 2, Text: "Which module?", State: "open"},
-		},
+		Open: []EpicQuestion{openStored(secondTurn, 2, 2), openStored(which, 3, 2)},
 		Latest: EpicTurn{
 			Epic: id, Seq: 2, State: "succeeded", Seen: int64(len(seededDecisions())), Outcome: "wait",
 			Started: claimedAt().Add(time.Minute), Ended: completedAt().Add(time.Minute),

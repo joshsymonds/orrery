@@ -77,13 +77,17 @@ func attentionOf(
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("list open questions: %w", err)
 	}
+	questions, err := convertInOrder(open, questionOf)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("open questions: %w", err)
+	}
 	tells, err := queries.ListEpicTells(ctx, id)
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("list tells: %w", err)
 	}
 	entry := EpicAttention{
 		Epic: head.ID, Title: head.Title, Parked: head.Parked, Paused: head.Paused != 0,
-		Open: mapInOrder(open, questionOf), Tells: untoldTellsOf(tells),
+		Open: questions, Tells: untoldTellsOf(tells),
 	}
 	if len(tells) != 0 {
 		entry.LatestTell = time.Unix(tells[len(tells)-1].At, 0)

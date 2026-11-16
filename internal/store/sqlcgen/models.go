@@ -177,11 +177,19 @@ type EpicPremise struct {
 }
 
 type EpicQuestion struct {
-	Epic  string
-	Seq   int64
-	Turn  int64
-	Text  string
-	State string
+	Epic        string
+	Seq         int64
+	Turn        int64
+	Text        string
+	State       string
+	Label       string
+	Choices     string
+	Recommended string
+	Why         string
+	Confidence  string
+	Replaces    int64
+	ReplacedBy  int64
+	Choice      string
 }
 
 type EpicReleaseStep struct {
@@ -271,11 +279,12 @@ type EpicTaskReview struct {
 }
 
 type EpicTell struct {
-	Epic string
-	Seq  int64
-	Text string
-	At   int64
-	Told int64
+	Epic     string
+	Seq      int64
+	Text     string
+	At       int64
+	Told     int64
+	Question int64
 }
 
 type EpicTrigger struct {

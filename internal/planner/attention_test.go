@@ -81,9 +81,28 @@ func claimAttentionTurn(t *testing.T, s *store.Store) int64 {
 	return turn.Seq
 }
 
+// shapedQuestion returns a question that passes the store's refusals: the label and text given, two synthetic choices
+// with the first recommended, a medium confidence and a synthetic reason.
+func shapedQuestion(label, text string) store.EpicQuestionInput {
+	return store.EpicQuestionInput{
+		Label: label, Text: text,
+		Choices: []store.EpicChoice{
+			{ID: "first", Does: "Synthetic first choice."},
+			{ID: "second", Does: "Synthetic second choice."},
+		},
+		Recommended: "first", Why: "Synthetic reason.", Confidence: "medium",
+	}
+}
+
 // askingTurn returns a turn of the runner epic that asks two questions and succeeds.
 func askingTurn() store.EpicPlan {
-	return store.EpicPlan{Questions: []string{"which store?", "which tick?"}, Outcome: "wait"}
+	return store.EpicPlan{
+		Questions: []store.EpicQuestionInput{
+			shapedQuestion("which-store", "which store?"),
+			shapedQuestion("which-tick", "which tick?"),
+		},
+		Outcome: "wait",
+	}
 }
 
 func TestAttentionSendsOneNoticeForTheQuestionsOfATurn(t *testing.T) {
@@ -176,7 +195,7 @@ func TestAttentionClearsTheNoticeOnceTheLastQuestionIsAnswered(t *testing.T) {
 	createRunnerEpic(t, s)
 	turn := claimAttentionTurn(t, s)
 	if err := s.CompleteTurn(ctx, runnerEpicID, turn, store.EpicPlan{
-		Questions: []string{"which store?"}, Outcome: "wait",
+		Questions: []store.EpicQuestionInput{shapedQuestion("which-store", "which store?")}, Outcome: "wait",
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}

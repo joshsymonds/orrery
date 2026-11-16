@@ -328,8 +328,15 @@ func TestParseRoundTripsValidReturn(t *testing.T) {
 		Decisions: []string{"split the store work from the planner"},
 		Tasks:     []Task{validTask("A", "internal/planner/plan.go")},
 		Outline:   "one task",
-		Questions: []string{"which epic?"},
-		Outcome:   "work",
+		Questions: []Question{{
+			Label: "which-epic", Text: "which epic?",
+			Choices: []Choice{
+				{ID: "first", Does: "Synthetic first choice."},
+				{ID: "second", Does: "Synthetic second choice."},
+			},
+			Recommended: "first", Why: "Synthetic reason.", Confidence: "low", Replaces: "",
+		}},
+		Outcome: "work",
 	}
 	raw, err := json.Marshal(want)
 	if err != nil {

@@ -613,7 +613,8 @@ WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(att
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
 
 -- name: InsertEpicQuestion :exec
-INSERT INTO epic_questions (epic, seq, turn, text, state) VALUES (?, ?, ?, ?, 'open');
+INSERT INTO epic_questions (epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces)
+VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?);
 
 -- name: ConsumeEpicTriggers :exec
 UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND turn = ? AND state = 'claimed';
@@ -680,7 +681,7 @@ SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, 
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 
 -- name: InsertEpicTell :exec
-INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0);
+INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?);
 
 -- name: ListEpicTells :many
 SELECT * FROM epic_tells WHERE epic = ? ORDER BY seq;
@@ -698,7 +699,20 @@ SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq;
 SELECT * FROM epic_questions WHERE epic = ? AND seq = ?;
 
 -- name: SetEpicQuestionAnswered :exec
-UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
+UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;
+
+-- name: SetEpicQuestionReplaced :execrows
+UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open';
+
+-- name: ListOpenEpicParkQuestions :many
+SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq;
+
+-- name: ListEpicQuestionFollows :many
+SELECT label, CAST(COUNT(*) AS INTEGER) AS answered,
+    CAST(SUM(CASE WHEN choice = recommended THEN 1 ELSE 0 END) AS INTEGER) AS followed
+FROM epic_questions
+WHERE label <> '' AND recommended <> '' AND state = 'answered'
+GROUP BY label ORDER BY label;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;

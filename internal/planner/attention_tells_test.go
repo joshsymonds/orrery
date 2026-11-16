@@ -148,7 +148,9 @@ func TestAttentionClearsTheNoticeOnceATurnEndsAfterTheLatestTell(t *testing.T) {
 	// answer makes the turn that ends after the tell claimable.
 	turn := claimAttentionTurn(t, s)
 	if err := s.CompleteTurn(ctx, runnerEpicID, turn, store.EpicPlan{
-		Questions: []string{"which store?"}, Tasks: plannedRunnerTasks(), Outcome: "work",
+		Questions: []store.EpicQuestionInput{shapedQuestion("which-store", "which store?")},
+		Tasks:     plannedRunnerTasks(),
+		Outcome:   "work",
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}

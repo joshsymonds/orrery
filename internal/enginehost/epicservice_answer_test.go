@@ -1,6 +1,7 @@
 package enginehost
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,13 +13,17 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// askQuestions completes one planner turn on epicServiceID that asks questions, so they are stored open from Q1 in
-// the order given.
-func askQuestions(t *testing.T, st *store.Store, questions ...string) {
+// askQuestions completes one planner turn on epicServiceID that asks the questions with the texts given, so they are
+// stored open from Q1 in the order given.
+func askQuestions(t *testing.T, st *store.Store, texts ...string) {
 	t.Helper()
 	turn, err := st.ClaimTurn(t.Context(), epicServiceID, time.Unix(turnStarted, 0))
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
+	}
+	questions := make([]store.EpicQuestionInput, 0, len(texts))
+	for i, text := range texts {
+		questions = append(questions, syntheticQuestion(fmt.Sprintf("synthetic-question-%d", i+1), text))
 	}
 	plan := plannedReturn()
 	plan.Questions = questions

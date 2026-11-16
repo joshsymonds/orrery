@@ -46,8 +46,21 @@ func plannedReturn() store.EpicPlan {
 			},
 		},
 		Outline:   "Synthetic outline.",
-		Questions: []string{"Synthetic question one?"},
+		Questions: []store.EpicQuestionInput{syntheticQuestion("synthetic-question-one", "Synthetic question one?")},
 		Outcome:   "Synthetic outcome.",
+	}
+}
+
+// syntheticQuestion returns a question with the label and text given that passes store.QuestionRefusals: two synthetic
+// choices, the first recommended with a low confidence.
+func syntheticQuestion(label, text string) store.EpicQuestionInput {
+	return store.EpicQuestionInput{
+		Label: label, Text: text,
+		Choices: []store.EpicChoice{
+			{ID: "synthetic-a", Does: "Synthetic choice A."},
+			{ID: "synthetic-b", Does: "Synthetic choice B."},
+		},
+		Recommended: "synthetic-a", Why: "Synthetic reason.", Confidence: "low",
 	}
 }
 

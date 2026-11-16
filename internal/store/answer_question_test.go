@@ -10,7 +10,7 @@ import (
 
 // questionedEpic creates claimEpic from fullEpic and completes its planner turn 1 with the given questions, so they are
 // stored open in seq order from 1, each asked by turn 1.
-func questionedEpic(t *testing.T, s *Store, questions ...string) {
+func questionedEpic(t *testing.T, s *Store, questions ...EpicQuestionInput) {
 	t.Helper()
 	ctx := context.Background()
 	createEpic(t, s, fullEpic(claimEpic))
@@ -39,7 +39,9 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "Keep the old tasks?", "Which store?")
+	keepOld := shapedQuestion("keep-old-tasks", "Keep the old tasks?")
+	whichStore := shapedQuestion("which-store", "Which store?")
+	questionedEpic(t, s, keepOld, whichStore)
 
 	at := time.Unix(1700000600, 0)
 	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 2, at)
@@ -58,10 +60,9 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 	if want := append(seededDecisions(), answer); !reflect.DeepEqual(epic.Decisions, want) {
 		t.Errorf("decisions = %+v, want %+v", epic.Decisions, want)
 	}
-	wantQuestions := []EpicQuestion{
-		{Seq: 1, Turn: 1, Text: "Keep the old tasks?", State: "open"},
-		{Seq: 2, Turn: 1, Text: "Which store?", State: "answered"},
-	}
+	answered := openStored(whichStore, 2, 1)
+	answered.State, answered.Choice = "answered", ChoiceOther
+	wantQuestions := []EpicQuestion{openStored(keepOld, 1, 1), answered}
 	if !reflect.DeepEqual(epic.Questions, wantQuestions) {
 		t.Errorf("questions = %+v, want %+v", epic.Questions, wantQuestions)
 	}
@@ -83,7 +84,7 @@ func TestAnswerQuestionOfUnknownQuestionIsErrNoQuestionAndWritesNothing(t *testi
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "Keep the old tasks?")
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
 	before := answerRowsOf(t, s)
 
 	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer", 5, claimedAt()); !errors.Is(err, ErrNoQuestion) {
@@ -99,7 +100,7 @@ func TestAnswerQuestionOfClosedQuestionIsErrQuestionClosedAndWritesNothing(t *te
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "Keep the old tasks?")
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
 	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestAnswerQuestionWithStoredIDAndTextReturnsStoredRowAfterItsQuestionClosed
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "Keep the old tasks?")
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
 	stored, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, claimedAt())
 	if err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
@@ -142,7 +143,10 @@ func TestAnswerQuestionWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "Keep the old tasks?", "Which store?")
+	questionedEpic(t, s,
+		shapedQuestion("keep-old-tasks", "Keep the old tasks?"),
+		shapedQuestion("which-store", "Which store?"),
+	)
 	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
@@ -171,7 +175,10 @@ func TestAnswerEpicNoteLeavesEveryQuestionOpenAndAddsNoTrigger(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "Keep the old tasks?", "Which store?")
+	questionedEpic(t, s,
+		shapedQuestion("keep-old-tasks", "Keep the old tasks?"),
+		shapedQuestion("which-store", "Which store?"),
+	)
 	triggersBefore := rowsOf(t, s.db.DB, "epic_triggers")
 
 	at := time.Unix(1700000600, 0)
@@ -202,7 +209,9 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
-	questionedEpic(t, s, "First?", "Second?", "Third?")
+	first := shapedQuestion("first", "First?")
+	third := shapedQuestion("third", "Third?")
+	questionedEpic(t, s, first, shapedQuestion("second", "Second?"), third)
 	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer two", 2, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
@@ -211,10 +220,7 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenQuestions: %v", err)
 	}
-	want := []EpicQuestion{
-		{Seq: 1, Turn: 1, Text: "First?", State: "open"},
-		{Seq: 3, Turn: 1, Text: "Third?", State: "open"},
-	}
+	want := []EpicQuestion{openStored(first, 1, 1), openStored(third, 3, 1)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("OpenQuestions = %+v, want %+v", got, want)
 	}

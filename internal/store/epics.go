@@ -588,7 +588,7 @@ func recordQuestionAnswer(
 		return EpicDecision{}, err
 	}
 	if err := queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
-		Epic: epic, Seq: question,
+		Choice: ChoiceOther, Epic: epic, Seq: question,
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("answer question %d of epic %s: %w", question, epic, err)
 	}
@@ -607,9 +607,11 @@ func (s *Store) OpenQuestions(ctx context.Context, epic string) ([]EpicQuestion,
 	if err != nil {
 		return nil, fmt.Errorf("list open questions of epic %s: %w", epic, err)
 	}
-	return mapInOrder(rows, func(question sqlcgen.EpicQuestion) EpicQuestion {
-		return EpicQuestion{Seq: question.Seq, Turn: question.Turn, Text: question.Text, State: question.State}
-	}), nil
+	questions, err := convertInOrder(rows, questionOf)
+	if err != nil {
+		return nil, fmt.Errorf("open questions of epic %s: %w", epic, err)
+	}
+	return questions, nil
 }
 
 // requireEpic is ErrNoEpic when no epic has the id epic.

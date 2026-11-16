@@ -17,8 +17,8 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028 and 00030 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029 and 00033
-// add to epic tables.
+// 00019, 00028 and 00030 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033 and
+// 00034 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -65,8 +65,11 @@ func epicTableColumns() map[string][]string {
 			"id", "epic", "path", "revision", "argv", "limit_seconds", "needs", "state", "grant_id", "holder", "exit",
 			"timed_out", "not_run", "stdout", "stderr", "created", "ended",
 		},
-		"epic_tells":         {"epic", "seq", "text", "at", "told"},
-		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
+		"epic_tells": {"epic", "seq", "text", "at", "told", "question"},
+		"epic_questions": {
+			"epic", "seq", "turn", "text", "state", "label", "choices", "recommended", "why", "confidence", "replaces",
+			"replaced_by", "choice",
+		},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -198,6 +201,15 @@ func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 		{"epic_turns", "resets", "INTEGER", "0"},
 		{"epic_decisions", "question", "INTEGER", "0"},
 		{"pending_notices", "epic", "TEXT", "''"},
+		{"epic_questions", "label", "TEXT", "''"},
+		{"epic_questions", "choices", "TEXT", "'[]'"},
+		{"epic_questions", "recommended", "TEXT", "''"},
+		{"epic_questions", "why", "TEXT", "''"},
+		{"epic_questions", "confidence", "TEXT", "''"},
+		{"epic_questions", "replaces", "INTEGER", "0"},
+		{"epic_questions", "replaced_by", "INTEGER", "0"},
+		{"epic_questions", "choice", "TEXT", "''"},
+		{"epic_tells", "question", "INTEGER", "0"},
 	}
 	for _, c := range added {
 		var typ, dflt string
@@ -430,9 +442,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00033_integration.sql is the newest.
-	if version != 33 {
-		t.Fatalf("store version after Open = %d, want 33", version)
+	// Open applies 00014_epics.sql and every migration after it: 00034_questions.sql is the newest.
+	if version != 34 {
+		t.Fatalf("store version after Open = %d, want 34", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -635,6 +647,46 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	}
 	if !hasAll(columnsOf(t, s, "epic_requirements"), "item") {
 		t.Errorf("epic_requirements columns after Up = %v, want item", columnsOf(t, s, "epic_requirements"))
+	}
+}
+
+// TestQuestionsMigrationDownAndUp removes the question columns and the tell's question column with the Down of
+// 00034_questions.sql, and Up restores them.
+func TestQuestionsMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	questionColumns := []string{
+		"label", "choices", "recommended", "why", "confidence", "replaces", "replaced_by", "choice",
+	}
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 33); err != nil {
+		t.Fatalf("DownTo 33: %v", err)
+	}
+	if hasAny(columnsOf(t, s, "epic_questions"), questionColumns...) {
+		t.Errorf("epic_questions columns after Down = %v, want no question columns", columnsOf(t, s, "epic_questions"))
+	}
+	if hasAny(columnsOf(t, s, "epic_tells"), "question") {
+		t.Errorf("epic_tells columns after Down = %v, want no question column", columnsOf(t, s, "epic_tells"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !hasAll(columnsOf(t, s, "epic_questions"), questionColumns...) {
+		t.Errorf("epic_questions columns after Up = %v, want the question columns", columnsOf(t, s, "epic_questions"))
+	}
+	if !hasAll(columnsOf(t, s, "epic_tells"), "question") {
+		t.Errorf("epic_tells columns after Up = %v, want the question column", columnsOf(t, s, "epic_tells"))
 	}
 }
 
