@@ -854,12 +854,7 @@ func startSessions(
 		commands = host.manager
 		stepCommands = host.steps
 		epics = st
-		var writerCtx context.Context
-		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
-		go func() {
-			host.writer.Run(writerCtx)
-			close(host.writerDone)
-		}()
+		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
@@ -1221,6 +1216,17 @@ func (h *sessionHost) startIdle(ctx context.Context) {
 	go func() {
 		h.manager.RunIdle(idleCtx)
 		close(h.idleDone)
+	}()
+}
+
+// startWriter runs the host's writer until stopWriter, on a context that outlives ctx's cancel so a shutdown can
+// still flush, and closes writerDone when the writer returns.
+func (h *sessionHost) startWriter(ctx context.Context) {
+	var writerCtx context.Context
+	writerCtx, h.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		h.writer.Run(writerCtx)
+		close(h.writerDone)
 	}()
 }
 
