@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/notice"
+	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
@@ -24,6 +25,26 @@ func limitStepOps(ids ...string) []store.EngineOp {
 	return ops
 }
 
+// limitRouter returns a router for the restart test, sending to phone and logging to log, that rebuilds a limit
+// notice's row as orreryd's router does. Its store-call bound never fires: the test is about the limit marks across a
+// restart, so each row write lands however long the machine takes over it (route's own tests cover a write the bound
+// cuts short). It is closed at the end of the test.
+func limitRouter(t *testing.T, phone route.PhoneSink, log route.Recorder) *route.Router {
+	t.Helper()
+	router := route.New(route.Config{
+		Host:       sessionTestHost,
+		Now:        fixedClock,
+		Desk:       absentDesk{},
+		Phone:      phone,
+		Subscribed: func() (bool, error) { return true, nil },
+		Log:        log,
+		Rebuild:    map[string]route.Rebuild{LimitSource: RestoreLimitNotice},
+		StoreAfter: func(time.Duration, func()) func() bool { return func() bool { return true } },
+	})
+	t.Cleanup(router.Close)
+	return router
+}
+
 func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -37,7 +58,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	sender := &fakeSender{}
 	log := &fakeRouteLog{}
 	phone := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
-	router := newSessionRouter(t, phone, log)
+	router := limitRouter(t, phone, log)
 	router.Attach(ctx, first)
 	limits := NewLimitNotices(LimitNoticesConfig{Steps: first, Told: first, Route: router, Now: limitNow})
 	// The check before any step is limited reads the marks, and finds none.
@@ -82,7 +103,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	restartedSender := &fakeSender{}
 	restartedLog := &fakeRouteLog{}
 	restartedPhone := notice.New(sessionTestHost, restartedSender, fixedClock, slog.New(slog.DiscardHandler))
-	restarted := newSessionRouter(t, restartedPhone, restartedLog)
+	restarted := limitRouter(t, restartedPhone, restartedLog)
 	restarted.Attach(ctx, second)
 	ticks := make(chan time.Time)
 	rebuilt := NewLimitNotices(LimitNoticesConfig{
