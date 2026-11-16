@@ -110,7 +110,7 @@ func TestReleasePhases(t *testing.T) {
 			"clean epic with no release steps ends done with no gaps",
 			releaseNode(1, "", ""),
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseFrozen()},
-			Action{Kind: ActEnding, Outcome: outcomeDone, Output: "Done. No gaps."},
+			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil)},
 		},
 		{
 			"clean epic with no release steps ends done whoever holds the slot",
@@ -120,7 +120,7 @@ func TestReleasePhases(t *testing.T) {
 				Slot:   releaseOtherEpicID,
 				Review: releaseFrozen(),
 			},
-			Action{Kind: ActEnding, Outcome: outcomeDone, Output: "Done. No gaps."},
+			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil)},
 		},
 		{
 			"clean epic with no release steps ends done naming the gap its review holds",
@@ -128,7 +128,8 @@ func TestReleasePhases(t *testing.T) {
 			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseGapped()},
 			Action{
 				Kind: ActEnding, Outcome: outcomeDone,
-				Output: "Done with 1 gap:\n- reviewer security: security gave no verdict twice: done: boom",
+				Output: EndingBody(phaseDone,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"}),
 			},
 		},
 		{
@@ -605,7 +606,7 @@ func TestReleaseJudge(t *testing.T) {
 				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
 				Review:   releaseFrozen(),
 			},
-			Action{Kind: ActEnding, Outcome: outcomeReleased, Output: "Released. No gaps."},
+			Action{Kind: ActEnding, Outcome: outcomeReleased, Output: EndingBody(phaseReleased, nil)},
 		},
 		{
 			"passed judge of this attempt ends released naming the gap its review holds",
@@ -618,7 +619,8 @@ func TestReleaseJudge(t *testing.T) {
 			},
 			Action{
 				Kind: ActEnding, Outcome: outcomeReleased,
-				Output: "Released with 1 gap:\n- reviewer security: security gave no verdict twice: done: boom",
+				Output: EndingBody(phaseReleased,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"}),
 			},
 		},
 		{

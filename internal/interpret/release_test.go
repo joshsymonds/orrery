@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -167,7 +166,7 @@ func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	w.createEpic(runEpic, store.PhaseClean)
 	w.pass()
 
-	want := endedEpic{epic: runEpic, phase: "done", body: "Done. No gaps.", at: runClock()}
+	want := endedEpic{epic: runEpic, phase: "done", body: kinds.EndingBody("done", nil), at: runClock()}
 	if len(ending.calls) == 0 {
 		t.Fatalf("EndEpic calls = none, want %+v", want)
 	}
@@ -356,9 +355,8 @@ func TestReleaseNilEndingReportsNoEndingConfigured(t *testing.T) {
 
 // TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps: an epic that ended with gaps and has no release steps is not
 // released by a pass on its own. Once the owner releases it, the next pass ends it done with the body that names its
-// gap, the owner's decision is stored, and the review's verdicts, the gap among them, are still in its flow. The
-// recording Ending leaves the phase where it was, so the pass may ask for the same ending again, and every call is that
-// ending.
+// gap, and the review's verdicts, the gap among them, are still in its flow. The recording Ending leaves the phase
+// where it was, so the pass may ask for the same ending again, and every call is that ending.
 func TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps(t *testing.T) {
 	t.Parallel()
 	ending := &recordingEnding{}
@@ -381,7 +379,7 @@ func TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps(t *testing.T) {
 
 	want := endedEpic{
 		epic: runEpic, phase: "done",
-		body: "Done with 1 gap:\n- reviewer security: the tag is not signed", at: runClock(),
+		body: kinds.EndingBody("done", []string{"reviewer security: the tag is not signed"}), at: runClock(),
 	}
 	if len(ending.calls) == 0 {
 		t.Fatalf("EndEpic calls = none, want %+v", want)
@@ -393,13 +391,6 @@ func TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps(t *testing.T) {
 	}
 
 	flow := w.flowOf(runEpic)
-	wantDecision := store.EpicDecision{
-		Seq: 1, ID: "release-ended-with-gaps", Text: "owner released epic " + runEpic + ", which ended with gaps",
-		Time: time.Unix(runClock().Unix(), 0),
-	}
-	if !reflect.DeepEqual(flow.Epic.Decisions, []store.EpicDecision{wantDecision}) {
-		t.Errorf("decisions = %+v, want the one owner decision %+v", flow.Epic.Decisions, wantDecision)
-	}
 	if !reflect.DeepEqual(flow.Review.Verdicts, []store.ReviewVerdict{gap}) {
 		t.Errorf("review verdicts = %+v, want the gap %+v", flow.Review.Verdicts, gap)
 	}

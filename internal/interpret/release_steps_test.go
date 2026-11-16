@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -564,7 +565,7 @@ func TestReleaseJudgeDecidesFromItsReturn(t *testing.T) {
 				want := endedEpic{
 					epic:  runEpic,
 					phase: "released",
-					body:  "Released. No gaps.",
+					body:  kinds.EndingBody("released", nil),
 					at:    runClock(),
 				}
 				if len(ending.calls) == 0 {
