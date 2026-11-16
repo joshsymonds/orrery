@@ -69,7 +69,8 @@
 #
 # Exit codes: the command's status, wherever it ran. 75 is an environment result: the box went away or the connection
 # to it dropped after the command started (a spot interruption, for one), and the line before it says so. It is never
-# a test failure; run again, and the next run waits for the replacement box that the lost one's wake brings up. A
+# a test failure; run again, and the next run waits for the replacement box that the lost one's wake brings up. The
+# box also ends a run with 75 when it cannot hold or wait for its slots, saying why. A
 # checkout the box cannot set up in step 5, or a box without a user manager for the scope, runs the command here. 2 for
 # bad usage or outside a git work tree.
 
@@ -231,9 +232,11 @@ EOF
 # slots, <full slots> of them (empty: nproc / 20, at least 1, so 3 on 64 cores); every other command shares the
 # light-check slots (empty: nproc / 8, at least 1). Slot i is a flock on ~/gate/slots/<full|light>-<i>, held by this
 # shell and closed for the command, so nothing the command leaves behind holds it. When every slot is held it says so
-# once on stderr and waits: one waiter per slot blocks in flock on it and writes to a FIFO once it gets it, so the wait
+# once on stderr and waits: one waiter per slot blocks in flock on it and writes to a pipe once it gets it, so the wait
 # ends as soon as a slot is let go or its holder dies, never on a timer. It then tries the slots again, since another
-# run may have taken the one that came free. It says which slot it took and after how long.
+# run may have taken the one that came free. It says which slot it took and after how long. When the slots cannot be
+# held or waited for (the slot directory or a slot file cannot be made or opened, or every waiter ends without a slot)
+# it says why and exits 75, never going round the wait again.
 #
 # Then it runs the command in its own user scope, stopped whenever this shell ends, so nothing the command started
 # outlives the run. The command runs in the background and this shell waits for it, so a hangup or TERM (a dropped
@@ -260,17 +263,21 @@ else
 fi
 [ "$slots" -ge 1 ] || slots=1
 dir="$HOME/gate/slots"
-mkdir -p "$dir"
-waiters=()
-fifo=""
+# Ends the run when its slots cannot be held or waited for: an environment result, never another round of the wait.
+slot_failed() {
+    echo "gate-remote: $1 on $(uname -n); the run ends without a slot (exit 75)" >&2
+    exit 75
+}
+mkdir -p "$dir" 2>/dev/null || slot_failed "cannot make the slot directory $dir"
+waiters=""
+wake_fd=""
 end_waiters() {
-    local p
-    for p in "${waiters[@]}"; do
-        kill -- "-$p" 2>/dev/null || true
-    done
-    waiters=()
-    [ -z "$fifo" ] || rm -f -- "$fifo"
-    fifo=""
+    [ -z "$waiters" ] || kill -- "-$waiters" 2>/dev/null || true
+    waiters=""
+    if [ -n "$wake_fd" ]; then
+        exec {wake_fd}<&-
+        wake_fd=""
+    fi
 }
 trap 'end_waiters; systemctl --user stop "$unit.scope" 2>/dev/null || true' EXIT
 trap 'exit 129' HUP
@@ -280,7 +287,10 @@ queued=""
 slot_fd=""
 while [ -z "$slot_fd" ]; do
     for ((i = 1; i <= slots; i++)); do
-        exec {fd}>"$dir/$class-$i"
+        if ! { exec {fd}>"$dir/$class-$i"; } 2>/dev/null; then
+            [ -d "$dir" ] || slot_failed "the slot directory $dir is gone"
+            slot_failed "cannot open the slot file $dir/$class-$i"
+        fi
         if flock -n "$fd"; then
             slot_fd=$fd
             slot=$i
@@ -293,13 +303,16 @@ while [ -z "$slot_fd" ]; do
         echo "gate-remote: every $label slot on $(uname -n) is held ($slots); queued until one is let go" >&2
         queued=1
     fi
-    fifo=$(mktemp -u "$dir/wake.XXXXXX")
-    mkfifo "$fifo"
-    for ((i = 1; i <= slots; i++)); do
-        setsid bash -c 'flock "$1" true && echo "$2" >"$3"' _ "$dir/$class-$i" "$i" "$fifo" </dev/null >/dev/null 2>&1 &
-        waiters+=("$!")
-    done
-    read -r _ <"$fifo"
+    # One waiter per slot, in a session of their own, blocks in flock on it and prints the slot's number once it gets
+    # it. They write to an anonymous pipe, so the read ends with the first number, or at end of file once every waiter
+    # has ended without one, as when the slot files are gone.
+    exec {wake_fd}< <(exec setsid bash -c 'for ((i = 1; i <= $3; i++)); do { flock "$1/$2-$i" true && echo "$i"; } & done; wait' \
+        _ "$dir" "$class" "$slots" 2>/dev/null) || slot_failed "cannot start the slot waiters"
+    waiters=$!
+    if ! read -r _ <&"$wake_fd"; then
+        end_waiters
+        slot_failed "every slot waiter ended without a slot in $dir"
+    fi
     end_waiters
 done
 echo "gate-remote: took $label slot $slot of $slots on $(uname -n) after $(($(date +%s) - start))s" >&2

@@ -12,15 +12,44 @@ set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gate-remote.sh"
 root="$(mktemp -d)"
-# Ends what the tests left running on purpose (the orphans of the scope cases) before removing the directory.
+# Every run a case starts leads a session of its own (spawn below) and is recorded here, so the cleanup can end it with
+# everything it started before the fixture goes.
+runs=()
+# Ends each run's process group (TERM, then KILL once 10 s pass) and waits for the group to empty, ends what the scope
+# cases left running on purpose, and only then removes the fixture. A process still naming the fixture after that has
+# outlived its run: it is listed and killed, and the test fails.
 cleanup() {
-    local f
+    local status=$? p f i leaked
+    for p in "${runs[@]}"; do
+        kill -TERM -- "-$p" 2>/dev/null || true
+    done
+    for p in "${runs[@]}"; do
+        wait "$p" 2>/dev/null || true
+        for ((i = 0; i < 100; i++)); do
+            kill -0 -- "-$p" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill -KILL -- "-$p" 2>/dev/null || true
+    done
     for f in "$root"/orphan*; do
         [ ! -s "$f" ] || kill "$(cat "$f")" 2>/dev/null || true
     done
+    leaked="$(pgrep -af -- "$root/" || true)"
+    if [ -n "$leaked" ]; then
+        echo "FAIL: processes outlived the test:" >&2
+        while read -r p f; do
+            echo "    $p $f" >&2
+            kill -KILL "$p" 2>/dev/null || true
+        done <<<"$leaked"
+        status=1
+    fi
     rm -rf -- "$root" || true
+    exit "$status"
 }
 trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 failures=0
 fail() {
@@ -132,7 +161,8 @@ exec "$@"
 EOF
 # The fake ec2: `ls` prints a header and $root/ec2-ls, `up` records the call and prints $root/ec2-up, exiting with the
 # status in $root/ec2-up-status. When $root/ec2-up-fifo exists, `up` prints what is written to it instead, so a test
-# holds the launch open until it writes there (for 20 s at most, so a test that never writes fails instead of hanging).
+# holds the launch open until it writes there (for 20 s at most, so a test that never writes fails instead of hanging;
+# --foreground keeps timeout in the run's process group, so ending the run ends it).
 cat >"$root/bin/ec2" <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -143,7 +173,7 @@ case "$1" in
     up)
         echo "$*" >>"$FAKE_ROOT/ec2-up-calls"
         if [ -p "$FAKE_ROOT/ec2-up-fifo" ]; then
-            timeout 20 cat "$FAKE_ROOT/ec2-up-fifo"
+            timeout --foreground 20 cat "$FAKE_ROOT/ec2-up-fifo"
         else
             cat "$FAKE_ROOT/ec2-up"
         fi
@@ -185,13 +215,25 @@ head="$(git -C "$work" rev-parse HEAD)"
 main="$(git -C "$work" rev-parse refs/remotes/origin/main)"
 sub="work-$(printf '%s' "$work" | sha256sum | cut -c1-8)"
 
-# gate <stdout> <stderr> <args...>: runs the script in the fixture, leaving its status in $rc.
+# spawn <stdout> <stderr> <dir> <command...>: starts the command from dir in the background as the leader of a session
+# of its own, so the cleanup can end it with everything it starts; its pid goes in $spawned and in runs.
+spawned=""
+spawn() {
+    local out="$1" err="$2" dir="$3"
+    shift 3
+    (cd "$dir" && exec setsid "$@") >"$out" 2>"$err" &
+    spawned=$!
+    runs+=("$spawned")
+}
+
+# gate <stdout> <stderr> <args...>: runs the script in the fixture and waits for it, leaving its status in $rc.
 gate() {
     local out="$1" err="$2"
     shift 2
     rm -f "$root/woke" "$root/ran-here"
     rc=0
-    (cd "$work" && scripts/gate-remote.sh "$@") >"$out" 2>"$err" || rc=$?
+    spawn "$out" "$err" "$work" scripts/gate-remote.sh "$@"
+    wait "$spawned" || rc=$?
 }
 
 # appears <file> [pattern]: true once the file exists (and holds a line matching the pattern); what writes it runs in
@@ -200,6 +242,21 @@ appears() {
     local i
     for ((i = 0; i < 100; i++)); do
         if [ -e "$1" ] && { [ -z "${2:-}" ] || grep -qE -- "$2" "$1"; }; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+# ends <pid>: true once the run has ended, waiting a little like appears, with its status in $rc; a run that never ends
+# fails the case instead of hanging the test, and the cleanup ends it.
+ends() {
+    local i state
+    for ((i = 0; i < 100; i++)); do
+        state="$(awk '{ print $3 }' "/proc/$1/stat" 2>/dev/null || true)"
+        if [ -z "$state" ] || [ "$state" = Z ]; then
+            rc=0
+            wait "$1" || rc=$?
             return 0
         fi
         sleep 0.1
@@ -487,9 +544,10 @@ mkfifo "$root/ec2-up-fifo"
 both() {
     local tree
     : >"$root/run/orrery-gate-wake.log"
+    both_pids=()
     for tree in work work2; do
-        (cd "$root/$tree" && ORRERY_GATE_WAKE='' scripts/gate-remote.sh bash -c 'exit 7') \
-            >"$root/$tree.out" 2>"$root/$tree.err" &
+        spawn "$root/$tree.out" "$root/$tree.err" "$root/$tree" env ORRERY_GATE_WAKE='' scripts/gate-remote.sh bash -c 'exit 7'
+        both_pids+=("$spawned")
         if [ "$tree" = work ]; then
             appears "$root/ec2-up-calls" || fail "the first run's wake never reached ec2 up"
         fi
@@ -500,8 +558,8 @@ both() {
 both
 echo "orrery-gate-new ready" >"$root/ec2-up-fifo"
 rc1=0 rc2=0
-wait %1 || rc1=$?
-wait %2 || rc2=$?
+wait "${both_pids[0]}" || rc1=$?
+wait "${both_pids[1]}" || rc2=$?
 expect "the run whose wake launched gets the command's status" test "$rc1" -eq 7
 expect "the run whose wake waited gets the command's status" test "$rc2" -eq 7
 expect_line "$root/work.err" 'running bash .* on orrery@orrery-gate-new \(' "the launching run runs on the new box"
@@ -518,8 +576,8 @@ printf 'ec2: InsufficientInstanceCapacity in every zone\n' >"$root/ec2-up-fifo-t
 echo 1 >"$root/ec2-up-status"
 cat "$root/ec2-up-fifo-text" >"$root/ec2-up-fifo"
 rc1=0 rc2=0
-wait %1 || rc1=$?
-wait %2 || rc2=$?
+wait "${both_pids[0]}" || rc1=$?
+wait "${both_pids[1]}" || rc2=$?
 expect "a failed launch ends the launching run here" test "$rc1" -eq 7
 expect "a failed launch ends the waiting run here" test "$rc2" -eq 7
 expect_line "$root/work.err" 'here \(no orrery-gate box could come up: orrery-gate launch refused: ec2: InsufficientInstanceCapacity' "the launching run names the refusal"
@@ -528,7 +586,8 @@ expect "a failed launch is not retried by the waiting wake" test "$(wc -l <"$roo
 rm -f "$root/ec2-up-fifo" "$root/ec2-up-status"
 
 # Box-side slots. The box's fake just runs $root/just-<recipe>; the fake `just check` says it started, then holds its
-# run until the test writes to the work tree's release FIFO (30 s at most, so a broken test fails instead of hanging).
+# run until the test writes to the work tree's release FIFO (30 s at most, so a broken test fails instead of hanging;
+# --foreground keeps timeout in the scope's process group, so stopping the scope ends it).
 cat >"$root/boxbin/just" <<'EOF'
 #!/usr/bin/env bash
 recipe="$1"
@@ -540,7 +599,7 @@ cat >"$root/just-check" <<'EOF'
 tree="${PWD##*/}"
 tree="${tree%-*}"
 touch "$FAKE_ROOT/started-$tree"
-timeout 30 cat "$FAKE_ROOT/release-$tree" >/dev/null
+timeout --foreground 30 cat "$FAKE_ROOT/release-$tree" >/dev/null
 EOF
 chmod +x "$root/boxbin/just" "$root/just-check"
 git -C "$work" worktree add -q "$root/work3"
@@ -551,7 +610,7 @@ export ORRERY_GATE_FULL_SLOTS=1
 # check_in <tree>: starts `just check` from the work tree in the background, its output in $root/<tree>.out and .err.
 check_in() {
     rm -f "$root/started-$1"
-    (cd "$root/$1" && scripts/gate-remote.sh just check) >"$root/$1.out" 2>"$root/$1.err" &
+    spawn "$root/$1.out" "$root/$1.err" "$root/$1" scripts/gate-remote.sh just check
 }
 
 # box_run_pid <tree>: the box-side shell that holds the work tree's slot (its argv[3] is orrery-gate-run and its
@@ -577,10 +636,10 @@ box_run_pid() {
 
 # With one full-check slot, a second `just check` waits for the first, and its output says it is queued.
 check_in work
-pid_a=$!
+pid_a=$spawned
 appears "$root/started-work" || fail "the first full check never started"
 check_in work2
-pid_b=$!
+pid_b=$spawned
 expect_line_eventually() {
     if appears "$1" "$2"; then pass "$3"; else fail "$3: no line matching '$2' in:"; sed 's/^/    /' "$1" >&2; fi
 }
@@ -589,7 +648,8 @@ expect "a queued full check has not started" test ! -e "$root/started-work2"
 
 # Light checks share their own slots, so one runs while the full-check slot is held.
 rc=0
-(cd "$root/work3" && scripts/gate-remote.sh bash -c 'exit 0') >"$root/work3.out" 2>"$root/work3.err" || rc=$?
+spawn "$root/work3.out" "$root/work3.err" "$root/work3" scripts/gate-remote.sh bash -c 'exit 0'
+wait "$spawned" || rc=$?
 expect_status 0 "a light check runs while every full-check slot is held"
 expect_line "$root/work3.err" '^gate-remote: took light-check slot 1 of [0-9]+ on .* after [0-9]+s$' "a light check takes a light-check slot"
 expect_no_line "$root/work3.err" 'queued until one is let go' "a light check is not queued behind the full-check slot"
@@ -607,7 +667,7 @@ expect_no_line "$root/work.err" 'queued until one is let go' "a full check with 
 
 # The holder dies (SIGKILL, no cleanup): the queued run takes the slot all the same.
 check_in work
-pid_a=$!
+pid_a=$spawned
 expect_line_eventually "$root/work.err" 'queued until one is let go$' "a full check queues behind the holder"
 holder="$(box_run_pid work2)"
 expect "the holder's box-side shell is found" test -n "$holder"
@@ -620,6 +680,26 @@ rc=0
 wait "$pid_a" || rc=$?
 expect "the full check that waited on a dead holder ends with its status" test "$rc" -eq 0
 expect "no slot waiter outlives the waits" test -z "$(pgrep -f "$root/box/gate/slots/full-" || true)"
+
+# The slot directory goes while a run is queued: once the holder lets its slot go, the queued run cannot take or wait
+# for a slot, so it ends with 75, naming the cause, instead of going round the wait again.
+check_in work
+pid_a=$spawned
+appears "$root/started-work" || fail "the holder of the slot never started"
+check_in work2
+pid_b=$spawned
+expect_line_eventually "$root/work2.err" 'queued until one is let go$' "a full check queues before its slot directory goes"
+rm -rf -- "$root/box/gate/slots"
+echo released >"$root/release-work"
+rc=0
+wait "$pid_a" || rc=$?
+expect "the holder ends with its status" test "$rc" -eq 0
+rc=""
+ends "$pid_b" || fail "a run whose slot directory went never ended"
+expect "a run whose slot directory went ends with 75" test "${rc:-none}" = 75
+expect_line "$root/work2.err" '^gate-remote: the slot directory .*/gate/slots is gone on .*; the run ends without a slot \(exit 75\)$' "a run whose slot directory went names the cause"
+expect "a run whose slot directory went never started its command" test ! -e "$root/started-work2"
+expect "no slot waiter outlives a gone slot directory" test -z "$(pgrep -f "$root/box/gate/slots/" || true)"
 unset ORRERY_GATE_FULL_SLOTS
 
 if [ "$failures" -ne 0 ]; then
