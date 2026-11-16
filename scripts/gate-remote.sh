@@ -23,11 +23,14 @@
 #       5. points the checkout's HEAD, origin/main and tags at this work tree's, rebuilds its index from HEAD plus this
 #          work tree's staged changes, then runs the command, each argument one word and never evaluated, from the top of
 #          the checkout through scripts/in-devenv, under a shell named orrery-gate-run (the box's busyCommand looks for
-#          it). The command's output streams back as it runs. The run holds the checkout's lock through flock -o, so
-#          only flock holds it and nothing the command starts inherits it. The command runs in its own systemd user
-#          scope, orrery-gate-<run>.scope, which is stopped when the run ends, also when its connection drops: whatever
-#          the command left behind (a timed-out test's daemons, a Gradle daemon) ends with it, since a process stays in
-#          its scope's cgroup however it detaches. A box whose user manager does not answer runs nothing;
+#          it), once it holds one of the box's slots: `just check`, `just android-test` and `just cover` share about 3
+#          full-check slots on 64 cores and every other command shares wider light-check slots; a run that finds every
+#          slot held says it is queued and waits for one (box_run below). The command's output streams back as it runs.
+#          The run holds the checkout's lock through flock -o, so only flock holds it and nothing the command starts
+#          inherits it. The command runs in its own systemd user scope, orrery-gate-<run>.scope, which is stopped when
+#          the run ends, also when its connection drops: whatever the command left behind (a timed-out test's daemons,
+#          a Gradle daemon) ends with it, since a process stays in its scope's cgroup however it detaches. A box whose
+#          user manager does not answer runs nothing;
 #       6. a run here goes through $ORRERY_GATE_LOCAL (default /tmp/claude-1000/heavy when it is executable, else the
 #          command runs directly).
 #       When steps 2-4 fail because the box stopped answering, it goes back to step 1 once; when they fail on a box that
@@ -60,6 +63,8 @@
 #   ORRERY_GATE_LOCAL      prefix for a local run (default above; empty runs the command directly)
 #   ORRERY_GATE_EC2        fleet tool `wake` calls (default ec2)
 #   ORRERY_GATE_USER       user `wake` puts in the destination (default orrery)
+#   ORRERY_GATE_FULL_SLOTS   full-check slots on the box (default: its nproc / 20, at least 1)
+#   ORRERY_GATE_LIGHT_SLOTS  light-check slots on the box (default: its nproc / 8, at least 1)
 #   ORRERY_GATE_REMOTE=0   never use the box
 #
 # Exit codes: the command's status, wherever it ran. 75 is an environment result: the box went away or the connection
@@ -219,18 +224,87 @@ echo "load $one $five $fifteen nproc $(nproc)"
 EOF
 }
 
-# What the box runs, holding the checkout's lock, as `bash -c <this> orrery-gate-run <unit> <command...>`: the command in
-# its own user scope, stopped whenever this shell ends, so nothing the command started outlives the run. The command
-# runs in the background and this shell waits for it, so a hangup or TERM (a dropped connection) is acted on at once.
+# What the box runs, holding the checkout's lock, as
+# `bash -c <this> orrery-gate-run <unit> <full slots> <light slots> <command...>`.
+#
+# First it takes a slot. `just check`, `just android-test` and `just cover` are full checks and share the full-check
+# slots, <full slots> of them (empty: nproc / 20, at least 1, so 3 on 64 cores); every other command shares the
+# light-check slots (empty: nproc / 8, at least 1). Slot i is a flock on ~/gate/slots/<full|light>-<i>, held by this
+# shell and closed for the command, so nothing the command leaves behind holds it. When every slot is held it says so
+# once on stderr and waits: one waiter per slot blocks in flock on it and writes to a FIFO once it gets it, so the wait
+# ends as soon as a slot is let go or its holder dies, never on a timer. It then tries the slots again, since another
+# run may have taken the one that came free. It says which slot it took and after how long.
+#
+# Then it runs the command in its own user scope, stopped whenever this shell ends, so nothing the command started
+# outlives the run. The command runs in the background and this shell waits for it, so a hangup or TERM (a dropped
+# connection) is acted on at once.
 box_run() {
     cat <<'EOF'
 unit="$1"
-shift
-trap 'systemctl --user stop "$unit.scope" 2>/dev/null || true' EXIT
+full="$2"
+light="$3"
+shift 3
+class=light
+label=light-check
+if [ "${1:-}" = just ]; then
+    for arg in "${@:2}"; do
+        case "$arg" in
+            check | android-test | cover) class=full label=full-check ;;
+        esac
+    done
+fi
+if [ "$class" = full ]; then
+    slots="${full:-$(($(nproc) / 20))}"
+else
+    slots="${light:-$(($(nproc) / 8))}"
+fi
+[ "$slots" -ge 1 ] || slots=1
+dir="$HOME/gate/slots"
+mkdir -p "$dir"
+waiters=()
+fifo=""
+end_waiters() {
+    local p
+    for p in "${waiters[@]}"; do
+        kill -- "-$p" 2>/dev/null || true
+    done
+    waiters=()
+    [ -z "$fifo" ] || rm -f -- "$fifo"
+    fifo=""
+}
+trap 'end_waiters; systemctl --user stop "$unit.scope" 2>/dev/null || true' EXIT
 trap 'exit 129' HUP
 trap 'exit 143' TERM
+start=$(date +%s)
+queued=""
+slot_fd=""
+while [ -z "$slot_fd" ]; do
+    for ((i = 1; i <= slots; i++)); do
+        exec {fd}>"$dir/$class-$i"
+        if flock -n "$fd"; then
+            slot_fd=$fd
+            slot=$i
+            break
+        fi
+        exec {fd}>&-
+    done
+    [ -z "$slot_fd" ] || break
+    if [ -z "$queued" ]; then
+        echo "gate-remote: every $label slot on $(uname -n) is held ($slots); queued until one is let go" >&2
+        queued=1
+    fi
+    fifo=$(mktemp -u "$dir/wake.XXXXXX")
+    mkfifo "$fifo"
+    for ((i = 1; i <= slots; i++)); do
+        setsid bash -c 'flock "$1" true && echo "$2" >"$3"' _ "$dir/$class-$i" "$i" "$fifo" </dev/null >/dev/null 2>&1 &
+        waiters+=("$!")
+    done
+    read -r _ <"$fifo"
+    end_waiters
+done
+echo "gate-remote: took $label slot $slot of $slots on $(uname -n) after $(($(date +%s) - start))s" >&2
 systemd-run --user --scope --quiet --collect -p TimeoutStopSec=15 --unit="$unit" -- \
-    scripts/in-devenv -c '"$@"; exit $?' orrery-gate-run "$@" &
+    scripts/in-devenv -c '"$@"; exit $?' orrery-gate-run "$@" {slot_fd}>&- &
 wait "$!"
 EOF
 }
@@ -308,7 +382,7 @@ run_remote() {
     script+=" && { git update-index -q --refresh || true; }"
     script+=" || { echo \"$run_id setup\" >$exit_file; exit 1; }"
     script+="; systemctl --user show-environment >/dev/null 2>&1 || { echo \"$run_id noscope\" >$exit_file; exit 1; }"
-    script+="; flock -o -x ../$(printf '%q' "$sub").lock bash -c $(printf '%q' "$(box_run)") orrery-gate-run orrery-gate-$run_id $(printf '%q ' "$@")"
+    script+="; flock -o -x ../$(printf '%q' "$sub").lock bash -c $(printf '%q' "$(box_run)") orrery-gate-run orrery-gate-$run_id $(printf '%q' "${ORRERY_GATE_FULL_SLOTS:-}") $(printf '%q' "${ORRERY_GATE_LIGHT_SLOTS:-}") $(printf '%q ' "$@")"
     script+="; rc=\$?; echo \"$run_id \$rc\" >$exit_file; exit \$rc"
 
     echo "gate-remote: running $(printf '%q ' "$@")on $dest (load $one $five $fifteen, nproc $cpus)" >&2
