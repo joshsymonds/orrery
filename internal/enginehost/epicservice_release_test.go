@@ -19,17 +19,29 @@ func releaseTestSteps() []store.EpicReleaseStep {
 	}
 }
 
-// stoppedReleaseEpic creates epicServiceID clean in a new repository, which it returns, and takes that repository's
-// release slot. Its release node run stops at publish, the second step, which failed after the first step passed.
-func stoppedReleaseEpic(t *testing.T) (*store.Store, string) {
+// releaseTestRepo is the repository of the stopped releases that never read a git repository. releaseTestBase is the
+// commit they are based at. Neither names anything on disk: the store keeps both as text.
+const (
+	releaseTestRepo = "/nonexistent/synthetic-repo"
+	releaseTestBase = "0123456789abcdef0123456789abcdef01234567"
+)
+
+// stoppedReleaseEpic creates epicServiceID clean at repo, based at releaseTestBase, and takes repo's release slot. Its
+// release node run stops at publish, the second step, which failed after the first step passed.
+func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 	t.Helper()
 	ctx := t.Context()
 	st := epicTestStore(t)
-	repo := stepGitTestRepo(t)
-	req := fullEpicRequest(repo, epicServiceID)
-	row := epicRowOf(req, req.GetContract().GetBase(), store.EpicWorkflow{}, time.Unix(turnStarted, 0))
-	row.Phase = store.PhaseClean
-	row.ReleaseSteps = releaseTestSteps()
+	now := time.Unix(turnStarted, 0)
+	row := store.EpicRow{
+		ID:           epicServiceID,
+		Repository:   repo,
+		Base:         releaseTestBase,
+		Phase:        store.PhaseClean,
+		Created:      now,
+		Changed:      now,
+		ReleaseSteps: releaseTestSteps(),
+	}
 	if err := st.CreateEpic(ctx, row); err != nil {
 		t.Fatalf("CreateEpic clean: %v", err)
 	}
@@ -58,13 +70,13 @@ func stoppedReleaseEpic(t *testing.T) (*store.Store, string) {
 	); err != nil {
 		t.Fatalf("StopRelease: %v", err)
 	}
-	return st, repo
+	return st
 }
 
 func TestEpicReleaseResumesStoppedReleaseAtNamedUndoNone(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	st, _ := stoppedReleaseEpic(t)
+	st := stoppedReleaseEpic(t, releaseTestRepo)
 	client := newEpicsClient(t, startEpicServer(t, st))
 
 	released, err := client.ReleaseEpic(ctx, connect.NewRequest(&v1.ReleaseEpicRequest{
@@ -96,7 +108,7 @@ func TestEpicReleaseResumesStoppedReleaseAtNamedUndoNone(t *testing.T) {
 func TestEpicReleaseRefusesMalformedAndUnknownRequests(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	st, _ := stoppedReleaseEpic(t)
+	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	cases := []struct {
 		name    string
@@ -142,7 +154,7 @@ func TestEpicReleaseRefusesMalformedAndUnknownRequests(t *testing.T) {
 // failed_precondition carrying the store's text. The store's own tests pin each refusal.
 func TestEpicReleaseStoreRefusalIsFailedPrecondition(t *testing.T) {
 	t.Parallel()
-	st, _ := stoppedReleaseEpic(t)
+	st := stoppedReleaseEpic(t, releaseTestRepo)
 	client := newEpicsClient(t, startEpicServer(t, st))
 
 	_, err := client.ReleaseEpic(t.Context(), connect.NewRequest(&v1.ReleaseEpicRequest{Id: epicServiceID}))
@@ -153,7 +165,8 @@ func TestEpicReleaseStoreRefusalIsFailedPrecondition(t *testing.T) {
 func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	st, repo := stoppedReleaseEpic(t)
+	repo := stepGitTestRepo(t)
+	st := stoppedReleaseEpic(t, repo)
 	client := newEpicsClient(t, startEpicServer(t, st))
 
 	stopped := getEpicOK(t, client)
