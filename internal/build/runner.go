@@ -257,7 +257,7 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 	}
 	view.Head = r.head(ctx, filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), stepID))
 	if task.Build.Refs != "" {
-		moves, err := r.refMoves(ctx, epic, task.Build.Refs)
+		moves, err := r.refMoves(ctx, epic, task.Build.Refs, task.Build.Base, view.Head)
 		if err != nil {
 			return View{}, err
 		}
@@ -349,8 +349,11 @@ func (r *Runner) head(ctx context.Context, dir string) string {
 	return head
 }
 
-// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now.
-func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before string) ([]RefMove, error) {
+// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now. The implementer's
+// commits are those between base, the commit its step started at, and head, the HEAD of its worktree. A move of main or
+// of HEAD onto a commit that origin's main reaches, and that holds none of those commits, is told rather than parked.
+// Without origin's main, or without a head to read the commits from, every move parks as Compare reports it.
+func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base, head string) ([]RefMove, error) {
 	after, err := snapshotOf(ctx, r.store, epic)
 	if err != nil {
 		return nil, err
@@ -358,6 +361,21 @@ func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before string
 	moves, err := Compare(before, after)
 	if err != nil {
 		return nil, fmt.Errorf("compare refs of epic %s: %w", epic.ID, err)
+	}
+	origin, ok, err := originMain(ctx, epic.Repository)
+	if err != nil {
+		return nil, fmt.Errorf("read origin main of epic %s: %w", epic.ID, err)
+	}
+	if !ok || head == "" {
+		return moves, nil
+	}
+	steps, err := stepCommits(ctx, epic.Repository, base, head)
+	if err != nil {
+		return nil, fmt.Errorf("read implementer commits of epic %s: %w", epic.ID, err)
+	}
+	moves, err = originTells(ctx, epic.Repository, moves, origin, steps)
+	if err != nil {
+		return nil, fmt.Errorf("check ref moves of epic %s against origin: %w", epic.ID, err)
 	}
 	return moves, nil
 }
