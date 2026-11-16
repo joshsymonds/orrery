@@ -155,7 +155,7 @@ func runnerWaitsForFreeze(act kinds.Action) runnerKindFunc {
 func runnerFreezeReview(t *testing.T, s *store.Store) {
 	t.Helper()
 	run := runAt(t, s, reviewNodeKind)
-	if err := s.FreezeReview(context.Background(), runEpic, run.Path, run.Attempt, runBase); err != nil {
+	if err := s.FreezeReview(context.Background(), runEpic, run.Path, run.Attempt, runBase, runClock()); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
 }

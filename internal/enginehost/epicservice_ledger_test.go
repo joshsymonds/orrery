@@ -31,7 +31,7 @@ func TestEpicGetReturnsLedgerOfTheReview(t *testing.T) {
 	if err := st.StartNodes(ctx, epicServiceID, []store.NodeRun{review}, nil, at); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if err := st.FreezeReview(ctx, epicServiceID, ledgerReviewPath, 1, ledgerFrozenRevision); err != nil {
+	if err := st.FreezeReview(ctx, epicServiceID, ledgerReviewPath, 1, ledgerFrozenRevision, at); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
 	verdicts := []store.ReviewVerdict{

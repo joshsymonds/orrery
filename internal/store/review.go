@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -173,7 +174,13 @@ func readReviewHolds(ctx context.Context, queries *sqlcgen.Queries, epic string)
 // revision and sets the epic's phase to reviewing, in one write. The frozen revision is stored once, so a stored one
 // wins over revision. A run that has a revision, a run at another attempt and a run that is not running change nothing,
 // so the review is frozen once.
-func (s *Store) FreezeReview(ctx context.Context, epic, path string, attempt int64, revision string) error {
+func (s *Store) FreezeReview(
+	ctx context.Context,
+	epic, path string,
+	attempt int64,
+	revision string,
+	at time.Time,
+) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		frozen, err := frozenRevision(ctx, queries, epic, revision)
 		if err != nil {
@@ -191,7 +198,7 @@ func (s *Store) FreezeReview(ctx context.Context, epic, path string, attempt int
 		if err = queries.InsertEpicReview(ctx, sqlcgen.InsertEpicReviewParams{Epic: epic, Frozen: frozen}); err != nil {
 			return fmt.Errorf("insert review of epic %s: %w", epic, err)
 		}
-		return setEpicPhase(ctx, queries, epic, phaseReviewing)
+		return setEpicPhase(ctx, queries, epic, phaseReviewing, at)
 	})
 }
 

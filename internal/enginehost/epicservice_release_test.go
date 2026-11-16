@@ -45,7 +45,7 @@ func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 	if err := st.CreateEpic(ctx, row); err != nil {
 		t.Fatalf("CreateEpic clean: %v", err)
 	}
-	if _, err := st.TakeReleaseSlot(ctx, epicServiceID); err != nil {
+	if _, err := st.TakeReleaseSlot(ctx, epicServiceID, now); err != nil {
 		t.Fatalf("TakeReleaseSlot: %v", err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}

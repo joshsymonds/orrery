@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
@@ -342,8 +343,12 @@ func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Epic after Up: %v", err)
 	}
-	if !reflect.DeepEqual(after, before) {
-		t.Errorf("epic after Down and Up = %+v, want %+v", after, before)
+	// Migration 00042 drops phase_at and Up adds it back at 0, so the epic's phase time is the unix second 0 after the
+	// round trip and every other field is unchanged.
+	wantAfter := before
+	wantAfter.PhaseAt = time.Unix(0, 0)
+	if !reflect.DeepEqual(after, wantAfter) {
+		t.Errorf("epic after Down and Up = %+v, want %+v", after, wantAfter)
 	}
 	afterRun, err := s.EvidenceRun(ctx, "run-1")
 	if err != nil {

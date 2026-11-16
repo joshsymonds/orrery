@@ -29,7 +29,7 @@ func TestFreezeReviewFreezesRunAtItsAttempt(t *testing.T) {
 	s := openIntegrateStore(t)
 	startIntegrateRuns(t, s, NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1})
 
-	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7"); err != nil {
+	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7", integrateEndedAt()); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
 	requireIntegrateRun(t, s, "review", NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review",
@@ -50,16 +50,16 @@ func TestFreezeReviewKeepsFirstFrozenRevision(t *testing.T) {
 		NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1},
 		NodeRun{Path: "review/again", ID: "id-again", Node: "review", Kind: "review", Attempt: 1},
 	)
-	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7"); err != nil {
+	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7", integrateEndedAt()); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
-	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-8"); err != nil {
+	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-8", integrateEndedAt()); err != nil {
 		t.Fatalf("repeat FreezeReview: %v", err)
 	}
 	requireIntegrateRun(t, s, "review", NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review",
 		State: NodeRunning, Started: integrateStartedAt(), Attempt: 1, Revision: "rev-7"})
 
-	if err := s.FreezeReview(ctx, integrateEpic, "review/again", 1, "rev-8"); err != nil {
+	if err := s.FreezeReview(ctx, integrateEpic, "review/again", 1, "rev-8", integrateEndedAt()); err != nil {
 		t.Fatalf("FreezeReview of a second run: %v", err)
 	}
 	requireIntegrateRun(t, s, "review/again", NodeRun{Path: "review/again", ID: "id-again", Node: "review",
@@ -82,10 +82,10 @@ func TestFreezeReviewIgnoresOtherAttemptsAndEndedRuns(t *testing.T) {
 		t.Fatalf("EndNodes: %v", err)
 	}
 
-	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7"); err != nil {
+	if err := s.FreezeReview(ctx, integrateEpic, "review", 1, "rev-7", integrateEndedAt()); err != nil {
 		t.Fatalf("FreezeReview at another attempt: %v", err)
 	}
-	if err := s.FreezeReview(ctx, integrateEpic, "review/ended", 1, "rev-7"); err != nil {
+	if err := s.FreezeReview(ctx, integrateEpic, "review/ended", 1, "rev-7", integrateEndedAt()); err != nil {
 		t.Fatalf("FreezeReview of an ended run: %v", err)
 	}
 	requireIntegrateRun(t, s, "review", NodeRun{Path: "review", ID: "id-review", Node: "review", Kind: "review",

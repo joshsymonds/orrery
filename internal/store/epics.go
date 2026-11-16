@@ -64,6 +64,7 @@ type EpicRow struct {
 	Phase       string
 	Created     time.Time
 	Changed     time.Time
+	PhaseAt     time.Time
 	Paused      bool
 	Parked      string
 	Summary     string
@@ -195,7 +196,7 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
 			Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-			WorkflowSha256: row.Workflow.SHA256,
+			WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert epic %s: %w", row.ID, err)
 		}
@@ -919,6 +920,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Phase:       head.Phase,
 		Created:     time.Unix(head.Created, 0),
 		Changed:     time.Unix(head.Changed, 0),
+		PhaseAt:     time.Unix(head.PhaseAt, 0),
 		Paused:      head.Paused != 0,
 		Parked:      head.Parked,
 		Summary:     head.Summary,

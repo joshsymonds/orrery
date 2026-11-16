@@ -64,6 +64,7 @@ type Epic struct {
 	StoredBase     string
 	Candidate      string
 	Summary        string
+	PhaseAt        int64
 }
 
 type EpicAddition struct {

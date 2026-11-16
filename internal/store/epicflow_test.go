@@ -221,7 +221,7 @@ func TestEpicFlowReadsReviewAndLabeledStepsOfItsReviewRuns(t *testing.T) {
 	if err := s.StartNodes(ctx, id, runs, nil, epicCreated()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if err := s.FreezeReview(ctx, id, "review", 1, "rev-frozen"); err != nil {
+	if err := s.FreezeReview(ctx, id, "review", 1, "rev-frozen", integrateEndedAt()); err != nil {
 		t.Fatalf("FreezeReview: %v", err)
 	}
 	ops := []EngineOp{

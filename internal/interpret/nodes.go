@@ -48,7 +48,7 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 		case kindIntegrate:
 			return r.prepareBatch(ctx, epic, act)
 		case reviewNodeKind:
-			return r.prepareReview(ctx, epic, act)
+			return r.prepareReview(ctx, epic, act, at)
 		case closureNodeKind:
 			return r.prepareClosure(ctx, epic, act)
 		}

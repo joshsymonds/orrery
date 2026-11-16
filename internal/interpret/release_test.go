@@ -321,7 +321,7 @@ func TestReleaseFreeGivesUpSlot(t *testing.T) {
 	t.Parallel()
 	w := newReleaseWorldIn(t, nil, filepath.Join(t.TempDir(), "no-repository"))
 	w.createEpic(runEpic, store.PhaseStopped)
-	if _, err := w.s.TakeReleaseSlot(w.t.Context(), runEpic); err != nil {
+	if _, err := w.s.TakeReleaseSlot(w.t.Context(), runEpic, runClock()); err != nil {
 		t.Fatalf("TakeReleaseSlot: %v", err)
 	}
 	if slot := w.flowOf(runEpic).Slot; slot != runEpic {

@@ -19,13 +19,13 @@ import (
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040 and 00041 create, and of the columns those migrations and
-// 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039 and 00040 add to epic tables.
+// 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040 and 00042 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
 			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "workflow",
-			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary",
+			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary", "phase_at",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -503,9 +503,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00041_epic_sessions.sql is the newest.
-	if version != 41 {
-		t.Fatalf("store version after Open = %d, want 41", version)
+	// Open applies 00014_epics.sql and every migration after it: 00042_endings.sql is the newest.
+	if version != 42 {
+		t.Fatalf("store version after Open = %d, want 42", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -588,6 +588,8 @@ func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
 		ID: id, Repository: "/work/repo", Title: "Epic one", Approved: "approved line", Intent: "intent",
 		Care: "serious", Approach: "approach", ReleaseThen: "then", Checks: "checks", Phase: "accepted",
 		Created: at, Changed: at,
+		// The epic predates migration 00042, so its phase time is the unix second 0.
+		PhaseAt: time.Unix(0, 0),
 		Requirements: []EpicRequirement{
 			{ID: "R1", Text: "Stored before evidence", Evidence: "store test", Kind: "check"},
 		},
@@ -952,7 +954,19 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	// Each stored row keeps its values and gains what later migrations give it at the end of its table: the epic
 	// stored at version 16 pins the built-in epic workflow.
 	added := map[string][]any{
-		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText), "", "", "", ""},
+		"epics": {
+			int64(0),
+			"",
+			"",
+			"epic",
+			builtInEpicText,
+			textSHA256(builtInEpicText),
+			"",
+			"",
+			"",
+			"",
+			int64(0),
+		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
 		"pending_notices": {"", ""},

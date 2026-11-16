@@ -79,7 +79,7 @@ func recordRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, r
 // holds it, and only a clean epic that holds it moves to releasing. When another epic holds the slot nothing changes
 // and that epic is returned. An epic in any other phase takes nothing. It returns an error matching ErrNoEpic when no
 // epic has the id.
-func (s *Store) TakeReleaseSlot(ctx context.Context, epic string) (string, error) {
+func (s *Store) TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error) {
 	var holder string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		row, err := queries.GetEpic(ctx, epic)
@@ -100,7 +100,10 @@ func (s *Store) TakeReleaseSlot(ctx context.Context, epic string) (string, error
 			return err
 		}
 		if holder == epic && row.Phase == PhaseClean {
-			if err = queries.StartEpicRelease(ctx, epic); err != nil {
+			if err = queries.StartEpicRelease(
+				ctx,
+				sqlcgen.StartEpicReleaseParams{PhaseAt: at.Unix(), ID: epic},
+			); err != nil {
 				return fmt.Errorf("start release of epic %s: %w", epic, err)
 			}
 		}
@@ -164,7 +167,7 @@ func stopEpicRelease(ctx context.Context, queries *sqlcgen.Queries, epic, reason
 	if err := parkWithTell(ctx, queries, epic, capTurnText(reason), at); err != nil {
 		return err
 	}
-	if err := queries.StopEpicRelease(ctx, epic); err != nil {
+	if err := queries.StopEpicRelease(ctx, sqlcgen.StopEpicReleaseParams{PhaseAt: at.Unix(), ID: epic}); err != nil {
 		return fmt.Errorf("stop release of epic %s: %w", epic, err)
 	}
 	return nil

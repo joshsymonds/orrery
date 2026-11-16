@@ -97,7 +97,7 @@ func stoppedReleaseOf(t *testing.T, row store.EpicRow, runs ...store.ReleaseRun)
 	t.Helper()
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, row)
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-resume", Node: "release", Kind: "release", Attempt: 1}
@@ -401,7 +401,7 @@ func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 		t.Errorf("tells of epic %s after ReleaseEpic = %q, want %q", resumeEpic, got, tells)
 	}
 	requireRefusedResume(t, s, raw, resumeEpic, nil, "epic "+resumeEpic+" is not stopped")
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
 	}
 	requireSlot(t, s, resumeEpic, resumeEpic)
@@ -478,7 +478,7 @@ func TestStopEpicReleaseFreesTheSlotAndReturnsTheOpenStep(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			s, raw := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
-			if _, err := s.TakeReleaseSlot(ctx, resumeEpic); err != nil {
+			if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
 				t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
 			}
 			addReleaseSteps(t, s, resumeEpic)
@@ -526,7 +526,7 @@ func TestStopEpicReleaseRefusesAnEpicThatHoldsNoSlot(t *testing.T) {
 		resumeEpicIn(resumeEpic, store.PhaseClean),
 		resumeEpicIn(resumeOther, store.PhaseClean),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, resumeEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, resumeEpic, resumeAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
 	}
 	before := releaseRowsOf(t, raw)

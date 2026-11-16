@@ -80,7 +80,7 @@ func resumeRelease(
 	if err != nil {
 		return err
 	}
-	err = queries.ResumeEpicRelease(ctx, epic)
+	err = queries.ResumeEpicRelease(ctx, sqlcgen.ResumeEpicReleaseParams{PhaseAt: at.Unix(), ID: epic})
 	if err != nil {
 		return fmt.Errorf("move epic %s to releasing: %w", epic, err)
 	}
@@ -100,7 +100,7 @@ func releaseEndedWithGaps(
 	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, at); err != nil {
 		return err
 	}
-	return setEpicPhase(ctx, queries, epic, PhaseClean)
+	return setEpicPhase(ctx, queries, epic, PhaseClean, at)
 }
 
 // checkReleaseResume returns the state the stopped release of head resumes from. It is a RefusalError when head is not

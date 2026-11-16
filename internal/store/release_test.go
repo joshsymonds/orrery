@@ -127,7 +127,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 		releaseEpicIn(releaseFree, releaseOtherRepo, store.PhaseClean),
 	)
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseEpic)
+	holder, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
@@ -136,7 +136,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 	}
 	requirePhase(t, s, releaseEpic, store.PhaseReleasing)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseOther)
+	holder, err = s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseOther, err)
 	}
@@ -145,7 +145,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 	}
 	requirePhase(t, s, releaseOther, store.PhaseClean)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseEpic)
+	holder, err = s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
 	if err != nil {
 		t.Fatalf("repeat TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
@@ -154,7 +154,7 @@ func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
 	}
 	requirePhase(t, s, releaseEpic, store.PhaseReleasing)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseFree)
+	holder, err = s.TakeReleaseSlot(ctx, releaseFree, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseFree, err)
 	}
@@ -173,11 +173,11 @@ func TestTakeReleaseSlotStoppedRetakesFreeSlotWithoutPhaseChange(t *testing.T) {
 		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
 		releaseEpicIn(releaseOther, releaseRepo, store.PhaseStopped),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseOther)
+	holder, err := s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of stopped %s: %v", releaseOther, err)
 	}
@@ -188,7 +188,7 @@ func TestTakeReleaseSlotStoppedRetakesFreeSlotWithoutPhaseChange(t *testing.T) {
 	if err := s.FreeReleaseSlot(ctx, releaseEpic); err != nil {
 		t.Fatalf("FreeReleaseSlot of %s: %v", releaseEpic, err)
 	}
-	holder, err = s.TakeReleaseSlot(ctx, releaseOther)
+	holder, err = s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of stopped %s after the free: %v", releaseOther, err)
 	}
@@ -206,7 +206,7 @@ func TestTakeReleaseSlotTakesNothingElse(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openReleaseStore(t, releaseEpicIn(releaseEpic, releaseRepo, "accepted"))
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseEpic)
+	holder, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
 	if err != nil {
 		t.Fatalf("TakeReleaseSlot of accepted %s: %v", releaseEpic, err)
 	}
@@ -216,7 +216,8 @@ func TestTakeReleaseSlotTakesNothingElse(t *testing.T) {
 	requirePhase(t, s, releaseEpic, "accepted")
 	requireSlot(t, s, releaseEpic, "")
 
-	if _, err := s.TakeReleaseSlot(ctx, "orrery-8b9c0d1/no-such-epic"); !errors.Is(err, store.ErrNoEpic) {
+	_, err = s.TakeReleaseSlot(ctx, "orrery-8b9c0d1/no-such-epic", releaseRunAt())
+	if !errors.Is(err, store.ErrNoEpic) {
 		t.Errorf("TakeReleaseSlot of an unknown epic: err = %v, want ErrNoEpic", err)
 	}
 }
@@ -230,7 +231,7 @@ func TestFreeReleaseSlotRemovesOnlyTheSlotItHolds(t *testing.T) {
 		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
 		releaseEpicIn(releaseOther, releaseRepo, store.PhaseClean),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 
@@ -252,7 +253,7 @@ func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean))
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}
@@ -295,7 +296,7 @@ func TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps(t *testing.T) {
 		{Step: "publish", Target: "registry", Undo: "yank"},
 	}
 	s, _ := openReleaseStore(t, row)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic); err != nil {
+	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
 		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
 	}
 
