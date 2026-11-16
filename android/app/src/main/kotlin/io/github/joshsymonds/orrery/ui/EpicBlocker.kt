@@ -50,7 +50,7 @@ fun NowBlock(
         }
         when (blocker) {
             is EpicBlocker.Question -> key(blocker.question.id) {
-                AnswerForm(blocker.question, onAnswer)
+                AnswerForm(blocker.question, onAnswer = onAnswer)
             }
             is EpicBlocker.Parked -> {
                 Text(blocker.text, color = MaterialTheme.colorScheme.error)
@@ -74,12 +74,19 @@ fun NowBlock(
 }
 
 // AnswerForm answers one open question. Answer stays disabled while the trimmed answer is empty and sends the trimmed
-// answer. A returned error shows under the form and keeps the answer; an empty return clears it.
+// answer. A returned error shows under the form and keeps the answer; an empty return clears it. hideQuestion leaves
+// out the question's own line, for a caller whose sentence already says the question.
 @Composable
-private fun AnswerForm(question: EpicQuestionRow, onAnswer: (questionId: String, text: String) -> String) {
+internal fun AnswerForm(
+    question: EpicQuestionRow,
+    hideQuestion: Boolean = false,
+    onAnswer: (questionId: String, text: String) -> String,
+) {
     var text by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
-    Text(question.text, modifier = Modifier.testTag("blocker-question"))
+    if (!hideQuestion) {
+        Text(question.text, modifier = Modifier.testTag("blocker-question"))
+    }
     OutlinedTextField(
         value = text,
         onValueChange = { text = it },
