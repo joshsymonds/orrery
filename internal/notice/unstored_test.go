@@ -58,7 +58,7 @@ func TestRefusedPushedRowIsStoredAtTheNextWrite(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
 	rows := &refusingRows{Store: s, refuse: "%3"}
-	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
 	n.Attach(ctx, rows)
 
 	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
@@ -80,7 +80,7 @@ func TestRefusedPushedDeleteIsStoredAtTheNextWrite(t *testing.T) {
 	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
 	rows := &refusingRows{Store: s, refuse: "%3"}
 	rows.refusedPut = true // only the delete is refused
-	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
 	n.Attach(ctx, rows)
 
 	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
@@ -101,7 +101,7 @@ func TestRefusedPushedRowIsStoredAtTheNextRetry(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
 	rows := &refusingRows{Store: s, refuse: "%3"}
-	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
 	n.Attach(ctx, rows)
 
 	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
@@ -122,7 +122,7 @@ func TestRefusedPushedDeleteIsStoredAtTheNextRetry(t *testing.T) {
 	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
 	rows := &refusingRows{Store: s, refuse: "%3"}
 	rows.refusedPut = true // only the delete is refused
-	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
 	n.Attach(ctx, rows)
 
 	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
@@ -143,7 +143,7 @@ func TestRefusedPushedRowIsStoredAtClose(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
 	rows := &refusingRows{Store: s, refuse: "%3"}
-	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
 	n.Attach(ctx, rows)
 
 	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
@@ -163,7 +163,7 @@ func TestRefusedPushedDeleteIsStoredAtClose(t *testing.T) {
 	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
 	rows := &refusingRows{Store: s, refuse: "%3"}
 	rows.refusedPut = true // only the delete is refused
-	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
 	n.Attach(ctx, rows)
 
 	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
@@ -173,4 +173,74 @@ func TestRefusedPushedDeleteIsStoredAtClose(t *testing.T) {
 
 	n.Close(ctx)
 	wantRows(t, storedPushes(ctx, t, s))
+}
+
+// testStoreDeadline bounds the store calls of a test's Notices: longer than any test runs, so a store call that is only
+// slow, as one on a loaded machine is, never reads as late. The test that forces a late call holds it until its own
+// shorter deadline ends.
+const testStoreDeadline = time.Hour
+
+// newTestNotices returns notice.New's Notices for host-a with testStoreDeadline as its store bound.
+func newTestNotices(sender notice.Sender, now func() time.Time, logger *slog.Logger) *notice.Notices {
+	n := notice.New("host-a", sender, now, logger)
+	n.SetStoreDeadline(testStoreDeadline)
+	return n
+}
+
+// lateRows stores through inner, but answers the first lates PutPushed calls for the pane late names as a call that
+// outlived its deadline does, storing nothing.
+type lateRows struct {
+	*store.Store
+	late string
+
+	mu    sync.Mutex
+	lates int
+}
+
+func (r *lateRows) PutPushed(ctx context.Context, row store.PushedRow) error {
+	r.mu.Lock()
+	late := row.Pane == r.late && r.lates > 0
+	if late {
+		r.lates--
+	}
+	r.mu.Unlock()
+	if late {
+		return context.DeadlineExceeded
+	}
+	return r.Store.PutPushed(ctx, row)
+}
+
+// TestLateRetryOfARefusedRowIsStoredAtTheWriteAfter forces the order the gate's loaded run hit: %3's row write is
+// refused, and the retry %4's write starts for it is late too, as a store call on a loaded machine can be. The store then
+// holds %4 alone, as the failed run read it. The late retry must leave %3 unstored, not dropped, so %5's write, the next
+// the store takes, stores it.
+func TestLateRetryOfARefusedRowIsStoredAtTheWriteAfter(t *testing.T) {
+	t.Parallel()
+	const at = 1700000000
+	ctx := context.Background()
+	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
+	rows := &lateRows{Store: s, late: "%3", lates: 2}
+	n := newTestNotices(&fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n.Attach(ctx, rows)
+
+	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s))
+
+	n.Notify(ctx, notice.Key{Pane: "%4"}, build(push.Notification{Summary: "done"}), nil)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s), store.PushedRow{Pane: "%4", Time: at})
+
+	n.Notify(ctx, notice.Key{Pane: "%5"}, build(push.Notification{Summary: "done"}), nil)
+	n.Wait()
+	wantRows(
+		t,
+		storedPushes(ctx, t, s),
+		store.PushedRow{
+			Pane: "%3",
+			Time: at,
+		},
+		store.PushedRow{Pane: "%4", Time: at},
+		store.PushedRow{Pane: "%5", Time: at},
+	)
 }

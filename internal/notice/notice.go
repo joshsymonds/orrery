@@ -61,6 +61,8 @@ type Notices struct {
 	// retry is queued.
 	unstored map[Key]rowWrite
 	retrying map[Key]bool
+	// deadline bounds each store call, storeDeadline unless a test sets another.
+	deadline time.Duration
 }
 
 // rowWrite is one row write of a key: put writes its row with time at, and a delete removes it.
@@ -82,6 +84,7 @@ func New(host string, sender Sender, now func() time.Time, logger *slog.Logger) 
 		tails:              make(map[Key]chan struct{}),
 		unstored:           make(map[Key]rowWrite),
 		retrying:           make(map[Key]bool),
+		deadline:           storeDeadline,
 	}
 }
 
@@ -167,7 +170,7 @@ func (n *Notices) Attach(ctx context.Context, rows Rows) {
 // readRows returns the pushes rows holds. A read that fails or outlives its deadline is logged and returns none.
 func (n *Notices) readRows(ctx context.Context, rows Rows) []store.PushedRow {
 	var stored []store.PushedRow
-	err := bounded(context.WithoutCancel(ctx), func(ctx context.Context) error {
+	err := n.bounded(context.WithoutCancel(ctx), func(ctx context.Context) error {
 		var readErr error
 		stored, readErr = rows.Pushed(ctx)
 		if readErr != nil {
@@ -240,16 +243,16 @@ func (n *Notices) Close(ctx context.Context) {
 	n.Wait()
 }
 
-// bounded runs one store call on parent under storeDeadline and returns its error. A call that outlives the deadline
-// reads as failed, even when it succeeded, because it was late.
-func bounded(parent context.Context, call func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(parent, storeDeadline)
+// bounded runs one store call on parent under the Notices' deadline and returns its error. A call that outlives the
+// deadline reads as failed, even when it succeeded, because it was late.
+func (n *Notices) bounded(parent context.Context, call func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parent, n.deadline)
 	defer cancel()
 	if err := call(ctx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("store call outlived its %v deadline: %w", storeDeadline, err)
+		return fmt.Errorf("store call outlived its %v deadline: %w", n.deadline, err)
 	}
 	return nil
 }
@@ -276,7 +279,7 @@ func (n *Notices) putRow(ctx context.Context, rows Rows, key Key, at int64) {
 	row := store.PushedRow{
 		Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert, Time: at,
 	}
-	if err := bounded(ctx, func(ctx context.Context) error { return rows.PutPushed(ctx, row) }); err != nil {
+	if err := n.bounded(ctx, func(ctx context.Context) error { return rows.PutPushed(ctx, row) }); err != nil {
 		n.logger.ErrorContext(ctx, "put pushed notice", "key", key, "error", err)
 		n.unstoredWrite(key, rowWrite{put: true, at: at})
 		return
@@ -341,7 +344,7 @@ func compareKeys(a, b Key) int {
 // alert key's by its alert. A failure is logged, and the delete is kept to be stored again (see stored, Retry and
 // Close).
 func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
-	if err := bounded(ctx, func(ctx context.Context) error {
+	if err := n.bounded(ctx, func(ctx context.Context) error {
 		if key.Epic != "" {
 			return rows.DeletePushedEpic(ctx, key.Epic)
 		}
