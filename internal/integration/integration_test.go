@@ -3104,9 +3104,21 @@ func setupRecentOpen(t *testing.T) openWorld {
 	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: env.claude, env: env}
 }
 
-// treePIDs returns the IDs of the processes whose command line ends in tree --client TTY, which are the tree
-// processes orrery starts for tty.
-func treePIDs(tty string) ([]int, error) {
+// serverSocket returns the socket path of client's tmux server. A popup's command runs with TMUX naming that socket.
+func serverSocket(t *testing.T, client *tmuxctl.Client) string {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display-message", "-p", "#{socket_path}")
+	if err != nil {
+		t.Fatalf("read the tmux server's socket path: %v", err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// treePIDs returns the IDs of the tree processes orrery starts for tty on the tmux server at socket: each process whose
+// command line ends in tree --client TTY and whose TMUX names socket. A pts number is reused, by the next test and by
+// other test binaries on the machine, so a tree is matched on its server as well as its client: matched on tty alone, a
+// test would find, and its cleanup kill, the tree another test's popup runs on the same pts.
+func treePIDs(socket, tty string) ([]int, error) {
 	paths, err := filepath.Glob("/proc/[0-9]*/cmdline")
 	if err != nil {
 		return nil, fmt.Errorf("list processes: %w", err)
@@ -3122,6 +3134,9 @@ func treePIDs(tty string) ([]int, error) {
 		if n < 3 || args[n-3] != "tree" || args[n-2] != "--client" || args[n-1] != tty {
 			continue
 		}
+		if !onServer(filepath.Dir(path), socket) {
+			continue
+		}
 		pid, convErr := strconv.Atoi(filepath.Base(filepath.Dir(path)))
 		if convErr != nil {
 			return nil, fmt.Errorf("process ID of %s: %w", path, convErr)
@@ -3131,16 +3146,33 @@ func treePIDs(tty string) ([]int, error) {
 	return pids, nil
 }
 
-// killTreesAtCleanup kills the tree processes for tty when the test ends, so that no tree outlives its test.
-func killTreesAtCleanup(t *testing.T, tty string) {
+// onServer reports whether the process whose /proc directory is dir runs with TMUX naming the server socket. A process
+// whose environment cannot be read is not on it.
+func onServer(dir, socket string) bool {
+	environ, err := os.ReadFile(filepath.Join(dir, "environ"))
+	if err != nil {
+		return false
+	}
+	for entry := range strings.SplitSeq(string(environ), "\x00") {
+		if value, ok := strings.CutPrefix(entry, "TMUX="); ok {
+			return strings.HasPrefix(value, socket+",")
+		}
+	}
+	return false
+}
+
+// killTreesAtCleanup kills the tree processes for tty on client's server when the test ends, so that no tree outlives
+// its test. The server's socket is read now, while the server runs.
+func killTreesAtCleanup(t *testing.T, client *tmuxctl.Client, tty string) {
 	t.Helper()
+	socket := serverSocket(t, client)
 	t.Cleanup(func() {
-		pids, err := treePIDs(tty)
+		pids, err := treePIDs(socket, tty)
 		if err != nil {
 			t.Errorf("find tree processes for %s: %v", tty, err)
 		}
 		for _, pid := range pids {
-			if killErr := syscall.Kill(pid, syscall.SIGKILL); killErr != nil {
+			if killErr := syscall.Kill(pid, syscall.SIGKILL); killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
 				t.Errorf("kill tree process %d: %v", pid, killErr)
 			}
 		}
@@ -3185,7 +3217,7 @@ func treePopupError(t *testing.T, client *tmuxctl.Client, tty string) error {
 	if listed == nil {
 		return fmt.Errorf("client %s not listed in %v", tty, rows)
 	}
-	pids, err := treePIDs(tty)
+	pids, err := treePIDs(serverSocket(t, client), tty)
 	if err != nil {
 		return err
 	}
@@ -3211,6 +3243,7 @@ func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string, sc *scri
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
+	socket := serverSocket(t, client)
 	started := false
 	for {
 		err := treePopupError(t, client, tty)
@@ -3220,7 +3253,7 @@ func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string, sc *scri
 		if sc != nil && strings.Contains(sc.output.String(), openTreeErrorLog) {
 			t.Fatalf("the tree's popup for client %s failed; output %q", tty, sc.output.String())
 		}
-		pids, pidErr := treePIDs(tty)
+		pids, pidErr := treePIDs(socket, tty)
 		if pidErr != nil {
 			t.Fatalf("find tree processes for %s: %v", tty, pidErr)
 		}
@@ -3246,8 +3279,8 @@ func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string, sc *scri
 func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
 	t.Parallel()
 	w := setupRecentOpen(t)
-	killTreesAtCleanup(t, w.invoking)
-	killTreesAtCleanup(t, w.other)
+	killTreesAtCleanup(t, w.client, w.invoking)
+	killTreesAtCleanup(t, w.client, w.other)
 	pane := w.runInPane(t, "open")
 	waitForScreen(t, w.client, pane, "exit 0")
 	if got := clientSession(t, w.client, w.invoking); got != "s2" {
@@ -3257,7 +3290,7 @@ func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
 		t.Fatalf("other client shows session %s, want s3", got)
 	}
 	waitForTreePopup(t, w.client, w.invoking, nil)
-	pids, err := treePIDs(w.other)
+	pids, err := treePIDs(serverSocket(t, w.client), w.other)
 	if err != nil {
 		t.Fatalf("find tree processes for other client: %v", err)
 	}
@@ -3274,19 +3307,19 @@ func TestOpenNoArgumentOutsideTmuxAttachesRecentAndShowsTree(t *testing.T) {
 	known := knownClients(t, client)
 	sc := startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open", orreryPath(), name), env.vars()...)
 	tty := waitForNewClient(t, client, "s2", known, sc)
-	killTreesAtCleanup(t, tty)
+	killTreesAtCleanup(t, client, tty)
 	waitForTreePopup(t, client, tty, sc)
 }
 
 func TestOpenNamedSessionStartsNoTree(t *testing.T) {
 	t.Parallel()
 	w := setupOpen(t)
-	killTreesAtCleanup(t, w.invoking)
-	killTreesAtCleanup(t, w.other)
+	killTreesAtCleanup(t, w.client, w.invoking)
+	killTreesAtCleanup(t, w.client, w.other)
 	pane := w.runInPane(t, "open s2")
 	waitForScreen(t, w.client, pane, "exit 0")
 	for _, tty := range []string{w.invoking, w.other} {
-		pids, err := treePIDs(tty)
+		pids, err := treePIDs(serverSocket(t, w.client), tty)
 		if err != nil {
 			t.Fatalf("find tree processes for %s: %v", tty, err)
 		}
