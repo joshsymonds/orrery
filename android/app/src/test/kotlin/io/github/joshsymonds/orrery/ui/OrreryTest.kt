@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -20,11 +21,13 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -114,6 +117,25 @@ class OrreryTest {
         composeRule.setContent { OrreryUnderTest(wedges, emptyList()) }
 
         assertEquals("glows: none", stateDescription())
+    }
+
+    @Test
+    fun aNowSliceDrawsInItsWedgesToneColour() {
+        val wedges = listOf(
+            wedge("T1", WedgePlace.IMPLEMENTING, WedgeTone.RUN, "now ahead ahead ahead"),
+            wedge("T2", WedgePlace.CHECKING, WedgeTone.MINE, "passed now ahead ahead"),
+            wedge("T3", WedgePlace.REVIEWING, WedgeTone.BAD, "passed passed now ahead"),
+            wedge("T4", WedgePlace.INTEGRATING, WedgeTone.ACC, "passed passed passed now"),
+        )
+        composeRule.setContent { OrreryUnderTest(wedges, emptyList()) }
+
+        // Each now slice sits on its phase's ring, at the middle of its wedge's angle.
+        val bitmap = renderWindow()
+
+        assertWithinARoundingStep("running", Mocha.Yellow.toArgb(), bitmap.argbAt(spot(RINGS[1], middle(0, 4))))
+        assertEquals("waits on you", Mocha.Peach.toArgb(), bitmap.argbAt(spot(RINGS[2], middle(1, 4))))
+        assertEquals("ended short", Mocha.Red.toArgb(), bitmap.argbAt(spot(RINGS[3], middle(2, 4))))
+        assertEquals("accepted", Color(0xFF94E2D5).toArgb(), bitmap.argbAt(spot(RINGS[4], middle(3, 4))))
     }
 
     @Test
@@ -215,6 +237,16 @@ class OrreryTest {
     }
 
     private fun Bitmap.argbAt(spot: Offset): Int = getPixel(spot.x.toInt(), spot.y.toInt())
+
+    // [actual] is [expected] to within one step in each channel. The running slice's glow lies over it at half opacity, and
+    // yellow over yellow rounds a step in green and blue.
+    private fun assertWithinARoundingStep(name: String, expected: Int, actual: Int) {
+        val steps = listOf(16, 8, 0).map { shift -> abs(((expected shr shift) and 0xFF) - ((actual shr shift) and 0xFF)) }
+        assertTrue(
+            "$name expected ${Integer.toHexString(expected)} but was ${Integer.toHexString(actual)}",
+            steps.all { it <= 1 },
+        )
+    }
 
     // The middle angle of slice [index] of [count], from the spec: 8 degrees at the start and 344 degrees shared out.
     private fun middle(index: Int, count: Int): Float = START + (index + 0.5f) * SWEEP / count
