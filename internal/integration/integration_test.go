@@ -48,6 +48,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/storetest"
+	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -1013,18 +1014,6 @@ cat > "$R/stdin"
 ` + judgeRunScript + `printf 'summary: example summary\nlabel: example label\n'
 : > "$R/done"
 `
-	// slowFakeClaudeScript is labelFakeClaudeScript after a pause, so a run is still in flight a second after it starts.
-	slowFakeClaudeScript = `#!/bin/sh
-D=$(dirname "$0")
-mkdir -p "$D/calls"
-R=$(mktemp -d "$D/calls/run.XXXXXX")
-printf '%s\n' "$@" > "$R/args"
-env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
-cat > "$R/stdin"
-` + judgeRunScript + `sleep 1
-printf 'summary: example summary\nlabel: example label\n'
-: > "$R/done"
-`
 )
 
 // notice is one notice the desk stream carried: its state, title and body.
@@ -1451,10 +1440,13 @@ func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
+	daemon, socket, dir := startSummaryDaemon(t, name, gatedFakeClaudeScript)
 	transcript := filepath.Join(dir, "transcript.jsonl")
 	writeFile(t, transcript, exampleTranscript, 0o600)
 
+	// The UserPromptSubmit starts the pane's summary run, which the fake holds, and the Stop's request waits behind it.
+	// The SessionEnd forgets the pane while the run is held, and the run is released only then, so it finishes for a
+	// forgotten pane.
 	sendHook(t, socket, pane, dir, map[string]any{
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
@@ -1469,15 +1461,44 @@ func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
 	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
 	requireOption(t, client, pane, protocol.OptionState, "")
 
-	// The run in flight at SessionEnd finishes, then a late summary write has this window to land before the daemon
-	// stops. A stop cancels any run still in flight, so it must come after the window.
-	const lateWriteWindow = 500 * time.Millisecond
-	waitForFinishedRuns(t, dir, 1)
-	<-time.After(lateWriteWindow)
-	wantExit(t, daemon.stop(t), 0)
+	writeFile(t, filepath.Join(dir, summaryReleaseFile), "", 0o600)
+	// Once orreryd has logged that it dropped the run's reply, the run can write nothing, and the Stop's request went
+	// with the SessionEnd, so no later run writes either.
+	daemon.waitForForgottenRun(t, client, pane)
 	for _, option := range []string{protocol.OptionSummary, protocol.OptionLabel} {
-		if got := readOption(t, client, pane, option); got != "" {
-			t.Fatalf("%s = %q after SessionEnd, want unset", option, got)
+		requireOption(t, client, pane, option, "")
+	}
+	wantExit(t, daemon.stop(t), 0)
+}
+
+// waitForForgottenRun waits until p logs summary.ForgottenRunLog for pane, which it does once a run in flight at the
+// pane's SessionEnd has finished and written nothing. It has no deadline of its own, and fails at once when the run
+// ends any other way: p logs summary.FailedRunLog for pane, or the run writes the pane's summary, or p exits.
+func (p *orreryProcess) waitForForgottenRun(t *testing.T, client *tmuxctl.Client, pane string) {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		for line := range strings.SplitSeq(p.stderr.String(), "\n") {
+			if !strings.Contains(line, "pane="+pane) {
+				continue
+			}
+			if strings.Contains(line, summary.ForgottenRunLog) {
+				return
+			}
+			if strings.Contains(line, summary.FailedRunLog) {
+				t.Fatalf("the summary run of forgotten pane %s failed: %s", pane, line)
+			}
+		}
+		if got := readOption(t, client, pane, protocol.OptionSummary); got != "" {
+			t.Fatalf("%s = %q on forgotten pane %s; stderr %q", protocol.OptionSummary, got, pane, p.stderr.String())
+		}
+		select {
+		case <-p.done:
+			t.Fatalf("%s exited before it logged %q for pane %s; stderr %q", p.name, summary.ForgottenRunLog, pane,
+				p.stderr.String())
+		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
