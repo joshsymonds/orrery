@@ -125,6 +125,35 @@ func TestWatchStreamsSnapshotThenChanges(t *testing.T) {
 	}
 }
 
+func TestNoticeShownCarriesBlock(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		n    inapp.Notice
+		want *v1.NoticeBlock
+	}{
+		{
+			name: "question",
+			n:    inapp.Notice{Key: notice.Key{Pane: "%3"}, State: "waiting", Block: "question", BlockRef: "Q3"},
+			want: &v1.NoticeBlock{Kind: "question", Ref: "Q3"},
+		},
+		{
+			name: "no block",
+			n:    inapp.Notice{Key: notice.Key{Pane: "%3"}, State: "waiting"},
+			want: nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := shownResponse(tc.n).GetShown().GetBlock()
+			if !proto.Equal(got, tc.want) {
+				t.Fatalf("block = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSeenReachesRouterWithClockTime(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

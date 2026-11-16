@@ -131,7 +131,16 @@ func inAppNoticeMessage(notice *enginev1.InAppNotice) *orreryv1.InAppNotice {
 		State: notice.GetState(),
 		Title: notice.GetTitle(),
 		Body:  notice.GetBody(),
+		Block: noticeBlockMessage(notice.GetBlock()),
 	}
+}
+
+// noticeBlockMessage returns the orrery.v1 twin of one engine notice block, field for field, or nil when there is none.
+func noticeBlockMessage(block *enginev1.NoticeBlock) *orreryv1.NoticeBlock {
+	if block == nil {
+		return nil
+	}
+	return &orreryv1.NoticeBlock{Kind: block.GetKind(), Ref: block.GetRef()}
 }
 
 // noticeKeyMessage returns the orrery.v1 twin of one engine notice key, field for field.

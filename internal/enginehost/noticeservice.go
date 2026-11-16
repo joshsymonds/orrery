@@ -119,14 +119,23 @@ func noticeKeyOf(key *v1.NoticeKey) (notice.Key, error) {
 	}, nil
 }
 
-// shownResponse is the change that tells a stream the notice n shows now.
-func shownResponse(n inapp.Notice) *v1.NoticesWatchResponse {
+// shownResponse is the change that tells a stream the notice shown is showing now.
+func shownResponse(shown inapp.Notice) *v1.NoticesWatchResponse {
 	return &v1.NoticesWatchResponse{Change: &v1.NoticesWatchResponse_Shown{Shown: &v1.InAppNotice{
-		Key:   keyMessage(n.Key),
-		State: n.State,
-		Title: n.Title,
-		Body:  n.Body,
+		Key:   keyMessage(shown.Key),
+		State: shown.State,
+		Title: shown.Title,
+		Body:  shown.Body,
+		Block: blockMessage(shown),
 	}}}
+}
+
+// blockMessage returns the block the notice n opens on, or nil when n opens the epic view.
+func blockMessage(n inapp.Notice) *v1.NoticeBlock {
+	if n.Block == "" {
+		return nil
+	}
+	return &v1.NoticeBlock{Kind: n.Block, Ref: n.BlockRef}
 }
 
 // changeResponse is the change that tells a stream of one change to the notices.

@@ -152,6 +152,7 @@ func noticeKeyPairs() []noticeKeyPair {
 func syntheticShown(key *enginev1.NoticeKey) *enginev1.NoticesWatchResponse {
 	return &enginev1.NoticesWatchResponse{Change: &enginev1.NoticesWatchResponse_Shown{Shown: &enginev1.InAppNotice{
 		Key: key, State: "waiting", Title: "synthetic title", Body: "synthetic body",
+		Block: &enginev1.NoticeBlock{Kind: "question", Ref: "Q3"},
 	}}}
 }
 
@@ -195,6 +196,7 @@ func TestNoticesWatchRelaysEveryField(t *testing.T) {
 		want = append(want, &orreryv1.NoticesWatchResponse{Change: &orreryv1.NoticesWatchResponse_Shown{
 			Shown: &orreryv1.InAppNotice{
 				Key: pair.page, State: "waiting", Title: "synthetic title", Body: "synthetic body",
+				Block: &orreryv1.NoticeBlock{Kind: "question", Ref: "Q3"},
 			},
 		}})
 	}
@@ -217,6 +219,30 @@ func TestNoticesWatchRelaysEveryField(t *testing.T) {
 		if !proto.Equal(stream.Msg(), wantMsg) {
 			t.Fatalf("message %d = %v, want %v", i, stream.Msg(), wantMsg)
 		}
+	}
+}
+
+func TestNoticesWatchRelaysNoBlockWhenUnset(t *testing.T) {
+	t.Parallel()
+	engineMsg := &enginev1.NoticesWatchResponse{
+		Change: &enginev1.NoticesWatchResponse_Shown{Shown: &enginev1.InAppNotice{
+			Key: &enginev1.NoticeKey{Pane: "%7"}, State: "waiting", Title: "synthetic title", Body: "synthetic body",
+		}},
+	}
+	want := &orreryv1.NoticesWatchResponse{
+		Change: &orreryv1.NoticesWatchResponse_Shown{Shown: &orreryv1.InAppNotice{
+			Key: &orreryv1.NoticeKey{Pane: "%7"}, State: "waiting", Title: "synthetic title", Body: "synthetic body",
+		}},
+	}
+	fake := &fakeNoticesEngine{msgs: []*enginev1.NoticesWatchResponse{engineMsg}, block: true}
+	notices := noticesClient(t, guardedNoticesHandler(t, newFakeNoticesOrreryd(t, fake), 0, nil))
+
+	stream := openNotices(t, notices)
+	if !stream.Receive() {
+		t.Fatalf("stream ended before the notice: %v", stream.Err())
+	}
+	if !proto.Equal(stream.Msg(), want) {
+		t.Fatalf("message = %v, want %v", stream.Msg(), want)
 	}
 }
 
