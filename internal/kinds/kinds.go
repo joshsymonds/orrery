@@ -15,14 +15,29 @@ type Node struct {
 }
 
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
-// checks, its evidence runs and its agent steps, and how many of its triggers are pending.
+// checks, its evidence runs and its agent steps, how many of its triggers are pending, its end-of-epic review, and the
+// epic-stage reviewers enabled for it in merged order.
 type Rows struct {
-	Epic     store.EpicRow
-	Runs     []store.NodeRun
-	Checks   []store.NodeCheck
-	Evidence []store.EvidenceRun
-	Steps    []store.StepRow
-	Pending  int
+	Epic      store.EpicRow
+	Runs      []store.NodeRun
+	Checks    []store.NodeCheck
+	Evidence  []store.EvidenceRun
+	Steps     []store.StepRow
+	Pending   int
+	Review    store.Review
+	Reviewers []Reviewer
+}
+
+// Reviewer is an enabled epic-stage reviewer: its name and whether its findings are verified.
+type Reviewer struct {
+	Name   string
+	Verify bool
+}
+
+// Unit is one step a review or closure run starts: its work id, its part, and the reviewer or finding it is for.
+type Unit struct {
+	ID, Part, Reviewer string
+	Finding            store.LedgerFinding
 }
 
 // ActionKind names what a kind does with its node run.
@@ -30,7 +45,8 @@ type ActionKind string
 
 // The actions a kind returns for its node run. ActNone leaves the run running. ActPrepare records the revision the
 // run's work runs at, ActStart starts work and ActRefs checks the refs the run was prepared with. ActCapture starts
-// Requirement captures. ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run.
+// Requirement captures. ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run. ActHold
+// pauses the epic once for a review step its owner stopped.
 const (
 	ActNone    ActionKind = "none"
 	ActRun     ActionKind = "run"
@@ -41,18 +57,27 @@ const (
 	ActCapture ActionKind = "capture"
 	ActAdvance ActionKind = "advance"
 	ActPark    ActionKind = "park"
+	ActHold    ActionKind = "hold"
 )
 
 // Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,
 // and Output the output an end reports. IDs are the ids of the work a start starts and Items the Requirement each of
-// them is for, in the same order. Tasks are the seqs of the tasks a prepare claims for its batch, in seq order.
+// them is for, in the same order. Tasks are the seqs of the tasks a prepare claims for its batch, in seq order. Units
+// are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
+// Phase are what a review, closure or conclusion ends with.
 type Action struct {
-	Kind    ActionKind
-	Outcome string
-	Output  string
-	IDs     []string
-	Items   []string
-	Tasks   []int64
+	Kind     ActionKind
+	Outcome  string
+	Output   string
+	IDs      []string
+	Items    []string
+	Tasks    []int64
+	Units    []Unit
+	Verdicts []store.ReviewVerdict
+	Ledger   []store.LedgerFinding
+	Round    store.ReviewRound
+	Closures []store.Closure
+	Phase    string
 }
 
 // Kind decides what happens next to a node run.
