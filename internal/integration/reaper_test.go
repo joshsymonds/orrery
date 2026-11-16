@@ -182,7 +182,7 @@ func TestKilledTestBinaryEndsItsProcesses(t *testing.T) {
 	// Every file and socket the helper makes lands under tmp, which the test removes once the helper's processes have
 	// ended: the helper is killed before its own cleanup could remove them. tmp is short, as the fixture's socket
 	// paths need.
-	tmp, err := os.MkdirTemp("", "rp")
+	tmp, err := shortRoot()
 	if err != nil {
 		t.Fatalf("make the helper's temporary directory: %v", err)
 	}
