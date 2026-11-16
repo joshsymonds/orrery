@@ -240,7 +240,7 @@ object Quiescence {
             (frame.className == "java.net.SocketInputStream" && frame.methodName in SOCKET_READS) ||
             (frame.className == "java.net.Socket\$SocketInputStream" && frame.methodName == "read")
 
-    private const val PAUSE_MILLIS = 10L
+    private const val PAUSE_MILLIS = 1L
     private const val SLEEP_FRAMES = 4
     private const val APP_PACKAGE = "io.github.joshsymonds.orrery."
     private const val DISPATCHED_TASK = "kotlinx.coroutines.DispatchedTask"
