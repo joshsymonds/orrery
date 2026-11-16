@@ -31,6 +31,7 @@ type Store interface {
 	FreeTurn(ctx context.Context, epic string, turn int64, free store.TurnFree, at time.Time) error
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
+	Follows(ctx context.Context) ([]store.LabelFollow, error)
 }
 
 // Steps starts planner steps, waits for them and stops them. *enginehost.Steps satisfies it.
@@ -243,7 +244,11 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
-	prompt, err := Prompt(row, turn.Seq, triggers)
+	follows, err := r.store.Follows(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read advice follows: %w", err)
+	}
+	prompt, err := Prompt(row, turn.Seq, triggers, follows)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}

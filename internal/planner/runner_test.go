@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -432,6 +433,29 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	}
 	if len(states) != 0 {
 		t.Errorf("PlanStates after the return = %+v, want none: the trigger is consumed", states)
+	}
+}
+
+func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
+	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+
+	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "use sqlite", 1,
+		claimedAt()); err != nil {
+		t.Fatalf("AnswerQuestion: %v", err)
+	}
+	waitFor(t, "a second planner step to start", func() bool { return len(steps.started()) == 2 })
+
+	want := "## Advice followed\n- which-store: 0 of 1 answers took the recommendation\n"
+	if prompt := steps.started()[1].Prompt; !strings.Contains(prompt, want) {
+		t.Errorf("prompt of turn 2 lacks %q; prompt is:\n%s", want, prompt)
 	}
 }
 
