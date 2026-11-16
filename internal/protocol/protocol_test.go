@@ -211,7 +211,7 @@ func TestWriteFrameWireFormat(t *testing.T) {
 		TmuxPane:         "%1",
 		Tmux:             "/tmp/tmux-1000/default,123,0",
 		Cwd:              "/home/u/proj",
-		AnthropicBaseURL: "https://patchbay.example/ctx/example",
+		AnthropicBaseURL: "https://proxy.example/ctx/example",
 	}
 	var buf bytes.Buffer
 	if err := protocol.WriteFrame(&buf, frame); err != nil {
@@ -219,7 +219,7 @@ func TestWriteFrameWireFormat(t *testing.T) {
 	}
 	want := `{"hook":{"hook_event_name":"Stop"},"tmuxPane":"%1",` +
 		`"tmux":"/tmp/tmux-1000/default,123,0","cwd":"/home/u/proj",` +
-		`"anthropicBaseUrl":"https://patchbay.example/ctx/example"}` + "\n"
+		`"anthropicBaseUrl":"https://proxy.example/ctx/example"}` + "\n"
 	if buf.String() != want {
 		t.Errorf("WriteFrame wrote\n%q\nwant\n%q", buf.String(), want)
 	}
@@ -246,7 +246,7 @@ func TestFrameRoundTrip(t *testing.T) {
 		TmuxPane:         "%3",
 		Tmux:             "/tmp/tmux-1000/default,123,0",
 		Cwd:              "/home/u/proj",
-		AnthropicBaseURL: "https://patchbay.example/ctx/example",
+		AnthropicBaseURL: "https://proxy.example/ctx/example",
 	}
 	var buf bytes.Buffer
 	if err := protocol.WriteFrame(&buf, want); err != nil {
@@ -565,15 +565,15 @@ func TestIsSummarizer(t *testing.T) {
 
 func TestSummaryContext(t *testing.T) {
 	cases := map[string]string{
-		"https://patchbay.example/ctx/example":      "example",
-		"https://patchbay.example/ctx/example/v1/m": "example",
-		"https://patchbay.example/api":              "",
-		"https://patchbay.example/ctx":              "",
-		"https://patchbay.example/ctx/":             "",
-		"https://patchbay.example/xctx/example":     "",
-		"https://patchbay.example/a/ctx/work":       "work",
-		"http://[::1":                               "",
-		"":                                          "",
+		"https://proxy.example/ctx/example":      "example",
+		"https://proxy.example/ctx/example/v1/m": "example",
+		"https://proxy.example/api":              "",
+		"https://proxy.example/ctx":              "",
+		"https://proxy.example/ctx/":             "",
+		"https://proxy.example/xctx/example":     "",
+		"https://proxy.example/a/ctx/work":       "work",
+		"http://[::1":                            "",
+		"":                                       "",
 	}
 	for input, want := range cases {
 		if got := protocol.SummaryContext(input); got != want {

@@ -32,7 +32,7 @@ private val ACTIONS = listOf("talk", "pause", "stop")
 /**
  * The title row at a phone's width, with the longest content it carries: an epic's slug, a state with its phase time,
  * a blocker, and Talk, Pause and Stop, in the app's own monospace type. One row for all of it measured the state and actions first and left the crumbs
- * about one character, so on shrike (v0.85.3) the slug stood one letter to a line.
+ * about one character, so on a phone (v0.85.3) the slug stood one letter to a line.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp")

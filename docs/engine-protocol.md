@@ -151,7 +151,7 @@ The rules, as the code applies them, are these. Each has a file and line where i
 
 ## 12. What the real-settings probes showed
 
-The recorded run was on 2026-11-10 on vermissian, with Claude Code 2.1.321. `just engine-accept -keep DIR` exited 0. An earlier run that day failed on a probe defect (see Resume below), fixed before the recorded run. No output of either run is committed, so the values below are shapes with invented values, not recorded output.
+The recorded run was on 2026-11-10 on the owner's host, with Claude Code 2.1.321. `just engine-accept -keep DIR` exited 0. An earlier run that day failed on a probe defect (see Resume below), fixed before the recorded run. No output of either run is committed, so the values below are shapes with invented values, not recorded output.
 
 ### How the probes start
 

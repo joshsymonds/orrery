@@ -243,6 +243,10 @@ just android-install  # build the debug APK and install it on the phone
 
 Both recipes enter the Android dev shell themselves. `just android-install` needs
 the phone paired and connected with adb first.
+A fresh install starts with `$ORRERY_DEFAULT_SERVER` as its server address, given at
+build time (`just android-install` passes it as the Gradle property
+`orrery.defaultServer`). An install keeps an address saved in its settings whatever
+the default; with neither, the app asks for the server.
 
 ## Build and check
 

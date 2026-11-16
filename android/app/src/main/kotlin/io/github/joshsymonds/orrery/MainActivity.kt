@@ -102,6 +102,10 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
+                    // With no server saved or built in, the app asks for one: settings stands in for every screen,
+                    // and the screen asked for (a notification's, say) shows once an address is saved.
+                    var hasServer by remember { mutableStateOf(settings.hasServer) }
+                    val shown = if (hasServer) screen else Screen.Settings
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -233,12 +237,18 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     Screen.Settings -> {
-                                        BackHandler { screen = Screen.Panes }
+                                        // While it asks for the server, back leaves the app as on the home list.
+                                        if (hasServer) {
+                                            BackHandler { screen = Screen.Panes }
+                                        }
                                         SettingsScreen(
                                             settings = settings,
                                             onSaved = {
                                                 client = OrreryClient(settings.serverUrl)
-                                                screen = Screen.Panes
+                                                if (hasServer || screen == Screen.Settings) {
+                                                    screen = Screen.Panes
+                                                }
+                                                hasServer = settings.hasServer
                                             },
                                         )
                                     }
@@ -246,14 +256,14 @@ class MainActivity : ComponentActivity() {
                             }
                             if (animated) {
                                 AnimatedContent(
-                                    targetState = screen,
+                                    targetState = shown,
                                     modifier = Modifier.fillMaxSize(),
                                     transitionSpec = {
                                         moveBetween(deeper = targetState.depth >= initialState.depth)
                                     },
                                 ) { screenContent(it) }
                             } else {
-                                screenContent(screen)
+                                screenContent(shown)
                             }
                         }
                         // A solid band over the status bar's inset, drawn last so nothing that

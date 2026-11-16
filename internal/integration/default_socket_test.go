@@ -139,7 +139,7 @@ func (f *defaultFixture) hook(t *testing.T) {
 		t.Fatalf("encode hook: %v", err)
 	}
 	env := defaultSocketEnv(f.tmuxTmp,
-		"TMUX_PANE="+f.pane, "TMUX="+f.socket+","+pid+",0", "ANTHROPIC_BASE_URL="+examplePatchbayURL)
+		"TMUX_PANE="+f.pane, "TMUX="+f.socket+","+pid+",0", "ANTHROPIC_BASE_URL="+exampleProxyURL)
 	wantExit(t, runCommand(t, f.project, "orrery", string(payload), env, "--socket", f.daemonSocket, "hook"), 0)
 }
 

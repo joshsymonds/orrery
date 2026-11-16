@@ -39,7 +39,7 @@ Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir
 | `protocol.OptionQuestion` | `@orrery_question` | single-line text |
 | `protocol.OptionSummary` | `@orrery_summary` | single-line text |
 | `protocol.OptionLabel` | `@orrery_label` | single-line text |
-| `protocol.OptionContext` | `@orrery_context` | the patchbay context name from the pane's last applied hook frame, the `SummaryContext` (section 8) of its `anthropicBaseUrl`; `""` for the default route |
+| `protocol.OptionContext` | `@orrery_context` | the proxy context name from the pane's last applied hook frame, the `SummaryContext` (section 8) of its `anthropicBaseUrl`; `""` for the default route |
 | `protocol.OptionDir` | `@orrery_dir` | the absolute project directory after `filepath.Clean`, symlinks not resolved; session scope, see below |
 | `protocol.OptionClaudeSession` | `@orrery_claude_session` | the Claude Code session id, the hook payload's `session_id` |
 | `protocol.OptionTranscript` | `@orrery_transcript` | the Claude Code transcript path, the hook payload's `transcript_path` |
@@ -175,13 +175,13 @@ type Server struct { Name string; Socket string }
 ## 8. Summary model map
 
 - `const DefaultSummaryModel = "claude-haiku-5-5"`
-- `func SummaryContext(baseURL string) string` returns the `<name>` from the first `/ctx/<name>` path segment pair of `baseURL`, which is a patchbay context route. It returns `""` when there is no such pair or when the URL does not parse.
+- `func SummaryContext(baseURL string) string` returns the `<name>` from the first `/ctx/<name>` path segment pair of `baseURL`, which is a context route of an Anthropic-format proxy. It returns `""` when there is no such pair or when the URL does not parse.
 - `func SummaryModel(baseURL string, models map[string]string) string` returns `models[SummaryContext(baseURL)]` when the context is non-empty and maps to a non-empty model. Otherwise it returns `DefaultSummaryModel`.
 
 Example context routes. Both URLs are synthetic:
 
-- `https://patchbay.example.com/ctx/example-context` gives the context `example-context`.
-- `https://patchbay.example.com/v1` gives no context, so the default model applies.
+- `https://proxy.example.com/ctx/example-context` gives the context `example-context`.
+- `https://proxy.example.com/v1` gives no context, so the default model applies.
 
 The caller in effort 3 owns the contents of the `models` map.
 
@@ -222,7 +222,7 @@ Functions:
 Example frame. Every value is synthetic. The wire form is this object on one line, terminated by `\n`:
 
 ```json
-{"hook":{"hook_event_name":"Stop","session_id":"example-session"},"tmuxPane":"%1","tmux":"/tmp/example-tmux,1234,0","cwd":"/home/user/project","anthropicBaseUrl":"https://patchbay.example.com/ctx/example-context"}
+{"hook":{"hook_event_name":"Stop","session_id":"example-session"},"tmuxPane":"%1","tmux":"/tmp/example-tmux,1234,0","cwd":"/home/user/project","anthropicBaseUrl":"https://proxy.example.com/ctx/example-context"}
 ```
 
 Example read report. The value is synthetic. The wire form is this object on one line, terminated by `\n`:
@@ -471,7 +471,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
 - `--claude PATH` sets the `claude` binary the summarizer runs, and the binary each headless session runs.
-- `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
+- `--summary-model CONTEXT=MODEL` maps a proxy context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
 - `--sessions` serves the engine session service, the step service (see [Steps](#steps)), the epic service (see [Epics](#epics)), the Pools service (see [Pools](#pools)), the evidence service (see [Evidence](#evidence)) and the in-app notice service (see [Notices](#notices)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. `sessions.sock` listens only after the store open has ended, so after the `store open` line when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2. The daemon socket answers the sessions question whether or not the flag is set, with `{"sessions":true}` when it is and `{"sessions":false}` when it is not (see [Hook-to-daemon frame](#9-hook-to-daemon-frame); `cmd/orreryd.serve`, `daemon.frameHandler.serveConn`).
@@ -548,7 +548,7 @@ When neither variable is set, `orreryd` exits 1.
 
    A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice, an epic notice and an alert notice are never watched, so they are never held.
 
-**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`, unless it comes from a `StopFailure` hook (see **StopFailure** below). The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts), session notices, epic notices, usage-limit notices and alert notices are never judged.
+**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`, unless it comes from a `StopFailure` hook (see **StopFailure** below). The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its proxy context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts), session notices, epic notices, usage-limit notices and alert notices are never judged.
 
 - **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
 - **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
@@ -2101,7 +2101,7 @@ A project file that does not read gives its own reasons (`reviewers.ParseProject
 
 **Conformance assertions.** After the merge, `reviewers.Generate` appends one `must_not` to the enabled `conformance` reviewer for each entry of the contract's `exclusions`, in order, after its own `must_not` entries. Each is `The change does what this entry rules out: ` followed by the entry. A disabled conformance reviewer gets none (`enginehost.epicReviewers`).
 
-**What a reviewer runs as.** `reviewers.Reviewer.AgentName` is the agent the reviewer names, or else `orrery-reviewer-<name>`. `reviewers.Reviewer.Gate` is the reviewer's agent gate: its name, that agent, its limit in seconds, and its assertions, the `must` entries and then the `must_not` entries. A model reviewer also has an inline agent, `reviewers.Reviewer.Agents`: one JSON object keyed by that agent name, holding `description` (`orrery reviewer <name>`), `prompt`, `model`, and `tools` and `effort` when they are set. A set `tools` list stays when it is empty. An agent reviewer has no inline agent, since it runs an agent claude already has. A review step carries the gate and, for a model reviewer, the inline agent, as [Task builds](#task-builds) gives.
+**What a reviewer runs as.** `reviewers.Reviewer.AgentName` is the agent the reviewer names, or else `orrery-reviewer-<name>`. `reviewers.Reviewer.Gate` is the reviewer's agent gate: its name, that agent, its limit in seconds, and its assertions, the `must` entries and then the `must_not` entries. A model reviewer also has an inline agent, `reviewers.Reviewer.Agents`: one JSON object keyed by that agent name, holding `description` (`orrery reviewer <name>`), `prompt`, `model`, and `tools` and `effort` when they are set. A set `tools` list stays when it is empty, and it holds `StructuredOutput`, added when the list does not name it: claude returns a `--json-schema` result through that tool, and a review step always carries its gate's verdict schema (`reviewers.structuredOutputTool`). An agent reviewer has no inline agent, since it runs an agent claude already has. A review step carries the gate and, for a model reviewer, the inline agent, as [Task builds](#task-builds) gives.
 
 **Per-task list.** The per-task review list is the names of the enabled task-stage reviewers, in merged order (`reviewers.ForStage`). `CreateEpic` stores that list as the epic's review gate list (`enginehost.taskReviewNames`, `store.insertGateList`), and the build runs its review steps in that order.
 

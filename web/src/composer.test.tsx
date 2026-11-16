@@ -61,9 +61,13 @@ async function type(box: HTMLTextAreaElement, text: string): Promise<void> {
   });
 }
 
-async function press(box: HTMLTextAreaElement, key: string): Promise<void> {
+async function press(
+  box: HTMLTextAreaElement,
+  key: string,
+  modifiers: { shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {},
+): Promise<void> {
   await act(() => {
-    box.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+    box.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true, ...modifiers }));
   });
 }
 
@@ -153,6 +157,56 @@ test("a blank box sends nothing on Enter", async () => {
     assert.equal(calls, 0);
     assert.equal(box.value, "   ");
   });
+});
+
+test("Shift+Enter in a box holding text puts a line break at the cursor and sends nothing", async () => {
+  let calls = 0;
+  await withComposer({ send: async () => void calls++ }, async (box) => {
+    await type(box, "helloworld");
+    box.setSelectionRange(5, 5);
+    await press(box, "Enter", { shiftKey: true });
+    await settle();
+    assert.equal(box.value, "hello\nworld");
+    assert.equal(box.selectionStart, 6, "the cursor sits just after the break");
+    assert.equal(box.selectionEnd, 6);
+    assert.equal(calls, 0);
+  });
+});
+
+test("Alt+Enter in a box holding text puts a line break at the cursor and sends nothing", async () => {
+  let calls = 0;
+  await withComposer({ send: async () => void calls++ }, async (box) => {
+    await type(box, "helloworld");
+    box.setSelectionRange(5, 5);
+    await press(box, "Enter", { altKey: true });
+    await settle();
+    assert.equal(box.value, "hello\nworld");
+    assert.equal(box.selectionStart, 6, "the cursor sits just after the break");
+    assert.equal(box.selectionEnd, 6);
+    assert.equal(calls, 0);
+  });
+});
+
+test("a line break typed with Shift+Enter, then Enter, sends one message with both lines", async () => {
+  const calls: { text: string; promptId: string }[] = [];
+  await withComposer(
+    {
+      send: async (text, promptId) => {
+        calls.push({ text, promptId });
+      },
+      newPromptId: () => "break-id",
+    },
+    async (box) => {
+      await type(box, "line one");
+      await press(box, "Enter", { shiftKey: true });
+      await type(box, `${box.value}line two`);
+      assert.equal(box.value, "line one\nline two");
+      await press(box, "Enter");
+      await settle();
+      assert.deepEqual(calls, [{ text: "line one\nline two", promptId: "break-id" }]);
+      assert.equal(box.value, "");
+    },
+  );
 });
 
 test("a rejected send keeps the text, shows the fixed line, and is not retried by the composer", async () => {

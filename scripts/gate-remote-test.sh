@@ -84,7 +84,7 @@ cmd="$*"
 echo "$host $cmd" >>"$FAKE_ROOT/ssh.log"
 [ ! -e "$FAKE_ROOT/box-down" ] || exit 255
 [ ! -e "$FAKE_ROOT/down-$host" ] || exit 255
-if [ -e "$FAKE_ROOT/no-push" ] && [[ $cmd == git-receive-pack* ]]; then
+if [ -e "$FAKE_ROOT/no-push" ] && [[ $cmd == *git-receive-pack* ]]; then
     if grep -q and-down "$FAKE_ROOT/no-push"; then
         touch "$FAKE_ROOT/down-$host"
         rm -f "$FAKE_ROOT/no-push"
@@ -742,6 +742,55 @@ expect "a run whose slot directory went never started its command" test ! -e "$r
 release_holder
 expect "no slot waiter outlives a gone slot directory" test -z "$(pgrep -f "$root/box/gate/slots/" || true)"
 unset ORRERY_GATE_FULL_SLOTS
+
+# Two runs prepare one fresh box at once. The box's object store is made anew with a pre-receive hook that holds the
+# first push to reach it after receive-pack has read its ref updates and before it writes them, the point where two
+# pushes at once refused each other's new refs ("reference already exists"). Once the other run's push has either
+# finished (its refs are in the store) or is waiting for the box's push lock, the held push goes on, and both runs
+# must prepare the box and run there.
+store="$root/box/gate/objects.git"
+rm -rf -- "$store" "$root/push-held" "$root/push-holding"
+git init -q --bare "$store"
+cat >"$store/hooks/pre-receive" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+if mkdir "$FAKE_ROOT/push-held" 2>/dev/null; then
+    touch "$FAKE_ROOT/push-holding"
+    timeout --foreground 30 cat "$FAKE_ROOT/push-release" >/dev/null
+fi
+EOF
+chmod +x "$store/hooks/pre-receive"
+mkfifo "$root/push-release"
+# other_push_settled: the push that is not held has finished (a tag is in the store) or waits for the push lock (a
+# second flock on it runs), waiting a little like appears.
+other_push_settled() {
+    local i
+    for ((i = 0; i < 100; i++)); do
+        if git -C "$store" rev-parse -q --verify refs/tags/v0.0.1 >/dev/null \
+            || [ "$(pgrep -fc 'flock -o gate/objects.lock git-receive-pack' || true)" -ge 2 ]; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+pair=()
+for tree in work work2; do
+    spawn "$root/$tree.out" "$root/$tree.err" "$root/$tree" scripts/gate-remote.sh bash -c 'exit 0'
+    pair+=("$spawned")
+done
+expect "one prepare's push is held in the box's store" appears "$root/push-holding"
+expect "the other prepare's push finished or waits for the box's push lock" other_push_settled
+echo released >"$root/push-release"
+for i in 0 1; do
+    tree=work
+    [ "$i" -eq 0 ] || tree=work2
+    rc=0
+    wait "${pair[$i]}" || rc=$?
+    expect "a run that prepared the fresh box alongside another ends with its status ($tree)" test "$rc" -eq 0
+    expect_line "$root/$tree.err" '^gate-remote: running bash .* on orrery@fake-box \(' "a run that prepared the fresh box alongside another runs there ($tree)"
+    expect_no_line "$root/$tree.err" 'could not be prepared| here \(' "a run that prepared the fresh box alongside another never runs here ($tree)"
+done
 
 if [ "$failures" -ne 0 ]; then
     echo "gate-remote-test: $failures failed" >&2

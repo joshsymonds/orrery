@@ -17,7 +17,11 @@
 #          lock is free and whose .meta is over 10 minutes old), makes the object store ~/gate/objects.git and this work
 #          tree's checkout ~/gate/<dir>-<hash>, a repository whose objects come from the store, and reports the box's
 #          load and CPU count;
-#       3. pushes HEAD, origin/main and every tag into the store with --no-verify, so no push hook runs;
+#       3. pushes HEAD, origin/main and every tag into the store with --no-verify, so no push hook runs. The box runs the
+#          push's receive-pack holding ~/gate/objects.lock (flock -o, so nothing receive-pack leaves running holds it),
+#          so pushes from runs that prepare one box at once take turns: each sees the refs the one before it wrote, and a
+#          ref already at the pushed commit is no update, where two pushes at once refused each other's new refs. The
+#          wait for the lock ends when the push before it ends;
 #       4. syncs the work tree into the checkout with rsync --delete, leaving out .git and every git-ignored path, so the
 #          box never receives .env files or build output and keeps its own;
 #       5. points the checkout's HEAD, origin/main and tags at this work tree's, rebuilds its index from HEAD plus this
@@ -331,7 +335,8 @@ prepare() {
     local ssh_line
     ssh_line="$(printf '%q ' "${ssh_cmd[@]}")"
     prepared="$("${ssh_cmd[@]}" "$dest" "bash -s -- $(printf '%q' "$sub") $((30 * 1024 * 1024))" <<<"$(host_prepare)")" \
-        && GIT_SSH_COMMAND="$ssh_line" git push -q --force --no-verify "$dest:gate/objects.git" "${refs[@]}" \
+        && GIT_SSH_COMMAND="$ssh_line" git push -q --force --no-verify \
+            --receive-pack='flock -o gate/objects.lock git-receive-pack' "$dest:gate/objects.git" "${refs[@]}" \
         && rsync -a -e "$ssh_line" "$meta/" "$dest:$remote.meta/" \
         && rsync -a --delete -e "$ssh_line" --exclude=/.git --exclude=/.worktrees/ --filter=':- .gitignore' \
             ./ "$dest:$remote/"

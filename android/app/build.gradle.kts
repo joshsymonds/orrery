@@ -20,10 +20,16 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        // The server address a fresh install starts with, given at build time so no address lives in the source:
+        // `-Porrery.defaultServer=https://host:8490` (`just android-install` passes $ORRERY_DEFAULT_SERVER). Unset,
+        // it is empty and the app asks for the server.
+        val defaultServer = providers.gradleProperty("orrery.defaultServer").orElse("").get().trim()
+        buildConfigField("String", "DEFAULT_SERVER_URL", javaString(defaultServer))
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -45,6 +51,9 @@ android {
         htmlReport = false
     }
 }
+
+/** [value] as a Java string literal, for a BuildConfig field. */
+fun javaString(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 // Debug builds only: no release variant exists, so no unsigned or signed
 // release APK can be produced from this tree.

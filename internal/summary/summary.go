@@ -63,7 +63,7 @@ const (
 // Config configures a Summarizer.
 type Config struct {
 	Claude  string            // path of the claude binary
-	Models  map[string]string // patchbay context name to summary model, see protocol.SummaryModel
+	Models  map[string]string // proxy context name to summary model, see protocol.SummaryModel
 	Home    string            // the user's home directory, under which context stamps are found; "" finds none
 	Tmux    *tmuxctl.Client
 	Timeout time.Duration                          // per-run limit; zero selects DefaultTimeout

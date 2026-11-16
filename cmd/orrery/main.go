@@ -58,7 +58,7 @@ const (
 	exitRefused = 3
 )
 
-// anthropicBaseURLEnv names the variable that carries the session's patchbay base URL.
+// anthropicBaseURLEnv names the variable that carries the session's base URL, such as an Anthropic-format proxy's.
 const anthropicBaseURLEnv = "ANTHROPIC_BASE_URL"
 
 // Serve timeouts. Request headers must arrive within serveHeaderTimeout, and shutdown waits at most

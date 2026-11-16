@@ -3,6 +3,7 @@ package reviewers
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
@@ -10,6 +11,10 @@ import (
 
 // agentPrefix starts the name of the inline agent a model reviewer runs under.
 const agentPrefix = "orrery-reviewer-"
+
+// structuredOutputTool is the tool claude returns a --json-schema result through. A review step always carries its
+// gate's verdict schema, so an inline agent whose tools are listed needs it, or its step ends with no return value.
+const structuredOutputTool = "StructuredOutput"
 
 // AgentName is the agent claude runs for the reviewer: the agent it names, or else the inline agent named from it.
 func (r Reviewer) AgentName() string {
@@ -20,8 +25,9 @@ func (r Reviewer) AgentName() string {
 }
 
 // Agents is the inline agent definition a model reviewer runs under, as the JSON the claude --agents flag takes: one
-// object keyed by AgentName. tools and effort appear only when set; a set tools list stays even when empty. It is ""
-// for a reviewer with no model, since an agent reviewer runs an agent claude already has.
+// object keyed by AgentName. tools and effort appear only when set; a set tools list stays even when empty, and it
+// holds StructuredOutput, added when the list does not name it. It is "" for a reviewer with no model, since an agent
+// reviewer runs an agent claude already has.
 func (r Reviewer) Agents() (string, error) {
 	if r.Model == "" {
 		return "", nil
@@ -32,7 +38,11 @@ func (r Reviewer) Agents() (string, error) {
 		"model":       r.Model,
 	}
 	if r.Tools != nil {
-		def["tools"] = r.Tools
+		tools := slices.Clone(r.Tools)
+		if !slices.Contains(tools, structuredOutputTool) {
+			tools = append(tools, structuredOutputTool)
+		}
+		def["tools"] = tools
 	}
 	if r.Effort != "" {
 		def["effort"] = r.Effort
