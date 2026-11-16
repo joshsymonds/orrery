@@ -21,6 +21,10 @@ const (
 	StageVerify    = "verify"
 )
 
+// unitRepro is the unit a test item's green stage runs first: its reproduction at the commit, under the derived id of
+// the unit.
+const unitRepro = "repro"
+
 // HeldStopped is a build the owner stopped, and HeldParked one that parked for the owner to answer.
 const (
 	HeldStopped = "stopped"
@@ -42,7 +46,8 @@ const noVerdictLimit = 2
 
 // View is what Decide reads of one open task: the epic and whether it is paused or parked, its review gates, whether
 // the reviewer at its gate position has verify off, the task, its branch, the epic's candidate, the step and evidence
-// run of its current unit when they exist, the primary checkout's HEAD, and the ref moves the implementer's step made.
+// run of its current unit when they exist, the reproduction check of a test item's green unit when it exists, the
+// primary checkout's HEAD, and the ref moves the implementer's step made.
 type View struct {
 	Epic        string
 	Paused      bool
@@ -54,6 +59,7 @@ type View struct {
 	Candidate   string
 	Step        *store.StepRow
 	Run         *store.EvidenceRun
+	Repro       *store.NodeCheck
 	Head        string
 	RefMoves    []RefMove
 }
@@ -61,11 +67,12 @@ type View struct {
 // ActionKind is what a pass does for a task.
 type ActionKind string
 
-// The actions a pass takes for a task. ActNone waits. ActMove stores Next as the build. ActGuard guards the implementer's
-// commit before Next, the green build, is stored. ActSnapshot takes the refs snapshot the implementer's step is checked
-// against, and ActRefs checks the step's ref moves. ActStartRun starts the evidence run of Phase, and ActStartStep the
-// step of Unit. ActFail, ActAccept, ActPause and ActPark end the task's build. ActReview stores a review and ActFinding
-// a finding's verification.
+// The actions a pass takes for a task. ActNone waits. ActMove stores Next as the build. ActGuard guards the
+// implementer's commit before Next, the green build, is stored. ActSnapshot takes the refs snapshot the implementer's
+// step is checked against, and ActRefs checks the step's ref moves. ActStartRun starts the evidence run of Phase, and
+// ActStartStep the step of Unit. ActRepro starts the reproduction check of a test item's green unit under ID at
+// Revision. ActFail, ActAccept, ActPause and ActPark end the task's build. ActReview stores a review and ActFinding a
+// finding's verification.
 const (
 	ActNone      ActionKind = "none"
 	ActMove      ActionKind = "move"
@@ -74,6 +81,7 @@ const (
 	ActRefs      ActionKind = "refs"
 	ActStartRun  ActionKind = "start_run"
 	ActStartStep ActionKind = "start_step"
+	ActRepro     ActionKind = "repro"
 	ActFail      ActionKind = "fail"
 	ActAccept    ActionKind = "accept"
 	ActPause     ActionKind = "pause"
@@ -142,6 +150,7 @@ type Store interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
+	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
 	SetTaskBuild(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	SetTaskBuildTelling(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
@@ -171,6 +180,11 @@ type Evidence interface {
 	RunTask(ctx context.Context, id, epic string, task int64, revision, phase string) (store.EvidenceRun, error)
 	Artifact(ctx context.Context, run, name string) ([]byte, string, error)
 	StderrLog(ctx context.Context, run string) ([]byte, string, error)
+}
+
+// Checks runs the reproduction check of a test item's green unit, once per id. *enginehost.NodeChecks satisfies it.
+type Checks interface {
+	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
 }
 
 // Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add
@@ -203,11 +217,13 @@ func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
 // Logger discards, and a nil Getenv means os.Getenv. StateDir is the directory the task worktrees live under. A nil Git
-// makes the repository writes through the package's own functions.
+// makes the repository writes through the package's own functions. Checks runs the reproductions of test items, and a
+// test item whose green unit needs one has no reproduction without it.
 type Config struct {
 	Store    Store
 	Steps    Steps
 	Evidence Evidence
+	Checks   Checks
 	Getenv   func(string) string
 	StateDir string
 	Git      Git
@@ -221,6 +237,7 @@ type Runner struct {
 	store    Store
 	steps    Steps
 	evidence Evidence
+	checks   Checks
 	getenv   func(string) string
 	stateDir string
 	git      Git
@@ -235,8 +252,8 @@ const defaultTick = 5 * time.Second
 // New returns a Runner for cfg, with the defaults Config documents filled in.
 func New(cfg Config) *Runner {
 	runner := &Runner{
-		store: cfg.Store, steps: cfg.Steps, evidence: cfg.Evidence, getenv: cfg.Getenv, stateDir: cfg.StateDir,
-		git: cfg.Git, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		store: cfg.Store, steps: cfg.Steps, evidence: cfg.Evidence, checks: cfg.Checks, getenv: cfg.Getenv,
+		stateDir: cfg.StateDir, git: cfg.Git, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
 	}
 	if runner.git == nil {
 		runner.git = packageGit{}

@@ -27,6 +27,8 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 		return r.startRun(ctx, epic, view, action)
 	case ActStartStep:
 		return r.startUnit(ctx, epic, view, action)
+	case ActRepro:
+		return r.reproduce(ctx, epic, view, action)
 	case ActFail:
 		return r.fail(ctx, epic, view, action.Reason)
 	case ActAccept:

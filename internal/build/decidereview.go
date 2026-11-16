@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -58,14 +59,20 @@ type verifierResult struct {
 }
 
 // decideGreen returns the action for the green unit of a task: its evidence run at the commit, once it has ended. A
-// run that is not captured or not met spends the attempt, and a run that gave no verdict reruns or parks the task. A
-// met run is kept as the green run and goes to the review gates; with none, decideReview accepts it unreviewed.
+// test item's unit first decides its reproduction at the commit, and starts the run only once the reproduction's exit
+// holds. A run that is not captured or not met spends the attempt, and a run that gave no verdict reruns or parks the
+// task. A met run is kept as the green run and goes to the review gates; with none, decideReview accepts it unreviewed.
 func decideGreen(view View) Action {
 	build := view.Task.Build
 	run := view.Run
 	if run == nil {
 		if view.Paused || view.Parked {
 			return Action{Kind: ActNone}
+		}
+		if view.Task.Evidence.Kind == evidence.KindTest {
+			if action, decided := decideRepro(view); decided {
+				return action
+			}
 		}
 		return Action{
 			Kind: ActStartRun, Phase: StageGreen, Revision: build.Revision,
@@ -91,6 +98,39 @@ func decideGreen(view View) Action {
 	build.Rerun = 0
 	build.NoVerdict = 0
 	return Action{Kind: ActMove, Next: build}
+}
+
+// decideRepro returns the action for the reproduction of a test item's green unit, once the unit has no run. A
+// reproduction not yet started is started at the commit, and one that has not ended waits. One lost at a restart
+// reruns the unit, and one that did not run spends the attempt with its reason. One that exited 0 and did not time
+// out spends it as a disagreement with the judge, who judged red fails. It reports false when the reproduction's exit
+// holds, so the green run starts.
+func decideRepro(view View) (Action, bool) {
+	build := view.Task.Build
+	repro := view.Repro
+	if repro == nil {
+		return Action{
+			Kind: ActRepro, Revision: build.Revision,
+			ID: RunID(view.Epic, view.Task.Seq, unitRepro, build.Attempt, build.Rerun),
+		}, true
+	}
+	if repro.State != store.NodeEnded {
+		return Action{Kind: ActNone}, true
+	}
+	if repro.NotRun == store.LostAtRestart {
+		return restartUnit(build), true
+	}
+	if repro.NotRun != "" {
+		return spend(view, "green not captured: reproduction did not run: "+repro.NotRun), true
+	}
+	if repro.Exit == 0 && !repro.TimedOut {
+		return spend(view, fmt.Sprintf(
+			"green not met: the judge and the exit disagree: red was judged fails at the base %s, but its reproduction "+
+				"with the commit's tests exited 0",
+			build.Base,
+		)), true
+	}
+	return Action{}, false
 }
 
 // decideReview returns the action for the review of the build's gate, once its step has ended. A done review holds
