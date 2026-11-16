@@ -148,8 +148,9 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 }
 
 // storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its review, its release
-// runs and the holder of its repository's release slot, all read in one read of the store, so every reply that carries
-// the epic shows the same state. It returns an error matching store.ErrNoEpic when no epic has that id.
+// runs, its release proof and the holder of its repository's release slot, all read in one read of the store, so every
+// reply that carries the epic shows the same state. It returns an error matching store.ErrNoEpic when no epic has that
+// id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
 	flow, err := s.epics.EpicFlow(ctx, id)
 	if err != nil {
@@ -169,6 +170,7 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	message.Clean = flow.Review.Clean
 	message.Releases = epicMap(flow.Releases, releaseRunMessage)
 	message.ReleaseSlot = flow.Slot
+	message.ReleaseProof = epicMap(store.ReleaseProofs(flow), releaseProofMessage)
 	return message, nil
 }
 
@@ -627,7 +629,7 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
 // merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
-// and its pinned workflow. It fails when a task's messages fail.
+// its pinned workflow, its phase time and its report. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
@@ -639,6 +641,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Phase:     row.Phase,
 		Created:   row.Created.Unix(),
 		Changed:   row.Changed.Unix(),
+		PhaseAt:   row.PhaseAt.Unix(),
 		Decisions: epicMap(row.Decisions, decisionMessage),
 		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
 		Paused:    row.Paused,
@@ -648,7 +651,19 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Questions: epicMap(row.Questions, questionMessage),
 		Branch:    row.Branch,
 		Workflow:  workflowMessage(row.Workflow),
+		Report:    reportMessage(row.Report),
 	}, nil
+}
+
+// reportMessage returns the EpicReport message of report: its outcome the phase it reports, its shipped and not shipped
+// Requirement ids in order, and why. It is nil while report has no phase, which is the state before a report is stored.
+func reportMessage(report store.EpicReport) *v1.EpicReport {
+	if report.Phase == "" {
+		return nil
+	}
+	return &v1.EpicReport{
+		Outcome: report.Phase, Shipped: report.Shipped, NotShipped: report.NotShipped, Why: report.Why,
+	}
 }
 
 // workflowMessage returns the EpicWorkflow message of w: its name, its canonical text and its sha256.
@@ -921,6 +936,15 @@ func releaseRunMessage(run store.ReleaseRun) *v1.EpicReleaseRun {
 	}
 }
 
+// releaseProofMessage returns the EpicReleaseProof message of proof, its time in unix seconds, or 0 when it is the zero
+// time.
+func releaseProofMessage(proof store.ReleaseProof) *v1.EpicReleaseProof {
+	return &v1.EpicReleaseProof{
+		Position: proof.Position, Step: proof.Step, Target: proof.Target, Undo: proof.Undo, State: proof.State,
+		Evidence: proof.Evidence, Reason: proof.Reason, Attempt: proof.Attempt, At: unixOrZero(proof.At),
+	}
+}
+
 // taskMessages returns the EpicTask messages of tasks, in order. It fails when a task's messages fail.
 func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
 	out := make([]*v1.EpicTask, 0, len(tasks))
@@ -1100,13 +1124,14 @@ func unixOrZero(t time.Time) int64 {
 	return t.Unix()
 }
 
-// summaryMessage returns the EpicSummary message of row: its head fields, with no sections.
+// summaryMessage returns the EpicSummary message of row: its head fields, its phase time, with no sections.
 func summaryMessage(row store.EpicRow) *v1.EpicSummary {
 	return &v1.EpicSummary{
 		Id:         row.ID,
 		Repository: row.Repository,
 		Title:      row.Title,
 		Phase:      row.Phase,
+		PhaseAt:    row.PhaseAt.Unix(),
 		Created:    row.Created.Unix(),
 		Changed:    row.Changed.Unix(),
 	}
