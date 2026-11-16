@@ -46,7 +46,7 @@ func TestConcludeDecide(t *testing.T) {
 			"no review ran ends with gaps",
 			node,
 			concludeRows(store.Review{}),
-			concludeEnd(phaseEndedWithGaps, "epic epic-1 ended with gaps: no review ran"),
+			concludeEnd(phaseEndedWithGaps, "Ended with 1 gap:\n- no review ran"),
 		},
 		{
 			"all holds end clean at the stored base",
@@ -106,7 +106,7 @@ func TestConcludeDecide(t *testing.T) {
 				}},
 			}),
 			concludeEnd(phaseEndedWithGaps,
-				"epic epic-1 ended with gaps: reviewer security: security gave no verdict twice: done: boom"),
+				"Ended with 1 gap:\n- reviewer security: security gave no verdict twice: done: boom"),
 		},
 		{
 			"an undetermined verifier ends with gaps naming the finding",
@@ -117,7 +117,7 @@ func TestConcludeDecide(t *testing.T) {
 				Ledger:   []store.LedgerFinding{undetermined},
 			}),
 			concludeEnd(phaseEndedWithGaps,
-				"epic epic-1 ended with gaps: security-1: verifier undetermined: cannot tell"),
+				"Ended with 1 gap:\n- security-1: verifier undetermined: cannot tell"),
 		},
 		{
 			"an undetermined closure ends with gaps naming its round, and is not also open",
@@ -129,7 +129,7 @@ func TestConcludeDecide(t *testing.T) {
 				Rounds:   []store.ReviewRound{{Round: 1, Revision: testRev, Outcome: outcomePassed}},
 			}),
 			concludeEnd(phaseEndedWithGaps,
-				"epic epic-1 ended with gaps: security-1: closure undetermined in round 1: cannot tell"),
+				"Ended with 1 gap:\n- security-1: closure undetermined in round 1: cannot tell"),
 		},
 		{
 			"a finding open after every round ends with gaps naming the rounds",
@@ -143,7 +143,7 @@ func TestConcludeDecide(t *testing.T) {
 					{Round: 2, Revision: testRev, Outcome: outcomeFailed},
 				},
 			}),
-			concludeEnd(phaseEndedWithGaps, "epic epic-1 ended with gaps: security-2: open after 2 rounds"),
+			concludeEnd(phaseEndedWithGaps, "Ended with 1 gap:\n- security-2: open after 2 rounds"),
 		},
 		{
 			"gaps join in reviewer order, then ledger order",
@@ -158,8 +158,8 @@ func TestConcludeDecide(t *testing.T) {
 				Rounds: []store.ReviewRound{{Round: 1, Revision: testRev, Outcome: outcomeFailed}},
 			}),
 			concludeEnd(phaseEndedWithGaps,
-				"epic epic-1 ended with gaps: reviewer perf: perf reason; "+
-					"security-1: verifier undetermined: cannot tell; security-2: open after 1 rounds"),
+				"Ended with 3 gaps:\n- reviewer perf: perf reason\n"+
+					"- security-1: verifier undetermined: cannot tell\n- security-2: open after 1 rounds"),
 		},
 	})
 }

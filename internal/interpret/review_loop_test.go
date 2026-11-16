@@ -468,7 +468,7 @@ func TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps(t *testing.T) {
 		t.Errorf("clean revision = %q, want none", got.review.Clean)
 	}
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopRoundOneCause, reviewLoopRoundTwoCause})
-	reviewLoopWantEnd(t, got, "ended_with_gaps", "epic "+runEpic+" ended with gaps: security-1: open after 2 rounds")
+	reviewLoopWantEnd(t, got, "ended_with_gaps", "Ended with 1 gap:\n- security-1: open after 2 rounds")
 }
 
 // TestReviewLoopCostlyReviewerEndsWithGap: a reviewer whose two tries both end costly gives a gap, which the review keeps
@@ -491,7 +491,7 @@ func TestReviewLoopCostlyReviewerEndsWithGap(t *testing.T) {
 	}
 	reviewLoopWantStarts(t, got, []string{"security", "security", "tests"})
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
-	reviewLoopWantEnd(t, got, "ended_with_gaps", "epic "+runEpic+" ended with gaps: reviewer security: "+reason)
+	reviewLoopWantEnd(t, got, "ended_with_gaps", "Ended with 1 gap:\n- reviewer security: "+reason)
 }
 
 // TestReviewLoopRestartedReviewerRerunsFreeAndEndsClean: a reviewer step the engine restarts reruns without a cost. Two
