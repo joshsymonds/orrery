@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>orrery web view</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="has-wf">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="mark" viewBox="18 18 72 72"><rect x="18" y="18" width="72" height="72" rx="17" fill="#cba6f7"/><path fill="#11111b" fill-rule="evenodd" d="M30.61,57.14 30.55,56.99 30.49,56.9 30.37,56.8 30.22,56.74 30.12,56.72 29.96,56.73 29.85,56.76 29.72,56.84 28.68,57.76 27.83,58.6 27.45,59.01 26.94,59.61 26.34,60.41 25.97,60.98 25.6,61.7 25.39,62.25 25.25,62.76 25.18,63.25 25.18,63.54 25.2,63.84 25.29,64.28 25.46,64.71 31.38,62.55 31.08,62.42 30.89,62.32 30.71,62.19 30.56,62.06 30.44,61.92 30.34,61.77 30.25,61.55 30.22,61.38 30.21,61.2 30.22,61.01 30.34,60.6 30.54,60.17 30.94,59.57 30.99,59.37 30.98,59.21 30.74,58ZM82.75,43.86 82.6,43.42 82.39,43.03 82.11,42.66 81.77,42.32 81.36,42.01 80.88,41.73 80.34,41.48 79.73,41.26 78.83,41.01 77.83,40.81 77,40.7 75.81,40.61 74.87,40.58 74.32,40.58 74.17,40.63 74.05,40.73 73.95,40.85 73.91,40.95 73.88,41.16 73.94,41.36 74.52,42.34 74.98,43.19 75.07,43.32 75.25,43.44 75.93,43.65 76.38,43.85 76.72,44.09 76.85,44.22 77,44.43 77.07,44.58 77.12,44.75 77.14,44.92 77.14,45.12 77.05,45.51 76.97,45.72 76.83,46.01Z"/><path fill="#1e1e2e" fill-rule="evenodd" d="M40.76,69.44 40.65,69.47 40.55,69.54 40.44,69.71 40.42,69.82 40.44,69.94 40.54,70.11 41.08,70.56 41.9,71.17 42.76,71.74 43.21,72.01 44.1,72.52 44.56,72.76 45.49,73.2 46.44,73.59 46.93,73.77 47.91,74.1 48.89,74.37 49.4,74.49 49.91,74.6 50.91,74.77 51.43,74.84 52.45,74.94 52.97,74.97 54,75 54.52,74.99 55.54,74.94 56.58,74.84 57.59,74.69 58.1,74.6 59.1,74.37 59.61,74.24 60.1,74.09 61.07,73.77 61.56,73.59 62.51,73.2 63.45,72.76 63.9,72.52 64.79,72.01 65.24,71.74 66.09,71.17 66.92,70.55 67.71,69.9 68.11,69.56 68.85,68.85 69.21,68.48 69.56,68.1 70.23,67.33 70.87,66.51 71.46,65.67 71.74,65.23 72.27,64.36 72.52,63.9 72.76,63.44 73.2,62.51 73.59,61.55 73.94,60.59 74.1,60.09 74.37,59.11 74.49,58.6 74.66,57.73 74.65,57.54 74.57,57.4 74.45,57.3 74.25,57.26 74.1,57.3 72.28,58.37 70.25,59.49 68.12,60.57 65.93,61.62 64.1,62.45 61.77,63.43 59.4,64.37 57,65.25 54.59,66.06 52.66,66.67 50.72,67.24 48.81,67.76 46.47,68.34 44.62,68.74 42.79,69.1ZM33.89,60.06 33.94,60.17 34.02,60.26 34.12,60.32 34.24,60.35 35.11,60.33 36.23,60.26 37.5,60.12 38.88,59.91 40.37,59.65 41.95,59.33 43.62,58.95 45,58.6 46.78,58.12 48.24,57.7 49.71,57.25 51.58,56.64 54.58,55.6 57.55,54.47 59.37,53.73 60.79,53.13 62.18,52.51 63.85,51.74 65.13,51.11 66.65,50.34 67.8,49.72 69.13,48.96 70.35,48.22 71.43,47.51 72.38,46.83 73.19,46.19 73.27,46.1 73.32,45.99 73.33,45.88 73.31,45.76 72.98,45.02 72.52,44.1 72.01,43.2 71.46,42.33 70.86,41.49 70.23,40.67 69.56,39.89 68.85,39.15 68.11,38.44 67.33,37.77 66.51,37.14 65.67,36.54 64.8,35.99 63.9,35.48 62.98,35.02 62.51,34.8 61.55,34.41 60.58,34.06 59.6,33.76 58.6,33.51 57.59,33.31 56.57,33.16 55.54,33.06 54.52,33.01 53.49,33.01 52.46,33.06 51.43,33.16 50.41,33.31 49.9,33.4 48.89,33.63 47.9,33.91 46.92,34.23 45.96,34.6 45.03,35.01 44.11,35.48 43.21,35.99 42.34,36.54 41.49,37.13 40.68,37.76 40.28,38.1 39.52,38.79 38.79,39.52 38.1,40.28 37.45,41.08 36.83,41.9 36.26,42.76 35.73,43.64 35.24,44.55 34.8,45.49 34.41,46.44 34.23,46.93 33.9,47.91 33.63,48.9 33.4,49.91 33.23,50.92 33.1,51.95 33.03,52.97 33,54 33.03,55.03 33.1,56.05 33.23,57.08 33.4,58.09 33.63,59.1ZM63.72,48.54 63.76,48.77 63.7,49 63.6,49.16 63.41,49.3 55.85,52.05 55.66,52.09 55.49,52.07 55.33,52 55.19,51.89 55.1,51.76 54.12,49.07 54.08,48.88 54.1,48.7 54.19,48.51 54.31,48.38 54.47,48.29 61.99,45.56 62.18,45.52 62.35,45.54 62.5,45.6 62.63,45.71 62.74,45.85ZM39.98,46.08 39.65,45.86 39.49,45.72 39.25,45.44 39.06,45.09 38.98,44.89 38.9,44.51 38.9,44.11 38.97,43.75 39.04,43.54 39.22,43.2 39.46,42.91 39.61,42.76 39.94,42.54 40.28,42.39 40.49,42.34 40.88,42.3 41.27,42.33 41.64,42.44 48.87,45.35 49.21,45.52 49.38,45.65 49.66,45.93 49.87,46.24 50.03,46.62 50.11,47.01 50.12,47.2 50.08,47.58 49.96,47.97 46.21,55.02 46.11,55.19 45.87,55.48 45.71,55.62 45.4,55.83 45.02,55.99 44.65,56.06 44.44,56.07 44.07,56.03 43.88,55.99 43.5,55.83 43.33,55.73 43.04,55.49 42.78,55.17 42.68,55.01 42.54,54.66 42.49,54.45 42.45,54.08 42.49,53.67 42.6,53.3 45.09,48.62 45.14,48.43 45.09,48.24 44.99,48.12 44.89,48.06Z"/><path fill="#94e2d5" fill-rule="evenodd" d="M45.3,48.23 42.68,53.13 42.53,53.49 42.46,53.88 42.46,54.27 42.53,54.65 42.68,55.01 42.9,55.34 43.18,55.62 43.51,55.84 43.87,55.99 44.25,56.06 44.64,56.06 44.84,56.03 45.03,55.99 45.39,55.83 45.72,55.62 45.86,55.49 46.11,55.18 49.97,47.97 50.03,47.78 50.11,47.39 50.11,47 50.03,46.61 49.88,46.25 49.66,45.92 49.37,45.64 49.04,45.43 41.64,42.44 41.45,42.38 41.07,42.31 40.87,42.3 40.48,42.34 40.11,42.46 39.93,42.54 39.76,42.65 39.46,42.9 39.22,43.21 39.04,43.55 38.93,43.93 38.89,44.32 38.93,44.71 39.05,45.08 39.24,45.43 39.49,45.73 39.8,45.97 40.15,46.15Z"/><path fill="#f9e2af" fill-rule="evenodd" d="M62.76,45.92 62.64,45.72 62.51,45.6 62.28,45.53 62.05,45.54 54.48,48.29 54.32,48.38 54.2,48.5 54.12,48.66 54.08,48.83 54.1,49.01 55.08,51.69 55.16,51.85 55.28,51.97 55.5,52.07 55.67,52.09 55.84,52.05 63.36,49.32 63.52,49.23 63.64,49.11 63.72,48.95 63.76,48.78 63.74,48.6Z"/><path fill="#11111b" fill-rule="evenodd" d="M25.34,64.43 25.53,64.85 25.79,65.22 26.11,65.57 26.5,65.89 26.95,66.18 27.47,66.44 28.06,66.67 28.7,66.88 29.41,67.05 30.18,67.19 31,67.3 31.88,67.37 32.82,67.42 33.8,67.43 34.83,67.41 35.91,67.36 37.04,67.27 38.2,67.16 39.4,67.01 40.64,66.83 41.91,66.62 43.21,66.38 45.88,65.81 48.63,65.12 51.43,64.33 54.26,63.44 57.08,62.46 59.87,61.39 62.61,60.26 65.26,59.07 67.81,57.82 70.22,56.54 71.37,55.89 72.48,55.24 73.54,54.58 74.56,53.92 75.53,53.26 76.44,52.61 77.3,51.95 78.11,51.3 78.85,50.66 79.54,50.03 80.16,49.4 80.72,48.79 81.22,48.19 81.65,47.6 82.02,47.03 82.32,46.48 82.55,45.94 82.71,45.43 82.8,44.93 82.82,44.46 82.78,44.01 82.66,43.57 77.01,45.62 76.81,46.04 76.59,46.39 76.31,46.75 75.98,47.13 75.6,47.52 75.16,47.92 74.13,48.77 72.9,49.65 71.49,50.57 69.91,51.52 68.17,52.48 66.93,53.12 65.3,53.93 63.95,54.57 62.19,55.36 60.74,55.98 58.89,56.74 57.38,57.33 55.47,58.04 53.94,58.59 52.02,59.24 50.49,59.73 48.6,60.3 47.11,60.72 45.3,61.21 43.88,61.56 42.17,61.94 40.22,62.32 38.4,62.62 36.73,62.82 35.22,62.93 33.88,62.94 33.29,62.92 32.74,62.86 32.25,62.79 31.8,62.69 31.41,62.57 30.99,62.38Z"/></symbol>
+</defs></svg>
+
+<header class="pg-bar">
+  <div class="pg-brand"><svg class="" viewBox="18 18 72 72" aria-label="orrery"><use href="#mark"/></svg><b>orrery</b><span>web view mockup · static, synthetic data</span></div>
+  <div class="pg-dirs"><span class="pg-hint"><kbd>j</kbd><kbd>k</kbd> move <kbd>→</kbd> open <kbd>←</kbd> back <kbd>t</kbd> talk</span></div>
+  <div class="pg-right"><a href="map.html">map</a><a href="flows.html">flows</a><a href="phone.html">phone app</a><a href="#round4">round 4</a><a href="#motion">motion</a><button data-keys-toggle><kbd>?</kbd> keys</button></div>
+</header>
+
+<div class="wf-bar" aria-label="wireframe controls">
+  <span class="wf-l">WIREFRAME</span>
+  <a class="wf-link" href="map.html">map of pages and links</a>
+  <label class="wf-grp"><span class="lg">orrery-followups at</span><select data-wf-moment aria-label="moment"></select></label>
+  <label class="wf-grp"><span class="lg">▸ replay transitions</span><select data-wf-replay aria-label="replay a transition"></select></label>
+  <label class="wf-grp"><input type="checkbox" data-wf-tags><span><span class="lg">needs-data </span>tags</span></label>
+  <label class="wf-grp"><input type="checkbox" data-wf-rm><span>reduced motion</span></label>
+</div>
+
+<div class="stage">
+  <div class="mockwrap">
+
+<section class="mock b on" aria-label="orrery web view">
+  <nav class="b-list">
+    <div class="b-ltop">
+      <div class="b-brand"><svg class="mark" viewBox="18 18 72 72" aria-label="orrery"><use href="#mark"/></svg>orrery<span class="counts"><button class="mine" data-jump="need"><span data-n="need" data-xf="n-need">5</span> need you</button><button data-jump="epics"><span data-n="epics">5</span> epics</button><button data-jump="work"><span data-n="work">3</span> working</button><button data-jump="new"><span data-n="new">3</span> new</button></span></div>
+      <div class="b-omni"><kbd>/</kbd><input data-filter placeholder="Filter, or ⌘K to go anywhere or start in a folder" aria-label="filter sessions"></div>
+      <div class="b-views" role="tablist"><button data-view="attention" class="on" role="tab"><kbd>a</kbd>By attention</button><button data-view="project" role="tab"><kbd>p</kbd>By project</button></div>
+    </div>
+    <div class="b-rows" data-list data-mode="attention"></div>
+    <div class="b-lfoot" data-meters></div>
+  </nav>
+  <main class="b-read">
+    <div class="b-panes">
+<section class="b-pane" data-pane="lamp" hidden>
+  <header class="b-head" data-frame></header>
+  <div class="b-scroll" data-scroll>
+    <div class="t"><span class="gut">14:02</span><div class="body compaction" data-compaction title="click, or press o">
+      <div class="rule">compacted · auto · 611k <span class="sub">· o opens the summary</span></div><div class="summary">The telemetry uploader lost readings whenever the collector was unreachable. Established so far: <code>Flush</code> is the only caller of <code>send</code>; a batch holds at most 500 readings; the spool directory exists but nothing writes to it. Agreed plan: retry with capped exponential backoff, then spool.</div></div></div>
+    <div class="t"><span class="gut"></span><div class="body"><div class="calls"><span class="dim">▸</span><b>6 tool calls</b><span class="names">Read, Write ×2, Bash ×2, Edit</span><span class="trail"><i class=""></i><i class=""></i><i class="bad"></i><i class=""></i><i class=""></i><i class=""></i></span></div></div></div>
+    <div class="t"><span class="gut">14:27</span><div class="body"><p>Backoff is in and the schedule test passes. Delays double from 250&nbsp;ms and stop growing at 30&nbsp;s:</p><pre class="hl"><span class="kw">func</span> (b <span class="ty">Backoff</span>) <span class="fn">Delay</span>(n <span class="ty">int</span>) time.<span class="ty">Duration</span> {
+	d := b.Base &lt;&lt; n
+	<span class="kw">if</span> d &gt; b.Max || d &lt;= <span class="nu">0</span> {
+		<span class="kw">return</span> b.Max
+	}
+	<span class="kw">return</span> d
+}</pre><p><code>Flush</code> now retries a failed batch in place. Still open: there is no jitter, so lamps that drop together retry together, and retries never give up.</p></div></div>
+    <div class="t"><span class="gut">14:31</span><div class="body"><div class="you"><small>YOU · FROM YOUR PHONE</small>Cap the total retry window at 5 minutes and add jitter.</div></div></div>
+    <div class="t"><span class="gut new">new</span><div class="body"><div class="rule new">since you looked</div></div></div>
+    <div class="t isnew"><span class="gut">14:32</span><div class="body"><div class="calllist"><div class="call"><b>Edit</b><span class="in">internal/telemetry/backoff.go</span><span class="out">Added 14 lines, removed 3 lines</span><span class="ok">✓</span></div><div class="call"><b>Bash</b><span class="in">go test ./internal/telemetry/... -run 'Backoff|Jitter'</span><span class="out">ok  lighthouse/internal/telemetry  0.44s</span><span class="ok">✓</span></div></div></div></div>
+    <div class="t isnew stream"><span class="gut live">live</span><div class="body"><p><span data-stream="Full jitter is in: each delay is drawn uniformly between zero and the capped value. Now wiring the 5-minute window into Flush, so a batch that outlives it goes to the on-disk spool instead of being dro">Full jitter is in: each delay is drawn uniformly between zero and the capped value. Now wiring the 5-minute window into Flush, so a batch that outlives it goes to the on-disk spool instead of being dro</span><span class="caret soft"></span></p></div></div>
+  </div>
+  <div class="b-send"><div class="t"><span class="gut"></span><div class="col"><div class="queue" data-queue><div class="qh"><span class="tagq">queued <span data-qn>2</span></span><span class="how"><kbd>↑</kbd> edits the newest</span></div><div class="qi">Also log the batch id whenever a batch is spooled.</div><div class="qi">Then put the 5-minute cap in the README.</div></div>
+    <div class="composer q" data-composer data-ctx="context 15%"></div></div></div></div>
+</section>
+<section class="b-pane" data-pane="question" hidden>
+  <header class="b-head" data-frame></header>
+  <div class="b-scroll" data-scroll>
+    <div class="t"><span class="gut">14:24</span><div class="body"><div class="you"><small>YOU</small>The nightly backfill takes forty minutes. Find out why and fix it.</div></div></div>
+    <div class="t"><span class="gut"></span><div class="body"><div class="calls"><span class="dim">▸</span><b>5 tool calls</b><span class="names">Grep, Read ×3, Bash</span><span class="trail"><i></i><i></i><i></i><i></i><i></i></span></div></div></div>
+    <div class="t"><span class="gut new">new</span><div class="body"><div class="rule new">since you looked</div></div></div>
+    <div class="t isnew"><span class="gut">14:29</span><div class="body"><p>The nightly backfill scans every shift because the rotation table has no index on <code>keeper_id</code>. Two ways to fix it:</p>
+      <ol><li>Composite index on <code>(keeper_id, shift_start)</code></li><li>Partial index on open shifts only</li></ol>
+      <div class="qcard" data-qcard><div class="cap">CLAUDE IS ASKING</div><div class="title">Which index should I add?</div><div class="o" data-answer="1"><kbd>1</kbd><span><b>Composite index</b><small>On (keeper_id, shift_start). Serves the backfill and the roster page.</small></span></div><div class="o" data-answer="2"><kbd>2</kbd><span><b>Partial index</b><small>Open shifts only. Smaller, but the backfill still scans closed shifts.</small></span></div><div class="o" data-answer="3"><kbd>3</kbd><span><b>Something else</b><small>Type an answer.</small></span></div></div></div></div>
+  </div>
+  <div class="b-send"><div class="t"><span class="gut"></span><div class="col"><div class="composer" data-composer></div></div></div></div>
+</section>
+<section class="b-pane" data-pane="generic" hidden>
+  <header class="b-head" data-frame></header>
+  <div class="b-scroll">
+    <div class="t"><span class="gut" data-g-age></span><div class="body"><p data-g-text></p></div></div>
+  </div>
+  <div class="b-send"><div class="t"><span class="gut"></span><div class="col"><div class="composer" data-composer></div></div></div></div>
+</section>
+<section class="b-pane" data-pane="convo" hidden>
+  <header class="b-head" data-frame></header>
+  <div class="b-scroll ph" data-scroll><div class="t"><span class="gut"></span><div class="col"><div class="scr-body convo" data-convo></div></div></div></div>
+  <div class="b-send"><div class="t"><span class="gut"></span><div class="col"><div class="composer" data-composer></div></div></div></div>
+</section>
+<section class="b-pane" data-pane="epic" hidden>
+  <header class="b-head" data-frame></header>
+  <div class="b-scroll" data-epic-scroll><div class="en-mid" data-en-host></div></div>
+</section>
+<section class="b-pane" data-pane="contract" hidden>
+  <header class="b-head" data-frame></header>
+  <div class="b-scroll ph"><div class="t"><span class="gut"></span><div class="col" data-contract-body></div></div></div>
+  <div class="b-send ph"><div class="t"><span class="gut"></span><div class="col" data-contract-foot></div></div></div>
+</section>
+    </div>
+    <div class="b-pin" data-pin hidden></div>
+    <aside class="b-dock" data-dock hidden aria-label="talk">
+      <header class="dk-h"><div><b data-dk-name></b><span data-dk-where></span></div><span class="dk-link" data-dk-link></span><button class="dk-x" data-dock-x aria-label="close the conversation">×</button></header>
+      <div class="dk-body ph" data-dk-body></div>
+      <div class="dk-send"><div class="composer" data-composer data-dock-composer></div></div>
+    </aside>
+  </main>
+</section>
+    
+<div class="pal" data-pal aria-hidden="true"><div class="pal-box">
+  <div class="pal-in"><span class="q">❯</span><span>tidepool flaky tide test<span class="caret"></span></span><span class="hint">the picker reads intent</span></div>
+  <div class="pal-sec">Resume</div>
+  <div class="pal-row sel"><span class="ic st-done">●</span><span class="m"><b>tide-tables</b> <span>tidepool · tarn · done 2d · migration merged</span></span><span class="r"><kbd>⏎</kbd> open and say it</span></div>
+  <div class="pal-row"><span class="ic st-done">●</span><span class="m"><b>docs-examples</b> <span>tidepool · tarn · done 5h</span></span><span class="r"></span></div>
+  <div class="pal-sec">Start in a folder</div>
+  <div class="pal-row"><span class="ic t-mauve">+</span><span class="m"><b>~/code/tidepool</b> <span>new session, this text as the first message</span></span><span class="r"><kbd>⌘⏎</kbd></span></div>
+  <div class="pal-row"><span class="ic t-mauve">+</span><span class="m"><b>~/code/tidepool-fixtures</b> <span>from zoxide</span></span><span class="r"></span></div>
+  <div class="pal-sec">Actions</div>
+  <div class="pal-row"><span class="ic dim">›</span><span class="m"><b>Mark everything in tidepool seen</b></span><span class="r"></span></div>
+  <div class="pal-foot"><span>↑↓ move</span><span>⏎ run</span><span>tab host: tarn</span><span>esc close</span></div>
+</div></div>
+    <div class="echo" data-echo aria-live="polite"></div>
+  </div>
+  <aside class="keys" aria-label="keyboard map">
+<h2>Keys</h2>
+<p class="thesis">Single keys, carried over from the tree where one exists. Nothing here opens a terminal.</p>
+<h3>Move</h3>
+<div class="k" data-keys="j k ArrowDown ArrowUp"><span class="ks"><kbd>j</kbd><kbd>k</kbd></span><span class="d">Move the cursor. The reader follows it <i>(arrows too)</i> <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<div class="k" data-keys="l ArrowRight"><span class="ks"><kbd>→</kbd><kbd>l</kbd></span><span class="d">Open: from an epic, the phase its first task in flight is in; from there, the worker's session <span class="tag live">live</span></span></div>
+<div class="k" data-keys="h ArrowLeft"><span class="ks"><kbd>←</kbd><kbd>h</kbd></span><span class="d">Back one crumb <i>(esc too)</i> <span class="tag live">live</span></span></div>
+<div class="k" data-keys="t"><span class="ks"><kbd>t</kbd></span><span class="d">Talk about the epic on screen <span class="tag live">live</span></span></div>
+<div class="k" data-keys="n"><span class="ks"><kbd>n</kbd></span><span class="d">Next row with new content, wrapping <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<div class="k" data-keys="w"><span class="ks"><kbd>w</kbd></span><span class="d">The oldest thing waiting on you <span class="tag live">live</span></span></div>
+<div class="k" data-keys="g G"><span class="ks"><kbd>g g</kbd><kbd>G</kbd></span><span class="d">First row, last row <span class="tag live">live</span></span></div>
+<div class="k" data-keys="/"><span class="ks"><kbd>/</kbd></span><span class="d">Filter by label, project, host or state <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<div class="k" data-keys="Escape"><span class="ks"><kbd>esc</kbd></span><span class="d">Back out: a menu, the filter, the send box, the palette, the talk dock, then a crumb <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<h3>Views</h3>
+<div class="k" data-keys="a"><span class="ks"><kbd>a</kbd></span><span class="d">List by attention: needs you, epics, just ended, new, working, seen <span class="tag live">live</span></span></div>
+<div class="k" data-keys="p"><span class="ks"><kbd>p</kbd></span><span class="d">List by project: each folder's epics, then its sessions <span class="tag live">live</span></span></div>
+<div class="k" data-keys="m"><span class="ks"><kbd>m</kbd></span><span class="d">Host meters: open or close the panel <span class="tag live">live</span></span></div>
+<div class="k" data-keys="|"><span class="ks"><kbd>|</kbd></span><span class="d">Split: pin this conversation on the right. Again to close <span class="tag live">live</span></span></div>
+<h3>Attend</h3>
+<div class="k" data-keys="Enter"><span class="ks"><kbd>⏎</kbd></span><span class="d">Write seen now. Resting on a row for one second does the same <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<div class="k" data-keys="x"><span class="ks"><kbd>x</kbd></span><span class="d">Mark seen <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<div class="k" data-keys="u"><span class="ks"><kbd>u</kbd></span><span class="d">Mark unseen again <span class="tag live">live</span></span></div>
+<div class="k" data-keys="e"><span class="ks"><kbd>e</kbd></span><span class="d">Seen, then on to the next new one <span class="tag live">live</span></span></div>
+<div class="k" data-keys="1 2 3"><span class="ks"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span class="d">Answer the question on the cursor row. Refused if the question has changed <span class="tag live">live</span></span></div>
+<h3>Reply</h3>
+<div class="k" data-keys="i"><span class="ks"><kbd>i</kbd></span><span class="d">Focus the send box <span class="tag live">live</span></span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>⏎</kbd></span><span class="d">Send. The placeholder says what that does: queue, nudge, answer or reply <span class="tag live">live</span></span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>⇧⏎</kbd></span><span class="d">New line. The box grows to eight lines, then scrolls <span class="tag live">live</span></span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>↑</kbd></span><span class="d">In an empty box: pull the newest queued message back to edit <span class="tag live">live</span></span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>esc esc</kbd></span><span class="d">Interrupt the turn </span></div>
+<h3>Read</h3>
+<div class="k" data-keys=""><span class="ks"><kbd>space</kbd></span><span class="d">Page down <i>(shift for up)</i> </span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>{</kbd><kbd>}</kbd></span><span class="d">Previous, next prompt </span></div>
+<div class="k" data-keys="o"><span class="ks"><kbd>o</kbd></span><span class="d">Open or fold a tool group or a compaction <span class="tag live">live</span></span></div>
+<h3>Start</h3>
+<div class="k" data-keys="pal"><span class="ks"><kbd>⌘K</kbd></span><span class="d">Palette: go to anything, run any action <i>(ctrl K)</i> <span class="tag live">live</span></span></div>
+<div class="k" data-keys="N"><span class="ks"><kbd>N</kbd></span><span class="d">Start in a folder: the picker, with typed intent <span class="tag tree">tree</span><span class="tag live">live</span></span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>c</kbd></span><span class="d">Another claude in the row's folder <span class="tag tree">tree</span></span></div>
+<div class="k" data-keys=""><span class="ks"><kbd>X</kbd></span><span class="d">Close the session, asking first <span class="tag tree">tree</span></span></div>
+<p class="legend"><span class="tag tree">tree</span> the same key as <code>orrery tree</code> today. <span class="tag live">live</span> works in this mockup: try it. <kbd>?</kbd> hides this panel.</p>
+</aside>
+</div>
+
+<main class="notes" id="notes">
+  <h2 id="round4">Round 4 <small>Nov 14 2026 · built from the flows, not from the pages</small></h2>
+  <p class="lede">The pages were liked and the way between them was not. This round starts from four things you do and gives each a path: <a href="flows.html">the flows</a>, and <a href="map.html">a one-screen map</a> of every page and every link.</p>
+  <div class="research"><div><h4>One frame</h4><p>Every page has the same title row: back, a breadcrumb, the state with how long it has held, and the commands as buttons. Back goes one crumb to the left.</p><p class="src">try: click rota-export, a slice, Open the session, then <kbd>←</kbd> three times</p></div><div><h4>One epic view</h4><p>Summary and Detail are one page, in the epic's own order: the summary paragraph, what it is doing and what blocks it, red proof, the orrery, green proof, release proof, the report. A part it has not reached is there, dim.</p><p class="src">try: orrery-followups, and change the moment in the bar above</p></div><div><h4>The contract stays put</h4><p>The paragraph at the top of the epic view opens the contract, before and after you accept it. Accept returns you to the epic view.</p><p class="src">try: Read and accept on tide-alerts, settle the three things, Accept</p></div><div><h4>Slices, lit</h4><p>A task is a wedge and a phase is a slice of it. The slice in progress glows and says what it is doing. Hover a slice for the phase's summary; click it for the phase's output.</p><p class="src">try: hover export-cli's slices on rota-export, then click “checking”</p></div><div><h4>Questions are forms, commands are buttons</h4><p>A decision is answered at the top of the epic view: options, one recommended, the line that will be recorded. Pause, Resume, Stop and Retry are buttons. An interrupted session has a Resume button.</p><p class="src">try: Decide on the tz-database row · Pause, then Resume · Resume on ephemeris-import</p></div><div><h4>Talk</h4><p>There is no Director. Talk offers the sessions that touched this epic and a new one in its repository, and docks the conversation beside the epic view.</p><p class="src">try: <kbd>t</kbd> on rota-export, pick rota-planning, type “pause it”</p></div></div>
+
+  <h2 id="motion">Motion note <small>where something changed, and nowhere else</small></h2>
+  <p>The numbers live in <code>motion.js</code> and as custom properties in <code>style.css</code>. Under <code>prefers-reduced-motion</code> nothing moves and a change is at most a 100&nbsp;ms fade. The bar above has a switch for that and a menu that replays each transition.</p>
+  <table class="mo-table">
+    <tr><th>token</th><th>value</th><th>used for</th></tr>
+    <tr><td>press</td><td>120 ms · ease-out</td><td>Hover, press, the cursor moving between rows, the send box's key hints.</td></tr>
+    <tr><td>state</td><td>200 ms · ease-out</td><td>A state phrase crossfading, an orrery slice changing state, the send box's edge changing colour, the check drawing.</td></tr>
+    <tr><td>layout</td><td>280 ms · ease-out</td><td>Rows gliding to a new place, a row arriving, a form or a history opening in place, the talk dock and the meters panel opening.</td></tr>
+    <tr><td>drill</td><td>320 ms · ease-out</td><td>Going one crumb deeper or back: the line expanding into its epic view, a phase's output or a session sliding in.</td></tr>
+    <tr><td>leave</td><td>200 ms · ease-in</td><td>Anything leaving: the page you came from, a row that is gone, the dock or the panel closing.</td></tr>
+    <tr><td>reduced</td><td>100 ms · opacity</td><td>All of the above under reduced motion. No movement.</td></tr>
+    <tr><td>ease-out</td><td>cubic-bezier(0.2, 0, 0, 1)</td><td>Entering, and standard moves.</td></tr>
+    <tr><td>ease-in</td><td>cubic-bezier(0.4, 0, 1, 1)</td><td>Leaving.</td></tr>
+  </table>
+  <ul class="mo-list">
+    <li><div><b>A task moves on the orrery</b><small>state</small></div><div>The slice it left fades to a tick and the slice it reached fades in, lit. A slice in progress has a glow that breathes. With reduced motion the glow is still.</div></li>
+    <li><div><b>The live sentence updates</b><small>state</small></div><div>The sentence crossfades, and the marker beside it restarts at “just now” with one wash.</div></li>
+    <li><div><b>A card opens</b><small>press</small></div><div>It fades in beside the drawing and follows the pointer.</div></li>
+    <li><div><b>A state phrase changes</b><small>state</small></div><div>The old words fade out as the new ones fade in, in place. If the line gained or lost its blocker, the rows below glide.</div></li>
+    <li><div><b>A unit finishes</b><small>state, then drill</small></div><div>Its phrase crossfades to “integrated”. The check draws in green and cools to grey, and a faint wash leaves the line.</div></li>
+    <li><div><b>An epic ends</b><small>layout · state</small></div><div>Its row glides from Epics to Just ended and the cursor stays on it. The page beside it fills in its Report.</div></li>
+    <li><div><b>Line to epic view</b><small>drill</small></div><div>On a click, a wash grows from the row to the middle pane and fades while the page rises 8 px. Moving with <kbd>j</kbd> <kbd>k</kbd> only fades, in 120 ms.</div></li>
+    <li><div><b>One crumb deeper, one crumb back</b><small>drill in, leave out</small></div><div>The new page slides in 24 px from the right as the old one leaves 16 px to the left. Going back mirrors it, and the page you return to is where you left it.</div></li>
+    <li><div><b>The talk dock</b><small>layout open, leave closed</small></div><div>The dock opens to its width beside the epic view and closes to nothing.</div></li>
+    <li><div><b>An attention item arrives</b><small>layout · state</small></div><div>The rows below glide down and the new row fades in from 6 px above. The count crossfades.</div></li>
+  </ul>
+
+  <h2 id="needs">What needs data <small>hidden on the pages until you switch the tags on</small></h2>
+  <p>The dashed tags mark what orrery does not send today. They are wireframe annotation, off by default: the bar's <code>needs-data tags</code> switch shows them where they apply. Every field, once:</p>
+  <div class="en-needs" data-en-needs></div>
+
+  <h2 id="decided">What you decided, and where it is <small>Nov 11 2026 · six cards changed Nov 14</small></h2>
+  <p class="lede">The mockup above is direction B with your decisions applied. It shows nine sessions and seven epics, two of them just ended; orrery-followups is modelled on the real one, the rest are on made-up hosts. Move the cursor and the reader follows.</p>
+  <div class="research"><div><h4>Direction</h4><p>B, the inbox, is the page. A and C are a note below.</p><p class="src">try: the whole mockup</p></div><div><h4>Step view on the right</h4><p>Changed Nov 14, twice. The right-hand column is gone: what it showed is under the orrery on the epic view. The only thing that docks on the right is a conversation opened with Talk.</p><p class="src">try: rota-export, then <kbd>t</kbd></p></div><div><h4>Two list views</h4><p>By attention and by project, with a toggle above the list and a key for each. The cursor stays on the same item when you switch.</p><p class="src">try: <kbd>a</kbd> <kbd>p</kbd></p></div><div><h4>The reader follows the cursor</h4><p>Seen is written on Enter, or after the cursor rests on a row for one second.</p><p class="src">try: <kbd>j</kbd> <kbd>k</kbd>, then wait</p></div><div><h4>One conversation, one split</h4><p>The split pins the open conversation on the right while the cursor keeps driving the left. The deck comes later.</p><p class="src">try: <kbd>|</kbd></p></div><div><h4>Answer from the list row</h4><p>The options sit in the row with number keys, and show when the cursor is on it. The answer carries the question hash, so a question that has moved on refuses it.</p><p class="src">try: <kbd>w</kbd>, then <kbd>1</kbd></p></div><div><h4>Queued messages</h4><p>Docked above the send box, stacked oldest first. Up pulls the newest back into the box. The phone matches.</p><p class="src">try: lamp-telemetry: <kbd>i</kbd>, type, <kbd>⏎</kbd></p></div><div><h4>Epic drawing</h4><p>Changed Nov 14. One hue per state stays: teal passed, yellow running, green integrated, red for a finding or failed check, peach for paused on you. The drawing is the middle of the epic view, between red proof and green proof.</p><p class="src">try: click rota-export</p></div><div><h4>The epic circle</h4><p>Changed Nov 14. A unit is a wedge, and the rings are the phases it passes through, so one phase of one unit is a slice. The slice a unit is in is lit, and glows while it is in progress. Units the planner has outlined are dashed outlines on the outermost orbit. The centre counts units integrated, and the requirements are the outer ring, green once proven. When a planner turn outlines more units the circle gains wedges, and a note under it says so.</p><p class="src">try: rota-export, the “+2” note under the drawing</p></div><div><h4>The list glyph</h4><p>Changed Nov 14. An epic's line carries its orrery, small: a wedge per unit, filled from the rim toward the centre as far as the unit has come, with the count beside it saying what it counts.</p><p class="src">try: hover one in the Epics group</p></div><div><h4>No terminal view</h4><p>Conversation only. The live-screen key is gone from the header, the send box and the key map.</p><p class="src">try: the key map</p></div><div><h4>Epics in the inbox</h4><p>Changed Nov 14. Epics get their own group under Needs you, as on the phone. A step is reached through its epic view: a slice, then its session. Needs you also carries decisions, contracts and a release step that failed; a release that is going well is the epic's own activity.</p><p class="src">try: the list</p></div></div>
+  <p style="margin-top:18px">The phone app is drawn to match, with the same pages and the same frame: <a href="phone.html">phone.html</a>.</p>
+
+  <h2 id="considered">Considered</h2>
+  <div class="research"><div><h4>A · Tree</h4><p>The terminal tree on a wide screen: the same rows and keys, with the conversation set as Claude Code prints it. Not chosen. Its keys and the project ordering live on in this page's project view.</p></div><div><h4>C · Deck</h4><p>Three tiled conversations with the epic as a full tile. Deferred. The single split covers watching a second session, and the full epic tile is the “later” in the epic decision.</p></div></div>
+
+  <h2 id="questions">Still open <small>two choices</small></h2>
+  <ol class="qs"><li><div><h4>Where does Talk open on the web?</h4><p>Beside the epic view, as a dock, so the epic stays in view while you talk about it and a pause the session makes shows up next to the words that asked for it. Or as its own page one crumb deeper, as the phone has it, which is one rule for both and gives the conversation the full width.</p><p class="rec">The dock. Guiding is watching and talking at once, and the web has the width. Below 1050 px the dock covers the page, which is the phone's behaviour.</p><p class="see">see rota-export, <kbd>t</kbd>, rota-planning</p></div></li><li><div><h4>Is the phase output one page per task, or one per phase?</h4><p>It is one page per task: the four phases as rows, the one you clicked open. That keeps a task's story together and makes “the phase before” one click. One page per phase would be shorter to read and would add a crumb.</p><p class="rec">One page per task. A slice still lands on its own phase, and the breadcrumb names it.</p><p class="see">see rota-export, export-cli, the slice on “checking”</p></div></li></ol>
+
+  <h2 id="research">Research <small>what the space looks like in November 2026</small></h2>
+  <p>Nearly every tool has converged on a sidebar of sessions beside one conversation. Few of them answer the question you asked for: what is new since I last looked, on any device. That is where orrery's shared seen time is ahead.</p>
+  <div class="research"><div><h4>Claude Code desktop</h4><p>Every session in one sidebar, grouped by folder and filterable by status; split view; a context percentage per session; messages sent mid-turn queue above the composer. Attention is signalled by OS and phone notifications, and the docs describe no per-session unread mark.</p><p class="take">Take the folder grouping and the queue above the composer. Add what it lacks: a seen time that the desk and the phone share.</p><p class="src"><a href="https://code.claude.com/docs/en/desktop">Desktop docs</a> · <a href="https://www.macrumors.com/2026/04/15/anthropic-rebuilds-claude-code-desktop-app/">MacRumors on the April 2026 redesign</a></p></div><div><h4>Claude Code CLI queue</h4><p>A message sent while Claude works shows greyed above the input, and Up pulls the queue back into the box to edit.</p><p class="take">The queue docks above the send box, dim, with ↑ to edit. It never floats in the transcript.</p><p class="src"><a href="https://wmedia.es/en/tips/claude-code-queue-messages-while-working">Queueing guide</a> · <a href="https://tim-schipper.nl/en/blog/claude-code-interrupt-and-steer">Steering mid-task</a></p></div><div><h4>cmux</h4><p>A Ghostty-based terminal built because the stock notification is always “Claude is waiting for your input” with no context. Tabs show the latest notification text, panes get a ring, and ⌘⇧U jumps to the newest unread.</p><p class="take">Show the question itself in the list, and keep one key that walks unread. orrery already has it: <code>n</code>.</p><p class="src"><a href="https://github.com/manaflow-ai/cmux">cmux README</a></p></div><div><h4>Warp and herdr</h4><p>Both keep agents inside a terminal and add a status per pane: working, blocked or waiting, idle. Warp's orchestration view draws the parent with one pill per child agent.</p><p class="take">Three states is the right amount, and orrery has them. A parent with children is the epic view; rings carry more than pills.</p><p class="src"><a href="https://docs.warp.dev/guides/agent-workflows/how-to-run-multiple-ai-coding-agents/">Warp: run multiple agents</a> · <a href="https://docs.warp.dev/platform/orchestration/">Warp orchestration</a> · <a href="https://github.com/ogulcancelik/herdr">herdr</a></p></div><div><h4>Cursor 3, Zed, Codex app</h4><p>Each moved to one sidebar of agent threads grouped by project, whatever they run on: local, worktree, cloud, SSH, or started from a phone. Zed lists terminal threads in the same sidebar. Codex adds a review queue for finished runs.</p><p class="take">One list for panes and headless sessions with no substrate marker. A queue of finished work is “New since you looked”.</p><p class="src"><a href="https://the-decoder.com/new-cursor-3-ditches-the-classic-ide-layout-for-an-agent-first-interface-built-around-parallel-ai-fleets/">Cursor 3</a> · <a href="https://zed.dev/blog/parallel-agents">Zed parallel agents</a> · <a href="https://openai.com/index/introducing-the-codex-app/">Codex app</a></p></div><div><h4>Devin</h4><p>In October 2026 the Progress and Shell tabs merged into one Activity stream with filters, and the task list became a drawer that filters the stream to one task's work.</p><p class="take">One stream per session, not tabs. Selecting a unit in the step view opens that implementer's session.</p><p class="src"><a href="https://docs.devin.ai/release-notes/overview">Devin release notes</a></p></div><div><h4>Conductor and the board tools</h4><p>Sidebar, detail pane and diff review, built around worktrees and pull requests. Kanban boards for agents came and went: Vibe Kanban's company shut down in April 2026. A vendor survey names the real problem: past a few sessions the bottleneck is the operator asking which one is blocked.</p><p class="take">Skip the board and the diff review; orrery's sessions already live in your editor and tmux. Spend the pixels on what is blocked and what changed since you looked.</p><p class="src"><a href="https://dev.to/gabrielanhaia/conductor-vs-claude-squad-vs-hermes-ide-3-worktree-managers-for-parallel-agents-4818">Conductor comparison</a> · <a href="https://nimbalyst.com/blog/best-agent-management-tools-2026/">Agent management tools survey</a></p></div><div><h4>Linear, Superhuman, Raycast</h4><p>Linear: the palette is the main way to act, single keys and G-then-key sequences, and every menu shows its key. Superhuman: j, k and e clear a queue, under a 100&nbsp;ms rule. Raycast: Enter is the primary action, ⌘K lists the rest, and keycaps are drawn everywhere.</p><p class="take">Single keys carried over from the tree, a palette for the rest, keycaps printed where the action is, and local state so a keypress never waits on the network.</p><p class="src"><a href="https://interfacelineage.com/linear-keyboard-first-multiplayer">Linear's keyboard-first design</a> · <a href="https://blakecrosley.com/en/guides/design/superhuman">Superhuman design study</a> · <a href="https://www.setproduct.com/blog/command-palette-ui-design-guide">Command palette teardowns</a></p></div></div>
+</main>
+<script src="motion.js"></script>
+<script src="epicnow.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
