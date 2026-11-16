@@ -93,12 +93,15 @@ func (e epicsServer) List(
 			continue
 		}
 		epics = append(epics, storedEpicMessage(
-			rec.ID, summary.GetPhase(), summary.GetChanged(), recordProblems(rec, taskProblems), byEpic[rec.ID],
+			rec.ID, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(),
+			recordProblems(rec, taskProblems), byEpic[rec.ID],
 		))
 		delete(storedByID, rec.ID)
 	}
 	for id, summary := range storedByID {
-		epics = append(epics, storedEpicMessage(id, summary.GetPhase(), summary.GetChanged(), nil, byEpic[id]))
+		epics = append(epics, storedEpicMessage(
+			id, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), nil, byEpic[id],
+		))
 	}
 	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
 	return connect.NewResponse(&orreryv1.EpicsListResponse{Epics: epics}), nil
@@ -108,9 +111,10 @@ func (e epicsServer) List(
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
 // the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its ledger
 // findings with their closures, its review verdicts in ledger order, its release runs in the order the stored epic
-// lists them, its open questions, its contract with its acceptance time, its summary, whether it is paused and why it
-// is parked, its repository, its sessions newest call first, and the tasks of its record when one exists. An id that
-// neither the database nor the record root lists answers not_found, and the id is never joined into a path.
+// lists them, its release steps in the order of its release proof, its report, its open questions, its contract with
+// its acceptance time, its summary, whether it is paused and why it is parked, its repository, its sessions newest
+// call first, and the tasks of its record when one exists. An id that neither the database nor the record root lists
+// answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -157,7 +161,7 @@ func (e epicsServer) Get(
 	}
 	if inStore {
 		resp.Epic = storedEpicMessage(
-			id, stored.GetPhase(), stored.GetChanged(), recordProblems(rec, taskProblems), labeled,
+			id, stored.GetPhase(), stored.GetPhaseAt(), stored.GetChanged(), recordProblems(rec, taskProblems), labeled,
 		)
 		runs := e.listEvidence(ctx, id)
 		roles := storedStepRoles(stored, runs)
@@ -169,6 +173,8 @@ func (e epicsServer) Get(
 		resp.Ledger = epicLedgerFindingMessages(stored.GetLedger().GetFindings())
 		resp.Reviews = epicReviewVerdictMessages(stored.GetLedger().GetVerdicts())
 		resp.Releases = epicReleaseRunMessages(stored.GetReleases())
+		resp.ReleaseSteps = epicReleaseProofMessages(stored.GetReleaseProof())
+		resp.Report = epicReportMessage(stored.GetReport())
 		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns())
 		resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
 		resp.Summary = stored.GetSummary()
@@ -339,11 +345,16 @@ func epicMessage(
 	}
 }
 
-// storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its changed time is
-// the database's, and it is live unless the phase is released or done, which end an epic; ended_with_gaps and stopped
-// stay live. Its problem joins problems, which are the record's when a record of the id exists and none otherwise. Its
-// steps are the labeled steps, as epicMessage's are.
-func storedEpicMessage(id, phase string, changed int64, problems []string, labeled []*enginev1.Step) *orreryv1.Epic {
+// storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its phase time is
+// phaseAt, its changed time is the database's, and it is live unless the phase is released or done, which end an epic;
+// ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's when a record of the id
+// exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
+func storedEpicMessage(
+	id, phase string,
+	phaseAt, changed int64,
+	problems []string,
+	labeled []*enginev1.Step,
+) *orreryv1.Epic {
 	running, ended := epicSteps(labeled)
 	repository, slug, _ := strings.Cut(id, "/")
 	return &orreryv1.Epic{
@@ -351,6 +362,7 @@ func storedEpicMessage(id, phase string, changed int64, problems []string, label
 		Repository:   repository,
 		Slug:         slug,
 		Outcome:      phase,
+		PhaseAt:      phaseAt,
 		Changed:      changed,
 		Live:         phase != "released" && phase != "done",
 		RunningSteps: running,

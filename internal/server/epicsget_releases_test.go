@@ -121,3 +121,139 @@ func TestEpicsGetRedactsReleaseText(t *testing.T) {
 	check("run reason", run.GetReason(), "token [redacted] ok")
 	check("run step", run.GetStep(), "step-release")
 }
+
+// proofEpic returns the stored epic of the proof tests: an epic that ended with gaps, a report of it, and four release
+// proofs in contract order, a passed step, a failed one, a running one and a waiting one.
+func proofEpic() *enginev1.StoredEpic {
+	epic := storedEpicOf("repoa/proved", "ended_with_gaps", epicsAgo(time.Hour))
+	epic.ReleaseProof = []*enginev1.EpicReleaseProof{
+		{
+			Position: 1, Step: "synthetic step one", Target: "synthetic target one", Undo: "synthetic undo one",
+			State: "passed", Evidence: "synthetic passed evidence", Reason: "synthetic passed reason", Attempt: 1,
+			At: 1700000011,
+		},
+		{
+			Position: 2, Step: "synthetic step two", Target: "synthetic target two", Undo: "synthetic undo two",
+			State: "failed", Evidence: "synthetic failed evidence", Reason: "synthetic failed reason", Attempt: 2,
+			At: 1700000012,
+		},
+		{
+			Position: 3, Step: "synthetic step three", Target: "synthetic target three", Undo: "synthetic undo three",
+			State: "running",
+		},
+		{
+			Position: 4, Step: "synthetic step four", Target: "synthetic target four", Undo: "synthetic undo four",
+			State: "waiting",
+		},
+	}
+	epic.Report = &enginev1.EpicReport{
+		Outcome: "ended_with_gaps", Shipped: []string{"R1"}, NotShipped: []string{"R2", "R3"}, Why: "synthetic why",
+	}
+	return epic
+}
+
+func TestEpicsGetAnswersReleaseStepsInOrder(t *testing.T) {
+	t.Parallel()
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{proofEpic()}}
+	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+
+	got := epicsGet(t, client, "repoa/proved").GetReleaseSteps()
+
+	want := []*orreryv1.EpicReleaseProof{
+		{
+			Position: 1, Step: "synthetic step one", Target: "synthetic target one", Undo: "synthetic undo one",
+			State: "passed", Evidence: "synthetic passed evidence", Reason: "synthetic passed reason", Attempt: 1,
+			At: 1700000011,
+		},
+		{
+			Position: 2, Step: "synthetic step two", Target: "synthetic target two", Undo: "synthetic undo two",
+			State: "failed", Evidence: "synthetic failed evidence", Reason: "synthetic failed reason", Attempt: 2,
+			At: 1700000012,
+		},
+		{
+			Position: 3, Step: "synthetic step three", Target: "synthetic target three", Undo: "synthetic undo three",
+			State: "running",
+		},
+		{
+			Position: 4, Step: "synthetic step four", Target: "synthetic target four", Undo: "synthetic undo four",
+			State: "waiting",
+		},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("release_steps = %d steps, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if !proto.Equal(got[i], want[i]) {
+			t.Errorf("release_steps[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEpicsGetAnswersStoredReport(t *testing.T) {
+	t.Parallel()
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{proofEpic()}}
+	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+
+	got := epicsGet(t, client, "repoa/proved").GetReport()
+
+	want := &orreryv1.EpicReport{
+		Outcome: "ended_with_gaps", Shipped: []string{"R1"}, NotShipped: []string{"R2", "R3"}, Why: "synthetic why",
+	}
+	if !proto.Equal(got, want) {
+		t.Errorf("report = %v, want %v", got, want)
+	}
+}
+
+// TestEpicsGetWithoutProofOrReportAnswersNone answers no release steps and no report for a stored epic that has
+// neither, and for a record-only epic.
+func TestEpicsGetWithoutProofOrReportAnswersNone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
+	unproved := storedEpicOf("repoa/unproved", "accepted", epicsAgo(time.Hour))
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{unproved}}
+	client := epicStoreServe(t, root, &epicsFake{}, store)
+
+	for _, id := range []string{"repoa/unproved", "repoa/record"} {
+		got := epicsGet(t, client, id)
+		if len(got.GetReleaseSteps()) != 0 {
+			t.Errorf("%s release_steps = %v, want none", id, got.GetReleaseSteps())
+		}
+		if got.GetReport() != nil {
+			t.Errorf("%s report = %v, want none", id, got.GetReport())
+		}
+	}
+}
+
+func TestEpicsGetRedactsReleaseProofAndReportWhy(t *testing.T) {
+	t.Parallel()
+	epic := storedEpicOf("repoa/leaky-proof", "ended_with_gaps", epicsAgo(time.Hour))
+	epic.ReleaseProof = []*enginev1.EpicReleaseProof{{
+		Position: 1, Step: "step-release", State: "failed",
+		Evidence: "sk-ant-api03-EXAMPLEKEY0123456789ab",
+		Reason:   "token ghp_EXAMPLE0123456789abcdefABCDEF0123 ok",
+	}}
+	epic.Report = &enginev1.EpicReport{
+		Outcome: "ended_with_gaps", Shipped: []string{"R1"}, NotShipped: []string{"R2"},
+		Why: "token ghp_EXAMPLE0123456789abcdefABCDEF0123 ok",
+	}
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{epic}}
+	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+
+	got := epicsGet(t, client, "repoa/leaky-proof")
+	if len(got.GetReleaseSteps()) != 1 {
+		t.Fatalf("release_steps = %d steps, want 1", len(got.GetReleaseSteps()))
+	}
+	step := got.GetReleaseSteps()[0]
+	check := func(name, value, want string) {
+		t.Helper()
+		if value != want {
+			t.Errorf("%s = %q, want %q", name, value, want)
+		}
+	}
+	check("proof evidence", step.GetEvidence(), "[redacted]")
+	check("proof reason", step.GetReason(), "token [redacted] ok")
+	check("proof step", step.GetStep(), "step-release")
+	check("report outcome", got.GetReport().GetOutcome(), "ended_with_gaps")
+	check("report why", got.GetReport().GetWhy(), "token [redacted] ok")
+}

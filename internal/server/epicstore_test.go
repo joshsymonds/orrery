@@ -38,6 +38,7 @@ func (f *epicStoreFake) ListEpics(
 		summaries = append(summaries, &enginev1.EpicSummary{
 			Id:      epic.GetContract().GetId(),
 			Phase:   epic.GetPhase(),
+			PhaseAt: epic.GetPhaseAt(),
 			Created: epic.GetCreated(),
 			Changed: epic.GetChanged(),
 		})
@@ -334,6 +335,43 @@ func TestEpicsStoredEpicLiveByPhase(t *testing.T) {
 		}
 		if got := epicsGet(t, client, id).GetEpic().GetLive(); got != c.live {
 			t.Errorf("Get %s live = %v, want %v", id, got, c.live)
+		}
+	}
+}
+
+// TestEpicsPhaseAtIsStoredPhaseTime answers the phase time of each epic through List and Get: an orreryd epic carries
+// the phase time its store holds, distinct from its changed time, and a record-only epic carries none.
+func TestEpicsPhaseAtIsStoredPhaseTime(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow())
+	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
+	dbOnly := storedEpicOf("repoa/dbonly", "accepted", epicsAgo(time.Hour))
+	dbOnly.PhaseAt = epicsAgo(3 * time.Hour)
+	shared := storedEpicOf("repoa/shared", "accepted", epicsAgo(time.Hour))
+	shared.PhaseAt = epicsAgo(4 * time.Hour)
+	client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{stored: []*enginev1.StoredEpic{dbOnly, shared}})
+
+	want := map[string]int64{
+		"repoa/dbonly": epicsAgo(3 * time.Hour),
+		"repoa/shared": epicsAgo(4 * time.Hour),
+		"repoa/record": 0,
+	}
+	listed := make(map[string]*orreryv1.Epic, len(want))
+	for _, epic := range epicsList(t, client) {
+		listed[epic.GetId()] = epic
+	}
+	for id, phaseAt := range want {
+		epic, ok := listed[id]
+		if !ok {
+			t.Errorf("List has no %s", id)
+			continue
+		}
+		if epic.GetPhaseAt() != phaseAt {
+			t.Errorf("List %s phase_at = %d, want %d", id, epic.GetPhaseAt(), phaseAt)
+		}
+		if got := epicsGet(t, client, id).GetEpic().GetPhaseAt(); got != phaseAt {
+			t.Errorf("Get %s phase_at = %d, want %d", id, got, phaseAt)
 		}
 	}
 }
