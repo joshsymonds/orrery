@@ -89,9 +89,8 @@ func TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds(t *testing.T) {
 	}
 	// The pump tells the owner after it stores a line, and it records lines in order, so a notice of the first turn's
 	// end would come before the queued turn's.
-	waitUntil(t, engineOf(m), "a notice", func() bool { return len(sink.got()) > 0 })
 	want := Notice{Session: id, Dir: dir, State: "done", Body: "fake reply 2"}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
+	if got := waitNotices(t, engineOf(m), sink); len(got) != 1 || got[0] != want {
 		t.Fatalf("notices after the queued turn's end = %+v, want exactly [%+v]", got, want)
 	}
 }
