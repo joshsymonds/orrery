@@ -836,6 +836,44 @@ public  final class Epic extends
     phaseAt_ = 0L;
   }
 
+  public static final int SEEN_FIELD_NUMBER = 14;
+  private long seen_;
+  /**
+   * <pre>
+   * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+   * </pre>
+   *
+   * <code>int64 seen = 14 [json_name = "seen"];</code>
+   * @return The seen.
+   */
+  @java.lang.Override
+  public long getSeen() {
+    return seen_;
+  }
+  /**
+   * <pre>
+   * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+   * </pre>
+   *
+   * <code>int64 seen = 14 [json_name = "seen"];</code>
+   * @param value The seen to set.
+   */
+  private void setSeen(long value) {
+    
+    seen_ = value;
+  }
+  /**
+   * <pre>
+   * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+   * </pre>
+   *
+   * <code>int64 seen = 14 [json_name = "seen"];</code>
+   */
+  private void clearSeen() {
+
+    seen_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1781,6 +1819,46 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+     * </pre>
+     *
+     * <code>int64 seen = 14 [json_name = "seen"];</code>
+     * @return The seen.
+     */
+    @java.lang.Override
+    public long getSeen() {
+      return instance.getSeen();
+    }
+    /**
+     * <pre>
+     * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+     * </pre>
+     *
+     * <code>int64 seen = 14 [json_name = "seen"];</code>
+     * @param value The seen to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSeen(long value) {
+      copyOnWrite();
+      instance.setSeen(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+     * </pre>
+     *
+     * <code>int64 seen = 14 [json_name = "seen"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSeen() {
+      copyOnWrite();
+      instance.clearSeen();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -1811,11 +1889,12 @@ public  final class Epic extends
             "outcomeDetail_",
             "waiting_",
             "phaseAt_",
+            "seen_",
           };
           java.lang.String info =
-              "\u0000\r\u0000\u0000\u0001\r\r\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208\u000b\u0208" +
-              "\f\u0007\r\u0002";
+              "\u0000\u000e\u0000\u0000\u0001\u000e\u000e\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208" +
+              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

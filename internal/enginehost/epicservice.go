@@ -512,6 +512,14 @@ func (s *epicService) ReleaseEpic(
 	return connect.NewResponse(&v1.ReleaseEpicResponse{Epic: message}), nil
 }
 
+// SeeEpic answers CodeUnimplemented until the seen mark is stored.
+func (s *epicService) SeeEpic(
+	_ context.Context,
+	_ *connect.Request[v1.SeeEpicRequest],
+) (*connect.Response[v1.SeeEpicResponse], error) {
+	return nil, refuseEpic(connect.CodeUnimplemented, "orrery.engine.v1.Epics.SeeEpic is not implemented")
+}
+
 // retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
 // of an unknown epic as it refuses an unparked node, so the epic is read first to make an unknown epic ErrNoEpic.
 func (s *epicService) retryPark(ctx context.Context, epic, node string) error {

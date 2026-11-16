@@ -50,4 +50,9 @@ public interface EpicsClientInterface {
    *  Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
    */
   public suspend fun answer(request: EpicsAnswerRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsAnswerResponse>
+
+  /**
+   *  Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
+   */
+  public suspend fun seen(request: EpicsSeenRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsSeenResponse>
 }

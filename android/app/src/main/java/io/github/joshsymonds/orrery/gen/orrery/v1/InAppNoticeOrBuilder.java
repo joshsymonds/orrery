@@ -88,4 +88,23 @@ public interface InAppNoticeOrBuilder extends
    */
   com.google.protobuf.ByteString
       getBodyBytes();
+
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   * @return Whether the block field is set.
+   */
+  boolean hasBlock();
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   * @return The block.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock getBlock();
 }

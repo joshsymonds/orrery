@@ -35,6 +35,9 @@ service Epics {
   // undo-none release steps it names. An epic that ended with gaps is released on the owner's word, logged as the
   // owner's decision, and names no undo-none step. It returns the stored epic.
   rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
+
+  // SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
+  rpc SeeEpic(SeeEpicRequest) returns (SeeEpicResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -931,6 +934,9 @@ message StoredEpic {
 
   // The epic's release steps, each with the state its release runs give it, in contract order.
   repeated EpicReleaseProof release_proof = 25;
+
+  // When the owner last saw the epic, in unix seconds, from its latest SeeEpic; 0 when the owner has not seen it.
+  int64 seen = 26;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -1039,6 +1045,9 @@ message EpicSummary {
 
   // When the epic's phase was last set, in unix seconds.
   int64 phase_at = 7;
+
+  // When the owner last saw the epic, in unix seconds, from its latest SeeEpic; 0 when the owner has not seen it.
+  int64 seen = 8;
 }
 
 // CreateEpicRequest asks for a new epic.
@@ -1204,6 +1213,15 @@ message ReleaseEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
 }
+
+// SeeEpicRequest names the stored epic the owner saw.
+message SeeEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// SeeEpicResponse is the reply to a SeeEpic. It has no fields.
+message SeeEpicResponse {}
 
 // RunEvidenceRequest asks for one item's evidence to run at a revision for one phase.
 message RunEvidenceRequest {

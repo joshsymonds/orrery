@@ -176,6 +176,13 @@ func (f *fakeEpics) ReleaseEpic(
 	return connect.NewResponse(f.releaseReply), nil
 }
 
+func (f *fakeEpics) SeeEpic(
+	_ context.Context,
+	_ *connect.Request[v1.SeeEpicRequest],
+) (*connect.Response[v1.SeeEpicResponse], error) {
+	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
+}
+
 // epicCalls is a copy of the requests the fake received.
 type epicCalls struct {
 	creates  []*v1.CreateEpicRequest

@@ -292,6 +292,73 @@ public  final class InAppNotice extends
 
   }
 
+  public static final int BLOCK_FIELD_NUMBER = 5;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock block_;
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   */
+  @java.lang.Override
+  public boolean hasBlock() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock getBlock() {
+    return block_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock.getDefaultInstance() : block_;
+  }
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   */
+  private void setBlock(io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock value) {
+    java.util.Objects.requireNonNull(value);
+    block_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeBlock(io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock value) {
+    java.util.Objects.requireNonNull(value);
+    if (block_ != null &&
+        block_ != io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock.getDefaultInstance()) {
+      block_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock.newBuilder(block_).mergeFrom(value).buildPartial();
+    } else {
+      block_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   * </pre>
+   *
+   * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+   */
+  private void clearBlock() {
+    block_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.InAppNotice parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -671,6 +738,77 @@ public  final class InAppNotice extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The block of the epic's page the notice opens on; unset opens the epic view.
+     * </pre>
+     *
+     * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+     */
+    @java.lang.Override
+    public boolean hasBlock() {
+      return instance.hasBlock();
+    }
+    /**
+     * <pre>
+     * The block of the epic's page the notice opens on; unset opens the epic view.
+     * </pre>
+     *
+     * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock getBlock() {
+      return instance.getBlock();
+    }
+    /**
+     * <pre>
+     * The block of the epic's page the notice opens on; unset opens the epic view.
+     * </pre>
+     *
+     * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+     */
+    public Builder setBlock(io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock value) {
+      copyOnWrite();
+      instance.setBlock(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The block of the epic's page the notice opens on; unset opens the epic view.
+     * </pre>
+     *
+     * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+     */
+    public Builder setBlock(
+        io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock.Builder builderForValue) {
+      copyOnWrite();
+      instance.setBlock(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The block of the epic's page the notice opens on; unset opens the epic view.
+     * </pre>
+     *
+     * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+     */
+    public Builder mergeBlock(io.github.joshsymonds.orrery.gen.orrery.v1.NoticeBlock value) {
+      copyOnWrite();
+      instance.mergeBlock(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The block of the epic's page the notice opens on; unset opens the epic view.
+     * </pre>
+     *
+     * <code>.orrery.v1.NoticeBlock block = 5 [json_name = "block"];</code>
+     */
+    public Builder clearBlock() {  copyOnWrite();
+      instance.clearBlock();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.InAppNotice)
   }
   @java.lang.Override
@@ -692,10 +830,11 @@ public  final class InAppNotice extends
             "state_",
             "title_",
             "body_",
+            "block_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\u0208\u0004\u0208";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0208\u0004\u0208\u0005\u1009\u0001";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

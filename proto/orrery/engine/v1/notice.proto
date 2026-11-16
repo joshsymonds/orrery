@@ -34,6 +34,15 @@ message NoticeKey {
   string alert = 5;
 }
 
+// NoticeBlock names the block of an epic's page that a notice opens on.
+message NoticeBlock {
+  // The kind of block: question, release_step, contract or report.
+  string kind = 1;
+
+  // The question's id, Q<n>, for a question; the release step's position in decimal for a release_step.
+  string ref = 2;
+}
+
 // InAppNotice is one notice an open web page shows.
 message InAppNotice {
   // What the notice is about.
@@ -47,6 +56,9 @@ message InAppNotice {
 
   // The notice's body.
   string body = 4;
+
+  // The block of the epic's page the notice opens on; unset opens the epic view.
+  NoticeBlock block = 5;
 }
 
 // NoticesWatchRequest opens the in-app notice stream. It has no fields.

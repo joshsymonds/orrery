@@ -27,6 +27,9 @@ service Epics {
 
   // Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
   rpc Answer(EpicsAnswerRequest) returns (EpicsAnswerResponse);
+
+  // Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
+  rpc Seen(EpicsSeenRequest) returns (EpicsSeenResponse);
 }
 
 // Steps carries the owner's calls on one labelled step. It has no call that starts a step.
@@ -477,6 +480,15 @@ message EpicsAnswerResponse {
   string warning = 2;
 }
 
+// EpicsSeenRequest names the epic the owner saw.
+message EpicsSeenRequest {
+  // The epic's id, the same text List gave it.
+  string id = 1;
+}
+
+// EpicsSeenResponse is the reply to a Seen. It has no fields.
+message EpicsSeenResponse {}
+
 // Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
 message Epic {
   // The epic's id, "<repo-id>/<epic-slug>", the same text a step's epic label carries.
@@ -520,6 +532,9 @@ message Epic {
 
   // When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
   int64 phase_at = 13;
+
+  // When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+  int64 seen = 14;
 }
 
 // EpicTask is one task from an effort's state.json.

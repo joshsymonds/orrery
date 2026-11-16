@@ -135,4 +135,19 @@ public class EpicsClient(
     ),
   )
 
+
+  /**
+   *  Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
+   */
+  override suspend fun seen(request: EpicsSeenRequest, headers: Headers): ResponseMessage<EpicsSeenResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Seen",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

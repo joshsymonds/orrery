@@ -103,6 +103,61 @@ func (x *NoticeKey) GetAlert() string {
 	return ""
 }
 
+// NoticeBlock names the block of an epic's page that a notice opens on.
+type NoticeBlock struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The kind of block: question, release_step, contract or report.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The question's id, Q<n>, for a question; the release step's position in decimal for a release_step.
+	Ref           string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NoticeBlock) Reset() {
+	*x = NoticeBlock{}
+	mi := &file_orrery_v1_notice_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NoticeBlock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NoticeBlock) ProtoMessage() {}
+
+func (x *NoticeBlock) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_notice_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NoticeBlock.ProtoReflect.Descriptor instead.
+func (*NoticeBlock) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *NoticeBlock) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *NoticeBlock) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
 // InAppNotice is one notice an open web page shows.
 type InAppNotice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -113,14 +168,16 @@ type InAppNotice struct {
 	// The notice's title.
 	Title string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	// The notice's body.
-	Body          string `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	Body string `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	// The block of the epic's page the notice opens on; unset opens the epic view.
+	Block         *NoticeBlock `protobuf:"bytes,5,opt,name=block,proto3" json:"block,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InAppNotice) Reset() {
 	*x = InAppNotice{}
-	mi := &file_orrery_v1_notice_proto_msgTypes[1]
+	mi := &file_orrery_v1_notice_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -132,7 +189,7 @@ func (x *InAppNotice) String() string {
 func (*InAppNotice) ProtoMessage() {}
 
 func (x *InAppNotice) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_notice_proto_msgTypes[1]
+	mi := &file_orrery_v1_notice_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -145,7 +202,7 @@ func (x *InAppNotice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InAppNotice.ProtoReflect.Descriptor instead.
 func (*InAppNotice) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{1}
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *InAppNotice) GetKey() *NoticeKey {
@@ -176,6 +233,13 @@ func (x *InAppNotice) GetBody() string {
 	return ""
 }
 
+func (x *InAppNotice) GetBlock() *NoticeBlock {
+	if x != nil {
+		return x.Block
+	}
+	return nil
+}
+
 // NoticesWatchRequest opens the in-app notice stream. It has no fields.
 type NoticesWatchRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -185,7 +249,7 @@ type NoticesWatchRequest struct {
 
 func (x *NoticesWatchRequest) Reset() {
 	*x = NoticesWatchRequest{}
-	mi := &file_orrery_v1_notice_proto_msgTypes[2]
+	mi := &file_orrery_v1_notice_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -197,7 +261,7 @@ func (x *NoticesWatchRequest) String() string {
 func (*NoticesWatchRequest) ProtoMessage() {}
 
 func (x *NoticesWatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_notice_proto_msgTypes[2]
+	mi := &file_orrery_v1_notice_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -210,7 +274,7 @@ func (x *NoticesWatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticesWatchRequest.ProtoReflect.Descriptor instead.
 func (*NoticesWatchRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{2}
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{3}
 }
 
 // NoticesWatchResponse is one change to the in-app notices. Exactly one of shown and ended is set.
@@ -227,7 +291,7 @@ type NoticesWatchResponse struct {
 
 func (x *NoticesWatchResponse) Reset() {
 	*x = NoticesWatchResponse{}
-	mi := &file_orrery_v1_notice_proto_msgTypes[3]
+	mi := &file_orrery_v1_notice_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -239,7 +303,7 @@ func (x *NoticesWatchResponse) String() string {
 func (*NoticesWatchResponse) ProtoMessage() {}
 
 func (x *NoticesWatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_notice_proto_msgTypes[3]
+	mi := &file_orrery_v1_notice_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -252,7 +316,7 @@ func (x *NoticesWatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticesWatchResponse.ProtoReflect.Descriptor instead.
 func (*NoticesWatchResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{3}
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *NoticesWatchResponse) GetChange() isNoticesWatchResponse_Change {
@@ -309,7 +373,7 @@ type NoticesSeenRequest struct {
 
 func (x *NoticesSeenRequest) Reset() {
 	*x = NoticesSeenRequest{}
-	mi := &file_orrery_v1_notice_proto_msgTypes[4]
+	mi := &file_orrery_v1_notice_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +385,7 @@ func (x *NoticesSeenRequest) String() string {
 func (*NoticesSeenRequest) ProtoMessage() {}
 
 func (x *NoticesSeenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_notice_proto_msgTypes[4]
+	mi := &file_orrery_v1_notice_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +398,7 @@ func (x *NoticesSeenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticesSeenRequest.ProtoReflect.Descriptor instead.
 func (*NoticesSeenRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{4}
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *NoticesSeenRequest) GetKey() *NoticeKey {
@@ -353,7 +417,7 @@ type NoticesSeenResponse struct {
 
 func (x *NoticesSeenResponse) Reset() {
 	*x = NoticesSeenResponse{}
-	mi := &file_orrery_v1_notice_proto_msgTypes[5]
+	mi := &file_orrery_v1_notice_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +429,7 @@ func (x *NoticesSeenResponse) String() string {
 func (*NoticesSeenResponse) ProtoMessage() {}
 
 func (x *NoticesSeenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_notice_proto_msgTypes[5]
+	mi := &file_orrery_v1_notice_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -378,7 +442,7 @@ func (x *NoticesSeenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoticesSeenResponse.ProtoReflect.Descriptor instead.
 func (*NoticesSeenResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{5}
+	return file_orrery_v1_notice_proto_rawDescGZIP(), []int{6}
 }
 
 var File_orrery_v1_notice_proto protoreflect.FileDescriptor
@@ -391,12 +455,16 @@ const file_orrery_v1_notice_proto_rawDesc = "" +
 	"\asession\x18\x02 \x01(\tR\asession\x12\x12\n" +
 	"\x04epic\x18\x03 \x01(\tR\x04epic\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\tR\x05limit\x12\x14\n" +
-	"\x05alert\x18\x05 \x01(\tR\x05alert\"u\n" +
+	"\x05alert\x18\x05 \x01(\tR\x05alert\"3\n" +
+	"\vNoticeBlock\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xa3\x01\n" +
 	"\vInAppNotice\x12&\n" +
 	"\x03key\x18\x01 \x01(\v2\x14.orrery.v1.NoticeKeyR\x03key\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\tR\x04body\"\x15\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\x12,\n" +
+	"\x05block\x18\x05 \x01(\v2\x16.orrery.v1.NoticeBlockR\x05block\"\x15\n" +
 	"\x13NoticesWatchRequest\"~\n" +
 	"\x14NoticesWatchResponse\x12.\n" +
 	"\x05shown\x18\x01 \x01(\v2\x16.orrery.v1.InAppNoticeH\x00R\x05shown\x12,\n" +
@@ -423,29 +491,31 @@ func file_orrery_v1_notice_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_notice_proto_rawDescData
 }
 
-var file_orrery_v1_notice_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_orrery_v1_notice_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_orrery_v1_notice_proto_goTypes = []any{
 	(*NoticeKey)(nil),            // 0: orrery.v1.NoticeKey
-	(*InAppNotice)(nil),          // 1: orrery.v1.InAppNotice
-	(*NoticesWatchRequest)(nil),  // 2: orrery.v1.NoticesWatchRequest
-	(*NoticesWatchResponse)(nil), // 3: orrery.v1.NoticesWatchResponse
-	(*NoticesSeenRequest)(nil),   // 4: orrery.v1.NoticesSeenRequest
-	(*NoticesSeenResponse)(nil),  // 5: orrery.v1.NoticesSeenResponse
+	(*NoticeBlock)(nil),          // 1: orrery.v1.NoticeBlock
+	(*InAppNotice)(nil),          // 2: orrery.v1.InAppNotice
+	(*NoticesWatchRequest)(nil),  // 3: orrery.v1.NoticesWatchRequest
+	(*NoticesWatchResponse)(nil), // 4: orrery.v1.NoticesWatchResponse
+	(*NoticesSeenRequest)(nil),   // 5: orrery.v1.NoticesSeenRequest
+	(*NoticesSeenResponse)(nil),  // 6: orrery.v1.NoticesSeenResponse
 }
 var file_orrery_v1_notice_proto_depIdxs = []int32{
 	0, // 0: orrery.v1.InAppNotice.key:type_name -> orrery.v1.NoticeKey
-	1, // 1: orrery.v1.NoticesWatchResponse.shown:type_name -> orrery.v1.InAppNotice
-	0, // 2: orrery.v1.NoticesWatchResponse.ended:type_name -> orrery.v1.NoticeKey
-	0, // 3: orrery.v1.NoticesSeenRequest.key:type_name -> orrery.v1.NoticeKey
-	2, // 4: orrery.v1.Notices.Watch:input_type -> orrery.v1.NoticesWatchRequest
-	4, // 5: orrery.v1.Notices.Seen:input_type -> orrery.v1.NoticesSeenRequest
-	3, // 6: orrery.v1.Notices.Watch:output_type -> orrery.v1.NoticesWatchResponse
-	5, // 7: orrery.v1.Notices.Seen:output_type -> orrery.v1.NoticesSeenResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	1, // 1: orrery.v1.InAppNotice.block:type_name -> orrery.v1.NoticeBlock
+	2, // 2: orrery.v1.NoticesWatchResponse.shown:type_name -> orrery.v1.InAppNotice
+	0, // 3: orrery.v1.NoticesWatchResponse.ended:type_name -> orrery.v1.NoticeKey
+	0, // 4: orrery.v1.NoticesSeenRequest.key:type_name -> orrery.v1.NoticeKey
+	3, // 5: orrery.v1.Notices.Watch:input_type -> orrery.v1.NoticesWatchRequest
+	5, // 6: orrery.v1.Notices.Seen:input_type -> orrery.v1.NoticesSeenRequest
+	4, // 7: orrery.v1.Notices.Watch:output_type -> orrery.v1.NoticesWatchResponse
+	6, // 8: orrery.v1.Notices.Seen:output_type -> orrery.v1.NoticesSeenResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_notice_proto_init() }
@@ -453,7 +523,7 @@ func file_orrery_v1_notice_proto_init() {
 	if File_orrery_v1_notice_proto != nil {
 		return
 	}
-	file_orrery_v1_notice_proto_msgTypes[3].OneofWrappers = []any{
+	file_orrery_v1_notice_proto_msgTypes[4].OneofWrappers = []any{
 		(*NoticesWatchResponse_Shown)(nil),
 		(*NoticesWatchResponse_Ended)(nil),
 	}
@@ -463,7 +533,7 @@ func file_orrery_v1_notice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_notice_proto_rawDesc), len(file_orrery_v1_notice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

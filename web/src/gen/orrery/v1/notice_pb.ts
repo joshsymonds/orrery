@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/notice.proto.
  */
 export const file_orrery_v1_notice: GenFile = /*@__PURE__*/
-  fileDesc("ChZvcnJlcnkvdjEvbm90aWNlLnByb3RvEglvcnJlcnkudjEiVgoJTm90aWNlS2V5EgwKBHBhbmUYASABKAkSDwoHc2Vzc2lvbhgCIAEoCRIMCgRlcGljGAMgASgJEg0KBWxpbWl0GAQgASgJEg0KBWFsZXJ0GAUgASgJIlwKC0luQXBwTm90aWNlEiEKA2tleRgBIAEoCzIULm9ycmVyeS52MS5Ob3RpY2VLZXkSDQoFc3RhdGUYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEYm9keRgEIAEoCSIVChNOb3RpY2VzV2F0Y2hSZXF1ZXN0InAKFE5vdGljZXNXYXRjaFJlc3BvbnNlEicKBXNob3duGAEgASgLMhYub3JyZXJ5LnYxLkluQXBwTm90aWNlSAASJQoFZW5kZWQYAiABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5SABCCAoGY2hhbmdlIjcKEk5vdGljZXNTZWVuUmVxdWVzdBIhCgNrZXkYASABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5IhUKE05vdGljZXNTZWVuUmVzcG9uc2UynAEKB05vdGljZXMSSgoFV2F0Y2gSHi5vcnJlcnkudjEuTm90aWNlc1dhdGNoUmVxdWVzdBofLm9ycmVyeS52MS5Ob3RpY2VzV2F0Y2hSZXNwb25zZTABEkUKBFNlZW4SHS5vcnJlcnkudjEuTm90aWNlc1NlZW5SZXF1ZXN0Gh4ub3JyZXJ5LnYxLk5vdGljZXNTZWVuUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChZvcnJlcnkvdjEvbm90aWNlLnByb3RvEglvcnJlcnkudjEiVgoJTm90aWNlS2V5EgwKBHBhbmUYASABKAkSDwoHc2Vzc2lvbhgCIAEoCRIMCgRlcGljGAMgASgJEg0KBWxpbWl0GAQgASgJEg0KBWFsZXJ0GAUgASgJIigKC05vdGljZUJsb2NrEgwKBGtpbmQYASABKAkSCwoDcmVmGAIgASgJIoMBCgtJbkFwcE5vdGljZRIhCgNrZXkYASABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5Eg0KBXN0YXRlGAIgASgJEg0KBXRpdGxlGAMgASgJEgwKBGJvZHkYBCABKAkSJQoFYmxvY2sYBSABKAsyFi5vcnJlcnkudjEuTm90aWNlQmxvY2siFQoTTm90aWNlc1dhdGNoUmVxdWVzdCJwChROb3RpY2VzV2F0Y2hSZXNwb25zZRInCgVzaG93bhgBIAEoCzIWLm9ycmVyeS52MS5JbkFwcE5vdGljZUgAEiUKBWVuZGVkGAIgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleUgAQggKBmNoYW5nZSI3ChJOb3RpY2VzU2VlblJlcXVlc3QSIQoDa2V5GAEgASgLMhQub3JyZXJ5LnYxLk5vdGljZUtleSIVChNOb3RpY2VzU2VlblJlc3BvbnNlMpwBCgdOb3RpY2VzEkoKBVdhdGNoEh4ub3JyZXJ5LnYxLk5vdGljZXNXYXRjaFJlcXVlc3QaHy5vcnJlcnkudjEuTm90aWNlc1dhdGNoUmVzcG9uc2UwARJFCgRTZWVuEh0ub3JyZXJ5LnYxLk5vdGljZXNTZWVuUmVxdWVzdBoeLm9ycmVyeS52MS5Ob3RpY2VzU2VlblJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * NoticeKey names what a notice is about. Exactly one field is set.
@@ -62,6 +62,34 @@ export const NoticeKeySchema: GenMessage<NoticeKey> = /*@__PURE__*/
   messageDesc(file_orrery_v1_notice, 0);
 
 /**
+ * NoticeBlock names the block of an epic's page that a notice opens on.
+ *
+ * @generated from message orrery.v1.NoticeBlock
+ */
+export type NoticeBlock = Message<"orrery.v1.NoticeBlock"> & {
+  /**
+   * The kind of block: question, release_step, contract or report.
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * The question's id, Q<n>, for a question; the release step's position in decimal for a release_step.
+   *
+   * @generated from field: string ref = 2;
+   */
+  ref: string;
+};
+
+/**
+ * Describes the message orrery.v1.NoticeBlock.
+ * Use `create(NoticeBlockSchema)` to create a new message.
+ */
+export const NoticeBlockSchema: GenMessage<NoticeBlock> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_notice, 1);
+
+/**
  * InAppNotice is one notice an open web page shows.
  *
  * @generated from message orrery.v1.InAppNotice
@@ -94,6 +122,13 @@ export type InAppNotice = Message<"orrery.v1.InAppNotice"> & {
    * @generated from field: string body = 4;
    */
   body: string;
+
+  /**
+   * The block of the epic's page the notice opens on; unset opens the epic view.
+   *
+   * @generated from field: orrery.v1.NoticeBlock block = 5;
+   */
+  block?: NoticeBlock | undefined;
 };
 
 /**
@@ -101,7 +136,7 @@ export type InAppNotice = Message<"orrery.v1.InAppNotice"> & {
  * Use `create(InAppNoticeSchema)` to create a new message.
  */
 export const InAppNoticeSchema: GenMessage<InAppNotice> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_notice, 1);
+  messageDesc(file_orrery_v1_notice, 2);
 
 /**
  * NoticesWatchRequest opens the in-app notice stream. It has no fields.
@@ -116,7 +151,7 @@ export type NoticesWatchRequest = Message<"orrery.v1.NoticesWatchRequest"> & {
  * Use `create(NoticesWatchRequestSchema)` to create a new message.
  */
 export const NoticesWatchRequestSchema: GenMessage<NoticesWatchRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_notice, 2);
+  messageDesc(file_orrery_v1_notice, 3);
 
 /**
  * NoticesWatchResponse is one change to the in-app notices. Exactly one of shown and ended is set.
@@ -151,7 +186,7 @@ export type NoticesWatchResponse = Message<"orrery.v1.NoticesWatchResponse"> & {
  * Use `create(NoticesWatchResponseSchema)` to create a new message.
  */
 export const NoticesWatchResponseSchema: GenMessage<NoticesWatchResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_notice, 3);
+  messageDesc(file_orrery_v1_notice, 4);
 
 /**
  * NoticesSeenRequest names the notice the owner opened.
@@ -172,7 +207,7 @@ export type NoticesSeenRequest = Message<"orrery.v1.NoticesSeenRequest"> & {
  * Use `create(NoticesSeenRequestSchema)` to create a new message.
  */
 export const NoticesSeenRequestSchema: GenMessage<NoticesSeenRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_notice, 4);
+  messageDesc(file_orrery_v1_notice, 5);
 
 /**
  * NoticesSeenResponse is the reply to a Seen. It has no fields.
@@ -187,7 +222,7 @@ export type NoticesSeenResponse = Message<"orrery.v1.NoticesSeenResponse"> & {
  * Use `create(NoticesSeenResponseSchema)` to create a new message.
  */
 export const NoticesSeenResponseSchema: GenMessage<NoticesSeenResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_notice, 5);
+  messageDesc(file_orrery_v1_notice, 6);
 
 /**
  * Notices streams the notices open web pages show in-app, and takes the page's word that the owner opened one. serve

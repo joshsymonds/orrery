@@ -120,6 +120,13 @@ func (f *recordingEpics) ReleaseEpic(
 	return respond(f, req.Msg, &v1.ReleaseEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) SeeEpic(
+	_ context.Context,
+	req *connect.Request[v1.SeeEpicRequest],
+) (*connect.Response[v1.SeeEpicResponse], error) {
+	return respond(f, req.Msg, &v1.SeeEpicResponse{})
+}
+
 func (f *recordingEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],

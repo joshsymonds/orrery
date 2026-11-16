@@ -53,6 +53,8 @@ const (
 	EpicsRetryProcedure = "/orrery.v1.Epics/Retry"
 	// EpicsAnswerProcedure is the fully-qualified name of the Epics's Answer RPC.
 	EpicsAnswerProcedure = "/orrery.v1.Epics/Answer"
+	// EpicsSeenProcedure is the fully-qualified name of the Epics's Seen RPC.
+	EpicsSeenProcedure = "/orrery.v1.Epics/Seen"
 	// StepsHoldProcedure is the fully-qualified name of the Steps's Hold RPC.
 	StepsHoldProcedure = "/orrery.v1.Steps/Hold"
 	// StepsNudgeProcedure is the fully-qualified name of the Steps's Nudge RPC.
@@ -81,6 +83,8 @@ type EpicsClient interface {
 	Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error)
 	// Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
 	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
+	// Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
+	Seen(context.Context, *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.v1.Epics service. By default, it uses the
@@ -142,6 +146,12 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("Answer")),
 			connect.WithClientOptions(opts...),
 		),
+		seen: connect.NewClient[v1.EpicsSeenRequest, v1.EpicsSeenResponse](
+			httpClient,
+			baseURL+EpicsSeenProcedure,
+			connect.WithSchema(epicsMethods.ByName("Seen")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -155,6 +165,7 @@ type epicsClient struct {
 	stop    *connect.Client[v1.EpicsStopRequest, v1.EpicsStopResponse]
 	retry   *connect.Client[v1.EpicsRetryRequest, v1.EpicsRetryResponse]
 	answer  *connect.Client[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse]
+	seen    *connect.Client[v1.EpicsSeenRequest, v1.EpicsSeenResponse]
 }
 
 // List calls orrery.v1.Epics.List.
@@ -197,6 +208,11 @@ func (c *epicsClient) Answer(ctx context.Context, req *connect.Request[v1.EpicsA
 	return c.answer.CallUnary(ctx, req)
 }
 
+// Seen calls orrery.v1.Epics.Seen.
+func (c *epicsClient) Seen(ctx context.Context, req *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error) {
+	return c.seen.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.v1.Epics service.
 type EpicsHandler interface {
 	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
@@ -215,6 +231,8 @@ type EpicsHandler interface {
 	Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error)
 	// Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
 	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
+	// Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
+	Seen(context.Context, *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -272,6 +290,12 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("Answer")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsSeenHandler := connect.NewUnaryHandler(
+		EpicsSeenProcedure,
+		svc.Seen,
+		connect.WithSchema(epicsMethods.ByName("Seen")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsListProcedure:
@@ -290,6 +314,8 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsRetryHandler.ServeHTTP(w, r)
 		case EpicsAnswerProcedure:
 			epicsAnswerHandler.ServeHTTP(w, r)
+		case EpicsSeenProcedure:
+			epicsSeenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -329,6 +355,10 @@ func (UnimplementedEpicsHandler) Retry(context.Context, *connect.Request[v1.Epic
 
 func (UnimplementedEpicsHandler) Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Answer is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Seen(context.Context, *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Seen is not implemented"))
 }
 
 // StepsClient is a client for the orrery.v1.Steps service.

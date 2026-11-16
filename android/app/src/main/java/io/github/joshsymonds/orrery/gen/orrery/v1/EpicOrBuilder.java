@@ -229,4 +229,14 @@ public interface EpicOrBuilder extends
    * @return The phaseAt.
    */
   long getPhaseAt();
+
+  /**
+   * <pre>
+   * When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
+   * </pre>
+   *
+   * <code>int64 seen = 14 [json_name = "seen"];</code>
+   * @return The seen.
+   */
+  long getSeen();
 }
