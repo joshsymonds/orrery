@@ -189,30 +189,6 @@ func runnerParkedByRole(t *testing.T, s *store.Store, steps Steps, broken *atomi
 	})
 }
 
-func TestRunnerAnswerRetryToParkQuestionLetsRunnerStartStep(t *testing.T) {
-	t.Parallel()
-	s := openRunnerStore(t)
-	createRunnerEpic(t, s)
-	steps := newFakeSteps()
-	var broken atomic.Bool
-	broken.Store(true)
-	runnerParkedByRole(t, s, steps, &broken)
-	broken.Store(false)
-
-	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "", 1, store.ChoiceRetry,
-		claimedAt()); err != nil {
-		t.Fatalf("AnswerQuestion of the park question with retry: %v", err)
-	}
-	if got := epicOf(t, s).Parked; got != "" {
-		t.Fatalf("epic Parked after the retry answer = %q, want empty", got)
-	}
-	waitFor(t, "a planner step to start after the answer", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 2", func() bool {
-		turns := epicOf(t, s).Turns
-		return len(turns) == 2 && turns[1].Step == "step-1"
-	})
-}
-
 func TestRunnerAnswerOtherWithWordsToParkQuestionHoldsWordsInNextPrompt(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)

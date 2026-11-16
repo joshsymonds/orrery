@@ -20,9 +20,9 @@ const workNamespace = "orrery-workflow-work"
 // ran it cannot be readopted at a restart.
 const LostAtRestart = "lost at a restart"
 
-// NodeWorkID returns the id of part of the work of the node run runID at attempt, such as the check or step the
-// work records under that id. It is the first 32 hex digits of the lowercase hex sha256 of the work namespace, runID,
-// attempt and part joined with NUL, so the same inputs give the same id.
+// NodeWorkID returns the id of part of the work of the node run runID at attempt, such as the check or step the work
+// records under that id. It is the first 32 hex digits of the lowercase hex sha256 of the work namespace, runID, attempt
+// and part joined with NUL, so the same inputs give the same id.
 func NodeWorkID(runID string, attempt int64, part string) string {
 	return nodeHash(workNamespace, runID, strconv.FormatInt(attempt, 10), part)
 }

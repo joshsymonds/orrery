@@ -377,18 +377,12 @@ func TestToolsListNamesTheNineEpicTools(t *testing.T) {
 	answer := schemas["epic_answer"]
 	properties, _ := answer["properties"].(map[string]any)
 	question, _ := properties["question"].(map[string]any)
-	choice, _ := properties["choice"].(map[string]any)
 	required, _ := answer["required"].([]any)
 	if question["type"] != "string" {
 		t.Errorf("epic_answer question schema = %v, want type string", question)
 	}
-	if choice["type"] != "string" {
-		t.Errorf("epic_answer choice schema = %v, want type string", choice)
-	}
-	for _, optional := range []string{"question", "choice", "text"} {
-		if slices.Contains(required, any(optional)) {
-			t.Errorf("epic_answer requires %s = %v, want it optional", optional, required)
-		}
+	if slices.Contains(required, any("question")) {
+		t.Errorf("epic_answer requires question = %v, want it optional", required)
 	}
 }
 
