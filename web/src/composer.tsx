@@ -1,5 +1,5 @@
 import type { JSX, Ref } from "preact";
-import { useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { useFlash } from "./flash";
 import type { WaitingMessage } from "./gen/orrery/v1/orrery_pb";
@@ -38,10 +38,10 @@ function placeholderFor(state: string, label: string): string {
   }
 }
 
-// Composer is the send box under the reader. Enter and the send button send the text once; a failed send keeps the
-// draft and its prompt id and is never resent by the composer. Up in an empty box pulls the newest queued text back.
-// The queued messages draw above the box, oldest first, each as a tag and its text. Its edge and placeholder follow
-// the conversation's state.
+// Composer is the send box under the reader. Enter and the send button send the text once; Shift+Enter or Alt+Enter
+// puts a line break at the cursor instead. A failed send keeps the draft and its prompt id and is never resent by the
+// composer. Up in an empty box pulls the newest queued text back. The queued messages draw above the box, oldest
+// first, each as a tag and its text. Its edge and placeholder follow the conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -57,6 +57,16 @@ export function Composer(props: {
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
   const [flashing, flash] = useFlash();
+  // caret is the cursor a line break left for the render to park: setting the value moves the cursor to the end.
+  const caret = useRef<{ box: HTMLTextAreaElement; at: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const pending = caret.current;
+    if (pending !== null) {
+      caret.current = null;
+      pending.box.setSelectionRange(pending.at, pending.at);
+    }
+  }, [text]);
 
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "") {
@@ -96,10 +106,21 @@ export function Composer(props: {
     }
   }
 
-  function onKeyDown(event: KeyboardEvent): void {
+  // lineBreakAt replaces the box's selection with a line break and leaves the cursor just after it.
+  function lineBreakAt(box: HTMLTextAreaElement): void {
+    const { value, selectionStart, selectionEnd } = box;
+    caret.current = { box, at: selectionStart + 1 };
+    setText(`${value.slice(0, selectionStart)}\n${value.slice(selectionEnd)}`);
+  }
+
+  function onKeyDown(event: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === "Enter") {
       event.preventDefault();
-      void submit();
+      if (event.shiftKey || event.altKey) {
+        lineBreakAt(event.currentTarget);
+      } else {
+        void submit();
+      }
     } else if (event.key === "ArrowUp" && text === "" && pull !== null) {
       event.preventDefault();
       void pullBack();
