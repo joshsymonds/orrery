@@ -116,7 +116,7 @@ func TestEpicReviewersContractOverridesAndDisables(t *testing.T) {
 	if floor.Limit != 300 {
 		t.Fatalf("floor limit = %d, want 300 from the contract over the project's 600", floor.Limit)
 	}
-	if !slices.Equal(floor.Tools, []string{"Read", "Grep", "Glob", "Bash"}) {
+	if !slices.Equal(floor.Tools, []string{"Read", "Bash"}) {
 		t.Fatalf("floor tools = %q, want the default kept because an empty list is unset", floor.Tools)
 	}
 	if security := epicReviewerTestNamed(t, rs, "security"); security.Enabled {

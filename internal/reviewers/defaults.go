@@ -97,9 +97,10 @@ func Defaults() []Entry {
 	return entries
 }
 
-// readOnlyTools returns the tools every default reviewer runs under: it reads and searches, and it never writes.
+// readOnlyTools returns the tools every default reviewer runs under: Read to read files and Bash to run commands. Its
+// role text says it never edits. The list names only tools Claude Code 2.1.321 has.
 func readOnlyTools() []string {
-	return []string{"Read", "Grep", "Glob", "Bash"}
+	return []string{"Read", "Bash"}
 }
 
 // Generate returns rs with the enabled conformance reviewer's must_nots extended, after its own, by one entry per
