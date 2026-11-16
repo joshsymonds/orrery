@@ -3049,6 +3049,194 @@ test("back and the orrery crumb close the epic page until the cursor moves", () 
     assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
   }));
 
+// phaseEpic is a live epic whose task T1, Parser, runs its gate step run1, which puts T1 in checking, and whose task
+// T2, Logout, is planned. T1 names requirement R1, so R1's proof card opens T1.
+function phaseEpic(): EpicsView {
+  const run = makeStep("run1", { task: "T1", stage: "gate", doing: "checking the parser" });
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [run] });
+  const detail = create(EpicsGetResponseSchema, {
+    epic,
+    buildTasks: [
+      { id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"] },
+      { id: "T2", title: "Logout", status: "", requirements: ["R2"] },
+    ],
+    requirements: [{ id: "R1", text: "The parser parses" }],
+    steps: [run],
+  });
+  return epicsView([epic], new Map([[epic.id, detail]]));
+}
+
+const pageTitleRow = 'section.page[aria-label="epic"] .title-row';
+const phaseBody = 'section.page[aria-label="epic"] .phase-body';
+const checkingCell = 'section.page[aria-label="epic"] path[data-task="T1"][data-phase="checking"]';
+
+// phaseOpenName is the name of the phase the phase output has open, or null when the page holds no phase output.
+function phaseOpenName(container: HTMLElement): string | null {
+  return container.querySelector('section.page[aria-label="epic"] .phase-row.open .phase-name')?.textContent ?? null;
+}
+
+// phaseOutputShown is whether the page section holds a task's phase output.
+function phaseOutputShown(container: HTMLElement): boolean {
+  return container.querySelector('section.page[aria-label="epic"] .phase-output') !== null;
+}
+
+// sessionPageShown is whether the page section holds a step's worker session.
+function sessionPageShown(container: HTMLElement): boolean {
+  return container.querySelector('section.page[aria-label="epic"] .worker-session') !== null;
+}
+
+// pageReaderText is the text of the reader the page section holds.
+function pageReaderText(container: HTMLElement): string {
+  return container.querySelector('section.page[aria-label="epic"] .reader')?.textContent ?? "";
+}
+
+// clickFirst clicks the first element the selector finds in the container, and lets Preact draw what the click changed.
+async function clickFirst(container: HTMLElement, selector: string): Promise<void> {
+  const target = container.querySelector(selector);
+  assert.ok(target, `no element matches ${selector}`);
+  await clickIn(target);
+}
+
+// clickPhaseHead clicks the head of the phase row the phase output names.
+async function clickPhaseHead(container: HTMLElement, name: string): Promise<void> {
+  const head = [...container.querySelectorAll<HTMLButtonElement>('section.page[aria-label="epic"] .phase-head')].find(
+    (button) => button.querySelector(".phase-name")?.textContent === name,
+  );
+  assert.ok(head, `no ${name} phase head is drawn`);
+  await clickIn(head);
+}
+
+// openCheckingPhase moves from row a to the phase epic's epic, and clicks T1's checking cell in the orrery.
+async function openCheckingPhase(container: HTMLElement): Promise<void> {
+  await press("j");
+  await clickFirst(container, checkingCell);
+}
+
+test("a click on an orrery cell opens its task's phase output with that phase open, and the page moves deeper", () =>
+  withApp({ epics: phaseEpic() }, async (container) => {
+    await openCheckingPhase(container);
+    assert.equal(phaseOutputShown(container), true, "the task's phase output is drawn");
+    assert.equal(phaseOpenName(container), "checking", "the phase the cell names is open");
+    assert.equal(pageSlug(container), "T1 · checking");
+    assert.equal(pageClass(container), "page drill", "opening the phase output moves the page deeper");
+  }));
+
+test("a click on a proof card opens the task that names its requirement at implementing", () =>
+  withApp({ epics: phaseEpic() }, async (container) => {
+    await press("j");
+    await clickFirst(container, 'section.page[aria-label="epic"] .proof.red article.proof-card.open');
+    assert.equal(phaseOutputShown(container), true, "the card opens the phase output");
+    assert.equal(phaseOpenName(container), "implementing", "a red card opens implementing");
+    assert.equal(pageSlug(container), "T1 · implementing");
+    assert.equal(pageClass(container), "page drill");
+  }));
+
+test("a click on a Now row opens its task at the phase it is in", () =>
+  withApp({ epics: phaseEpic() }, async (container) => {
+    await press("j");
+    await clickFirst(container, 'section.page[aria-label="epic"] .happen.now li.open');
+    assert.equal(phaseOutputShown(container), true, "the row opens the phase output");
+    assert.equal(phaseOpenName(container), "checking", "the row opens the phase it is in");
+    assert.equal(pageSlug(container), "T1 · checking");
+    assert.equal(pageClass(container), "page drill");
+  }));
+
+test("a phase head opens its phase in place, and no page moves", () =>
+  withApp({ epics: phaseEpic() }, async (container) => {
+    await openCheckingPhase(container);
+    assert.equal(pageClass(container), "page drill");
+    await clickPhaseHead(container, "implementing");
+    assert.equal(phaseOpenName(container), "implementing", "the head's phase is open");
+    assert.equal(pageSlug(container), "T1 · implementing", "the page is still the task's phase output");
+    assert.equal(pageClass(container), "page drill", "no page moves for a head");
+    await clickButton(container, pageTitleRow, "‹");
+    assert.equal(epicPageDrawn(container), true, "‹ goes straight to the epic page: the head pushed no page");
+  }));
+
+test("Open the session streams the step's worker session as text, and moves the page deeper", () =>
+  withApp({ epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await clickButton(container, phaseBody, "Open the session ›");
+    assert.equal(sessionPageShown(container), true, "the worker session is drawn");
+    assert.equal(pageSlug(container), "session");
+    assert.equal(pageClass(container), "page drill", "opening the session moves the page deeper");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    assert.deepEqual(
+      fake.callsTo(sessionWatchPath).map((call) => call.body.id),
+      ["run1"],
+      "the stream follows the step's session",
+    );
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the checking reply" }],
+    });
+    await until(() => pageReaderText(container).includes("the checking reply"), "the session reply");
+  }));
+
+test("‹ on the session returns to the phase output, and ‹ again to the epic page at its scroll place", () =>
+  withApp({ epics: phaseEpic() }, async (container, fake) => {
+    await press("j");
+    moveScroll(container, 120);
+    await clickFirst(container, checkingCell);
+    await clickButton(container, phaseBody, "Open the session ›");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await clickButton(container, pageTitleRow, "‹");
+    assert.equal(phaseOutputShown(container), true, "‹ returns to the phase output");
+    assert.equal(sessionPageShown(container), false, "the session is no longer drawn");
+    assert.equal(pageClass(container), "page leave", "the phase output comes back with leave");
+    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "leaving the session stops its stream");
+    await clickButton(container, pageTitleRow, "‹");
+    assert.equal(epicPageDrawn(container), true, "‹ again returns to the epic page");
+    assert.equal(pageClass(container), "page leave", "the epic page comes back with leave");
+    assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
+  }));
+
+test("the epic crumb on the phase output returns to the epic page at its scroll place", () =>
+  withApp({ epics: phaseEpic() }, async (container) => {
+    await press("j");
+    moveScroll(container, 120);
+    await clickFirst(container, checkingCell);
+    await clickButton(container, pageTitleRow, "first");
+    assert.equal(epicPageDrawn(container), true, "the epic crumb returns to the epic page");
+    assert.equal(pageClass(container), "page leave", "the epic page comes back with leave");
+    assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
+  }));
+
+test("the orrery crumb closes the page from the session, and the session's stream stops", () =>
+  withApp({ epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await clickButton(container, phaseBody, "Open the session ›");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await clickButton(container, pageTitleRow, "orrery");
+    assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
+    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "the closed page's stream stops");
+  }));
+
+test("Hold on the phase output calls Steps.Hold with the running step's id", () =>
+  withApp({ epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await clickButton(container, `${pageTitleRow} .acts`, "Hold");
+    await until(() => fake.callsTo(holdPath).length === 1, "the Hold call");
+    assert.deepEqual(fake.callsTo(holdPath).map((call) => call.body.id), ["run1"]);
+  }));
+
+test("a nudge in the session calls Steps.Nudge with the step's id and the text", () =>
+  withApp({ epics: phaseEpic() }, async (container, fake) => {
+    await openCheckingPhase(container);
+    await clickButton(container, phaseBody, "Open the session ›");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .stepbox textarea');
+    assert.ok(box, "the session's step box has an input");
+    await typeInto(box, "try the other route");
+    await clickFirst(container, 'section.page[aria-label="epic"] .stepbox button[aria-label="send"]');
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    assert.deepEqual(fake.callsTo(nudgePath).map((call) => [call.body.id, call.body.text]), [
+      ["run1", "try the other route"],
+    ]);
+  }));
+
 test("Pause sends Epics.Pause with the epic's id", () =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     await press("j");
