@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
 import { start } from "./main";
+import { until } from "./testwait";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const panesPath = "/orrery.v1.Panes/List";
@@ -16,10 +17,11 @@ const hostStatusPath = "/orrery.v1.Host/Status";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
-// The pause before a stream that failed unavailable reopens, short so the tests' waits stay well inside their deadline.
+// The pause before a stream that failed unavailable reopens, short so a test that waits for the reopen does not wait long.
 const retryMs = 5;
-// A poll interval far longer than any test waits, so only events and the stream can reload the list.
-const longPollMs = 60_000;
+// A poll interval longer than the suite's --test-timeout lets a test run, so only events and the stream can reload the
+// list while a test runs.
+const longPollMs = 600_000;
 
 // Synthetic fixtures: one pane and one headless session, no real hosts or paths.
 function paneBody(label: string) {
@@ -149,7 +151,9 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         const body = decodeRequest(new Uint8Array(await request.arrayBuffer()));
         const watch: Watch = {
           after: BigInt(String(body.after ?? "0")),
-          signal: request.signal,
+          // The signal the transport passed: a Request's own signal stops following it once the garbage collector
+          // takes the Request.
+          signal: init?.signal ?? request.signal,
           header: request.headers.get(clientHeader),
           controller: null,
         };
@@ -270,16 +274,6 @@ function failing(server: FakeServer, failed: string[]): typeof globalThis.fetch 
 
 function clientsFor(server: FakeServer): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: server.fetch }));
-}
-
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await sleep(2);
-  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -455,7 +449,7 @@ test("stop unmounts the root and stops reloading", () =>
     assert.equal(root.childNodes.length, 0, "a reload rendered after stop");
   }));
 
-test("an event on the open stream reloads within a second, without waiting for the poll", () =>
+test("an event on the open stream reloads without waiting for the poll", () =>
   withPage(async (root) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
@@ -463,11 +457,10 @@ test("an event on the open stream reloads within a second, without waiting for t
       await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       assert.equal(server.watches[0].header, clientValue, "the stream call lacked the client header");
       server.paneLabel = "web";
-      const sentAt = Date.now();
+      // The poll waits longPollMs, longer than the suite lets a test run, so the reload this wait sees can only be the
+      // event's.
       sendEvent(server.watches[0], 8);
       await until(() => labels(root).includes("web"), "the reload after the event");
-      const elapsed = Date.now() - sentAt;
-      assert.ok(elapsed < 1000, `the reload took ${elapsed} ms`);
     } finally {
       stop();
     }

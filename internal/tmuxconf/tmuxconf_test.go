@@ -151,7 +151,9 @@ type testServer struct {
 
 // startServer starts a private tmux server with -f /dev/null and one session named work, whose pane runs
 // testCommand. Its global environment names a daemon socket under the test's temp dir, so no run-shell job of the
-// server, a focus hook's included, can reach the owner's orreryd.
+// server, a focus hook's included, can reach the owner's orreryd. The test's temp dirs are made before the server's
+// stop is registered, so the cleanups run in the other order: the server and every job it ran, a focus hook's fake
+// orrery included, are gone before the temp dirs are removed.
 func startServer(t *testing.T) testServer {
 	t.Helper()
 	var suffix [8]byte
@@ -163,12 +165,12 @@ func startServer(t *testing.T) testServer {
 	if err != nil {
 		t.Fatalf("New(%s): %v", name, err)
 	}
+	s := testServer{name: name, client: client, tempDir: t.TempDir()}
 	t.Cleanup(func() {
 		if err := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})
-	s := testServer{name: name, client: client, tempDir: t.TempDir()}
 	s.must(t, "-f", noConfig, "new-session", "-d", "-s", "work", "-c", s.tempDir, testCommand)
 	s.must(t, "set-environment", "-g", protocol.EnvSocket, filepath.Join(s.tempDir, "orreryd.sock"))
 	return s
@@ -281,6 +283,41 @@ func TestServerRunShellHasOrreryDaemonSocket(t *testing.T) {
 	}
 	if want := filepath.Join(s.tempDir, "orreryd.sock"); string(got) != want {
 		t.Fatalf("run-shell %s = %q, want %q", protocol.EnvSocket, got, want)
+	}
+}
+
+// heldWriterScript is a run-shell job that writes into the test's temp dir only once its server is gone, as a focus
+// hook's fake orrery can still be writing when the test returns. Its %[1]s is a directory that outlives the test, %[2]s
+// the test's temp dir and %[3]s the server's name. It ignores the SIGTERM tmux sends a job's shell as the server exits,
+// writes started, waits on wait-for, which returns once the server is gone, and then writes late into the temp dir
+// and, only when that write landed, wrote.
+const heldWriterScript = `trap '' TERM
+: > '%[1]s/started'
+tmux -L '%[3]s' wait-for orrery-never
+: > '%[2]s/late' && : > '%[1]s/wrote'`
+
+// TestServerJobsEndBeforeTempDirRemoval holds a server's job past the test body: the job writes into the test's temp
+// dir only after kill-server. The test's cleanup waits for the job, so the write lands before the temp dir is
+// removed, and the removal then succeeds.
+func TestServerJobsEndBeforeTempDirRemoval(t *testing.T) {
+	record := t.TempDir()
+	ok := t.Run("held job", func(t *testing.T) {
+		s := startServer(t)
+		script := fmt.Sprintf(heldWriterScript, record, s.tempDir, s.name)
+		s.must(t, "run-shell", "-b", strings.ReplaceAll(script, "#", "##"))
+		waitFor(t, "the server's job to start", func() (bool, error) {
+			_, err := os.Stat(filepath.Join(record, "started"))
+			if errors.Is(err, os.ErrNotExist) {
+				return false, nil
+			}
+			return err == nil, err
+		})
+	})
+	if !ok {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(record, "wrote")); err != nil {
+		t.Fatalf("the server's job had not written into the test's temp dir when its cleanup ended: %v", err)
 	}
 }
 

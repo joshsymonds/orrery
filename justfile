@@ -195,7 +195,9 @@ web-check:
         exit 1
     fi
     esbuild $tests --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build --out-extension:.js=.mjs --log-level=warning
-    node --test $(find web/build -name '*.test.mjs' | sort)
+    # A test still running after a minute fails, named, rather than holding its file until the gate's own limit ends
+    # it with no test named: every test here takes milliseconds, so the minute bounds a hang, not a slow test.
+    node --test --test-timeout=60000 $(find web/build -name '*.test.mjs' | sort)
 
 # Bundle the web page into web/build/page, the directory the flake package embeds. scripts/build-web.sh holds the
 # bundle command, which the flake calls too.

@@ -23,6 +23,7 @@ import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
+import { pause, until as waitUntil } from "./testwait";
 
 const now = 1000;
 
@@ -91,10 +92,13 @@ class FakeServer {
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
+    // A call's signal is the one the transport passed: a Request's own signal stops following it once the garbage
+    // collector takes the Request, and would then never abort.
+    const signal = init?.signal ?? request.signal;
     const path = new URL(request.url).pathname;
     const bytes = new Uint8Array(await request.arrayBuffer());
     if (!path.endsWith("/WatchConversation")) {
-      this.calls.push({ path, body: decodeUnary(bytes), signal: request.signal, controller: null });
+      this.calls.push({ path, body: decodeUnary(bytes), signal, controller: null });
       if (this.failNext.delete(path)) {
         return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
           status: 503,
@@ -111,9 +115,9 @@ class FakeServer {
       }
       return json(this.replies.get(path)?.shift() ?? (path === pullPath ? { text: queuedText } : {}));
     }
-    const call: Call = { path, body: decodeEnvelope(bytes), signal: request.signal, controller: null };
+    const call: Call = { path, body: decodeEnvelope(bytes), signal, controller: null };
     this.calls.push(call);
-    request.signal.addEventListener("abort", () => {
+    signal.addEventListener("abort", () => {
       call.controller = null;
     });
     const body = new ReadableStream<Uint8Array>({
@@ -353,14 +357,9 @@ async function withApp(
   }
 }
 
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await act(() => new Promise((resolve) => setTimeout(resolve, 2)));
-  }
+// until waits as testwait's until does, with each pause run inside act, so the renders it lets through are applied.
+function until(check: () => boolean, what: string): Promise<void> {
+  return waitUntil(check, what, { step: () => act(pause) });
 }
 
 // settle lets pending promises run, so a write the test expects to be absent has time to start.
