@@ -321,6 +321,213 @@ func TestCheckPassesValidPlanWithNewFiles(t *testing.T) {
 	checkLines(t, checkPlan(ret, []string{"internal/store/epics.go"}))
 }
 
+// validQuestion is a question that passes every rule of store.QuestionRefusals under label.
+func validQuestion(label string) Question {
+	return Question{
+		Label: label,
+		Text:  "a text for " + label,
+		Choices: []Choice{
+			{ID: "first", Does: "a first choice"},
+			{ID: "second", Does: "a second choice"},
+		},
+		Recommended: "first",
+		Why:         "a why for " + label,
+		Confidence:  "low",
+		Replaces:    "",
+	}
+}
+
+// secondQuestion is a return whose first question is valid and whose second question is bad.
+func secondQuestion(bad Question) Return {
+	return Return{Questions: []Question{validQuestion("first"), bad}}
+}
+
+func TestCheckRefusesQuestionLabel(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		label string
+		want  string
+	}{
+		{"empty", "", "label: empty"},
+		{"not kebab-case", "Which_Epic", "label: not kebab-case"},
+		{"park", "park", "label: park is reserved for orrery"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bad := validQuestion("second")
+			bad.Label = tc.label
+			checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "`+tc.label+`" `+tc.want)
+		})
+	}
+}
+
+func TestCheckRefusesQuestionText(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Text = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" text: empty`)
+}
+
+func TestCheckRefusesQuestionChoices(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		choices     []Choice
+		recommended string
+		want        string
+	}{
+		{
+			name:        "one choice",
+			choices:     []Choice{{ID: "first", Does: "a first choice"}},
+			recommended: "first",
+			want:        "choices: fewer than two choices",
+		},
+		{
+			name:        "empty id",
+			choices:     []Choice{{ID: "", Does: "a first choice"}, {ID: "second", Does: "a second choice"}},
+			recommended: "second",
+			want:        "choices[0].id: empty",
+		},
+		{
+			name:        "other as an id",
+			choices:     []Choice{{ID: "first", Does: "a first choice"}, {ID: "other", Does: "a second choice"}},
+			recommended: "first",
+			want:        "choices[1].id: other is offered by orrery",
+		},
+		{
+			name:        "id named twice",
+			choices:     []Choice{{ID: "first", Does: "a first choice"}, {ID: "first", Does: "a second choice"}},
+			recommended: "first",
+			want:        "choices[1].id: named twice",
+		},
+		{
+			name:        "empty does",
+			choices:     []Choice{{ID: "first", Does: ""}, {ID: "second", Does: "a second choice"}},
+			recommended: "first",
+			want:        "choices[0].does: empty",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bad := validQuestion("second")
+			bad.Choices = tc.choices
+			bad.Recommended = tc.recommended
+			checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" `+tc.want)
+		})
+	}
+}
+
+func TestCheckRefusesQuestionRecommendation(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		recommended string
+	}{
+		{"none", ""},
+		{"an undeclared choice", "third"},
+		{"other", "other"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bad := validQuestion("second")
+			bad.Recommended = tc.recommended
+			checkLines(t, checkPlan(secondQuestion(bad), nil),
+				`questions[1] "second" recommended: names no declared choice`)
+		})
+	}
+}
+
+func TestCheckRefusesQuestionWhy(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Why = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" why: empty`)
+}
+
+func TestCheckRefusesQuestionConfidence(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		confidence string
+	}{
+		{"none", ""},
+		{"unlisted word", "certain"},
+		{"capitalized", "High"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bad := validQuestion("second")
+			bad.Confidence = tc.confidence
+			checkLines(t, checkPlan(secondQuestion(bad), nil),
+				`questions[1] "second" confidence: not low, medium or high`)
+		})
+	}
+}
+
+func TestCheckRefusesQuestionReplaces(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		replaces string
+	}{
+		{"zero", "Q0"},
+		{"bare number", "1"},
+		{"leading zero", "Q01"},
+		{"lower case", "q1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bad := validQuestion("second")
+			bad.Replaces = tc.replaces
+			checkLines(t, checkPlan(secondQuestion(bad), nil),
+				`questions[1] "second" replaces: not empty or Q<n> with n >= 1`)
+		})
+	}
+}
+
+func TestCheckNamesEachBadQuestionByPositionInRuleOrder(t *testing.T) {
+	t.Parallel()
+	first := validQuestion("")
+	first.Why = ""
+	second := validQuestion("second")
+	second.Text = ""
+	checkLines(t, checkPlan(Return{Questions: []Question{first, second}}, nil),
+		`questions[0] "" label: empty`,
+		`questions[0] "" why: empty`,
+		`questions[1] "second" text: empty`,
+	)
+}
+
+func TestCheckGivesTaskLinesBeforeQuestionLines(t *testing.T) {
+	t.Parallel()
+	task := validTask("T")
+	task.Files = nil
+	bad := validQuestion("second")
+	bad.Why = ""
+	checkLines(t, checkPlan(Return{Tasks: []Task{task}, Questions: []Question{validQuestion("first"), bad}}, nil),
+		`tasks[0] "T" files: no files`,
+		`questions[1] "second" why: empty`,
+	)
+}
+
+func TestCheckPassesValidQuestions(t *testing.T) {
+	t.Parallel()
+	replacing := validQuestion("which-cache")
+	replacing.Confidence = "high"
+	replacing.Replaces = "Q1"
+	ret := Return{
+		Tasks:     []Task{validTask("T", "internal/a.go")},
+		Questions: []Question{validQuestion("which-epic"), replacing},
+	}
+	checkLines(t, checkPlan(ret, nil))
+}
+
 func TestParseRoundTripsValidReturn(t *testing.T) {
 	t.Parallel()
 	want := Return{
