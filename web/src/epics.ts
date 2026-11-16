@@ -17,7 +17,6 @@ export interface EpicItem {
   repository: string;
   outcome: string;
   phaseAt: number;
-  known: boolean;
   done: number;
   total: number;
   strip: StripTone[];
@@ -107,7 +106,7 @@ export const noEpics: EpicsView = {
 // into justEnded while it is unseen, else into endedEarlier, both newest ending first. Every other epic is folded, in
 // input order: a live epic not drawn, and a record epic that went quiet. Epics with a running or held step draw first,
 // in input order; quiet live epics follow in input order while fewer than shownBlocks are drawn. An epic with no detail
-// reads as unknown, with a gauge of zero.
+// carries no detail, and its counts read zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
@@ -196,7 +195,7 @@ function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
   };
 }
 
-// An epic's line: its identity, and its gauge and strip from the detail when one is held.
+// An epic's line: its identity, its task counts and strip from the detail when one is held, and the detail.
 function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
   const tasks = detail?.tasks ?? [];
   return {
@@ -207,7 +206,6 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     repository: epic.repository,
     outcome: epic.outcome,
     phaseAt: Number(epic.phaseAt),
-    known: detail !== undefined,
     done: doneOf(tasks),
     total: tasks.length,
     strip: stripOf(tasks, detail?.slices ?? []),

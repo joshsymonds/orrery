@@ -111,25 +111,25 @@ function foldedIds(items: EpicItem[]): string[] {
   return items.map((item) => item.id);
 }
 
-test("the gauge counts done and integrated tasks, and an unknown status counts as neither", () => {
+test("the done count takes done and integrated tasks, and an unknown status counts as neither", () => {
   const epic = makeEpic({ id: "widgets-5d0c1a7/first" });
   const statuses = ["done", "Integrated", "pending", "frobnicated", "done at 3f9c2e1"];
   const details = new Map([[epic.id, detailWith(epic, statuses)]]);
 
   const block = epicsView([epic], details).blocks[0];
 
-  assert.equal(block.epic.known, true);
+  assert.equal(block.epic.detail !== undefined, true);
   assert.equal(block.epic.done, 2);
   assert.equal(block.epic.total, 5);
 });
 
-test("an epic with no detail is unknown, and its gauge reads zero", () => {
+test("an epic with no detail carries none, and its counts read zero", () => {
   const epic = makeEpic({ id: "widgets-5d0c1a7/second" });
 
   const block = epicsView([epic], new Map()).blocks[0];
 
   assert.equal(block.epic.key, "epic:widgets-5d0c1a7/second");
-  assert.equal(block.epic.known, false);
+  assert.equal(block.epic.detail === undefined, true);
   assert.equal(block.epic.done, 0);
   assert.equal(block.epic.total, 0);
   assert.deepEqual(block.epic.strip, []);
@@ -356,8 +356,8 @@ test("folded lists every epic neither drawn, waiting nor ended, live or not, in 
     "the released epic and the seventh quiet one fold, in list order",
   );
   assert.equal(view.folded[0].outcome, "released");
-  assert.equal(view.folded[0].known, false, "a folded epic with no detail reads as unknown");
-  assert.equal(view.folded[1].known, false);
+  assert.equal(view.folded[0].detail === undefined, true, "a folded epic is never asked for its detail");
+  assert.equal(view.folded[1].detail === undefined, true);
 });
 
 test("waiting epics leave the blocks for their own list, in input order, and are neither drawn nor folded", () => {

@@ -2465,7 +2465,7 @@ function sectionOf(container: HTMLElement, title: string): HTMLElement {
   return section;
 }
 
-test("the Epics group follows Needs you, and an epic reads its outcome and count, or tasks unavailable", () => {
+test("the Epics group follows Needs you, and an epic reads its state and count, or epic unavailable", () => {
   const first = makeEpic(widgetsRepo, "first", { outcome: "build" });
   const second = makeEpic(gadgetsRepo, "second", { outcome: "build" });
   const epics = epicsView([first, second], new Map([[first.id, detailOf(first, ["done", "integrated", "pending"])]]));
@@ -2478,19 +2478,24 @@ test("the Epics group follows Needs you, and an epic reads its outcome and count
     assert.ok(known.classList.contains("b-row") && known.classList.contains("epic"));
     assert.equal(known.querySelector(".label")?.textContent, "first");
     assert.equal(known.querySelector(".proj")?.textContent, widgetsRepo);
-    assert.equal(known.querySelector(".rt")?.textContent, "build · 2 of 3", "the integrated task counts as done");
-    assert.equal(known.querySelector(".count") === null, true, "no count element is drawn");
-    assert.equal(known.querySelector("svg.gauge") !== null, true, "the epic draws its gauge");
-    assert.equal(known.querySelector("svg.gauge")?.getAttribute("aria-hidden") ?? null, "true");
-    assert.equal(known.querySelector("svg.gauge circle.gauge-rest") !== null, true, "the gauge draws its rest circle");
-    const dasharray = known.querySelector("svg.gauge circle.gauge-done")?.getAttribute("stroke-dasharray") ?? null;
-    assert.equal(dasharray !== null, true, "the gauge draws its done arc");
-    const [arc, circle] = (dasharray ?? "").split(/\s+/).map(Number);
-    assert.ok(Math.abs(arc / circle - 2 / 3) < 1e-9, "the arc covers two of three tasks");
+    assert.equal(known.querySelector(".rt")?.textContent, "2 of 3 tasks done", "the integrated task counts as done");
+    assert.equal(known.querySelector(".state")?.textContent, "build · 2 of 3 units integrated", "the state word is the outcome");
+    assert.equal(known.querySelector("svg.orrery") !== null, true, "the epic draws its small orrery");
+    assert.equal(known.querySelector("svg.orrery")?.getAttribute("aria-hidden") ?? null, "true");
 
     const unknown = rowElement(container, epicKey(second));
-    assert.equal(unknown.querySelector(".rt")?.textContent, "build · tasks unavailable");
-    assert.equal(unknown.querySelector("svg") === null, true, "no gauge is drawn without detail");
+    assert.equal(unknown.querySelector(".rt")?.textContent, "epic unavailable");
+    assert.equal(unknown.querySelector(".state") === null, true, "no state is drawn without detail");
+    assert.equal(unknown.querySelector("svg") === null, true, "no orrery is drawn without detail");
+  });
+});
+
+test("an epic with an open question draws its blocker in the list, with the time it has waited", () => {
+  const epic = makeEpic(widgetsRepo, "asking");
+  const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?", asked: 880n }] });
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ epics }, (container) => {
+    assert.equal(rowElement(container, epicKey(epic)).querySelector(".blocker")?.textContent, "waits on your answer · 2 min");
   });
 });
 
@@ -2659,13 +2664,14 @@ test("an epic the poll loaded draws its page from the poll, and Epics.Get is not
     assert.equal(fake.callsTo(getEpicPath).length, 0, "no Epics.Get is asked for an epic the poll loaded");
   }));
 
-test("an epic with no outcome reads its count alone, and tasks unavailable alone", () => {
+test("an epic with no outcome reads building and its count, and epic unavailable without detail", () => {
   const known = makeEpic(widgetsRepo, "first");
   const unknown = makeEpic(gadgetsRepo, "second");
   const epics = epicsView([known, unknown], new Map([[known.id, detailOf(known, ["done", "integrated", "pending"])]]));
   return withApp({ epics }, (container) => {
-    assert.equal(rowElement(container, epicKey(known)).querySelector(".rt")?.textContent, "2 of 3");
-    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".rt")?.textContent, "tasks unavailable");
+    assert.equal(rowElement(container, epicKey(known)).querySelector(".state")?.textContent, "building · 2 of 3 units integrated");
+    assert.equal(rowElement(container, epicKey(known)).querySelector(".rt")?.textContent, "2 of 3 tasks done");
+    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".rt")?.textContent, "epic unavailable");
   });
 });
 

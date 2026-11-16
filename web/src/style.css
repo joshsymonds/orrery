@@ -193,8 +193,9 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row .ans { margin-top: 5px; font: 12px/18px var(--mono); color: var(--green); }
 .reply a { color: var(--blue); }
 
-/* The Epics group. An epic's line is its gauge and its main: the label and repository, the reading pushed right, and the
-   task strip under them. A task's cell takes the chart's colour for its state, on the strip and on the step's pips alike. */
+/* The Epics group. An epic's line is its small orrery and its main: the label and repository, the reading pushed right, the
+   state and blocker words, and the task strip under them. A task's cell takes the chart's colour for its state, on the strip
+   and on the step's pips alike. */
 .b-row.epic { display: flex; align-items: center; gap: 9px; }
 .b-row.epic .main { flex: 1 1 auto; }
 .b-row.epic .label { flex: 0 1 auto; white-space: nowrap; font-weight: 700; color: var(--text); }
@@ -203,10 +204,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row.epic .orrery { flex: none; width: 28px; height: 28px; max-width: none; margin: 0; }
 .b-row.epic .words { display: flex; gap: 8px; min-width: 0; white-space: nowrap; font: 11.5px/20px var(--mono); color: var(--subtext0); }
 .b-row.epic .words .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--peach); }
-.gauge { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); }
-.gauge circle { fill: none; stroke-width: 4px; }
-.gauge-rest { stroke: var(--surface1); }
-.gauge-done { stroke: var(--green); }
 .strip { display: flex; gap: 2px; height: 3px; margin: 6px 0 1px; }
 .strip i { flex: 1 1 0; min-width: 0; border-radius: 1.5px; background: var(--surface0); }
 .strip.dense { gap: 0; }

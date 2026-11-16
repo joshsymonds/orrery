@@ -602,7 +602,7 @@ test("a live epic from Epics.List and Get shows in the list with its count", () 
       await until(() => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
       const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
       assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
-      assert.equal(epicRow.querySelector(".rt")?.textContent, "1 of 2", "the count did not come from Epics.Get");
+      assert.equal(epicRow.querySelector(".rt")?.textContent, "1 of 2 tasks done", "the count did not come from Epics.Get");
       assert.ok(labels(root).includes("draft"), `labels were ${JSON.stringify(labels(root))}`);
       assert.ok(labels(root).includes("api"), "the pane row is missing beside the epic");
     } finally {

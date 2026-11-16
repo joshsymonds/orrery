@@ -6,9 +6,9 @@ import type { Clients } from "./actions";
 import { Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
+import { EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage } from "./epicpage";
 import {
-  denseStrip,
   type EpicItem,
   type EpicSection,
   type EpicsView,
@@ -110,7 +110,6 @@ const stateWorking = "working";
 const needsYouTitle = "Needs you";
 const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
-const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
@@ -832,10 +831,11 @@ export function App({
                 </div>
                 {section.epics.map((block) => (
                   <Fragment key={block.epic.key}>
-                    <EpicEntry
+                    <EpicLine
                       epic={block.epic}
                       full={block.full}
                       current={block.epic.key === cursorKey}
+                      now={now}
                       onSelect={selectItem}
                     />
                     {block.steps.map((step) => (
@@ -852,11 +852,12 @@ export function App({
                 )}
                 {waitingOpen &&
                   section.waiting.map((epic) => (
-                    <EpicEntry
+                    <EpicLine
                       key={epic.key}
                       epic={epic}
                       full={false}
                       current={epic.key === cursorKey}
+                      now={now}
                       onSelect={selectItem}
                     />
                   ))}
@@ -915,11 +916,12 @@ export function App({
                 )}
                 {foldedOpen &&
                   section.folded.map((epic) => (
-                    <EpicEntry
+                    <EpicLine
                       key={epic.key}
                       epic={epic}
                       full={false}
                       current={epic.key === cursorKey}
+                      now={now}
                       onSelect={selectItem}
                     />
                   ))}
@@ -1271,57 +1273,6 @@ function entriesOf(section: EpicSection, waitingOpen: boolean, foldedOpen: boole
   ];
 }
 
-// EpicEntry draws an epic's line: its gauge, then its slug, repository and readout. A full epic also draws its strip of
-// one segment per record task.
-function EpicEntry({
-  epic,
-  full,
-  current,
-  onSelect,
-}: {
-  epic: EpicItem;
-  full: boolean;
-  current: boolean;
-  onSelect: (item: Item) => void;
-}) {
-  return (
-    <div
-      class={current ? "b-row epic cur" : "b-row epic"}
-      data-row=""
-      data-key={epic.key}
-      aria-current={current ? "true" : undefined}
-      onClick={(event) => {
-        if (!isLinkClick(event)) {
-          onSelect(epic);
-        }
-      }}
-    >
-      {epic.known && <Gauge done={epic.done} total={epic.total} />}
-      <div class="main">
-        <div class="l1">
-          <span class="label">{epic.slug}</span>
-          <span class="proj">{epic.repository}</span>
-          <span class="rt">{epicReadoutText(epic)}</span>
-        </div>
-        {full && epic.strip.length > 0 && (
-          <div class={epic.strip.length > denseStrip ? "strip dense" : "strip"}>
-            {epic.strip.map((tone) => (
-              <i class={`k-${tone}`} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// epicReadoutText is an epic's outcome and count, joined, with an empty outcome left out. Without detail the count
-// reads tasks unavailable.
-function epicReadoutText(epic: EpicItem): string {
-  const count = epic.known ? `${epic.done} of ${epic.total}` : tasksUnavailableText;
-  return [epic.outcome, count].filter((part) => part !== "").join(" · ");
-}
-
 // StepEntry draws a step's line: its mark, label and five pips, then its held text when it is held, or its doing text
 // as text.
 function StepEntry({
@@ -1364,17 +1315,6 @@ function StepEntry({
         <ReplyText text={step.doing} />
       )}
     </div>
-  );
-}
-
-// Gauge draws the done share of the tasks as an arc over a full circle. A circle of no tasks gets no arc.
-function Gauge({ done, total }: { done: number; total: number }) {
-  const share = total === 0 ? 0 : done / total;
-  return (
-    <svg class="gauge" aria-hidden="true" viewBox="0 0 36 36">
-      <circle class="gauge-rest" cx="18" cy="18" r="16" pathLength="1" />
-      <circle class="gauge-done" cx="18" cy="18" r="16" pathLength="1" stroke-dasharray={`${share} 1`} />
-    </svg>
   );
 }
 
