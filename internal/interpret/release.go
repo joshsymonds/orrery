@@ -2,7 +2,6 @@ package interpret
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,18 +10,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// releaseResult is the part of a release run's Result the executor reads: whether the candidate is behind the target,
-// and the tip the candidate was made from. The release kind reads the same Result to decide.
-type releaseResult struct {
-	Behind bool   `json:"behind"`
-	Tip    string `json:"tip"`
-}
-
-// release carries out one work action of a release run: the release slot taken or freed, a stop, the epic's ending, a
-// Done gate check at the candidate, or the record of a candidate. The prepare, the release steps and the judge are not
-// carried out yet, so they are refused.
+// release carries out one work action of a release run: the prepare of its candidate, the release slot taken or freed, a
+// stop, the epic's ending, a Done gate check at the candidate, or the record of a candidate. The release steps and the
+// judge are not carried out yet, so they are refused.
 func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
+	case kinds.ActPrepare:
+		return r.prepareRelease(ctx, epic, act)
 	case kinds.ActTake:
 		return r.takeSlot(ctx, epic)
 	case kinds.ActFree:
@@ -85,9 +79,9 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 // and its Head the candidate. Its Commits name the candidate when it is behind the target, since then the candidate is
 // the merge the release made.
 func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	result, err := parseRelease(act.Run.Result)
+	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
-		return err
+		return fmt.Errorf("read result of node %s: %w", act.Path, err)
 	}
 	run := store.ReleaseRun{
 		Part: store.ReleasePartCandidate, Attempt: act.Run.Attempt, Start: result.Tip, Head: act.Run.Revision,
@@ -100,18 +94,6 @@ func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Ac
 		return fmt.Errorf("record candidate of epic %s: %w", epic.ID, err)
 	}
 	return nil
-}
-
-// parseRelease decodes the Result of a release run. An empty Result is the zero result, as the release kind reads it.
-func parseRelease(result string) (releaseResult, error) {
-	var parsed releaseResult
-	if result == "" {
-		return parsed, nil
-	}
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		return releaseResult{}, fmt.Errorf("decode release result: %w", err)
-	}
-	return parsed, nil
 }
 
 // releaseRefused is the error of release work the executor does not carry out.

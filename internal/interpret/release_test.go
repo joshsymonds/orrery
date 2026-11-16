@@ -2,7 +2,6 @@ package interpret
 
 import (
 	"bytes"
-	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -22,15 +21,8 @@ const releaseFlow = "name: release\nnodes:\n  - id: release\n    kind: release\n
 // releaseSecondEpic is the epic of the test repository that waits behind runEpic for the release slot.
 const releaseSecondEpic = "orrery-1a2b3c4/epic-second"
 
-// releaseTip is the tip of the test epic's branch, and releaseCandidate the candidate a tip behind the target merges
-// to.
-const (
-	releaseTip       = "1111111111111111111111111111111111111111"
-	releaseCandidate = "2222222222222222222222222222222222222222"
-)
-
-// releaseRefusal is the text the pass logs for work of a release run that this task does not carry out: the prepare,
-// the release steps and the judge, which a later task adds.
+// releaseRefusal is the text the pass logs for work of a release run that this task does not carry out: the release
+// steps and the judge, which a later task adds.
 func releaseRefusal(work string) string {
 	return "release work " + work + " is not one the executor carries out"
 }
@@ -40,24 +32,20 @@ func tagStep() store.EpicReleaseStep {
 	return store.EpicReleaseStep{Step: "tag the release", Target: "main", Undo: "none"}
 }
 
-// releaseResultJSON returns the Result a release run's prepare writes for candidate, behind the target or not, in the
-// JSON the release kind reads.
-func releaseResultJSON(behind bool, candidate string) string {
-	return fmt.Sprintf(`{"error":"","behind":%t,"candidate":%q,"tip":%q}`, behind, candidate, releaseTip)
-}
-
-// releaseWorld is one release test's world: the store, the check fake, the runner, and what each of its passes logged.
+// releaseWorld is one release test's world: the store, the check fake, the runner, the scratch repository its epics are
+// in, and what each of its passes logged.
 type releaseWorld struct {
 	t      *testing.T
 	s      *store.Store
 	path   string
+	repo   string
 	fakes  nodeFakes
 	runner *Runner
 	logs   *bytes.Buffer
 }
 
-// newReleaseWorld returns a world with no epic stored and a runner that ends epics through ending, which is nil for
-// none.
+// newReleaseWorld returns a world with no epic stored, over a scratch repository on main, and a runner that ends epics
+// through ending, which is nil for none.
 func newReleaseWorld(t *testing.T, ending Ending) *releaseWorld {
 	t.Helper()
 	s, path := openNodeStore(t)
@@ -67,11 +55,11 @@ func newReleaseWorld(t *testing.T, ending Ending) *releaseWorld {
 	logs := &bytes.Buffer{}
 	runner := New(cfg)
 	runner.logger = slog.New(slog.NewTextHandler(logs, nil))
-	return &releaseWorld{t: t, s: s, path: path, fakes: fakes, runner: runner, logs: logs}
+	return &releaseWorld{t: t, s: s, path: path, repo: mergeRepo(t), fakes: fakes, runner: runner, logs: logs}
 }
 
 // createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps. The epics of a
-// world are all in runRepo, so they share its release slot.
+// world are all in its repository, so they share its release slot.
 func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseStep) {
 	w.t.Helper()
 	pinned, err := workflow.Load("release", func(string) ([]byte, bool, error) {
@@ -81,7 +69,7 @@ func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseSt
 		w.t.Fatalf("Load release: %v", err)
 	}
 	if err = w.s.CreateEpic(w.t.Context(), store.EpicRow{
-		ID: id, Repository: runRepo, Base: runBase, Title: "Release the epic", Phase: phase, Created: runClock(),
+		ID: id, Repository: w.repo, Base: runBase, Title: "Release the epic", Phase: phase, Created: runClock(),
 		Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
 		Workflow: store.EpicWorkflow{
 			Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256, Nodes: pinnedNodes(pinned.Workflow.Nodes, ""),
@@ -107,20 +95,6 @@ func (w *releaseWorld) flowOf(id string) store.EpicFlow {
 		w.t.Fatalf("EpicFlow %s: %v", id, err)
 	}
 	return flow
-}
-
-// stagePrepare writes the prepare of the test epic's release run: its result, then its revision, in the order the
-// prepare writes them.
-func (w *releaseWorld) stagePrepare(result, revision string) {
-	w.t.Helper()
-	ctx := w.t.Context()
-	run := runAt(w.t, w.s, releaseNodePath)
-	if err := w.s.RecordNodeResult(ctx, runEpic, releaseNodePath, run.Attempt, result); err != nil {
-		w.t.Fatalf("RecordNodeResult: %v", err)
-	}
-	if err := w.s.PrepareNode(ctx, runEpic, releaseNodePath, run.Attempt, revision, ""); err != nil {
-		w.t.Fatalf("PrepareNode: %v", err)
-	}
 }
 
 // endGate ends the Done gate check of the release run with exit.
@@ -151,24 +125,22 @@ func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 }
 
 // TestReleaseCleanEpicTakesSlotAndWaitsBehindHolder: a clean epic with release steps takes the release slot of its
-// repository and moves to releasing. A second epic of the repository waits while the slot is held, and shows the
-// holder.
+// repository and moves to releasing, and its prepare makes the candidate at the tip. A second epic of the repository
+// waits while the slot is held, and shows the holder.
 func TestReleaseCleanEpicTakesSlotAndWaitsBehindHolder(t *testing.T) {
 	t.Parallel()
 	w := newReleaseWorld(t, &recordingEnding{})
+	mergeRemote(t, w.repo)
+	nodeEpicBranch(t, w.repo, "epic.txt")
 	w.createEpic(runEpic, store.PhaseClean, tagStep())
-	if logs := w.pass(); strings.Count(logs, releaseRefusal("prepare")) != 1 {
-		t.Fatalf("logs = %q, want the prepare refused once, as the holder has no candidate yet", logs)
-	}
+	w.pass()
 	holder := w.flowOf(runEpic)
 	if holder.Epic.Phase != store.PhaseReleasing || holder.Slot != runEpic {
 		t.Fatalf("epic phase = %q and slot = %q, want releasing holding its slot", holder.Epic.Phase, holder.Slot)
 	}
 
 	w.createEpic(releaseSecondEpic, store.PhaseClean, tagStep())
-	if logs := w.pass(); strings.Count(logs, releaseRefusal("prepare")) != 1 {
-		t.Errorf("logs = %q, want only the holder's prepare refused", logs)
-	}
+	w.pass()
 	second := w.flowOf(releaseSecondEpic)
 	if second.Epic.Phase != store.PhaseClean || second.Slot != runEpic {
 		t.Errorf("second epic phase = %q and slot = %q, want clean, waiting on %s",
@@ -187,15 +159,17 @@ func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 	t.Parallel()
 	ending := &recordingEnding{}
 	w := newReleaseWorld(t, ending)
+	origin := mergeRemote(t, w.repo)
+	nodeEpicBranch(t, w.repo, "epic.txt")
+	mergeOriginCommit(t, origin, "origin.txt")
 	w.createEpic(runEpic, store.PhaseClean, tagStep())
-	w.pass()
-	w.stagePrepare(releaseResultJSON(true, releaseCandidate), releaseCandidate)
 	if logs := w.pass(); logs != "" {
 		t.Fatalf("pass logged %q, want nothing while the Done gate runs", logs)
 	}
+	candidate := runAt(t, w.s, releaseNodePath).Revision
 
 	wantCheck := store.NodeCheck{
-		ID: workID(t, w.s, releaseNodePath, "done 1"), Epic: runEpic, Path: releaseNodePath, Revision: releaseCandidate,
+		ID: workID(t, w.s, releaseNodePath, "done 1"), Epic: runEpic, Path: releaseNodePath, Revision: candidate,
 		Argv: []string{"./bin/lint"}, Limit: 60, Needs: []store.EpicGateNeed{{Pool: "lint", Count: 2}},
 	}
 	if want := []store.NodeCheck{wantCheck}; !reflect.DeepEqual(w.fakes.checks.calls, want) {
@@ -206,7 +180,7 @@ func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 		t.Fatalf("pass logged %q, want nothing once the release stops", logs)
 	}
 
-	reason := "done gate " + integrateDoneGate + " did not pass at " + releaseCandidate
+	reason := "done gate " + integrateDoneGate + " did not pass at " + candidate
 	if run := runAt(t, w.s, releaseNodePath); run.State != store.NodeParked || run.Outcome != "failed" ||
 		run.Output != reason {
 		t.Errorf("release run = %+v, want parked failed with %q", run, reason)
@@ -237,31 +211,38 @@ func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 func TestReleaseGatedCandidateIsRecordedThenStepWaits(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name      string
-		behind    bool
-		candidate string
-		commits   []string
+		name   string
+		behind bool
 	}{
-		{name: "behind the target", behind: true, candidate: releaseCandidate, commits: []string{releaseCandidate}},
-		{name: "at the target", behind: false, candidate: releaseTip},
+		{name: "behind the target", behind: true},
+		{name: "at the target", behind: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			w := newReleaseWorld(t, &recordingEnding{})
+			origin := mergeRemote(t, w.repo)
+			tip := nodeEpicBranch(t, w.repo, "epic.txt")
+			if tc.behind {
+				mergeOriginCommit(t, origin, "origin.txt")
+			}
 			w.createEpic(runEpic, store.PhaseClean, tagStep())
 			w.pass()
-			w.stagePrepare(releaseResultJSON(tc.behind, tc.candidate), tc.candidate)
 			if tc.behind {
-				w.pass()
 				w.endGate(0)
 			}
 			logs := w.pass()
 
-			attempt := runAt(t, w.s, releaseNodePath).Attempt
+			run := runAt(t, w.s, releaseNodePath)
+			if (run.Revision == tip) == tc.behind {
+				t.Fatalf("candidate = %q with tip %q, want behind = %t", run.Revision, tip, tc.behind)
+			}
 			want := store.ReleaseRun{
-				Part: store.ReleasePartCandidate, Attempt: attempt, Start: releaseTip, Head: tc.candidate,
-				Commits: tc.commits, Passed: true, At: runClock(),
+				Part: store.ReleasePartCandidate, Attempt: run.Attempt, Start: tip, Head: run.Revision,
+				Passed: true, At: runClock(),
+			}
+			if tc.behind {
+				want.Commits = []string{run.Revision}
 			}
 			if got := w.flowOf(runEpic).Releases; !reflect.DeepEqual(got, []store.ReleaseRun{want}) {
 				t.Errorf("release runs = %+v, want the one candidate %+v", got, want)

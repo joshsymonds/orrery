@@ -33,11 +33,14 @@ const (
 	outcomeReleased = "released"
 )
 
-// releaseResult is the result a release prepare writes to its run: the error that stopped it, and whether the revision
-// it recorded is behind the target.
-type releaseResult struct {
-	Error  string `json:"error"`
-	Behind bool   `json:"behind"`
+// ReleaseResult is the result a release prepare writes to its run: the error that stopped it, whether the revision it
+// records is behind the target, the candidate it records and the tip the candidate was made from. The release kind
+// reads it and the executor writes and reads it, so it is defined once, here.
+type ReleaseResult struct {
+	Error     string `json:"error"`
+	Behind    bool   `json:"behind"`
+	Candidate string `json:"candidate"`
+	Tip       string `json:"tip"`
 }
 
 // Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
@@ -108,7 +111,7 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 	if ok {
 		return Action{Kind: ActStop, Output: failed.Reason}
 	}
-	result, err := parseReleaseResult(run.Result)
+	result, err := ParseReleaseResult(run.Result)
 	if err != nil {
 		return Action{Kind: ActStop, Output: err.Error()}
 	}
@@ -121,22 +124,22 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
 }
 
-// parseReleaseResult decodes the result of a release run, which is empty until its prepare writes one. A result that
-// is not a JSON object is an error.
-func parseReleaseResult(result string) (releaseResult, error) {
-	var parsed releaseResult
+// ParseReleaseResult decodes the result of a release run, which is empty until its prepare writes one. A result that is
+// not a JSON object is an error.
+func ParseReleaseResult(result string) (ReleaseResult, error) {
+	var parsed ReleaseResult
 	if result == "" {
 		return parsed, nil
 	}
 	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		return releaseResult{}, fmt.Errorf("release result is not a JSON object: %w", err)
+		return ReleaseResult{}, fmt.Errorf("release result is not a JSON object: %w", err)
 	}
 	return parsed, nil
 }
 
 // prepareRelease decides a candidate with no revision. It waits while the epic is paused or parked, as prepare does,
 // stops on the error the prepare recorded, and prepares otherwise.
-func prepareRelease(result releaseResult, rows Rows) Action {
+func prepareRelease(result ReleaseResult, rows Rows) Action {
 	action := prepare(rows)
 	if action.Kind == ActNone || result.Error == "" {
 		return action
