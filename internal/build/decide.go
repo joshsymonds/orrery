@@ -121,8 +121,8 @@ func decideRed(view View) Action {
 }
 
 // decideImplement returns the action for the implement unit. Without a step, the refs are snapshotted and then the
-// implementer starts. An ended step first checks the ref moves it made, and then its end: a finished return moves the
-// build to green at its commit, and any other end spends the attempt, pauses or reruns the unit.
+// implementer starts. An ended step first checks the ref moves it made, and then its end: a finished return guards its
+// commit before the build moves to green there, and any other end spends the attempt, pauses or reruns the unit.
 func decideImplement(view View) Action {
 	build := view.Task.Build
 	step := view.Step
@@ -160,7 +160,7 @@ func decideImplement(view View) Action {
 		build.Rerun = 0
 		build.NoVerdict = 0
 		build.Step = ""
-		return Action{Kind: ActMove, Next: build}
+		return Action{Kind: ActGuard, Next: build}
 	case endReturned:
 		ret, ok := parseImplementerReturn(step.Result)
 		if !ok {

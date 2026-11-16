@@ -502,17 +502,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if host == "" {
 		return errors.New("host name is empty")
 	}
-	storePath, err := push.DefaultStorePath(getenv)
+	storePath, store, pushes, err := openPushes(opts, getenv)
 	if err != nil {
-		return fmt.Errorf("push store: %w", err)
-	}
-	store, err := push.NewStore(storePath, opts.pushHosts)
-	if err != nil {
-		return fmt.Errorf("push store: %w", err)
-	}
-	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout}, opts.metrics)
-	if err != nil {
-		return fmt.Errorf("push publisher: %w", err)
+		return err
 	}
 	noticeLog, err := route.OpenLog(filepath.Join(filepath.Dir(storePath), noticeLogName))
 	if err != nil {
@@ -524,13 +516,15 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	// A failed sessions start cancels ctx, so everything that ctx ends stops as it does on a signal.
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
+	// The watch logs the shutdown's start and writes the goroutine stacks of one that runs long, until serve returns.
+	defer watchShutdown(ctx, logger, stacksDir(getenv), shutdownStacksAfter)()
 	ln, deskLn, err := listenSockets(opts.socket)
 	if err != nil {
 		return err
 	}
 	desk := startDesk(ctx, host, deskLn, logger)
 	// The hub closes last, after the sessions and notices that post to it have stopped.
-	defer desk.Close()
+	defer shutdownPhase(logger, "desk", desk.Close)
 	// shutdownServe closes pages first, so its Watch streams end before the session socket stops.
 	pages := inapp.NewHub()
 
@@ -557,6 +551,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		mirror:      mirror,
 		webhook:     opts.webhook,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
+		views:       newDoneViews(),
 	})
 	router := hub.router
 	pageNotices := enginehost.NewPageNotices(pages, router, time.Now)
@@ -570,7 +565,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Sessions:      opts.sessions,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane}, seen)
-		})},
+		}, hub.viewer)},
 		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
 		Input:     desk.Input,
 		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
@@ -594,13 +589,54 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		close(tidyStart)
 		notifyReady(ctx, logger, opts)
 	}
-	serveErr := <-serveDone
-	opts.stopMetricsListener()
+	serveErr := awaitServe(ctx, logger, serveDone)
+	shutdownPhase(logger, "metrics listener", opts.stopMetricsListener)
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
 		serveErr = fmt.Errorf("serve: %w", serveErr)
 	}
 	return errors.Join(startErr, serveErr, sessionErr)
+}
+
+// openPushes opens the push store at its default path, for opts' push hosts, and the publisher that sends through it.
+// It returns the store's path too, which the notice log lies beside.
+func openPushes(opts options, getenv func(string) string) (string, *push.Store, *push.Publisher, error) {
+	storePath, err := push.DefaultStorePath(getenv)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("push store: %w", err)
+	}
+	store, err := push.NewStore(storePath, opts.pushHosts)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("push store: %w", err)
+	}
+	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout}, opts.metrics)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("push publisher: %w", err)
+	}
+	return storePath, store, pushes, nil
+}
+
+// awaitServe returns the error daemon.Serve returns on serveDone. Once ctx has ended, the wait for Serve's shutdown is
+// logged as the hook socket phase.
+func awaitServe(ctx context.Context, logger *slog.Logger, serveDone <-chan error) error {
+	select {
+	case err := <-serveDone:
+		return err
+	case <-ctx.Done():
+	}
+	var err error
+	shutdownPhase(logger, "hook socket", func() { err = <-serveDone })
+	return err
+}
+
+// stacksDir returns the flight traces directory beside the store, which a slow shutdown writes its goroutine stacks
+// to. A store path that does not resolve gives "", and the write then fails and is logged.
+func stacksDir(getenv func(string) string) string {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(storePath), flightDirName)
 }
 
 // flightNow is the time on the clock the flight recorder times phases on: opts.clock, or time.Now when it is nil.
@@ -696,12 +732,12 @@ func shutdownServe(
 	router *route.Router,
 	notices *notice.Notices,
 ) error {
-	pages.Close()
-	hub.wait()
+	shutdownPhase(logger, "pages", pages.Close)
+	shutdownPhase(logger, "pane summaries", hub.wait)
 	// Serve and the summaries have returned, so nothing defers more mirror work, and what was deferred lands before
 	// the store closes.
 	if hub.mirror != nil {
-		hub.mirror.Wait()
+		shutdownPhase(logger, "mirror", hub.mirror.Wait)
 	}
 	var sessionErr error
 	if sessions != nil {
@@ -709,9 +745,9 @@ func shutdownServe(
 	}
 	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it. The
 	// notices close before the store, so a row write the store refused gets its last try while the store is open.
-	shutdownRouter(router)
-	notices.Close(ctx)
-	closeStore(ctx, st, logger)
+	shutdownPhase(logger, "router", func() { shutdownRouter(router) })
+	shutdownPhase(logger, "notices", func() { notices.Close(ctx) })
+	shutdownPhase(logger, "store", func() { closeStore(ctx, st, logger) })
 	return sessionErr
 }
 
@@ -747,6 +783,8 @@ type sessionHost struct {
 	summariesDone chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
+	// logger logs each phase of the shutdown.
+	logger *slog.Logger
 }
 
 // stateDirOf returns the absolute directory the store file lies in, which the store path getenv resolves names. The
@@ -790,6 +828,7 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
+		logger:        logger,
 		writerDone:    make(chan struct{}),
 		idleDone:      make(chan struct{}),
 		flowDone:      make(chan struct{}),
@@ -1004,9 +1043,12 @@ func (h *sessionHost) stopBroker() {
 // connections of the Acquire calls still blocked, and an Acquire whose context ends would end its grant, so the broker
 // closes first. It returns the error the session service ended with, if any.
 func (h *sessionHost) stop() error {
-	h.stopBroker()
-	h.stopServe()
-	serveErr := <-h.serveDone
+	h.phase("broker", h.stopBroker)
+	var serveErr error
+	h.phase("session socket", func() {
+		h.stopServe()
+		serveErr = <-h.serveDone
+	})
 	h.shutdown()
 	if serveErr != nil {
 		return fmt.Errorf("session service: %w", serveErr)
@@ -1092,6 +1134,7 @@ func (h *sessionHost) startFlow(
 		Store:    st,
 		Steps:    h.steps,
 		Evidence: h.evidence,
+		Checks:   h.checks,
 		Getenv:   getenv,
 		StateDir: stateDir,
 		Logger:   logger,
@@ -1286,28 +1329,50 @@ func (h *sessionHost) startSummaries(
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
-		h.stopIdle()
-		<-h.idleDone
-		h.stopFlow()
-		<-h.flowDone
-		h.checks.Close()
-		h.evidence.Close()
+		h.phase("idle check", func() {
+			h.stopIdle()
+			<-h.idleDone
+		})
+		h.phase("flow", func() {
+			h.stopFlow()
+			<-h.flowDone
+		})
+		h.phase("node checks", h.checks.Close)
+		h.phase("evidence", h.evidence.Close)
 		if h.attentionDone != nil {
-			<-h.attentionDone
+			h.phase("attention", func() { <-h.attentionDone })
 		}
-		h.stopLimits()
-		<-h.limitsDone
-		h.stopDue()
-		<-h.dueDone
-		h.stopSummaries()
-		<-h.summariesDone
-		h.steps.Close()
-		h.manager.Close()
+		h.phase("limit notices", func() {
+			h.stopLimits()
+			<-h.limitsDone
+		})
+		h.phase("due pass", func() {
+			h.stopDue()
+			<-h.dueDone
+		})
+		h.phase("epic summaries", func() {
+			h.stopSummaries()
+			<-h.summariesDone
+		})
+		h.phase("steps", h.steps.Close)
+		h.phase("sessions", h.manager.Close)
 	}
 	if h.writer != nil {
-		h.stopWriter()
-		<-h.writerDone
+		h.phase("writer", func() {
+			h.stopWriter()
+			<-h.writerDone
+		})
 	}
+}
+
+// phase runs the shutdown phase name through shutdownPhase on the host's logger, or on a discarding one when the host
+// has none.
+func (h *sessionHost) phase(name string, phase func()) {
+	logger := h.logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	shutdownPhase(logger, name, phase)
 }
 
 // openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
@@ -1412,6 +1477,82 @@ type relay struct {
 	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
 	webhook     *alerts.Webhook  // the POST /alerts intake that routes to router; nil without --metrics-listen
 	summarizers map[tmuxctl.Server]*summary.Summarizer
+	views       *doneViews // each done's viewing check, handed from observe to the autoseen observer
+}
+
+// viewTimeout bounds the viewing check of one done transition, which runs on the hook path.
+const viewTimeout = 2 * time.Second
+
+// doneView is the one viewing check a done transition makes: whether a client of the pane's tmux server shows the pane
+// with recent input, or the error of the check. The notice's first watching check and the autoseen observer both take
+// it, so a done reads its pane's window and clients once.
+type doneView struct {
+	viewing bool
+	err     error
+}
+
+// doneViews hands each pane's done view from the relay's observer to the autoseen observer, which the daemon calls
+// next for the same transition: it calls a transition's observers in order, one transition at a time. A nil doneViews
+// keeps nothing.
+type doneViews struct {
+	mu    sync.Mutex
+	views map[string]doneView
+}
+
+// newDoneViews returns an empty doneViews.
+func newDoneViews() *doneViews {
+	return &doneViews{views: make(map[string]doneView)}
+}
+
+// put keeps view as pane's done view until it is taken.
+func (v *doneViews) put(pane string, view doneView) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.views[pane] = view
+}
+
+// take returns and forgets pane's done view, and reports whether one was kept.
+func (v *doneViews) take(pane string) (doneView, bool) {
+	if v == nil {
+		return doneView{}, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	view, ok := v.views[pane]
+	delete(v.views, pane)
+	return view, ok
+}
+
+// viewer is the autoseen observer's Viewer: the done view the relay's observer kept for pane, or a fresh check when it
+// kept none.
+func (r *relay) viewer(ctx context.Context, client *tmuxctl.Client, pane string, now time.Time) (bool, error) {
+	if view, ok := r.views.take(pane); ok {
+		return view.viewing, view.err
+	}
+	viewing, err := autoseen.Viewing(ctx, client, pane, now)
+	if err != nil {
+		return false, fmt.Errorf("pane viewing: %w", err)
+	}
+	return viewing, nil
+}
+
+// viewDone checks whether a client of the transition's tmux server shows its pane with recent input, under
+// viewTimeout.
+func (r *relay) viewDone(ctx context.Context, transition daemon.Transition) doneView {
+	client, err := tmuxClient(transition.Server)
+	if err != nil {
+		return doneView{err: err}
+	}
+	ctx, cancel := context.WithTimeout(ctx, viewTimeout)
+	defer cancel()
+	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, time.Now())
+	if err != nil {
+		return doneView{err: fmt.Errorf("pane viewing: %w", err)}
+	}
+	return doneView{viewing: viewing}
 }
 
 // readTimes keeps each pane's newest read time. Read reports arrive on connection goroutines and watching checks run
@@ -1479,8 +1620,14 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		summarized = r.summarize(ctx, transition)
 	}
+	var view *doneView
+	if transition.To == protocol.StateDone {
+		checked := r.viewDone(ctx, transition)
+		r.views.put(transition.PaneID, checked)
+		view = &checked
+	}
 	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
-		r.notify(ctx, transition, summarized)
+		r.notify(ctx, transition, summarized, view)
 		return
 	}
 	r.router.Changed(notice.Key{Pane: transition.PaneID})
@@ -1551,37 +1698,34 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 	return summarizer, nil
 }
 
-// paneText is the text a notification carries, as stored on its pane.
+// paneText is the text a notification carries, as stored on its pane, and the pane's session and window index.
 type paneText struct {
 	summary, label, question string
+	session                  string
+	window                   int
 }
 
-// readPaneText returns the summary, label and question options of pane.
+// readPaneText returns the summary, label and question options of pane, and its session name and window index, in one
+// tmux invocation.
 func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (paneText, error) {
-	var text paneText
-	for _, option := range []struct {
-		name string
-		dst  *string
-	}{
-		{protocol.OptionSummary, &text.summary},
-		{protocol.OptionLabel, &text.label},
-		{protocol.OptionQuestion, &text.question},
-	} {
-		value, _, err := client.PaneOption(ctx, pane, option.name)
-		if err != nil {
-			return paneText{}, fmt.Errorf("read %s: %w", option.name, err)
-		}
-		*option.dst = value
+	values, err := client.PaneValues(ctx, pane,
+		protocol.OptionSummary, protocol.OptionLabel, protocol.OptionQuestion, "session_name", "window_index")
+	if err != nil {
+		return paneText{}, fmt.Errorf("read pane %s: %w", pane, err)
 	}
-	return text, nil
+	window, err := strconv.Atoi(values[4])
+	if err != nil {
+		return paneText{}, fmt.Errorf("window index %q: %w", values[4], err)
+	}
+	return paneText{summary: values[0], label: values[1], question: values[2], session: values[3], window: window}, nil
 }
 
-// notify hands the transition's notice to the router. A done notice whose Stop left a subagent or workflow running is
+// notify hands the transition's notice to the router, with view as its first watching check when it is not nil. A done notice whose Stop left a subagent or workflow running is
 // silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
 // logged. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one never
 // pends, so it needs none.
-func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}) {
-	incoming := r.paneNotice(ctx, transition, summarized)
+func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}, view *doneView) {
+	incoming := r.paneNotice(ctx, transition, summarized, view)
 	if incoming.Silent == "" {
 		if data, err := encodePaneSource(transition); err != nil {
 			r.logger.ErrorContext(ctx, "encode pane notice", "pane", transition.PaneID, "error", err)
@@ -1671,10 +1815,6 @@ func (r *relay) deskNotice(ctx context.Context, transition daemon.Transition) (d
 	if err != nil {
 		return deskstream.Notice{}, fmt.Errorf("read notification text: %w", err)
 	}
-	session, window, err := paneLocation(ctx, client, transition.PaneID)
-	if err != nil {
-		return deskstream.Notice{}, fmt.Errorf("read pane location: %w", err)
-	}
 	body, fallback := text.question, waitingBody
 	if transition.To == protocol.StateDone {
 		body, fallback = text.summary, doneBody
@@ -1684,7 +1824,7 @@ func (r *relay) deskNotice(ctx context.Context, transition daemon.Transition) (d
 	}
 	return deskstream.Notice{
 		State: string(transition.To),
-		Title: deskstream.PaneTitle(filepath.Base(transition.Frame.Cwd), session, window),
+		Title: deskstream.PaneTitle(filepath.Base(transition.Frame.Cwd), text.session, text.window),
 		Body:  body,
 	}, nil
 }
@@ -1707,23 +1847,6 @@ func (r *relay) pushNotification(ctx context.Context, transition daemon.Transiti
 		Label:    text.label,
 		Question: text.question,
 	}, nil
-}
-
-// paneLocation returns the session name and window index of pane.
-func paneLocation(ctx context.Context, client *tmuxctl.Client, pane string) (string, int, error) {
-	out, err := client.Run(ctx, "display-message", "-p", "-t", pane, "#{session_name}\n#{window_index}")
-	if err != nil {
-		return "", 0, fmt.Errorf("display-message: %w", err)
-	}
-	session, index, found := strings.Cut(strings.TrimSuffix(out, "\n"), "\n")
-	if !found {
-		return "", 0, fmt.Errorf("display-message output %q has no window index", out)
-	}
-	window, err := strconv.Atoi(index)
-	if err != nil {
-		return "", 0, fmt.Errorf("window index %q: %w", index, err)
-	}
-	return session, window, nil
 }
 
 // wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.

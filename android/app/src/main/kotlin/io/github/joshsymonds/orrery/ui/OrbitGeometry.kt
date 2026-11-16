@@ -24,23 +24,6 @@ private const val RING_HALF = 5.5f
 /** The centre radius, in units, of ring [ring]: 0 is red test, 4 is gate accepted. */
 fun ringRadius(ring: Int): Float = RING_RADII[ring]
 
-// The cursor's wedge and hand.
-private const val WEDGE_INNER = 91f
-private const val WEDGE_OUTER = 177f
-private const val WEDGE_GAP = -1f
-private const val WEDGE_CORNER = 3f
-private const val HAND_TIP = 89f
-private const val HAND_BASE = 82.5f
-private const val HAND_HALF = 3.4f
-
-// The bezel: ticks from BEZEL_INNER, labelled ones out to BEZEL_MAJOR_OUTER with their number at BEZEL_NUMBER_RADIUS.
-private const val BEZEL_MIN_SLICES = 10
-private const val BEZEL_INNER = 179f
-private const val BEZEL_MINOR_OUTER = 182f
-private const val BEZEL_MAJOR_OUTER = 184f
-private const val BEZEL_NUMBER_RADIUS = 192.5f
-private val BEZEL_STEPS = listOf(5, 10, 25, 50)
-
 // The hit rule: inside HOLE_RADIUS is the centre, beyond OUTER_RADIUS is nothing.
 private const val HOLE_RADIUS = 80.5f
 private const val OUTER_RADIUS = 200f
@@ -51,26 +34,11 @@ sealed interface OrbitHit {
     data class Slice(val index: Int) : OrbitHit
 }
 
-/**
- * One tick of the bezel, from [inner] to [outer] units at [angle] degrees, on the 1-based slice [slice]. A labelled tick
- * has its slice number centred on [numberCentre]; an unlabelled one has none.
- */
-data class BezelTick(
-    val slice: Int,
-    val angle: Float,
-    val inner: Float,
-    val outer: Float,
-    val numberCentre: Offset?,
-)
-
 /** The angle, in degrees, that each of [count] slices takes: 344 degrees shared out. */
 fun sliceSpan(count: Int): Float = SWEEP / count
 
 /** The angle, in degrees, at which slice [index] starts: a0(index). */
 fun sliceStart(index: Int, count: Int): Float = START + index * sliceSpan(count)
-
-/** The angle, in degrees, at the middle of slice [index]: mid(index). */
-fun sliceMid(index: Int, count: Int): Float = START + (index + 0.5f) * sliceSpan(count)
 
 /** The channel between neighbouring slices, in units: 0.16 of the span in radians times 100, kept between 0.7 and 3. */
 fun sliceGap(count: Int): Float = (0.16f * sliceSpan(count).radians * 100f).coerceIn(0.7f, 3f)
@@ -91,49 +59,6 @@ fun cellPath(count: Int, slice: Int, ring: Int, u: Float): Path {
         corner = cellCorner(count, ring),
         u = u,
     )
-}
-
-/** The wedge outlining [slice] of the cursor, in pixels at [u] per unit. */
-fun cursorWedge(count: Int, slice: Int, u: Float): Path = sectorPath(
-    ri = WEDGE_INNER,
-    ro = WEDGE_OUTER,
-    startDeg = sliceStart(slice, count),
-    endDeg = sliceStart(slice + 1, count),
-    gap = WEDGE_GAP,
-    corner = WEDGE_CORNER,
-    u = u,
-)
-
-/** The cursor's hand: a triangle from its base out to a tip, pointing at [slice]'s middle, in pixels at [u] per unit. */
-fun cursorHand(count: Int, slice: Int, u: Float): Path {
-    val angle = sliceMid(slice, count).radians
-    val tip = point(HAND_TIP, angle) * u
-    val base = point(HAND_BASE, angle)
-    val dx = cos(angle) * HAND_HALF
-    val dy = sin(angle) * HAND_HALF
-    return Path().apply {
-        moveTo(tip)
-        lineTo((base + Offset(dx, dy)) * u)
-        lineTo((base - Offset(dx, dy)) * u)
-        close()
-    }
-}
-
-/** The bezel of a chart of [count] slices: none below ten; otherwise a tick on every fifth slice. */
-fun bezelTicks(count: Int): List<BezelTick> {
-    if (count < BEZEL_MIN_SLICES) return emptyList()
-    val step = BEZEL_STEPS.firstOrNull { count.toFloat() / it <= 8f } ?: 50
-    return (5..count step 5).map { slice ->
-        val angle = sliceMid(slice - 1, count)
-        val labelled = slice % step == 0
-        BezelTick(
-            slice = slice,
-            angle = angle,
-            inner = BEZEL_INNER,
-            outer = if (labelled) BEZEL_MAJOR_OUTER else BEZEL_MINOR_OUTER,
-            numberCentre = if (labelled) point(BEZEL_NUMBER_RADIUS, angle.radians) else null,
-        )
-    }
 }
 
 /**

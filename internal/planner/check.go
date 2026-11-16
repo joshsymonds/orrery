@@ -3,6 +3,7 @@ package planner
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -16,6 +17,7 @@ const (
 	reasonFileOwned   = "owned by an unfinished task"
 	reasonGitDir      = "inside a .git directory"
 	reasonRequirement = "not a Requirement of the epic"
+	reasonNotTaskFile = "not one of the task's files"
 	reasonEmpty       = "empty"
 	reasonNoFiles     = "no files"
 )
@@ -43,9 +45,9 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 	return refusals
 }
 
-// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, requirements, gate,
-// each line of the evidence item's form, then the gate and the judge that do not resolve. named records each
-// well-formed file the plan names, so a later naming of the same file is refused.
+// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, test_changes,
+// requirements, gate, each line of the evidence item's form, then the gate and the judge that do not resolve. named
+// records each well-formed file the plan names, so a later naming of the same file is refused.
 func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judge func(name string) error) []string {
 	prefix := fmt.Sprintf(`tasks[%d] "%s"`, i, task.Title)
 	var refusals []string
@@ -63,6 +65,7 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 			refusals = append(refusals, fmt.Sprintf("%s files[%d]: %s", prefix, j, reason))
 		}
 	}
+	refusals = append(refusals, testChangeRefusals(prefix, task)...)
 	for k, id := range task.Requirements {
 		if !known[id] {
 			refusals = append(refusals, fmt.Sprintf("%s requirements[%d]: %s", prefix, k, reasonRequirement))
@@ -82,6 +85,17 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 	if strings.TrimSpace(task.Evidence.Judge) != "" {
 		if err := judge(task.Evidence.Judge); err != nil {
 			refusals = append(refusals, prefix+" evidence.judge: "+err.Error())
+		}
+	}
+	return refusals
+}
+
+// testChangeRefusals returns one refusal per test_changes element of task that is not one of the task's files.
+func testChangeRefusals(prefix string, task Task) []string {
+	var refusals []string
+	for j, file := range task.TestChanges {
+		if !slices.Contains(task.Files, file) {
+			refusals = append(refusals, fmt.Sprintf("%s test_changes[%d]: %s", prefix, j, reasonNotTaskFile))
 		}
 	}
 	return refusals

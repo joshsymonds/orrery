@@ -626,7 +626,7 @@ test("the page calls only the list, get and watch paths it reads", () =>
       await until(() => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
       assert.deepEqual(
         [...server.paths].sort(),
-        [epicsGetPath, epicsListPath, hostStatusPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
+        [epicsGetPath, epicsListPath, "/orrery.v1.Epics/History", hostStatusPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
       );
     } finally {
       stop();

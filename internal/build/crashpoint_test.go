@@ -189,9 +189,11 @@ func crashRunKilledAt(t *testing.T, action int) crashResult {
 	return w.result(t)
 }
 
-// crashStoreAfter arms the router's store-call bound with a timer that never fires. The harness's clock moves by rounds
-// and by nothing else, so no store call reads as late and the action order does not depend on the machine's speed.
-func crashStoreAfter(time.Duration, func()) func() bool {
+// crashTimerNever arms a router timer, its routing timers and its store-call bound alike, that never fires. The
+// harness's clock moves by rounds and by nothing else, so no store call reads as late and the action order does not
+// depend on the machine's speed. And a killed incarnation's router, which the harness leaves with no shutdown path,
+// writes nothing after the kill, as a killed process cannot: its retry of the row writes the kill refused never runs.
+func crashTimerNever(time.Duration, func()) func() bool {
 	return func() bool { return true }
 }
 
@@ -247,8 +249,9 @@ func (w *crashWorld) incarnation(limit, from int) (int, bool) {
 		Subscribed: func() (bool, error) { return true, nil }, Log: crashLog{w: w},
 		Rebuild: map[string]route.Rebuild{planner.EpicSource: planner.RestoreNotice},
 		// A store call that reads as late is written again, which adds actions; the harness's actions are counted, so
-		// its store-call bound never fires.
-		StoreAfter: crashStoreAfter,
+		// its store-call bound never fires. Nor does any routing timer, the retry of failed row writes among them.
+		After:      crashTimerNever,
+		StoreAfter: crashTimerNever,
 	})
 	router.Attach(ctx, kstore)
 	router.Wait()

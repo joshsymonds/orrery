@@ -191,7 +191,7 @@ func (r *stepReadoptRig) startStep(t *testing.T) string {
 
 // steps returns the Steps client of the session socket.
 func (r *stepReadoptRig) steps() enginev1connect.StepsClient {
-	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewStepsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // step returns the row of step id as the Steps service reports it.
@@ -204,23 +204,17 @@ func (r *stepReadoptRig) step(t *testing.T, id string) *v1.Step {
 	return resp.Msg.GetStep()
 }
 
-// awaitEnd waits until step id has ended, and returns its row.
-func (r *stepReadoptRig) awaitEnd(t *testing.T, id string) *v1.Step {
+// awaitEnd waits until step id, which daemon runs, has ended, and returns its row (see awaitStepEnd).
+func (r *stepReadoptRig) awaitEnd(t *testing.T, daemon *orreryProcess, id string) *v1.Step {
 	t.Helper()
-	var step *v1.Step
-	waitUntil(t, func() bool {
-		step = r.step(t, id)
-		return step.GetEnd() != ""
-	})
-
-	return step
+	return awaitStepEnd(t, daemon, r.steps(), id)
 }
 
 // heldGrant returns the id of the grant that holds the rig's pool member, as Pools.Status reports it, or "" when no
 // grant holds it. A pool that no grant uses is not in the status, so it holds nothing.
 func (r *stepReadoptRig) heldGrant(t *testing.T) string {
 	t.Helper()
-	pools := enginev1connect.NewPoolsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	pools := enginev1connect.NewPoolsClient(r.f.client, cli.SessionBaseURL)
 	resp, err := pools.Status(t.Context(), connect.NewRequest(&v1.PoolsStatusRequest{}))
 	if err != nil {
 		t.Fatalf("read pool status: %v", err)
@@ -305,7 +299,7 @@ func TestStepReadoptSigkillDuringTurnEndsDone(t *testing.T) {
 		t.Fatalf("gate runs of step %s = %d, want 1", id, n)
 	}
 	stepReadoptTouch(t, r.gateRelease)
-	r.requireDone(t, r.awaitEnd(t, id))
+	r.requireDone(t, r.awaitEnd(t, restarted, id))
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d after it ended, want 1", id, n)
 	}
@@ -347,7 +341,7 @@ func TestStepReadoptSigkillDuringGateHoldsMemberOnce(t *testing.T) {
 	}
 
 	stepReadoptTouch(t, r.gateRelease)
-	r.requireDone(t, r.awaitEnd(t, id))
+	r.requireDone(t, r.awaitEnd(t, restarted, id))
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d after it ended, want 1", id, n)
 	}

@@ -1,10 +1,12 @@
 import { Fragment } from "preact";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { Composer } from "./composer";
+import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
+import { type EpicCommands, EpicPage } from "./epicpage";
 import {
   denseStrip,
   type EpicItem,
@@ -15,8 +17,8 @@ import {
   type StepItem,
   withEpicsGroup,
 } from "./epics";
-import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
+import type { EpicHistoryEntry } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Mark } from "./mark";
@@ -28,6 +30,7 @@ import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
+import { TitleRow } from "./titlerow";
 import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project";
@@ -51,6 +54,25 @@ interface Answer {
   label: string;
 }
 
+// The epic page's view: the epic page, or the contract page its summary opens. move is the class the page section
+// carries while it moves: drill as a page opens deeper, leave as it comes back. closed is set by back and the orrery
+// crumb, and a move of the cursor opens the page again.
+interface EpicPageState {
+  view: "epic" | "contract";
+  move: "" | "drill" | "leave";
+  closed: boolean;
+}
+
+const openEpicPage: EpicPageState = { view: "epic", move: "", closed: false };
+const closedEpicPage: EpicPageState = { view: "epic", move: "", closed: true };
+
+// An epic's history as it was read, with the id of the epic it belongs to, so a page never shows another epic's
+// entries.
+interface EpicHistory {
+  id: string;
+  entries: EpicHistoryEntry[];
+}
+
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
 type Item = Row | EpicItem | StepItem;
 
@@ -63,6 +85,9 @@ const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
+const commandFailedText = "epic command failed";
+// The most entries one page of an epic's history asks for.
+const historyPageSize = 200;
 const heldMark = "‖";
 
 // The keys 1-3 answer the first three options of a question, and no others.
@@ -145,7 +170,15 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // Whether the accepted, waiting epics are open under their line. They start closed.
   const [waitingOpen, setWaitingOpen] = useState(false);
-  // loadArtifact reads a run's log or artifact for the epic view. It is stable across renders, so an open log or image
+  // The fixed line an epic page's command leaves when it fails. A command that lands clears it.
+  const [commandError, setCommandError] = useState("");
+  const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
+  const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
+  // The epic page section, and the scroll place it had when its contract opened, which its back restores.
+  const pageRef = useRef<HTMLElement>(null);
+  const pageScroll = useRef(0);
+  const restorePageScroll = useRef(false);
+  // loadArtifact reads a run's log or artifact for the epic page. It is stable across renders, so an open log or image
   // is not loaded again on every poll.
   const loadArtifact = useCallback(
     (run: string, name: string, stderr: boolean) => clients.evidence.artifact({ run, name, stderr }),
@@ -187,12 +220,15 @@ export function App({
   // The entry the reader follows: the cursor's row or step. Its stream is kept under this key, so a stream never
   // shows under another entry.
   const readerKey = cursorRowKey !== "" ? cursorRowKey : cursorStepKey;
-  // The cursor's epic or step entry, which the right column draws whether or not a row is pinned. A step entry draws
-  // the epic it belongs to, with the step marked; an epic entry marks no step.
-  const cursorEpic = cursorItem !== null && !isRow(cursorItem) ? cursorItem : null;
-  const cursorStepId = cursorEpic?.kind === "step" ? cursorEpic.id : "";
+  // The cursor's epic entry, which the epic page draws beside the list. A step entry is no epic entry: its reader shows
+  // alone.
+  const epicEntry = cursorItem?.kind === "epic" ? cursorItem : null;
   const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
-  const epicDetail = cursorEpic === null ? undefined : epics.details.get(epicIdOf(cursorEpic));
+  const epicDetail = epicEntry === null ? undefined : epics.details.get(epicEntry.id);
+  // The history is read for the epic entry the cursor rests on, once its detail is held. It is read again when the
+  // epic's last write moves.
+  const historyId = epicEntry !== null && epicDetail !== undefined ? epicEntry.id : "";
+  const epicChanged = epicDetail?.epic?.changed ?? 0n;
   const shownIndex = Math.max(index, 0);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -253,6 +289,43 @@ export function App({
   useEffect(() => {
     setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
   }, [rows]);
+
+  // The history is read page by page for the epic entry the cursor rests on. A read that ends after the cursor has
+  // moved on is dropped.
+  useEffect(() => {
+    if (historyId === "") {
+      return undefined;
+    }
+    let current = true;
+    void readHistory(clients, historyId).then(
+      (entries) => {
+        if (current) {
+          setEpicHistory({ id: historyId, entries });
+        }
+      },
+      () => {
+        if (current) {
+          setEpicHistory({ id: historyId, entries: [] });
+        }
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [historyId, epicChanged, clients]);
+
+  // A move of the cursor opens the epic page afresh, so a page a back closed or a contract opened does not outlast it.
+  useLayoutEffect(() => {
+    setEpicPage(openEpicPage);
+  }, [cursorKey]);
+
+  // A back from the contract page restores the epic page's scroll place before the page is painted.
+  useLayoutEffect(() => {
+    if (restorePageScroll.current && pageRef.current !== null) {
+      pageRef.current.scrollTop = pageScroll.current;
+      restorePageScroll.current = false;
+    }
+  }, [epicPage.view]);
 
   // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen and
   // shows a fixed line.
@@ -325,6 +398,22 @@ export function App({
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
   const toggleOpen = () => setOpen((value) => !value);
   const toggleMeters = () => setMetersOpen((value) => !value);
+  // openContract opens the contract page in place. The epic page's scroll place is kept for its back, and the contract
+  // opens at its top.
+  const openContract = () => {
+    const page = pageRef.current;
+    if (page !== null) {
+      pageScroll.current = page.scrollTop;
+      page.scrollTop = 0;
+    }
+    setEpicPage({ view: "contract", move: "drill", closed: false });
+  };
+  // backToEpic returns from the contract page to the epic page, whose scroll place the layout effect puts back.
+  const backToEpic = () => {
+    restorePageScroll.current = true;
+    setEpicPage({ view: "epic", move: "leave", closed: false });
+  };
+  const closeEpicPage = () => setEpicPage(closedEpicPage);
 
   const moveTo = (target: number) => {
     if (flat.length === 0) {
@@ -374,16 +463,11 @@ export function App({
       }
       return;
     }
-    // Keys typed in the reply box are text: only Escape leaves it.
-    const composerBoxes = [
-      ...composerInputs.current.values(),
-      ...pinnedInputs.current.values(),
-      ...stepInputs.current.values(),
-    ];
-    const focusedComposer = composerBoxes.find((box) => box === document.activeElement);
-    if (focusedComposer !== undefined) {
+    // Keys typed in a text box are text: only Escape leaves it. That covers the reply boxes and the answer box.
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
       if (event.key === "Escape") {
-        focusedComposer.blur();
+        focused.blur();
       }
       return;
     }
@@ -503,7 +587,7 @@ export function App({
   return (
     <main class="app">
       {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} />}
-      <div class={panesClass(pinned !== null, cursorStep !== null)}>
+      <div class={pinned !== null ? "panes split" : "panes"}>
         <div class="list">
           <header class="top">
             <div class="brand">
@@ -546,6 +630,11 @@ export function App({
             {answerError !== "" && (
               <p class="error" role="alert">
                 {answerError}
+              </p>
+            )}
+            {commandError !== "" && (
+              <p class="error" role="alert">
+                {commandError}
               </p>
             )}
           </header>
@@ -759,14 +848,39 @@ export function App({
             ))}
           </div>
         </section>
-        <aside class="side" aria-label="epic" hidden={cursorEpic === null}>
-          {cursorEpic !== null &&
+        <section
+          class={epicPage.move === "" ? "page" : `page ${epicPage.move}`}
+          aria-label="epic"
+          hidden={epicEntry === null || epicPage.closed}
+          ref={pageRef}
+        >
+          {epicEntry !== null &&
             (epicDetail === undefined ? (
               <p class="side-note">{epicUnavailableText}</p>
+            ) : epicPage.view === "contract" && epicDetail.contract !== undefined ? (
+              <>
+                <TitleRow
+                  crumbs={[
+                    { label: "orrery", onGo: closeEpicPage },
+                    { label: epicDetail.epic?.slug ?? "", onGo: backToEpic },
+                    { label: "contract" },
+                  ]}
+                  onBack={backToEpic}
+                />
+                <ContractBody contract={epicDetail.contract} requirements={epicDetail.requirements} />
+              </>
             ) : (
-              <EpicView detail={epicDetail} cursorStep={cursorStepId} now={now} loadArtifact={loadArtifact} />
+              <EpicPage
+                detail={epicDetail}
+                history={epicHistory.id === epicEntry.id ? epicHistory.entries : []}
+                now={now}
+                loadArtifact={loadArtifact}
+                commands={epicCommands(clients, epicEntry.id, setCommandError)}
+                onOpenContract={openContract}
+                onBack={closeEpicPage}
+              />
             ))}
-        </aside>
+        </section>
       </div>
       {helpOpen && (
         <section class="keys" aria-label="keys">
@@ -882,12 +996,6 @@ function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[
   return [...kept, shown];
 }
 
-// panesClass names the grid the columns sit in: split when a row is pinned, and with-step when a step's reader and its
-// epic column both show.
-function panesClass(split: boolean, withStep: boolean): string {
-  return `panes${split ? " split" : ""}${withStep ? " with-step" : ""}`;
-}
-
 // stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,
 // and Steps.Stop. The page has no other call on a step.
 function stepCalls(clients: Clients, id: string) {
@@ -935,9 +1043,39 @@ function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefine
   });
 }
 
-// epicIdOf is the id of the epic an epic or step entry belongs to, which the epics' details are held by.
-function epicIdOf(entry: EpicItem | StepItem): string {
-  return entry.kind === "epic" ? entry.id : entry.epic;
+// readHistory reads an epic's history from its first entry, page by page, until a page names no next cursor. A failed
+// page fails the whole read.
+async function readHistory(clients: Clients, id: string): Promise<EpicHistoryEntry[]> {
+  const entries: EpicHistoryEntry[] = [];
+  let after = "";
+  do {
+    const page = await clients.epics.history({ id, after, limit: historyPageSize });
+    entries.push(...page.entries);
+    after = page.next;
+  } while (after !== "");
+  return entries;
+}
+
+// epicCommands binds an epic's commands to its id. A command that fails reports commandFailedText through report, and
+// one that lands reports "". answer resolves "" when the answer lands, else the error's message.
+function epicCommands(clients: Clients, epicId: string, report: (line: string) => void): EpicCommands {
+  const send = (sent: Promise<unknown>): void => {
+    void sent.then(
+      () => report(""),
+      () => report(commandFailedText),
+    );
+  };
+  return {
+    pause: () => send(clients.epics.pause({ id: epicId })),
+    resume: () => send(clients.epics.resume({ id: epicId })),
+    stop: () => send(clients.epics.stop({ id: epicId })),
+    retry: () => send(clients.epics.retry({ id: epicId })),
+    answer: (question, text) =>
+      clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question }).then(
+        () => "",
+        (error: unknown) => (error instanceof Error && error.message !== "" ? error.message : answerFailedText),
+      ),
+  };
 }
 
 // entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the waiting epics

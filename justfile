@@ -33,8 +33,17 @@ cover:
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
     rc=0
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" timeout "{{TEST_BUDGET}}" go test -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./... || rc=$?
-    if [ "$rc" -eq 124 ]; then
+    # Each test binary runs with -test.timeout set to what is left until 10 s before the budget ends
+    # (scripts/test-deadline.sh), so a package still running then panics listing its running tests, which go test
+    # prints, instead of ending without a word when timeout kills go test. A failure at or past that deadline is the
+    # budget's.
+    deadline=$(($(date +%s) + {{TEST_BUDGET}} - 10))
+    # Each test's artifact directory, which holds the logs of the processes it starts, is kept under test-artifacts,
+    # so a run that fails or times out leaves them on disk.
+    artifacts="$PWD/test-artifacts"
+    rm -rf "$artifacts" && mkdir "$artifacts"
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
+    if [ "$rc" -eq 124 ] || { [ "$rc" -ne 0 ] && [ "$(date +%s)" -ge "$deadline" ]; }; then
         echo "tests exceeded {{TEST_BUDGET}}s budget" >&2
         exit 124
     elif [ "$rc" -ne 0 ]; then
@@ -194,7 +203,7 @@ web-page:
     scripts/build-web.sh web/build/page
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test
+check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test
 
 # Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
 # and its -L server runs on as a daemon. Only a server named orrery-<word>(-<word>)*-<pid>-<hex>, as tests name theirs,
@@ -231,6 +240,10 @@ remote-flake-check:
 # Test scripts/gate-remote.sh against a fake box: a directory and a fake ssh, no AWS and no network.
 gate-remote-test:
     scripts/gate-remote-test.sh
+
+# Test scripts/test-deadline.sh, the go test -exec program that gives each test binary what is left of the budget.
+test-deadline-test:
+    scripts/test-deadline-test.sh
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

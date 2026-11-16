@@ -17,6 +17,7 @@
 #   - alert-check when observability/ changed.
 #   - android-test when android/ or proto/ changed.
 #   - gate-remote-test when scripts/gate-remote.sh or its test changed.
+#   - test-deadline-test when scripts/test-deadline.sh or its test changed.
 #   - pin-check always (it is fast).
 set -euo pipefail
 
@@ -72,8 +73,12 @@ if [ -n "$pkgs" ]; then
     fi
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
+    # Each test's artifact directory, which holds the logs of the processes it starts, is kept under test-artifacts,
+    # so a run that fails or times out leaves them on disk.
+    artifacts="$PWD/test-artifacts"
+    rm -rf "$artifacts" && mkdir "$artifacts"
     # shellcheck disable=SC2086
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" go test -count=1 -race $pkgs
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" go test -count=1 -race -artifacts -outputdir "$artifacts" $pkgs
     sock_dir="$dir/tmux-$(id -u)"
     if [ -d "$sock_dir" ]; then
         leftover=$(find "$sock_dir" -mindepth 1 -maxdepth 1 -type s)
@@ -92,6 +97,7 @@ if has '^proto/'; then just proto-lint proto-breaking gen-diff; fi
 if printf '%s\n' "$changed" | grep -E '^web/' | grep -vqE '^web/build/'; then just web-check web-page; fi
 if has '^observability/'; then just alert-check; fi
 if has '^scripts/gate-remote(-test)?\.sh$'; then just gate-remote-test; fi
+if has '^scripts/test-deadline(-test)?\.sh$'; then just test-deadline-test; fi
 if has '^(android/|proto/)'; then just android-test; else echo "check-changed: Android untouched; android-test skipped"; fi
 
 echo "check-changed: OK"

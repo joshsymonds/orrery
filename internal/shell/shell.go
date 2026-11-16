@@ -60,26 +60,17 @@ func ensureSession(ctx context.Context, client *tmuxctl.Client, name, dir string
 		return nil
 	}
 	_, err := client.Run(ctx, "new-session", "-d", "-s", name, "-c", TmuxDirArg(dir),
-		";", "set-option", "-t", "="+name+":", protocol.OptionDir, tmuxLiteral(dir))
+		";", "set-option", "-t", "="+name+":", protocol.OptionDir, tmuxctl.Literal(dir))
 	if err != nil {
 		return fmt.Errorf("shell: create session %q: %w", name, err)
 	}
 	return nil
 }
 
-// tmuxLiteral returns value as an argument that tmux reads back as value. tmux ends a command at an
-// argument ending in ";", so that final ";" is written as "\;".
-func tmuxLiteral(value string) string {
-	if before, ok := strings.CutSuffix(value, ";"); ok {
-		return before + `\;`
-	}
-	return value
-}
-
 // TmuxDirArg returns dir as a -c argument. tmux expands formats in -c, so every "#" is doubled, then
-// the argument is escaped as tmuxLiteral escapes it.
+// the argument is escaped as tmuxctl.Literal escapes it.
 func TmuxDirArg(dir string) string {
-	return tmuxLiteral(strings.ReplaceAll(dir, "#", "##"))
+	return tmuxctl.Literal(strings.ReplaceAll(dir, "#", "##"))
 }
 
 // tmuxCommand returns a tmux command string: name, then each argument as one quoted word, so that a

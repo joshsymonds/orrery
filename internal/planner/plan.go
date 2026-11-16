@@ -24,6 +24,7 @@ const Schema = `{
 					"files": {"type": "array", "items": {"type": "string"}},
 					"requirements": {"type": "array", "items": {"type": "string"}},
 					"contributes": {"type": "array", "items": {"type": "string"}},
+					"test_changes": {"type": "array", "items": {"type": "string"}},
 					"gate": {"type": "string"},
 					"evidence": {
 						"type": "object",
@@ -41,7 +42,7 @@ const Schema = `{
 						"additionalProperties": false
 					}
 				},
-				"required": ["title", "deliverable", "files", "requirements", "contributes", "gate", "evidence"],
+				"required": ["title", "deliverable", "files", "requirements", "contributes", "test_changes", "gate", "evidence"],
 				"additionalProperties": false
 			}
 		},
@@ -115,15 +116,32 @@ type Task struct {
 	Files        []string      `json:"files"`
 	Requirements []string      `json:"requirements"`
 	Contributes  []string      `json:"contributes"`
+	TestChanges  []string      `json:"-"` // read by Parse from the key test_changes
 	Gate         string        `json:"gate"`
 	Evidence     evidence.Item `json:"evidence"`
 }
 
-// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON.
+// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON. A task's test_changes is read
+// by its key, as the schema spells it, since the package's JSON tags are camel case.
 func Parse(raw json.RawMessage) (Return, error) {
 	var ret Return
 	if err := json.Unmarshal(raw, &ret); err != nil {
 		return Return{}, fmt.Errorf("planner return: %w", err)
+	}
+	var keyed struct {
+		Tasks []map[string]json.RawMessage `json:"tasks"`
+	}
+	if err := json.Unmarshal(raw, &keyed); err != nil {
+		return Return{}, fmt.Errorf("planner return: %w", err)
+	}
+	for i, task := range keyed.Tasks {
+		value, ok := task["test_changes"]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(value, &ret.Tasks[i].TestChanges); err != nil {
+			return Return{}, fmt.Errorf("planner return: tasks[%d] test_changes: %w", i, err)
+		}
 	}
 	return ret, nil
 }

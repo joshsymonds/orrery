@@ -34,7 +34,7 @@ func TestAttentionEndingRoutesOneNoticeKeyedToItsEpic(t *testing.T) {
 			router := &fakeAttentionRouter{}
 
 			body := kinds.EndingBody(tc.phase, tc.gaps)
-			if err := s.EndEpic(ctx, runnerEpicID, tc.phase, body, claimedAt().Add(time.Second)); err != nil {
+			if err := s.EndEpic(ctx, runnerEpicID, tc.phase, body, nil, claimedAt().Add(time.Second)); err != nil {
 				t.Fatalf("EndEpic %s: %v", tc.phase, err)
 			}
 			attentionOver(s, router).pass(ctx)

@@ -310,6 +310,21 @@ func TestCheckRefusesTaskWithNoFiles(t *testing.T) {
 		`tasks[0] "T" files: no files`)
 }
 
+func TestCheckRefusesTestChangesOutsideFiles(t *testing.T) {
+	t.Parallel()
+	task := validTask("T", "internal/a.go", "internal/a_test.go")
+	task.TestChanges = []string{"internal/a_test.go", "internal/b_test.go"}
+	checkLines(t, checkPlan(Return{Tasks: []Task{task}}, nil),
+		`tasks[0] "T" test_changes[1]: not one of the task's files`)
+}
+
+func TestCheckAcceptsTestChangesNamingOwnFiles(t *testing.T) {
+	t.Parallel()
+	task := validTask("T", "internal/a.go", "internal/a_test.go")
+	task.TestChanges = []string{"internal/a_test.go"}
+	checkLines(t, checkPlan(Return{Tasks: []Task{task}}, nil))
+}
+
 func TestCheckRefusesEachBadFieldOnce(t *testing.T) {
 	t.Parallel()
 	task := validTask("T")
@@ -501,13 +516,17 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 	if task == nil {
 		t.Fatalf("Schema has no tasks items")
 	}
-	wantTask := []string{"title", "deliverable", "files", "requirements", "contributes", "gate", "evidence"}
+	wantTask := []string{
+		"title", "deliverable", "files", "requirements", "contributes", "test_changes", "gate", "evidence",
+	}
 	if !reflect.DeepEqual(task.Required, wantTask) {
 		t.Errorf("task required = %q, want %q", task.Required, wantTask)
 	}
-	contributes := task.Properties["contributes"]
-	if contributes.Type != "array" || contributes.Items == nil || contributes.Items.Type != "string" {
-		t.Errorf("contributes is not an array of strings: type %q", contributes.Type)
+	for _, name := range []string{"contributes", "test_changes"} {
+		list := task.Properties[name]
+		if list.Type != "array" || list.Items == nil || list.Items.Type != "string" {
+			t.Errorf("%s is not an array of strings: type %q", name, list.Type)
+		}
 	}
 	if _, ok := task.Properties["check"]; ok {
 		t.Errorf("task still has a check property")
@@ -534,6 +553,22 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 	}
 	if got := ev.Properties["limit"].Type; got != "integer" {
 		t.Errorf("evidence limit type = %q, want integer", got)
+	}
+}
+
+func TestPlanOfCopiesTestChangesFromReturn(t *testing.T) {
+	t.Parallel()
+	raw := `{"tasks":[{"title":"A","files":["internal/a.go","internal/a_test.go"],"test_changes":["internal/a_test.go"]}]}`
+	ret, err := Parse(json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("Parse(%s) = %v", raw, err)
+	}
+	tasks := planOf(ret).Tasks
+	if len(tasks) != 1 {
+		t.Fatalf("planOf tasks = %+v, want one", tasks)
+	}
+	if want := []string{"internal/a_test.go"}; !reflect.DeepEqual(tasks[0].TestChanges, want) {
+		t.Errorf("task 1 test_changes = %q, want %q", tasks[0].TestChanges, want)
 	}
 }
 

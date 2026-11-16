@@ -14,6 +14,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
@@ -32,6 +33,7 @@ class WorkflowNodesTest {
         const val EPIC_ID = "example-repo/example-epic"
         const val EPIC_SLUG = "example-epic"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
+        const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val CHANGED = 4_102_444_800L
     }
 
@@ -121,6 +123,8 @@ class WorkflowNodesTest {
     }
 
     private fun setScreen(server: FakeOrreryServer) {
+        // The screen reads the epic's history with its detail, so an empty history is served beside it.
+        server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
         composeRule.setContent {
             EpicScreen(
                 client = OrreryClient(server.baseUrl),
