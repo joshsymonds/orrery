@@ -10,9 +10,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// release carries out one work action of a release run: the prepare of its candidate, the release slot taken or freed, a
-// stop, the epic's ending, a Done gate check at the candidate, or the record of a candidate. The release steps and the
-// judge are not carried out yet, so they are refused.
+// release carries out one work action of a release run: the prepare of its candidate, the release slot taken or freed,
+// a stop, the epic's ending, a Done gate check at the candidate, the start of a release step or the judge, or the
+// record of a candidate, a release step or the judge.
 func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
 	case kinds.ActPrepare:
@@ -27,13 +27,29 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 		return r.endEpic(ctx, epic, act, at)
 	case kinds.ActStart:
 		return r.start(ctx, epic, act)
+	case kinds.ActStep:
+		return r.startReleaseStep(ctx, epic, act, at)
+	case kinds.ActJudge:
+		return r.startJudge(ctx, epic, act, at)
 	case kinds.ActRecord:
-		if len(act.Items) > 0 && act.Items[0] == store.ReleasePartCandidate {
-			return r.recordCandidate(ctx, epic, act, at)
-		}
-		return releaseRefused(act)
+		return r.recordRelease(ctx, epic, act, at)
 	default:
 		return releaseRefused(act)
+	}
+}
+
+// recordRelease records the run act names: the candidate, the judge, or else a release step, which its label names.
+func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	if len(act.Items) == 0 {
+		return releaseRefused(act)
+	}
+	switch act.Items[0] {
+	case store.ReleasePartCandidate:
+		return r.recordCandidate(ctx, epic, act, at)
+	case store.ReleasePartJudge:
+		return r.recordJudge(ctx, epic, act, at)
+	default:
+		return r.recordReleaseStep(ctx, epic, act, at)
 	}
 }
 

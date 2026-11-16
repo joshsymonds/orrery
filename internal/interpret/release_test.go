@@ -21,11 +21,8 @@ const releaseFlow = "name: release\nnodes:\n  - id: release\n    kind: release\n
 // releaseSecondEpic is the epic of the test repository that waits behind runEpic for the release slot.
 const releaseSecondEpic = "orrery-1a2b3c4/epic-second"
 
-// releaseRefusal is the text the pass logs for work of a release run that this task does not carry out: the release
-// steps and the judge, which a later task adds.
-func releaseRefusal(work string) string {
-	return "release work " + work + " is not one the executor carries out"
-}
+// releaseThen is the release promise the release tests' epics carry, which the judge is asked to check.
+const releaseThen = "The tag is on main."
 
 // tagStep returns the release step the tests name: a tag on main, which no later step undoes.
 func tagStep() store.EpicReleaseStep {
@@ -35,27 +32,37 @@ func tagStep() store.EpicReleaseStep {
 // releaseWorld is one release test's world: the store, the check fake, the runner, the scratch repository its epics are
 // in, and what each of its passes logged.
 type releaseWorld struct {
-	t      *testing.T
-	s      *store.Store
-	path   string
-	repo   string
-	fakes  nodeFakes
-	runner *Runner
-	logs   *bytes.Buffer
+	t       *testing.T
+	s       *store.Store
+	path    string
+	repo    string
+	state   string
+	fakes   nodeFakes
+	ordered *orderedSteps
+	runner  *Runner
+	logs    *bytes.Buffer
 }
 
 // newReleaseWorld returns a world with no epic stored, over a scratch repository on main, and a runner that ends epics
-// through ending, which is nil for none.
+// through ending, which is nil for none. The runner's state directory is the world's, and its roles are releaseRoles.
 func newReleaseWorld(t *testing.T, ending Ending) *releaseWorld {
 	t.Helper()
 	s, path := openNodeStore(t)
 	fakes := newNodeFakes(s)
 	cfg := nodeConfig(s, fakes)
 	cfg.Ending = ending
+	state := t.TempDir()
+	cfg.StateDir = state
+	cfg.Getenv = releaseRoles(t)
 	logs := &bytes.Buffer{}
 	runner := New(cfg)
 	runner.logger = slog.New(slog.NewTextHandler(logs, nil))
-	return &releaseWorld{t: t, s: s, path: path, repo: mergeRepo(t), fakes: fakes, runner: runner, logs: logs}
+	ordered := &orderedSteps{fakeSteps: fakes.steps, store: s}
+	runner.steps = ordered
+	return &releaseWorld{
+		t: t, s: s, path: path, repo: mergeRepo(t), state: state, fakes: fakes, ordered: ordered, runner: runner,
+		logs: logs,
+	}
 }
 
 // createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps. The epics of a
@@ -71,6 +78,7 @@ func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseSt
 	if err = w.s.CreateEpic(w.t.Context(), store.EpicRow{
 		ID: id, Repository: w.repo, Base: runBase, Title: "Release the epic", Phase: phase, Created: runClock(),
 		Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
+		ReleaseThen: releaseThen,
 		Workflow: store.EpicWorkflow{
 			Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256, Nodes: pinnedNodes(pinned.Workflow.Nodes, ""),
 		},
@@ -205,10 +213,10 @@ func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 	}
 }
 
-// TestReleaseGatedCandidateIsRecordedThenStepWaits: a candidate records as a passed candidate run of its attempt, from
+// TestReleaseGatedCandidateIsRecordedThenStepStarts: a candidate records as a passed candidate run of its attempt, from
 // the tip it was made from. A candidate behind the target records once its Done gate has passed, with itself as its
-// commit. The release then reaches its step, which this task does not carry out.
-func TestReleaseGatedCandidateIsRecordedThenStepWaits(t *testing.T) {
+// commit. The release then starts its first step at the candidate.
+func TestReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
@@ -247,8 +255,15 @@ func TestReleaseGatedCandidateIsRecordedThenStepWaits(t *testing.T) {
 			if got := w.flowOf(runEpic).Releases; !reflect.DeepEqual(got, []store.ReleaseRun{want}) {
 				t.Errorf("release runs = %+v, want the one candidate %+v", got, want)
 			}
-			if strings.Count(logs, releaseRefusal("step")) != 1 {
-				t.Errorf("logs = %q, want the release to reach its step and stop there", logs)
+			if logs != "" {
+				t.Errorf("logs = %q, want none: the first release step starts", logs)
+			}
+			if got := len(w.fakes.steps.calls); got != 1 || w.fakes.steps.calls[0].Revision != run.Revision {
+				t.Errorf(
+					"step starts = %+v, want the one step started at candidate %s",
+					w.fakes.steps.calls,
+					run.Revision,
+				)
 			}
 		})
 	}

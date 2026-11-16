@@ -91,7 +91,8 @@ type Builder interface {
 // Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv
 // means os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner
 // that runs an epic with such nodes needs each of them. Ending ends the epics whose release is decided, so a Runner
-// that runs a release needs it.
+// that runs a release needs it. StateDir is the state directory release steps' worktrees live under, so a Runner that
+// runs a release step needs it.
 type Config struct {
 	Store    Store
 	Planner  Planner
@@ -100,6 +101,7 @@ type Config struct {
 	Evidence Evidence
 	Steps    Steps
 	Ending   Ending
+	StateDir string
 	Getenv   func(string) string
 	Tick     time.Duration
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
@@ -121,6 +123,7 @@ type Runner struct {
 	evidence Evidence
 	steps    Steps
 	ending   Ending
+	stateDir string
 	getenv   func(string) string
 	tick     time.Duration
 	ticks    <-chan time.Time
@@ -144,8 +147,8 @@ const builtinEpic = "epic"
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, ending: cfg.Ending, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
-		ticks: cfg.Ticks, passed: cfg.Passed,
+		steps: cfg.Steps, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now,
+		logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
@@ -251,8 +254,8 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 	return false
 }
 
-// decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and the
-// actions flow asks for on the rows.
+// decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
+// the actions flow asks for on the rows.
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
