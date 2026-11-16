@@ -704,3 +704,39 @@ func TestReconcileTextReadErrorClearsEverySettledRow(t *testing.T) {
 	}
 	requireRestartNotices(t, sink)
 }
+
+// countingRows is a Store that counts its EngineSessions reads, each a read of every engine row.
+type countingRows struct {
+	Store
+	mu    sync.Mutex
+	reads int
+}
+
+// EngineSessions counts the read, then reads the embedded Store.
+func (c *countingRows) EngineSessions(ctx context.Context) ([]store.EngineRow, error) {
+	c.mu.Lock()
+	c.reads++
+	c.mu.Unlock()
+	return c.Store.EngineSessions(ctx)
+}
+
+// TestReconcileReadsEveryRowOnce checks that Reconcile reads the whole set of engine rows once, to settle them: its
+// holder pass reads only the rows of the holders it finds, so a restart over a large store reads the large set once.
+func TestReconcileReadsEveryRowOnce(t *testing.T) {
+	t.Parallel()
+	s, _ := openStore(t)
+	seedRestartRows(t, s)
+	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	startRun(t, writer)
+	rows := &countingRows{Store: s}
+	m := newReconcileManager(t, rows, writer, &fakeSink{})
+
+	if err := m.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	rows.mu.Lock()
+	defer rows.mu.Unlock()
+	if rows.reads != 1 {
+		t.Fatalf("reads of every engine row = %d, want 1", rows.reads)
+	}
+}

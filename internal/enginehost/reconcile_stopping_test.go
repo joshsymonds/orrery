@@ -30,23 +30,19 @@ func (a *enteredTurnEnd) ApplyEngine(ctx context.Context, ops []store.EngineOp, 
 	return a.inner.ApplyEngine(ctx, ops, now)
 }
 
-// rowsAfterEntry is a Store whose second EngineSessions read, the one Reconcile makes after its holder pass, waits until
-// entered is closed. Its first read, which precedes the holder pass, returns at once.
+// rowsAfterEntry is a Store whose EngineSessions read, the one Reconcile makes after its holder pass, waits until
+// entered is closed.
 type rowsAfterEntry struct {
 	Store
 	entered <-chan struct{}
-	reads   int
 }
 
-// EngineSessions returns the rows of the embedded Store. Its second call waits until entered is closed, or ctx ends.
+// EngineSessions returns the rows of the embedded Store once entered is closed, or ctx's error when ctx ends first.
 func (s *rowsAfterEntry) EngineSessions(ctx context.Context) ([]store.EngineRow, error) {
-	s.reads++
-	if s.reads == 2 {
-		select {
-		case <-s.entered:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	select {
+	case <-s.entered:
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 	return s.Store.EngineSessions(ctx)
 }
