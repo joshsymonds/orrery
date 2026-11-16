@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
+import { until } from "./testwait";
 import { follow, type Followed } from "./follow";
 
 const panesPath = "/orrery.v1.Panes/WatchConversation";
@@ -90,16 +91,6 @@ function envelope(flag: number, message: object): Uint8Array {
 
 function clientsFor(fake: FakeConnect): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: fake.fetch }));
-}
-
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await sleep(2);
-  }
 }
 
 function sleep(ms: number): Promise<void> {

@@ -18,6 +18,7 @@ import {
 } from "./gen/orrery/v1/notice_pb";
 import { applyNotice, NoticeBanner, watchNotices } from "./notices";
 import { installTestDom, removeTestDom } from "./testdom";
+import { settledFlag, until } from "./testwait";
 
 const watchPath = "/orrery.v1.Notices/Watch";
 const retryMs = 40;
@@ -169,16 +170,6 @@ function clientsFor(fake: FakeWatch): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: fake.fetch }));
 }
 
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await sleep(2);
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -188,14 +179,15 @@ test("watchNotices calls Notices.Watch and delivers the list after each change",
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
+  const ended = settledFlag(done);
   try {
-    await until(() => fake.streams.length === 1, "the first stream");
+    await until(() => fake.streams.length === 1, "the first stream", { ended });
     assert.equal(fake.paths[0], watchPath);
     fake.emitShown(0, "%1", "one");
-    await until(() => lists.length === 1, "the first change");
+    await until(() => lists.length === 1, "the first change", { ended });
     assert.deepEqual(lists[0], ["one"]);
     fake.emitShown(0, "%2", "two");
-    await until(() => lists.length === 2, "the second change");
+    await until(() => lists.length === 2, "the second change", { ended });
     assert.deepEqual(lists[1], ["one", "two"]);
   } finally {
     controller.abort();
@@ -208,17 +200,18 @@ test("a stream that fails clears the list, then reopens after retryMs and delive
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
+  const ended = settledFlag(done);
   try {
-    await until(() => fake.streams.length === 1, "the first stream");
+    await until(() => fake.streams.length === 1, "the first stream", { ended });
     fake.emitShown(0, "%1", "one");
-    await until(() => lists.length === 1, "the first change");
+    await until(() => lists.length === 1, "the first change", { ended });
     fake.fail(0);
-    await until(() => lists.length === 2, "the clear after the failure");
+    await until(() => lists.length === 2, "the clear after the failure", { ended });
     assert.deepEqual(lists[1], [], "the list was not cleared when the stream failed");
-    await until(() => fake.streams.length === 2, "the reopened stream");
+    await until(() => fake.streams.length === 2, "the reopened stream", { ended });
     assert.equal(fake.paths[1], watchPath);
     fake.emitShown(1, "%2", "two");
-    await until(() => lists.length === 3, "the change on the reopened stream");
+    await until(() => lists.length === 3, "the change on the reopened stream", { ended });
     assert.deepEqual(lists[2], ["two"]);
   } finally {
     controller.abort();
@@ -231,14 +224,15 @@ test("a stream that ends cleanly clears the list and reopens", async () => {
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
+  const ended = settledFlag(done);
   try {
-    await until(() => fake.streams.length === 1, "the first stream");
+    await until(() => fake.streams.length === 1, "the first stream", { ended });
     fake.emitShown(0, "%1", "one");
-    await until(() => lists.length === 1, "the first change");
+    await until(() => lists.length === 1, "the first change", { ended });
     fake.end(0);
-    await until(() => lists.length === 2, "the clear after the end");
+    await until(() => lists.length === 2, "the clear after the end", { ended });
     assert.deepEqual(lists[1], [], "the list was not cleared when the stream ended");
-    await until(() => fake.streams.length === 2, "the reopened stream");
+    await until(() => fake.streams.length === 2, "the reopened stream", { ended });
   } finally {
     controller.abort();
     await done;
@@ -250,9 +244,10 @@ test("aborting an open stream ends watchNotices and nothing reaches onChange aft
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
-  await until(() => fake.streams.length === 1, "the first stream");
+  const ended = settledFlag(done);
+  await until(() => fake.streams.length === 1, "the first stream", { ended });
   fake.emitShown(0, "%1", "one");
-  await until(() => lists.length === 1, "the first change");
+  await until(() => lists.length === 1, "the first change", { ended });
   controller.abort();
   await done;
   await sleep(retryMs * 3);
@@ -275,9 +270,10 @@ test("aborting an open stream ends watchNotices after the garbage collector has 
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
-  await until(() => fake.streams.length === 1, "the first stream");
+  const ended = settledFlag(done);
+  await until(() => fake.streams.length === 1, "the first stream", { ended });
   fake.emitShown(0, "%1", "one");
-  await until(() => lists.length === 1, "the first change");
+  await until(() => lists.length === 1, "the first change", { ended });
   collectGarbage();
   controller.abort();
   await done;
@@ -289,9 +285,10 @@ test("aborting while a failed stream waits to reopen stops the reopen", async ()
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
-  await until(() => fake.streams.length === 1, "the first stream");
+  const ended = settledFlag(done);
+  await until(() => fake.streams.length === 1, "the first stream", { ended });
   fake.fail(0);
-  await until(() => lists.length === 1, "the clear after the failure");
+  await until(() => lists.length === 1, "the clear after the failure", { ended });
   controller.abort();
   await done;
   await sleep(retryMs * 3);

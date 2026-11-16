@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
 import { start } from "./main";
+import { until } from "./testwait";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const panesPath = "/orrery.v1.Panes/List";
@@ -272,16 +273,6 @@ function failing(server: FakeServer, failed: string[]): typeof globalThis.fetch 
 
 function clientsFor(server: FakeServer): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: server.fetch }));
-}
-
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await sleep(2);
-  }
 }
 
 function sleep(ms: number): Promise<void> {

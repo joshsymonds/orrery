@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
 import { start } from "./main";
+import { until } from "./testwait";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const panesListPath = "/orrery.v1.Panes/List";
@@ -192,16 +193,6 @@ function isCursored(root: HTMLElement, key: string): boolean {
 // errorTexts reads the page's error lines.
 function errorTexts(root: HTMLElement): string[] {
   return [...root.querySelectorAll(".error")].map((element) => element.textContent ?? "");
-}
-
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await sleep(2);
-  }
 }
 
 function sleep(ms: number): Promise<void> {

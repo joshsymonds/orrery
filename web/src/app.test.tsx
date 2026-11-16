@@ -23,6 +23,7 @@ import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
+import { pause, until as waitUntil } from "./testwait";
 
 const now = 1000;
 
@@ -356,14 +357,9 @@ async function withApp(
   }
 }
 
-async function until(check: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!check()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await act(() => new Promise((resolve) => setTimeout(resolve, 2)));
-  }
+// until waits as testwait's until does, with each pause run inside act, so the renders it lets through are applied.
+function until(check: () => boolean, what: string): Promise<void> {
+  return waitUntil(check, what, { step: () => act(pause) });
 }
 
 // settle lets pending promises run, so a write the test expects to be absent has time to start.
