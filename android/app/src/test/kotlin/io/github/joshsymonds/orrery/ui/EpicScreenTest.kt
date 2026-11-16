@@ -27,11 +27,14 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
@@ -104,6 +107,10 @@ class EpicScreenTest {
         live: Boolean = true,
         paused: Boolean = false,
         parked: String = "",
+        phaseAt: Long = 0L,
+        buildTasks: List<EpicBuildTask> = emptyList(),
+        releaseProof: List<EpicReleaseProof> = emptyList(),
+        report: EpicReport? = null,
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
             .setId(EPIC_ID)
@@ -115,18 +122,56 @@ class EpicScreenTest {
             .addAllRunningSteps(steps.filter { it.end.isEmpty() })
             .setEndedSteps(steps.count { it.end.isNotEmpty() })
             .setProblem(problem)
+            .setPhaseAt(phaseAt)
         val response = EpicsGetResponse.newBuilder()
             .setEpic(epic)
             .addAllSteps(steps)
             .addAllRequirements(requirements)
             .addAllNodes(nodes)
             .addAllQuestions(questions)
+            .addAllBuildTasks(buildTasks)
+            .addAllReleaseSteps(releaseProof)
             .setSummary(summary)
             .setPaused(paused)
             .setParked(parked)
         contract?.let { response.setContract(it) }
+        report?.let { response.setReport(it) }
         return response.build()
     }
+
+    private fun buildTask(id: String): EpicBuildTask =
+        EpicBuildTask.newBuilder()
+            .setId(id)
+            .setTitle("Example task")
+            .setStatus("working")
+            .setStage("implementing")
+            .build()
+
+    private fun releaseProof(
+        position: Long,
+        state: String,
+        evidence: String = "",
+        reason: String = "",
+    ): EpicReleaseProof =
+        EpicReleaseProof.newBuilder()
+            .setPosition(position)
+            .setStep("example release step")
+            .setTarget("example target")
+            .setUndo("example undo")
+            .setState(state)
+            .setEvidence(evidence)
+            .setReason(reason)
+            .setAttempt(1L)
+            .setAt(CHANGED - 60)
+            .build()
+
+    private fun report(outcome: String, shipped: List<String>, notShipped: List<String>, why: String): EpicReport =
+        EpicReport.newBuilder()
+            .setOutcome(outcome)
+            .addAllShipped(shipped)
+            .addAllNotShipped(notShipped)
+            .setWhy(why)
+            .build()
 
     private fun contract(title: String = "Example contract title"): EpicContract =
         EpicContract.newBuilder()
@@ -352,6 +397,108 @@ class EpicScreenTest {
             scrollTo("epic-section:release")
             assertEquals("reached", stateOf("proof:release"))
             assertEquals(1, countIn("epic-section:release", hasText("example release step")))
+        }
+    }
+
+    @Test
+    fun theTitleShowsTheStateWithTheTimeItsPhaseHasLasted() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(buildTasks = listOf(buildTask("example-task-1")), phaseAt = NOW - 2_940))
+            setScreen(server)
+            awaitTag("title-state")
+
+            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("building · 49 min")
+        }
+    }
+
+    @Test
+    fun theTitleShowsTheStateAloneWhenItsPhaseHasNoTime() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(buildTasks = listOf(buildTask("example-task-1")), phaseAt = 0L))
+            setScreen(server)
+            awaitTag("title-state")
+
+            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("building")
+        }
+    }
+
+    @Test
+    fun theTitleTimeIsZeroWhenThePhaseIsAfterNow() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(buildTasks = listOf(buildTask("example-task-1")), phaseAt = NOW + 60))
+            setScreen(server)
+            awaitTag("title-state")
+
+            composeRule.onNodeWithTag("title-state", useUnmergedTree = true).assertTextEquals("building · 0 s")
+        }
+    }
+
+    @Test
+    fun aReleaseStepShowsItsStateEvidenceAndReasonFromTheEpic() {
+        FakeOrreryServer().use { server ->
+            serve(
+                server,
+                body(
+                    contract = contract(),
+                    releaseProof = listOf(releaseProof(1L, "passed", evidence = "Example evidence.", reason = "Example reason.")),
+                ),
+            )
+            setScreen(server)
+            awaitLoaded()
+
+            scrollTo("epic-section:release")
+            composeRule.onNodeWithTag("release-step-state:0", useUnmergedTree = true).assertTextEquals("passed")
+            composeRule.onNodeWithTag("release-step-evidence:0", useUnmergedTree = true).assertTextEquals("Example evidence.")
+            composeRule.onNodeWithTag("release-step-reason:0", useUnmergedTree = true).assertTextEquals("Example reason.")
+        }
+    }
+
+    @Test
+    fun aRunningReleaseStepReachesTheReleaseProof() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(contract = contract(), releaseProof = listOf(releaseProof(1L, "running"))))
+            setScreen(server)
+            awaitLoaded()
+
+            scrollTo("epic-section:release")
+            assertEquals("reached", stateOf("proof:release"))
+        }
+    }
+
+    @Test
+    fun theReportShowsItsLinesAndIsReachedWhenTheEpicHasOne() {
+        FakeOrreryServer().use { server ->
+            serve(
+                server,
+                body(
+                    outcome = "released",
+                    live = false,
+                    report = report("released", listOf("R1", "R2"), listOf("R3"), "Example why."),
+                ),
+            )
+            setScreen(server)
+            awaitTag("report-outcome")
+
+            scrollTo("epic-section:report")
+            composeRule.onNodeWithTag("report-outcome", useUnmergedTree = true).assertTextEquals("released")
+            composeRule.onNodeWithTag("report-shipped", useUnmergedTree = true).assertTextEquals("shipped R1, R2")
+            composeRule.onNodeWithTag("report-not-shipped", useUnmergedTree = true).assertTextEquals("not shipped R3")
+            composeRule.onNodeWithTag("report-why", useUnmergedTree = true).assertTextEquals("Example why.")
+            assertEquals("reached", stateOf("proof:report"))
+        }
+    }
+
+    @Test
+    fun theReportIsDimAndHeadingOnlyWithoutOne() {
+        FakeOrreryServer().use { server ->
+            serve(server, body())
+            setScreen(server)
+            awaitLoaded()
+
+            scrollTo("epic-section:report")
+            assertEquals("dim", stateOf("proof:report"))
+            assertEquals(0, countNodes(hasTestTag("report-outcome")))
+            assertEquals(0, countNodes(hasTestTag("report-why")))
         }
     }
 
