@@ -53,6 +53,8 @@ const (
 	EpicsRetryEpicProcedure = "/orrery.engine.v1.Epics/RetryEpic"
 	// EpicsFollowEpicsProcedure is the fully-qualified name of the Epics's FollowEpics RPC.
 	EpicsFollowEpicsProcedure = "/orrery.engine.v1.Epics/FollowEpics"
+	// EpicsReleaseEpicProcedure is the fully-qualified name of the Epics's ReleaseEpic RPC.
+	EpicsReleaseEpicProcedure = "/orrery.engine.v1.Epics/ReleaseEpic"
 	// EvidenceRunEvidenceProcedure is the fully-qualified name of the Evidence's RunEvidence RPC.
 	EvidenceRunEvidenceProcedure = "/orrery.engine.v1.Evidence/RunEvidence"
 	// EvidenceListEvidenceProcedure is the fully-qualified name of the Evidence's ListEvidence RPC.
@@ -82,6 +84,9 @@ type EpicsClient interface {
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
 	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
 	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
+	// ReleaseEpic resumes the stopped release of a stored epic at its first unfinished step, running again the undo-none
+	// release steps it names, and returns the stored epic.
+	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.engine.v1.Epics service. By default, it uses
@@ -149,6 +154,12 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("FollowEpics")),
 			connect.WithClientOptions(opts...),
 		),
+		releaseEpic: connect.NewClient[v1.ReleaseEpicRequest, v1.ReleaseEpicResponse](
+			httpClient,
+			baseURL+EpicsReleaseEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("ReleaseEpic")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -163,6 +174,7 @@ type epicsClient struct {
 	stopEpic    *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
 	retryEpic   *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
 	followEpics *connect.Client[v1.FollowEpicsRequest, v1.FollowEpicsResponse]
+	releaseEpic *connect.Client[v1.ReleaseEpicRequest, v1.ReleaseEpicResponse]
 }
 
 // CreateEpic calls orrery.engine.v1.Epics.CreateEpic.
@@ -210,6 +222,11 @@ func (c *epicsClient) FollowEpics(ctx context.Context, req *connect.Request[v1.F
 	return c.followEpics.CallUnary(ctx, req)
 }
 
+// ReleaseEpic calls orrery.engine.v1.Epics.ReleaseEpic.
+func (c *epicsClient) ReleaseEpic(ctx context.Context, req *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	return c.releaseEpic.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.engine.v1.Epics service.
 type EpicsHandler interface {
 	// CreateEpic stores an accepted contract with its seed decisions and returns the stored epic.
@@ -230,6 +247,9 @@ type EpicsHandler interface {
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
 	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
 	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
+	// ReleaseEpic resumes the stopped release of a stored epic at its first unfinished step, running again the undo-none
+	// release steps it names, and returns the stored epic.
+	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -293,6 +313,12 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("FollowEpics")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsReleaseEpicHandler := connect.NewUnaryHandler(
+		EpicsReleaseEpicProcedure,
+		svc.ReleaseEpic,
+		connect.WithSchema(epicsMethods.ByName("ReleaseEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsCreateEpicProcedure:
@@ -313,6 +339,8 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsRetryEpicHandler.ServeHTTP(w, r)
 		case EpicsFollowEpicsProcedure:
 			epicsFollowEpicsHandler.ServeHTTP(w, r)
+		case EpicsReleaseEpicProcedure:
+			epicsReleaseEpicHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -356,6 +384,10 @@ func (UnimplementedEpicsHandler) RetryEpic(context.Context, *connect.Request[v1.
 
 func (UnimplementedEpicsHandler) FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.FollowEpics is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.ReleaseEpic is not implemented"))
 }
 
 // EvidenceClient is a client for the orrery.engine.v1.Evidence service.

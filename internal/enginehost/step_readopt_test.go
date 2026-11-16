@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -135,7 +136,14 @@ func (r stepsRig) restart(t *testing.T, environ []string, logger *slog.Logger) (
 // waits until its unfinished text is stored. It returns the step's id and its worktree.
 func (r stepsRig) startStalledStep(t *testing.T) (string, string) {
 	t.Helper()
-	start := stepStartReadOnly(stepGitTestRepo(t), "")
+	id := r.startStalled(t, stepStartReadOnly(stepGitTestRepo(t), ""))
+	return id, filepath.Join(r.worktrees, id)
+}
+
+// startStalled starts start with a first prompt that stalls its turn, and waits until its unfinished text is stored. It
+// returns the step's id.
+func (r stepsRig) startStalled(t *testing.T, start StepStart) string {
+	t.Helper()
 	start.Prompt = "STALL"
 	id, err := r.steps.Start(t.Context(), start)
 	if err != nil {
@@ -144,7 +152,7 @@ func (r stepsRig) startStalledStep(t *testing.T) (string, string) {
 	waitUntil(t, engineOf(r.manager, r.steps), "the stalled block's unfinished text", func() bool {
 		return countRows(t, r.path, "engine_text") == 1
 	})
-	return id, filepath.Join(r.worktrees, id)
+	return id
 }
 
 // stepsRunOf returns the run of the loop steps runs for id. The test fails if no loop runs it.
@@ -489,5 +497,66 @@ func TestReadoptRunRefusesAnAgentGateStep(t *testing.T) {
 	}
 	if stepRowRunsAgentGate(store.StepRow{}) {
 		t.Fatal("a step with no gate reads as an agent gate step")
+	}
+}
+
+// TestReadoptUnownedStepStillSkipsOwnedCheck re-adopts an Unowned writing step from its row after a crash, then returns a
+// commit that changes a path no owned path names. The row's flag is the only source of the skip, so the return ends done
+// with no owned check among its checks.
+func TestReadoptUnownedStepStillSkipsOwnedCheck(t *testing.T) {
+	t.Parallel()
+	haiku := NewHaiku(HaikuConfig{
+		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
+		Environ: haikuEnviron(),
+	})
+	rig := newStepsRig(t, haiku)
+	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
+	start := stepStartWriting(linked)
+	start.Owned = nil
+	start.Unowned = true
+	id := rig.startStalled(t, start)
+	pid := fakePID(t, linked)
+
+	rig.crash()
+	restarted, steps := rig.restart(t, rig.environ, slog.New(slog.DiscardHandler))
+	if err := steps.Readopt(t.Context(), restarted); err != nil {
+		t.Fatalf("Readopt: %v", err)
+	}
+	if err := restarted.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile of the manager: %v", err)
+	}
+	if err := steps.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile of the steps: %v", err)
+	}
+	requireProcessRunning(t, pid)
+	if !restarted.StepLive(id) {
+		t.Fatalf("step %s is not live after the restart", id)
+	}
+
+	commit := stepGitTestCommit(t, linked, map[string]string{"other/outside.txt": "stray\n"})
+	run := stepsRunOf(t, steps, id)
+	run.Return(stepDoneReturn(commit))
+	stepStartAwait(t, engineOf(rig.manager, rig.steps, restarted, steps, run), "step "+id+" to end", func() bool {
+		row, err := steps.Status(t.Context(), id)
+		return err == nil && row.End != ""
+	})
+
+	row, err := steps.Status(t.Context(), id)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if row.End != stepLoopEndDone || row.Status != stepLoopDone {
+		t.Fatalf(
+			"end = %q status %q, want %s %s; checks %+v",
+			row.End,
+			row.Status,
+			stepLoopEndDone,
+			stepLoopDone,
+			row.Checks,
+		)
+	}
+	want := []string{stepLoopSchemaName, stepGitHeadName, stepGitAncestryName, stepGitCleanName}
+	if got := stepDoneNames(stepDoneRoundChecks(row.Checks, 1)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("round 1 checks = %v, want %v with no owned check", got, want)
 	}
 }

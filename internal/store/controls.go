@@ -104,17 +104,21 @@ func (s *Store) CloseDueResume(ctx context.Context, id string) error {
 }
 
 // StopEpic pauses epic as its owner's, closes its due rows, and flags its running turn to stop, in one write, and
-// returns the turn's step, empty while the turn has none. The turn keeps its claimed triggers. An unknown epic is
-// ErrNoEpic, and an epic with no running turn is a RefusalError.
+// returns the turn's step, empty while the turn has none. The turn keeps its claimed triggers. An epic with no running
+// turn that holds its repository's release slot frees the slot in one write instead, and returns the id of its release
+// step that has no end, or "" when none runs. It neither pauses the epic nor changes its phase. An unknown epic is
+// ErrNoEpic, and an epic with no running turn that holds no slot is a RefusalError.
 func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if _, err := epicHead(ctx, queries, epic); err != nil {
+		head, err := epicHead(ctx, queries, epic)
+		if err != nil {
 			return err
 		}
 		running, err := queries.GetRunningEpicTurn(ctx, epic)
 		if errors.Is(err, sql.ErrNoRows) {
-			return RefusalError(fmt.Sprintf("epic %s has no running turn", epic))
+			step, err = stopReleaseSlot(ctx, queries, head)
+			return err
 		}
 		if err != nil {
 			return fmt.Errorf("read running turn of epic %s: %w", epic, err)

@@ -83,6 +83,10 @@ const stepDefaultWatchTick = 5 * time.Second
 // second, and no agent or assertions. Its needs are granted from the pools the workspace's pool files declare, and each
 // must be declared by one. The step is stored with the gate's name and the source "data".
 //
+// Unowned, set on a writing step, skips the owned check on each done return: the step may change any path, and its
+// head, ancestry and clean checks and its gate run as they do for an owned step. The row stores it, so a re-adopted
+// step skips the check too.
+//
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
@@ -96,6 +100,7 @@ type StepStart struct {
 	Revision    string
 	ReadOnly    bool
 	Owned       []string
+	Unowned     bool
 	GateName    string
 	GatesFile   string
 	ModelLimit  time.Duration
@@ -284,12 +289,13 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	add := store.StepAdd{
 		ID: id, Agent: start.Agent, Agents: start.Agents, Prompt: start.Prompt, Schema: start.Schema,
 		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
-		Owned: start.Owned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source, GateNeeds: gate.needs,
-		GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
+		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
+		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,
-		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv,
+		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, unowned: start.Unowned,
+		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,

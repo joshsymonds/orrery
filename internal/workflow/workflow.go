@@ -156,9 +156,9 @@ type settingsReader func(here site, pairs []pair) (*Settings, error)
 // integrate sits only in a plan body, takes no settings and no body, and reports passed or failed. A check kind sits
 // anywhere, takes the settings its reader reads and reports passed or failed. The epic kinds take no settings and no
 // body: a review, a conclude and a release sit at the top level, and a closure sits in a loop body. A review and a
-// conclude report passed, and a closure and a release report passed or failed. Their behavior is reserved for O3e2
-// (review, closure, conclude) and O3e3 (release); until it lands the interpreter registers none of them, so a node of
-// one waits.
+// conclude report passed, and a closure and a release report passed or failed. The interpreter always registers the
+// release kind, and registers the review, closure and conclude kinds when it has reviewers and an ending; without them
+// a node of one of those waits.
 func kinds() map[string]kindSpec {
 	checkOutcomes := []string{outcomePassed, outcomeFailed}
 	passed := []string{outcomePassed}

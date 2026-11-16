@@ -955,7 +955,7 @@ func (m *Manager) replay(live *liveSession, rec *recorder, lines []session.Line)
 	reply := ""
 	for _, line := range lines {
 		for _, event := range line.Events {
-			if record, _, _ := m.noteEvent(live, event); !record {
+			if !m.noteEvent(live, event, false).record {
 				continue
 			}
 			rec.ops(event)
@@ -1442,13 +1442,23 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 	live.cancel()
 }
 
+// eventOps returns the store ops that record event, as rec gives them. A turn's end that another turn follows leaves
+// the session working (see recorder.followedTurnEnd).
+func eventOps(rec *recorder, event session.Event, followed bool) []store.EngineOp {
+	if ended, ok := event.(session.TurnEnded); ok && followed {
+		return rec.followedTurnEnd(ended)
+	}
+	return rec.ops(event)
+}
+
 // recordedEvent is an event of a line the pump has recorded, with what its owner notice and observer call need: the
-// reply as of that event, and the interrupted and handed results of noteEvent for it.
+// reply as of that event, and the interrupted, handed and followed results of noteEvent for it.
 type recordedEvent struct {
 	event       session.Event
 	reply       string
 	interrupted bool
 	handed      bool
+	followed    bool
 }
 
 // recordLine records one line of the running session in one write: the ops of all its events, then the line's consumed
@@ -1467,15 +1477,17 @@ func (m *Manager) recordLine(
 			m.answerStepRequest(ctx, live, request)
 			continue
 		}
-		record, interrupted, handed := m.noteEvent(live, event)
-		if !record {
+		note := m.noteEvent(live, event, true)
+		if !note.record {
 			continue
 		}
-		ops = append(ops, rec.ops(event)...)
+		ops = append(ops, eventOps(rec, event, note.followed)...)
 		if text, ok := mainText(event); ok {
 			reply = text
 		}
-		recorded = append(recorded, recordedEvent{event: event, reply: reply, interrupted: interrupted, handed: handed})
+		recorded = append(recorded, recordedEvent{
+			event: event, reply: reply, interrupted: note.interrupted, handed: note.handed, followed: note.followed,
+		})
 		if _, ended := event.(session.TurnEnded); ended {
 			reply = ""
 		}
@@ -1494,13 +1506,20 @@ func (m *Manager) recordLine(
 	if written && ended {
 		live.sess.SetReplayFrom(line.End)
 	}
+	m.tellRecorded(ctx, live, recorded, written)
+	return reply
+}
+
+// tellRecorded tells the owner of live of each recorded event when the line's write succeeded, and gives the observer
+// every one either way. A followed turn end leaves the session working, so it tells the owner nothing: the turn after it
+// does.
+func (m *Manager) tellRecorded(ctx context.Context, live *liveSession, recorded []recordedEvent, written bool) {
 	for _, r := range recorded {
-		if written {
+		if written && !r.followed {
 			m.tellOwner(ctx, live, r.event, r.reply, r.interrupted)
 		}
 		observe(live, r.event, r.handed)
 	}
-	return reply
 }
 
 // writeLine queues the ops of one line of the session of live in one write. A line that holds a turn's end, ended,
@@ -1586,14 +1605,24 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 	m.mu.Unlock()
 }
 
-// noteEvent tracks the turn of live through event. It reports whether the pump records event, and for a turn's end,
-// whether that turn was interrupted through Interrupt, which clears the mark for the next turn, and whether the turn is
-// handed to the step's observer: a step's turn that ends with no background task live, or whose structured return is the
-// step's done value while one is live (see StepObserver.Done). The hand-off makes the step busy in the same lock hold. A
-// draining session whose turn ends is retired in the same lock hold (see retireLocked). The exit of a session that Close
-// or a retirement is stopping is not recorded here: recordClosed records a closed session's state from its turn instead,
-// and under a holder scope records nothing, and a retired session records nothing.
-func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted, handed bool) {
+// noted is what noteEvent reports of an event: whether the pump records it, and for a turn's end, whether that turn was
+// interrupted through Interrupt, whether it is handed to the step's observer, and whether another turn follows it.
+type noted struct {
+	record, interrupted, handed, followed bool
+}
+
+// noteEvent tracks the turn of live through event, one the pump reads when pumping is true and one replayed otherwise.
+// It reports whether the pump records event, and for a turn's end, whether that turn was interrupted through Interrupt,
+// which clears the mark for the next turn, and whether the turn is handed to the step's observer: a step's turn that ends
+// with no background task live, or whose structured return is the step's done value while one is live (see
+// StepObserver.Done). The hand-off makes the step busy in the same lock hold. A pumped turn's end is followed by another
+// turn when a prompt the session sent is still unanswered after it, as its reader counted at that end or as the session
+// counts now, or when a send is under way: claude runs a prompt sent during a turn as the turn after it. A followed
+// turn end keeps the turn running, hands nothing to the observer and retires nothing. A draining session whose turn ends
+// is retired in the same lock hold (see retireLocked). The exit of a session that Close or a retirement is stopping is
+// not recorded here: recordClosed records a closed session's state from its turn instead, and under a holder scope
+// records nothing, and a retired session records nothing.
+func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool) noted {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	defer m.updateIdleLocked(live)
@@ -1609,25 +1638,35 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 	case session.BackgroundTasks:
 		live.background = len(ev.Tasks) > 0
 	case session.TurnEnded:
-		live.turning = false
-		clear(live.requests)
-		interrupted = live.interrupting
-		live.interrupting = false
-		if live.observer != nil && (!live.background || live.observer.Done(ev)) {
-			live.returned = true
-			handed = true
-		}
-		m.retireLocked(live)
+		return m.noteTurnEndedLocked(live, ev, pumping)
 	case session.Exited:
 		live.turning = false
 		clear(live.requests)
 		live.background = false
 		if live.closing || live.idleStopped || live.retired {
-			return false, false, false
+			return noted{}
 		}
 		live.exited = true
 	}
-	return true, interrupted, handed
+	return noted{record: true}
+}
+
+// noteTurnEndedLocked tracks the end of a turn of live, as noteEvent gives it. The caller holds the lock.
+func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded, pumping bool) noted {
+	clear(live.requests)
+	interrupted := live.interrupting
+	live.interrupting = false
+	if pumping && (ended.Unanswered > 0 || live.sending > 0 || live.sess.UnansweredPrompts() > 0) {
+		return noted{record: true, interrupted: interrupted, followed: true}
+	}
+	live.turning = false
+	handed := false
+	if live.observer != nil && (!live.background || live.observer.Done(ended)) {
+		live.returned = true
+		handed = true
+	}
+	m.retireLocked(live)
+	return noted{record: true, interrupted: interrupted, handed: handed}
 }
 
 // retireLocked takes live out of the live set and stops its process, when live is draining and not busy: no turn runs, no

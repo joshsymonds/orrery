@@ -116,8 +116,12 @@ subcommands:
                                                 --choice the choice it gives
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
-  epic stop ID                                  pause an epic and stop the step of its running turn
+  epic stop ID                                  pause an epic and stop the step of its running turn; an epic
+                                                holding its repository's release slot frees the slot and stops
+                                                its open release step instead, and is not paused
   epic retry ID [NODE]                          end an epic's park, or rerun its parked NODE
+  epic release ID [--undo-none N]...            resume an epic's stopped release at its first unfinished step;
+                                                each N runs that undo-none release step (1-based) again
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs

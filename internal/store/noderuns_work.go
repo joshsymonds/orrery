@@ -145,36 +145,53 @@ func (s *Store) EndNodesWaking(
 // RetryNode turns the parked run of node in epic running at its next attempt, with its outcome, output, revision, refs,
 // refs checked, result and end cleared, and unparks epic, in one write. The park ends as RetryEpic ends it, and each
 // open park question of epic is answered retry. A node with no parked run is a RefusalError, and so is an epic parked
-// for good, which changes nothing.
+// for good, which changes nothing. So is the release node, which only ReleaseEpic resumes: retried here, it would run
+// while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		retried, err := queries.RetryEpicNode(ctx, sqlcgen.RetryEpicNodeParams{Epic: epic, Node: node})
-		if err != nil {
-			return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
-		}
-		if retried == 0 {
-			return RefusalError(fmt.Sprintf("node %s of epic %s is not parked", node, epic))
-		}
-		head, err := epicHead(ctx, queries, epic)
+		runs, err := readNodeRuns(ctx, queries, epic)
 		if err != nil {
 			return err
 		}
-		if head.Phase == phaseMetAtBase {
-			return metAtBaseRefusal(epic, head.Parked)
+		for _, run := range runs {
+			if run.Node == node && run.Kind == releaseKind {
+				return RefusalError(fmt.Sprintf(
+					"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
+			}
 		}
-		err = closeParkQuestions(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		highest, err := queries.MaxEpicTurnSeq(ctx, epic)
-		if err != nil {
-			return fmt.Errorf("read turn count of epic %s: %w", epic, err)
-		}
-		if err = queries.RetryEpic(ctx, sqlcgen.RetryEpicParams{Retried: highest, ID: epic}); err != nil {
-			return fmt.Errorf("unpark epic %s: %w", epic, err)
-		}
-		return nil
+		return retryNode(ctx, queries, epic, node)
 	})
+}
+
+// retryNode turns the parked run of node in epic running at its next attempt, answers each open park question of epic
+// retry and unparks epic, in the caller's write, as RetryNode does. A node with no parked run is a RefusalError, and so is an epic parked for good.
+func retryNode(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
+	retried, err := queries.RetryEpicNode(ctx, sqlcgen.RetryEpicNodeParams{Epic: epic, Node: node})
+	if err != nil {
+		return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
+	}
+	if retried == 0 {
+		return RefusalError(fmt.Sprintf("node %s of epic %s is not parked", node, epic))
+	}
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if head.Phase == phaseMetAtBase {
+		return metAtBaseRefusal(epic, head.Parked)
+	}
+	err = closeParkQuestions(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	highest, err := queries.MaxEpicTurnSeq(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read turn count of epic %s: %w", epic, err)
+	}
+	if err = queries.RetryEpic(ctx, sqlcgen.RetryEpicParams{Retried: highest, ID: epic}); err != nil {
+		return fmt.Errorf("unpark epic %s: %w", epic, err)
+	}
+	return nil
 }
 
 // capNodeOutput returns output cut to NodeOutputMax bytes at a UTF-8 rune start.

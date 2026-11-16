@@ -25,6 +25,9 @@
 # session id changed. Each turn lists in user_message_uuids the uuids of the prompts it answers: the uuid of the prompt
 # that opened it, and for FOLD the uuid of the folded message too. Every line it reads from stdin, prompts and answers
 # alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
+# RELEASEDONE waits until fakeclaude.release exists in its directory, makes an empty commit there and ends with a success
+# result whose structured output returns that commit as a release step's one commit, with its evidence. JUDGERELEASED
+# waits as JUDGEHOLDS does and ends with a success result that releases the epic, with no uncovered postcondition.
 # When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
@@ -308,6 +311,31 @@ judgeholds() {
 	turn_close
 }
 
+# releasedone starts a turn, waits until fakeclaude.release exists in its directory, makes an empty commit there, and ends
+# the turn with a success result whose structured output returns that commit as the step's one commit, with its evidence.
+releasedone() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	git -c user.name=fake -c user.email=fake@example.invalid -c commit.gpgsign=false commit -q --allow-empty \
+		-m "fake release $n"
+	head=$(git rev-parse HEAD)
+	structured='{"status":"done","commit":"'"$head"'","commits":["'"$head"'"],"evidence":"fake release evidence"}'
+	turn_close
+}
+
+# judgereleased waits until fakeclaude.release exists in its directory, then ends the turn with a success result whose
+# structured output releases the epic with no uncovered postcondition, as a release judge's return does.
+judgereleased() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	structured='{"status":"done","released":true,"uncovered":[]}'
+	turn_close
+}
+
 # fold waits until fakeclaude.release exists in its directory, then reads the next line from stdin and folds its prompt
 # into the turn. The turn streams one text block and ends with a success result that lists both uuids as answered.
 fold() {
@@ -404,6 +432,8 @@ while next; do
 				*READDONE*) readdone ;;
 				*STEPDONE*) stepdone ;;
 				*JUDGEHOLDS*) judgeholds ;;
+				*JUDGERELEASED*) judgereleased ;;
+				*RELEASEDONE*) releasedone ;;
 				*FOLD*) fold ;;
 				*WAITOPEN*) waitopen ;;
 				*LIMITNORESET*) limit noreset ;;

@@ -1108,6 +1108,7 @@ func (h *sessionHost) startFlow(
 		Steps:     h.steps,
 		Reviewers: interpret.NewEpicReviewers(),
 		Ending:    st,
+		StateDir:  stateDir,
 		Getenv:    getenv,
 		Logger:    logger,
 		Ticks:     ticks,

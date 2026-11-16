@@ -63,11 +63,16 @@ func stepGitResolve(ctx context.Context, dir, rev string) (string, error) {
 // commitChecks returns the four checks on a done return, in order: head, ancestry, clean, owned. Each check only
 // reads the repository.
 func commitChecks(ctx context.Context, dir, start, commit string, owned []string) []stepCheck {
+	return append(commitChecksWithoutOwned(ctx, dir, start, commit), stepGitOwnedCheck(ctx, dir, start, commit, owned))
+}
+
+// commitChecksWithoutOwned returns the head, ancestry and clean checks on a done return, in order. An unowned writing
+// step's done return runs these alone, since its owned check is skipped.
+func commitChecksWithoutOwned(ctx context.Context, dir, start, commit string) []stepCheck {
 	return []stepCheck{
 		stepGitHeadCheck(ctx, dir, commit),
 		stepGitAncestryCheck(ctx, dir, start),
 		stepGitCleanCheck(ctx, dir),
-		stepGitOwnedCheck(ctx, dir, start, commit, owned),
 	}
 }
 

@@ -8,10 +8,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// endingPhaseClean is the phase of an epic whose frozen review found it clean. Its review stores the epic's stored base
-// as the clean revision.
-const endingPhaseClean = "clean"
-
 // EndEpic ends epic at phase in one write: it sets the phase of epic and adds body as its next tell, at time at. For
 // phase clean it also stores the stored base of epic as the clean revision of its review, the revision the Done gate
 // passed. An epic already in phase changes nothing, so a restart ends it once.
@@ -24,7 +20,7 @@ func (s *Store) EndEpic(ctx context.Context, epic, phase, body string, at time.T
 		if head.Phase == phase {
 			return nil
 		}
-		if phase == endingPhaseClean {
+		if phase == PhaseClean {
 			if err = queries.SetEpicReviewClean(ctx, sqlcgen.SetEpicReviewCleanParams{
 				Clean: head.StoredBase, Epic: epic,
 			}); err != nil {
