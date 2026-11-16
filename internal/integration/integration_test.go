@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,6 +39,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -85,6 +87,9 @@ const cleanupGrace = 10 * time.Second
 // rpcretry.Window. No test sets the process environment: a test that needs its own HOME, PATH or XDG directories
 // passes them to the processes it starts, as openEnv does.
 func TestMain(m *testing.M) {
+	if mark := os.Getenv(reaperEnv); mark != "" {
+		os.Exit(reap(mark))
+	}
 	os.Exit(runWithBinaries(m))
 }
 
@@ -96,7 +101,15 @@ func runWithBinaries(m *testing.M) int {
 		return 1
 	}
 	defer os.RemoveAll(dir)
-	// The isolation comes first: it unsets every ORRERY_ variable, and the test's own ones are set after it.
+	// The reaper starts first, so every process started after it carries the run's mark.
+	reaperStdin, err := startReaper()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
+	// The write end stays open until the test binary exits, which is what ends the reaper's wait.
+	defer runtime.KeepAlive(reaperStdin)
+	// The isolation comes next: it unsets every ORRERY_ variable, and the test's own ones are set after it.
 	guardLog, err := isolateFromHost(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "isolate the tests from the host: %v\n", err)
@@ -231,9 +244,12 @@ func scrubbedEnv(extra ...string) []string {
 // before done closes. asked is set before the test, or its cleanup, makes the process end or waits for it to, and
 // mayExit marks a process the test starts expecting it to exit on its own.
 type orreryProcess struct {
-	name    string
-	cmd     *exec.Cmd
-	stderr  lockedBuffer
+	name   string
+	cmd    *exec.Cmd
+	stderr lockedBuffer
+	// logPath is the file under the test's artifact directory that holds everything the process writes to stderr,
+	// written as it runs, so a run that go test's timeout kills still leaves it on disk.
+	logPath string
 	done    chan struct{}
 	waitErr error
 	asked   atomic.Bool
@@ -306,19 +322,43 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 		mayExit: mayExit,
 	}
 	p.cmd.Env = env
-	p.cmd.Stderr = &p.stderr
-	if err := p.cmd.Start(); err != nil {
-		t.Fatalf("start %s %v: %v", name, args, err)
+	logFile := processLog(t, name)
+	p.logPath = logFile.Name()
+	p.cmd.Stderr = io.MultiWriter(&p.stderr, logFile)
+	// The kernel kills the process when the test binary dies, however it dies, so a killed or timed-out test leaves no
+	// daemon behind; the reaper ends what the daemon started (see startReaper).
+	waited, err := childproc.Start(p.cmd)
+	if err != nil {
+		t.Fatalf("start %s %v: %v", name, args, errors.Join(err, logFile.Close()))
 	}
 	go func() {
-		p.waitErr = p.cmd.Wait()
+		p.waitErr = <-waited
+		closeErr := logFile.Close()
 		if runsUntilStopped(name, args) && !p.mayExit && !p.asked.Load() {
-			t.Errorf("%s exited while the test still needed it: %v; stderr %q", name, p.waitErr, p.stderr.String())
+			t.Errorf("%s exited while the test still needed it: %v; log %s; stderr %q",
+				name, errors.Join(p.waitErr, closeErr), p.logPath, p.stderr.String())
 		}
 		close(p.done)
 	}()
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("%s log: %s", name, p.logPath)
+		}
+	})
 	t.Cleanup(func() { terminate(p) })
 	return p
+}
+
+// processLog creates the file a process the test starts writes its stderr to, named for the test and the binary,
+// under the test's artifact directory. With go test -artifacts the directory is kept under -outputdir.
+func processLog(t *testing.T, name string) *os.File {
+	t.Helper()
+	prefix := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()) + "-" + name + "-*.log"
+	file, err := os.CreateTemp(t.ArtifactDir(), prefix)
+	if err != nil {
+		t.Fatalf("create the %s log: %v", name, err)
+	}
+	return file
 }
 
 // terminate stops p when it is still running at its test's cleanup, as the test would have: SIGTERM, then the wait for

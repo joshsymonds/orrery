@@ -73,8 +73,12 @@ if [ -n "$pkgs" ]; then
     fi
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
+    # Each test's artifact directory, which holds the logs of the processes it starts, is kept under test-artifacts,
+    # so a run that fails or times out leaves them on disk.
+    artifacts="$PWD/test-artifacts"
+    rm -rf "$artifacts" && mkdir "$artifacts"
     # shellcheck disable=SC2086
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" go test -count=1 -race $pkgs
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" go test -count=1 -race -artifacts -outputdir "$artifacts" $pkgs
     sock_dir="$dir/tmux-$(id -u)"
     if [ -d "$sock_dir" ]; then
         leftover=$(find "$sock_dir" -mindepth 1 -maxdepth 1 -type s)

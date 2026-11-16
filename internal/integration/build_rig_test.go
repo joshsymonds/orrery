@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -289,43 +288,30 @@ func (r *buildRig) awaitEnd(t *testing.T, daemon *orreryProcess, id string) *v1.
 }
 
 // awaitStepEnd polls steps until step id has ended, and returns its row. daemon is the orreryd that runs the step, the
-// one producer of its end: the wait fails, with daemon's stderr, once daemon has exited with the step still open, and
-// when a read fails. While it waits, each poll logs the lines daemon has written since the last, so a wait that never
-// ends shows what orreryd did in it. It has no deadline of its own.
+// one producer of its end: the wait fails, naming daemon's log, once daemon has exited with the step still open, and
+// when a read fails. It has no deadline of its own; a wait the test binary's timeout ends leaves daemon's log on disk.
 func awaitStepEnd(
 	t *testing.T, daemon *orreryProcess, steps enginev1connect.StepsClient, id string,
 ) *v1.Step {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
-	logged := 0
 	for {
 		resp, err := steps.StepStatus(t.Context(), connect.NewRequest(&v1.StepStatusRequest{Id: id}))
-		logged = logStderrSince(t, daemon, logged)
 		if err != nil {
-			t.Fatalf("read step %s: %v; %s stderr:\n%s", id, err, daemon.name, daemon.stderr.String())
+			t.Fatalf("read step %s: %v; %s log %s", id, err, daemon.name, daemon.logPath)
 		}
 		if step := resp.Msg.GetStep(); step.GetEnd() != "" {
 			return step
 		}
 		select {
 		case <-daemon.done:
-			t.Fatalf("step %s never ended: %s exited first (%v); stderr:\n%s",
-				id, daemon.name, daemon.waitErr, daemon.stderr.String())
+			t.Fatalf("step %s never ended: %s exited first (%v); log %s",
+				id, daemon.name, daemon.waitErr, daemon.logPath)
 		case <-ticker.C:
 		}
 		stopIfFailed(t)
 	}
-}
-
-// logStderrSince logs what daemon has written to stderr past its first from bytes, and returns how much it has written.
-func logStderrSince(t *testing.T, daemon *orreryProcess, from int) int {
-	t.Helper()
-	all := daemon.stderr.String()
-	if len(all) > from {
-		t.Logf("%s stderr: %s", daemon.name, strings.TrimRight(all[from:], "\n"))
-	}
-	return len(all)
 }
 
 // pause pauses the epic. A paused epic starts no evidence run, so a task whose build reaches green stays at green.

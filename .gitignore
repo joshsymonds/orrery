@@ -1,6 +1,7 @@
 result
 result-*
 coverage.out
+test-artifacts/
 coverage.cov.out
 
 # devenv
