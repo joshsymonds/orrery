@@ -88,6 +88,9 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		t.Fatal("clone of the contract is not an EpicContract")
 	}
 	want.Base = epicTestBase(repo)
+	for _, requirement := range want.GetRequirements() {
+		requirement.State = "pending"
+	}
 
 	stored := createEpicOK(t, client, req)
 	if !proto.Equal(stored.GetContract(), want) {
