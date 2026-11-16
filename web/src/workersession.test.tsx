@@ -25,6 +25,8 @@ function conversation(items: ConversationItem[]): Conversation {
     transcript: "t1",
     seq: 1n,
     items,
+    oldest: 0n,
+    more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
   };
@@ -45,6 +47,7 @@ function baseProps(calls: string[], init: Partial<Props>): Props {
     onGoList: () => calls.push("onGoList"),
     onGoEpic: () => calls.push("onGoEpic"),
     onBack: () => calls.push("onBack"),
+    onOlder: () => calls.push("onOlder"),
     nudge: async (text) => {
       calls.push(`nudge ${text}`);
     },
@@ -140,6 +143,18 @@ test("the worker's conversation shows its assistant text in the reader", async (
   const items = [item({ kind: "reply", time: 100n, text: "reading the migration now" })];
   await withPage([], { conversation: conversation(items) }, async (container) => {
     assert.equal(textOf(container, ".reader .reply"), "reading the migration now");
+  });
+});
+
+test("the reader at its top asks for the older page while older items remain, and not once none remain", async () => {
+  const items = [item({ kind: "reply", time: 100n, text: "reading the migration now" })];
+  const asked: string[] = [];
+  await withPage(asked, { conversation: { ...conversation(items), oldest: 9n, more: true } }, async () => {
+    assert.deepEqual(asked, ["onOlder"]);
+  });
+  const none: string[] = [];
+  await withPage(none, { conversation: conversation(items) }, async () => {
+    assert.deepEqual(none, []);
   });
 });
 

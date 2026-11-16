@@ -14,6 +14,7 @@ const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
 const answerChoices = [1, 2, 3] as const;
 const nearBottomPixels = 4;
+const nearTopPixels = 4;
 const toolRunMinimum = 3;
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
@@ -25,7 +26,9 @@ const toolRunMinimum = 3;
 // a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
-// other render keeps the bottom only for a reader that sat within nearBottomPixels of it.
+// other render keeps the bottom only for a reader that sat within nearBottomPixels of it. When items are drawn above
+// the first row shown before, the reader keeps the rows on screen where they were. Once it sits within nearTopPixels
+// of its top while the conversation has older items, it calls onOlder, which loads the page before its oldest item.
 export function Reader({
   conversation,
   seenAt,
@@ -34,6 +37,7 @@ export function Reader({
   step,
   onAnswer,
   onToggleOpen,
+  onOlder,
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -42,19 +46,41 @@ export function Reader({
   step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
+  onOlder?: () => void;
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
+  const shownKeys = useRef<string[]>([]);
+  const keys = conversation === null ? [] : itemKeys(conversation.items);
   // The position is read before this render changes the DOM, so it is where the reader sat before the new items.
   const element = root.current;
   const atBottom = element !== null && distanceFromBottom(element) <= nearBottomPixels;
+  const before = element === null ? null : { top: element.scrollTop, height: element.scrollHeight };
   const opening = conversation !== null && !drewConversation.current;
+  const more = conversation?.more ?? false;
+  const askOlder = (): void => {
+    const reader = root.current;
+    if (more && reader !== null && reader.scrollTop <= nearTopPixels) {
+      onOlder?.();
+    }
+  };
   useLayoutEffect(() => {
+    const previous = shownKeys.current;
+    shownKeys.current = keys;
     drewConversation.current = conversation !== null;
     const reader = root.current;
-    if (reader !== null && (opening || atBottom)) {
+    if (reader === null) {
+      return;
+    }
+    // A render that draws items above the first row shown before keeps that row where it was: the reader moves by
+    // how much its content grew above it.
+    const prepended = previous.length > 0 && keys.indexOf(previous[0]) > 0;
+    if (before !== null && prepended) {
+      reader.scrollTop = before.top + (reader.scrollHeight - before.height);
+    } else if (opening || atBottom) {
       reader.scrollTop = reader.scrollHeight;
     }
+    askOlder();
   });
   if (conversation === null) {
     return (
@@ -64,7 +90,6 @@ export function Reader({
     );
   }
   const newIndex = conversation.items.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt);
-  const keys = itemKeys(conversation.items);
   const results = resultsByCall(conversation.items);
   const items = conversation.items;
   const rows: JSX.Element[] = [];
@@ -94,7 +119,7 @@ export function Reader({
     .filter((block) => block.kind === "text" || block.kind === "thinking")
     .map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
   return (
-    <div class="reader" ref={root}>
+    <div class="reader" ref={root} onScroll={askOlder}>
       {rows}
       {questionCard}
       {live}
@@ -589,11 +614,15 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
   return rows;
 }
 
-// itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top. An item
-// whose content repeats an older one takes an occurrence suffix counted from the oldest, as the phone's entryKeys does.
+// itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top or prepends
+// older ones. An item whose content repeats a newer one takes an occurrence suffix counted from the newest: the
+// occurrence of an item then depends only on the items after it, so a page prepended above leaves every held key as
+// it was. A repeat appended after an item renumbers the item's earlier twins, which remount.
 function itemKeys(items: ConversationItem[]): string[] {
   const seen = new Map<string, number>();
-  return items.map((item) => {
+  const keys: string[] = new Array<string>(items.length);
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
     const base = JSON.stringify([
       item.kind,
       String(item.time),
@@ -608,8 +637,9 @@ function itemKeys(items: ConversationItem[]): string[] {
     ]);
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
-    return occurrence === 0 ? base : `${base}#${occurrence}`;
-  });
+    keys[index] = occurrence === 0 ? base : `${base}#${occurrence}`;
+  }
+  return keys;
 }
 
 export function clock(time: bigint): string {

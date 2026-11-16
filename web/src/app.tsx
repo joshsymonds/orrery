@@ -202,6 +202,11 @@ export function App({
   const [pinStream, setPinStream] = useState<Stream | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
   const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The older page of each followed stream. Its reader calls it at the reader's top, to load the page before its oldest
+  // item; each follow effect sets its own.
+  const cursorOlder = useRef<() => void>(() => {});
+  const pinnedOlder = useRef<() => void>(() => {});
+  const sessionOlder = useRef<() => void>(() => {});
   const pendingG = useRef(false);
   const handler = useRef<(event: KeyboardEvent) => void>();
   // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
@@ -330,7 +335,9 @@ export function App({
     if (target === null) {
       return undefined;
     }
-    return follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    const followed = follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    cursorOlder.current = followed.older;
+    return followed.stop;
   }, [readerKey, clients]);
 
   // The worker session the page shows is followed while the page shows it. A back or close past it, or a move of the
@@ -339,9 +346,11 @@ export function App({
     if (shownSession === "") {
       return undefined;
     }
-    return follow(clients, { kind: "session", id: shownSession }, (conversation) =>
+    const followed = follow(clients, { kind: "session", id: shownSession }, (conversation) =>
       setSessionStream({ key: shownSession, conversation }),
     );
+    sessionOlder.current = followed.older;
+    return followed.stop;
   }, [shownSession, clients]);
 
   useEffect(() => {
@@ -371,9 +380,11 @@ export function App({
     if (pinned === null) {
       return undefined;
     }
-    return follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
+    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
       setPinStream({ key: pinned.key, conversation }),
     );
+    pinnedOlder.current = followed.older;
+    return followed.stop;
   }, [pinnedKey, clients]);
 
   // A pinned row keeps its last shape while it is missing from the list, as a visited row does.
@@ -852,6 +863,7 @@ export function App({
           onGoList={closeEpicPage}
           onGoEpic={toEpicPage}
           onBack={back}
+          onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}
           hold={calls.hold}
           stop={calls.stop}
@@ -1120,6 +1132,7 @@ export function App({
               question={readerQuestion(cursorRow, cursorConversation)}
               onAnswer={answerCursor}
               onToggleOpen={toggleOpen}
+              onOlder={() => cursorOlder.current()}
             />
           )}
           {cursorStep !== null && (
@@ -1129,6 +1142,7 @@ export function App({
               open={open}
               step={cursorStep.step}
               onToggleOpen={toggleOpen}
+              onOlder={() => cursorOlder.current()}
             />
           )}
           <div class="send">
@@ -1190,6 +1204,7 @@ export function App({
               conversation={pinnedConversation}
               seenAt={pinned.seen}
               open={false}
+              onOlder={() => pinnedOlder.current()}
             />
           )}
           <div class="send">

@@ -1,5 +1,5 @@
 import type { JSX } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { type Clients, newPromptId } from "./actions";
 import { Composer } from "./composer";
@@ -34,12 +34,16 @@ export function TalkDock({
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [seenAt, setSeenAt] = useState(0);
   const [refusal, setRefusal] = useState("");
+  // The older page of the followed target, which the reader calls at its top.
+  const olderPage = useRef<() => void>(() => {});
 
   useEffect(() => {
     setConversation(null);
     setSeenAt(Date.now() / millisPerSecond);
     setRefusal("");
-    return follow(clients, { kind: target.kind, id: target.id }, setConversation);
+    const followed = follow(clients, { kind: target.kind, id: target.id }, setConversation);
+    olderPage.current = followed.older;
+    return followed.stop;
   }, [clients, target.kind, target.id]);
 
   const interrupted = conversation?.state?.session?.state === "interrupted";
@@ -79,7 +83,7 @@ export function TalkDock({
           ×
         </button>
       </ReaderHead>
-      <Reader conversation={conversation} seenAt={seenAt} open={false} />
+      <Reader conversation={conversation} seenAt={seenAt} open={false} onOlder={() => olderPage.current()} />
       {interrupted && (
         <button type="button" class="act" onClick={() => void resume()}>
           Resume

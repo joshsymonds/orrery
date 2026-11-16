@@ -43,6 +43,8 @@ function conversation(init: Partial<Conversation> = {}): Conversation {
     transcript: "t1",
     seq: 1n,
     items: [],
+    oldest: 0n,
+    more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
     ...init,
@@ -57,6 +59,7 @@ interface Props {
   step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
+  onOlder?: () => void;
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -935,7 +938,84 @@ test("a new item while the reader is scrolled up leaves its scroll place alone",
     assert.equal(reader.scrollTop, 500);
   }));
 
-test("at the 50-item cap, appending one item and dropping the oldest keeps a held row's node", () =>
+// olderItems are count replies older than heldItems, each with its own text, so a page of them is drawn above the held
+// rows.
+function olderItems(count: number): ConversationItem[] {
+  return Array.from({ length: count }, (_, index) =>
+    item({ kind: "reply", time: BigInt(50 + index), text: `older-${index}` }),
+  );
+}
+
+// withOlder is props with a conversation that holds items and may have older ones, asking onOlder on each call.
+function withOlder(items: ConversationItem[], asked: { count: number }, more = true): Props {
+  return {
+    ...readerProps(items),
+    conversation: conversation({ items, more, oldest: 50n }),
+    onOlder: () => {
+      asked.count += 1;
+    },
+  };
+}
+
+test("reaching the top of a reader whose conversation has older items calls onOlder", () => {
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(heldItems(1, 20), asked), (container) => {
+    const reader = readerOf(container);
+    assert.equal(asked.count, 0, "a reader opened at its bottom asks for nothing");
+
+    reader.scrollTop = 0;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.equal(asked.count, 1, "the reader at its top asks for the page before its oldest item");
+  });
+});
+
+test("reaching the top of a reader whose conversation has no older items does not call onOlder", () => {
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(heldItems(1, 20), asked, false), (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 0;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.equal(asked.count, 0, "a conversation with nothing older asks for nothing");
+  });
+});
+
+test("a reader that does not fill its height asks for its older items as it is drawn", () => {
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(heldItems(1, 2), asked), (container) => {
+    assert.equal(readerOf(container).scrollTop, 0, "two rows fit the viewport, so the reader has no scroll");
+    assert.equal(asked.count, 1, "the reader at its top, with nothing to scroll, asks for the page before");
+  });
+});
+
+test("an older page drawn above keeps the row on screen where it was", () => {
+  const held = heldItems(1, 20);
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(held, asked), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    const visible = readerOf(container).children[5];
+    assert.equal(visible.textContent?.includes("held-6"), true, "the row at the top of the view is held-6");
+
+    await rerender({
+      ...withOlder([...olderItems(10), ...held], asked),
+    });
+    assert.ok(readerOf(container).children[15] === visible, "the row moved down past the ten older rows");
+    assert.equal(reader.scrollTop, 1500, "the reader moved by the height the older rows took above");
+    assert.equal(asked.count, 0, "a reader moved away from its top asks for nothing");
+  });
+});
+
+test("an older item equal to a held one keeps the held row's node", () => {
+  const twin = item({ kind: "reply", time: 100n, text: "same" });
+  return withScrollingReader(readerProps([twin]), async (container, rerender) => {
+    const held = readerOf(container).children[0];
+
+    await rerender(readerProps([twin, twin]));
+    assert.ok(readerOf(container).children[1] === held, "the held row is still the row after the older twin");
+  });
+});
+
+test("a window of 50 that drops its oldest item for a new one keeps a held row's node", () =>
   withScrollingReader(readerProps(heldItems(1, 50)), async (container, rerender) => {
     const held = rowWith(container, "held-25");
 

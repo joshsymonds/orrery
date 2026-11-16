@@ -8,28 +8,36 @@ import { follow, type Followed, type Schedule } from "./follow";
 
 const panesPath = "/orrery.v1.Panes/WatchConversation";
 const sessionsPath = "/orrery.v1.Sessions/WatchConversation";
+const panesOlderPath = "/orrery.v1.Panes/Older";
+const sessionsOlderPath = "/orrery.v1.Sessions/Older";
 const retryMs = 40;
 
 interface Served {
   path: string;
   body: Record<string, unknown>;
-  // The response body of the call, or null once the test has ended it.
+  // The response body of a stream call, or null once the test has ended it.
   controller: ReadableStreamDefaultController<Uint8Array> | null;
+  // The response a unary call waits for, or null once the test has answered it.
+  respond: ((response: Response) => void) | null;
 }
 
-// FakeConnect answers Connect server streams through TransportOptions.fetch. Each call is recorded in served, and the
-// test decides what its stream sends and when it ends. Aborting a call does not close its stream, so a message sent
+// FakeConnect answers Connect calls through TransportOptions.fetch. Each call is recorded in served, and the test decides
+// what it sends and when. A server stream's messages are sent by emit, and it ends by end or fail. A unary Older call
+// waits until the test answers it, by answer or refuse. Aborting a call does not close its stream, so a message sent
 // after the abort still reaches the client if it is still reading.
 class FakeConnect {
   readonly served: Served[] = [];
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
-    const entry: Served = {
-      path: new URL(request.url).pathname,
-      body: decodeRequest(new Uint8Array(await request.arrayBuffer())),
-      controller: null,
-    };
+    const path = new URL(request.url).pathname;
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (path.endsWith("/Older")) {
+      return new Promise<Response>((respond) => {
+        this.served.push({ path, body: JSON.parse(new TextDecoder().decode(bytes)), controller: null, respond });
+      });
+    }
+    const entry: Served = { path, body: decodeRequest(bytes), controller: null, respond: null };
     this.served.push(entry);
     const body = new ReadableStream<Uint8Array>({
       start: (controller) => {
@@ -38,6 +46,10 @@ class FakeConnect {
     });
     return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
   };
+
+  olderCalls(): Served[] {
+    return this.served.filter((call) => call.path.endsWith("/Older"));
+  }
 
   emit(index: number, message: object): void {
     this.open(index).enqueue(envelope(0, message));
@@ -49,6 +61,25 @@ class FakeConnect {
 
   fail(index: number): void {
     this.finish(index, envelope(2, { error: { code: "unavailable", message: "stream failed" } }));
+  }
+
+  // answer sends a unary call its page.
+  answer(call: Served, message: object): void {
+    this.respondTo(call)(new Response(JSON.stringify(message), { status: 200, headers: jsonHeaders }));
+  }
+
+  // refuse ends a unary call with a Connect error of code.
+  refuse(call: Served, code: string, message: string): void {
+    this.respondTo(call)(new Response(JSON.stringify({ code, message }), { status: 400, headers: jsonHeaders }));
+  }
+
+  private respondTo(call: Served): (response: Response) => void {
+    const respond = call.respond;
+    if (respond === null) {
+      throw new Error(`call ${call.path} has been answered`);
+    }
+    call.respond = null;
+    return respond;
   }
 
   private open(index: number): ReadableStreamDefaultController<Uint8Array> {
@@ -66,6 +97,8 @@ class FakeConnect {
     this.served[index].controller = null;
   }
 }
+
+const jsonHeaders = { "content-type": "application/json" };
 
 function decodeRequest(bytes: Uint8Array): Record<string, unknown> {
   const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1);
@@ -86,8 +119,47 @@ function clientsFor(fake: FakeConnect): ReturnType<typeof createClients> {
   return createClients(createTransport({ baseUrl: "https://orrery.test", fetch: fake.fetch }));
 }
 
+// Ask is one Older request follow has made, and the signal it was given.
+interface Ask {
+  signal: AbortSignal | undefined;
+}
+
+// clientsSpying wraps the clients so each Older request is recorded in asks when follow makes it. follow makes the call
+// synchronously, so a test counts its requests at once, without waiting on the network for a request that never comes.
+function clientsSpying(fake: FakeConnect): { clients: ReturnType<typeof createClients>; asks: Ask[] } {
+  const asks: Ask[] = [];
+  const real = clientsFor(fake);
+  const clients: ReturnType<typeof createClients> = {
+    ...real,
+    panes: {
+      ...real.panes,
+      older: (request, options) => {
+        asks.push({ signal: options?.signal });
+        return real.panes.older(request, options);
+      },
+    },
+    sessions: {
+      ...real.sessions,
+      older: (request, options) => {
+        asks.push({ signal: options?.signal });
+        return real.sessions.older(request, options);
+      },
+    },
+  };
+  return { clients, asks };
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// settle lets the work already queued run, so a page that is to be dropped has been dropped before a test checks. A
+// page's handler runs in the promise jobs a response queues, and each setImmediate turn runs every job queued
+// before it. It waits on no time, so no test here reads a clock.
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 5; turn++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
 }
 
 function texts(conversation: Conversation | undefined): string[] {
@@ -98,7 +170,7 @@ test("a pane row streams its conversation, and onChange receives each delta fold
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
   const row: Followed = { kind: "pane", id: "%1" };
-  const stop = follow(clientsFor(fake), row, (conversation) => seen.push(conversation), retryMs);
+  const { stop } = follow(clientsFor(fake), row, (conversation) => seen.push(conversation), retryMs);
   try {
     await until(t.signal, () => fake.served.length === 1, "the first request");
     assert.equal(fake.served[0].path, panesPath);
@@ -144,7 +216,7 @@ test("a stream that ends or fails reconnects after retryMs with the held transcr
   const fake = new FakeConnect();
   const held = new HeldSchedule();
   const seen: Conversation[] = [];
-  const stop = follow(
+  const { stop } = follow(
     clientsFor(fake),
     { kind: "pane", id: "%1" },
     (conversation) => seen.push(conversation),
@@ -187,7 +259,7 @@ test("a stream that ends or fails reconnects after retryMs with the held transcr
 test("a session row streams through Sessions.WatchConversation with its id", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
-  const stop = follow(clientsFor(fake), { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
+  const { stop } = follow(clientsFor(fake), { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
   try {
     await until(t.signal, () => fake.served.length === 1, "the first request");
     assert.equal(fake.served[0].path, sessionsPath);
@@ -211,7 +283,7 @@ test("a session row streams through Sessions.WatchConversation with its id", asy
 test("after stop, onChange is not called and no request is made", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
-  const stop = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  const { stop } = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   await until(t.signal, () => fake.served.length === 1, "the first request");
   fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
   await until(t.signal, () => seen.length === 1, "the reset delta");
@@ -226,7 +298,7 @@ test("after stop, onChange is not called and no request is made", async (t) => {
 test("stop cancels a pending retry", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
-  const stop = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  const { stop } = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   try {
     await until(t.signal, () => fake.served.length === 1, "the first request");
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
@@ -238,6 +310,240 @@ test("stop cancels a pending retry", async (t) => {
     await sleep(retryMs * 3);
     assert.equal(fake.served.length, 1);
     assert.equal(seen.length, 1);
+  } finally {
+    stop();
+  }
+});
+
+test("older asks a session for the page before its reset's oldest, and prepends the page", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, {
+      transcript: "s-t",
+      seq: "7",
+      reset: true,
+      oldest: "9",
+      items: [{ kind: "assistant", text: "nine" }],
+    });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    assert.equal(asks.length, 1);
+    assert.equal(fake.olderCalls()[0].path, sessionsOlderPath);
+    assert.equal(fake.olderCalls()[0].body.id, "s1");
+    assert.equal(Number(fake.olderCalls()[0].body.before), 9);
+
+    fake.answer(fake.olderCalls()[0], {
+      items: [{ kind: "assistant", text: "eight" }],
+      oldest: "8",
+      more: true,
+    });
+    await until(t.signal, () => seen.length === 2, "the older page");
+    assert.deepEqual(texts(seen[1]), ["eight", "nine"]);
+    assert.equal(seen[1].oldest, 8n);
+    assert.equal(seen[1].more, true);
+    assert.equal(seen[1].seq, 7n, "the page leaves the seq as it was");
+  } finally {
+    stop();
+  }
+});
+
+test("older asks a pane for the page before its reset's oldest, with the held transcript", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, {
+      transcript: "t1",
+      seq: "3",
+      reset: true,
+      oldest: "120",
+      items: [{ kind: "assistant", text: "line-120" }],
+    });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    assert.equal(asks.length, 1);
+    assert.equal(fake.olderCalls()[0].path, panesOlderPath);
+    assert.equal(fake.olderCalls()[0].body.pane, "%1");
+    assert.equal(fake.olderCalls()[0].body.transcript, "t1");
+    assert.equal(Number(fake.olderCalls()[0].body.before), 120);
+  } finally {
+    stop();
+  }
+});
+
+test("older chains pages back until more is false, and then asks no more", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 1, "the first older request");
+    fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "b" }], oldest: "60", more: true });
+    await until(t.signal, () => seen.length === 2, "the first older page");
+    assert.equal(seen[1].more, true);
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 2, "the second older request");
+    assert.equal(Number(fake.olderCalls()[1].body.before), 60);
+    fake.answer(fake.olderCalls()[1], { items: [{ kind: "assistant", text: "a" }], oldest: "20", more: false });
+    await until(t.signal, () => seen.length === 3, "the last older page");
+    assert.deepEqual(texts(seen[2]), ["a", "b", "c"]);
+    assert.equal(seen[2].more, false);
+
+    older();
+    older();
+    assert.equal(asks.length, 2, "no request follows a page with more false");
+  } finally {
+    stop();
+  }
+});
+
+test("older does nothing before a delta is held", () => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const { stop, older } = follow(clients, { kind: "session", id: "s1" }, () => {}, retryMs);
+  try {
+    older();
+    assert.equal(asks.length, 0);
+  } finally {
+    stop();
+  }
+});
+
+test("older does nothing after stop, and a page that answers after stop is dropped", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  await until(t.signal, () => fake.served.length === 1, "the first request");
+  fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
+  await until(t.signal, () => seen.length === 1, "the reset delta");
+
+  older();
+  await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+  const signal = asks[0].signal;
+  assert.equal(signal?.aborted, false, "the older request carries the stream's signal, not yet aborted");
+
+  stop();
+  assert.equal(signal?.aborted, true, "stop aborts the older request's signal");
+  older();
+  assert.equal(asks.length, 1, "no request follows stop");
+
+  fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "b" }], oldest: "60", more: true });
+  await settle();
+  assert.equal(seen.length, 1, "the page that answered after stop reached no onChange");
+});
+
+test("a page that answers after a reset moved the held oldest is dropped", async (t) => {
+  const fake = new FakeConnect();
+  const { clients } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+
+    fake.emit(0, { transcript: "t1", seq: "9", reset: true, oldest: "300", items: [{ kind: "assistant", text: "z" }] });
+    await until(t.signal, () => seen.length === 2, "the reset that moves the oldest");
+
+    fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "b" }], oldest: "60", more: true });
+    await settle();
+    assert.equal(seen.length, 2, "the page against the old oldest reached no onChange");
+    assert.deepEqual(texts(seen[1]), ["z"]);
+    assert.equal(seen[1].oldest, 300n);
+  } finally {
+    stop();
+  }
+});
+
+test("only one older page is in flight at a time", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, { transcript: "s-t", seq: "7", reset: true, oldest: "9", items: [{ kind: "assistant", text: "nine" }] });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    older();
+    assert.equal(asks.length, 1, "a second request waits for the first page");
+
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "eight" }], oldest: "8", more: true });
+    await until(t.signal, () => seen.length === 2, "the older page");
+
+    older();
+    assert.equal(asks.length, 2, "the next page is asked for once the first has landed");
+  } finally {
+    stop();
+  }
+});
+
+test("failed_precondition ends the history, and no page is asked for after it", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    fake.refuse(fake.olderCalls()[0], "failed_precondition", "transcript changed");
+    await until(t.signal, () => seen.length === 2, "the history ending");
+    assert.equal(seen[1].more, false);
+    assert.deepEqual(texts(seen[1]), ["c"]);
+
+    older();
+    assert.equal(asks.length, 1, "no request follows the end of the history");
+  } finally {
+    stop();
+  }
+});
+
+test("another failure leaves more set, so a later call asks again", async (t) => {
+  const fake = new FakeConnect();
+  const { clients, asks } = clientsSpying(fake);
+  const seen: Conversation[] = [];
+  const { stop, older } = follow(clients, { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
+  try {
+    await until(t.signal, () => fake.served.length === 1, "the first request");
+    fake.emit(0, { transcript: "s-t", seq: "7", reset: true, oldest: "9", items: [{ kind: "assistant", text: "nine" }] });
+    await until(t.signal, () => seen.length === 1, "the reset delta");
+
+    older();
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    fake.refuse(fake.olderCalls()[0], "unavailable", "try later");
+    await settle();
+    assert.equal(seen.length, 1, "a failed page changes nothing held");
+
+    older();
+    assert.equal(asks.length, 2, "a later call asks again");
+    await until(t.signal, () => fake.olderCalls().length === 2, "the second older request");
+    assert.equal(Number(fake.olderCalls()[1].body.before), 9);
   } finally {
     stop();
   }

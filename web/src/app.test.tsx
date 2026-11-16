@@ -30,6 +30,7 @@ const now = 1000;
 
 const paneWatchPath = "/orrery.v1.Panes/WatchConversation";
 const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
+const sessionOlderPath = "/orrery.v1.Sessions/Older";
 const sendTextPath = "/orrery.v1.Panes/SendText";
 const sayPath = "/orrery.v1.Control/Say";
 const pullPath = "/orrery.v1.Panes/PullQueued";
@@ -4171,6 +4172,27 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
     assert.equal(readerHidden(container), false, "the reader shows on a step");
     assert.equal(container.querySelector(".question-card") === null, true, "a step draws no question");
     assert.equal(container.querySelector(".reader .option") === null, true, "a step draws no answer");
+  }));
+
+test("a step's reader at its top asks Sessions.Older for the page before its oldest item, and draws the page above", (t) =>
+  withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(t.signal, container, fake);
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.replies.set(sessionOlderPath, [
+      { items: [{ kind: "assistant", text: "the step's earlier reply" }], oldest: "4", more: false },
+    ]);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "9",
+      reset: true,
+      oldest: "9",
+      items: [{ kind: "assistant", text: "the step reply" }],
+    });
+    await until(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
+    assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "s1", before: "9" });
+    await until(t.signal, () => readerText(container).includes("the step's earlier reply"), "the older page");
+    const text = readerText(container);
+    assert.ok(text.indexOf("the step's earlier reply") < text.indexOf("the step reply"), "the older page is drawn above");
   }));
 
 test("Enter in a step's box calls Steps.Nudge once with its id and text, and clears the draft when it lands", (t) =>

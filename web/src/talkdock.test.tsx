@@ -46,12 +46,16 @@ class Gauge {
 
 // FakeServer answers the calls the dock makes through TransportOptions.fetch. Each Sessions.WatchConversation call is a
 // stream the test feeds. Control.Resume answers with an empty reply, or with resumeError when the test sets one.
+// Sessions.Older answers with one older item and no more.
 class FakeServer {
   readonly streams: Stream[] = [];
   readonly resumes: Record<string, unknown>[] = [];
-  // opened counts the conversation streams the client has opened; resumed counts the Resume calls it has received.
+  readonly olderBodies: Record<string, unknown>[] = [];
+  // opened counts the conversation streams the client has opened; resumed counts the Resume calls it has received;
+  // olderAsked counts the Sessions.Older calls.
   readonly opened = new Gauge();
   readonly resumed = new Gauge();
+  readonly olderAsked = new Gauge();
   resumeError: { code: string; message: string } | null = null;
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -66,6 +70,14 @@ class FakeServer {
         return new Response("{}", { status: 200, headers: json });
       }
       return new Response(JSON.stringify(this.resumeError), { status: 400, headers: json });
+    }
+    if (path.endsWith("/Older")) {
+      this.olderBodies.push(JSON.parse(new TextDecoder().decode(bytes)));
+      this.olderAsked.bump();
+      return new Response(
+        JSON.stringify({ items: [{ kind: "assistant", text: "older words" }], oldest: "4", more: false }),
+        { status: 200, headers: json },
+      );
     }
     const body = decodeRequest(bytes);
     const stream = new ReadableStream<Uint8Array>({
@@ -239,6 +251,26 @@ test("a refused Resume shows its message in the dock", { timeout: 2000 }, async 
     await click(buttonNamed(container, "Resume"));
     await shown(window, container, () => textOf(container, "p.error") !== "");
     assert.equal(textOf(container, "p.error"), "resume refused: session is not interrupted");
+  });
+});
+
+test("the dock's reader asks for the page before its oldest item, and draws the page above", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container, window) => {
+    server.emit(0, {
+      transcript: "t1",
+      seq: "5",
+      reset: true,
+      oldest: "9",
+      items: [{ kind: "assistant", text: "nine" }],
+    });
+    await shown(window, container, () => textOf(container, ".reader").includes("nine"));
+
+    await server.olderAsked.reached(1);
+    assert.deepEqual(server.olderBodies, [{ id: "s1", before: "9" }]);
+    await shown(window, container, () => textOf(container, ".reader").includes("older words"));
+    const reader = textOf(container, ".reader");
+    assert.ok(reader.indexOf("older words") < reader.indexOf("nine"), "the older page is drawn above the held item");
   });
 });
 

@@ -23,6 +23,7 @@ export function WorkerSessionPage({
   onGoList,
   onGoEpic,
   onBack,
+  onOlder,
   nudge,
   hold,
   stop,
@@ -35,6 +36,7 @@ export function WorkerSessionPage({
   onGoList: () => void;
   onGoEpic: () => void;
   onBack: () => void;
+  onOlder: () => void;
   nudge: (text: string) => Promise<void>;
   hold: () => Promise<void>;
   stop: () => Promise<void>;
@@ -55,6 +57,7 @@ export function WorkerSessionPage({
         open={open}
         step={step}
         onToggleOpen={() => setOpen((value) => !value)}
+        onOlder={onOlder}
       />
       {step.end === "" && <StepBox label={task} held={step.held} nudge={nudge} hold={hold} stop={stop} />}
     </div>
