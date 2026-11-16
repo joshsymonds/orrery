@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // The reasons a refusal gives after its field. Each says what the field must be.
@@ -19,17 +20,22 @@ const (
 	reasonNoFiles     = "no files"
 )
 
-// Check returns one refusal per bad task field of ret, in plan order, or nil when the plan passes. Each refusal names
-// the task by index and title, then the field, then the reason. requirements are the epic's Requirement ids, and owned
-// are the files owned by the epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a
-// name they refuse gives the refusal its error text.
+// Check returns one refusal per bad task field of ret, in plan order, then one per broken rule of each question, in
+// question order, or nil when the return passes. Each task refusal names the task by index and title, then the field,
+// then the reason. Each question refusal names the question by index and label, then the field and reason that
+// store.QuestionRefusals gives. requirements are the epic's Requirement ids, and owned are the files owned by the
+// epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a name they refuse gives the
+// refusal its error text.
 func Check(ret Return, requirements []string, owned []string, gate, judge func(name string) error) []string {
 	known := stringSet(requirements)
 	taken := stringSet(owned)
 	named := make(map[string]bool)
-	refusals := make([]string, 0, len(ret.Tasks))
+	refusals := make([]string, 0, len(ret.Tasks)+len(ret.Questions))
 	for i, task := range ret.Tasks {
 		refusals = append(refusals, checkTask(i, task, known, taken, named, gate, judge)...)
+	}
+	for i, question := range ret.Questions {
+		refusals = append(refusals, checkQuestion(i, question)...)
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -77,6 +83,18 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 		if err := judge(task.Evidence.Judge); err != nil {
 			refusals = append(refusals, prefix+" evidence.judge: "+err.Error())
 		}
+	}
+	return refusals
+}
+
+// checkQuestion returns the refusals of one question, in the order store.QuestionRefusals states its rules. Each line
+// names the question by index and label, so the planner sees the same rules the store applies when it writes the turn.
+func checkQuestion(i int, question Question) []string {
+	prefix := fmt.Sprintf(`questions[%d] "%s"`, i, question.Label)
+	lines := store.QuestionRefusals(questionInputOf(question))
+	refusals := make([]string, 0, len(lines))
+	for _, line := range lines {
+		refusals = append(refusals, prefix+" "+line)
 	}
 	return refusals
 }

@@ -137,8 +137,9 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 
 // RetryEpic ends the park of epic in one write and leaves its triggers pending. The failed turns up to the epic's
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
-// granted round in the same write. An unknown epic is ErrNoEpic, an epic that is not parked is a RefusalError, and an
-// epic parked for good by ParkNodeFinal is a RefusalError that changes nothing.
+// granted round, and each open park question of epic is answered retry, in the same write. An unknown epic is
+// ErrNoEpic, an epic that is not parked is a RefusalError, and an epic parked for good by ParkNodeFinal is a
+// RefusalError that changes nothing.
 func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -151,15 +152,42 @@ func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 		if head.Parked == "" {
 			return RefusalError(fmt.Sprintf("epic %s is not parked", epic))
 		}
-		highest, err := queries.MaxEpicTurnSeq(ctx, epic)
+		err = closeParkQuestions(ctx, queries, epic)
 		if err != nil {
-			return fmt.Errorf("read turn count of epic %s: %w", epic, err)
+			return err
 		}
-		if err = queries.RetryEpic(ctx, sqlcgen.RetryEpicParams{Retried: highest, ID: epic}); err != nil {
-			return fmt.Errorf("retry epic %s: %w", epic, err)
-		}
-		return grantParkedLoops(ctx, queries, epic)
+		return endPark(ctx, queries, epic)
 	})
+}
+
+// endPark ends the park of epic in the caller's write: the failed turns up to the epic's highest turn seq stop counting
+// toward a park, and each loop of epic parked by ParkLoop turns running with one more granted round.
+func endPark(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	highest, err := queries.MaxEpicTurnSeq(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read turn count of epic %s: %w", epic, err)
+	}
+	if err = queries.RetryEpic(ctx, sqlcgen.RetryEpicParams{Retried: highest, ID: epic}); err != nil {
+		return fmt.Errorf("retry epic %s: %w", epic, err)
+	}
+	return grantParkedLoops(ctx, queries, epic)
+}
+
+// closeParkQuestions answers each open park question of epic with retry in the caller's write. Ending a park by retry
+// takes the retry the question recommends.
+func closeParkQuestions(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	open, err := queries.ListOpenEpicParkQuestions(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read open park questions of epic %s: %w", epic, err)
+	}
+	for _, question := range open {
+		if err = queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+			Choice: ChoiceRetry, Epic: epic, Seq: question.Seq,
+		}); err != nil {
+			return fmt.Errorf("answer park question %d of epic %s: %w", question.Seq, epic, err)
+		}
+	}
+	return nil
 }
 
 // TurnStopped reports whether turn seq of epic was flagged to stop. A turn that does not exist is an error matching

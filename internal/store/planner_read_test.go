@@ -67,7 +67,7 @@ func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
 			Status: "open",
 		},
 	}
-	want.Questions = []EpicQuestion{{Seq: 1, Turn: 1, Text: "Keep the old tasks?", State: "open"}}
+	want.Questions = []EpicQuestion{openStored(plannedTurn().Questions[0], 1, 1)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epic after a completed turn:\n got %+v\nwant %+v", got, want)
 	}

@@ -110,8 +110,10 @@ subcommands:
   epic create FILE|-                            create an epic from the contract JSON in FILE, or on stdin for -
   epic get ID                                   print a stored epic
   epic list                                     print the stored epics as summaries
-  epic answer EPIC --id ID [--question QN] TEXT
-                                                record a decision on EPIC; --question names the Q<n> it answers
+  epic follow                                   print how often the owner took each label's advice, across epics
+  epic answer EPIC --id ID [--question QN] [--choice C] [TEXT]
+                                                record a decision on EPIC; --question names the Q<n> it answers,
+                                                --choice the choice it gives
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic

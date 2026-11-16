@@ -860,7 +860,7 @@ func (q *Queries) GetEpicNodeRun(ctx context.Context, arg GetEpicNodeRunParams) 
 }
 
 const getEpicQuestion = `-- name: GetEpicQuestion :one
-SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? AND seq = ?
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND seq = ?
 `
 
 type GetEpicQuestionParams struct {
@@ -877,6 +877,14 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 		&i.Turn,
 		&i.Text,
 		&i.State,
+		&i.Label,
+		&i.Choices,
+		&i.Recommended,
+		&i.Why,
+		&i.Confidence,
+		&i.Replaces,
+		&i.ReplacedBy,
+		&i.Choice,
 	)
 	return i, err
 }
@@ -1689,14 +1697,21 @@ func (q *Queries) InsertEpicPremise(ctx context.Context, arg InsertEpicPremisePa
 }
 
 const insertEpicQuestion = `-- name: InsertEpicQuestion :exec
-INSERT INTO epic_questions (epic, seq, turn, text, state) VALUES (?, ?, ?, ?, 'open')
+INSERT INTO epic_questions (epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces)
+VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicQuestionParams struct {
-	Epic string
-	Seq  int64
-	Turn int64
-	Text string
+	Epic        string
+	Seq         int64
+	Turn        int64
+	Text        string
+	Label       string
+	Choices     string
+	Recommended string
+	Why         string
+	Confidence  string
+	Replaces    int64
 }
 
 func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestionParams) error {
@@ -1705,6 +1720,35 @@ func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestion
 		arg.Seq,
 		arg.Turn,
 		arg.Text,
+		arg.Label,
+		arg.Choices,
+		arg.Recommended,
+		arg.Why,
+		arg.Confidence,
+		arg.Replaces,
+	)
+	return err
+}
+
+const insertEpicQuestionTell = `-- name: InsertEpicQuestionTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?)
+`
+
+type InsertEpicQuestionTellParams struct {
+	Epic     string
+	Seq      int64
+	Text     string
+	At       int64
+	Question int64
+}
+
+func (q *Queries) InsertEpicQuestionTell(ctx context.Context, arg InsertEpicQuestionTellParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicQuestionTell,
+		arg.Epic,
+		arg.Seq,
+		arg.Text,
+		arg.At,
+		arg.Question,
 	)
 	return err
 }
@@ -3142,8 +3186,45 @@ func (q *Queries) ListEpicPremises(ctx context.Context, epic string) ([]EpicPrem
 	return items, nil
 }
 
+const listEpicQuestionFollows = `-- name: ListEpicQuestionFollows :many
+SELECT label, CAST(COUNT(*) AS INTEGER) AS answered,
+    CAST(SUM(CASE WHEN choice = recommended THEN 1 ELSE 0 END) AS INTEGER) AS followed
+FROM epic_questions
+WHERE label <> '' AND recommended <> '' AND state = 'answered'
+GROUP BY label ORDER BY label
+`
+
+type ListEpicQuestionFollowsRow struct {
+	Label    string
+	Answered int64
+	Followed int64
+}
+
+func (q *Queries) ListEpicQuestionFollows(ctx context.Context) ([]ListEpicQuestionFollowsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicQuestionFollows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicQuestionFollowsRow
+	for rows.Next() {
+		var i ListEpicQuestionFollowsRow
+		if err := rows.Scan(&i.Label, &i.Answered, &i.Followed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicQuestions = `-- name: ListEpicQuestions :many
-SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -3161,6 +3242,14 @@ func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQue
 			&i.Turn,
 			&i.Text,
 			&i.State,
+			&i.Label,
+			&i.Choices,
+			&i.Recommended,
+			&i.Why,
+			&i.Confidence,
+			&i.Replaces,
+			&i.ReplacedBy,
+			&i.Choice,
 		); err != nil {
 			return nil, err
 		}
@@ -3679,7 +3768,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 }
 
 const listEpicTells = `-- name: ListEpicTells :many
-SELECT epic, seq, text, at, told FROM epic_tells WHERE epic = ? ORDER BY seq
+SELECT epic, seq, text, at, told, question FROM epic_tells WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTells(ctx context.Context, epic string) ([]EpicTell, error) {
@@ -3697,6 +3786,7 @@ func (q *Queries) ListEpicTells(ctx context.Context, epic string) ([]EpicTell, e
 			&i.Text,
 			&i.At,
 			&i.Told,
+			&i.Question,
 		); err != nil {
 			return nil, err
 		}
@@ -4564,8 +4654,49 @@ func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, 
 	return items, nil
 }
 
+const listOpenEpicParkQuestions = `-- name: ListOpenEpicParkQuestions :many
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq
+`
+
+func (q *Queries) ListOpenEpicParkQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEpicParkQuestions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicQuestion
+	for rows.Next() {
+		var i EpicQuestion
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Turn,
+			&i.Text,
+			&i.State,
+			&i.Label,
+			&i.Choices,
+			&i.Recommended,
+			&i.Why,
+			&i.Confidence,
+			&i.Replaces,
+			&i.ReplacedBy,
+			&i.Choice,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEpicQuestions = `-- name: ListOpenEpicQuestions :many
-SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
+SELECT epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces, replaced_by, choice FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
 `
 
 func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
@@ -4583,6 +4714,14 @@ func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]Epi
 			&i.Turn,
 			&i.Text,
 			&i.State,
+			&i.Label,
+			&i.Choices,
+			&i.Recommended,
+			&i.Why,
+			&i.Confidence,
+			&i.Replaces,
+			&i.ReplacedBy,
+			&i.Choice,
 		); err != nil {
 			return nil, err
 		}
@@ -5673,17 +5812,36 @@ func (q *Queries) SetEpicPhase(ctx context.Context, arg SetEpicPhaseParams) erro
 }
 
 const setEpicQuestionAnswered = `-- name: SetEpicQuestionAnswered :exec
-UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?
+UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?
 `
 
 type SetEpicQuestionAnsweredParams struct {
-	Epic string
-	Seq  int64
+	Choice string
+	Epic   string
+	Seq    int64
 }
 
 func (q *Queries) SetEpicQuestionAnswered(ctx context.Context, arg SetEpicQuestionAnsweredParams) error {
-	_, err := q.db.ExecContext(ctx, setEpicQuestionAnswered, arg.Epic, arg.Seq)
+	_, err := q.db.ExecContext(ctx, setEpicQuestionAnswered, arg.Choice, arg.Epic, arg.Seq)
 	return err
+}
+
+const setEpicQuestionReplaced = `-- name: SetEpicQuestionReplaced :execrows
+UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open'
+`
+
+type SetEpicQuestionReplacedParams struct {
+	ReplacedBy int64
+	Epic       string
+	Seq        int64
+}
+
+func (q *Queries) SetEpicQuestionReplaced(ctx context.Context, arg SetEpicQuestionReplacedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicQuestionReplaced, arg.ReplacedBy, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEpicReviewClean = `-- name: SetEpicReviewClean :exec

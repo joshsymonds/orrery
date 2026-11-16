@@ -341,6 +341,117 @@ func TestCheckPassesValidPlanWithNewFiles(t *testing.T) {
 	checkLines(t, checkPlan(ret, []string{"internal/store/epics.go"}))
 }
 
+// validQuestion is a question that passes every rule of store.QuestionRefusals under label.
+func validQuestion(label string) Question {
+	return Question{
+		Label: label,
+		Text:  "a text for " + label,
+		Choices: []Choice{
+			{ID: "first", Does: "a first choice"},
+			{ID: "second", Does: "a second choice"},
+		},
+		Recommended: "first",
+		Why:         "a why for " + label,
+		Confidence:  "low",
+		Replaces:    "",
+	}
+}
+
+// secondQuestion is a return whose first question is valid and whose second question is bad.
+func secondQuestion(bad Question) Return {
+	return Return{Questions: []Question{validQuestion("first"), bad}}
+}
+
+func TestCheckRefusesQuestionLabel(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Label = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "" label: empty`)
+}
+
+func TestCheckRefusesQuestionText(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Text = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" text: empty`)
+}
+
+func TestCheckRefusesQuestionChoices(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Choices = []Choice{{ID: "first", Does: "a first choice"}}
+	bad.Recommended = "first"
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" choices: fewer than two choices`)
+}
+
+func TestCheckRefusesQuestionRecommendation(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Recommended = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil),
+		`questions[1] "second" recommended: names no declared choice`)
+}
+
+func TestCheckRefusesQuestionWhy(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Why = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" why: empty`)
+}
+
+func TestCheckRefusesQuestionConfidence(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Confidence = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil),
+		`questions[1] "second" confidence: not low, medium or high`)
+}
+
+func TestCheckRefusesQuestionReplaces(t *testing.T) {
+	t.Parallel()
+	bad := validQuestion("second")
+	bad.Replaces = "Q0"
+	checkLines(t, checkPlan(secondQuestion(bad), nil),
+		`questions[1] "second" replaces: not empty or Q<n> with n >= 1`)
+}
+
+func TestCheckNamesEachBadQuestionByPositionInRuleOrder(t *testing.T) {
+	t.Parallel()
+	first := validQuestion("")
+	first.Why = ""
+	second := validQuestion("second")
+	second.Text = ""
+	checkLines(t, checkPlan(Return{Questions: []Question{first, second}}, nil),
+		`questions[0] "" label: empty`,
+		`questions[0] "" why: empty`,
+		`questions[1] "second" text: empty`,
+	)
+}
+
+func TestCheckGivesTaskLinesBeforeQuestionLines(t *testing.T) {
+	t.Parallel()
+	task := validTask("T")
+	task.Files = nil
+	bad := validQuestion("second")
+	bad.Why = ""
+	checkLines(t, checkPlan(Return{Tasks: []Task{task}, Questions: []Question{validQuestion("first"), bad}}, nil),
+		`tasks[0] "T" files: no files`,
+		`questions[1] "second" why: empty`,
+	)
+}
+
+func TestCheckPassesValidQuestions(t *testing.T) {
+	t.Parallel()
+	replacing := validQuestion("which-cache")
+	replacing.Confidence = "high"
+	replacing.Replaces = "Q1"
+	ret := Return{
+		Tasks:     []Task{validTask("T", "internal/a.go")},
+		Questions: []Question{validQuestion("which-epic"), replacing},
+	}
+	checkLines(t, checkPlan(ret, nil))
+}
+
 func TestParseRoundTripsValidReturn(t *testing.T) {
 	t.Parallel()
 	want := Return{
@@ -348,8 +459,15 @@ func TestParseRoundTripsValidReturn(t *testing.T) {
 		Decisions: []string{"split the store work from the planner"},
 		Tasks:     []Task{validTask("A", "internal/planner/plan.go")},
 		Outline:   "one task",
-		Questions: []string{"which epic?"},
-		Outcome:   "work",
+		Questions: []Question{{
+			Label: "which-epic", Text: "which epic?",
+			Choices: []Choice{
+				{ID: "first", Does: "Synthetic first choice."},
+				{ID: "second", Does: "Synthetic second choice."},
+			},
+			Recommended: "first", Why: "Synthetic reason.", Confidence: "low", Replaces: "",
+		}},
+		Outcome: "work",
 	}
 	raw, err := json.Marshal(want)
 	if err != nil {
