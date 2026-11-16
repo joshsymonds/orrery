@@ -8,8 +8,10 @@ import io.github.joshsymonds.orrery.api.EpicClosureRow
 import io.github.joshsymonds.orrery.api.EpicHandoverRow
 import io.github.joshsymonds.orrery.api.EpicLedgerFindingRow
 import io.github.joshsymonds.orrery.api.EpicReleaseRunRow
+import io.github.joshsymonds.orrery.api.EpicReleaseStepRow
 import io.github.joshsymonds.orrery.api.EpicReviewVerdictRow
-import io.github.joshsymonds.orrery.api.HandoverReleaseStepRow
+import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.toEpicHandoverRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicClosure
@@ -34,6 +36,7 @@ class EpicHandoverTest {
     private companion object {
         const val EPIC_ID = "example-repo/example-epic"
         const val EPIC_SLUG = "example-epic"
+        const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
         const val CHANGED = 4_102_444_800L
     }
 
@@ -375,8 +378,8 @@ class EpicHandoverTest {
             ),
         ),
         releaseSteps = listOf(
-            HandoverReleaseStepRow("example-tag", "example-tag-v1", "delete the tag"),
-            HandoverReleaseStepRow("example-publish", "example-registry", "unpublish"),
+            EpicReleaseStepRow("example-tag", "example-tag-v1", "delete the tag"),
+            EpicReleaseStepRow("example-publish", "example-registry", "unpublish"),
         ),
     )
 
@@ -388,6 +391,17 @@ class EpicHandoverTest {
     @Test
     fun theReleasedEpicMapsEveryFieldInOrder() {
         assertEquals(releasedRow(), releasedBody().toEpicHandoverRow())
+    }
+
+    @Test
+    fun theClientPutsTheResponsesHandoverInTheEpicDetail() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET_PATH, releasedBody())
+
+            val detail = checkNotNull(OrreryClient(server.baseUrl).epic(EPIC_ID))
+
+            assertEquals(releasedRow(), detail.handover)
+        }
     }
 
     /** Every text under [tag], in the order the tree holds them. */

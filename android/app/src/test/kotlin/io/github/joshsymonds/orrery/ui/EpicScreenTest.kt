@@ -20,6 +20,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import com.connectrpc.Code
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
@@ -198,7 +199,7 @@ class EpicScreenTest {
         listState: LazyListState = LazyListState(),
         onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
         actions: @Composable RowScope.() -> Unit = {},
-        handover: (@Composable () -> Unit)? = null,
+        handover: (@Composable (EpicDetail) -> Unit)? = null,
     ) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
@@ -300,6 +301,22 @@ class EpicScreenTest {
             val indexes = listOf("green", "handover", "release").map { sectionIndex(listState, it) }
             assertTrue("expected green, handover, release in order, got $indexes", indexes.zipWithNext().all { (a, b) -> a < b })
             assertEquals(1, countIn("epic-section:handover", hasText("Example handover.")))
+        }
+    }
+
+    @Test
+    fun theHandoverIsGivenTheLoadedEpic() {
+        val listState = LazyListState()
+        FakeOrreryServer().use { server ->
+            serve(server, body(contract = contract()))
+            setScreen(
+                server,
+                listState = listState,
+                handover = { detail -> Text("Example handover for ${detail.epic.slug}.") },
+            )
+            awaitLoaded()
+
+            assertEquals(1, countIn("epic-section:handover", hasText("Example handover for example-epic.")))
         }
     }
 

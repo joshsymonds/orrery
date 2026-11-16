@@ -3,7 +3,6 @@ package io.github.joshsymonds.orrery.api
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicClosure
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 
@@ -72,24 +71,17 @@ data class EpicReleaseRunRow(
     val at: Long,
 )
 
-/** One step of an epic's contract release: what it does ([step]), the [target] it ships to, and how to [undo] it. */
-data class HandoverReleaseStepRow(
-    val step: String,
-    val target: String,
-    val undo: String,
-)
-
 /**
  * An epic's handover: its [phase], which is its outcome, its reviewers' [reviews] in position order, its ledger
  * [ledger] in ledger order, its release [releases] in the order the server lists them, and the contract's
  * [releaseSteps] in order.
  */
 data class EpicHandoverRow(
-    val phase: String,
-    val reviews: List<EpicReviewVerdictRow>,
-    val ledger: List<EpicLedgerFindingRow>,
-    val releases: List<EpicReleaseRunRow>,
-    val releaseSteps: List<HandoverReleaseStepRow>,
+    val phase: String = "",
+    val reviews: List<EpicReviewVerdictRow> = emptyList(),
+    val ledger: List<EpicLedgerFindingRow> = emptyList(),
+    val releases: List<EpicReleaseRunRow> = emptyList(),
+    val releaseSteps: List<EpicReleaseStepRow> = emptyList(),
 )
 
 /**
@@ -102,7 +94,7 @@ fun EpicsGetResponse.toEpicHandoverRow(): EpicHandoverRow =
         reviews = reviewsList.map { it.toEpicReviewVerdictRow() },
         ledger = ledgerList.map { it.toEpicLedgerFindingRow() },
         releases = releasesList.map { it.toEpicReleaseRunRow() },
-        releaseSteps = contract.releaseStepsList.map { it.toHandoverReleaseStepRow() },
+        releaseSteps = contract.releaseStepsList.map { it.toEpicReleaseStepRow() },
     )
 
 private fun EpicReviewVerdict.toEpicReviewVerdictRow(): EpicReviewVerdictRow =
@@ -152,11 +144,4 @@ private fun EpicReleaseRun.toEpicReleaseRunRow(): EpicReleaseRunRow =
         passed = passed,
         reason = reason,
         at = at,
-    )
-
-private fun EpicReleaseStep.toHandoverReleaseStepRow(): HandoverReleaseStepRow =
-    HandoverReleaseStepRow(
-        step = step,
-        target = target,
-        undo = undo,
     )

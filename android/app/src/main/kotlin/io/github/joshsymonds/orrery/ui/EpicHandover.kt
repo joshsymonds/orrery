@@ -14,8 +14,8 @@ import io.github.joshsymonds.orrery.api.EpicClosureRow
 import io.github.joshsymonds.orrery.api.EpicHandoverRow
 import io.github.joshsymonds.orrery.api.EpicLedgerFindingRow
 import io.github.joshsymonds.orrery.api.EpicReleaseRunRow
+import io.github.joshsymonds.orrery.api.EpicReleaseStepRow
 import io.github.joshsymonds.orrery.api.EpicReviewVerdictRow
-import io.github.joshsymonds.orrery.api.HandoverReleaseStepRow
 
 /** The part of a release run that runs a contract release step; its position is the step it ran. */
 private const val RELEASE_PART = "release"
@@ -100,7 +100,7 @@ private fun closureLine(closure: EpicClosureRow): String {
  * and its index in [releases].
  */
 @Composable
-private fun ReleaseRuns(steps: List<HandoverReleaseStepRow>, releases: List<EpicReleaseRunRow>) {
+private fun ReleaseRuns(steps: List<EpicReleaseStepRow>, releases: List<EpicReleaseRunRow>) {
     steps.forEachIndexed { stepIndex, step ->
         ReleaseStep(stepIndex + 1, step)
         releases.forEachIndexed { runIndex, run ->
@@ -114,7 +114,7 @@ private fun ReleaseRuns(steps: List<HandoverReleaseStepRow>, releases: List<Epic
 
 /** A contract release step under its tag, numbered [number] from 1. */
 @Composable
-private fun ReleaseStep(number: Int, step: HandoverReleaseStepRow) {
+private fun ReleaseStep(number: Int, step: EpicReleaseStepRow) {
     Column(modifier = Modifier.fillMaxWidth().testTag("release-step:$number")) {
         Text(step.step, style = MaterialTheme.typography.bodyMedium)
         Text(step.target, style = MaterialTheme.typography.labelMedium)
