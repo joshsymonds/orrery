@@ -94,6 +94,13 @@ const (
 	concludeNodeKind = "conclude"
 )
 
+// The phase an epic is in while its review's ledger is corrected, and the prefix of the trigger a plan that starts then
+// writes in place of the started one.
+const (
+	ledgerPhase         = "correcting"
+	ledgerTriggerPrefix = "ledger:"
+)
+
 // place is where a list of nodes sits. A check node that ends failed is decided by its place: at the top level it
 // parks, in a loop body it ends the round, and in a plan body it wakes the planner.
 type place int
@@ -161,7 +168,7 @@ func (p pass) walk(nodes []workflow.Node, at scope) ([]Action, bool) {
 
 // start returns the action that starts def, which has no run at its path in its scope. A loop starts at its first
 // round. A plan starts with Mark 0 and no trigger when the epic has no plan run yet, and otherwise with the highest
-// turn seq and a trigger that asks the planner for a turn.
+// turn seq and the trigger that asks the planner for a turn.
 func (p pass) start(def workflow.Node, at scope) Action {
 	path := at.prefix + def.ID
 	run := store.NodeRun{
@@ -174,13 +181,26 @@ func (p pass) start(def workflow.Node, at scope) Action {
 		run.LoopRound = 1
 	case def.Kind == kindPlan && p.hasPlanRun():
 		run.Mark = p.highestTurn()
-		act.Trigger = &store.NodeTrigger{
-			ID:    triggerPrefix + store.NodeRunID(p.rows.Epic.ID, path, at.round, "trigger"),
-			Cause: "workflow node " + path + " started",
-		}
+		act.Trigger = p.planTrigger(path, at.round)
 	}
 	act.Runs = []store.NodeRun{run}
 	return act
+}
+
+// planTrigger returns the trigger that asks the planner for a turn when a plan starts at path in round. While the
+// epic is correcting, it is the ledger trigger, which wakes the planner with the round's open findings. Its id is
+// derived from the path and round, so a restart writes it once. Otherwise it names the start.
+func (p pass) planTrigger(path string, round int64) *store.NodeTrigger {
+	if p.rows.Epic.Phase == ledgerPhase {
+		return &store.NodeTrigger{
+			ID:    ledgerTriggerPrefix + store.NodeRunID(p.rows.Epic.ID, path, round, "ledger"),
+			Cause: kinds.LedgerCause(p.rows.Review, round),
+		}
+	}
+	return &store.NodeTrigger{
+		ID:    triggerPrefix + store.NodeRunID(p.rows.Epic.ID, path, round, "trigger"),
+		Cause: "workflow node " + path + " started",
+	}
 }
 
 // kindOf returns the kind a node run of def has: its kind, or loop for a loop.
