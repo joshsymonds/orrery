@@ -34,10 +34,10 @@ func endIn(outcomes ...string) scripted {
 	return script
 }
 
-// refineKinds returns the kinds of the refine loop: work ends every round with no outcome, and review ends round r
-// with reviews[r-1].
+// refineKinds returns the kinds of the refine loop: work ends every round with no outcome, and verdict, the kind of
+// the review node, ends round r with reviews[r-1].
 func refineKinds(reviews ...string) map[string]kinds.Kind {
-	return map[string]kinds.Kind{"work": endIn("", ""), "review": endIn(reviews...)}
+	return map[string]kinds.Kind{"work": endIn("", ""), "verdict": endIn(reviews...)}
 }
 
 // kindNode returns a kind node with id that holds body.
@@ -54,7 +54,7 @@ func loopNode(loop workflow.Loop, body ...workflow.Node) workflow.Node {
 // body of work then review.
 func refine(spent string) workflow.Node {
 	settings := workflow.Loop{Max: 2, Until: workflow.Outcome{Node: "review", Name: "done"}, Spent: spent}
-	return loopNode(settings, kindNode("work", "work"), kindNode("review", "review"))
+	return loopNode(settings, kindNode("work", "work"), kindNode("review", "verdict"))
 }
 
 // planNode returns a plan node whose body is one build node.
@@ -438,7 +438,7 @@ func TestDecideLoop(t *testing.T) {
 				running(startOf("refine@2/work", "work", "work", 2)),
 				endedIn(2, "review", "done"),
 			),
-			reg:  map[string]kinds.Kind{"work": endIn(""), "review": endIn("again", "done")},
+			reg:  map[string]kinds.Kind{"work": endIn(""), "verdict": endIn("again", "done")},
 			want: nil,
 		},
 	})
