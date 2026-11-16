@@ -20,7 +20,8 @@ const (
 )
 
 // The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the
-// slot, and stopped when a release step stops it.
+// slot, and stopped when a release step stops it. Clean is also the phase an epic whose frozen review found it clean
+// ends in, and EndEpic stores the epic's stored base as its review's clean revision then.
 const (
 	PhaseClean     = "clean"
 	PhaseReleasing = "releasing"

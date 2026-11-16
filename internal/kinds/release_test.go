@@ -138,7 +138,7 @@ func TestReleasePhases(t *testing.T) {
 		{
 			"accepted epic gives none",
 			releaseNode(1, "", ""),
-			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: phaseAccepted, ReleaseSteps: steps}},
+			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: "accepted", ReleaseSteps: steps}},
 			Action{Kind: ActNone},
 		},
 	}

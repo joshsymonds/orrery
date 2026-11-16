@@ -1100,17 +1100,19 @@ func (h *sessionHost) startFlow(
 	flowCtx, h.stopFlow = context.WithCancel(ctx)
 	ticks, passed := flowSeam(flowCtx, flowTicks, logger)
 	flow := interpret.New(interpret.Config{
-		Store:    st,
-		Planner:  plannerRun,
-		Builder:  buildRun,
-		Checks:   h.checks,
-		Evidence: h.evidence,
-		Steps:    h.steps,
-		StateDir: stateDir,
-		Getenv:   getenv,
-		Logger:   logger,
-		Ticks:    ticks,
-		Passed:   passed,
+		Store:     st,
+		Planner:   plannerRun,
+		Builder:   buildRun,
+		Checks:    h.checks,
+		Evidence:  h.evidence,
+		Steps:     h.steps,
+		Reviewers: interpret.NewEpicReviewers(),
+		Ending:    st,
+		StateDir:  stateDir,
+		Getenv:    getenv,
+		Logger:    logger,
+		Ticks:     ticks,
+		Passed:    passed,
 	})
 	go func() {
 		flow.Run(flowCtx)

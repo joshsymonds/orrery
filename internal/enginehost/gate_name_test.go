@@ -76,6 +76,77 @@ func TestStepDoneGateNameIsStepIDGateAndRestartReadoptsItOnce(t *testing.T) {
 	}
 }
 
+// TestStepRestartDuringARetriedRoundsGateStoresItsResultAndEnds restarts a writing step while the gate of its second
+// round runs, after the first round's gate failed and went back, as a restart left step 3b7d8ceb: the row stores loop
+// round 1 with round 1's failed checks, and the running gate as round 2. The restored run takes the turn end after its
+// stored return as round 2, re-adopts that round's gate under its grant without starting it again, stores the gate's
+// result with round 2's checks and ends done.
+func TestStepRestartDuringARetriedRoundsGateStoresItsResultAndEnds(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	counter := filepath.Join(t.TempDir(), "counter")
+	started := filepath.Join(t.TempDir(), "started")
+	release := filepath.Join(t.TempDir(), "release")
+	// The first start fails at once. Every later start writes started and runs until release exists.
+	gate := stepDoneScript(t, fmt.Sprintf(
+		`n=$(cat %[1]q 2>/dev/null || echo 0); n=$((n + 1)); echo $n > %[1]q; `+
+			`if [ $n -eq 1 ]; then echo red; exit 1; fi; echo started > %[2]q; `+
+			`while [ ! -e %[3]q ]; do sleep 0.05; done; echo green`,
+		counter, started, release))
+	pools := &fakeGatePools{drop: make(chan error, 1)}
+	stateDir := gateShortStateDir(t)
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	f := newStepDoneFixture(t, func(cfg *stepRunConfig) {
+		stepDoneWriting(dir, start, []string{gate}, time.Minute, pools)(cfg)
+		cfg.scope = fakeSystemdRunPath(t)
+		cfg.stateDir = stateDir
+	})
+	gateHolder := holderDir(t, stateDir, stepLoopID+"-gate")
+
+	_, done := f.start(t)
+	f.run.Return(stepDoneReturn(commit))
+	f.run.Return(stepDoneReturn(commit))
+	gateWaitFile(t, started, done)
+	pools.drop <- grants.ErrClosed
+	waitRunEnd(t, done)
+
+	f.settle(t)
+	row := f.row(t)
+	if row.LoopRound != 1 || row.GateRound != 2 || row.GateHolder != gateHolder || row.GateGrant != "grant-2" {
+		t.Fatalf("row at the restart: loop round %d, gate round %d, holder %q, grant %q; want 1, 2, %q, grant-2",
+			row.LoopRound, row.GateRound, row.GateHolder, row.GateGrant, gateHolder)
+	}
+
+	turn := store.StepTurnEnd{Seq: row.LoopSeq + 1, Output: resumeDoneOutput(commit)}
+	f.resumeFrom(stepRestore{Row: row, Turn: turn, Found: true})
+	_, done = f.start(t)
+	gateWaitRequests(t, pools, 3, done)
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatalf("release the gate: %v", err)
+	}
+	waitRunEnd(t, done)
+
+	row = f.row(t)
+	if row.End != stepLoopEndDone {
+		t.Fatalf("end = %q reason %q, want done", row.End, row.Reason)
+	}
+	green := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 2), stepLoopGateName)
+	if !green.OK || green.Stdout != "green\n" {
+		t.Errorf("round 2 gate check = %+v, want the re-adopted gate's passing exit with stdout green", green)
+	}
+	if data, err := os.ReadFile(counter); err != nil || strings.TrimSpace(string(data)) != "2" {
+		t.Fatalf("counter = %q, %v: want two gate starts, none after the restart", data, err)
+	}
+	requests := pools.requested()
+	if len(requests) != 3 || requests[2].GrantID != "grant-2" || requests[2].Holder != gateHolder {
+		t.Fatalf("gate requests = %+v, want two grants then one reclaim of grant-2 for %q", requests, gateHolder)
+	}
+	if continued := f.sessions.continuedTexts(); len(continued) != 1 {
+		t.Fatalf("Continue called %d times, want once, for round 1's failed gate", len(continued))
+	}
+}
+
 // evidenceGateCountScript is a capture that counts its starts in $COUNTER, writes $STARTED once it runs, waits until
 // $RELEASE exists, then prints done and exits 3.
 const evidenceGateCountScript = `n=$(cat "$COUNTER" 2>/dev/null || echo 0); echo $((n + 1)) > "$COUNTER"; ` +

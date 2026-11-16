@@ -18,7 +18,7 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035 and 00037 create, and of the columns those migrations and 00020, 00021, 00022, 00025,
+// 00019, 00028, 00030, 00035, 00036 and 00038 create, and of the columns those migrations and 00020, 00021, 00022, 00025,
 // 00029, 00033, 00034 and 00035 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
@@ -74,9 +74,18 @@ func epicTableColumns() map[string][]string {
 			"epic", "part", "position", "attempt", "step", "start", "head", "finish", "commits", "evidence",
 			"passed", "reason", "at",
 		},
-		"epic_release_slots": {"repository", "epic"},
-		"epic_tells":         {"epic", "seq", "text", "at", "told"},
-		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
+		"epic_release_slots":   {"repository", "epic"},
+		"epic_tells":           {"epic", "seq", "text", "at", "told"},
+		"epic_questions":       {"epic", "seq", "turn", "text", "state"},
+		"epic_reviews":         {"epic", "frozen", "clean"},
+		"epic_review_verdicts": {"epic", "position", "reviewer", "step", "verdict", "reason"},
+		"epic_ledger": {
+			"epic", "id", "position", "reviewer", "finding", "claim", "citation", "location", "evidence", "verify_by",
+			"step", "result", "unverified", "reason",
+		},
+		"epic_review_rounds": {"epic", "round", "revision", "tasks", "outcome"},
+		"epic_closures":      {"epic", "round", "finding", "step", "result", "reason"},
+		"epic_review_holds":  {"epic", "step"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -495,9 +504,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00037_release.sql is the newest.
-	if version != 37 {
-		t.Fatalf("store version after Open = %d, want 37", version)
+	// Open applies 00014_epics.sql and every migration after it: 00038_release.sql is the newest.
+	if version != 38 {
+		t.Fatalf("store version after Open = %d, want 38", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -873,7 +882,7 @@ func TestLimitToldMigrationDownAndUp(t *testing.T) {
 	}
 }
 
-// TestReleaseMigrationDownAndUp removes the release run and release slot tables with the Down of 00037_release.sql,
+// TestReleaseMigrationDownAndUp removes the release run and release slot tables with the Down of 00038_release.sql,
 // and Up restores them.
 func TestReleaseMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
@@ -889,8 +898,8 @@ func TestReleaseMigrationDownAndUp(t *testing.T) {
 		t.Fatalf("create goose provider: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 35); err != nil {
-		t.Fatalf("DownTo 35: %v", err)
+	if _, err := provider.DownTo(ctx, 37); err != nil {
+		t.Fatalf("DownTo 37: %v", err)
 	}
 	if tables := tableNames(t, s); tables["epic_release_runs"] || tables["epic_release_slots"] {
 		t.Errorf("release tables after Down: epic_release_runs %v, epic_release_slots %v; want neither",

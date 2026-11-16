@@ -27,6 +27,9 @@ const (
 	judgeAgent   = "orrery-judge"
 )
 
+// releasedPhase is the phase a release whose judge passed ends the epic in.
+const releasedPhase = "released"
+
 // releaseStepText is the step the tests release. Its text holds RELEASEDONE, which the fake claude answers with one
 // commit and a done return. releaseStepFails is a step whose text holds no keyword, so the fake answers it with no
 // structured return and the step does not end done.
@@ -169,7 +172,8 @@ func passReleaseUntil(t *testing.T, daemon *orreryProcess, ack, what string, don
 
 // TestReleaseRunsStepsThroughRealOrreryd proves that orreryd runs a clean epic's release through real steps. Its release
 // step is an unowned writing step in a worktree under the state directory. The store holds the step's end and its one
-// commit before the judge starts, and the judge's end is done.
+// commit before the judge starts, the judge's end is done, and the epic then ends released with one tell and frees its
+// slot.
 func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 	t.Parallel()
 	r := newReleaseRig(t)
@@ -236,13 +240,24 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 		t.Fatalf("judge run %+v, want ended done and passed", judged)
 	}
 
-	// No Ending is wired yet, so the released epic halts at its ending: it stays releasing, and the daemon logs why.
-	if phase := r.releaseEpic(t).GetPhase(); phase != store.PhaseReleasing {
-		t.Fatalf("epic phase %q after the judge passed, want %q", phase, store.PhaseReleasing)
-	}
-	awaitRelease(t, "the ending to fail with no Ending configured", func() bool {
-		return strings.Contains(daemon.stderr.String(), "no Ending configured")
+	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell, and the next
+	// pass frees the slot it held.
+	passReleaseUntil(t, daemon, ack, "the released epic to free its slot", func() bool {
+		return r.releaseEpic(t).GetReleaseSlot() == ""
 	})
+	released := r.releaseEpic(t)
+	if released.GetPhase() != releasedPhase {
+		t.Fatalf("epic phase %q after the judge passed, want %q", released.GetPhase(), releasedPhase)
+	}
+	endings := 0
+	for _, tell := range released.GetTells() {
+		if tell.GetText() == "Epic "+buildRigEpic+" ended released." {
+			endings++
+		}
+	}
+	if endings != 1 {
+		t.Fatalf("tells %+v hold %d endings, want one", released.GetTells(), endings)
+	}
 	wantExit(t, daemon.stop(t), 0)
 }
 

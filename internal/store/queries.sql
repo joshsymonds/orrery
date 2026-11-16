@@ -366,7 +366,7 @@ SELECT * FROM epics ORDER BY id;
 
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
-WHERE epics.base <> '' AND epics.phase = 'accepted'
+WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped')
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
@@ -864,3 +864,54 @@ UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'r
 -- name: EndEpicNodeCheck :exec
 UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
 WHERE id = ? AND state = 'running';
+
+-- name: InsertEpicReview :exec
+INSERT INTO epic_reviews (epic, frozen) VALUES (?, ?)
+ON CONFLICT (epic) DO NOTHING;
+
+-- name: GetEpicReview :one
+SELECT * FROM epic_reviews WHERE epic = ?;
+
+-- name: SetEpicReviewClean :exec
+UPDATE epic_reviews SET clean = ? WHERE epic = ? AND clean = '';
+
+-- name: InsertEpicReviewVerdict :exec
+INSERT INTO epic_review_verdicts (epic, position, reviewer, step, verdict, reason) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, position) DO NOTHING;
+
+-- name: ListEpicReviewVerdicts :many
+SELECT * FROM epic_review_verdicts WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicLedgerFinding :exec
+INSERT INTO epic_ledger (epic, id, position, reviewer, finding, claim, citation, location, evidence, verify_by, step,
+    result, unverified, reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, id) DO NOTHING;
+
+-- name: ListEpicLedger :many
+SELECT * FROM epic_ledger WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicReviewRound :exec
+INSERT INTO epic_review_rounds (epic, round, revision, tasks, outcome) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, round) DO NOTHING;
+
+-- name: ListEpicReviewRounds :many
+SELECT * FROM epic_review_rounds WHERE epic = ? ORDER BY round;
+
+-- name: InsertEpicClosure :exec
+INSERT INTO epic_closures (epic, round, finding, step, result, reason) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, round, finding) DO NOTHING;
+
+-- name: ListEpicClosures :many
+SELECT * FROM epic_closures WHERE epic = ? ORDER BY round, finding;
+
+-- name: InsertEpicReviewHold :execrows
+INSERT INTO epic_review_holds (epic, step) VALUES (?, ?)
+ON CONFLICT (epic, step) DO NOTHING;
+
+-- name: ListEpicReviewHolds :many
+SELECT * FROM epic_review_holds WHERE epic = ? ORDER BY step;
+
+-- name: FreezeEpicNodeRun :execrows
+UPDATE epic_node_runs SET revision = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';

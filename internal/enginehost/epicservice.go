@@ -146,9 +146,9 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 	return nil
 }
 
-// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its release runs and the
-// holder of its repository's release slot, all read in one read of the store, so every reply that carries the epic shows
-// the same state. It returns an error matching store.ErrNoEpic when no epic has that id.
+// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its review, its release
+// runs and the holder of its repository's release slot, all read in one read of the store, so every reply that carries
+// the epic shows the same state. It returns an error matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
 	flow, err := s.epics.EpicFlow(ctx, id)
 	if err != nil {
@@ -162,6 +162,9 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	if err != nil {
 		return nil, err
 	}
+	message.Ledger = reviewLedgerMessage(flow.Review)
+	message.Frozen = flow.Review.Frozen
+	message.Clean = flow.Review.Clean
 	message.Releases = epicMap(flow.Releases, releaseRunMessage)
 	message.ReleaseSlot = flow.Slot
 	return message, nil
@@ -625,6 +628,42 @@ func triggerMessage(trigger store.EpicTrigger) *v1.EpicTrigger {
 // tellMessage returns the EpicTell message of tell: its seq, text, when it was written, and whether it was told.
 func tellMessage(tell store.EpicTell) *v1.EpicTell {
 	return &v1.EpicTell{Seq: tell.Seq, Text: tell.Text, At: tell.At.Unix(), Told: tell.Told}
+}
+
+// reviewLedgerMessage returns the EpicLedger message of review: its verdicts and its ledger findings by position, and
+// its correction rounds by round. A review that has not started has an empty ledger.
+func reviewLedgerMessage(review store.Review) *v1.EpicLedger {
+	return &v1.EpicLedger{
+		Verdicts: epicMap(review.Verdicts, reviewVerdictMessage),
+		Findings: epicMap(review.Ledger, reviewFindingMessage),
+		Rounds:   epicMap(review.Rounds, reviewRoundMessage),
+	}
+}
+
+// reviewVerdictMessage returns the EpicReviewVerdict message of v.
+func reviewVerdictMessage(v store.ReviewVerdict) *v1.EpicReviewVerdict {
+	return &v1.EpicReviewVerdict{
+		Position: v.Position, Reviewer: v.Reviewer, Step: v.Step, Verdict: v.Verdict, Reason: v.Reason,
+	}
+}
+
+// reviewFindingMessage returns the EpicLedgerFinding message of f, with its closures by round.
+func reviewFindingMessage(f store.LedgerFinding) *v1.EpicLedgerFinding {
+	return &v1.EpicLedgerFinding{
+		Id: f.ID, Position: f.Position, Reviewer: f.Reviewer, Finding: f.Finding, Claim: f.Claim, Citation: f.Citation,
+		Location: f.Location, Evidence: f.Evidence, VerifyBy: f.VerifyBy, Step: f.Step, Result: f.Result,
+		Unverified: f.Unverified, Reason: f.Reason, Closures: epicMap(f.Closures, reviewClosureMessage),
+	}
+}
+
+// reviewClosureMessage returns the EpicClosure message of c.
+func reviewClosureMessage(c store.Closure) *v1.EpicClosure {
+	return &v1.EpicClosure{Round: c.Round, Step: c.Step, Result: c.Result, Reason: c.Reason}
+}
+
+// reviewRoundMessage returns the EpicReviewRound message of r, with its correction tasks in seq order.
+func reviewRoundMessage(r store.ReviewRound) *v1.EpicReviewRound {
+	return &v1.EpicReviewRound{Round: r.Round, Revision: r.Revision, Tasks: r.Tasks, Outcome: r.Outcome}
 }
 
 // The kinds whose node runs the nodes view reads rows beneath, and the parts a node run's work ids are derived from.

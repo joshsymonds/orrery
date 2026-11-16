@@ -25,10 +25,8 @@ const (
 	ActFree   ActionKind = "free"
 )
 
-// The phases and outcomes a release run reads and writes beyond those the other kinds name.
+// The outcomes a release run writes beyond those the other kinds name.
 const (
-	phaseReleased   = "released"
-	phaseDone       = "done"
 	outcomeDone     = "done"
 	outcomeReleased = "released"
 )

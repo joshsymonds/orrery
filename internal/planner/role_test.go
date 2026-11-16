@@ -36,3 +36,14 @@ func TestRoleNoLongerAsksForACheckCommand(t *testing.T) {
 		t.Errorf("role text still asks for a check command")
 	}
 }
+
+// TestRoleSaysALedgerTriggerCorrectsItsFindingsAndNothingElse asserts that the role text names a ledger trigger, says to
+// correct each listed finding and nothing else, and says an empty ledger is outcome complete with no tasks.
+func TestRoleSaysALedgerTriggerCorrectsItsFindingsAndNothingElse(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{`"ledger:"`, "correct each listed finding", "nothing else", "an empty ledger", "outcome complete with no tasks"} {
+		if !strings.Contains(role, want) {
+			t.Errorf("role text lacks %q", want)
+		}
+	}
+}

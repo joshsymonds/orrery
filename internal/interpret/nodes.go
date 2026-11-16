@@ -36,16 +36,21 @@ const (
 const stepPart = "step"
 
 // work carries out one work action of a check node run: the prepare, start, capture, refs check or advance its kind asks
-// for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. The work of a release run
-// is carried out by release.
+// for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or closure run's
+// prepare and start are its own. The work of a release run is carried out by release.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if act.NodeKind == kindRelease {
 		return r.release(ctx, epic, act, at)
 	}
 	switch act.Work {
 	case kinds.ActPrepare:
-		if act.NodeKind == kindIntegrate {
+		switch act.NodeKind {
+		case kindIntegrate:
 			return r.prepareBatch(ctx, epic, act)
+		case reviewNodeKind:
+			return r.prepareReview(ctx, epic, act)
+		case closureNodeKind:
+			return r.prepareClosure(ctx, epic, act)
 		}
 		return r.prepare(ctx, epic, act)
 	case kinds.ActStart:
@@ -126,9 +131,18 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 }
 
 // start carries out the start of a check node run's work: its check, its evidence runs or its agent step, or the record of
-// an owned run's result. The work of a kind whose service the runner was not given is an error, not a start.
+// an owned run's result. A review or closure run starts the units it asks for. The work of a kind whose service the
+// runner was not given is an error, not a start.
 func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) error {
 	switch act.NodeKind {
+	case reviewNodeKind, closureNodeKind:
+		if r.steps == nil {
+			return missingService("steps")
+		}
+		if r.reviewers == nil {
+			return missingService("reviewers")
+		}
+		return r.startReviewUnits(ctx, epic, act)
 	case kindGate, kindCommand, kindIntegrate, kindRelease:
 		if r.checks == nil {
 			return missingService("checks")

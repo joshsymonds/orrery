@@ -18,12 +18,22 @@ const releaseKind = "release"
 // judgePart is the part of a release node run's work the judge ran under.
 const judgePart = "judge"
 
-// EpicFlow is one epic's rows as the interpreter decides from them: the epic as Epic returns it, its node runs as
-// NodeRuns returns them, its checks as NodeChecks returns them, its evidence runs as EvidenceRuns returns them, the
-// steps its agent and release node runs ran under as Step returns them, for the runs that have them, its release runs
-// as ReleaseRuns returns them, the holder of its repository's release slot, and how many of its triggers are pending.
+// flowReviewKind and flowClosureKind are the kinds of the review and closure nodes, whose node runs label their steps
+// with their path.
+const (
+	flowReviewKind  = "review"
+	flowClosureKind = "closure"
+)
+
+// EpicFlow is one epic's rows as the interpreter decides from them: the epic as Epic returns it, its review as
+// EpicReview returns it, its node runs as NodeRuns returns them, its checks as NodeChecks returns them, its evidence
+// runs as EvidenceRuns returns them, its steps, its release runs as ReleaseRuns returns them, the holder of its
+// repository's release slot, and how many of its triggers are pending. Steps holds the steps its agent and release node
+// runs ran under as Step returns them, for the runs that have them, then every step labeled with the epic and the path
+// of one of its review or closure node runs, in the order of the runs.
 type EpicFlow struct {
 	Epic     EpicRow
+	Review   Review
 	Runs     []NodeRun
 	Checks   []NodeCheck
 	Evidence []EvidenceRun
@@ -33,7 +43,7 @@ type EpicFlow struct {
 	Pending  int
 }
 
-// EpicFlow returns the stored epic with id with its node runs, checks, evidence runs, node run steps, release runs,
+// EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
 // release slot holder and its pending trigger count. All of them are read in one read transaction, so they describe one
 // state of the store. It returns an error matching ErrNoEpic when no epic has that id.
 func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
@@ -51,10 +61,14 @@ func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
 	return flow, nil
 }
 
-// readEpicFlow reads the epic with id, its node runs, checks, evidence runs, node run steps, release runs, release slot
+// readEpicFlow reads the epic with id, its review, node runs, checks, evidence runs, steps, release runs, release slot
 // holder and its pending trigger count with queries.
 func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicFlow, error) {
 	epic, err := readEpic(ctx, queries, id)
+	if err != nil {
+		return EpicFlow{}, err
+	}
+	review, err := readReview(ctx, queries, id)
 	if err != nil {
 		return EpicFlow{}, err
 	}
@@ -82,13 +96,18 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
+	reviewSteps, err := readReviewSteps(ctx, queries, id, runs)
+	if err != nil {
+		return EpicFlow{}, err
+	}
+	steps = append(steps, reviewSteps...)
 	pending, err := queries.CountPendingEpicTriggers(ctx, id)
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending triggers of epic %s: %w", id, err)
 	}
 	return EpicFlow{
-		Epic: epic, Runs: runs, Checks: checks, Evidence: evidence, Steps: steps, Releases: releases, Slot: slot,
-		Pending: int(pending),
+		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: evidence, Steps: steps, Releases: releases,
+		Slot: slot, Pending: int(pending),
 	}, nil
 }
 
@@ -142,4 +161,25 @@ func workParts(kind string, releaseSteps int) []string {
 	default:
 		return nil
 	}
+}
+
+// readReviewSteps returns, in the order of runs, the steps labeled with epic and the path of each review or closure
+// node run, in the order ListLabelledSteps reads them. Node run paths are unique to an epic, so each step is read once.
+func readReviewSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun) ([]StepRow, error) {
+	var steps []StepRow
+	for _, run := range runs {
+		if run.Kind != flowReviewKind && run.Kind != flowClosureKind {
+			continue
+		}
+		rows, err := queries.ListLabelledSteps(ctx, sqlcgen.ListLabelledStepsParams{Epic: epic, Task: run.Path})
+		if err != nil {
+			return nil, fmt.Errorf("list steps of run %s of epic %s: %w", run.Path, epic, err)
+		}
+		labeled, err := toStepRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, labeled...)
+	}
+	return steps, nil
 }

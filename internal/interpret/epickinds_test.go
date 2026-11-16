@@ -8,11 +8,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// reviewKind is the kind the format registers for an epic's review, which the interpreter leaves to O3e2.
+// reviewKind is the kind the format registers for an epic's review, which the interpreter registers only with
+// reviewers and an ending.
 const reviewKind = "review"
 
-// reviewWaitText is a pinned workflow that plans and then names review, a kind the format registers and the
-// interpreter does not.
+// reviewWaitText is a pinned workflow that plans and then names review, a kind the format registers and a Runner with
+// no reviewers and no ending does not.
 const reviewWaitText = `name: review-wait
 nodes:
   - id: plan
@@ -24,8 +25,8 @@ nodes:
     kind: review
 `
 
-// TestReviewNodeWaitsUnregistered loads a pinned workflow naming review and decides it with the kinds a Runner
-// registers. The workflow loads, so the epic is not parked; the review node starts once the plan ends; and its running
+// TestReviewNodeWaitsUnregistered loads a pinned workflow naming review and decides it with the kinds a Runner with no
+// reviewers and no ending registers. The workflow loads, so the epic is not parked; the review node starts once the plan ends; and its running
 // run gets no action, so it parks nothing and waits.
 func TestReviewNodeWaitsUnregistered(t *testing.T) {
 	t.Parallel()
@@ -40,7 +41,7 @@ func TestReviewNodeWaitsUnregistered(t *testing.T) {
 	}
 	reg := New(Config{}).kinds
 	if _, ok := reg[reviewKind]; ok {
-		t.Fatal("the Runner registers review; it must stay unregistered until O3e2")
+		t.Fatal("the Runner with no reviewers and no ending registers review; it must leave review unregistered")
 	}
 	plan := ended(startOf("plan", "plan", "plan", 0), "complete")
 
