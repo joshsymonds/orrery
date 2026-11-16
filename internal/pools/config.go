@@ -47,6 +47,10 @@ const sectionPools = "pools"
 // sectionGates is the top-level table that holds every gate. internal/gates reads it, so pools leaves it alone.
 const sectionGates = "gates"
 
+// sectionReviewers is the top-level array of tables that holds every reviewer. internal/reviewers reads it, so pools
+// leaves it alone.
+const sectionReviewers = "reviewers"
+
 // poolFile is one [pools.NAME] table as the file spells it. Whether a key is present is read from the metadata,
 // since a zero value cannot tell a missing key from one set to zero.
 type poolFile struct {
@@ -96,8 +100,9 @@ func Parse(path string, data []byte) ([]Pool, error) {
 }
 
 // checkKeys refuses any key the format does not define. Keys match exactly, so HOST is refused rather than read as
-// host. The [gates] table of a project file and every key under it belong to internal/gates, so they pass here; a
-// gates key that is not a table is refused.
+// host. The [gates] table of a project file and every key under it belong to internal/gates, and the [[reviewers]]
+// tables and every key under them belong to internal/reviewers, so they pass here; a gates key that is not a table is
+// refused.
 func checkKeys(md toml.MetaData) error {
 	for _, key := range md.Keys() {
 		switch {
@@ -105,7 +110,7 @@ func checkKeys(md toml.MetaData) error {
 			if t := md.Type(sectionGates); t != "" && t != "Hash" {
 				return fmt.Errorf("%s must be a table, not %s", sectionGates, t)
 			}
-		case key[0] == sectionGates:
+		case slices.Contains([]string{sectionGates, sectionReviewers}, key[0]):
 		case len(key) == 1 && key[0] == sectionPools:
 		case len(key) == 2 && key[0] == sectionPools:
 			if !poolNamePattern.MatchString(key[1]) {
