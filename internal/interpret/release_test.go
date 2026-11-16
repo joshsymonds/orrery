@@ -3,6 +3,7 @@ package interpret
 import (
 	"bytes"
 	"log/slog"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -47,6 +48,13 @@ type releaseWorld struct {
 // through ending, which is nil for none. The runner's state directory is the world's, and its roles are releaseRoles.
 func newReleaseWorld(t *testing.T, ending Ending) *releaseWorld {
 	t.Helper()
+	return newReleaseWorldIn(t, ending, mergeRepo(t))
+}
+
+// newReleaseWorldIn is newReleaseWorld over the repository at repo, which the world's epics are in. A test that never
+// runs git passes a path no repository is built at.
+func newReleaseWorldIn(t *testing.T, ending Ending, repo string) *releaseWorld {
+	t.Helper()
 	s, path := openNodeStore(t)
 	fakes := newNodeFakes(s)
 	cfg := nodeConfig(s, fakes)
@@ -60,7 +68,7 @@ func newReleaseWorld(t *testing.T, ending Ending) *releaseWorld {
 	ordered := &orderedSteps{fakeSteps: fakes.steps, store: s}
 	runner.steps = ordered
 	return &releaseWorld{
-		t: t, s: s, path: path, repo: mergeRepo(t), state: state, fakes: fakes, ordered: ordered, runner: runner,
+		t: t, s: s, path: path, repo: repo, state: state, fakes: fakes, ordered: ordered, runner: runner,
 		logs: logs,
 	}
 }
@@ -117,7 +125,7 @@ func (w *releaseWorld) endGate(exit int) {
 func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	t.Parallel()
 	ending := &recordingEnding{}
-	w := newReleaseWorld(t, ending)
+	w := newReleaseWorldIn(t, ending, filepath.Join(t.TempDir(), "no-repository"))
 	w.createEpic(runEpic, store.PhaseClean)
 	w.pass()
 
@@ -274,7 +282,7 @@ func TestReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
 // this drives the action the decision hands over.
 func TestReleaseFreeGivesUpSlot(t *testing.T) {
 	t.Parallel()
-	w := newReleaseWorld(t, nil)
+	w := newReleaseWorldIn(t, nil, filepath.Join(t.TempDir(), "no-repository"))
 	w.createEpic(runEpic, store.PhaseStopped)
 	if _, err := w.s.TakeReleaseSlot(w.t.Context(), runEpic); err != nil {
 		t.Fatalf("TakeReleaseSlot: %v", err)
@@ -296,7 +304,7 @@ func TestReleaseFreeGivesUpSlot(t *testing.T) {
 // runner with no Ending reports that as the error of the pass, and leaves the epic where it was.
 func TestReleaseNilEndingReportsNoEndingConfigured(t *testing.T) {
 	t.Parallel()
-	w := newReleaseWorld(t, nil)
+	w := newReleaseWorldIn(t, nil, filepath.Join(t.TempDir(), "no-repository"))
 	w.createEpic(runEpic, store.PhaseClean)
 	logs := w.pass()
 
