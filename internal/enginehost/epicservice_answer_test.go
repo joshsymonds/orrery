@@ -139,59 +139,48 @@ func TestEpicNoteWithNoOpenQuestionHasNoWarning(t *testing.T) {
 	}
 }
 
-func TestEpicNoteNamingAChoiceIsInvalidArgument(t *testing.T) {
+func TestEpicAnswerRefusedRequestsRecordNoDecision(t *testing.T) {
 	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	askQuestions(t, st, "Synthetic question one?")
-
-	_, err := answerEpic(t, client, "A1", "Ship it.", "", "synthetic-a")
-	wantConnectError(t, err, connect.CodeInvalidArgument, "choice: a note answers no question")
-	if decisions := getEpicOK(t, client).GetDecisions(); len(decisions) != 3 {
-		t.Fatalf("decisions = %d after a refused note, want the three seeds", len(decisions))
+	cases := []struct {
+		text     string
+		question string
+		choice   string
+		want     string
+	}{
+		{
+			text:   "Ship it.",
+			choice: "synthetic-a",
+			want:   "choice: a note answers no question",
+		},
+		{
+			text:     "Ship it.",
+			question: "Q1",
+			want:     "choice: empty",
+		},
+		{
+			text:     "Ship it.",
+			question: "Q1",
+			choice:   "synthetic-z",
+			want:     "choice: Q1 offers no choice synthetic-z",
+		},
+		{
+			text:     " \t ",
+			question: "Q1",
+			choice:   store.ChoiceOther,
+			want:     "text: empty",
+		},
 	}
-}
-
-func TestEpicAnswerWithoutChoiceIsInvalidArgument(t *testing.T) {
-	t.Parallel()
-	st, _ := openPlannerStore(t)
-	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
-	askQuestions(t, st, "Synthetic question one?")
-
-	_, err := answerEpic(t, client, "A1", "Ship it.", "Q1", "")
-	wantConnectError(t, err, connect.CodeInvalidArgument, "choice: empty")
-	if decisions := getEpicOK(t, client).GetDecisions(); len(decisions) != 3 {
-		t.Fatalf("decisions = %d after a refused answer, want the three seeds", len(decisions))
+	// The rows run in the test body, not as subtests, so the decisions check below runs after every row.
+	for _, tc := range cases {
+		_, err := answerEpic(t, client, "A1", tc.text, tc.question, tc.choice)
+		wantConnectError(t, err, connect.CodeInvalidArgument, tc.want)
 	}
-}
-
-func TestEpicAnswerWithUnofferedChoiceIsInvalidArgument(t *testing.T) {
-	t.Parallel()
-	st, _ := openPlannerStore(t)
-	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
-	askQuestions(t, st, "Synthetic question one?")
-
-	_, err := answerEpic(t, client, "A1", "Ship it.", "Q1", "synthetic-z")
-	wantConnectError(t, err, connect.CodeInvalidArgument, "choice: Q1 offers no choice synthetic-z")
 	if decisions := getEpicOK(t, client).GetDecisions(); len(decisions) != 3 {
-		t.Fatalf("decisions = %d after a refused answer, want the three seeds", len(decisions))
-	}
-}
-
-func TestEpicAnswerOtherWithBlankTextIsInvalidArgument(t *testing.T) {
-	t.Parallel()
-	st, _ := openPlannerStore(t)
-	client := newEpicsClient(t, startEpicServer(t, st))
-	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
-	askQuestions(t, st, "Synthetic question one?")
-
-	_, err := answerEpic(t, client, "A1", " \t ", "Q1", store.ChoiceOther)
-	wantConnectError(t, err, connect.CodeInvalidArgument, "text: empty")
-	if decisions := getEpicOK(t, client).GetDecisions(); len(decisions) != 3 {
-		t.Fatalf("decisions = %d after a refused answer, want the three seeds", len(decisions))
+		t.Fatalf("decisions = %d after refused answers, want the three seeds", len(decisions))
 	}
 }
 
