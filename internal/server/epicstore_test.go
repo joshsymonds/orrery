@@ -298,3 +298,42 @@ func TestEpicsStoreFailureAnswersUnavailable(t *testing.T) {
 		requireConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")
 	})
 }
+
+// TestEpicsStoredEpicLiveByPhase answers a stored epic of each phase through List and Get: released and done epics
+// are not live, and ended_with_gaps and stopped epics are.
+func TestEpicsStoredEpicLiveByPhase(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		phase string
+		live  bool
+	}{
+		{phase: "released", live: false},
+		{phase: "done", live: false},
+		{phase: "ended_with_gaps", live: true},
+		{phase: "stopped", live: true},
+	}
+	stored := make([]*enginev1.StoredEpic, 0, len(cases))
+	for _, c := range cases {
+		stored = append(stored, storedEpicOf("repoa/"+c.phase, c.phase, epicsAgo(time.Hour)))
+	}
+	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, &epicStoreFake{stored: stored})
+
+	listed := make(map[string]*orreryv1.Epic, len(cases))
+	for _, epic := range epicsList(t, client) {
+		listed[epic.GetId()] = epic
+	}
+	for _, c := range cases {
+		id := "repoa/" + c.phase
+		epic, ok := listed[id]
+		if !ok {
+			t.Errorf("List has no %s", id)
+			continue
+		}
+		if epic.GetLive() != c.live {
+			t.Errorf("List %s live = %v, want %v", id, epic.GetLive(), c.live)
+		}
+		if got := epicsGet(t, client, id).GetEpic().GetLive(); got != c.live {
+			t.Errorf("Get %s live = %v, want %v", id, got, c.live)
+		}
+	}
+}

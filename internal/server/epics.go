@@ -297,8 +297,9 @@ func epicMessage(
 }
 
 // storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its changed time is
-// the database's, and it is live unless the phase is released. Its problem joins problems, which are the record's when a
-// record of the id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
+// the database's, and it is live unless the phase is released or done, which end an epic; ended_with_gaps and stopped
+// stay live. Its problem joins problems, which are the record's when a record of the id exists and none otherwise. Its
+// steps are the labeled steps, as epicMessage's are.
 func storedEpicMessage(id, phase string, changed int64, problems []string, labeled []*enginev1.Step) *orreryv1.Epic {
 	running, ended := epicSteps(labeled)
 	repository, slug, _ := strings.Cut(id, "/")
@@ -308,7 +309,7 @@ func storedEpicMessage(id, phase string, changed int64, problems []string, label
 		Slug:         slug,
 		Outcome:      phase,
 		Changed:      changed,
-		Live:         phase != "released",
+		Live:         phase != "released" && phase != "done",
 		RunningSteps: running,
 		EndedSteps:   ended,
 		Problem:      strings.Join(problems, "; "),
