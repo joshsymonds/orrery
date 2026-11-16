@@ -22,11 +22,11 @@ import (
 const epicRetryForm = "retry ID [NODE]"
 
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
-const epicForms = "create FILE|-, get ID, list, answer EPIC --id ID [--question QN] TEXT, pause ID, resume ID, " +
-	"stop ID, " + epicRetryForm
+const epicForms = "create FILE|-, get ID, list, follow, answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
+	"pause ID, resume ID, stop ID, " + epicRetryForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
-const epicAnswerForm = "answer EPIC --id ID [--question QN] TEXT"
+const epicAnswerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
 
 // epicListVerb is the verb of `orrery epic list`. The tmux list command spells it the same way, so it is named here.
 const epicListVerb = "list"
@@ -42,11 +42,12 @@ type epicRetryArgs struct {
 	Node string `json:"node,omitempty"`
 }
 
-// epicAnswerArgs is the arguments of epic_answer. Question is omitted for a note.
+// epicAnswerArgs is the arguments of epic_answer. Question and Choice are omitted for a note.
 type epicAnswerArgs struct {
 	EpicID   string `json:"epicId"`
 	ID       string `json:"id"`
 	Question string `json:"question,omitempty"`
+	Choice   string `json:"choice,omitempty"`
 	Text     string `json:"text"`
 }
 
@@ -71,6 +72,11 @@ func epicCommand(
 			return epicForm(verb)
 		}
 		return epicInvoke(ctx, epics, "epic_list", map[string]string{}, stdout)
+	case "follow":
+		if len(rest) != 0 {
+			return epicForm(verb)
+		}
+		return epicInvoke(ctx, epics, "epic_follow", struct{}{}, stdout)
 	case "get", "pause", "resume", "stop":
 		if len(rest) != 1 {
 			return epicForm(verb + " ID")
@@ -131,7 +137,8 @@ func epicReadInput(path string, stdin io.Reader) (json.RawMessage, error) {
 	return data, nil
 }
 
-// epicAnswer implements `answer EPIC --id ID [--question QN] TEXT`.
+// epicAnswer implements `answer EPIC --id ID [--question QN] [--choice C] [TEXT]`. TEXT may be left out only when
+// --choice is given; the service refuses the answers that need text it does not get.
 func epicAnswer(
 	ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout, stderr io.Writer,
 ) error {
@@ -142,18 +149,20 @@ func epicAnswer(
 	flags.SetOutput(io.Discard)
 	id := flags.String("id", "", "the decision's id")
 	question := flags.String("question", "", "the Q<n> the decision answers; omit it for a note")
+	choice := flags.String("choice", "", "the choice the decision gives the question: a declared choice's id, or other")
 	if err := flags.Parse(rest[1:]); err != nil {
 		return epicForm(epicAnswerForm)
 	}
 	given := make(map[string]bool)
 	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	if flags.NArg() != 1 || !given["id"] {
+	if !given["id"] || flags.NArg() > 1 || (flags.NArg() == 0 && !given["choice"]) {
 		return epicForm(epicAnswerForm)
 	}
 	arguments, err := json.Marshal(epicAnswerArgs{
 		EpicID:   rest[0],
 		ID:       *id,
 		Question: *question,
+		Choice:   *choice,
 		Text:     flags.Arg(0),
 	})
 	if err != nil {

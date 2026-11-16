@@ -34,9 +34,13 @@ type epicListArgs struct{}
 type epicAnswerArgs struct {
 	EpicID   string `json:"epicId"`
 	ID       string `json:"id"`
-	Text     string `json:"text"`
+	Text     string `json:"text,omitempty"     jsonschema:"the owner's words: required with choice other, optional with a declared choice"`
 	Question string `json:"question,omitempty" jsonschema:"the Q<n> the answer names; omit for a note"`
+	Choice   string `json:"choice,omitempty"   jsonschema:"the choice the answer gives the question: a declared choice's id, or other; omit for a note"`
 }
+
+// epicFollowArgs is the arguments of epic_follow, which takes none.
+type epicFollowArgs struct{}
 
 // epicRetryArgs is the arguments of epic_retry, described for its input schema. Node names the workflow node whose
 // parked run reruns; omitted, the epic's park ends instead.
@@ -60,6 +64,10 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		return nil, err
 	}
 	answerInput, err := argumentSchema[epicAnswerArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	followInput, err := argumentSchema[epicFollowArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -92,12 +100,20 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		},
 		{
 			Name: "epic_answer",
-			Description: "Record a decision on an epic. question names the Q<n> the decision answers; omit it for " +
-				"a note, which answers no question and returns a warning naming the questions still open. " +
-				"A decision id already recorded with the same text returns the stored decision; other text " +
-				"under that id is refused. Returns the decision and the warning.",
+			Description: "Record a decision on an epic. question names the Q<n> the decision answers, and choice " +
+				"names the choice it gives: a declared choice's id, or other, which needs text. A decision with " +
+				"no question is a note, which takes no choice and returns a warning naming the questions still " +
+				"open. A decision id already recorded with the same text returns the stored decision; other " +
+				"text under that id is refused. Returns the decision and the warning.",
 			InputSchema: answerInput,
 			Handler:     epicAnswerHandler(epics),
+		},
+		{
+			Name: "epic_follow",
+			Description: "Return how often the owner took the advice of each question label, across all epics: " +
+				"per label, the answered questions that had a recommendation and how many were answered with it.",
+			InputSchema: followInput,
+			Handler:     epicFollowHandler(epics),
 		},
 		{
 			Name: "epic_pause",
@@ -227,6 +243,20 @@ func epicAnswerHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(answered.Msg)
+	}
+}
+
+func epicFollowHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.FollowEpicsRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		followed, err := epics.FollowEpics(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(followed.Msg)
 	}
 }
 

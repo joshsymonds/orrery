@@ -31,6 +31,7 @@ type fakeEpics struct {
 	resumes     []*v1.ResumeEpicRequest
 	stops       []*v1.StopEpicRequest
 	retries     []*v1.RetryEpicRequest
+	follows     []*v1.FollowEpicsRequest
 	createReply *v1.CreateEpicResponse
 	getReply    *v1.GetEpicResponse
 	listReply   *v1.ListEpicsResponse
@@ -39,6 +40,7 @@ type fakeEpics struct {
 	resumeReply *v1.ResumeEpicResponse
 	stopReply   *v1.StopEpicResponse
 	retryReply  *v1.RetryEpicResponse
+	followReply *v1.FollowEpicsResponse
 	err         error
 }
 
@@ -148,9 +150,15 @@ func (f *fakeEpics) RetryEpic(
 
 func (f *fakeEpics) FollowEpics(
 	_ context.Context,
-	_ *connect.Request[v1.FollowEpicsRequest],
+	req *connect.Request[v1.FollowEpicsRequest],
 ) (*connect.Response[v1.FollowEpicsResponse], error) {
-	return connect.NewResponse(&v1.FollowEpicsResponse{}), nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.follows = append(f.follows, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.followReply), nil
 }
 
 // epicCalls is a copy of the requests the fake received.
@@ -163,6 +171,7 @@ type epicCalls struct {
 	resumes []*v1.ResumeEpicRequest
 	stops   []*v1.StopEpicRequest
 	retries []*v1.RetryEpicRequest
+	follows []*v1.FollowEpicsRequest
 }
 
 func (f *fakeEpics) calls() epicCalls {
@@ -177,12 +186,13 @@ func (f *fakeEpics) calls() epicCalls {
 		resumes: slices.Clone(f.resumes),
 		stops:   slices.Clone(f.stops),
 		retries: slices.Clone(f.retries),
+		follows: slices.Clone(f.follows),
 	}
 }
 
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
-		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries)
+		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.follows)
 }
 
 // fullContract is an epic contract with every field set, each to a value distinct from the others.
@@ -332,7 +342,7 @@ func unmarshalResult(t *testing.T, text string, msg proto.Message) {
 	}
 }
 
-func TestToolsListNamesTheEightEpicTools(t *testing.T) {
+func TestToolsListNamesTheNineEpicTools(t *testing.T) {
 	p := newPeer(t, nil, &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
@@ -350,7 +360,8 @@ func TestToolsListNamesTheEightEpicTools(t *testing.T) {
 		schemas[tool.Name] = tool.InputSchema
 	}
 	names := []string{
-		"epic_create", "epic_get", "epic_list", "epic_answer", "epic_pause", "epic_resume", "epic_stop", "epic_retry",
+		"epic_create", "epic_get", "epic_list", "epic_answer", "epic_follow", "epic_pause", "epic_resume", "epic_stop",
+		"epic_retry",
 	}
 	for _, name := range names {
 		schema, ok := schemas[name]
@@ -366,12 +377,18 @@ func TestToolsListNamesTheEightEpicTools(t *testing.T) {
 	answer := schemas["epic_answer"]
 	properties, _ := answer["properties"].(map[string]any)
 	question, _ := properties["question"].(map[string]any)
+	choice, _ := properties["choice"].(map[string]any)
 	required, _ := answer["required"].([]any)
 	if question["type"] != "string" {
 		t.Errorf("epic_answer question schema = %v, want type string", question)
 	}
-	if slices.Contains(required, any("question")) {
-		t.Errorf("epic_answer requires question = %v, want it optional", required)
+	if choice["type"] != "string" {
+		t.Errorf("epic_answer choice schema = %v, want type string", choice)
+	}
+	for _, optional := range []string{"question", "choice", "text"} {
+		if slices.Contains(required, any(optional)) {
+			t.Errorf("epic_answer requires %s = %v, want it optional", optional, required)
+		}
 	}
 }
 
@@ -562,6 +579,92 @@ func TestEpicAnswerSendsQuestionAndReturnsDecision(t *testing.T) {
 	}
 }
 
+// TestEpicAnswerSendsChoiceAsGiven checks that epic_answer sends the choice an answer names, and sends text only when
+// the answer gives it.
+func TestEpicAnswerSendsChoiceAsGiven(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		args string
+		want *v1.AnswerEpicRequest
+	}{
+		{
+			name: "declared choice without text",
+			args: `{"epicId":"` + testEpicID + `","id":"D3","question":"Q2","choice":"retry"}`,
+			want: &v1.AnswerEpicRequest{EpicId: testEpicID, Id: "D3", Question: "Q2", Choice: "retry"},
+		},
+		{
+			name: "other with text",
+			args: `{"epicId":"` + testEpicID + `","id":"D3","question":"Q2","choice":"other","text":"Use OIDC."}`,
+			want: &v1.AnswerEpicRequest{EpicId: testEpicID, Id: "D3", Question: "Q2", Choice: "other",
+				Text: "Use OIDC."},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reply := &v1.AnswerEpicResponse{
+				Decision: &v1.EpicDecision{Seq: 3, Id: "D3", Question: "Q2"},
+			}
+			fake := &fakeEpics{answerReply: reply}
+			p := newPeer(t, nil, fake)
+
+			outcome := p.tool("epic_answer", tc.args)
+
+			if outcome.isError {
+				t.Fatalf("epic_answer returned an error: %s", outcome.text)
+			}
+			calls := fake.calls().answers
+			if len(calls) != 1 || !proto.Equal(calls[0], tc.want) {
+				t.Fatalf("AnswerEpic requests = %v, want %v", calls, tc.want)
+			}
+		})
+	}
+}
+
+// TestEpicAnswerRefusedChoiceIsErrorText checks that a choice the question does not offer, and other with no text,
+// come back as the tool's error text with the service's refusal.
+func TestEpicAnswerRefusedChoiceIsErrorText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		args    string
+		refusal error
+		want    string
+	}{
+		{
+			name: "choice the question lacks",
+			args: `{"epicId":"` + testEpicID + `","id":"D3","question":"Q2","choice":"maybe"}`,
+			refusal: connect.NewError(connect.CodeInvalidArgument,
+				errors.New("choice: Q2 offers no choice maybe")),
+			want: "invalid_argument: choice: Q2 offers no choice maybe",
+		},
+		{
+			name: "other with no text",
+			args: `{"epicId":"` + testEpicID + `","id":"D3","question":"Q2","choice":"other"}`,
+			refusal: connect.NewError(connect.CodeInvalidArgument,
+				errors.New("text: empty")),
+			want: "invalid_argument: text: empty",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeEpics{err: tc.refusal}
+			p := newPeer(t, nil, fake)
+
+			outcome := p.tool("epic_answer", tc.args)
+
+			if !outcome.isError {
+				t.Fatalf("epic_answer returned %q without isError", outcome.text)
+			}
+			if outcome.text != tc.want {
+				t.Fatalf("epic_answer error text = %q, want %q", outcome.text, tc.want)
+			}
+		})
+	}
+}
+
 func TestEpicAnswerRefusalNamesTheField(t *testing.T) {
 	fake := &fakeEpics{err: connect.NewError(connect.CodeAlreadyExists,
 		errors.New("id: D3 was recorded with other text"))}
@@ -575,6 +678,47 @@ func TestEpicAnswerRefusalNamesTheField(t *testing.T) {
 	want := "already_exists: id: D3 was recorded with other text"
 	if outcome.text != want {
 		t.Fatalf("epic_answer error text = %q, want %q", outcome.text, want)
+	}
+}
+
+func TestEpicFollowReturnsTheCounts(t *testing.T) {
+	t.Parallel()
+	reply := &v1.FollowEpicsResponse{Follows: []*v1.EpicFollow{
+		{Label: "retry-policy", Answered: 4, Followed: 3},
+		{Label: "scope", Answered: 2, Followed: 0},
+	}}
+	fake := &fakeEpics{followReply: reply}
+	p := newPeer(t, nil, fake)
+
+	outcome := p.tool("epic_follow", `{}`)
+
+	if outcome.isError {
+		t.Fatalf("epic_follow returned an error: %s", outcome.text)
+	}
+	calls := fake.calls()
+	if n := calls.total(); n != 1 || len(calls.follows) != 1 {
+		t.Fatalf("epic_follow made %d service calls, want one FollowEpics", n)
+	}
+	var got v1.FollowEpicsResponse
+	unmarshalResult(t, outcome.text, &got)
+	if !proto.Equal(&got, reply) {
+		t.Fatalf("epic_follow result = %s, want the counts", outcome.text)
+	}
+}
+
+func TestEpicFollowWithNoCountsEmitsAnEmptyArray(t *testing.T) {
+	t.Parallel()
+	p := newPeer(t, nil, &fakeEpics{followReply: &v1.FollowEpicsResponse{}})
+
+	outcome := p.tool("epic_follow", `{}`)
+
+	if outcome.isError {
+		t.Fatalf("epic_follow returned an error: %s", outcome.text)
+	}
+	object := decodeObject(t, outcome.text)
+	follows, ok := object["follows"].([]any)
+	if !ok || len(follows) != 0 {
+		t.Fatalf("epic_follow result = %s, want an explicit empty follows array", outcome.text)
 	}
 }
 
@@ -601,6 +745,7 @@ func TestEpicToolsRefuseUnknownKeysBeforeAnyCall(t *testing.T) {
 		},
 		{name: "get unknown key", tool: "epic_get", args: `{"id":"` + testEpicID + `","bogus":1}`},
 		{name: "list unknown key", tool: "epic_list", args: `{"bogus":1}`},
+		{name: "follow unknown key", tool: "epic_follow", args: `{"bogus":1}`},
 		{
 			name: "answer unknown key",
 			tool: "epic_answer",

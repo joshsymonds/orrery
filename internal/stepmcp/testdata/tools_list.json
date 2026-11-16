@@ -193,7 +193,7 @@
   },
   {
     "name": "epic_answer",
-    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers; omit it for a note, which answers no question and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns the decision and the warning.",
+    "description": "Record a decision on an epic. question names the Q\u003cn\u003e the decision answers, and choice names the choice it gives: a declared choice's id, or other, which needs text. A decision with no question is a note, which takes no choice and returns a warning naming the questions still open. A decision id already recorded with the same text returns the stored decision; other text under that id is refused. Returns the decision and the warning.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -204,18 +204,32 @@
           "type": "string"
         },
         "text": {
-          "type": "string"
+          "type": "string",
+          "description": "the owner's words: required with choice other, optional with a declared choice"
         },
         "question": {
           "type": "string",
           "description": "the Q\u003cn\u003e the answer names; omit for a note"
+        },
+        "choice": {
+          "type": "string",
+          "description": "the choice the answer gives the question: a declared choice's id, or other; omit for a note"
         }
       },
       "required": [
         "epicId",
-        "id",
-        "text"
+        "id"
       ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_follow",
+    "description": "Return how often the owner took the advice of each question label, across all epics: per label, the answered questions that had a recommendation and how many were answered with it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
       "additionalProperties": false
     }
   },
