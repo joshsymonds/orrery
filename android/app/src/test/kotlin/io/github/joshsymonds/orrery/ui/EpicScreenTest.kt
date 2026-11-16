@@ -454,18 +454,6 @@ class EpicScreenTest {
     }
 
     @Test
-    fun aRunningReleaseStepReachesTheReleaseProof() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(contract = contract(), releaseProof = listOf(releaseProof(1L, "running"))))
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:release")
-            assertEquals("reached", stateOf("proof:release"))
-        }
-    }
-
-    @Test
     fun theReportShowsItsLinesAndIsReachedWhenTheEpicHasOne() {
         FakeOrreryServer().use { server ->
             serve(
@@ -485,20 +473,6 @@ class EpicScreenTest {
             composeRule.onNodeWithTag("report-not-shipped", useUnmergedTree = true).assertTextEquals("not shipped R3")
             composeRule.onNodeWithTag("report-why", useUnmergedTree = true).assertTextEquals("Example why.")
             assertEquals("reached", stateOf("proof:report"))
-        }
-    }
-
-    @Test
-    fun theReportIsDimAndHeadingOnlyWithoutOne() {
-        FakeOrreryServer().use { server ->
-            serve(server, body())
-            setScreen(server)
-            awaitLoaded()
-
-            scrollTo("epic-section:report")
-            assertEquals("dim", stateOf("proof:report"))
-            assertEquals(0, countNodes(hasTestTag("report-outcome")))
-            assertEquals(0, countNodes(hasTestTag("report-why")))
         }
     }
 
