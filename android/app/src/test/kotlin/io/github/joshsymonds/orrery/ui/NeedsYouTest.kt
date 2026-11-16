@@ -19,6 +19,7 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -135,8 +136,9 @@ class NeedsYouTest {
         )
 
         composeRule.onNodeWithTag(NEEDS_TAG).assertIsDisplayed()
-        composeRule.onNodeWithText(HEADING).assertIsDisplayed()
-        composeRule.onNodeWithText("alpha is parked: budget").assertIsDisplayed()
+        val heading = composeRule.onNodeWithText(HEADING).fetchSemanticsNode().positionInRoot.y
+        val need = composeRule.onNodeWithText("alpha is parked: budget").fetchSemanticsNode().positionInRoot.y
+        assertTrue("the heading draws above the need", heading < need)
     }
 
     @Test

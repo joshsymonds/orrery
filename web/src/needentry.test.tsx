@@ -8,6 +8,7 @@ import type { EpicCommands } from "./epicpage";
 import { NeedEntry } from "./needentry";
 import type { Need } from "./needs";
 import { installTestDom, removeTestDom } from "./testdom";
+import { pause, until } from "./testwait";
 
 const questionNeed: Need = {
   kind: "question",
@@ -94,13 +95,6 @@ async function withTree(tree: JSX.Element, check: (container: HTMLElement) => Pr
   }
 }
 
-// settle lets a pending answer resolve and its state update render.
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
-
 function findButton(root: ParentNode, selector: string, text: string): HTMLButtonElement | undefined {
   return [...root.querySelectorAll<HTMLButtonElement>(selector)].find((button) => button.textContent === text);
 }
@@ -172,7 +166,7 @@ test("submitting a question need's answer calls answer with its question id and 
   return withTree(entry(questionNeed, commands), async (container) => {
     await type(container, "  Use main  ");
     assert.equal(await press(container, "button.act.primary", "Answer"), true);
-    await settle();
+    await until(() => answerText(container) === "", "the recorded answer clears the box", { step: () => act(pause) });
     assert.deepEqual(calls, ["answer Q1 Use main"]);
     assert.equal(answerText(container), "", "a recorded answer clears the box");
   });

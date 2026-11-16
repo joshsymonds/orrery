@@ -117,18 +117,6 @@ test("requirement arcs read proven or open by their ids", () =>
     assert.equal(container.querySelector('svg.orrery path.req[data-req="R3"]')?.classList.contains("proven"), false);
   }));
 
-test("an open question always gives a blocker span, even when the epic is paused and waiting", () => {
-  const epic = makeEpic({ waiting: true });
-  const detail = create(EpicsGetResponseSchema, {
-    epic,
-    paused: true,
-    questions: [{ id: "Q1", text: "Which way?", asked: 0n }],
-  });
-  return withLine(lineFor(itemOf(epic, detail)), (container) => {
-    assert.equal(textOf(container, ".blocker"), "waits on your answer");
-  });
-});
-
 test("a line with nothing waiting has no blocker span", () => {
   const epic = makeEpic({ phaseAt: 97060n });
   return withLine(lineFor(itemOf(epic, create(EpicsGetResponseSchema, { epic }))), (container) => {

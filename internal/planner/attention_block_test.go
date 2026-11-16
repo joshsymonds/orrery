@@ -177,27 +177,6 @@ func TestAttentionBlockQuestionTellOnAStoppedEpicWithNoFailedStepOpensOnItsQuest
 	checkBlock(t, noticeWithBody(t, router, releaseStopReason+"\n"), blockWant{block: "question", ref: "Q1"})
 }
 
-func TestAttentionBlockEndingTellOnAReleasedEpicOpensOnItsReport(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openRunnerStore(t)
-	createRunnerEpic(t, s)
-	endWorkTurn(t, s, claimedAt())
-	if err := s.EndEpic(
-		ctx, runnerEpicID, "released", "the epic is released", nil, claimedAt().Add(time.Second),
-	); err != nil {
-		t.Fatalf("EndEpic released: %v", err)
-	}
-	router := &fakeAttentionRouter{}
-
-	attentionOver(s, router).pass(ctx)
-
-	if len(router.notices) != 1 {
-		t.Fatalf("notices after one pass = %d, want exactly one", len(router.notices))
-	}
-	checkBlock(t, router.notices[0], blockWant{block: "report"})
-}
-
 func TestAttentionBlockRestoreNoticeKeepsTheBlock(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

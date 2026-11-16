@@ -2604,7 +2604,7 @@ test("answering an open question in Needs you sends Epics.Answer with its epic a
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
   return withApp({ epics }, async (container, fake) => {
     const box = container.querySelector<HTMLTextAreaElement>('.need-entry textarea[aria-label="answer"]');
-    assert.ok(box, "the question's need shows its answer box");
+    assert.ok(box !== null, "the question's need shows its answer box");
     await typeInto(box, " north ");
     await submitIn(container, ".need-entry form.answer");
     await until(() => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
