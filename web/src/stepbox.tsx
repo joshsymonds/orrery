@@ -1,5 +1,5 @@
 import type { JSX, Ref } from "preact";
-import { useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 export type Refusal = { outcome: "refused"; message: string } | { outcome: "unknown" };
@@ -30,9 +30,10 @@ function failure(outcome: Refusal, refused: string, unknown: string): Notice {
 type Menu = "closed" | "open" | "confirming";
 
 // StepBox is the box under a step's reader: one line of Interrupt, the nudge input with a send button, and ⋯. Stop sits
-// in the menu ⋯ opens. Enter and the send button send the nudge text once; a failed nudge keeps the draft and is never
-// resent by the box. Stop asks first: it reveals Confirm stop and Cancel, and only Confirm stop calls the server. Every
-// message is drawn as text. Its edge and placeholder say whether the step is held or running.
+// in the menu ⋯ opens. Enter and the send button send the nudge text once; Shift+Enter or Alt+Enter puts a line break
+// at the cursor instead, and nothing is sent. A failed nudge keeps the draft and is never resent by the box. Stop asks
+// first: it reveals Confirm stop and Cancel, and only Confirm stop calls the server. Every message is drawn as text.
+// Its edge and placeholder say whether the step is held or running.
 export function StepBox(props: {
   label: string; // the step's label, named in the placeholder
   held: boolean; // whether the step is held; a step that is not held is running
@@ -52,6 +53,17 @@ export function StepBox(props: {
   const inFlight = useRef(false);
   // unknownText is the text of a nudge whose outcome is not known. Enter does not send it again until the text changes.
   const unknownText = useRef<string | null>(null);
+  // breakAt is the caret a line break leaves: the textarea, and the offset just after the break. It is placed once the
+  // break's text has rendered, since the render sets the textarea's value and that moves the caret to the end.
+  const breakAt = useRef<{ box: HTMLTextAreaElement; at: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const pending = breakAt.current;
+    if (pending !== null) {
+      breakAt.current = null;
+      pending.box.setSelectionRange(pending.at, pending.at);
+    }
+  });
 
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "" || text === unknownText.current) {
@@ -96,9 +108,22 @@ export function StepBox(props: {
     }
   }
 
-  function onKeyDown(event: KeyboardEvent): void {
+  // lineBreak replaces the selection with a line break, and leaves the caret just after it. The text is read from the
+  // textarea itself, since its selection is what the offsets refer to.
+  function lineBreak(box: HTMLTextAreaElement): void {
+    const start = box.selectionStart;
+    const next = `${box.value.slice(0, start)}\n${box.value.slice(box.selectionEnd)}`;
+    breakAt.current = { box, at: start + 1 };
+    setText(next);
+  }
+
+  function onKeyDown(event: JSX.TargetedKeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === "Enter") {
       event.preventDefault();
+      if (event.shiftKey || event.altKey) {
+        lineBreak(event.currentTarget);
+        return;
+      }
       void submit();
     }
   }

@@ -82,10 +82,15 @@ async function type(box: HTMLTextAreaElement, text: string): Promise<void> {
   });
 }
 
-async function press(box: HTMLTextAreaElement, key: string): Promise<void> {
+type Modifiers = Partial<Pick<KeyboardEventInit, "shiftKey" | "altKey" | "ctrlKey" | "metaKey">>;
+
+// press dispatches a keydown and returns it, so a test can see whether the box cancelled the key's default action.
+async function press(box: HTMLTextAreaElement, key: string, modifiers: Modifiers = {}): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key, cancelable: true, ...modifiers });
   await act(() => {
-    box.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+    box.dispatchEvent(event);
   });
+  return event;
 }
 
 async function click(element: HTMLElement): Promise<void> {
@@ -183,6 +188,74 @@ test("a blank box sends nothing on Enter", async () => {
     assert.equal(box.value, "   ");
     assertNoNotice(container);
   });
+});
+
+test("Shift+Enter in a box holding text leaves a line break at the cursor and sends nothing", async () => {
+  let nudges = 0;
+  await withBox({ nudge: async () => void nudges++ }, async (box, container) => {
+    await type(box, "first second");
+    box.setSelectionRange(5, 5);
+    const event = await press(box, "Enter", { shiftKey: true });
+    await settle();
+    assert.equal(event.defaultPrevented, true, "the box cancels the browser's own Enter");
+    assert.equal(box.value, "first\n second");
+    assert.equal(box.selectionStart, 6, "the caret is just after the break");
+    assert.equal(box.selectionEnd, 6, "the caret is just after the break");
+    assert.equal(nudges, 0);
+    assertNoNotice(container);
+  });
+});
+
+test("Alt+Enter in a box holding text leaves a line break at the cursor and sends nothing", async () => {
+  let nudges = 0;
+  await withBox({ nudge: async () => void nudges++ }, async (box, container) => {
+    await type(box, "first second");
+    box.setSelectionRange(5, 5);
+    const event = await press(box, "Enter", { altKey: true });
+    await settle();
+    assert.equal(event.defaultPrevented, true, "the box cancels the browser's own Enter");
+    assert.equal(box.value, "first\n second");
+    assert.equal(box.selectionStart, 6, "the caret is just after the break");
+    assert.equal(box.selectionEnd, 6, "the caret is just after the break");
+    assert.equal(nudges, 0);
+    assertNoNotice(container);
+  });
+});
+
+test("Shift+Enter over a selection replaces the selected text with the line break", async () => {
+  let nudges = 0;
+  await withBox({ nudge: async () => void nudges++ }, async (box) => {
+    await type(box, "one two three");
+    box.setSelectionRange(4, 7);
+    await press(box, "Enter", { shiftKey: true });
+    await settle();
+    assert.equal(box.value, "one \n three");
+    assert.equal(box.selectionStart, 5);
+    assert.equal(box.selectionEnd, 5);
+    assert.equal(nudges, 0);
+  });
+});
+
+test("a line typed, then Shift+Enter, then a second line and Enter nudges both lines as one nudge", async () => {
+  const sent: string[] = [];
+  await withBox(
+    {
+      nudge: async (text) => {
+        sent.push(text);
+      },
+    },
+    async (box, container) => {
+      await type(box, "line one");
+      await press(box, "Enter", { shiftKey: true });
+      assert.deepEqual(sent, [], "Shift+Enter sends nothing");
+      await type(box, `${box.value}line two`);
+      await press(box, "Enter");
+      await settle();
+      assert.deepEqual(sent, ["line one\nline two"]);
+      assert.equal(box.value, "");
+      assertNotice(container, "nudge landed", "status");
+    },
+  );
 });
 
 test("Enter while a nudge is in flight sends nothing more", async () => {
