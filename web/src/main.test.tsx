@@ -8,6 +8,7 @@ import { installTestDom, removeTestDom } from "./testdom";
 
 const panesPath = "/orrery.v1.Panes/List";
 const sessionsPath = "/orrery.v1.Sessions/List";
+const headlessPath = "/orrery.v1.Sessions/ListHeadless";
 const watchPath = "/orrery.v1.Events/Watch";
 const epicsListPath = "/orrery.v1.Epics/List";
 const epicsGetPath = "/orrery.v1.Epics/Get";
@@ -57,6 +58,21 @@ const sessionBody = {
     },
   ],
 };
+
+// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with the
+// label the server derives: the directory's base name and the first 8 characters of the id.
+function headlessSession(id: string, base: string) {
+  return {
+    id,
+    dir: `/work/${base}`,
+    label: `${base} · ${id.slice(0, 8)}`,
+    state: "working",
+    changed: "50",
+    seen: "0",
+    summary: "",
+    question: "",
+  };
+}
 
 // The host Host.Status answers with: one stat, so the meters button has a value to show.
 const hostBody = {
@@ -113,6 +129,8 @@ interface FakeServer {
   maxPanesInFlight: number;
   // The store position Sessions.List reports with its sessions.
   storeSeq: bigint;
+  // The headless sessions Sessions.ListHeadless answers with.
+  headless: ReturnType<typeof headlessSession>[];
   // The Events.Watch calls, in order. Only a server built with streaming answers them.
   watches: Watch[];
   // The Presence.Report calls, in order: the client header each carried and the input age it sent.
@@ -146,6 +164,9 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
       server.paths.add(path);
       if (path === sessionsPath) {
         return json({ ...sessionBody, seq: String(server.storeSeq) });
+      }
+      if (path === headlessPath) {
+        return json({ sessions: server.headless });
       }
       if (path === watchPath && streaming) {
         const body = decodeRequest(new Uint8Array(await request.arrayBuffer()));
@@ -238,6 +259,7 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     panesInFlight: 0,
     maxPanesInFlight: 0,
     storeSeq: 7n,
+    headless: [],
     watches: [],
     reports: [],
     presenceFails: false,
@@ -320,6 +342,11 @@ async function withPage(check: (root: HTMLElement) => Promise<void>): Promise<vo
 // sendEvent writes one event onto a watch's stream. The client only needs the event to arrive, not its content.
 function sendEvent(watch: Watch, seq: number): void {
   enqueue(watch, 0, { seq: String(seq), sessionId: "%1" });
+}
+
+// sendEngineAdded sends the engine_added event of the headless session id in dir.
+function sendEngineAdded(watch: Watch, seq: number, id: string, dir: string): void {
+  enqueue(watch, 0, { seq: String(seq), sessionId: id, engineAdded: { dir, state: "working" } });
 }
 
 function endStream(watch: Watch): void {
@@ -431,6 +458,43 @@ test("a reload never starts while the last one is in flight", (t) =>
     try {
       await until(t.signal, () => server.panesCalls >= 3, "three loads");
       assert.equal(server.maxPanesInFlight, 1);
+    } finally {
+      stop();
+    }
+  }));
+
+test("a headless session from Sessions.ListHeadless is a row on the first load", (t) =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    server.headless = [headlessSession("170bf619aa00bb11cc22dd33ee44ff55", "gatehouse")];
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
+      await until(t.signal, () => labels(root).includes("gatehouse · 170bf619"), "the headless session's row");
+      assert.ok(server.paths.has(headlessPath), "the page never called Sessions.ListHeadless");
+    } finally {
+      stop();
+    }
+  }));
+
+test("an engine_added on the open stream adds the new headless session's row without a poll", (t) =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    server.headless = [headlessSession("170bf619aa00bb11cc22dd33ee44ff55", "gatehouse")];
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(
+        t.signal,
+        () => server.watches.length === 1 && labels(root).includes("gatehouse · 170bf619"),
+        "the first load and stream",
+      );
+      // The poll waits longPollMs, longer than the suite lets a test run, so the row this wait sees can only come from
+      // the event's reload.
+      const added = headlessSession("cfe64ee3aa00bb11cc22dd33ee44ff55", "orrery");
+      server.headless = [...server.headless, added];
+      sendEngineAdded(server.watches[0], 8, added.id, added.dir);
+      await until(t.signal, () => labels(root).includes("orrery · cfe64ee3"), "the added session's row");
+      assert.ok(labels(root).includes("gatehouse · 170bf619"), "the first headless session's row went away");
     } finally {
       stop();
     }
@@ -619,7 +683,17 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
       await until(t.signal, () => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
       assert.deepEqual(
         [...server.paths].sort(),
-        [epicsGetPath, epicsListPath, "/orrery.v1.Epics/History", hostStatusPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
+        [
+          epicsGetPath,
+          epicsListPath,
+          "/orrery.v1.Epics/History",
+          hostStatusPath,
+          noticesWatchPath,
+          panesPath,
+          sessionsPath,
+          headlessPath,
+          watchPath,
+        ].sort(),
       );
     } finally {
       stop();
