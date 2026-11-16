@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"io"
 	"io/fs"
@@ -15,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -274,9 +274,10 @@ func metricsWiringScrapeValue(t *testing.T, provider *telemetry.Provider, name s
 	return metricsWiringValue(t, families, name, nil)
 }
 
-// metricsWiringHeld runs a --sessions orreryd whose --metrics-listen is a fresh loopback port, and whose reconcile is
-// held until release is closed or the test ends. It returns once reconcile has been reached, so the metrics listener is
-// up and READY has not been reached. notify is the notify socket serve sends READY=1 to, or "" for none.
+// metricsWiringHeld runs a --sessions orreryd whose --metrics-listen is 127.0.0.1:0, and whose reconcile is held until
+// release is closed or the test ends. It returns the address the metrics listener bound, read from orreryd's log, once
+// reconcile has been reached, so the metrics listener is up and READY has not been reached. notify is the notify socket
+// serve sends READY=1 to, or "" for none.
 func metricsWiringHeld(t *testing.T, notify string) (string, string, chan struct{}) {
 	t.Helper()
 	getenv := metricsWiringEnv(t)
@@ -285,12 +286,11 @@ func metricsWiringHeld(t *testing.T, notify string) (string, string, chan struct
 		t.Fatalf("store path: %v", err)
 	}
 	storetest.Seed(t, storePath)
-	addr := metricsWiringAddr(t)
 	socket := filepath.Join(t.TempDir(), "orreryd.sock")
 	opts, err := parseFlags([]string{
 		"--sessions", "--session-shell", "/bin/sh",
 		"--socket", socket,
-		"--metrics-listen", addr,
+		"--metrics-listen", "127.0.0.1:0",
 	}, getenv)
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
@@ -305,20 +305,27 @@ func metricsWiringHeld(t *testing.T, notify string) (string, string, chan struct
 		case <-ctx.Done():
 		}
 	}
-	metricsWiringServe(t, opts, getenv)
+	addr := metricsWiringServe(t, opts, getenv)
 	<-reached
 	return addr, socket, release
 }
 
-// metricsWiringServe starts the metrics listener and then serve in the background, as run does. When the test ends it
-// cancels serve and checks that serve returned no error.
-func metricsWiringServe(t *testing.T, opts options, getenv func(string) string) {
+// metricsWiringServe starts the metrics listener and then serve in the background, as run does, and returns the
+// address the metrics listener bound, from startMetrics's log line. When the test ends it cancels serve and checks that
+// serve returned no error.
+func metricsWiringServe(t *testing.T, opts options, getenv func(string) string) string {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	logger := slog.New(slog.DiscardHandler)
+	bound := &boundAddrHandler{}
+	logger := slog.New(bound)
 	if err := startMetrics(ctx, &opts, time.Now(), logger); err != nil {
 		cancel()
 		t.Fatalf("startMetrics: %v", err)
+	}
+	addr := bound.addr()
+	if addr == "" {
+		cancel()
+		t.Fatalf("startMetrics logged no %q line with the bound address", metricsListeningMessage)
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- serve(ctx, opts, logger, getenv) }()
@@ -329,6 +336,46 @@ func metricsWiringServe(t *testing.T, opts options, getenv func(string) string) 
 			t.Errorf("serve: %v", err)
 		}
 	})
+	return addr
+}
+
+// boundAddrHandler is a slog handler that keeps the addr of startMetrics's metricsListeningMessage line and drops every
+// other record.
+type boundAddrHandler struct {
+	mu    sync.Mutex
+	bound string
+}
+
+// Enabled takes every level, so the info line reaches Handle.
+func (h *boundAddrHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+// Handle keeps the addr attribute of a metricsListeningMessage record.
+func (h *boundAddrHandler) Handle(_ context.Context, record slog.Record) error {
+	if record.Message != metricsListeningMessage {
+		return nil
+	}
+	record.Attrs(func(attr slog.Attr) bool {
+		if attr.Key == "addr" {
+			h.mu.Lock()
+			h.bound = attr.Value.String()
+			h.mu.Unlock()
+		}
+		return true
+	})
+	return nil
+}
+
+// WithAttrs returns h: the line it keeps carries its address as its own attribute.
+func (h *boundAddrHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+// WithGroup returns h, as WithAttrs does.
+func (h *boundAddrHandler) WithGroup(string) slog.Handler { return h }
+
+// addr returns the address kept, or "" when no metricsListeningMessage line came.
+func (h *boundAddrHandler) addr() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.bound
 }
 
 // metricsWiringEnv returns a getenv over fresh state, config and tmux directories, so the store, the push store, the
@@ -341,28 +388,6 @@ func metricsWiringEnv(t *testing.T) func(string) string {
 		"TMUX_TMPDIR":     t.TempDir(),
 	}
 	return func(key string) string { return env[key] }
-}
-
-// metricsWiringAddr returns a loopback address with a port nothing holds yet, on an IP of 127.0.0.0/8 that only this
-// call picks. The port is released before the metrics listener binds it, and on 127.0.0.1 a listener of a parallel test,
-// in any package, could take it in that time. Nothing else listens on the picked IP.
-func metricsWiringAddr(t *testing.T) string {
-	t.Helper()
-	var octets [3]byte
-	if _, err := rand.Read(octets[:]); err != nil {
-		t.Fatalf("pick a loopback IP: %v", err)
-	}
-	ip := net.IPv4(127, 1+octets[0]%254, 1+octets[1]%254, 1+octets[2]%254)
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", net.JoinHostPort(ip.String(), "0"))
-	if err != nil {
-		t.Fatalf("pick a loopback port: %v", err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatalf("release the loopback port: %v", err)
-	}
-	return addr
 }
 
 // metricsWiringRuleSeries returns the metric names the rules file's exprs read. A metric name is an identifier with an
