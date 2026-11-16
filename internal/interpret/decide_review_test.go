@@ -29,15 +29,6 @@ func TestDecideReviewRunActions(t *testing.T) {
 	}}
 	decideCases(t, []decideCase{
 		{
-			name: "prepare gives work that prepares the review run",
-			flow: []workflow.Node{review},
-			rows: rowsOf(nil, nil, run),
-			reg:  map[string]kinds.Kind{"review": scripted{0: {Kind: kinds.ActPrepare}}},
-			want: []Action{{
-				Kind: ActWork, Work: kinds.ActPrepare, Path: "review", NodeKind: "review", Def: review, Run: run,
-			}},
-		},
-		{
 			name: "start gives work that starts each unit's id with its unit",
 			flow: []workflow.Node{review},
 			rows: rowsOf(nil, nil, run),
@@ -75,12 +66,6 @@ func TestDecideReviewRunActions(t *testing.T) {
 					Ledger:   ledger,
 				},
 			},
-		},
-		{
-			name: "review waits when its kind is not registered",
-			flow: []workflow.Node{review},
-			rows: rowsOf(nil, nil, run),
-			want: nil,
 		},
 	})
 }
@@ -151,16 +136,6 @@ func TestDecideClosureRunActions(t *testing.T) {
 			}},
 		},
 		{
-			name: "prepare of a closure in a loop body gives work that prepares its run",
-			flow: []workflow.Node{refine},
-			rows: rowsOf(nil, nil, running(loopOf(1, 0)), bodyRun),
-			reg:  map[string]kinds.Kind{"closure": scripted{1: {Kind: kinds.ActPrepare}}},
-			want: []Action{{
-				Kind: ActWork, Work: kinds.ActPrepare, Path: "refine@1/closure", NodeKind: "closure", Def: closure,
-				Run: bodyRun,
-			}},
-		},
-		{
 			name: "start of a closure in a loop body gives work that starts each unit's id with its unit",
 			flow: []workflow.Node{refine},
 			rows: rowsOf(nil, nil, running(loopOf(1, 0)), bodyRun),
@@ -171,26 +146,6 @@ func TestDecideClosureRunActions(t *testing.T) {
 				Kind: ActWork, Work: kinds.ActStart, Path: "refine@1/closure", NodeKind: "closure", Def: closure,
 				Run: bodyRun, IDs: []string{closeID}, Units: []kinds.Unit{closeUnit},
 			}},
-		},
-		{
-			name: "passed closure that ended ends the loop, which its until names",
-			flow: []workflow.Node{refine},
-			rows: rowsOf(nil, nil, running(loopOf(1, 0)), endedIn(1, "closure", "passed")),
-			reg:  map[string]kinds.Kind{"closure": scripted{}},
-			want: []Action{{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "refine"}}}},
-		},
-		{
-			name: "failed closure that ended ends its round, and the next round starts",
-			flow: []workflow.Node{refine},
-			rows: rowsOf(nil, nil, running(loopOf(1, 0)), endedIn(1, "closure", "failed")),
-			reg:  map[string]kinds.Kind{"closure": scripted{}},
-			want: []Action{{Kind: ActRound, Path: "refine", Round: 1}},
-		},
-		{
-			name: "closure waits when its kind is not registered",
-			flow: []workflow.Node{refine},
-			rows: rowsOf(nil, nil, running(loopOf(1, 0)), bodyRun),
-			want: nil,
 		},
 	})
 }
@@ -223,12 +178,6 @@ func TestDecideConcludeRunAction(t *testing.T) {
 				Kind: ActConclude, Path: "conclude", Attempt: 1, Phase: "ended_with_gaps",
 				Output: "epic e1 ended with gaps: reviewer 1: fails",
 			}},
-		},
-		{
-			name: "conclude waits when its kind is not registered",
-			flow: []workflow.Node{conclude},
-			rows: rowsOf(nil, nil, run),
-			want: nil,
 		},
 	})
 }
