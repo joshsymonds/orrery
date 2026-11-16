@@ -92,7 +92,9 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 		return m.abandonStep(ctx, live, fmt.Errorf("prepare prompt of step %s: %w", step.ID, err))
 	}
 	prompt := store.EnginePrompt{ID: step.ID, Text: step.Prompt, Sender: store.PromptSenderBrief, WriteID: writeID}
+	live.sess.ExpectPrompt(writeID)
 	if err = m.writer.Commit(ctx, step.ID, prompt); err != nil {
+		live.sess.DropPrompt(writeID)
 		return m.abandonStep(ctx, live, fmt.Errorf("record prompt of step %s: %w", step.ID, err))
 	}
 	m.setTurning(live, true)
