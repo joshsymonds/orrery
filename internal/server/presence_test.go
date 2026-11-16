@@ -12,6 +12,7 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/server"
 )
 
@@ -55,7 +56,7 @@ func TestPresenceReportDatesInputByClock(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var got []int64
-			client := newPresenceClient(t, func(input int64) { got = append(got, input) })
+			client := newPresenceClient(t, func(input int64, _ protocol.ViewKey) { got = append(got, input) })
 			_, err := client.Report(
 				t.Context(),
 				connect.NewRequest(&orreryv1.PresenceReportRequest{InputAgeMs: tc.age}),
@@ -73,7 +74,7 @@ func TestPresenceReportDatesInputByClock(t *testing.T) {
 func TestPresenceReportRefusesNegativeAge(t *testing.T) {
 	t.Parallel()
 	var got []int64
-	client := newPresenceClient(t, func(input int64) { got = append(got, input) })
+	client := newPresenceClient(t, func(input int64, _ protocol.ViewKey) { got = append(got, input) })
 	_, err := client.Report(t.Context(), connect.NewRequest(&orreryv1.PresenceReportRequest{InputAgeMs: -1}))
 	if err == nil {
 		t.Fatal("Report(-1) answered OK, want invalid_argument")
@@ -92,5 +93,64 @@ func TestPresenceReportWithoutReporterAnswersOK(t *testing.T) {
 	_, err := client.Report(t.Context(), connect.NewRequest(&orreryv1.PresenceReportRequest{InputAgeMs: 1500}))
 	if err != nil {
 		t.Fatalf("Report(1500) with no reporter: %v", err)
+	}
+}
+
+// presenceReport is one call a Presence.Report made on its reporter.
+type presenceReport struct {
+	input int64
+	view  protocol.ViewKey
+}
+
+func TestPresenceReportViewingKeyPassesToReporter(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		req  *orreryv1.PresenceReportRequest
+		want protocol.ViewKey
+	}{
+		{
+			"viewing pane",
+			&orreryv1.PresenceReportRequest{
+				InputAgeMs: 1500,
+				Viewing:    &orreryv1.PresenceReportRequest_ViewingPane{ViewingPane: "%synthetic"},
+			},
+			protocol.ViewKey{Pane: "%synthetic"},
+		},
+		{
+			"viewing session",
+			&orreryv1.PresenceReportRequest{
+				InputAgeMs: 1500,
+				Viewing:    &orreryv1.PresenceReportRequest_ViewingSession{ViewingSession: "synthetic-session"},
+			},
+			protocol.ViewKey{Session: "synthetic-session"},
+		},
+		{
+			"viewing epic",
+			&orreryv1.PresenceReportRequest{
+				InputAgeMs: 1500,
+				Viewing:    &orreryv1.PresenceReportRequest_ViewingEpic{ViewingEpic: "synthetic-epic"},
+			},
+			protocol.ViewKey{Epic: "synthetic-epic"},
+		},
+		{"no viewing key", &orreryv1.PresenceReportRequest{InputAgeMs: 1500}, protocol.ViewKey{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var got []presenceReport
+			client := newPresenceClient(t, func(input int64, view protocol.ViewKey) {
+				got = append(got, presenceReport{input: input, view: view})
+			})
+			_, err := client.Report(t.Context(), connect.NewRequest(tc.req))
+			if err != nil {
+				t.Fatalf("Report: %v", err)
+			}
+			// An age of 1500 ms dates the input 1.5 s before Now, floored to the second.
+			want := []presenceReport{{input: readFixtureAt - 2, view: tc.want}}
+			if !slices.Equal(got, want) {
+				t.Fatalf("Report reported %+v, want %+v", got, want)
+			}
+		})
 	}
 }

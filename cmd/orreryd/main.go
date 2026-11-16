@@ -530,11 +530,13 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	defer shutdownPhase(logger, "desk", desk.Close)
 	// shutdownServe closes pages first, so its Watch streams end before the session socket stops.
 	pages := inapp.NewHub()
+	// The viewing tracker holds the notices of the key the web view views, and is fed by each input report.
+	viewing := newViewTracker(time.Now)
 
 	// The mirror waits for the store that the open below attaches to it.
 	mirror := daemon.NewPendingMirror(time.Now, logger)
 	home := getenv("HOME")
-	hub := newRelay(route.Config{
+	hub := newRelay(routeConfig(serveRouteInputs{
 		Host:       host,
 		Now:        time.Now,
 		JudgeDelay: routeJudgeDelay(opts.judgeDelay),
@@ -544,7 +546,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Subscribed: hasSubscription(store),
 		Log:        noticeLog,
 		Logger:     logger,
-	}, &relay{
+	}, viewing), &relay{
 		claude:      opts.claude,
 		models:      opts.models,
 		home:        home,
@@ -571,6 +573,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		}, hub.viewer)},
 		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
 		Input:     desk.Input,
+		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
 		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
 		Logger:    logger,
 		Mirror:    mirror,
@@ -1790,6 +1793,38 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition, summar
 // newDoneJudge returns the judge of done notices, which asks claude for each verdict under the per-context models.
 func newDoneJudge(claude string, models map[string]string) *donejudge.Judge {
 	return donejudge.New(enginehost.NewHaiku(enginehost.HaikuConfig{Claude: claude, Environ: os.Environ()}), models)
+}
+
+// serveRouteInputs is what serve gives routeConfig besides the viewing tracker.
+type serveRouteInputs struct {
+	Host       string
+	JudgeDelay time.Duration
+	Now        func() time.Time
+	After      func(d time.Duration, f func()) (stop func() bool)
+	Desk       route.DeskSink
+	Phone      route.PhoneSink
+	Pages      route.PageSink
+	Subscribed func() (bool, error)
+	Log        route.Recorder
+	Logger     *slog.Logger
+}
+
+// routeConfig returns the route.Config that serve builds its router from. Its Viewing check is viewing.viewed, so a
+// notice whose key the page views is held. serve and the viewing tests both build the router through it.
+func routeConfig(in serveRouteInputs, viewing *viewTracker) route.Config {
+	return route.Config{
+		Host:       in.Host,
+		Now:        in.Now,
+		After:      in.After,
+		JudgeDelay: in.JudgeDelay,
+		Desk:       in.Desk,
+		Phone:      in.Phone,
+		Pages:      in.Pages,
+		Viewing:    viewing.viewed,
+		Subscribed: in.Subscribed,
+		Log:        in.Log,
+		Logger:     in.Logger,
+	}
 }
 
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each

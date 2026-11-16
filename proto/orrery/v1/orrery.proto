@@ -1110,10 +1110,17 @@ message PoolsFreeRequest {
 // PoolsFreeResponse is the reply to a Free. It has no fields.
 message PoolsFreeResponse {}
 
-// PresenceReportRequest reports how long ago the page's newest input was.
+// PresenceReportRequest reports how long ago the page's newest input was, and what the page views when it reports.
 message PresenceReportRequest {
   // The milliseconds since the page's newest input, by the page's own clock.
   int64 input_age_ms = 1;
+
+  // The pane, session or epic the page views, as a notice is keyed. Unset when the page views none of them.
+  oneof viewing {
+    string viewing_pane = 2;
+    string viewing_session = 3;
+    string viewing_epic = 4;
+  }
 }
 
 // PresenceReportResponse is the reply to a Report. It has no fields.

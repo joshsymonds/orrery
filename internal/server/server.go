@@ -148,8 +148,9 @@ type EvidenceClient interface {
 // Panes.Conversation or Panes.Screen.
 type ReadReporter func(pane string, at int64)
 
-// InputReporter receives the unix seconds of each input the page reports through Presence.Report, dated by Now.
-type InputReporter func(input int64)
+// InputReporter receives the unix seconds of each input the page reports through Presence.Report, dated by Now, and
+// the key the page views with it. The view is the zero protocol.ViewKey when the page views no key.
+type InputReporter func(input int64, view protocol.ViewKey)
 
 // Config holds the guard settings for New.
 type Config struct {

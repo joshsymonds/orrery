@@ -147,10 +147,10 @@ func ReportRead(socketPath, pane string, read int64) error {
 	return sendReport(socketPath, protocol.HookFrame{TmuxPane: pane, Read: read})
 }
 
-// ReportInput tells orreryd that the web view had input at input, in unix seconds. It shares ReportSeen's nil and
-// error rules.
-func ReportInput(socketPath string, input int64) error {
-	return sendReport(socketPath, protocol.HookFrame{Input: input})
+// ReportInput tells orreryd that the web view had input at input, in unix seconds, and that it views view. A zero view
+// names no key. It shares ReportSeen's nil and error rules.
+func ReportInput(socketPath string, input int64, view protocol.ViewKey) error {
+	return sendReport(socketPath, protocol.HookFrame{Input: input, View: view})
 }
 
 // sendReport writes frame, a seen or read report, to the daemon listening on socketPath. A missing socket file or a

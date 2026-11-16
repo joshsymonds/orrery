@@ -353,6 +353,47 @@ func TestReadFrameAcceptsInputReport(t *testing.T) {
 	}
 }
 
+func TestReadFrameAcceptsInputReportWithViewingKey(t *testing.T) {
+	got, err := protocol.ReadFrame(strings.NewReader(`{"tmuxPane":"%1","input":1700000000,"view":{"session":"s"}}`))
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if got.Input != 1700000000 || got.View != (protocol.ViewKey{Session: "s"}) {
+		t.Errorf("Input = %d, View = %+v, want 1700000000 and session s", got.Input, got.View)
+	}
+}
+
+func TestReadFrameRejectsViewingKeyWithoutInput(t *testing.T) {
+	inputs := []string{
+		`{"tmuxPane":"%1","view":{"pane":"%1"}}`,
+		`{"read":1700000000,"view":{"pane":"%1"}}`,
+		`{"tmuxPane":"%1","seen":1700000000,"view":{"pane":"%1"}}`,
+		`{"ask":"sessions","view":{"pane":"%1"}}`,
+	}
+	for _, input := range inputs {
+		if _, err := protocol.ReadFrame(strings.NewReader(input)); err == nil {
+			t.Errorf("ReadFrame(%s) returned nil, want an error", input)
+		}
+	}
+}
+
+func TestReadFrameRejectsViewingKeyNamingTwoKeys(t *testing.T) {
+	const input = `{"tmuxPane":"%1","input":1700000000,"view":{"pane":"%1","epic":"e"}}`
+	if _, err := protocol.ReadFrame(strings.NewReader(input)); err == nil {
+		t.Fatal("ReadFrame of a view naming a pane and an epic returned nil, want an error")
+	}
+}
+
+func TestWriteFrameOmitsZeroViewingKey(t *testing.T) {
+	var buf bytes.Buffer
+	if err := protocol.WriteFrame(&buf, protocol.HookFrame{Input: 1700000000}); err != nil {
+		t.Fatalf("WriteFrame: %v", err)
+	}
+	if strings.Contains(buf.String(), `"view"`) {
+		t.Errorf("frame = %s, want no view key", buf.String())
+	}
+}
+
 func TestReadReportRoundTrip(t *testing.T) {
 	want := protocol.HookFrame{TmuxPane: "%4", Read: 1700000100}
 	var buf bytes.Buffer

@@ -121,8 +121,9 @@ type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 // long a judged notice waits unwatched before it is judged: zero selects the JudgeDelay constant, and NoJudgeDelay, or
 // any negative value, judges at once. StoreAfter arms
 // the bound on each store call the Router makes, and a nil StoreAfter uses time.AfterFunc. A nil Pages shows nothing.
-// Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each
-// Rebuild under the Router's lock, so a Rebuild must not call the Router.
+// Viewing reports whether the page views key now: a notice whose key it reports is held as a watched notice is, and a
+// nil Viewing reports none. Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not
+// restored. Attach calls each Rebuild under the Router's lock, so a Rebuild must not call the Router.
 type Config struct {
 	Host       string
 	Now        func() time.Time
@@ -132,6 +133,7 @@ type Config struct {
 	Desk       DeskSink
 	Phone      PhoneSink
 	Pages      PageSink
+	Viewing    func(key notice.Key) bool
 	Subscribed func() (bool, error)
 	Log        Recorder
 	Logger     *slog.Logger
@@ -329,10 +331,10 @@ func (r *Router) finish() {
 	}
 }
 
-// decide routes ent: it holds ent while the pane is watched. A judged notice that is not watched waits the judge delay
-// and is judged. Any other notice routes at once.
+// decide routes ent: it holds ent while the page views its key or its pane is watched. A judged notice that is not
+// watched waits the judge delay and is judged. Any other notice routes at once.
 func (r *Router) decide(ctx context.Context, ent *entry) {
-	if ent.n.Watching != nil && r.watching(ctx, ent) {
+	if r.viewed(ent) || (ent.n.Watching != nil && r.watching(ctx, ent)) {
 		r.hold(ctx, ent)
 		return
 	}
@@ -548,6 +550,11 @@ func (r *Router) lineLocked(key notice.Key, state, routed, reason string) {
 	if err := r.cfg.Log.Write(line); err != nil {
 		r.cfg.Logger.Error("write notice line", "error", err)
 	}
+}
+
+// viewed reports whether the page views ent's key. Without a Config.Viewing nothing is viewed.
+func (r *Router) viewed(ent *entry) bool {
+	return r.cfg.Viewing != nil && r.cfg.Viewing(ent.n.Key)
 }
 
 // watching reports whether ent's pane is watched. An error reads as not watched.
