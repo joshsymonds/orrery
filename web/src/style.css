@@ -200,6 +200,9 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row.epic .label { flex: 0 1 auto; white-space: nowrap; font-weight: 700; color: var(--text); }
 .b-row.epic .proj { flex: 1 1 auto; }
 .b-row.epic .rt { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--subtext0); }
+.b-row.epic .orrery { flex: none; width: 28px; height: 28px; max-width: none; margin: 0; }
+.b-row.epic .words { display: flex; gap: 8px; min-width: 0; white-space: nowrap; font: 11.5px/20px var(--mono); color: var(--subtext0); }
+.b-row.epic .words .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--peach); }
 .gauge { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); }
 .gauge circle { fill: none; stroke-width: 4px; }
 .gauge-rest { stroke: var(--surface1); }

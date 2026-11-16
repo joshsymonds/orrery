@@ -5,8 +5,8 @@ import { CENTRE, RING_RADII, VIEW, cellPath, point, sector, sliceSpan, sliceStar
 import { PHASES, type Phase, type PhaseSlice, type RequirementArc, type Wedge, durationText } from "./phases";
 
 // The requirement arcs lie between radius ARC_INNER and ARC_OUTER, and their ids sit at ID_RADIUS.
-const ARC_INNER = 184;
-const ARC_OUTER = 192;
+export const ARC_INNER = 184;
+export const ARC_OUTER = 192;
 const ID_RADIUS = 200;
 
 // The rings, outermost first: the planned rim, then one ring per phase.
