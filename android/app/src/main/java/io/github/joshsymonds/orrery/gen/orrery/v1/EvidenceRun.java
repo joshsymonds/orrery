@@ -29,6 +29,7 @@ public  final class EvidenceRun extends
     judgeReason_ = "";
     revision_ = "";
     artifacts_ = emptyProtobufList();
+    item_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -968,6 +969,78 @@ public  final class EvidenceRun extends
   private void clearStderrBytes() {
 
     stderrBytes_ = 0L;
+  }
+
+  public static final int ITEM_FIELD_NUMBER = 17;
+  private java.lang.String item_;
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   * @return The item.
+   */
+  @java.lang.Override
+  public java.lang.String getItem() {
+    return item_;
+  }
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   * @return The bytes for item.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getItemBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(item_);
+  }
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   * @param value The item to set.
+   */
+  private void setItem(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    item_ = value;
+  }
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   */
+  private void clearItem() {
+
+    item_ = getDefaultInstance().getItem();
+  }
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   * @param value The bytes for item to set.
+   */
+  private void setItemBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    item_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun parseFrom(
@@ -2054,6 +2127,80 @@ public  final class EvidenceRun extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+     * sits under its requirement, node or task.
+     * </pre>
+     *
+     * <code>string item = 17 [json_name = "item"];</code>
+     * @return The item.
+     */
+    @java.lang.Override
+    public java.lang.String getItem() {
+      return instance.getItem();
+    }
+    /**
+     * <pre>
+     * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+     * sits under its requirement, node or task.
+     * </pre>
+     *
+     * <code>string item = 17 [json_name = "item"];</code>
+     * @return The bytes for item.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getItemBytes() {
+      return instance.getItemBytes();
+    }
+    /**
+     * <pre>
+     * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+     * sits under its requirement, node or task.
+     * </pre>
+     *
+     * <code>string item = 17 [json_name = "item"];</code>
+     * @param value The item to set.
+     * @return This builder for chaining.
+     */
+    public Builder setItem(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setItem(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+     * sits under its requirement, node or task.
+     * </pre>
+     *
+     * <code>string item = 17 [json_name = "item"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearItem() {
+      copyOnWrite();
+      instance.clearItem();
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+     * sits under its requirement, node or task.
+     * </pre>
+     *
+     * <code>string item = 17 [json_name = "item"];</code>
+     * @param value The bytes for item to set.
+     * @return This builder for chaining.
+     */
+    public Builder setItemBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setItemBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EvidenceRun)
   }
   @java.lang.Override
@@ -2087,11 +2234,12 @@ public  final class EvidenceRun extends
             "artifacts_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact.class,
             "stderrBytes_",
+            "item_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0011\u0000\u0000\u0001\u0011\u0011\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0004\u0006\u0007\u0007\u0208\b\u0208\t\u0208\n\u0007" +
-              "\u000b\u0208\f\u0002\r\u0002\u000e\u0002\u000f\u001b\u0010\u0002";
+              "\u000b\u0208\f\u0002\r\u0002\u000e\u0002\u000f\u001b\u0010\u0002\u0011\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

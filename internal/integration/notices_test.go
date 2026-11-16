@@ -59,8 +59,8 @@ func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
 	})
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
-	waitForOption(t, client, pane, protocol.OptionSummary, exampleSummary)
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	waitForOption(t, daemon, client, pane, protocol.OptionSummary, exampleSummary)
 
 	sendHook(t, socket, pane, project, map[string]any{
 		"hook_event_name": "PermissionRequest",

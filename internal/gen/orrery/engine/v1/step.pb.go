@@ -1161,7 +1161,10 @@ type StepCheck struct {
 	// The tail of the check's stdout, redacted.
 	Stdout string `protobuf:"bytes,5,opt,name=stdout,proto3" json:"stdout,omitempty"`
 	// The tail of the check's stderr, redacted.
-	Stderr        string `protobuf:"bytes,6,opt,name=stderr,proto3" json:"stderr,omitempty"`
+	Stderr string `protobuf:"bytes,6,opt,name=stderr,proto3" json:"stderr,omitempty"`
+	// The file a failed gate check's output was kept in, stdout then stderr, each redacted, under the gate state
+	// directory. Empty for any other check.
+	Log           string `protobuf:"bytes,7,opt,name=log,proto3" json:"log,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1234,6 +1237,13 @@ func (x *StepCheck) GetStdout() string {
 func (x *StepCheck) GetStderr() string {
 	if x != nil {
 		return x.Stderr
+	}
+	return ""
+}
+
+func (x *StepCheck) GetLog() string {
+	if x != nil {
+		return x.Log
 	}
 	return ""
 }
@@ -1393,14 +1403,15 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x11NudgeStepResponse\"#\n" +
 	"\x11ResumeStepRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +
-	"\x12ResumeStepResponse\"\x8d\x01\n" +
+	"\x12ResumeStepResponse\"\x9f\x01\n" +
 	"\tStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02ok\x18\x03 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x16\n" +
 	"\x06stdout\x18\x05 \x01(\tR\x06stdout\x12\x16\n" +
-	"\x06stderr\x18\x06 \x01(\tR\x06stderr\"i\n" +
+	"\x06stderr\x18\x06 \x01(\tR\x06stderr\x12\x10\n" +
+	"\x03log\x18\a \x01(\tR\x03log\"i\n" +
 	"\vStepVerdict\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x18\n" +

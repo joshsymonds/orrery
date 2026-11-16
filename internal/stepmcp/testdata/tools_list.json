@@ -133,7 +133,7 @@
       "properties": {
         "contract": {
           "type": "object",
-          "description": "the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion and judge."
+          "description": "the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewers. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion, judge, kind and tests. Each entry of reviewers carries name, enabled, stage, must, mustNot, prompt, agent, model, tools, effort, limit and verify."
         },
         "decisions": {
           "type": "array",

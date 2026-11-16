@@ -160,36 +160,45 @@ func parkWithTell(ctx context.Context, queries *sqlcgen.Queries, epic, reason st
 	if err != nil {
 		return err
 	}
-	return insertTell(ctx, queries, epic, reason, question, at)
+	return insertQuestionTell(ctx, queries, epic, reason, question, at)
 }
 
-// insertTells adds each of texts to epic as tells, in order, as insertTell does with no question.
+// insertTells adds each of texts to epic as tells, in order, as insertTell does.
 func insertTells(ctx context.Context, queries *sqlcgen.Queries, epic string, texts []string, at time.Time) error {
 	for _, text := range texts {
-		if err := insertTell(ctx, queries, epic, text, 0, at); err != nil {
+		if err := insertTell(ctx, queries, epic, text, at); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// insertTell adds text to epic as its next tell, numbered one past its highest, and not yet told. question is the seq
-// of the park question the tell belongs to, or 0 for none.
-func insertTell(ctx context.Context, queries *sqlcgen.Queries, epic, text string, question int64, at time.Time) error {
+// insertTell adds text to epic as its next tell, numbered one past its highest, and not yet told.
+func insertTell(ctx context.Context, queries *sqlcgen.Queries, epic, text string, at time.Time) error {
 	highest, err := queries.MaxEpicTellSeq(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read tells of epic %s: %w", epic, err)
 	}
-	if question == 0 {
-		err = queries.InsertEpicTell(ctx, sqlcgen.InsertEpicTellParams{
-			Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(),
-		})
-	} else {
-		err = queries.InsertEpicQuestionTell(ctx, sqlcgen.InsertEpicQuestionTellParams{
-			Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(), Question: question,
-		})
+	if err = queries.InsertEpicTell(ctx, sqlcgen.InsertEpicTellParams{
+		Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert tell of epic %s: %w", epic, err)
 	}
+	return nil
+}
+
+// insertQuestionTell adds text to epic as its next tell, as insertTell does, carrying question, the seq of the park
+// question the tell belongs to.
+func insertQuestionTell(
+	ctx context.Context, queries *sqlcgen.Queries, epic, text string, question int64, at time.Time,
+) error {
+	highest, err := queries.MaxEpicTellSeq(ctx, epic)
 	if err != nil {
+		return fmt.Errorf("read tells of epic %s: %w", epic, err)
+	}
+	if err = queries.InsertEpicQuestionTell(ctx, sqlcgen.InsertEpicQuestionTellParams{
+		Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(), Question: question,
+	}); err != nil {
 		return fmt.Errorf("insert tell of epic %s: %w", epic, err)
 	}
 	return nil

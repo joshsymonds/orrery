@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/epics.proto.
  */
 export const file_orrery_v1_epics: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIqQCChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSIgoFbm9kZXMYBiADKAsyEy5vcnJlcnkudjEuRXBpY05vZGUSLQoLYnVpbGRfdGFza3MYByADKAsyGC5vcnJlcnkudjEuRXBpY0J1aWxkVGFzayLGAQoERXBpYxIKCgJpZBgBIAEoCRISCgpyZXBvc2l0b3J5GAIgASgJEgwKBHNsdWcYAyABKAkSDwoHb3V0Y29tZRgEIAEoCRIPCgdjaGFuZ2VkGAUgASgDEgwKBGxpdmUYBiABKAgSKgoNcnVubmluZ19zdGVwcxgHIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBITCgtlbmRlZF9zdGVwcxgIIAEoBRIPCgdwcm9ibGVtGAkgASgJEg4KBnNvdXJjZRgKIAEoCSJfCghFcGljVGFzaxIOCgZlZmZvcnQYASABKAUSDAoEc2x1ZxgCIAEoCRIPCgdzdWJqZWN0GAMgASgJEg4KBnN0YXR1cxgEIAEoCRIUCgxyZXF1aXJlbWVudHMYBSADKAki1wEKDUVwaWNCdWlsZFRhc2sSCgoCaWQYASABKAkSDQoFdGl0bGUYAiABKAkSDgoGc3RhdHVzGAMgASgJEg0KBXN0YWdlGAQgASgJEhQKDHJlcXVpcmVtZW50cxgFIAMoCRIjCgNyZWQYBiABKAsyFi5vcnJlcnkudjEuRXZpZGVuY2VSdW4SJQoFZ3JlZW4YByABKAsyFi5vcnJlcnkudjEuRXZpZGVu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GAggASgJEhQKDGp1ZGdlX3JlYXNvbhgJIAEoCRIOCgZwYXNzZWQYCiABKAgSEAoIcmV2aXNpb24YCyABKAkSDwoHY3JlYXRlZBgMIAEoAxINCgVlbmRlZBgNIAEoAxIRCglsb2dfYnl0ZXMYDiABKAMSLgoJYXJ0aWZhY3RzGA8gAygLMhsub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3QSFAoMc3RkZXJyX2J5dGVzGBAgASgDIlEKEEV2aWRlbmNlQXJ0aWZhY3QSDAoEcGF0aBgBIAEoCRINCgVzdGF0ZRgCIAEoCRIMCgRzaXplGAMgASgDEhIKCm1lZGlhX3R5cGUYBCABKAkiRAoXRXZpZGVuY2VBcnRpZmFjdFJlcXVlc3QSCwoDcnVuGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc3RkZXJyGAMgASgIIjwKGEV2aWRlbmNlQXJ0aWZhY3RSZXNwb25zZRIMCgRkYXRhGAEgASgMEhIKCm1lZGlhX3R5cGUYAiABKAkiHgoQU3RlcHNIb2xkUmVxdWVzdBIKCgJpZBgBIAEoCSITChFTdGVwc0hvbGRSZXNwb25zZSItChFTdGVwc051ZGdlUmVxdWVzdBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhQKElN0ZXBzTnVkZ2VSZXNwb25zZSIeChBTdGVwc1N0b3BSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzU3RvcFJlc3BvbnNlMooBCgVFcGljcxJBCgRMaXN0Ehsub3JyZXJ5LnYxLkVwaWNzTGlzdFJlcXVlc3QaHC5vcnJlcnkudjEuRXBpY3NMaXN0UmVzcG9uc2USPgoDR2V0Ehoub3JyZXJ5LnYxLkVwaWNzR2V0UmVxdWVzdBobLm9ycmVyeS52MS5FcGljc0dldFJlc3BvbnNlMtMBCgVTdGVwcxJBCgRIb2xkEhsub3JyZXJ5LnYxLlN0ZXBzSG9sZFJlcXVlc3QaHC5vcnJlcnkudjEuU3RlcHNIb2xkUmVzcG9uc2USRAoFTnVkZ2USHC5vcnJlcnkudjEuU3RlcHNOdWRnZVJlcXVlc3QaHS5vcnJlcnkudjEuU3RlcHNOdWRnZVJlc3BvbnNlEkEKBFN0b3ASGy5vcnJlcnkudjEuU3RlcHNTdG9wUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc1N0b3BSZXNwb25zZTJfCghFdmlkZW5jZRJTCghBcnRpZmFjdBIiLm9ycmVyeS52MS5FdmlkZW5jZUFydGlmYWN0UmVxdWVzdBojLm9ycmVyeS52MS5FdmlkZW5jZUFydGlmYWN0UmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIqwDChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQSIgoFbm9kZXMYBiADKAsyEy5vcnJlcnkudjEuRXBpY05vZGUSLQoLYnVpbGRfdGFza3MYByADKAsyGC5vcnJlcnkudjEuRXBpY0J1aWxkVGFzaxIqCglxdWVzdGlvbnMYCCADKAsyFy5vcnJlcnkudjEuRXBpY1F1ZXN0aW9uEikKCGNvbnRyYWN0GAkgASgLMhcub3JyZXJ5LnYxLkVwaWNDb250cmFjdBIOCgZwYXVzZWQYCiABKAgSDgoGcGFya2VkGAsgASgJEg8KB3N1bW1hcnkYDCABKAkiRQoMRXBpY1F1ZXN0aW9uEgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkSDAoEdHVybhgDIAEoAxINCgVhc2tlZBgEIAEoAyKeAwoMRXBpY0NvbnRyYWN0Eg0KBXRpdGxlGAEgASgJEhAKCGFwcHJvdmVkGAIgASgJEg4KBmludGVudBgDIAEoCRIoCghmYWlsdXJlcxgEIAMoCzIWLm9ycmVyeS52MS5FcGljRmFpbHVyZRIMCgRjYXJlGAUgASgJEioKCWFkZGl0aW9ucxgGIAMoCzIXLm9ycmVyeS52MS5FcGljQWRkaXRpb24SKAoIcHJlbWlzZXMYByADKAsyFi5vcnJlcnkudjEuRXBpY1ByZW1pc2USEgoKZXhjbHVzaW9ucxgIIAMoCRIQCghhcHByb2FjaBgJIAEoCRIwCgxhbHRlcm5hdGl2ZXMYCiADKAsyGi5vcnJlcnkudjEuRXBpY0FsdGVybmF0aXZlEjEKDXJlbGVhc2Vfc3RlcHMYCyADKAsyGi5vcnJlcnkudjEuRXBpY1JlbGVhc2VTdGVwEhQKDHJlbGVhc2VfdGhlbhgMIAEoCRIOCgZjaGVja3MYDSABKAkSDAoEYmFzZRgOIAEoCRIQCghhY2NlcHRlZBgPIAEoAyJJCgtFcGljRmFpbHVyZRIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEg4KBnJhdGluZxgDIAEoCRIQCghyZXNwb25zZRgEIAEoCSJJCgxFcGljQWRkaXRpb24SEAoIbG9jYXRpb24YASABKAkSDAoEd2hhdBgCIAEoCRILCgN3aHkYAyABKAkSDAoEY29zdBgEIAEoCSI5CgtFcGljUHJlbWlzZRIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCGlmX3dyb25nGAMgASgJIksKD0VwaWNBbHRlcm5hdGl2ZRITCgthbHRlcm5hdGl2ZRgBIAEoCRIPCgd3aHlfbm90GAIgASgJEhIKCnJlY29uc2lkZXIYAyABKAkiPQoPRXBpY1JlbGVhc2VTdGVwEgwKBHN0ZXAYASABKAkSDgoGdGFyZ2V0GAIgASgJEgwKBHVuZG8YAyABKAkiPwoTRXBpY3NIaXN0b3J5UmVxdWVzdBIKCgJpZBgBIAEoCRINCgVhZnRlchgCIAEoCRINCgVsaW1pdBgDIAEoBSJSChRFcGljc0hpc3RvcnlSZXNwb25zZRIsCgdlbnRyaWVzGAEgAygLMhsub3JyZXJ5LnYxLkVwaWNIaXN0b3J5RW50cnkSDAoEbmV4dBgCIAEoCSKrAgoQRXBpY0hpc3RvcnlFbnRyeRIMCgR0aW1lGAEgASgDEg4KBmN1cnNvchgCIAEoCRIjCgR0dXJuGAMgASgLMhMub3JyZXJ5LnYxLkVwaWNUdXJuSAASKQoHdHJpZ2dlchgEIAEoCzIWLm9ycmVyeS52MS5FcGljVHJpZ2dlckgAEiMKBHN0ZXAYBSABKAsyEy5vcnJlcnkudjEuRXBpY1N0ZXBIABIqCghldmlkZW5jZRgGIAEoCzIWLm9ycmVyeS52MS5FdmlkZW5jZVJ1bkgAEisKCGRlY2lzaW9uGAcgASgLMhcub3JyZXJ5LnYxLkVw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aWFfdHlwZRgCIAEoCSIeChBTdGVwc0hvbGRSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzSG9sZFJlc3BvbnNlIi0KEVN0ZXBzTnVkZ2VSZXF1ZXN0EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkiFAoSU3RlcHNOdWRnZVJlc3BvbnNlIh4KEFN0ZXBzU3RvcFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNTdG9wUmVzcG9uc2UytwQKBUVwaWNzEkEKBExpc3QSGy5vcnJlcnkudjEuRXBpY3NMaXN0UmVxdWVzdBocLm9ycmVyeS52MS5FcGljc0xpc3RSZXNwb25zZRI+CgNHZXQSGi5vcnJlcnkudjEuRXBpY3NHZXRSZXF1ZXN0Ghsub3JyZXJ5LnYxLkVwaWNzR2V0UmVzcG9uc2USSgoHSGlzdG9yeRIeLm9ycmVyeS52MS5FcGljc0hpc3RvcnlSZXF1ZXN0Gh8ub3JyZXJ5LnYxLkVwaWNzSGlzdG9yeVJlc3BvbnNlEkQKBVBhdXNlEhwub3JyZXJ5LnYxLkVwaWNzUGF1c2VSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkVwaWNzUGF1c2VSZXNwb25zZRJHCgZSZXN1bWUSHS5vcnJlcnkudjEuRXBpY3NSZXN1bWVSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkVwaWNzUmVzdW1lUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5FcGljc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLkVwaWNzU3RvcFJlc3BvbnNlEkQKBVJldHJ5Ehwub3JyZXJ5LnYxLkVwaWNzUmV0cnlSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkVwaWNzUmV0cnlSZXNwb25zZRJHCgZBbnN3ZXISHS5vcnJlcnkudjEuRXBpY3NBbnN3ZXJSZXF1ZXN0Gh4ub3JyZXJ5LnYxLkVwaWNzQW5zd2VyUmVzcG9uc2Uy0wEKBVN0ZXBzEkEKBEhvbGQSGy5vcnJlcnkudjEuU3RlcHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc0hvbGRSZXNwb25zZRJECgVOdWRnZRIcLm9ycmVyeS52MS5TdGVwc051ZGdlUmVxdWVzdBodLm9ycmVyeS52MS5TdGVwc051ZGdlUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5TdGVwc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlc3BvbnNlMl8KCEV2aWRlbmNlElMKCEFydGlmYWN0EiIub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3RSZXF1ZXN0GiMub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3RSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * EpicsListRequest asks for every epic. It has no fields.
@@ -124,6 +124,42 @@ export type EpicsGetResponse = Message<"orrery.v1.EpicsGetResponse"> & {
    * @generated from field: repeated orrery.v1.EpicBuildTask build_tasks = 7;
    */
   buildTasks: EpicBuildTask[];
+
+  /**
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   *
+   * @generated from field: repeated orrery.v1.EpicQuestion questions = 8;
+   */
+  questions: EpicQuestion[];
+
+  /**
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   *
+   * @generated from field: orrery.v1.EpicContract contract = 9;
+   */
+  contract?: EpicContract | undefined;
+
+  /**
+   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   *
+   * @generated from field: bool paused = 10;
+   */
+  paused: boolean;
+
+  /**
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   *
+   * @generated from field: string parked = 11;
+   */
+  parked: string;
+
+  /**
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   *
+   * @generated from field: string summary = 12;
+   */
+  summary: string;
 };
 
 /**
@@ -132,6 +168,954 @@ export type EpicsGetResponse = Message<"orrery.v1.EpicsGetResponse"> & {
  */
 export const EpicsGetResponseSchema: GenMessage<EpicsGetResponse> = /*@__PURE__*/
   messageDesc(file_orrery_v1_epics, 3);
+
+/**
+ * EpicQuestion is one open question a planner turn of an orreryd epic asked.
+ *
+ * @generated from message orrery.v1.EpicQuestion
+ */
+export type EpicQuestion = Message<"orrery.v1.EpicQuestion"> & {
+  /**
+   * The question's id, Q<seq>.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The question.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * The position of the turn that asked the question, counted from 1.
+   *
+   * @generated from field: int64 turn = 3;
+   */
+  turn: bigint;
+
+  /**
+   * When the question was asked: the end of the turn that asked it, in unix seconds.
+   *
+   * @generated from field: int64 asked = 4;
+   */
+  asked: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.EpicQuestion.
+ * Use `create(EpicQuestionSchema)` to create a new message.
+ */
+export const EpicQuestionSchema: GenMessage<EpicQuestion> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 4);
+
+/**
+ * EpicContract is an orreryd epic's accepted contract, its sections in the contract's order, without its Requirements.
+ *
+ * @generated from message orrery.v1.EpicContract
+ */
+export type EpicContract = Message<"orrery.v1.EpicContract"> & {
+  /**
+   * The epic's name.
+   *
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * The sentence of the decision line that approved the contract.
+   *
+   * @generated from field: string approved = 2;
+   */
+  approved: string;
+
+  /**
+   * What the owner asked for.
+   *
+   * @generated from field: string intent = 3;
+   */
+  intent: string;
+
+  /**
+   * What could go wrong, each failure with its level of care.
+   *
+   * @generated from field: repeated orrery.v1.EpicFailure failures = 4;
+   */
+  failures: EpicFailure[];
+
+  /**
+   * The level of care the epic is worked at: limited, serious or severe.
+   *
+   * @generated from field: string care = 5;
+   */
+  care: string;
+
+  /**
+   * Things the epic adds that the owner did not ask for.
+   *
+   * @generated from field: repeated orrery.v1.EpicAddition additions = 6;
+   */
+  additions: EpicAddition[];
+
+  /**
+   * What the contract assumes, each with what changes if the assumption is wrong.
+   *
+   * @generated from field: repeated orrery.v1.EpicPremise premises = 7;
+   */
+  premises: EpicPremise[];
+
+  /**
+   * What the epic will not do.
+   *
+   * @generated from field: repeated string exclusions = 8;
+   */
+  exclusions: string[];
+
+  /**
+   * How the epic will be done.
+   *
+   * @generated from field: string approach = 9;
+   */
+  approach: string;
+
+  /**
+   * The approaches considered and why each was not chosen.
+   *
+   * @generated from field: repeated orrery.v1.EpicAlternative alternatives = 10;
+   */
+  alternatives: EpicAlternative[];
+
+  /**
+   * What leaves the machine when the epic is released, each step with how it is undone.
+   *
+   * @generated from field: repeated orrery.v1.EpicReleaseStep release_steps = 11;
+   */
+  releaseSteps: EpicReleaseStep[];
+
+  /**
+   * The Then line that closes the release.
+   *
+   * @generated from field: string release_then = 12;
+   */
+  releaseThen: string;
+
+  /**
+   * The checks the machines run.
+   *
+   * @generated from field: string checks = 13;
+   */
+  checks: string;
+
+  /**
+   * The commit the epic starts from, as the full commit id.
+   *
+   * @generated from field: string base = 14;
+   */
+  base: string;
+
+  /**
+   * When the contract was accepted, which is when orreryd stored the epic, in unix seconds.
+   *
+   * @generated from field: int64 accepted = 15;
+   */
+  accepted: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.EpicContract.
+ * Use `create(EpicContractSchema)` to create a new message.
+ */
+export const EpicContractSchema: GenMessage<EpicContract> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 5);
+
+/**
+ * EpicFailure is one failure an epic's contract guards against.
+ *
+ * @generated from message orrery.v1.EpicFailure
+ */
+export type EpicFailure = Message<"orrery.v1.EpicFailure"> & {
+  /**
+   * The failure's id, F<n>.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * What could go wrong.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * The failure's level of care: limited, serious or severe.
+   *
+   * @generated from field: string rating = 3;
+   */
+  rating: string;
+
+  /**
+   * What the epic does about the failure.
+   *
+   * @generated from field: string response = 4;
+   */
+  response: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicFailure.
+ * Use `create(EpicFailureSchema)` to create a new message.
+ */
+export const EpicFailureSchema: GenMessage<EpicFailure> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 6);
+
+/**
+ * EpicAddition is one thing an epic's contract adds that the owner did not ask for.
+ *
+ * @generated from message orrery.v1.EpicAddition
+ */
+export type EpicAddition = Message<"orrery.v1.EpicAddition"> & {
+  /**
+   * Where the addition applies, as the contract names it.
+   *
+   * @generated from field: string location = 1;
+   */
+  location: string;
+
+  /**
+   * What the addition is.
+   *
+   * @generated from field: string what = 2;
+   */
+  what: string;
+
+  /**
+   * Why the epic needs the addition.
+   *
+   * @generated from field: string why = 3;
+   */
+  why: string;
+
+  /**
+   * What the addition costs.
+   *
+   * @generated from field: string cost = 4;
+   */
+  cost: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicAddition.
+ * Use `create(EpicAdditionSchema)` to create a new message.
+ */
+export const EpicAdditionSchema: GenMessage<EpicAddition> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 7);
+
+/**
+ * EpicPremise is one assumption an epic's contract makes.
+ *
+ * @generated from message orrery.v1.EpicPremise
+ */
+export type EpicPremise = Message<"orrery.v1.EpicPremise"> & {
+  /**
+   * The premise's id, P<n>.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The assumption.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * What changes if the assumption is wrong.
+   *
+   * @generated from field: string if_wrong = 3;
+   */
+  ifWrong: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicPremise.
+ * Use `create(EpicPremiseSchema)` to create a new message.
+ */
+export const EpicPremiseSchema: GenMessage<EpicPremise> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 8);
+
+/**
+ * EpicAlternative is one approach an epic's contract considered and did not choose.
+ *
+ * @generated from message orrery.v1.EpicAlternative
+ */
+export type EpicAlternative = Message<"orrery.v1.EpicAlternative"> & {
+  /**
+   * The approach.
+   *
+   * @generated from field: string alternative = 1;
+   */
+  alternative: string;
+
+  /**
+   * Why the approach was not chosen.
+   *
+   * @generated from field: string why_not = 2;
+   */
+  whyNot: string;
+
+  /**
+   * What would make the owner reconsider the approach.
+   *
+   * @generated from field: string reconsider = 3;
+   */
+  reconsider: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicAlternative.
+ * Use `create(EpicAlternativeSchema)` to create a new message.
+ */
+export const EpicAlternativeSchema: GenMessage<EpicAlternative> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 9);
+
+/**
+ * EpicReleaseStep is one step of an epic's contract that leaves the machine on release.
+ *
+ * @generated from message orrery.v1.EpicReleaseStep
+ */
+export type EpicReleaseStep = Message<"orrery.v1.EpicReleaseStep"> & {
+  /**
+   * What the step does.
+   *
+   * @generated from field: string step = 1;
+   */
+  step: string;
+
+  /**
+   * Where the step sends what leaves the machine.
+   *
+   * @generated from field: string target = 2;
+   */
+  target: string;
+
+  /**
+   * How the step is undone.
+   *
+   * @generated from field: string undo = 3;
+   */
+  undo: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicReleaseStep.
+ * Use `create(EpicReleaseStepSchema)` to create a new message.
+ */
+export const EpicReleaseStepSchema: GenMessage<EpicReleaseStep> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 10);
+
+/**
+ * EpicsHistoryRequest names one epic and the page of its history to return.
+ *
+ * @generated from message orrery.v1.EpicsHistoryRequest
+ */
+export type EpicsHistoryRequest = Message<"orrery.v1.EpicsHistoryRequest"> & {
+  /**
+   * The epic's id, as List gave it.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The cursor of the last entry already read; empty starts at the oldest entry.
+   *
+   * @generated from field: string after = 2;
+   */
+  after: string;
+
+  /**
+   * The most entries to return: 0 returns 50, and more than 200 returns 200.
+   *
+   * @generated from field: int32 limit = 3;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsHistoryRequest.
+ * Use `create(EpicsHistoryRequestSchema)` to create a new message.
+ */
+export const EpicsHistoryRequestSchema: GenMessage<EpicsHistoryRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 11);
+
+/**
+ * EpicsHistoryResponse carries one page of an epic's history.
+ *
+ * @generated from message orrery.v1.EpicsHistoryResponse
+ */
+export type EpicsHistoryResponse = Message<"orrery.v1.EpicsHistoryResponse"> & {
+  /**
+   * The entries after the request's cursor, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.EpicHistoryEntry entries = 1;
+   */
+  entries: EpicHistoryEntry[];
+
+  /**
+   * The cursor to pass as after for the next page; empty when no entry follows this page.
+   *
+   * @generated from field: string next = 2;
+   */
+  next: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsHistoryResponse.
+ * Use `create(EpicsHistoryResponseSchema)` to create a new message.
+ */
+export const EpicsHistoryResponseSchema: GenMessage<EpicsHistoryResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 12);
+
+/**
+ * EpicHistoryEntry is one row of an epic's history: a turn, a trigger, a step, an evidence run, a decision or a tell.
+ *
+ * @generated from message orrery.v1.EpicHistoryEntry
+ */
+export type EpicHistoryEntry = Message<"orrery.v1.EpicHistoryEntry"> & {
+  /**
+   * The entry's time, in unix seconds: a turn's start, a trigger's creation, a step's start, an evidence run's
+   * creation, a decision's recording, or a tell's writing.
+   *
+   * @generated from field: int64 time = 1;
+   */
+  time: bigint;
+
+  /**
+   * The entry's cursor. A History whose after is this cursor returns the entries after this one.
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor: string;
+
+  /**
+   * The row the entry carries.
+   *
+   * @generated from oneof orrery.v1.EpicHistoryEntry.item
+   */
+  item: {
+    /**
+     * A planner turn.
+     *
+     * @generated from field: orrery.v1.EpicTurn turn = 3;
+     */
+    value: EpicTurn;
+    case: "turn";
+  } | {
+    /**
+     * A trigger of a planner turn.
+     *
+     * @generated from field: orrery.v1.EpicTrigger trigger = 4;
+     */
+    value: EpicTrigger;
+    case: "trigger";
+  } | {
+    /**
+     * A step labelled with the epic.
+     *
+     * @generated from field: orrery.v1.EpicStep step = 5;
+     */
+    value: EpicStep;
+    case: "step";
+  } | {
+    /**
+     * An evidence run.
+     *
+     * @generated from field: orrery.v1.EvidenceRun evidence = 6;
+     */
+    value: EvidenceRun;
+    case: "evidence";
+  } | {
+    /**
+     * A decision.
+     *
+     * @generated from field: orrery.v1.EpicDecision decision = 7;
+     */
+    value: EpicDecision;
+    case: "decision";
+  } | {
+    /**
+     * A tell: what the owner was told.
+     *
+     * @generated from field: orrery.v1.EpicTell tell = 8;
+     */
+    value: EpicTell;
+    case: "tell";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message orrery.v1.EpicHistoryEntry.
+ * Use `create(EpicHistoryEntrySchema)` to create a new message.
+ */
+export const EpicHistoryEntrySchema: GenMessage<EpicHistoryEntry> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 13);
+
+/**
+ * EpicTurn is one planner turn of an orreryd epic.
+ *
+ * @generated from message orrery.v1.EpicTurn
+ */
+export type EpicTurn = Message<"orrery.v1.EpicTurn"> & {
+  /**
+   * The turn's position on the epic, counted from 1.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * The step the turn runs, empty until the turn has one.
+   *
+   * @generated from field: string step = 2;
+   */
+  step: string;
+
+  /**
+   * The turn's state: running, succeeded, failed or free.
+   *
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * Why the turn failed or was freed, empty otherwise.
+   *
+   * @generated from field: string reason = 4;
+   */
+  reason: string;
+
+  /**
+   * The outline the turn's return gave, empty until the turn succeeds.
+   *
+   * @generated from field: string outline = 5;
+   */
+  outline: string;
+
+  /**
+   * The outcome the turn's return gave, empty until the turn succeeds.
+   *
+   * @generated from field: string outcome = 6;
+   */
+  outcome: string;
+
+  /**
+   * The decisions the turn's return recorded, in the order they were recorded.
+   *
+   * @generated from field: repeated string decisions = 7;
+   */
+  decisions: string[];
+
+  /**
+   * When the turn started, in unix seconds.
+   *
+   * @generated from field: int64 started = 8;
+   */
+  started: bigint;
+
+  /**
+   * When the turn ended, in unix seconds; 0 while the turn runs.
+   *
+   * @generated from field: int64 ended = 9;
+   */
+  ended: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.EpicTurn.
+ * Use `create(EpicTurnSchema)` to create a new message.
+ */
+export const EpicTurnSchema: GenMessage<EpicTurn> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 14);
+
+/**
+ * EpicTrigger is one cause that asks an orreryd epic's planner for a turn.
+ *
+ * @generated from message orrery.v1.EpicTrigger
+ */
+export type EpicTrigger = Message<"orrery.v1.EpicTrigger"> & {
+  /**
+   * The trigger's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * What caused the trigger.
+   *
+   * @generated from field: string cause = 2;
+   */
+  cause: string;
+
+  /**
+   * The trigger's state: pending, claimed or consumed.
+   *
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * The position of the turn that claimed the trigger; 0 while it is pending.
+   *
+   * @generated from field: int64 turn = 4;
+   */
+  turn: bigint;
+
+  /**
+   * When the trigger was created, in unix seconds.
+   *
+   * @generated from field: int64 created = 5;
+   */
+  created: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.EpicTrigger.
+ * Use `create(EpicTriggerSchema)` to create a new message.
+ */
+export const EpicTriggerSchema: GenMessage<EpicTrigger> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 15);
+
+/**
+ * EpicDecision is one decision recorded on an orreryd epic.
+ *
+ * @generated from message orrery.v1.EpicDecision
+ */
+export type EpicDecision = Message<"orrery.v1.EpicDecision"> & {
+  /**
+   * The decision's position on the epic, counted from 1.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * The decision's id.
+   *
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * The decision's text.
+   *
+   * @generated from field: string text = 3;
+   */
+  text: string;
+
+  /**
+   * When the decision was recorded, in unix seconds.
+   *
+   * @generated from field: int64 time = 4;
+   */
+  time: bigint;
+
+  /**
+   * The question, Q<n>, the decision answers; empty for a note.
+   *
+   * @generated from field: string question = 5;
+   */
+  question: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicDecision.
+ * Use `create(EpicDecisionSchema)` to create a new message.
+ */
+export const EpicDecisionSchema: GenMessage<EpicDecision> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 16);
+
+/**
+ * EpicTell is one thing an orreryd epic told its owner.
+ *
+ * @generated from message orrery.v1.EpicTell
+ */
+export type EpicTell = Message<"orrery.v1.EpicTell"> & {
+  /**
+   * The tell's position on the epic, counted from 1.
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * What the owner was told.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * When the tell was written, in unix seconds.
+   *
+   * @generated from field: int64 at = 3;
+   */
+  at: bigint;
+
+  /**
+   * Whether the owner has been told it.
+   *
+   * @generated from field: bool told = 4;
+   */
+  told: boolean;
+};
+
+/**
+ * Describes the message orrery.v1.EpicTell.
+ * Use `create(EpicTellSchema)` to create a new message.
+ */
+export const EpicTellSchema: GenMessage<EpicTell> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 17);
+
+/**
+ * EpicsPauseRequest names the orreryd epic to pause.
+ *
+ * @generated from message orrery.v1.EpicsPauseRequest
+ */
+export type EpicsPauseRequest = Message<"orrery.v1.EpicsPauseRequest"> & {
+  /**
+   * The epic's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsPauseRequest.
+ * Use `create(EpicsPauseRequestSchema)` to create a new message.
+ */
+export const EpicsPauseRequestSchema: GenMessage<EpicsPauseRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 18);
+
+/**
+ * EpicsPauseResponse confirms a paused epic.
+ *
+ * @generated from message orrery.v1.EpicsPauseResponse
+ */
+export type EpicsPauseResponse = Message<"orrery.v1.EpicsPauseResponse"> & {
+};
+
+/**
+ * Describes the message orrery.v1.EpicsPauseResponse.
+ * Use `create(EpicsPauseResponseSchema)` to create a new message.
+ */
+export const EpicsPauseResponseSchema: GenMessage<EpicsPauseResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 19);
+
+/**
+ * EpicsResumeRequest names the orreryd epic to resume.
+ *
+ * @generated from message orrery.v1.EpicsResumeRequest
+ */
+export type EpicsResumeRequest = Message<"orrery.v1.EpicsResumeRequest"> & {
+  /**
+   * The epic's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsResumeRequest.
+ * Use `create(EpicsResumeRequestSchema)` to create a new message.
+ */
+export const EpicsResumeRequestSchema: GenMessage<EpicsResumeRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 20);
+
+/**
+ * EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+ *
+ * @generated from message orrery.v1.EpicsResumeResponse
+ */
+export type EpicsResumeResponse = Message<"orrery.v1.EpicsResumeResponse"> & {
+  /**
+   * The ids of the limited steps the resume resumed, oldest first.
+   *
+   * @generated from field: repeated string resumed = 1;
+   */
+  resumed: string[];
+
+  /**
+   * The ids of the limited steps the resume left limited because the step cap was full, oldest first.
+   *
+   * @generated from field: repeated string still_limited = 2;
+   */
+  stillLimited: string[];
+};
+
+/**
+ * Describes the message orrery.v1.EpicsResumeResponse.
+ * Use `create(EpicsResumeResponseSchema)` to create a new message.
+ */
+export const EpicsResumeResponseSchema: GenMessage<EpicsResumeResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 21);
+
+/**
+ * EpicsStopRequest names the orreryd epic to stop.
+ *
+ * @generated from message orrery.v1.EpicsStopRequest
+ */
+export type EpicsStopRequest = Message<"orrery.v1.EpicsStopRequest"> & {
+  /**
+   * The epic's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsStopRequest.
+ * Use `create(EpicsStopRequestSchema)` to create a new message.
+ */
+export const EpicsStopRequestSchema: GenMessage<EpicsStopRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 22);
+
+/**
+ * EpicsStopResponse confirms a stopped epic.
+ *
+ * @generated from message orrery.v1.EpicsStopResponse
+ */
+export type EpicsStopResponse = Message<"orrery.v1.EpicsStopResponse"> & {
+};
+
+/**
+ * Describes the message orrery.v1.EpicsStopResponse.
+ * Use `create(EpicsStopResponseSchema)` to create a new message.
+ */
+export const EpicsStopResponseSchema: GenMessage<EpicsStopResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 23);
+
+/**
+ * EpicsRetryRequest names the orreryd epic to retry, and the workflow node to rerun when node is set.
+ *
+ * @generated from message orrery.v1.EpicsRetryRequest
+ */
+export type EpicsRetryRequest = Message<"orrery.v1.EpicsRetryRequest"> & {
+  /**
+   * The epic's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The workflow node id whose parked runs rerun under their next attempt. Empty ends the epic's park instead.
+   *
+   * @generated from field: string node = 2;
+   */
+  node: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsRetryRequest.
+ * Use `create(EpicsRetryRequestSchema)` to create a new message.
+ */
+export const EpicsRetryRequestSchema: GenMessage<EpicsRetryRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 24);
+
+/**
+ * EpicsRetryResponse confirms a retried epic.
+ *
+ * @generated from message orrery.v1.EpicsRetryResponse
+ */
+export type EpicsRetryResponse = Message<"orrery.v1.EpicsRetryResponse"> & {
+};
+
+/**
+ * Describes the message orrery.v1.EpicsRetryResponse.
+ * Use `create(EpicsRetryResponseSchema)` to create a new message.
+ */
+export const EpicsRetryResponseSchema: GenMessage<EpicsRetryResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 25);
+
+/**
+ * EpicsAnswerRequest records the owner's answer on one orreryd epic.
+ *
+ * @generated from message orrery.v1.EpicsAnswerRequest
+ */
+export type EpicsAnswerRequest = Message<"orrery.v1.EpicsAnswerRequest"> & {
+  /**
+   * The id of the epic the answer belongs to.
+   *
+   * @generated from field: string epic_id = 1;
+   */
+  epicId: string;
+
+  /**
+   * The decision's id, chosen by the caller. A repeated id with the same text returns the first decision.
+   *
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * The owner's answer.
+   *
+   * @generated from field: string text = 3;
+   */
+  text: string;
+
+  /**
+   * The question, Q<n>, the answer names; empty for a note.
+   *
+   * @generated from field: string question = 4;
+   */
+  question: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsAnswerRequest.
+ * Use `create(EpicsAnswerRequestSchema)` to create a new message.
+ */
+export const EpicsAnswerRequestSchema: GenMessage<EpicsAnswerRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 26);
+
+/**
+ * EpicsAnswerResponse carries the recorded decision.
+ *
+ * @generated from message orrery.v1.EpicsAnswerResponse
+ */
+export type EpicsAnswerResponse = Message<"orrery.v1.EpicsAnswerResponse"> & {
+  /**
+   * The decision recorded, or the decision first recorded under the same id.
+   *
+   * @generated from field: orrery.v1.EpicDecision decision = 1;
+   */
+  decision?: EpicDecision | undefined;
+
+  /**
+   * A warning set when a note is recorded while questions are open; empty otherwise.
+   *
+   * @generated from field: string warning = 2;
+   */
+  warning: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicsAnswerResponse.
+ * Use `create(EpicsAnswerResponseSchema)` to create a new message.
+ */
+export const EpicsAnswerResponseSchema: GenMessage<EpicsAnswerResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 27);
 
 /**
  * Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
@@ -210,6 +1194,21 @@ export type Epic = Message<"orrery.v1.Epic"> & {
    * @generated from field: string source = 10;
    */
   source: string;
+
+  /**
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   *
+   * @generated from field: string outcome_detail = 11;
+   */
+  outcomeDetail: string;
+
+  /**
+   * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+   * effort task. False for an orreryd epic.
+   *
+   * @generated from field: bool waiting = 12;
+   */
+  waiting: boolean;
 };
 
 /**
@@ -217,7 +1216,7 @@ export type Epic = Message<"orrery.v1.Epic"> & {
  * Use `create(EpicSchema)` to create a new message.
  */
 export const EpicSchema: GenMessage<Epic> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 4);
+  messageDesc(file_orrery_v1_epics, 28);
 
 /**
  * EpicTask is one task from an effort's state.json.
@@ -266,7 +1265,7 @@ export type EpicTask = Message<"orrery.v1.EpicTask"> & {
  * Use `create(EpicTaskSchema)` to create a new message.
  */
 export const EpicTaskSchema: GenMessage<EpicTask> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 5);
+  messageDesc(file_orrery_v1_epics, 29);
 
 /**
  * EpicBuildTask is one task of an orreryd epic's plan, with its build.
@@ -336,7 +1335,7 @@ export type EpicBuildTask = Message<"orrery.v1.EpicBuildTask"> & {
  * Use `create(EpicBuildTaskSchema)` to create a new message.
  */
 export const EpicBuildTaskSchema: GenMessage<EpicBuildTask> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 6);
+  messageDesc(file_orrery_v1_epics, 30);
 
 /**
  * EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
@@ -385,7 +1384,7 @@ export type EpicTaskReview = Message<"orrery.v1.EpicTaskReview"> & {
  * Use `create(EpicTaskReviewSchema)` to create a new message.
  */
 export const EpicTaskReviewSchema: GenMessage<EpicTaskReview> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 7);
+  messageDesc(file_orrery_v1_epics, 31);
 
 /**
  * EpicTaskFinding is one finding a review raised, with its verification.
@@ -441,7 +1440,7 @@ export type EpicTaskFinding = Message<"orrery.v1.EpicTaskFinding"> & {
  * Use `create(EpicTaskFindingSchema)` to create a new message.
  */
 export const EpicTaskFindingSchema: GenMessage<EpicTaskFinding> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 8);
+  messageDesc(file_orrery_v1_epics, 32);
 
 /**
  * EpicStep is one labelled step of an epic.
@@ -613,7 +1612,7 @@ export type EpicStep = Message<"orrery.v1.EpicStep"> & {
  * Use `create(EpicStepSchema)` to create a new message.
  */
 export const EpicStepSchema: GenMessage<EpicStep> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 9);
+  messageDesc(file_orrery_v1_epics, 33);
 
 /**
  * EpicStepCheck is one check a step ran in one round.
@@ -683,7 +1682,7 @@ export type EpicStepCheck = Message<"orrery.v1.EpicStepCheck"> & {
  * Use `create(EpicStepCheckSchema)` to create a new message.
  */
 export const EpicStepCheckSchema: GenMessage<EpicStepCheck> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 10);
+  messageDesc(file_orrery_v1_epics, 34);
 
 /**
  * EpicStepVerdict is one done-judge verdict a step got.
@@ -718,7 +1717,7 @@ export type EpicStepVerdict = Message<"orrery.v1.EpicStepVerdict"> & {
  * Use `create(EpicStepVerdictSchema)` to create a new message.
  */
 export const EpicStepVerdictSchema: GenMessage<EpicStepVerdict> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 11);
+  messageDesc(file_orrery_v1_epics, 35);
 
 /**
  * EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
@@ -810,7 +1809,7 @@ export type EpicSlice = Message<"orrery.v1.EpicSlice"> & {
  * Use `create(EpicSliceSchema)` to create a new message.
  */
 export const EpicSliceSchema: GenMessage<EpicSlice> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 12);
+  messageDesc(file_orrery_v1_epics, 36);
 
 /**
  * EpicRequirement is one requirement of an orreryd epic's contract.
@@ -866,7 +1865,7 @@ export type EpicRequirement = Message<"orrery.v1.EpicRequirement"> & {
  * Use `create(EpicRequirementSchema)` to create a new message.
  */
 export const EpicRequirementSchema: GenMessage<EpicRequirement> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 13);
+  messageDesc(file_orrery_v1_epics, 37);
 
 /**
  * EpicNodeCheck is the check a gate or command node run ran: its state, how it ended, and its output.
@@ -922,7 +1921,7 @@ export type EpicNodeCheck = Message<"orrery.v1.EpicNodeCheck"> & {
  * Use `create(EpicNodeCheckSchema)` to create a new message.
  */
 export const EpicNodeCheckSchema: GenMessage<EpicNodeCheck> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 14);
+  messageDesc(file_orrery_v1_epics, 38);
 
 /**
  * EpicNode is one workflow node run on an epic: the node it runs, its state and outcome, and the rows its kind holds.
@@ -1042,7 +2041,7 @@ export type EpicNode = Message<"orrery.v1.EpicNode"> & {
  * Use `create(EpicNodeSchema)` to create a new message.
  */
 export const EpicNodeSchema: GenMessage<EpicNode> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 15);
+  messageDesc(file_orrery_v1_epics, 39);
 
 /**
  * EvidenceRun is one evidence run: an item's evidence captured or supplied for one phase at a revision, with its
@@ -1162,6 +2161,14 @@ export type EvidenceRun = Message<"orrery.v1.EvidenceRun"> & {
    * @generated from field: int64 stderr_bytes = 16;
    */
   stderrBytes: bigint;
+
+  /**
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   *
+   * @generated from field: string item = 17;
+   */
+  item: string;
 };
 
 /**
@@ -1169,7 +2176,7 @@ export type EvidenceRun = Message<"orrery.v1.EvidenceRun"> & {
  * Use `create(EvidenceRunSchema)` to create a new message.
  */
 export const EvidenceRunSchema: GenMessage<EvidenceRun> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 16);
+  messageDesc(file_orrery_v1_epics, 40);
 
 /**
  * EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -1211,7 +2218,7 @@ export type EvidenceArtifact = Message<"orrery.v1.EvidenceArtifact"> & {
  * Use `create(EvidenceArtifactSchema)` to create a new message.
  */
 export const EvidenceArtifactSchema: GenMessage<EvidenceArtifact> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 17);
+  messageDesc(file_orrery_v1_epics, 41);
 
 /**
  * EvidenceArtifactRequest names one artifact of an evidence run.
@@ -1246,7 +2253,7 @@ export type EvidenceArtifactRequest = Message<"orrery.v1.EvidenceArtifactRequest
  * Use `create(EvidenceArtifactRequestSchema)` to create a new message.
  */
 export const EvidenceArtifactRequestSchema: GenMessage<EvidenceArtifactRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 18);
+  messageDesc(file_orrery_v1_epics, 42);
 
 /**
  * EvidenceArtifactResponse carries one artifact's bytes.
@@ -1274,7 +2281,7 @@ export type EvidenceArtifactResponse = Message<"orrery.v1.EvidenceArtifactRespon
  * Use `create(EvidenceArtifactResponseSchema)` to create a new message.
  */
 export const EvidenceArtifactResponseSchema: GenMessage<EvidenceArtifactResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 19);
+  messageDesc(file_orrery_v1_epics, 43);
 
 /**
  * StepsHoldRequest names the step to hold.
@@ -1295,7 +2302,7 @@ export type StepsHoldRequest = Message<"orrery.v1.StepsHoldRequest"> & {
  * Use `create(StepsHoldRequestSchema)` to create a new message.
  */
 export const StepsHoldRequestSchema: GenMessage<StepsHoldRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 20);
+  messageDesc(file_orrery_v1_epics, 44);
 
 /**
  * StepsHoldResponse confirms a held step.
@@ -1310,7 +2317,7 @@ export type StepsHoldResponse = Message<"orrery.v1.StepsHoldResponse"> & {
  * Use `create(StepsHoldResponseSchema)` to create a new message.
  */
 export const StepsHoldResponseSchema: GenMessage<StepsHoldResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 21);
+  messageDesc(file_orrery_v1_epics, 45);
 
 /**
  * StepsNudgeRequest names the step to nudge and the text to send it.
@@ -1338,7 +2345,7 @@ export type StepsNudgeRequest = Message<"orrery.v1.StepsNudgeRequest"> & {
  * Use `create(StepsNudgeRequestSchema)` to create a new message.
  */
 export const StepsNudgeRequestSchema: GenMessage<StepsNudgeRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 22);
+  messageDesc(file_orrery_v1_epics, 46);
 
 /**
  * StepsNudgeResponse confirms a nudge that landed.
@@ -1353,7 +2360,7 @@ export type StepsNudgeResponse = Message<"orrery.v1.StepsNudgeResponse"> & {
  * Use `create(StepsNudgeResponseSchema)` to create a new message.
  */
 export const StepsNudgeResponseSchema: GenMessage<StepsNudgeResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 23);
+  messageDesc(file_orrery_v1_epics, 47);
 
 /**
  * StepsStopRequest names the step to stop.
@@ -1374,7 +2381,7 @@ export type StepsStopRequest = Message<"orrery.v1.StepsStopRequest"> & {
  * Use `create(StepsStopRequestSchema)` to create a new message.
  */
 export const StepsStopRequestSchema: GenMessage<StepsStopRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 24);
+  messageDesc(file_orrery_v1_epics, 48);
 
 /**
  * StepsStopResponse confirms a stopped step.
@@ -1389,7 +2396,7 @@ export type StepsStopResponse = Message<"orrery.v1.StepsStopResponse"> & {
  * Use `create(StepsStopResponseSchema)` to create a new message.
  */
 export const StepsStopResponseSchema: GenMessage<StepsStopResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 25);
+  messageDesc(file_orrery_v1_epics, 49);
 
 /**
  * Epics reads the epics under the gambit record root and the epics orreryd's database holds.
@@ -1416,6 +2423,66 @@ export const Epics: GenService<{
     methodKind: "unary";
     input: typeof EpicsGetRequestSchema;
     output: typeof EpicsGetResponseSchema;
+  },
+  /**
+   * History returns one page of an epic's turns, triggers, steps, evidence runs, decisions and tells, oldest first.
+   *
+   * @generated from rpc orrery.v1.Epics.History
+   */
+  history: {
+    methodKind: "unary";
+    input: typeof EpicsHistoryRequestSchema;
+    output: typeof EpicsHistoryResponseSchema;
+  },
+  /**
+   * Pause pauses the named orreryd epic, so its planner starts no turn.
+   *
+   * @generated from rpc orrery.v1.Epics.Pause
+   */
+  pause: {
+    methodKind: "unary";
+    input: typeof EpicsPauseRequestSchema;
+    output: typeof EpicsPauseResponseSchema;
+  },
+  /**
+   * Resume clears the named orreryd epic's pause and resumes its limited task steps.
+   *
+   * @generated from rpc orrery.v1.Epics.Resume
+   */
+  resume: {
+    methodKind: "unary";
+    input: typeof EpicsResumeRequestSchema;
+    output: typeof EpicsResumeResponseSchema;
+  },
+  /**
+   * Stop pauses the named orreryd epic and stops the step of its running turn.
+   *
+   * @generated from rpc orrery.v1.Epics.Stop
+   */
+  stop: {
+    methodKind: "unary";
+    input: typeof EpicsStopRequestSchema;
+    output: typeof EpicsStopResponseSchema;
+  },
+  /**
+   * Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
+   *
+   * @generated from rpc orrery.v1.Epics.Retry
+   */
+  retry: {
+    methodKind: "unary";
+    input: typeof EpicsRetryRequestSchema;
+    output: typeof EpicsRetryResponseSchema;
+  },
+  /**
+   * Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
+   *
+   * @generated from rpc orrery.v1.Epics.Answer
+   */
+  answer: {
+    methodKind: "unary";
+    input: typeof EpicsAnswerRequestSchema;
+    output: typeof EpicsAnswerResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_epics, 0);

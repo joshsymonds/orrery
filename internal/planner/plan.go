@@ -23,6 +23,7 @@ const Schema = `{
 					"deliverable": {"type": "string"},
 					"files": {"type": "array", "items": {"type": "string"}},
 					"requirements": {"type": "array", "items": {"type": "string"}},
+					"contributes": {"type": "array", "items": {"type": "string"}},
 					"gate": {"type": "string"},
 					"evidence": {
 						"type": "object",
@@ -32,13 +33,15 @@ const Schema = `{
 							"artifacts": {"type": "array", "items": {"type": "string"}},
 							"supplied": {"type": "array", "items": {"type": "string"}},
 							"conclusion": {"type": "string"},
-							"judge": {"type": "string"}
+							"judge": {"type": "string"},
+							"kind": {"type": "string"},
+							"tests": {"type": "array", "items": {"type": "string"}}
 						},
-						"required": ["capture", "limit", "artifacts", "supplied", "conclusion", "judge"],
+						"required": ["capture", "limit", "artifacts", "supplied", "conclusion", "judge", "kind", "tests"],
 						"additionalProperties": false
 					}
 				},
-				"required": ["title", "deliverable", "files", "requirements", "gate", "evidence"],
+				"required": ["title", "deliverable", "files", "requirements", "contributes", "gate", "evidence"],
 				"additionalProperties": false
 			}
 		},
@@ -111,6 +114,7 @@ type Task struct {
 	Deliverable  string        `json:"deliverable"`
 	Files        []string      `json:"files"`
 	Requirements []string      `json:"requirements"`
+	Contributes  []string      `json:"contributes"`
 	Gate         string        `json:"gate"`
 	Evidence     evidence.Item `json:"evidence"`
 }

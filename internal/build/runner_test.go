@@ -2,6 +2,8 @@ package build
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -93,9 +97,13 @@ func (f *passEvidence) RunTask(
 	if f.err != nil {
 		return store.EvidenceRun{}, f.err
 	}
+	spec, err := taskItem(ctx, f.store, epic, seq)
+	if err != nil {
+		return store.EvidenceRun{}, err
+	}
 	if err := f.store.AddEvidenceRun(ctx, store.EvidenceRun{
 		ID: id, Epic: epic, Item: taskLabel(seq), Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-		Created: passClock(),
+		Spec: spec, Created: passClock(),
 	}); err != nil {
 		return store.EvidenceRun{}, err
 	}
@@ -103,6 +111,21 @@ func (f *passEvidence) RunTask(
 		f.onRun()
 	}
 	return f.store.EvidenceRun(ctx, id)
+}
+
+// taskItem returns the evidence item task seq of epic holds in the store. A run of the task keeps that item as its
+// spec, as enginehost.Evidence.RunTask does.
+func taskItem(ctx context.Context, s *store.Store, epic string, seq int64) (evidence.Item, error) {
+	row, err := s.Epic(ctx, epic)
+	if err != nil {
+		return evidence.Item{}, fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	for _, task := range row.Tasks {
+		if task.Seq == seq {
+			return task.Evidence, nil
+		}
+	}
+	return evidence.Item{}, fmt.Errorf("epic %s has no task %d", epic, seq)
 }
 
 func (f *passEvidence) Artifact(_ context.Context, _, _ string) ([]byte, string, error) {
@@ -134,6 +157,7 @@ type passFixture struct {
 	t         *testing.T
 	ctx       context.Context
 	store     *store.Store
+	dbPath    string
 	repo      string
 	base      string
 	stateDir  string
@@ -144,11 +168,28 @@ type passFixture struct {
 	runner    *Runner
 }
 
-// newPassFixture returns a fixture whose epic has reviewGates as its review gates. Its repository has main at the base,
-// and the epic has no branch yet.
+// newPassFixture returns a fixture whose epic has an agent reviewer for each of reviewGates, in order, as its task-stage
+// reviewers. Its repository has main at the base, and the epic has no branch yet.
 func newPassFixture(t *testing.T, reviewGates ...string) *passFixture {
 	t.Helper()
+	revs := make([]reviewers.Reviewer, 0, len(reviewGates))
+	for _, name := range reviewGates {
+		revs = append(revs, agentReviewer(name))
+	}
+	return newPassFixtureWith(t, revs)
+}
+
+// newPassFixtureWith returns a fixture whose epic declares revs as its reviewers. Its review gates are the names of its
+// enabled task-stage reviewers in order, as epic_create fills them. Its repository has main at the base, and the epic
+// has no branch yet.
+func newPassFixtureWith(t *testing.T, revs []reviewers.Reviewer) *passFixture {
+	t.Helper()
 	ctx := context.Background()
+	taskRevs := reviewers.ForStage(revs, reviewers.StageTask)
+	reviewGates := make([]string, 0, len(taskRevs))
+	for _, rev := range taskRevs {
+		reviewGates = append(reviewGates, rev.Name)
+	}
 	setup := newStartSetup(t, readoptCommandGate("check"), readoptReviewGate())
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
@@ -164,7 +205,7 @@ func newPassFixture(t *testing.T, reviewGates ...string) *passFixture {
 	if err = s.CreateEpic(ctx, store.EpicRow{
 		ID: passEpic, Repository: setup.epic.Repository, Base: setup.base, Title: "Build the thing",
 		Phase: "accepted", Created: passClock(), Changed: passClock(), Gates: setup.epic.Gates,
-		ReviewGates: reviewGates,
+		ReviewGates: reviewGates, Reviewers: revs,
 	}); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
@@ -178,7 +219,7 @@ func newPassFixture(t *testing.T, reviewGates ...string) *passFixture {
 	steps := &passSteps{rows: make(map[string]store.StepRow)}
 	fakeEvidence := &passEvidence{store: s}
 	return &passFixture{
-		t: t, ctx: ctx, store: s, repo: setup.epic.Repository, base: setup.base, stateDir: setup.stateDir,
+		t: t, ctx: ctx, store: s, dbPath: path, repo: setup.epic.Repository, base: setup.base, stateDir: setup.stateDir,
 		rolesPath: setup.rolesPath, getenv: setup.getenv, steps: steps, evidence: fakeEvidence,
 		runner: New(Config{
 			Store: s, Steps: steps, Evidence: fakeEvidence, Getenv: setup.getenv, StateDir: setup.stateDir,
@@ -273,7 +314,7 @@ func (f *passFixture) addRun(id, phase, revision string, exit int, verdict strin
 	case errors.Is(err, store.ErrNoEvidenceRun):
 		if err = f.store.AddEvidenceRun(f.ctx, store.EvidenceRun{
 			ID: id, Epic: passEpic, Item: "T1", Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-			Created: at,
+			Spec: f.task().Evidence, Created: at,
 		}); err != nil {
 			f.t.Fatalf("AddEvidenceRun: %v", err)
 		}
@@ -565,6 +606,44 @@ func TestPassRedFailingAtBaseSnapshotsRefsAndStartsImplementer(t *testing.T) {
 	}
 }
 
+// TestPassRedRunOfChangedItemReadsMissing covers R3: a red run that ends passing at the base is kept only while its
+// spec is current with the task's stored evidence item. Once the item changes, the run reads missing, so the build
+// asks for the run again and stays at red, and no implementer starts.
+func TestPassRedRunOfChangedItemReadsMissing(t *testing.T) {
+	t.Parallel()
+	f := newPassFixture(t)
+	f.pass()
+	red := f.lastRun()
+	f.addRun(red.id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
+	item := f.task().Evidence
+	item.Conclusion = "the thing is broken"
+	raw, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	db, err := sql.Open("sqlite", f.dbPath)
+	if err != nil {
+		t.Fatalf("open store file: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store file: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(f.ctx,
+		"UPDATE epic_tasks SET evidence = ? WHERE epic = ? AND seq = 1", string(raw), passEpic); err != nil {
+		t.Fatalf("UPDATE epic_tasks: %v", err)
+	}
+	f.pass()
+	build := f.task().Build
+	if build.Stage != StageRed || build.RedRun != "" {
+		t.Errorf("build stage %q red run %q, want red with no red run", build.Stage, build.RedRun)
+	}
+	if len(f.steps.starts) != 0 {
+		t.Errorf("Start calls = %d, want 0", len(f.steps.starts))
+	}
+}
+
 // TestPassImplementerDoneStartsGreenAtItsCommit covers R4: an implementer that returns done with its commit
 // moves the build to green at that commit, and the green run starts there.
 func TestPassImplementerDoneStartsGreenAtItsCommit(t *testing.T) {
@@ -672,6 +751,84 @@ func TestPassGreenPassedStartsReviewGate(t *testing.T) {
 	}
 	if build := f.task().Build; build.Stage != StageReview || build.GreenRun != passRunID(StageGreen, 1) {
 		t.Errorf("build = %+v, want review with the green run kept", build)
+	}
+}
+
+// TestPassReviewRunsEachTaskReviewerAsDeclared covers R3: a task's review steps are its enabled task-stage reviewers in
+// merged order, and each step carries its reviewer's gate, a model reviewer's inline agent, and an agent reviewer's
+// prompt heading the review prompt.
+func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
+	t.Parallel()
+	floor := reviewers.Reviewer{
+		Name: "floor", Enabled: true, Stage: []string{reviewers.StageTask}, Model: "test-model",
+		Tools: []string{"Read", "Grep"}, Effort: "high", Prompt: "Review the diff.", Limit: 900, Verify: true,
+		Must: []string{"the diff is correct"}, MustNot: []string{"the tests were weakened"},
+	}
+	conformance := agentReviewer("conformance")
+	conformance.Stage = []string{reviewers.StageEpic}
+	disabled := agentReviewer("disabled")
+	disabled.Enabled = false
+	custom := reviewers.Reviewer{
+		Name: "custom", Enabled: true, Stage: []string{reviewers.StageTask}, Agent: "custom-review",
+		Prompt: "Check the migration.", Limit: 600, Verify: true, Must: []string{"the migration is reversible"},
+	}
+	f := newPassFixtureWith(t, []reviewers.Reviewer{floor, conformance, disabled, custom})
+	f.pass()
+	f.setGreen(1, evidence.VerdictHolds)
+	f.pass()
+	if len(f.steps.starts) != 1 {
+		t.Fatalf("Start calls = %d, want the floor review step", len(f.steps.starts))
+	}
+	f.setStep(passStep(StageReview, 1, 0), "done", "")
+	f.pass()
+	if len(f.steps.starts) != 2 {
+		t.Fatalf("Start calls = %d, want the floor and custom review steps", len(f.steps.starts))
+	}
+
+	epic, task := f.epic(), f.task()
+	base, revision := task.Build.Base, task.Build.Revision
+	first, second := f.steps.starts[0], f.steps.starts[1]
+	if first.ID != passStep(StageReview, 1, 0) || second.ID != StepID(passEpic, 1, StageReview, 1, 0, 1, 0) {
+		t.Fatalf("review step ids = %s, %s, want floor at position 0 then custom at position 1", first.ID, second.ID)
+	}
+
+	gate := first.AgentGate
+	if !first.ReadOnly || gate == nil || gate.Name != "floor" || gate.Agent != "orrery-reviewer-floor" ||
+		gate.Limit != 900*time.Second ||
+		!slices.Equal(gate.Assertions, []gates.Assertion{
+			{Text: "the diff is correct", Kind: gates.KindMust},
+			{Text: "the tests were weakened", Kind: gates.KindMustNot},
+		}) {
+		t.Errorf("floor review ReadOnly %t, AgentGate %+v, want the floor gate read-only", first.ReadOnly, gate)
+	}
+	var inline map[string]struct {
+		Model  string   `json:"model"`
+		Tools  []string `json:"tools"`
+		Effort string   `json:"effort"`
+		Prompt string   `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(first.Agents), &inline); err != nil {
+		t.Fatalf("floor review Agents = %q, want a JSON object of agents: %v", first.Agents, err)
+	}
+	def := inline["orrery-reviewer-floor"]
+	if def.Model != "test-model" || !slices.Equal(def.Tools, []string{"Read", "Grep"}) ||
+		def.Effort != "high" || def.Prompt != "Review the diff." {
+		t.Errorf("floor review inline agent = %+v, want the floor's model, tools, effort and prompt", def)
+	}
+	if want := ReviewPrompt(epic, task, base, revision); first.Prompt != want {
+		t.Errorf("floor review Prompt = %q, want the review prompt %q", first.Prompt, want)
+	}
+
+	gate = second.AgentGate
+	if gate == nil || gate.Name != "custom" || gate.Agent != "custom-review" || gate.Limit != 600*time.Second ||
+		!slices.Equal(gate.Assertions, []gates.Assertion{{Text: "the migration is reversible", Kind: gates.KindMust}}) {
+		t.Errorf("custom review AgentGate = %+v, want the custom gate", gate)
+	}
+	if second.Agents != "" {
+		t.Errorf("custom review Agents = %s, want none for an agent reviewer", second.Agents)
+	}
+	if want := "Check the migration.\n\n" + ReviewPrompt(epic, task, base, revision); second.Prompt != want {
+		t.Errorf("custom review Prompt = %q, want %q", second.Prompt, want)
 	}
 }
 

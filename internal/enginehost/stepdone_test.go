@@ -3,7 +3,9 @@ package enginehost
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -499,5 +501,78 @@ func TestStepDoneFallbackOwned(t *testing.T) {
 	owned := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepGitOwnedName)
 	if want := "changed paths outside owned: other/outside.txt"; owned.OK || owned.Detail != want {
 		t.Errorf("round 1 owned check = %+v, want failure %q", owned, want)
+	}
+}
+
+// stepGateLogLines is how many numbered lines the log test's gate prints to stdout: more than its check's tail holds.
+const stepGateLogLines = 2000
+
+// TestStepDoneFailedGateKeepsItsOutputInALog runs a writing step whose gate prints more stdout than a check keeps,
+// writes a synthetic credential to stderr, and exits 1. The gate check keeps the newest lines of stdout as its tail,
+// from the start of a line, and names the log under the gate state directory that keeps the whole of both streams,
+// each redacted, once the gate's holder is gone.
+func TestStepDoneFailedGateKeepsItsOutputInALog(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	gate := stepDoneScript(t, fmt.Sprintf(
+		`i=1; while [ $i -le %d ]; do echo "line $i"; i=$((i + 1)); done; `+
+			`echo 'Authorization: synthetic-secret-value' >&2; echo err-tail >&2; exit 1`, stepGateLogLines))
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+	for range stepLoopMaxContinues + 1 {
+		f.run.Return(stepDoneReturn(commit))
+	}
+	waitRunEnd(t, done)
+
+	gateCheck := stepDoneCheck(t, stepDoneRoundChecks(f.row(t).Checks, 1), stepLoopGateName)
+	if gateCheck.OK || !strings.HasSuffix(gateCheck.Detail, "; gate exited 1") {
+		t.Fatalf("gate check = %+v, want a failure that exited 1", gateCheck)
+	}
+	var stdout strings.Builder
+	for i := 1; i <= stepGateLogLines; i++ {
+		fmt.Fprintf(&stdout, "line %d\n", i)
+	}
+	if len(gateCheck.Stdout) > stepGateCheckTail || !strings.HasPrefix(gateCheck.Stdout, "line ") ||
+		!strings.HasSuffix(stdout.String(), "\n"+gateCheck.Stdout) {
+		t.Errorf("gate check stdout = %d bytes from %q, want the newest whole lines, at most %d bytes",
+			len(gateCheck.Stdout), gateCheck.Stdout[:min(len(gateCheck.Stdout), 16)], stepGateCheckTail)
+	}
+	if want := "Authorization: [redacted]\nerr-tail\n"; gateCheck.Stderr != want {
+		t.Errorf("gate check stderr = %q, want %q", gateCheck.Stderr, want)
+	}
+
+	if want := filepath.Join(f.run.stateDir, gateLogsName, stepLoopID, "round-1.log"); gateCheck.Log != want {
+		t.Fatalf("gate check log = %q, want %q", gateCheck.Log, want)
+	}
+	logged, err := os.ReadFile(gateCheck.Log)
+	if err != nil {
+		t.Fatalf("read the gate log: %v", err)
+	}
+	if want := "== stdout ==\n" + stdout.String() + "== stderr ==\nAuthorization: [redacted]\nerr-tail\n"; string(
+		logged,
+	) != want {
+		t.Errorf("gate log = %d bytes, want both streams whole and redacted, %d bytes", len(logged), len(want))
+	}
+}
+
+// TestStepDonePassingGateKeepsNoLog runs a writing step whose gate prints and passes. Its check names no log, and no
+// log is written.
+func TestStepDonePassingGateKeepsNoLog(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	gate := stepDoneScript(t, "echo passing; exit 0")
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+	f.run.Return(stepDoneReturn(commit))
+	waitRunEnd(t, done)
+
+	gateCheck := stepDoneCheck(t, stepDoneRoundChecks(f.row(t).Checks, 1), stepLoopGateName)
+	if !gateCheck.OK || gateCheck.Log != "" {
+		t.Fatalf("gate check = %+v, want a pass that names no log", gateCheck)
+	}
+	if _, err := os.Stat(filepath.Join(f.run.stateDir, gateLogsName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("gate logs directory after a passing gate: %v, want none", err)
 	}
 }

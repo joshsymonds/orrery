@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -314,6 +315,36 @@ func TestDecideReview(t *testing.T) {
 			},
 		},
 		{
+			name: "gate failed with findings and verify off settles them confirmed and unverified",
+			view: View{
+				Epic: decideEpic, ReviewGates: gates, NoVerify: true,
+				Step: reviewStep("gate_failed", gateFailedFindings, "gate failed"),
+				Task: store.EpicTask{Seq: 3, Build: build},
+			},
+			want: Action{
+				Kind: ActReview,
+				Review: store.TaskReview{
+					Attempt: 1, Position: 0, Gate: "lint", Step: "review-step", Verdict: verdictFails,
+					Findings: []store.TaskFinding{
+						{
+							Position: 0, ID: "F1", Claim: "claim one", Citation: "assertion one", Location: "a.go:1",
+							Evidence: "seen one", VerifyBy: "run one", Step: "review-step",
+							Result: resultConfirmed, Unverified: true,
+						},
+						{
+							Position: 1, ID: "F2", Claim: "claim two", Citation: "assertion two", Location: "b.go:2",
+							Evidence: "seen two", VerifyBy: "run two", Step: "review-step",
+							Result: resultConfirmed, Unverified: true,
+						},
+					},
+				},
+				Next: store.TaskBuild{
+					Stage: StageVerify, Base: "base", Attempt: 1, Revision: "rev", RedRun: "red-run",
+					GreenRun: "green-run", FindingPos: 2,
+				},
+			},
+		},
+		{
 			name: "gate failed with an undetermined result gives no verdict once",
 			view: View{
 				Epic: decideEpic, ReviewGates: gates,
@@ -367,6 +398,95 @@ func TestDecideReview(t *testing.T) {
 			got := decideReview(tc.view)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("decideReview = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDecideReviewVerifyOffSpendsAttemptWithoutVerifier covers R4: with verify off a failed review stores its findings
+// confirmed and unverified, and the verify unit after it spends the attempt with their claims and starts no verifier.
+func TestDecideReviewVerifyOffSpendsAttemptWithoutVerifier(t *testing.T) {
+	t.Parallel()
+	build := store.TaskBuild{
+		Stage: StageReview, Base: "base", Attempt: 1, Revision: "rev", RedRun: "red-run", GreenRun: "green-run",
+	}
+	review := decideReview(View{
+		Epic: decideEpic, ReviewGates: []string{"lint"}, NoVerify: true,
+		Step: &store.StepRow{ID: "review-step", End: endGateFailed, Result: gateFailedFindings, Reason: "gate failed"},
+		Task: store.EpicTask{Seq: 3, Build: build},
+	})
+	if review.Kind != ActReview {
+		t.Fatalf("decideReview kind = %s, want %s", review.Kind, ActReview)
+	}
+	got := decideVerify(View{
+		Epic: decideEpic,
+		Task: store.EpicTask{Seq: 3, Build: review.Next, Reviews: []store.TaskReview{review.Review}},
+	})
+	want := Action{Kind: ActMove, Next: store.TaskBuild{
+		Stage: StageImplement, Base: "base", Attempt: 2, RedRun: "red-run", FindingPos: 2,
+		Failure: "confirmed: F1 claim one; confirmed: F2 claim two",
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("decideVerify = %+v, want %+v", got, want)
+	}
+}
+
+// TestUnverifiedFindings covers R4 at epic stage: a failed epic-stage verdict's findings settle as confirmed and
+// unverified, each with the step that raised it, and a verdict with no failed assertion settles none.
+func TestUnverifiedFindings(t *testing.T) {
+	t.Parallel()
+	got, ok := UnverifiedFindings("epic-review-step", gateFailedFindings)
+	want := []store.TaskFinding{
+		{
+			Position: 0, ID: "F1", Claim: "claim one", Citation: "assertion one", Location: "a.go:1",
+			Evidence: "seen one", VerifyBy: "run one", Step: "epic-review-step",
+			Result: resultConfirmed, Unverified: true,
+		},
+		{
+			Position: 1, ID: "F2", Claim: "claim two", Citation: "assertion two", Location: "b.go:2",
+			Evidence: "seen two", VerifyBy: "run two", Step: "epic-review-step",
+			Result: resultConfirmed, Unverified: true,
+		},
+	}
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("UnverifiedFindings = %+v, %t, want %+v, true", got, ok, want)
+	}
+	if _, ok := UnverifiedFindings("epic-review-step", gateNoFindings); ok {
+		t.Errorf("UnverifiedFindings of a return with no findings = true, want false")
+	}
+}
+
+// TestViewNoVerifyFollowsTheGatePosReviewer covers R4: a task's view has verify off when the task-stage reviewer at
+// its gate position does. Epic-stage reviewers do not take a gate position.
+func TestViewNoVerifyFollowsTheGatePosReviewer(t *testing.T) {
+	t.Parallel()
+	f := newPassFixture(t, "lint", "security")
+	epic := f.epic()
+	epic.Reviewers = []reviewers.Reviewer{
+		{Name: "judge", Enabled: true, Stage: []string{reviewers.StageEpic}, Verify: false},
+		{Name: "lint", Enabled: true, Stage: []string{reviewers.StageTask}, Verify: false},
+		{Name: "security", Enabled: true, Stage: []string{reviewers.StageTask}, Verify: true},
+	}
+	stored := f.task()
+	tests := []struct {
+		name    string
+		gatePos int64
+		want    bool
+	}{
+		{name: "verify off at the gate position", gatePos: 0, want: true},
+		{name: "verify on at the gate position", gatePos: 1, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			task := stored
+			task.Build = store.TaskBuild{Stage: StageReview, Base: f.base, Attempt: 1, GatePos: tc.gatePos}
+			view, err := f.runner.view(f.ctx, epic, task, f.base)
+			if err != nil {
+				t.Fatalf("view: %v", err)
+			}
+			if view.NoVerify != tc.want {
+				t.Errorf("view.NoVerify = %t, want %t", view.NoVerify, tc.want)
 			}
 		})
 	}

@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -49,6 +52,20 @@ func readoptCommandGate(name string) store.EpicGate {
 // readoptReviewGate is an epic agent gate named review that runs the reviewer agent.
 func readoptReviewGate() store.EpicGate {
 	return store.EpicGate{Name: "review", Agent: "reviewer", Limit: 60, Must: []string{"the diff is correct"}}
+}
+
+// readoptReviewer is an enabled agent reviewer at the task stage named review, the reviewer the review steps run.
+func readoptReviewer() reviewers.Reviewer {
+	return reviewers.Reviewer{
+		Name:    "review",
+		Enabled: true,
+		Stage:   []string{reviewers.StageTask},
+		Must:    []string{"the diff is correct"},
+		MustNot: []string{"the diff adds a dependency"},
+		Agent:   "reviewer",
+		Limit:   60,
+		Verify:  true,
+	}
 }
 
 // writeReadoptFile writes content to path, creating its directory.
@@ -144,23 +161,65 @@ func TestReadoptCheckIsNilForOtherRows(t *testing.T) {
 
 func TestReadoptGateRebuildsReviewGateOfTaskStep(t *testing.T) {
 	t.Parallel()
-	epic, getenv := readoptEpic(t, readoptReviewGate())
-	row := store.StepRow{ID: "s1", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "review"}
-	gate, err := ReadoptGate(fakeEpics{epic.ID: epic}, getenv)(context.Background(), row)
-	if err != nil {
-		t.Fatalf("ReadoptGate(T3 review) error = %v, want nil", err)
+	agentReviewer := readoptReviewer()
+	modelReviewer := reviewers.Reviewer{
+		Name:    "floor",
+		Enabled: true,
+		Stage:   []string{reviewers.StageTask},
+		Must:    []string{"the change is tested"},
+		Model:   "m-1",
+		Tools:   []string{"Read"},
+		Effort:  "high",
+		Limit:   90,
+		Verify:  true,
 	}
-	if gate == nil {
-		t.Fatal("ReadoptGate(T3 review) = nil, want the review agent gate")
+	tests := []struct {
+		name     string
+		reviewer reviewers.Reviewer
+		want     gates.Gate
+	}{
+		{
+			name:     "agent reviewer",
+			reviewer: agentReviewer,
+			want: gates.Gate{
+				Name: "review", Agent: "reviewer", Limit: 60 * time.Second,
+				Assertions: []gates.Assertion{
+					{Text: "the diff is correct", Kind: gates.KindMust},
+					{Text: "the diff adds a dependency", Kind: gates.KindMustNot},
+				},
+			},
+		},
+		{
+			name:     "model reviewer",
+			reviewer: modelReviewer,
+			want: gates.Gate{
+				Name: "floor", Agent: "orrery-reviewer-floor", Limit: 90 * time.Second,
+				Assertions: []gates.Assertion{{Text: "the change is tested", Kind: gates.KindMust}},
+			},
+		},
 	}
-	if gate.Name != "review" || gate.Agent != "reviewer" {
-		t.Errorf("ReadoptGate(T3 review) = %+v, want gate review running agent reviewer", *gate)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			epic := store.EpicRow{ID: "acme/epic", Reviewers: []reviewers.Reviewer{tt.reviewer}}
+			row := store.StepRow{ID: "s1", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: tt.reviewer.Name}
+			gate, err := ReadoptGate(fakeEpics{epic.ID: epic})(context.Background(), row)
+			if err != nil {
+				t.Fatalf("ReadoptGate(T3 %s) error = %v, want nil", tt.name, err)
+			}
+			if gate == nil {
+				t.Fatalf("ReadoptGate(T3 %s) = nil, want the reviewer's gate", tt.name)
+			}
+			if !reflect.DeepEqual(*gate, tt.want) {
+				t.Errorf("ReadoptGate(T3 %s) = %+v, want %+v", tt.name, *gate, tt.want)
+			}
+		})
 	}
 }
 
 func TestReadoptGateIsNilForRowsThatRunNoTaskReviewGate(t *testing.T) {
 	t.Parallel()
-	epic, getenv := readoptEpic(t, readoptReviewGate())
+	epic := store.EpicRow{ID: "acme/epic", Reviewers: []reviewers.Reviewer{readoptReviewer()}}
 	rows := map[string]store.StepRow{
 		"evidence judge": {
 			ID: "s2", Epic: epic.ID, Task: "evidence-0123456789abcdef0123456789abcdef", ReadOnly: true,
@@ -171,7 +230,7 @@ func TestReadoptGateIsNilForRowsThatRunNoTaskReviewGate(t *testing.T) {
 		"task zero":   {ID: "s5", Epic: epic.ID, Task: "T0", ReadOnly: true, GateName: "review"},
 	}
 	for name, row := range rows {
-		gate, err := ReadoptGate(fakeEpics{epic.ID: epic}, getenv)(context.Background(), row)
+		gate, err := ReadoptGate(fakeEpics{epic.ID: epic})(context.Background(), row)
 		if err != nil {
 			t.Errorf("ReadoptGate(%s) error = %v, want nil", name, err)
 		}
@@ -183,18 +242,34 @@ func TestReadoptGateIsNilForRowsThatRunNoTaskReviewGate(t *testing.T) {
 
 func TestReadoptGateErrorsWhenEpicDoesNotRead(t *testing.T) {
 	t.Parallel()
-	epic, getenv := readoptEpic(t, readoptReviewGate())
-	row := store.StepRow{ID: "s1", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "review"}
-	if _, err := ReadoptGate(fakeEpics{}, getenv)(context.Background(), row); err == nil {
+	row := store.StepRow{ID: "s1", Epic: "acme/epic", Task: "T3", ReadOnly: true, GateName: "review"}
+	if _, err := ReadoptGate(fakeEpics{})(context.Background(), row); err == nil {
 		t.Fatal("ReadoptGate with an epic that does not read = nil error, want one")
 	}
 }
 
-func TestReadoptGateErrorsForCommandGate(t *testing.T) {
+func TestReadoptGateErrorsForRowNamingNoTaskReviewer(t *testing.T) {
 	t.Parallel()
-	epic, getenv := readoptEpic(t, readoptCommandGate("check"))
-	row := store.StepRow{ID: "s1", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "check"}
-	if _, err := ReadoptGate(fakeEpics{epic.ID: epic}, getenv)(context.Background(), row); err == nil {
-		t.Fatal("ReadoptGate of a command gate = nil error, want one")
+	disabled := readoptReviewer()
+	disabled.Enabled = false
+	epicStage := readoptReviewer()
+	epicStage.Name = "conformance"
+	epicStage.Stage = []string{reviewers.StageEpic}
+	// The epic also holds a command gate named check: a row naming it is no reviewer, however the gate resolves.
+	epic := store.EpicRow{
+		ID:        "acme/epic",
+		Gates:     []store.EpicGate{readoptCommandGate("check")},
+		Reviewers: []reviewers.Reviewer{disabled, epicStage},
+	}
+	rows := map[string]store.StepRow{
+		"disabled reviewer":   {ID: "s1", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "review"},
+		"epic-stage reviewer": {ID: "s2", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "conformance"},
+		"command gate":        {ID: "s3", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "check"},
+		"unknown name":        {ID: "s4", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: "missing"},
+	}
+	for name, row := range rows {
+		if _, err := ReadoptGate(fakeEpics{epic.ID: epic})(context.Background(), row); err == nil {
+			t.Errorf("ReadoptGate(%s) = nil error, want one", name)
+		}
 	}
 }

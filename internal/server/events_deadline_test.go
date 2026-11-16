@@ -134,21 +134,20 @@ func deadlineSummary(i int) string {
 	return fmt.Sprintf("%d:%s", i, b)
 }
 
-// seedBigEvents writes the row of eventPane, which appends one session_added event, then count session_changed
-// events whose summaries are deadlineSummaryBytes long.
-func seedBigEvents(t *testing.T, s *store.Store, count int) {
-	t.Helper()
+// writeBigEvents writes the row of eventPane, which appends one session_added event, then count session_changed
+// events whose summaries are deadlineSummaryBytes long, and returns the first write's error.
+func writeBigEvents(ctx context.Context, s *store.Store, count int) error {
 	rows := []store.Pane{{ID: eventPane, Pane: "%1"}}
-	if err := s.SyncServer(t.Context(), "-L a", rows, time.Unix(eventAt, 0)); err != nil {
-		t.Fatalf("SyncServer: %v", err)
+	if err := s.SyncServer(ctx, "-L a", rows, time.Unix(eventAt, 0)); err != nil {
+		return fmt.Errorf("SyncServer: %w", err)
 	}
 	for i := 1; i <= count; i++ {
-		summary := deadlineSummary(i)
-		pane := store.Pane{ID: eventPane, Pane: "%1", Fields: store.Fields{Summary: summary}}
-		if err := s.SyncPane(t.Context(), "-L a", pane, time.Unix(eventAt, 0)); err != nil {
-			t.Fatalf("SyncPane summary %d: %v", i, err)
+		pane := store.Pane{ID: eventPane, Pane: "%1", Fields: store.Fields{Summary: deadlineSummary(i)}}
+		if err := s.SyncPane(ctx, "-L a", pane, time.Unix(eventAt, 0)); err != nil {
+			return fmt.Errorf("SyncPane summary %d: %w", i, err)
 		}
 	}
+	return nil
 }
 
 // waitClosed waits until the connection with remote address addr closes. It has no deadline of its own.
@@ -216,8 +215,7 @@ func openHeldStall(t *testing.T, path string) (*watch, net.Conn, string, <-chan 
 func TestStalledStreamLeavesOtherStreamsServed(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s := openEventStore(t, path)
-	seedBigEvents(t, s, deadlineBigEvents)
+	s := openFilledEventStore(t, path, "big", deadlineBigEvents, writeBigEvents)
 	_, stalledConn, stalledAddr, closed, obs := openHeldStall(t, path)
 	url := "http://" + obs.Addr().String()
 
@@ -248,8 +246,7 @@ func TestStalledStreamLeavesOtherStreamsServed(t *testing.T) {
 func TestStalledStreamEndsAtSendDeadline(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
-	s := openEventStore(t, path)
-	seedBigEvents(t, s, deadlineBigEvents)
+	openFilledEventStore(t, path, "big", deadlineBigEvents, writeBigEvents)
 	stalled, _, stalledAddr, closed, obs := openHeldStall(t, path)
 
 	if err := obs.releaseAll(); err != nil {

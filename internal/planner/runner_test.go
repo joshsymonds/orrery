@@ -75,7 +75,7 @@ const storeQuestion = `{"label":"which-store","text":"which store?","choices":[`
 const validPlan = `{"status":"done","decisions":["use the store"],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task","questions":[` +
 	storeQuestion + `],` +
 	`"outcome":"work"}`
 
@@ -83,7 +83,7 @@ const validPlan = `{"status":"done","decisions":["use the store"],` +
 const badQuestionPlan = `{"status":"done","decisions":["use the store"],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task","questions":[` +
 	`{"label":"which-store","text":"which store?","choices":[{"id":"sqlite","does":"Keep the store in SQLite."}],` +
 	`"recommended":"sqlite","why":"The tables already hold the epic.","confidence":"high","replaces":""}],` +
 	`"outcome":"work"}`
@@ -91,6 +91,7 @@ const badQuestionPlan = `{"status":"done","decisions":["use the store"],` +
 // runnerEvidenceItem returns the evidence item validPlan's task stores and reads back as.
 func runnerEvidenceItem() evidence.Item {
 	return evidence.Item{
+		Kind:    evidence.KindCapture,
 		Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
 		Conclusion: "the runner runs", Judge: "a judge",
 	}
@@ -100,19 +101,22 @@ func runnerEvidenceItem() evidence.Item {
 const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R9"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task",` +
+	`"questions":[],"outcome":"work"}`
 
 // unknownGatePlan is validPlan with its task's gate named missing, which no gate defines.
 const unknownGatePlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"missing","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task",` +
+	`"questions":[],"outcome":"work"}`
 
 // unknownJudgePlan is validPlan with its task's judge named nobody, which no agent answers to.
 const unknownJudgePlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-	`"supplied":[],"conclusion":"the runner runs","judge":"nobody"}}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"supplied":[],"conclusion":"the runner runs","judge":"nobody","kind":"capture"}}],"outline":"one task",` +
+	`"questions":[],"outcome":"work"}`
 
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start and each Stop. The first
 // stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does.
@@ -676,11 +680,13 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 	const touchA = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}],"outline":"o",` +
+		`"questions":[],"outcome":"work"}`
 	const touchB = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch b","deliverable":"d","files":["internal/b.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}],"outline":"o",` +
+		`"questions":[],"outcome":"work"}`
 
 	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
 	if got := check(json.RawMessage(touchA)); !reflect.DeepEqual(got, want) {

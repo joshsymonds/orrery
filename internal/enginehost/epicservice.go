@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -31,6 +32,7 @@ type EpicCommands interface {
 	CreateEpic(ctx context.Context, row store.EpicRow) error
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
+	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
@@ -62,9 +64,10 @@ func (s *epicService) ready() error {
 	return nil
 }
 
-// CreateEpic checks the contract with checkEpic, resolves its base to the full commit the base names, pins the workflow
-// the request names at that commit, then stores it accepted, with its seed decisions, and returns the stored epic read
-// back. A workflow that does not load at the base is refused, and nothing is stored.
+// CreateEpic checks the contract with checkEpic, merges its reviewers, resolves its base to the full commit the base
+// names, pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and
+// returns the stored epic read back. Its review list is the enabled task-stage reviewers, in merged order. A reviewer
+// no layer can hold, or a workflow that does not load at the base, is refused, and nothing is stored.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -80,6 +83,10 @@ func (s *epicService) CreateEpic(
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	contract := req.Msg.GetContract()
+	merged, err := epicReviewers(ctx, contract, getenv)
+	if err != nil {
+		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
 	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, epicStoreError(fmt.Errorf("resolve base: %w", err))
@@ -89,6 +96,8 @@ func (s *epicService) CreateEpic(
 		return nil, refuseEpic(connect.CodeInvalidArgument, "workflow: "+err.Error())
 	}
 	row := epicRowOf(req.Msg, base, workflow, time.Now())
+	row.Reviewers = merged
+	row.ReviewGates = taskReviewNames(merged)
 	if err = s.epics.CreateEpic(ctx, row); err != nil {
 		if errors.Is(err, store.ErrEpicExists) {
 			return nil, refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already in the database", row.ID))
@@ -102,7 +111,8 @@ func (s *epicService) CreateEpic(
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
 }
 
-// GetEpic returns the stored epic with its workflow node runs.
+// GetEpic returns the stored epic with its workflow node runs. When req asks for history, it also returns the epic's
+// triggers and tells.
 func (s *epicService) GetEpic(
 	ctx context.Context,
 	req *connect.Request[v1.GetEpicRequest],
@@ -110,9 +120,13 @@ func (s *epicService) GetEpic(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	message, err := s.storedEpic(ctx, req.Msg.GetId())
+	id := req.Msg.GetId()
+	message, err := s.storedEpic(ctx, id)
+	if err == nil && req.Msg.GetHistory() {
+		err = s.fillHistory(ctx, id, message)
+	}
 	if errors.Is(err, store.ErrNoEpic) {
-		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", req.Msg.GetId()))
+		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", id))
 	}
 	if err != nil {
 		return nil, epicStoreError(err)
@@ -120,9 +134,21 @@ func (s *epicService) GetEpic(
 	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
 }
 
-// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, all read in one read of the
-// store, so every reply that carries the epic shows the same nodes. It returns an error matching store.ErrNoEpic when no
-// epic has that id.
+// fillHistory sets the triggers and tells of message to the history the store reads for the epic with id. It returns an
+// error matching store.ErrNoEpic when no epic has that id.
+func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.StoredEpic) error {
+	history, err := s.epics.EpicHistory(ctx, id)
+	if err != nil {
+		return fmt.Errorf("read history of epic %s: %w", id, err)
+	}
+	message.Triggers = epicMap(history.Triggers, triggerMessage)
+	message.Tells = epicMap(history.Tells, tellMessage)
+	return nil
+}
+
+// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs and its review, all read in
+// one read of the store, so every reply that carries the epic shows the same nodes and the same review. It returns an
+// error matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
 	flow, err := s.epics.EpicFlow(ctx, id)
 	if err != nil {
@@ -132,10 +158,14 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	if err != nil {
 		return nil, err
 	}
+	requirementClaims(message, flow)
 	message.Nodes, err = nodeMessages(flow)
 	if err != nil {
 		return nil, err
 	}
+	message.Ledger = reviewLedgerMessage(flow.Review)
+	message.Frozen = flow.Review.Frozen
+	message.Clean = flow.Review.Clean
 	return message, nil
 }
 
@@ -485,8 +515,14 @@ func epicStoreError(err error) error {
 	return errors.Join(connect.NewError(connect.CodeInternal, err))
 }
 
+// taskReviewNames returns the names of the reviewers that run at the task stage, in the order of rs: the per-task
+// review list a task's reviews run through.
+func taskReviewNames(rs []reviewers.Reviewer) []string {
+	return epicMap(reviewers.ForStage(rs, reviewers.StageTask), func(rev reviewers.Reviewer) string { return rev.Name })
+}
+
 // epicRowOf returns the store row of the contract req names, based at base, pinned to workflow and accepted at now, with
-// req's decisions as its seeds.
+// req's decisions as its seeds. Its reviewers and review list are the caller's to set.
 func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkflow, now time.Time) store.EpicRow {
 	contract := req.GetContract()
 	return store.EpicRow{
@@ -516,9 +552,8 @@ func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkfl
 				Item: evidenceItemOf(r.GetItem()),
 			}
 		}),
-		Gates:       epicMap(contract.GetGates(), epicGateOf),
-		DoneGates:   contract.GetDoneGates(),
-		ReviewGates: contract.GetReviewGates(),
+		Gates:     epicMap(contract.GetGates(), epicGateOf),
+		DoneGates: contract.GetDoneGates(),
 		Premises: epicMap(contract.GetPremises(), func(p *v1.EpicPremise) store.EpicPremise {
 			return store.EpicPremise{ID: p.GetId(), Text: p.GetText(), IfWrong: p.GetIfWrong()}
 		}),
@@ -553,9 +588,9 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 	}
 }
 
-// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, its paused
-// and parked state with its turns, tasks and questions in order, its branch state, and its pinned workflow. It fails
-// when a task's messages fail.
+// storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
+// merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
+// and its pinned workflow. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
@@ -563,10 +598,12 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	}
 	return &v1.StoredEpic{
 		Contract:  contractMessage(row),
+		Summary:   row.Summary,
 		Phase:     row.Phase,
 		Created:   row.Created.Unix(),
 		Changed:   row.Changed.Unix(),
 		Decisions: epicMap(row.Decisions, decisionMessage),
+		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
 		Paused:    row.Paused,
 		Parked:    row.Parked,
 		Turns:     epicMap(row.Turns, turnMessage),
@@ -580,6 +617,54 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 // workflowMessage returns the EpicWorkflow message of w: its name, its canonical text and its sha256.
 func workflowMessage(w store.EpicWorkflow) *v1.EpicWorkflow {
 	return &v1.EpicWorkflow{Name: w.Name, Text: w.Text, Sha256: w.SHA256}
+}
+
+// triggerMessage returns the EpicTrigger message of trigger: its id, cause, state, claiming turn and creation time.
+func triggerMessage(trigger store.EpicTrigger) *v1.EpicTrigger {
+	return &v1.EpicTrigger{
+		Id: trigger.ID, Cause: trigger.Cause, State: trigger.State, Turn: trigger.Turn, Created: trigger.Created.Unix(),
+	}
+}
+
+// tellMessage returns the EpicTell message of tell: its seq, text, when it was written, and whether it was told.
+func tellMessage(tell store.EpicTell) *v1.EpicTell {
+	return &v1.EpicTell{Seq: tell.Seq, Text: tell.Text, At: tell.At.Unix(), Told: tell.Told}
+}
+
+// reviewLedgerMessage returns the EpicLedger message of review: its verdicts and its ledger findings by position, and
+// its correction rounds by round. A review that has not started has an empty ledger.
+func reviewLedgerMessage(review store.Review) *v1.EpicLedger {
+	return &v1.EpicLedger{
+		Verdicts: epicMap(review.Verdicts, reviewVerdictMessage),
+		Findings: epicMap(review.Ledger, reviewFindingMessage),
+		Rounds:   epicMap(review.Rounds, reviewRoundMessage),
+	}
+}
+
+// reviewVerdictMessage returns the EpicReviewVerdict message of v.
+func reviewVerdictMessage(v store.ReviewVerdict) *v1.EpicReviewVerdict {
+	return &v1.EpicReviewVerdict{
+		Position: v.Position, Reviewer: v.Reviewer, Step: v.Step, Verdict: v.Verdict, Reason: v.Reason,
+	}
+}
+
+// reviewFindingMessage returns the EpicLedgerFinding message of f, with its closures by round.
+func reviewFindingMessage(f store.LedgerFinding) *v1.EpicLedgerFinding {
+	return &v1.EpicLedgerFinding{
+		Id: f.ID, Position: f.Position, Reviewer: f.Reviewer, Finding: f.Finding, Claim: f.Claim, Citation: f.Citation,
+		Location: f.Location, Evidence: f.Evidence, VerifyBy: f.VerifyBy, Step: f.Step, Result: f.Result,
+		Unverified: f.Unverified, Reason: f.Reason, Closures: epicMap(f.Closures, reviewClosureMessage),
+	}
+}
+
+// reviewClosureMessage returns the EpicClosure message of c.
+func reviewClosureMessage(c store.Closure) *v1.EpicClosure {
+	return &v1.EpicClosure{Round: c.Round, Step: c.Step, Result: c.Result, Reason: c.Reason}
+}
+
+// reviewRoundMessage returns the EpicReviewRound message of r, with its correction tasks in seq order.
+func reviewRoundMessage(r store.ReviewRound) *v1.EpicReviewRound {
+	return &v1.EpicReviewRound{Round: r.Round, Revision: r.Revision, Tasks: r.Tasks, Outcome: r.Outcome}
 }
 
 // The kinds whose node runs the nodes view reads rows beneath, and the parts a node run's work ids are derived from.
@@ -730,7 +815,8 @@ func nodeCheckMessage(check store.NodeCheck) (*v1.EpicNodeCheck, error) {
 	}, nil
 }
 
-// contractMessage returns the EpicContract message of row, every section in order.
+// contractMessage returns the EpicContract message of row, every section in order. Its review gates and reviewers are
+// left empty: the stored epic carries its reviewers, and its review list is derived from them.
 func contractMessage(row store.EpicRow) *v1.EpicContract {
 	return &v1.EpicContract{
 		Id:         row.ID,
@@ -751,9 +837,8 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 				Id: r.ID, Text: r.Text, Evidence: r.Evidence, Kind: r.Kind, Item: requirementItemMessage(r.Item),
 			}
 		}),
-		Gates:       epicMap(row.Gates, epicGateMessage),
-		DoneGates:   row.DoneGates,
-		ReviewGates: row.ReviewGates,
+		Gates:     epicMap(row.Gates, epicGateMessage),
+		DoneGates: row.DoneGates,
 		Premises: epicMap(row.Premises, func(p store.EpicPremise) *v1.EpicPremise {
 			return &v1.EpicPremise{Id: p.ID, Text: p.Text, IfWrong: p.IfWrong}
 		}),
@@ -813,6 +898,7 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		Deliverable:  task.Deliverable,
 		Files:        task.Files,
 		Requirements: task.Requirements,
+		Contributes:  task.Contributes,
 		Gate:         task.Gate,
 		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
@@ -855,15 +941,17 @@ func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 	}
 }
 
-// taskFindingMessage returns the EpicTaskFinding message of finding: its id, claim, location and verification.
+// taskFindingMessage returns the EpicTaskFinding message of finding: its id, claim, location, verification, and whether
+// it was settled as confirmed without one.
 func taskFindingMessage(finding store.TaskFinding) *v1.EpicTaskFinding {
 	return &v1.EpicTaskFinding{
-		Id:       finding.ID,
-		Claim:    finding.Claim,
-		Location: finding.Location,
-		Step:     finding.Step,
-		Result:   finding.Result,
-		Reason:   finding.Reason,
+		Id:         finding.ID,
+		Claim:      finding.Claim,
+		Location:   finding.Location,
+		Step:       finding.Step,
+		Result:     finding.Result,
+		Reason:     finding.Reason,
+		Unverified: finding.Unverified,
 	}
 }
 
@@ -876,6 +964,8 @@ func evidenceItemMessage(item evidence.Item) *v1.EvidenceItem {
 		Supplied:   item.Supplied,
 		Conclusion: item.Conclusion,
 		Judge:      item.Judge,
+		Kind:       string(item.Kind),
+		Tests:      item.Tests,
 	}
 }
 

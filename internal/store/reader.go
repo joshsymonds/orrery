@@ -42,11 +42,33 @@ type Snapshot struct {
 // store's last connection.
 type Reader struct {
 	path string
+	// at, when set, runs at each point of a Snapshot or Events read (see readPoint). It is a test seam: production
+	// leaves it nil.
+	at func(readPoint)
 }
+
+// readPoint names a point in a Reader's read at which a test may act, between the read's calls into SQLite.
+type readPoint string
+
+const (
+	// readOpened is once the database handle exists, before its connection is made.
+	readOpened readPoint = "opened"
+	// readBegun is once the read transaction has begun on the connection.
+	readBegun readPoint = "begun"
+	// readQueried is once the transaction's first query has returned.
+	readQueried readPoint = "queried"
+)
 
 // NewReader returns a Reader for the store file at path. It opens nothing.
 func NewReader(path string) *Reader {
 	return &Reader{path: path}
+}
+
+// reach runs r.at at point when it is set.
+func (r *Reader) reach(point readPoint) {
+	if r.at != nil {
+		r.at(point)
+	}
 }
 
 // Snapshot reads every sessions row and the newest event seq in one read transaction. It returns an error that
@@ -57,7 +79,8 @@ func (r *Reader) Snapshot(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("open store reader: %w", err)
 	}
-	snap, err := readSnapshot(ctx, db)
+	r.reach(readOpened)
+	snap, err := readSnapshot(ctx, db, r.reach)
 	if closeErr := db.Close(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
@@ -79,12 +102,13 @@ func readOnlyDSN(path string) string {
 }
 
 // readSnapshot runs both reads in one read transaction, so the rows and the seq describe the same state.
-func readSnapshot(ctx context.Context, db *sql.DB) (Snapshot, error) {
+func readSnapshot(ctx context.Context, db *sql.DB, reach func(readPoint)) (Snapshot, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("begin store read: %w", err)
 	}
-	snap, err := readInTx(ctx, tx)
+	reach(readBegun)
+	snap, err := readInTx(ctx, tx, reach)
 	if err != nil {
 		return Snapshot{}, errors.Join(err, tx.Rollback())
 	}
@@ -94,12 +118,13 @@ func readSnapshot(ctx context.Context, db *sql.DB) (Snapshot, error) {
 	return snap, nil
 }
 
-func readInTx(ctx context.Context, tx *sql.Tx) (Snapshot, error) {
+func readInTx(ctx context.Context, tx *sql.Tx, reach func(readPoint)) (Snapshot, error) {
 	queries := sqlcgen.New(tx)
 	rows, err := queries.ListSessions(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("list sessions: %w", err)
 	}
+	reach(readQueried)
 	seq, err := queries.NewestEventSeq(ctx)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read newest event seq: %w", err)

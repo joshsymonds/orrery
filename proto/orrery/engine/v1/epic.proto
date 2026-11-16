@@ -103,8 +103,11 @@ message EpicContract {
   // The names of the command gates that show the epic is done.
   repeated string done_gates = 19;
 
-  // The names of the agent gates that review the epic.
+  // Refused when set: the epic's reviewers fill its per-task review list. Kept so old requests still decode.
   repeated string review_gates = 20;
+
+  // The reviewers the epic declares. Each merges by name over orrery's defaults and the project file.
+  repeated EpicReviewer reviewers = 21;
 }
 
 // EpicFailure is one failure the epic guards against.
@@ -137,6 +140,46 @@ message EpicAddition {
   string cost = 4;
 }
 
+// EpicReviewer is one reviewer. In the contract it is the epic's layer: an optional key left unset keeps the value the
+// layer below sets, and an empty repeated field is unset. In the stored epic it is a merged reviewer.
+message EpicReviewer {
+  // The reviewer's name: lowercase letters, digits and underscores, starting with a letter, at most 48 bytes.
+  string name = 1;
+
+  // Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
+  optional bool enabled = 2;
+
+  // The stages the reviewer runs at: task, epic, or both.
+  repeated string stage = 3;
+
+  // The statements the reviewer's return must show hold.
+  repeated string must = 4;
+
+  // The statements the reviewer's return must show do not hold.
+  repeated string must_not = 5;
+
+  // The role the reviewer runs under. Required when model is set.
+  optional string prompt = 6;
+
+  // The agent the reviewer runs, an agent claude already has. Set beside neither model, tools nor effort.
+  optional string agent = 7;
+
+  // The model the reviewer runs on, under an inline agent named from the reviewer. Never set beside agent.
+  optional string model = 8;
+
+  // The tools the reviewer may use. Never set beside agent.
+  repeated string tools = 9;
+
+  // The effort the reviewer runs at: low, medium, high, xhigh or max. Never set beside agent.
+  optional string effort = 10;
+
+  // The reviewer's time limit in seconds.
+  optional int64 limit = 11;
+
+  // Whether the reviewer's findings go to a verifier. Off, each finding counts as confirmed and is marked unverified.
+  optional bool verify = 12;
+}
+
 // EpicRequirement is one requirement: a thing that will be true when the epic is done.
 message EpicRequirement {
   // The requirement's id, R<n>.
@@ -154,6 +197,15 @@ message EpicRequirement {
 
   // The evidence that shows the requirement is true. Empty for epics stored before O3d2, which keep evidence and kind.
   EvidenceItem item = 5;
+
+  // The id of the task not failed that claims the requirement, T<seq>; empty when no task claims it.
+  string owner = 6;
+
+  // The ids of the tasks not failed that contribute to the requirement, T<seq>, in seq order.
+  repeated string contributors = 7;
+
+  // How far the requirement is shown: pending, red or green, from the runs of its current item.
+  string state = 8;
 }
 
 // EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
@@ -208,6 +260,13 @@ message EvidenceItem {
 
   // The agent that judges the evidence.
   string judge = 6;
+
+  // How the evidence shows the requirement or task is done: test, capture or supplied; empty for an item stored without
+  // a kind.
+  string kind = 7;
+
+  // The repository-relative test files a test item runs beside its capture; empty for an item that is not a test.
+  repeated string tests = 8;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -450,6 +509,9 @@ message EpicTask {
 
   // The reviews of the task's build, in attempt then position order.
   repeated EpicTaskReview reviews = 21;
+
+  // The Requirement ids the task contributes to without claiming them, R<n>.
+  repeated string contributes = 22;
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
@@ -489,6 +551,10 @@ message EpicTaskFinding {
 
   // Why the verification gave its result.
   string reason = 6;
+
+  // Whether the finding was confirmed without a verifier: a review with verify off confirms its findings and marks
+  // each one unverified.
+  bool unverified = 7;
 }
 
 // EpicQuestion is one question a planner turn asked.
@@ -544,6 +610,39 @@ message EpicRecommendation {
 
   // How sure the planner is: low, medium or high.
   string confidence = 3;
+}
+
+// EpicTrigger is one trigger of an epic, which starts or wakes its planner.
+message EpicTrigger {
+  // The trigger's id.
+  string id = 1;
+
+  // What the trigger is for, in words.
+  string cause = 2;
+
+  // The trigger's state: pending, claimed or consumed.
+  string state = 3;
+
+  // The position of the turn that claimed the trigger, counted from 1; 0 while the trigger is pending.
+  int64 turn = 4;
+
+  // When the trigger was created, in unix seconds.
+  int64 created = 5;
+}
+
+// EpicTell is one tell an epic holds for its owner.
+message EpicTell {
+  // The tell's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The tell's text.
+  string text = 2;
+
+  // When the tell was written, in unix seconds.
+  int64 at = 3;
+
+  // Whether the owner has been told it.
+  bool told = 4;
 }
 
 // EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
@@ -627,6 +726,113 @@ message EpicNode {
   string step = 15;
 }
 
+// EpicLedger is an epic's end-of-epic review: the verdicts of its reviewers, the findings they returned, and the
+// correction rounds that followed.
+message EpicLedger {
+  // The reviewers' verdicts, by position.
+  repeated EpicReviewVerdict verdicts = 1;
+
+  // The ledger's findings, by position.
+  repeated EpicLedgerFinding findings = 2;
+
+  // The correction rounds, by round.
+  repeated EpicReviewRound rounds = 3;
+}
+
+// EpicReviewVerdict is one reviewer's verdict in the epic's review.
+message EpicReviewVerdict {
+  // The reviewer's 1-based place among the epic's enabled epic-stage reviewers.
+  int64 position = 1;
+
+  // The reviewer's name.
+  string reviewer = 2;
+
+  // The step that gave the verdict. For a gap, the last try's step.
+  string step = 3;
+
+  // The verdict: holds, fails or gap.
+  string verdict = 4;
+
+  // Why the reviewer gave the verdict.
+  string reason = 5;
+}
+
+// EpicLedgerFinding is one finding a reviewer returned, as the review's ledger holds it.
+message EpicLedgerFinding {
+  // The ledger id, <reviewer>-<k>, where k is the finding's 1-based position among the reviewer's findings.
+  string id = 1;
+
+  // The finding's 1-based place in the ledger.
+  int64 position = 2;
+
+  // The reviewer's name.
+  string reviewer = 3;
+
+  // The finding id the reviewer returned.
+  string finding = 4;
+
+  // The claim the finding makes.
+  string claim = 5;
+
+  // The citation the finding gives for its claim.
+  string citation = 6;
+
+  // The location the finding names.
+  string location = 7;
+
+  // The evidence the finding gives.
+  string evidence = 8;
+
+  // How the verifier is to check the finding.
+  string verify_by = 9;
+
+  // The verifier step. Empty when the finding is unverified.
+  string step = 10;
+
+  // The verifier's result: confirmed, dropped or undetermined.
+  string result = 11;
+
+  // Whether verification was off. An unverified finding is confirmed and has no verifier step.
+  bool unverified = 12;
+
+  // Why the verifier reached the result.
+  string reason = 13;
+
+  // The closure verifier's result for the finding in each correction round, in round order.
+  repeated EpicClosure closures = 14;
+}
+
+// EpicClosure is the closure verifier's result for one ledger finding in one correction round.
+message EpicClosure {
+  // The correction round.
+  int64 round = 1;
+
+  // The closure verifier step.
+  string step = 2;
+
+  // The closure result: closed, open or undetermined.
+  string result = 3;
+
+  // Why the closure verifier reached the result.
+  string reason = 4;
+}
+
+// EpicReviewRound is one correction round of the epic's review: the correction tasks it ran and how its closure run
+// ended.
+message EpicReviewRound {
+  // The correction round.
+  int64 round = 1;
+
+  // The stored base the round's closure verifiers ran at.
+  string revision = 2;
+
+  // The round's correction task seqs, in order.
+  repeated int64 tasks = 3;
+
+  // The closure run's outcome: passed or failed.
+  string outcome = 4;
+}
+
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
   // The epic's contract as created.
@@ -668,6 +874,29 @@ message StoredEpic {
   // The epic's workflow node runs in the order of the pinned workflow's nodes, then by path, with a run of a node the
   // workflow does not hold after the others. Every epic RPC that returns the epic fills it.
   repeated EpicNode nodes = 13;
+
+  // The epic's reviewers, merged from orrery's defaults, the project file and the contract, in the order their names
+  // first appear.
+  repeated EpicReviewer reviewers = 14;
+
+  // The epic's end-of-epic review: its verdicts, its ledger of findings with their closures, and its correction rounds.
+  // Empty before the review starts.
+  EpicLedger ledger = 15;
+
+  // The revision the review froze. Empty before the review freezes.
+  string frozen = 16;
+
+  // The revision the epic ended clean at. Empty until the epic ends clean.
+  string clean = 17;
+
+  // The epic's summary, written once from its contract. Empty until it is written.
+  string summary = 20;
+
+  // The epic's triggers, oldest first. Only a GetEpic that asks for history fills them.
+  repeated EpicTrigger triggers = 21;
+
+  // The epic's tells in seq order. Only a GetEpic that asks for history fills them.
+  repeated EpicTell tells = 22;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -713,6 +942,9 @@ message CreateEpicResponse {
 message GetEpicRequest {
   // The epic's id.
   string id = 1;
+
+  // Whether the reply carries the epic's triggers and tells. Without it, the reply has neither.
+  bool history = 2;
 }
 
 // GetEpicResponse carries one stored epic.

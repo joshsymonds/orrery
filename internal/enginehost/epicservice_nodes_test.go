@@ -142,12 +142,13 @@ func TestEpicGetNodeRunsReturnTheRowsOfEachKind(t *testing.T) {
 		t.Fatalf("AddNodeCheck not run: %v", err)
 	}
 
-	// The evidence node's run is the one for attempt 1 and Requirement R1; the run for R2 at attempt 2 is not its.
+	// The evidence node's run is the one for attempt 1 and Requirement R1; the run for R2 at attempt 2 is not its. Each
+	// run's spec is the item its Requirement stores, which fullEpicRequest sets to epicTestItem.
 	for _, run := range []store.EvidenceRun{
 		{ID: store.NodeWorkID("run-evidence", 1, "R1"), Epic: epicServiceID, Item: "R1", Revision: nodesRevision,
-			Phase: "red", Source: "captured", Created: at},
+			Phase: "red", Source: "captured", Spec: evidenceItemOf(epicTestItem()), Created: at},
 		{ID: store.NodeWorkID("run-evidence", 2, "R2"), Epic: epicServiceID, Item: "R2", Revision: nodesRevision,
-			Phase: "red", Source: "captured", Created: at},
+			Phase: "red", Source: "captured", Spec: evidenceItemOf(epicTestItem()), Created: at},
 	} {
 		if err := st.AddEvidenceRun(ctx, run); err != nil {
 			t.Fatalf("AddEvidenceRun %s: %v", run.ID, err)

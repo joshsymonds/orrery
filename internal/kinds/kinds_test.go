@@ -144,6 +144,7 @@ func buildRows(base, phase string, tasks []store.EpicTask) Rows {
 func TestBuildDecide(t *testing.T) {
 	t.Parallel()
 	node := Node{Run: store.NodeRun{Kind: "build", Task: 2}}
+	open := []store.EpicTask{{Seq: 2, Status: "open"}}
 	cases := []struct {
 		name string
 		node Node
@@ -169,10 +170,10 @@ func TestBuildDecide(t *testing.T) {
 			Action{Kind: ActEnd},
 		},
 		{
-			"open task on accepted epic with base runs",
+			"done task on correcting epic ends with no outcome",
 			node,
-			buildRows("main", "accepted", []store.EpicTask{{Seq: 2, Status: "open"}}),
-			Action{Kind: ActRun},
+			buildRows("main", "correcting", []store.EpicTask{{Seq: 2, Status: "done"}}),
+			Action{Kind: ActEnd},
 		},
 		{
 			"open run task runs beside another open task",
@@ -187,15 +188,69 @@ func TestBuildDecide(t *testing.T) {
 			Action{Kind: ActEnd},
 		},
 		{
+			"open task on accepted epic with base runs",
+			node,
+			buildRows("main", "accepted", open),
+			Action{Kind: ActRun},
+		},
+		{
+			"open task on built epic with base runs",
+			node,
+			buildRows("main", "built", open),
+			Action{Kind: ActRun},
+		},
+		{
+			"open task on reviewing epic with base runs",
+			node,
+			buildRows("main", "reviewing", open),
+			Action{Kind: ActRun},
+		},
+		{
+			"open task on correcting epic with base runs",
+			node,
+			buildRows("main", "correcting", open),
+			Action{Kind: ActRun},
+		},
+		{
 			"open task on accepted epic with no base gives none",
 			node,
-			buildRows("", "accepted", []store.EpicTask{{Seq: 2, Status: "open"}}),
+			buildRows("", "accepted", open),
 			Action{Kind: ActNone},
 		},
 		{
-			"open task on epic not accepted gives none",
+			"open task on met_at_base epic gives none",
 			node,
-			buildRows("main", "deciding", []store.EpicTask{{Seq: 2, Status: "open"}}),
+			buildRows("main", "met_at_base", open),
+			Action{Kind: ActNone},
+		},
+		{
+			"open task on clean epic gives none",
+			node,
+			buildRows("main", "clean", open),
+			Action{Kind: ActNone},
+		},
+		{
+			"open task on ended_with_gaps epic gives none",
+			node,
+			buildRows("main", "ended_with_gaps", open),
+			Action{Kind: ActNone},
+		},
+		{
+			"open task on released epic gives none",
+			node,
+			buildRows("main", "released", open),
+			Action{Kind: ActNone},
+		},
+		{
+			"open task on done epic gives none",
+			node,
+			buildRows("main", "done", open),
+			Action{Kind: ActNone},
+		},
+		{
+			"open task on stopped epic gives none",
+			node,
+			buildRows("main", "stopped", open),
 			Action{Kind: ActNone},
 		},
 	}
@@ -207,5 +262,30 @@ func TestBuildDecide(t *testing.T) {
 				t.Errorf("Build.Decide() = %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestEnded(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		phase string
+		want  bool
+	}{
+		{"met_at_base", true},
+		{"clean", true},
+		{"ended_with_gaps", true},
+		{"released", true},
+		{"done", true},
+		{"stopped", true},
+		{"accepted", false},
+		{"built", false},
+		{"reviewing", false},
+		{"correcting", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := Ended(tc.phase); got != tc.want {
+			t.Errorf("Ended(%q) = %v, want %v", tc.phase, got, tc.want)
+		}
 	}
 }

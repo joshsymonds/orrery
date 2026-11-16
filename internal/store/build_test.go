@@ -49,12 +49,13 @@ func buildTaskOf(t *testing.T, s *Store, seq int64) EpicTask {
 	return EpicTask{}
 }
 
-// addBuildRun stores a captured run id of buildEpic in phase, as RunTask does before a build names it.
+// addBuildRun stores a captured run id of buildEpic in phase, as RunTask does before a build names it. Its spec is
+// the evidence plannedBuildEpic stored for task 1, the item the run is under.
 func addBuildRun(t *testing.T, s *Store, id, phase string) {
 	t.Helper()
 	if err := s.AddEvidenceRun(context.Background(), EvidenceRun{
 		ID: id, Epic: buildEpic, Item: "T1", Revision: "abc1234", Phase: phase, Source: "captured",
-		Spec: runItem(), Created: runCreatedAt(),
+		Spec: plannedTurn().Tasks[0].Evidence, Created: runCreatedAt(),
 	}); err != nil {
 		t.Fatalf("AddEvidenceRun %s: %v", id, err)
 	}
@@ -153,18 +154,19 @@ func insertBuildTask(t *testing.T, s *Store, epic string, seq int64) {
 	}
 }
 
-func TestBuildEpicsListsAcceptedEpicsWithBaseAndAnOpenTask(t *testing.T) {
+func TestBuildEpicsListsEpicsWithBaseAndAnOpenTaskUnlessEnded(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const (
-		zeta         = "orrery-1a2b3c4/zeta"
-		alpha        = "orrery-1a2b3c4/alpha"
-		noBase       = "orrery-1a2b3c4/no-base"
-		onlyDone     = "orrery-1a2b3c4/only-done"
-		unknownPhase = "orrery-1a2b3c4/unknown-phase"
-		noTasks      = "orrery-1a2b3c4/no-tasks"
+		zeta       = "orrery-1a2b3c4/zeta"
+		alpha      = "orrery-1a2b3c4/alpha"
+		correcting = "orrery-1a2b3c4/correcting"
+		noBase     = "orrery-1a2b3c4/no-base"
+		onlyDone   = "orrery-1a2b3c4/only-done"
+		noTasks    = "orrery-1a2b3c4/no-tasks"
 	)
+	endedPhases := []string{"met_at_base", "clean", "ended_with_gaps", "released", "done", "stopped"}
 	stored := func(id, base, phase string) {
 		row := fullEpic(id)
 		row.Base, row.Phase = base, phase
@@ -172,11 +174,16 @@ func TestBuildEpicsListsAcceptedEpicsWithBaseAndAnOpenTask(t *testing.T) {
 	}
 	stored(zeta, "main", "accepted")
 	stored(alpha, "main", "accepted")
+	stored(correcting, "main", "correcting")
 	stored(noBase, "", "accepted")
 	stored(onlyDone, "main", "accepted")
-	stored(unknownPhase, "main", "proposed")
 	stored(noTasks, "main", "accepted")
-	for _, id := range []string{zeta, alpha, noBase, onlyDone, unknownPhase} {
+	for _, id := range []string{zeta, alpha, correcting, noBase, onlyDone} {
+		insertBuildTask(t, s, id, 1)
+	}
+	for _, phase := range endedPhases {
+		id := "orrery-1a2b3c4/ended-" + phase
+		stored(id, "main", phase)
 		insertBuildTask(t, s, id, 1)
 	}
 	if _, err := s.db.ExecContext(ctx,
@@ -188,7 +195,7 @@ func TestBuildEpicsListsAcceptedEpicsWithBaseAndAnOpenTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildEpics: %v", err)
 	}
-	if want := []string{alpha, zeta}; !reflect.DeepEqual(got, want) {
+	if want := []string{alpha, correcting, zeta}; !reflect.DeepEqual(got, want) {
 		t.Errorf("BuildEpics = %v, want %v", got, want)
 	}
 }

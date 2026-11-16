@@ -28,13 +28,16 @@ func epicTestGates() []*v1.EpicGate {
 	}
 }
 
-// epicTestItem returns a valid evidence item: a capture of a synthetic script, with the conclusion and judge it needs.
+// epicTestItem returns a valid evidence item: a test of a synthetic script, with the test file it lists and the
+// conclusion and judge it needs.
 func epicTestItem() *v1.EvidenceItem {
 	return &v1.EvidenceItem{
+		Kind:       "test",
 		Capture:    []string{"scripts/check"},
 		Limit:      60,
 		Conclusion: "Synthetic conclusion.",
 		Judge:      "reviewer",
+		Tests:      []string{"internal/synthetic/check_test.go"},
 	}
 }
 
@@ -84,7 +87,6 @@ func epicTestRequest(repo string) *v1.CreateEpicRequest {
 			Base:        epicTestBase(repo),
 			Gates:       epicTestGates(),
 			DoneGates:   []string{"check"},
-			ReviewGates: []string{"review"},
 		},
 		Decisions: []*v1.EpicDecisionInput{{Id: "D1", Text: "Synthetic decision."}},
 	}
@@ -253,7 +255,9 @@ func TestCheckEpicRefusesGates(t *testing.T) {
 	})
 }
 
-func TestCheckEpicRefusesDoneAndReviewGates(t *testing.T) {
+// TestCheckEpicRefusesDoneGatesAndReviewGates asserts the done gates resolve to command gates, and that a contract
+// which sets review gates is refused whatever they name: the reviewers it declares fill the review list.
+func TestCheckEpicRefusesDoneGatesAndReviewGates(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
@@ -273,14 +277,9 @@ func TestCheckEpicRefusesDoneAndReviewGates(t *testing.T) {
 			want:   "done_gates[0]: not a command gate",
 		},
 		{
-			name:   "review gate defined nowhere",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"missing"} },
-			want:   `review_gates[0]: gate "missing": unknown gate: searched the epic's gates`,
-		},
-		{
-			name:   "review gate is a command gate",
-			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"check"} },
-			want:   "review_gates[0]: not an agent gate",
+			name:   "review gates set",
+			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"review"} },
+			want:   "review_gates: refused, the reviewers fill the review list",
 		},
 	})
 }
@@ -358,6 +357,13 @@ func TestCheckEpicRefusesRequirements(t *testing.T) {
 				req.Contract.Requirements[0].Item.Judge = " "
 			},
 			want: "requirements[0].item.judge: empty or blank",
+		},
+		{
+			name: "item kind none",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Kind = ""
+			},
+			want: "requirements[0].item.kind: none, name test, capture or supplied",
 		},
 		{
 			name: "item artifact not normalized",

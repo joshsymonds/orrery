@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -64,6 +67,85 @@ func TestStopStarted(t *testing.T) {
 	}
 	if _, err := client.Run(t.Context(), "list-sessions"); err == nil {
 		t.Fatal("server still answers after Stop")
+	}
+}
+
+// heldExitScript is a pane's command whose hangup it holds, as a held fake claude can still be writing its files when
+// the hangup lands. It takes a directory as $1. Its HUP trap writes hup there, then exits only once release exists. It
+// writes ready once the trap is set. It waits on a background sleep, and sh's wait returns when a trapped signal
+// comes, so the trap runs at once.
+const heldExitScript = `d=$1
+trap ': > "$d/hup"; until [ -e "$d/release" ]; do sleep 0.05; done; exit 0' HUP
+: > "$d/ready"
+while :; do sleep 1000 & wait $!; done`
+
+// TestStopWaitsForPaneProcesses stops a server whose pane holds its exit after the hangup. Stop has not returned while
+// the pane's process holds it, and once the process is released and Stop returns, the process is gone: nothing a pane
+// ran writes after Stop.
+func TestStopWaitsForPaneProcesses(t *testing.T) {
+	server := tmuxctl.Server{Name: newName(t)}
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		t.Fatalf("New(%+v): %v", server, err)
+	}
+	dir := t.TempDir()
+	if _, err = client.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", "s1", "sh", "-c",
+		heldExitScript, "sh", dir); err != nil {
+		t.Fatalf("new-session: %v", err)
+	}
+	out, err := client.Run(t.Context(), "list-panes", "-t", "s1", "-F", "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("list-panes: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		t.Fatalf("pane_pid %q: %v", out, err)
+	}
+	release := filepath.Join(dir, "release")
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		_ = tmuxtest.Stop(t, server)
+	})
+	awaitFile(t, filepath.Join(dir, "ready"), pid, nil)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- tmuxtest.Stop(t, server) }()
+	awaitFile(t, filepath.Join(dir, "hup"), pid, stopped)
+	select {
+	case err = <-stopped:
+		t.Fatalf("Stop returned %v while the pane's process held its exit", err)
+	default:
+	}
+	if err = os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatalf("release the pane's process: %v", err)
+	}
+	if err = <-stopped; err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if _, err = os.Stat(filepath.Join("/proc", strconv.Itoa(pid))); !os.IsNotExist(err) {
+		t.Fatalf("pane process %d is still in the process table after Stop: stat err = %v", pid, err)
+	}
+}
+
+// awaitFile waits until path exists, which the pane's process pid writes. It has no deadline of its own, and fails at
+// once when pid has left the process table first, or when Stop's result arrives on stopped first.
+func awaitFile(t *testing.T, path string, pid int, stopped <-chan error) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if _, err := os.Stat(filepath.Join("/proc", strconv.Itoa(pid))); os.IsNotExist(err) {
+			t.Fatalf("pane process %d exited before it wrote %s", pid, path)
+		}
+		select {
+		case err := <-stopped:
+			t.Fatalf("Stop returned %v before the pane's process wrote %s", err, path)
+		case <-ticker.C:
+		}
 	}
 }
 

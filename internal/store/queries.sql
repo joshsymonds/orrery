@@ -194,8 +194,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
                    started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -366,7 +366,7 @@ SELECT * FROM epics ORDER BY id;
 
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
-WHERE epics.base <> '' AND epics.phase = 'accepted'
+WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped')
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
@@ -375,6 +375,12 @@ UPDATE epics SET changed = ? WHERE id = ?;
 
 -- name: SetEpicBranch :exec
 UPDATE epics SET branch = ? WHERE id = ?;
+
+-- name: ListUnsummarizedEpics :many
+SELECT * FROM epics WHERE summary = '' ORDER BY id;
+
+-- name: SetEpicSummary :exec
+UPDATE epics SET summary = ? WHERE id = ? AND summary = '';
 
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
@@ -575,6 +581,9 @@ INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: InsertEpicTaskContribute :exec
+INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?);
+
 -- name: SetEpicTaskBuild :execrows
 UPDATE epic_tasks
 SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_attempt),
@@ -600,8 +609,17 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (bat
 INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: InsertEpicTaskFinding :exec
-INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by,
+                                step, result, reason, unverified)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEpicReviewer :exec
+INSERT INTO epic_reviewers (epic, position, name, enabled, stage, must, must_not, prompt, agent, model, tools, effort,
+                            limit_seconds, verify)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicReviewers :many
+SELECT * FROM epic_reviewers WHERE epic = ? ORDER BY position;
 
 -- name: SetEpicTaskFindingResult :execrows
 UPDATE epic_task_findings
@@ -671,6 +689,9 @@ SELECT * FROM epic_task_files WHERE epic = ? ORDER BY task, position;
 -- name: ListEpicTaskRequirements :many
 SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
 
+-- name: ListEpicTaskContributes :many
+SELECT * FROM epic_task_contributes WHERE epic = ? ORDER BY task, position;
+
 -- name: ListEpicTaskReviews :many
 SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
 
@@ -719,6 +740,9 @@ GROUP BY label ORDER BY label;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
+
+-- name: ListEpicTriggers :many
+SELECT * FROM epic_triggers WHERE epic = ? ORDER BY created, id;
 
 -- name: ListEpicsWithTurns :many
 SELECT * FROM epics
@@ -835,3 +859,54 @@ UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'r
 -- name: EndEpicNodeCheck :exec
 UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
 WHERE id = ? AND state = 'running';
+
+-- name: InsertEpicReview :exec
+INSERT INTO epic_reviews (epic, frozen) VALUES (?, ?)
+ON CONFLICT (epic) DO NOTHING;
+
+-- name: GetEpicReview :one
+SELECT * FROM epic_reviews WHERE epic = ?;
+
+-- name: SetEpicReviewClean :exec
+UPDATE epic_reviews SET clean = ? WHERE epic = ? AND clean = '';
+
+-- name: InsertEpicReviewVerdict :exec
+INSERT INTO epic_review_verdicts (epic, position, reviewer, step, verdict, reason) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, position) DO NOTHING;
+
+-- name: ListEpicReviewVerdicts :many
+SELECT * FROM epic_review_verdicts WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicLedgerFinding :exec
+INSERT INTO epic_ledger (epic, id, position, reviewer, finding, claim, citation, location, evidence, verify_by, step,
+    result, unverified, reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, id) DO NOTHING;
+
+-- name: ListEpicLedger :many
+SELECT * FROM epic_ledger WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicReviewRound :exec
+INSERT INTO epic_review_rounds (epic, round, revision, tasks, outcome) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, round) DO NOTHING;
+
+-- name: ListEpicReviewRounds :many
+SELECT * FROM epic_review_rounds WHERE epic = ? ORDER BY round;
+
+-- name: InsertEpicClosure :exec
+INSERT INTO epic_closures (epic, round, finding, step, result, reason) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, round, finding) DO NOTHING;
+
+-- name: ListEpicClosures :many
+SELECT * FROM epic_closures WHERE epic = ? ORDER BY round, finding;
+
+-- name: InsertEpicReviewHold :execrows
+INSERT INTO epic_review_holds (epic, step) VALUES (?, ?)
+ON CONFLICT (epic, step) DO NOTHING;
+
+-- name: ListEpicReviewHolds :many
+SELECT * FROM epic_review_holds WHERE epic = ? ORDER BY step;
+
+-- name: FreezeEpicNodeRun :execrows
+UPDATE epic_node_runs SET revision = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';

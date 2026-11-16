@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -28,6 +29,14 @@ const (
 	Throttle   = 60 * time.Second // minimum gap between runs for one pane on working events
 	MaxRuns    = 2                // summary runs in flight at once
 	LabelEvery = 4                // exchanges between label refreshes
+)
+
+// The messages a Summarizer logs, with the pane, when a run of a Request ends without writing. ForgottenRunLog, at info,
+// is a run that finished for a pane forgotten since it started: once it is logged, that run can write no option.
+// FailedRunLog, at warn, is a run that failed, timed out or replied in no form it reads.
+const (
+	ForgottenRunLog = "summary dropped for a forgotten pane"
+	FailedRunLog    = "summary run failed"
 )
 
 // killGrace bounds how long a run waits for its output pipes once the child has exited or been killed,
@@ -153,12 +162,12 @@ type Job struct {
 
 // Summarize runs the claude binary for job and writes the summary and, when WantLabel, the label to the pane.
 // A failed, timed-out or unparseable run returns an error and writes neither option. A run whose pane is
-// forgotten before it writes returns nil and writes neither option.
+// forgotten before it writes returns nil, writes neither option and logs ForgottenRunLog.
 func (s *Summarizer) Summarize(ctx context.Context, job Job) error {
 	return s.summarize(ctx, job, s.paneEpoch(job.PaneID))
 }
 
-// summarize runs job and writes its reply unless its pane was forgotten since epoch was read.
+// summarize runs job and writes its reply unless its pane was forgotten since epoch was read (see write).
 func (s *Summarizer) summarize(ctx context.Context, job Job, epoch int) error {
 	reply, err := s.run(ctx, job)
 	if err != nil {
@@ -176,13 +185,14 @@ func (s *Summarizer) summarize(ctx context.Context, job Job, epoch int) error {
 	return err
 }
 
-// write sets pane's summary and, when label is not empty, its label, unless pane was forgotten since epoch was read.
-// It reports whether an option was written. writeMu is held throughout, so no write lands after Forget; the onWrite
-// call runs after it is released, so a slow store never holds up Forget.
+// write sets pane's summary and, when label is not empty, its label, unless pane was forgotten since epoch was read,
+// which it logs as ForgottenRunLog. It reports whether an option was written. writeMu is held throughout, so no write
+// lands after Forget; the onWrite call runs after it is released, so a slow store never holds up Forget.
 func (s *Summarizer) write(ctx context.Context, pane string, epoch int, summary, label string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if s.paneEpoch(pane) != epoch {
+		s.logger.InfoContext(ctx, ForgottenRunLog, "pane", pane)
 		return false, nil
 	}
 	if err := s.tmux.SetPaneOption(ctx, pane, protocol.OptionSummary, summary); err != nil {
@@ -310,7 +320,7 @@ func (s *Summarizer) summarizeRequest(ctx context.Context, req Request, epoch in
 	wantLabel := s.wantLabel(req.PaneID, excerpt.Exchanges)
 	job := Job{PaneID: req.PaneID, BaseURL: req.BaseURL, Dir: req.Dir, Input: excerpt.Text, WantLabel: wantLabel}
 	if err = s.summarize(ctx, job, epoch); err != nil {
-		s.logger.WarnContext(ctx, "summary run failed", "pane", req.PaneID, "error", err)
+		s.logger.WarnContext(ctx, FailedRunLog, "pane", req.PaneID, "error", err)
 		return
 	}
 	if wantLabel {
@@ -359,7 +369,8 @@ func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
+	// The run dies with orreryd however orreryd dies, so a killed orreryd leaves no summary run behind.
+	if err = childproc.Run(cmd); err != nil {
 		return "", fmt.Errorf("claude run: %w: %s", err, failureDetail(runCtx, err, stdout.String(), stderr.String()))
 	}
 	return stdout.String(), nil

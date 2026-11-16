@@ -52,7 +52,7 @@ func syntheticEpic() store.EpicRow {
 		},
 		Tasks: []store.EpicTask{{
 			Seq: 1, Turn: 1, Title: "a task", Deliverable: "a deliverable",
-			Files: []string{"internal/planner/prompt.go"}, Requirements: []string{"R1"},
+			Files: []string{"internal/planner/prompt.go"}, Requirements: []string{"R1"}, Contributes: []string{"R2"},
 			Gate: "check", Evidence: evidence.Item{
 				Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the task is done", Judge: "a judge",
 			},
@@ -147,6 +147,7 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"  deliverable: a deliverable",
 		"  files: internal/planner/prompt.go",
 		"  requirements: R1",
+		"  contributes: R2",
 		"  gate: check",
 		`  evidence: {"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,`+
 			`"conclusion":"the task is done","judge":"a judge"}`,
@@ -155,6 +156,16 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"- answered-1: owner answered Q1",
 		"## Last failure",
 		"planner return refused",
+	)
+}
+
+func TestPromptRendersEmptyContributesWhenTaskContributesNothing(t *testing.T) {
+	t.Parallel()
+	epic := syntheticEpic()
+	epic.Tasks[0].Contributes = nil
+	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	inOrder(t, prompt,
+		"  requirements: R1\n  contributes: \n  gate: check\n",
 	)
 }
 

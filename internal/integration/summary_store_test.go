@@ -3,8 +3,6 @@ package integration_test
 import (
 	"database/sql"
 	"encoding/json"
-	"io"
-	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,8 +16,8 @@ import (
 // summaryReleaseFile is the file beside gatedFakeClaudeScript whose creation lets its summary run reply.
 const summaryReleaseFile = "release"
 
-// gatedFakeClaudeScript is slowFakeClaudeScript with its pause replaced by a wait for summaryReleaseFile, so the test
-// decides when the summary run writes its options and the summarizer syncs the pane.
+// gatedFakeClaudeScript is labelFakeClaudeScript held until summaryReleaseFile exists, so the test decides when the
+// summary run replies, and so when it writes its options or finds its pane forgotten.
 const gatedFakeClaudeScript = `#!/bin/sh
 D=$(dirname "$0")
 mkdir -p "$D/calls"
@@ -31,38 +29,6 @@ cat > "$R/stdin"
 printf 'summary: example summary\nlabel: example label\n'
 : > "$R/done"
 `
-
-// hookAndWait sends hook for the fixture's pane straight to orreryd's socket and returns once orreryd closes the
-// connection. orreryd closes it only after the frame's store sync has finished, so no sync of that frame still holds
-// the mirror lock. The wait has no deadline of its own: the sync's store write has no bound.
-func (f *storeFixture) hookAndWait(t *testing.T, hook map[string]any) {
-	t.Helper()
-	sendHookFrame(t, f.socket, f.pane, f.project, hook)
-}
-
-// sendHookFrame sends hook for pane, run in cwd, straight to the orreryd on socket as the hook command would, and
-// returns once orreryd closes the connection, which it does after it has applied the frame and synced the pane. It
-// spawns no orrery process, for a test whose subject is not the hook command. The wait has no deadline of its own.
-func sendHookFrame(t *testing.T, socket, pane, cwd string, hook map[string]any) {
-	t.Helper()
-	payload, err := json.Marshal(hook)
-	if err != nil {
-		t.Fatalf("encode hook: %v", err)
-	}
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(t.Context(), "unix", socket)
-	if err != nil {
-		t.Fatalf("dial %s: %v", socket, err)
-	}
-	defer conn.Close()
-	frame := protocol.HookFrame{Hook: payload, TmuxPane: pane, Cwd: cwd, AnthropicBaseURL: examplePatchbayURL}
-	if err = protocol.WriteFrame(conn, frame); err != nil {
-		t.Fatalf("write hook frame: %v", err)
-	}
-	if _, err = io.Copy(io.Discard, conn); err != nil {
-		t.Fatalf("wait for orreryd to close the hook connection: %v", err)
-	}
-}
 
 // waitForPaneID polls until the fixture's pane has an @orrery_id. orreryd's first tidy sets the id just before it
 // releases the mirror lock. It sets no deadline of its own: the tidy follows a store write whose time load decides.
@@ -114,9 +80,9 @@ func TestSummaryReachesRowAndEvents(t *testing.T) {
 	// tidy, and the summary run replies only once the hook's own sync has finished.
 	daemon.waitForStoreOpen(t)
 	f.waitForPaneID(t)
-	f.hookAndWait(t, f.userPromptHook())
+	f.hook(t, f.userPromptHook())
 	writeFile(t, filepath.Join(filepath.Dir(f.fakeClaude), summaryReleaseFile), "", 0o600)
-	waitForOption(t, f.client, f.pane, protocol.OptionSummary, exampleSummary)
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionSummary, exampleSummary)
 	db := openStoreForInspection(t, f.dbPath)
 
 	// No hook follows the summarizer's writes, so the row reaches the summary and label through the sync the

@@ -25,7 +25,6 @@ const (
 	epicReasonLevel      = "not limited, serious or severe"
 	epicReasonBesideItem = "set beside an item"
 	epicReasonNotCommand = "not a command gate"
-	epicReasonNotAgent   = "not an agent gate"
 )
 
 // The forms of the ids a contract names: its own id, and the F, R and P rows of its sections.
@@ -67,7 +66,8 @@ func checkEpic(ctx context.Context, req *v1.CreateEpicRequest, getenv func(strin
 	return checkEpicDecisions(req.GetDecisions())
 }
 
-// checkEpicGateDefs refuses the contract's gates, then the done and review gates that name them.
+// checkEpicGateDefs refuses the contract's gates, then the done gates that name them and a contract that sets review
+// gates.
 func checkEpicGateDefs(ctx context.Context, contract *v1.EpicContract, getenv func(string) string) error {
 	defined, err := checkEpicGates(contract.GetGates())
 	if err != nil {
@@ -126,9 +126,9 @@ func epicGateNeeds(needs []*v1.EpicGateNeed) []gates.Need {
 	})
 }
 
-// checkEpicGateRefs refuses the first done gate that does not resolve to a command gate, then the first review gate
-// that does not resolve to an agent gate. A name resolves from the contract's gates, else from the repository's
-// project file.
+// checkEpicGateRefs refuses the first done gate that does not resolve to a command gate, then a contract that sets
+// review gates: the reviewers it declares fill the per-task review list. A done gate's name resolves from the
+// contract's gates, else from the repository's project file.
 func checkEpicGateRefs(
 	ctx context.Context,
 	contract *v1.EpicContract,
@@ -148,15 +148,8 @@ func checkEpicGateRefs(
 			return &epicFieldError{field: field, reason: epicReasonNotCommand}
 		}
 	}
-	for i, name := range contract.GetReviewGates() {
-		resolved, err := resolve(name)
-		field := fmt.Sprintf("review_gates[%d]", i)
-		if err != nil {
-			return &epicFieldError{field: field, reason: err.Error()}
-		}
-		if resolved.Agent == "" {
-			return &epicFieldError{field: field, reason: epicReasonNotAgent}
-		}
+	if len(contract.GetReviewGates()) > 0 {
+		return &epicFieldError{field: "review_gates", reason: "refused, the reviewers fill the review list"}
 	}
 	return nil
 }
@@ -276,6 +269,8 @@ func evidenceItemOf(item *v1.EvidenceItem) evidence.Item {
 		Supplied:   item.GetSupplied(),
 		Conclusion: item.GetConclusion(),
 		Judge:      item.GetJudge(),
+		Kind:       evidence.Kind(item.GetKind()),
+		Tests:      item.GetTests(),
 	}
 }
 

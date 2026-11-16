@@ -78,8 +78,11 @@ const stepCapFull = "step cap full"
 // taskOpen is the status of a task that is not yet accepted or failed. Only an open task owns its files.
 const taskOpen = "open"
 
-// plannerNamespace starts the parts every planner turn's step id hashes, so the ids are this package's. turnStepIDLength
-// is the number of hex digits of a step id, the form a fresh id has.
+// taskFailed is the status of a task whose build failed. A failed task's claims do not count toward coverage.
+const taskFailed = "failed"
+
+// plannerNamespace starts the parts every planner turn's step id hashes, so the ids are this package's.
+// turnStepIDLength is the number of hex digits of a step id, the form a fresh id has.
 const (
 	plannerNamespace = "orrery-planner"
 	turnStepIDLength = 32
@@ -571,7 +574,7 @@ func planOf(ret Return) store.EpicPlan {
 	for _, task := range ret.Tasks {
 		tasks = append(tasks, store.EpicTaskInput{
 			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
-			Requirements: task.Requirements, Gate: task.Gate, Evidence: task.Evidence,
+			Requirements: task.Requirements, Contributes: task.Contributes, Gate: task.Gate, Evidence: task.Evidence,
 		})
 	}
 	questions := make([]store.EpicQuestionInput, 0, len(ret.Questions))
@@ -597,8 +600,8 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic. The gate resolves under ctx without its cancellation, so the turn
-// that started the step ending does not refuse its return.
+// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks. The gate
+// resolves under ctx without its cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -613,7 +616,7 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		if err != nil {
 			return []string{err.Error()}
 		}
-		return Check(ret, requirements, owned, gate, judge)
+		return append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
 	}
 }
 
