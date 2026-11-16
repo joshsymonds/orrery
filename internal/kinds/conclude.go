@@ -12,10 +12,10 @@ import (
 // passed, with the phase clean when no gap is left and ended_with_gaps when one is, and an output that names each gap.
 type Conclude struct{}
 
-// Decide ends the epic passed. Its phase is clean, with the stored base, when concludeGaps finds no gap, and
+// Decide ends the epic passed. Its phase is clean, with the stored base, when Gaps finds no gap, and
 // ended_with_gaps, with the gaps, otherwise.
 func (Conclude) Decide(_ Node, rows Rows) Action {
-	gaps := concludeGaps(rows.Review)
+	gaps := Gaps(rows.Review)
 	if len(gaps) == 0 {
 		return Action{
 			Kind: ActEnd, Outcome: outcomePassed, Phase: phaseClean,
@@ -28,11 +28,11 @@ func (Conclude) Decide(_ Node, rows Rows) Action {
 	}
 }
 
-// concludeGaps returns the gaps of review in order: that no review ran, each reviewer's gap verdict in verdict order,
+// Gaps returns the gaps of review in order: that no review ran, each reviewer's gap verdict in verdict order,
 // and then each ledger finding's gaps in ledger order. A finding gives its undetermined verifier, each undetermined
 // closure in round order, and, when it is confirmed and still open after every round, the number of rounds it stayed
 // open.
-func concludeGaps(review store.Review) []string {
+func Gaps(review store.Review) []string {
 	var gaps []string
 	if review.Frozen == "" {
 		gaps = append(gaps, "no review ran")

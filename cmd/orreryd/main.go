@@ -94,8 +94,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass and
-	// the epic summaries run.
+	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
+	// epic summaries and the epic reports run.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -782,6 +782,8 @@ type sessionHost struct {
 	dueDone       chan struct{}
 	stopSummaries context.CancelFunc
 	summariesDone chan struct{}
+	stopReports   context.CancelFunc
+	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
 	// logger logs each phase of the shutdown.
@@ -837,6 +839,7 @@ func startSessions(
 		limitsDone:    make(chan struct{}),
 		dueDone:       make(chan struct{}),
 		summariesDone: make(chan struct{}),
+		reportsDone:   make(chan struct{}),
 		serveDone:     make(chan error, 1),
 	}
 	var commands enginehost.Commands
@@ -903,6 +906,7 @@ func startSessions(
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startSummaries(ctx, st, haiku, logger)
+		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
 	}
@@ -1333,9 +1337,34 @@ func (h *sessionHost) startSummaries(
 	}()
 }
 
+// startReports writes the report of each ended epic that has none, through haiku, checking st every limitTick until
+// stop. The first check runs at start.
+func (h *sessionHost) startReports(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	reports := enginehost.NewEpicReports(enginehost.EpicReportsConfig{
+		Store:  st,
+		Haiku:  haiku,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var reportsCtx context.Context
+	reportsCtx, h.stopReports = context.WithCancel(ctx)
+	go func() {
+		defer close(h.reportsDone)
+		defer ticker.Stop()
+		reports.Run(reportsCtx)
+	}()
+}
+
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
-// planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass and the epic
-// summaries to return, closes the node checks and the evidence runner and waits for their drives, ends every step
+// planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
+// summaries and the epic reports to return, closes the node checks and the evidence runner and waits for their drives,
+// ends every step
 // loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are waited
 // on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -1365,6 +1394,10 @@ func (h *sessionHost) shutdown() {
 		h.phase("epic summaries", func() {
 			h.stopSummaries()
 			<-h.summariesDone
+		})
+		h.phase("epic reports", func() {
+			h.stopReports()
+			<-h.reportsDone
 		})
 		h.phase("steps", h.steps.Close)
 		h.phase("sessions", h.manager.Close)
