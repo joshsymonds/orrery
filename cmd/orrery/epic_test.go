@@ -207,6 +207,18 @@ func epicVerbCases() []epicVerbCase {
 			tool:  "epic_retry",
 			input: `{"id":"demo-0a1b2c3/epic-login","node":"build"}`,
 		},
+		{
+			name:  "release",
+			args:  []string{"release", epicTestID},
+			tool:  "epic_release",
+			input: `{"id":"demo-0a1b2c3/epic-login"}`,
+		},
+		{
+			name:  "release names undo-none steps in order",
+			args:  []string{"release", epicTestID, "--undo-none", "2", "--undo-none", "3"},
+			tool:  "epic_release",
+			input: `{"id":"demo-0a1b2c3/epic-login","undoNone":[2,3]}`,
+		},
 	}
 }
 
@@ -365,6 +377,7 @@ func TestEpicAnswerWritesWarningToStderr(t *testing.T) {
 func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 	t.Parallel()
 	const answerForm = "answer EPIC --id ID [--question QN] TEXT"
+	const releaseForm = "release ID [--undo-none N]..."
 	cases := []struct {
 		args []string
 		form string
@@ -387,6 +400,14 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 		{args: []string{"retry"}, form: "retry ID [NODE]"},
 		{args: []string{"retry", epicTestID, "build", "extra"}, form: "retry ID [NODE]"},
 		{args: []string{"retry", epicTestID, ""}, form: "retry ID [NODE]"},
+		{args: []string{"release"}, form: releaseForm},
+		{args: []string{"release", "--undo-none", "2"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "extra"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "0"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "-1"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "two"}, form: releaseForm},
+		{args: []string{"release", epicTestID, "--undo-none", "1.5"}, form: releaseForm},
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
