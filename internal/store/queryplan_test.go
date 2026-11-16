@@ -35,6 +35,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"HeadlessSessions": {"ListHeadlessSessions"},
 		"LastTurnEnds":     {"LastTurnEnds"},
 		"Dirs":             {"ListKnownDirs"},
+		"EpicSessions":     {"ListEpicSessions"},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 

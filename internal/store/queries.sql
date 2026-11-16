@@ -946,3 +946,18 @@ SELECT * FROM epic_review_holds WHERE epic = ? ORDER BY step;
 -- name: FreezeEpicNodeRun :execrows
 UPDATE epic_node_runs SET revision = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
+
+-- name: GetPaneSession :one
+SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? ORDER BY id LIMIT 1;
+
+-- name: UpsertEpicSession :exec
+INSERT INTO epic_sessions (epic, session, call, at) VALUES (?, ?, ?, ?)
+ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at;
+
+-- name: ListEpicSessions :many
+SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
+       epic_sessions.call, epic_sessions.at
+FROM epic_sessions
+JOIN sessions ON sessions.id = epic_sessions.session
+WHERE epic_sessions.epic = ?
+ORDER BY epic_sessions.at DESC, epic_sessions.session;
