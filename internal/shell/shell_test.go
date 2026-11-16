@@ -307,7 +307,8 @@ func TestOpenWhilePopupShownOnInvokingClient(t *testing.T) {
 	name := shell.Name(dir)
 	const tree = "sleep 31841" // stands in for the tree, shown in a popup on the invoking client
 	f.showPopup(f.invoking, tree)
-	waitFor(t, "popup running on invoking client", func() error { return running(tree) })
+	socket := f.run("display-message", "-p", "#{socket_path}")
+	waitFor(t, "popup running on invoking client", func() error { return running(socket, tree) })
 	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
 		t.Fatalf("Open(%q): %v", dir, err)
 	}
@@ -320,14 +321,15 @@ func TestOpenLeavesPopupOnOtherClientOpen(t *testing.T) {
 	name := shell.Name(dir)
 	const tree = "sleep 31842" // stands in for the tree, shown in a popup on the other client
 	f.showPopup(f.other, tree)
-	waitFor(t, "popup running on other client", func() error { return running(tree) })
+	socket := f.run("display-message", "-p", "#{socket_path}")
+	waitFor(t, "popup running on other client", func() error { return running(socket, tree) })
 	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
 		t.Fatalf("Open(%q): %v", dir, err)
 	}
 	waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
 	// Open's tmux commands have all run by now, and a popup tmux closes has its job signaled as it closes. So the job
 	// still runs with no termination signal pending only if its popup was left open.
-	if err := runningUnsignaled(tree); err != nil {
+	if err := runningUnsignaled(socket, tree); err != nil {
 		t.Fatalf("popup on other client closed: %v", err)
 	}
 	infos, err := f.clients()
@@ -341,33 +343,69 @@ func TestOpenLeavesPopupOnOtherClientOpen(t *testing.T) {
 	}
 }
 
-// running returns an error unless a process whose arguments contain command is running.
-func running(command string) error {
-	out, err := exec.Command("ps", "-eo", "args=").Output()
+// popupJobs returns the pids of the processes whose command line is command and that run under the tmux server at
+// socket, as a popup's job runs with TMUX naming its server's socket. Popup jobs are matched on their server as well as
+// their command: another run of this test, by another test binary on the machine, shows the same command in its own
+// popup, and matched on the command alone this test would read that run's job as its own.
+func popupJobs(socket, command string) ([]string, error) {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return fmt.Errorf("ps: %w", err)
+		return nil, fmt.Errorf("read /proc: %w", err)
 	}
-	if !strings.Contains(string(out), command) {
-		return fmt.Errorf("no process running %q", command)
+	var pids []string
+	for _, entry := range entries {
+		if _, convErr := strconv.Atoi(entry.Name()); convErr != nil {
+			continue
+		}
+		cmdline, readErr := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if readErr != nil || strings.Join(strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00"), " ") !=
+			command {
+			continue
+		}
+		environ, readErr := os.ReadFile(filepath.Join("/proc", entry.Name(), "environ"))
+		if readErr != nil || !onServer(string(environ), socket) {
+			continue
+		}
+		pids = append(pids, entry.Name())
+	}
+	return pids, nil
+}
+
+// onServer reports whether environ, a process's NUL-separated environment, sets TMUX to name the server socket.
+func onServer(environ, socket string) bool {
+	for entry := range strings.SplitSeq(environ, "\x00") {
+		if value, ok := strings.CutPrefix(entry, "TMUX="); ok {
+			return strings.HasPrefix(value, socket+",")
+		}
+	}
+	return false
+}
+
+// running returns an error unless a popup job on the server at socket runs command.
+func running(socket, command string) error {
+	pids, err := popupJobs(socket, command)
+	if err != nil {
+		return err
+	}
+	if len(pids) == 0 {
+		return fmt.Errorf("no process running %q on %s", command, socket)
 	}
 	return nil
 }
 
-// runningUnsignaled reports an error unless a process runs command, none of them has ended, and none holds a pending
-// SIGHUP, SIGTERM or SIGKILL. A signaled process may not have ended yet, so its pending signals are read too.
-func runningUnsignaled(command string) error {
-	out, err := exec.Command("ps", "-eo", "pid=,args=").Output()
+// runningUnsignaled reports an error unless a popup job on the server at socket runs command, none of them has ended,
+// and none holds a pending SIGHUP, SIGTERM or SIGKILL. A signaled process may not have ended yet, so its pending signals
+// are read too.
+func runningUnsignaled(socket, command string) error {
+	pids, err := popupJobs(socket, command)
 	if err != nil {
-		return fmt.Errorf("ps: %w", err)
+		return err
+	}
+	if len(pids) == 0 {
+		return fmt.Errorf("no process running %q on %s", command, socket)
 	}
 	const ending = uint64(1)<<(syscall.SIGHUP-1) | uint64(1)<<(syscall.SIGTERM-1) | uint64(1)<<(syscall.SIGKILL-1)
-	found := false
-	for line := range strings.Lines(string(out)) {
-		pid, args, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok || strings.TrimSpace(args) != command {
-			continue
-		}
-		found = true
+	for _, pid := range pids {
 		status, err := os.ReadFile(filepath.Join("/proc", pid, "status"))
 		if err != nil {
 			return fmt.Errorf("process %s running %q ended: %w", pid, command, err)
@@ -392,9 +430,6 @@ func runningUnsignaled(command string) error {
 					name, value)
 			}
 		}
-	}
-	if !found {
-		return fmt.Errorf("no process running %q", command)
 	}
 	return nil
 }
