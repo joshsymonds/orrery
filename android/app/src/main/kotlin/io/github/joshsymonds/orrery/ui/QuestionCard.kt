@@ -34,10 +34,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 
-private data class QuestionOption(val label: String, val key: String, val description: String?)
+internal data class QuestionOption(val label: String, val key: String, val description: String?)
 
 /** [markdown] is true when the title and options were written by the assistant and are drawn as markdown. */
-private class ParsedQuestion(val title: String, val options: List<QuestionOption>, val markdown: Boolean = false)
+internal class ParsedQuestion(val title: String, val options: List<QuestionOption>, val markdown: Boolean = false)
 
 private val toolOptions = listOf(
     QuestionOption("1 Yes", "1", null),
@@ -51,7 +51,7 @@ private val toolOptions = listOf(
  * has one; its text is the assistant's markdown. Any other value, including a
  * truncated marker or plain text, shows the title and the three permission buttons.
  */
-private fun parseQuestion(stored: String): ParsedQuestion {
+internal fun parseQuestion(stored: String): ParsedQuestion {
     val json = try {
         JSONObject(stored)
     } catch (e: JSONException) {
