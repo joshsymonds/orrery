@@ -46,7 +46,8 @@ func (e *QuestionReplacedError) Error() string {
 }
 
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
-// contract gave them. Times are stored at whole seconds.
+// contract gave them. Times are stored at whole seconds. Seen is the time of the epic's last SeeEpic mark, zero when
+// none is stored.
 type EpicRow struct {
 	ID          string
 	Repository  string
@@ -65,6 +66,7 @@ type EpicRow struct {
 	Created     time.Time
 	Changed     time.Time
 	PhaseAt     time.Time
+	Seen        time.Time
 	Paused      bool
 	Parked      string
 	Summary     string
@@ -464,6 +466,9 @@ func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic
 	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", row.ID, err)
 	}
+	if err = loadEpicSeen(ctx, queries, &row); err != nil {
+		return EpicRow{}, fmt.Errorf("read seen of epic %s: %w", row.ID, err)
+	}
 	return row, nil
 }
 
@@ -594,8 +599,8 @@ func loadEpicReviewers(ctx context.Context, queries *sqlcgen.Queries, row *EpicR
 	return nil
 }
 
-// Epics returns every stored epic ordered by id, with its head fields and pinned workflow only: the sections and
-// decisions are nil.
+// Epics returns every stored epic ordered by id, with its head fields, seen mark and pinned workflow only: the sections
+// and decisions are nil.
 func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
 	queries := sqlcgen.New(s.db)
 	heads, err := queries.ListEpics(ctx)
@@ -606,6 +611,9 @@ func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
 	for i := range rows {
 		if err = loadEpicWorkflowNodes(ctx, queries, &rows[i]); err != nil {
 			return nil, fmt.Errorf("read workflow of epic %s: %w", rows[i].ID, err)
+		}
+		if err = loadEpicSeen(ctx, queries, &rows[i]); err != nil {
+			return nil, fmt.Errorf("read seen of epic %s: %w", rows[i].ID, err)
 		}
 	}
 	return rows, nil

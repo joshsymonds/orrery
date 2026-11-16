@@ -974,3 +974,10 @@ FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?
 ORDER BY epic_sessions.at DESC, epic_sessions.session;
+
+-- name: UpsertEpicSeen :exec
+INSERT INTO epic_seen (epic, at) VALUES (?, ?)
+ON CONFLICT (epic) DO UPDATE SET at = excluded.at;
+
+-- name: GetEpicSeen :one
+SELECT at FROM epic_seen WHERE epic = ?;

@@ -308,6 +308,11 @@ type EpicReviewer struct {
 	Verify       int64
 }
 
+type EpicSeen struct {
+	Epic string
+	At   int64
+}
+
 type EpicSession struct {
 	Epic    string
 	Session string

@@ -18,8 +18,8 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040 and 00041 create, and of the columns those migrations and
-// 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040 and 00042 add to epic tables.
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041 and 00043 create, and of the columns those migrations
+// and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040 and 00042 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -93,6 +93,7 @@ func epicTableColumns() map[string][]string {
 		"epic_closures":      {"epic", "round", "finding", "step", "result", "reason"},
 		"epic_review_holds":  {"epic", "step"},
 		"epic_sessions":      {"epic", "session", "call", "at"},
+		"epic_seen":          {"epic", "at"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -504,9 +505,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00042_endings.sql is the newest.
-	if version != 42 {
-		t.Fatalf("store version after Open = %d, want 42", version)
+	// Open applies 00014_epics.sql and every migration after it: 00043_epic_seen.sql is the newest.
+	if version != 43 {
+		t.Fatalf("store version after Open = %d, want 43", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -514,6 +515,59 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	for _, table := range existing {
 		if got := leadingColumns(rowsOf(t, s.db.DB, table), before[table]); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("%s after migration = %v, want %v", table, got, before[table])
+		}
+	}
+}
+
+// TestEpicSeenMigrationSeedsReleasedAndDoneEpicsAtTheirPhaseAt stores a released, a done and an accepted epic at
+// migration 42, before epic_seen exists, and reads them after Open migrates the store: the released and the done epic
+// were seen at their phase time, and the accepted epic was never seen.
+func TestEpicSeenMigrationSeedsReleasedAndDoneEpicsAtTheirPhaseAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+
+	seeds := []struct {
+		id, phase string
+		phaseAt   int64
+		seen      bool
+	}{
+		{"orrery-0123456/epic-released", "released", 1700000300, true},
+		{"orrery-0123456/epic-done", "done", 1700000400, true},
+		{"orrery-0123456/epic-accepted", "accepted", 1700000500, false},
+	}
+	fixture := openStoreAtVersion(t, path, 42)
+	for _, seed := range seeds {
+		if _, err := fixture.ExecContext(ctx, `INSERT INTO epics
+			(id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed,
+			phase_at)
+			VALUES (?, '/work/repo', 'Epic', 'approved line', 'intent', 'serious', 'approach', 'then', 'checks', ?,
+			1700000000, 1700000000, ?)`, seed.id, seed.phase, seed.phaseAt); err != nil {
+			fixture.Close()
+			t.Fatalf("seed epic %s: %v", seed.id, err)
+		}
+	}
+	if err := fixture.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
+	}
+
+	s, err := Open(ctx, path, noSync())
+	if err != nil {
+		t.Fatalf("Open at version 42: %v", err)
+	}
+	defer s.Close()
+
+	for _, seed := range seeds {
+		got, err := s.Epic(ctx, seed.id)
+		if err != nil {
+			t.Fatalf("Epic %s: %v", seed.id, err)
+		}
+		if seed.seen {
+			if want := time.Unix(seed.phaseAt, 0); !got.Seen.Equal(want) {
+				t.Errorf("Seen of %s %s = %v, want its phase time %v", seed.phase, seed.id, got.Seen, want)
+			}
+		} else if !got.Seen.IsZero() {
+			t.Errorf("Seen of %s %s = %v, want zero", seed.phase, seed.id, got.Seen)
 		}
 	}
 }

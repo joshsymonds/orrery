@@ -916,6 +916,17 @@ func (q *Queries) GetEpicReview(ctx context.Context, epic string) (EpicReview, e
 	return i, err
 }
 
+const getEpicSeen = `-- name: GetEpicSeen :one
+SELECT at FROM epic_seen WHERE epic = ?
+`
+
+func (q *Queries) GetEpicSeen(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getEpicSeen, epic)
+	var at int64
+	err := row.Scan(&at)
+	return at, err
+}
+
 const getEpicTurnStop = `-- name: GetEpicTurnStop :one
 SELECT stop FROM epic_turns WHERE epic = ? AND seq = ?
 `
@@ -6667,6 +6678,21 @@ func (q *Queries) UpsertEngineText(ctx context.Context, arg UpsertEngineTextPara
 		arg.Kind,
 		arg.Text,
 	)
+	return err
+}
+
+const upsertEpicSeen = `-- name: UpsertEpicSeen :exec
+INSERT INTO epic_seen (epic, at) VALUES (?, ?)
+ON CONFLICT (epic) DO UPDATE SET at = excluded.at
+`
+
+type UpsertEpicSeenParams struct {
+	Epic string
+	At   int64
+}
+
+func (q *Queries) UpsertEpicSeen(ctx context.Context, arg UpsertEpicSeenParams) error {
+	_, err := q.db.ExecContext(ctx, upsertEpicSeen, arg.Epic, arg.At)
 	return err
 }
 
