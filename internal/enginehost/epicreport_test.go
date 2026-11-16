@@ -2,16 +2,16 @@ package enginehost
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
-	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -27,39 +27,6 @@ const reportStamp = 1794800000
 // reportResult is the result line the fake claude prints for a valid report. Its why is the fake's own text, and no test
 // reads it.
 const reportResult = `{"type":"result","subtype":"success","is_error":false,"structured_output":{"why":"Fake why."}}`
-
-// reportOrderFakeScript is the fake claude the ordering test runs. A run appends start to dir/calls, prints dir/stdout,
-// appends end to dir/calls and exits 0. So the calls file holds each run's start and end in the order the runs happened.
-const reportOrderFakeScript = `#!/bin/sh
-dir='%s'
-echo start >> "$dir/calls"
-cat "$dir/stdout"
-echo end >> "$dir/calls"
-`
-
-// reportOrderClaude writes the start and end mark fake claude into dir, set to print reportResult, and returns its path.
-func reportOrderClaude(t *testing.T, dir string) string {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "stdout"), []byte(reportResult), 0o600); err != nil {
-		t.Fatalf("write fake stdout: %v", err)
-	}
-	path := filepath.Join(dir, "claude")
-	exectest.WriteFile(t, path, fmt.Appendf(nil, reportOrderFakeScript, dir), 0o700)
-	return path
-}
-
-// reportCalls returns the start and end marks the fake claude in dir has written, in order.
-func reportCalls(t *testing.T, dir string) []string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "calls"))
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		t.Fatalf("read calls: %v", err)
-	}
-	return strings.Fields(string(data))
-}
 
 // reportItem returns the captured item the report tests' Requirements hold and their evidence runs carry.
 func reportItem() evidence.Item {
@@ -142,13 +109,23 @@ type reportLoop struct {
 // pass is done. The test's end stops it too.
 func startReportLoop(t *testing.T, st *store.Store, claude string) *reportLoop {
 	t.Helper()
+	loop := runReportLoop(t, st, NewHaiku(HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH")}}))
+	t.Cleanup(loop.stop)
+	<-loop.passes
+	return loop
+}
+
+// runReportLoop starts an EpicReports over st whose Haiku is haiku, and returns without waiting for its start pass. The
+// caller stops it.
+func runReportLoop(t *testing.T, st *store.Store, haiku haikuCaller) *reportLoop {
+	t.Helper()
 	ticks := make(chan time.Time)
 	passes := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(t.Context())
 	loop := &reportLoop{ticks: ticks, passes: passes, done: make(chan struct{}), cancel: cancel}
 	reports := NewEpicReports(EpicReportsConfig{
 		Store:  st,
-		Haiku:  NewHaiku(HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH")}}),
+		Haiku:  haiku,
 		Tick:   ticks,
 		Passed: func() { passes <- struct{}{} },
 	})
@@ -156,8 +133,6 @@ func startReportLoop(t *testing.T, st *store.Store, claude string) *reportLoop {
 		defer close(loop.done)
 		reports.Run(ctx)
 	}()
-	t.Cleanup(loop.stop)
-	<-passes
 	return loop
 }
 
@@ -311,25 +286,70 @@ func TestEpicReportSecondEndingInOneStartGetsItsOwnReport(t *testing.T) {
 	}
 }
 
-// TestEpicReportCallsRunOneAtATime covers R3: the calls for two ended epics never overlap, so each run ends before the
-// next one starts, and each epic gets its report.
+// reportOverlapHaiku is an in-process haikuCaller for the one-at-a-time test. Its first call is held open until release
+// closes, and it records whether a call began while another was still open.
+type reportOverlapHaiku struct {
+	release    chan struct{}
+	mu         sync.Mutex
+	calls      int
+	open       int
+	overlapped bool
+}
+
+// Call holds the first call open until release closes and returns the why of a valid report.
+func (h *reportOverlapHaiku) Call(_ context.Context, _, _ string) (json.RawMessage, error) {
+	h.mu.Lock()
+	h.calls++
+	first := h.calls == 1
+	if h.open > 0 {
+		h.overlapped = true
+	}
+	h.open++
+	h.mu.Unlock()
+	if first {
+		<-h.release
+	}
+	h.mu.Lock()
+	h.open--
+	h.mu.Unlock()
+	return json.RawMessage(`{"why":"Fake why."}`), nil
+}
+
+// sawOverlap reports whether a call began while another was still open.
+func (h *reportOverlapHaiku) sawOverlap() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.overlapped
+}
+
+// TestEpicReportCallsRunOneAtATime covers R3: the calls for two ended epics never overlap, so each call ends before the
+// next one begins, and each epic gets its report. The first call is held open. synctest.Wait returns once every goroutine
+// of the loop is blocked, so a second call that began meanwhile is seen before the test releases the first.
 func TestEpicReportCallsRunOneAtATime(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	claude := reportOrderClaude(t, dir)
 	st := epicTestStore(t)
 	createReportEpic(t, st, reportEpicA, "released")
 	createReportEpic(t, st, reportEpicB, "ended_with_gaps")
 
-	startReportLoop(t, st, claude)
-	if want := []string{"start", "end", "start", "end"}; !slices.Equal(reportCalls(t, dir), want) {
-		t.Fatalf("calls = %v, want %v", reportCalls(t, dir), want)
-	}
-	for id, phase := range map[string]string{reportEpicA: "released", reportEpicB: "ended_with_gaps"} {
-		if got := storedReportOf(t, st, id).Phase; got != phase {
-			t.Fatalf("report phase of %s = %q, want %q", id, got, phase)
+	synctest.Test(t, func(t *testing.T) {
+		haiku := &reportOverlapHaiku{release: make(chan struct{})}
+		releaseOnce := sync.OnceFunc(func() { close(haiku.release) })
+		loop := runReportLoop(t, st, haiku)
+		defer loop.stop()
+		defer releaseOnce()
+
+		synctest.Wait()
+		if haiku.sawOverlap() {
+			t.Fatal("a report call began while the first call was still open")
 		}
-	}
+		releaseOnce()
+		<-loop.passes
+		for id, phase := range map[string]string{reportEpicA: "released", reportEpicB: "ended_with_gaps"} {
+			if got := storedReportOf(t, st, id).Phase; got != phase {
+				t.Fatalf("report phase of %s = %q, want %q", id, got, phase)
+			}
+		}
+	})
 }
 
 // TestEpicReportLiveEpicGetsNoCall covers R3: an epic that has not ended gets no report and no call.
