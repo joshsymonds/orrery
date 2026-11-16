@@ -104,8 +104,8 @@ func (e epicsServer) List(
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
 // the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its open
-// questions, its contract with its acceptance time, its summary, whether it is paused and why it is parked, and the
-// tasks of its record when one exists. An id that neither the database nor the record root lists answers not_found,
+// questions, its contract with its acceptance time, its summary, whether it is paused and why it is parked, its
+// repository, and the tasks of its record when one exists. An id that neither the database nor the record root lists answers not_found,
 // and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
@@ -140,10 +140,15 @@ func (e epicsServer) Get(
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
 	labeled := stepsByEpic(steps)[id]
+	repository := stored.GetContract().GetRepository()
+	if repository == "" {
+		repository = rec.Workspace
+	}
 	resp := &orreryv1.EpicsGetResponse{
-		Tasks:  taskMessages,
-		Steps:  epicStepMessages(labeled),
-		Slices: epicSlices(labeled),
+		Tasks:      taskMessages,
+		Steps:      epicStepMessages(labeled),
+		Slices:     epicSlices(labeled),
+		Repository: repository,
 	}
 	if inStore {
 		resp.Epic = storedEpicMessage(

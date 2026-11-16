@@ -284,4 +284,52 @@ public interface EpicsGetResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSummaryBytes();
+
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> 
+      getSessionsList();
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession getSessions(int index);
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  int getSessionsCount();
+
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   * @return The repository.
+   */
+  java.lang.String getRepository();
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   * @return The bytes for repository.
+   */
+  com.google.protobuf.ByteString
+      getRepositoryBytes();
 }
