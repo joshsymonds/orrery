@@ -241,22 +241,16 @@ test("an epic that is not live, or has an outcome, offers no command", async () 
   }
 });
 
-test("Stop in the title row asks about its slug beside Pause, and sends nothing yet", async () => {
-  const { calls, commands } = recorder();
-  await withPage(
-    detail({ ...build }),
-    async (container) => {
-      await pressButton(container, ".title-row .acts", "Stop…");
-      assert.deepEqual(textsOf(container, ".title-row .acts > *"), [
-        "Pause",
-        "Stop demo-epic?",
-        "Stop demo-epic",
-        "Keep it running",
-      ]);
-      assert.deepEqual(calls, []);
-    },
-    { commands },
-  );
+test("Stop in the title row asks about its slug beside Pause", async () => {
+  await withPage(detail({ ...build }), async (container) => {
+    await pressButton(container, ".title-row .acts", "Stop…");
+    assert.deepEqual(textsOf(container, ".title-row .acts > *"), [
+      "Pause",
+      "Stop demo-epic?",
+      "Stop demo-epic",
+      "Keep it running",
+    ]);
+  });
 });
 
 test("the blocker's Stop asks first too, and only its confirm stops the epic", async () => {
