@@ -48,6 +48,15 @@ type Store interface {
 	CheckNodeRefs(
 		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
 	) error
+	EndReview(
+		ctx context.Context, epic, path string, attempt int64, output string, verdicts []store.ReviewVerdict,
+		ledger []store.LedgerFinding, at time.Time,
+	) error
+	EndClosure(
+		ctx context.Context, epic, path string, attempt int64, outcome, output string, round store.ReviewRound,
+		closures []store.Closure, at time.Time,
+	) error
+	HoldReviewStep(ctx context.Context, epic, step, reason string, at time.Time) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -84,18 +93,28 @@ type Builder interface {
 	PassTasks(ctx context.Context, id string, seqs []int64)
 }
 
+// Reviewers reads the epic-stage reviewers enabled for an epic, and starts the step of one reviewer, verifier or closure
+// verifier at a revision of the epic's repository.
+type Reviewers interface {
+	Epic(epic store.EpicRow) []kinds.Reviewer
+	Start(ctx context.Context, epic store.EpicRow, name, base, revision string) (enginehost.StepStart, error)
+}
+
 // Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv
 // means os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner
-// that runs an epic with such nodes needs each of them.
+// that runs an epic with such nodes needs each of them. Reviewers and Ending carry the end-of-epic review: with both set,
+// its review and closure kinds run, and without both an epic waits at its review node.
 type Config struct {
-	Store    Store
-	Planner  Planner
-	Builder  Builder
-	Checks   Checks
-	Evidence Evidence
-	Steps    Steps
-	Getenv   func(string) string
-	Tick     time.Duration
+	Store     Store
+	Planner   Planner
+	Builder   Builder
+	Checks    Checks
+	Evidence  Evidence
+	Steps     Steps
+	Reviewers Reviewers
+	Ending    Ending
+	Getenv    func(string) string
+	Tick      time.Duration
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
 	// every Tick. Production leaves it nil.
 	Ticks  <-chan time.Time
@@ -108,19 +127,21 @@ type Config struct {
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
 // hands build runs to the builder and passes the planner for the epics whose plan run is running.
 type Runner struct {
-	store    Store
-	planner  Planner
-	builder  Builder
-	checks   Checks
-	evidence Evidence
-	steps    Steps
-	getenv   func(string) string
-	tick     time.Duration
-	ticks    <-chan time.Time
-	now      func() time.Time
-	logger   *slog.Logger
-	passed   func()
-	kinds    map[string]kinds.Kind
+	store     Store
+	planner   Planner
+	builder   Builder
+	checks    Checks
+	evidence  Evidence
+	steps     Steps
+	reviewers Reviewers
+	ending    Ending
+	getenv    func(string) string
+	tick      time.Duration
+	ticks     <-chan time.Time
+	now       func() time.Time
+	logger    *slog.Logger
+	passed    func()
+	kinds     map[string]kinds.Kind
 }
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
@@ -133,17 +154,23 @@ const maxSteps = 16
 // builtinEpic is the workflow an epic with no pinned text runs.
 const builtinEpic = "epic"
 
-// New returns a Runner for cfg, with the plan and build kinds registered.
+// New returns a Runner for cfg, with the plan and build kinds registered, and the review, closure and conclude kinds too
+// when cfg has both Reviewers and Ending.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
-		ticks: cfg.Ticks, passed: cfg.Passed,
+		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, getenv: cfg.Getenv, tick: cfg.Tick,
+		now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
 			kindIntegrate: kinds.Integrate{},
 		},
+	}
+	if cfg.Reviewers != nil && cfg.Ending != nil {
+		runner.kinds[reviewNodeKind] = kinds.Review{}
+		runner.kinds[closureNodeKind] = kinds.Closure{}
+		runner.kinds[concludeNodeKind] = kinds.Conclude{}
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick
@@ -253,7 +280,10 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows := kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending,
+		Pending: read.Pending, Review: read.Review,
+	}
+	if r.reviewers != nil {
+		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }
@@ -300,6 +330,8 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
 		err = r.store.EndBatch(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Trigger, at)
+	case ActHold, ActReview, ActClosure, ActConclude:
+		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:
 		err = r.work(ctx, epic, act, at)
 	default:
@@ -307,6 +339,43 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	}
 	if err != nil {
 		return fmt.Errorf("%s of epic %s: %w", act.Kind, epic.ID, err)
+	}
+	return nil
+}
+
+// carryReview writes one review action of epic to the store at at: the hold of a stopped review step, the verdicts and
+// ledger of a review run, the round and closures of a closure run, or the ending of a conclusion run.
+func (r *Runner) carryReview(ctx context.Context, epic string, act Action, at time.Time) error {
+	var err error
+	switch act.Kind {
+	case ActHold:
+		err = r.store.HoldReviewStep(ctx, epic, act.IDs[0], act.Reason, at)
+	case ActReview:
+		err = r.store.EndReview(ctx, epic, act.Path, act.Attempt, act.Output, act.Verdicts, act.Ledger, at)
+	case ActClosure:
+		err = r.store.EndClosure(
+			ctx, epic, act.Path, act.Attempt, act.Outcome, act.Output, act.ReviewRound, act.Closures, at,
+		)
+	case ActConclude:
+		err = r.conclude(ctx, epic, act, at)
+	default:
+		return fmt.Errorf("action %s is no review action", act.Kind)
+	}
+	if err != nil {
+		return fmt.Errorf("%s of epic %s: %w", act.Kind, epic, err)
+	}
+	return nil
+}
+
+// conclude ends epic at the phase act names, with act's output as its ending body, and then ends the conclusion run at
+// act's path passed. Each write is a no-op on a repeat, so a crash between the two ends nothing twice.
+func (r *Runner) conclude(ctx context.Context, epic string, act Action, at time.Time) error {
+	if err := r.ending.EndEpic(ctx, epic, act.Phase, act.Output, at); err != nil {
+		return fmt.Errorf("end epic %s: %w", epic, err)
+	}
+	ends := []store.NodeEnd{{Path: act.Path, Outcome: outcomePassed, Output: act.Output}}
+	if err := r.store.EndNodes(ctx, epic, ends, at); err != nil {
+		return fmt.Errorf("end conclusion run %s: %w", act.Path, err)
 	}
 	return nil
 }
