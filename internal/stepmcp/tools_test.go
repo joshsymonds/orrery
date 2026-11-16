@@ -137,8 +137,11 @@ func fullRow() store.StepRow {
 		ReadOnly:  true,
 		Started:   time.Unix(1700000000, 0),
 		Checks: []store.StepCheck{
-			{Round: 1, Name: "gate", OK: false, Detail: "exit 1"},
-			{Round: 2, Name: "gate", OK: true, Detail: ""},
+			{
+				Round: 1, Name: "gate", OK: false, Detail: "exit 1", Stdout: "red\n", Stderr: "err-tail\n",
+				Log: "/state/gates/logs/s1/round-1.log",
+			},
+			{Round: 2, Name: "gate", OK: true, Detail: "", Stdout: "green\n"},
 		},
 		Result: "all good",
 		Status: "pass",
@@ -347,7 +350,9 @@ func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
 	}
 }
 
-func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
+// epicCreateContractDescription returns the description of epic_create's contract argument, as tools/list reports it.
+func epicCreateContractDescription(t *testing.T) string {
+	t.Helper()
 	p := newPeer(t, nil, &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
@@ -375,9 +380,19 @@ func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
 	if description == "" {
 		t.Fatal("tools/list has no epic_create contract description")
 	}
-	words := strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
+	return description
+}
+
+// descriptionWords splits a description into its words, each a run of letters.
+func descriptionWords(description string) []string {
+	return strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
+}
+
+func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
+	description := epicCreateContractDescription(t)
+	words := descriptionWords(description)
 	for _, want := range []string{
-		"base", "gates", "doneGates", "reviewGates",
+		"base", "gates", "doneGates",
 		"item", "capture", "limit", "artifacts", "supplied", "conclusion", "judge",
 	} {
 		if !slices.Contains(words, want) {
@@ -590,8 +605,11 @@ func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 		"status":    "pass",
 		"result":    "all good",
 		"checks": []any{
-			map[string]any{"round": float64(1), "name": "gate", "ok": false, "detail": "exit 1"},
-			map[string]any{"round": float64(2), "name": "gate", "ok": true, "detail": ""},
+			map[string]any{
+				"round": float64(1), "name": "gate", "ok": false, "detail": "exit 1", "stdout": "red\n",
+				"stderr": "err-tail\n", "log": "/state/gates/logs/s1/round-1.log",
+			},
+			map[string]any{"round": float64(2), "name": "gate", "ok": true, "detail": "", "stdout": "green\n"},
 		},
 		"reason":      "returned",
 		"started":     float64(1700000000),

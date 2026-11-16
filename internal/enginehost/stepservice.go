@@ -210,6 +210,7 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 			Detail: check.Detail,
 			Stdout: check.Stdout,
 			Stderr: check.Stderr,
+			Log:    check.Log,
 		})
 	}
 	verdicts := make([]*v1.StepVerdict, 0, len(row.Verdicts))

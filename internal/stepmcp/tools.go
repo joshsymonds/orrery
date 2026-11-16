@@ -452,12 +452,16 @@ type stepJSON struct {
 	LimitResets int64       `json:"limitResets"`
 }
 
-// checkJSON is one gate check of a step.
+// checkJSON is one check of a step. A gate check carries the redacted tails of its stdout and stderr, and a failed gate
+// check the file its output was kept in.
 type checkJSON struct {
 	Round  uint32 `json:"round"`
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail"`
+	Stdout string `json:"stdout,omitempty"`
+	Stderr string `json:"stderr,omitempty"`
+	Log    string `json:"log,omitempty"`
 }
 
 func stepFromProto(step *v1.Step) stepJSON {
@@ -468,6 +472,9 @@ func stepFromProto(step *v1.Step) stepJSON {
 			Name:   check.GetName(),
 			OK:     check.GetOk(),
 			Detail: check.GetDetail(),
+			Stdout: check.GetStdout(),
+			Stderr: check.GetStderr(),
+			Log:    check.GetLog(),
 		})
 	}
 	return stepJSON{

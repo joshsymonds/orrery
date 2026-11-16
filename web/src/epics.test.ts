@@ -318,6 +318,25 @@ test("live epics become blocks in input order and every other epic is folded", (
   assert.equal(view.live, 2);
 });
 
+test("waiting epics leave the blocks for their own list, in input order, and are neither drawn nor folded", () => {
+  const epics = [
+    makeEpic({ id: "widgets-5d0c1a7/first" }),
+    makeEpic({ id: "widgets-5d0c1a7/waiting-one", slug: "waiting-one", waiting: true }),
+    makeEpic({ id: "gadgets-0e1f2a3/old", repository: "gadgets-0e1f2a3", live: false }),
+    makeEpic({ id: "gadgets-0e1f2a3/waiting-two", repository: "gadgets-0e1f2a3", slug: "waiting-two", waiting: true }),
+  ];
+
+  const view = epicsView(epics, new Map());
+
+  assert.deepEqual(blockIds(view.blocks), ["widgets-5d0c1a7/first"]);
+  assert.deepEqual(
+    view.waiting.map((item) => item.slug),
+    ["waiting-one", "waiting-two"],
+  );
+  assert.equal(view.live, 3);
+  assert.equal(view.folded, 1);
+});
+
 test("seven of eight live epics with running or held work draw full in input order, and the quiet one folds", () => {
   const quiet = makeEpic({ id: "widgets-5d0c1a7/quiet" });
   const busy = ["a", "b", "c", "d", "e", "f", "g"].map((slug, index) =>
@@ -383,6 +402,7 @@ test("a section's count is its rows and the epics atop it, and the Epics group c
 
 test("no epics is an empty view", () => {
   assert.deepEqual(noEpics.blocks, []);
+  assert.deepEqual(noEpics.waiting, []);
   assert.equal(noEpics.folded, 0);
   assert.equal(noEpics.details.size, 0);
 });
@@ -427,6 +447,23 @@ test("without a Needs you section the Epics group comes first", () => {
   const sections: Section[] = [{ title: "Working", rows: [] }];
 
   assert.deepEqual(titlesOf(withEpicsGroup(sections, view)), ["Epics", "Working"]);
+});
+
+test("an Epics group made from waiting epics alone carries them, and no other section carries any", () => {
+  const view = epicsView([makeEpic({ id: "widgets-5d0c1a7/waiting", slug: "waiting", waiting: true })], new Map());
+  const sections: Section[] = [{ title: "Working", rows: [] }];
+
+  const result = withEpicsGroup(sections, view);
+
+  assert.deepEqual(titlesOf(result), ["Epics", "Working"]);
+  assert.deepEqual(result[0].epics, []);
+  assert.deepEqual(
+    result[0].waiting.map((item) => item.slug),
+    ["waiting"],
+  );
+  assert.equal(result[0].count, 1);
+  assert.deepEqual(result[1].waiting, []);
+  assert.deepEqual(placeEpics(sections, view.blocks)[0].waiting, []);
 });
 
 test("a folded epic alone makes the Epics group, with no blocks and its count", () => {

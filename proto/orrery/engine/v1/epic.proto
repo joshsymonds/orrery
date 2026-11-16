@@ -100,8 +100,11 @@ message EpicContract {
   // The names of the command gates that show the epic is done.
   repeated string done_gates = 19;
 
-  // The names of the agent gates that review the epic.
+  // Refused when set: the epic's reviewers fill its per-task review list. Kept so old requests still decode.
   repeated string review_gates = 20;
+
+  // The reviewers the epic declares. Each merges by name over orrery's defaults and the project file.
+  repeated EpicReviewer reviewers = 21;
 }
 
 // EpicFailure is one failure the epic guards against.
@@ -132,6 +135,46 @@ message EpicAddition {
 
   // What the addition costs.
   string cost = 4;
+}
+
+// EpicReviewer is one reviewer. In the contract it is the epic's layer: an optional key left unset keeps the value the
+// layer below sets, and an empty repeated field is unset. In the stored epic it is a merged reviewer.
+message EpicReviewer {
+  // The reviewer's name: lowercase letters, digits and underscores, starting with a letter, at most 48 bytes.
+  string name = 1;
+
+  // Whether the reviewer runs. A disabled reviewer stays in the list and runs at no stage.
+  optional bool enabled = 2;
+
+  // The stages the reviewer runs at: task, epic, or both.
+  repeated string stage = 3;
+
+  // The statements the reviewer's return must show hold.
+  repeated string must = 4;
+
+  // The statements the reviewer's return must show do not hold.
+  repeated string must_not = 5;
+
+  // The role the reviewer runs under. Required when model is set.
+  optional string prompt = 6;
+
+  // The agent the reviewer runs, an agent claude already has. Set beside neither model, tools nor effort.
+  optional string agent = 7;
+
+  // The model the reviewer runs on, under an inline agent named from the reviewer. Never set beside agent.
+  optional string model = 8;
+
+  // The tools the reviewer may use. Never set beside agent.
+  repeated string tools = 9;
+
+  // The effort the reviewer runs at: low, medium, high, xhigh or max. Never set beside agent.
+  optional string effort = 10;
+
+  // The reviewer's time limit in seconds.
+  optional int64 limit = 11;
+
+  // Whether the reviewer's findings go to a verifier. Off, each finding counts as confirmed and is marked unverified.
+  optional bool verify = 12;
 }
 
 // EpicRequirement is one requirement: a thing that will be true when the epic is done.
@@ -505,6 +548,10 @@ message EpicTaskFinding {
 
   // Why the verification gave its result.
   string reason = 6;
+
+  // Whether the finding was confirmed without a verifier: a review with verify off confirms its findings and marks
+  // each one unverified.
+  bool unverified = 7;
 }
 
 // EpicQuestion is one question a planner turn asked.
@@ -520,6 +567,39 @@ message EpicQuestion {
 
   // The question's state: open until the owner answers it.
   string state = 4;
+}
+
+// EpicTrigger is one trigger of an epic, which starts or wakes its planner.
+message EpicTrigger {
+  // The trigger's id.
+  string id = 1;
+
+  // What the trigger is for, in words.
+  string cause = 2;
+
+  // The trigger's state: pending, claimed or consumed.
+  string state = 3;
+
+  // The position of the turn that claimed the trigger, counted from 1; 0 while the trigger is pending.
+  int64 turn = 4;
+
+  // When the trigger was created, in unix seconds.
+  int64 created = 5;
+}
+
+// EpicTell is one tell an epic holds for its owner.
+message EpicTell {
+  // The tell's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The tell's text.
+  string text = 2;
+
+  // When the tell was written, in unix seconds.
+  int64 at = 3;
+
+  // Whether the owner has been told it.
+  bool told = 4;
 }
 
 // EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
@@ -644,6 +724,19 @@ message StoredEpic {
   // The epic's workflow node runs in the order of the pinned workflow's nodes, then by path, with a run of a node the
   // workflow does not hold after the others. Every epic RPC that returns the epic fills it.
   repeated EpicNode nodes = 13;
+
+  // The epic's reviewers, merged from orrery's defaults, the project file and the contract, in the order their names
+  // first appear.
+  repeated EpicReviewer reviewers = 14;
+
+  // The epic's summary, written once from its contract. Empty until it is written.
+  string summary = 20;
+
+  // The epic's triggers, oldest first. Only a GetEpic that asks for history fills them.
+  repeated EpicTrigger triggers = 21;
+
+  // The epic's tells in seq order. Only a GetEpic that asks for history fills them.
+  repeated EpicTell tells = 22;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -689,6 +782,9 @@ message CreateEpicResponse {
 message GetEpicRequest {
   // The epic's id.
   string id = 1;
+
+  // Whether the reply carries the epic's triggers and tells. Without it, the reply has neither.
+  bool history = 2;
 }
 
 // GetEpicResponse carries one stored epic.

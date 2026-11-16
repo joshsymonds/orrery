@@ -93,7 +93,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass runs.
+	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass and
+	// the epic summaries run.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -153,6 +154,7 @@ type options struct {
 	holderScope     string
 	stepCap         int
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
+	writeTick       time.Duration           // the --write-tick test seam's engine writer tick, 0 for the writer's own
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
@@ -331,8 +333,9 @@ func routeJudgeDelay(d time.Duration) time.Duration {
 	return d
 }
 
-// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay, each as a usage error.
-func checkLimits(sessionCap, stepCap int, judgeDelay time.Duration) error {
+// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay or --write-tick, each as a
+// usage error.
+func checkLimits(sessionCap, stepCap int, judgeDelay, writeTick time.Duration) error {
 	if sessionCap < 1 {
 		return usagef("--session-cap must be at least 1, got %d", sessionCap)
 	}
@@ -341,6 +344,9 @@ func checkLimits(sessionCap, stepCap int, judgeDelay time.Duration) error {
 	}
 	if judgeDelay < 0 {
 		return usagef("--judge-delay must not be negative, got %v", judgeDelay)
+	}
+	if writeTick < 0 {
+		return usagef("--write-tick must not be negative, got %v", writeTick)
 	}
 	return nil
 }
@@ -367,6 +373,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
 	hostName := flags.String("host", "", "test seam: host name in place of the machine's")
 	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of a done before its judge")
+	writeTick := flags.Duration("write-tick", 0, "test seam: how often the engine writer stores queued ops")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -379,7 +386,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
 	}
-	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay); err != nil {
+	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay, *writeTick); err != nil {
 		return options{}, err
 	}
 	if *dueAt < 0 {
@@ -416,6 +423,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		holderScope:   *holderScope,
 		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
+		writeTick:     *writeTick,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
 		dueNow:        dueClock(*dueAt),
@@ -735,6 +743,8 @@ type sessionHost struct {
 	limitsDone    chan struct{}
 	stopDue       context.CancelFunc
 	dueDone       chan struct{}
+	stopSummaries context.CancelFunc
+	summariesDone chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
 }
@@ -762,11 +772,12 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
 // The node checks are built over the store and the pools the same way, and take up the open checks before the flow
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
-// builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell router which
-// steps a usage limit holds, every limitTick until stop; the due pass resumes each due
-// row whose reset has passed, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
-// serving goes on; a failed restore serves no Pools, which refuse as
-// unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
+// builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
+// router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
+// passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
+// limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure
+// is logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
+// want of pools. The Notices service on it answers from notices, and refuses as
 // unavailable when notices is nil.
 func startSessions(
 	ctx context.Context,
@@ -779,12 +790,13 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
-		writerDone: make(chan struct{}),
-		idleDone:   make(chan struct{}),
-		flowDone:   make(chan struct{}),
-		limitsDone: make(chan struct{}),
-		dueDone:    make(chan struct{}),
-		serveDone:  make(chan error, 1),
+		writerDone:    make(chan struct{}),
+		idleDone:      make(chan struct{}),
+		flowDone:      make(chan struct{}),
+		limitsDone:    make(chan struct{}),
+		dueDone:       make(chan struct{}),
+		summariesDone: make(chan struct{}),
+		serveDone:     make(chan error, 1),
 	}
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
@@ -795,7 +807,9 @@ func startSessions(
 		if err != nil {
 			return nil, fmt.Errorf("step worktrees: %w", err)
 		}
-		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger, Metrics: opts.metrics})
+		host.writer = enginehost.NewWriter(enginehost.WriterConfig{
+			Applier: st, Tick: opts.writeTick, Logger: logger, Metrics: opts.metrics,
+		})
 		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
@@ -815,6 +829,7 @@ func startSessions(
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		resolve := planner.NewResolver(os.Environ(), managedDir)
+		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
 			Store:        st,
@@ -823,11 +838,11 @@ func startSessions(
 			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
 			Environ:      os.Environ(),
 			Logger:       logger,
-			Haiku:        enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
+			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
 			ReadoptCheck: readoptCheck(st, resolve),
-			ReadoptGate:  readoptGate(st, getenv),
+			ReadoptGate:  readoptGate(st),
 			Notifier:     notifier,
 		})
 		if err != nil {
@@ -839,18 +854,14 @@ func startSessions(
 		commands = host.manager
 		stepCommands = host.steps
 		epics = st
-		var writerCtx context.Context
-		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
-		go func() {
-			host.writer.Run(writerCtx)
-			close(host.writerDone)
-		}()
+		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
+		host.startSummaries(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
 	}
@@ -888,12 +899,9 @@ func readoptCheck(
 
 // readoptGate is the ReadoptGate of the steps. A re-adopted row gets the judge gate of an evidence run when it is a judge
 // step, and when that gate is nil, the review gate of a task's review step. An error from either is returned.
-func readoptGate(
-	st *store.Store,
-	getenv func(string) string,
-) func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
+func readoptGate(st *store.Store) func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
 	judge := enginehost.EvidenceReadoptGate(st)
-	review := build.ReadoptGate(st, getenv)
+	review := build.ReadoptGate(st)
 	return func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
 		gate, err := judge(ctx, row)
 		if err != nil || gate != nil {
@@ -1208,6 +1216,17 @@ func (h *sessionHost) startIdle(ctx context.Context) {
 	}()
 }
 
+// startWriter runs the host's writer until stopWriter, on a context that outlives ctx's cancel so a shutdown can
+// still flush, and closes writerDone when the writer returns.
+func (h *sessionHost) startWriter(ctx context.Context) {
+	var writerCtx context.Context
+	writerCtx, h.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		h.writer.Run(writerCtx)
+		close(h.writerDone)
+	}()
+}
+
 // startDue resumes the due rows over st every limitTick until stop, and once when it starts, by the clock now, or
 // time.Now when now is nil. Its steps are the host's steps, which startSessions has re-adopted before it starts the
 // pass.
@@ -1232,11 +1251,35 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 	}()
 }
 
+// startSummaries writes the summary of each stored epic that has none, through haiku, checking st every limitTick until
+// stop. The first check runs at start.
+func (h *sessionHost) startSummaries(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	summaries := enginehost.NewEpicSummaries(enginehost.EpicSummariesConfig{
+		Store:  st,
+		Haiku:  haiku,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var summariesCtx context.Context
+	summariesCtx, h.stopSummaries = context.WithCancel(ctx)
+	go func() {
+		defer close(h.summariesDone)
+		defer ticker.Stop()
+		summaries.Run(summariesCtx)
+	}()
+}
+
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
-// planner's turns, stops the limit notices and waits for the attention loop, the limit loop and the due pass to return,
-// closes the node checks and the evidence runner and waits for their drives, ends every step loop, stops every live session, and ends the
-// writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and
-// writer it does nothing.
+// planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass and the epic
+// summaries to return, closes the node checks and the evidence runner and waits for their drives, ends every step
+// loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are waited
+// on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -1253,6 +1296,8 @@ func (h *sessionHost) shutdown() {
 		<-h.limitsDone
 		h.stopDue()
 		<-h.dueDone
+		h.stopSummaries()
+		<-h.summariesDone
 		h.steps.Close()
 		h.manager.Close()
 	}

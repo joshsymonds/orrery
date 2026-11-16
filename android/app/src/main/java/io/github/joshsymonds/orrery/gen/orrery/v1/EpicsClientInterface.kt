@@ -20,4 +20,34 @@ public interface EpicsClientInterface {
    *  Get returns one epic by the id List gave it.
    */
   public suspend fun `get`(request: EpicsGetRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsGetResponse>
+
+  /**
+   *  History returns one page of an epic's turns, triggers, steps, evidence runs, decisions and tells, oldest first.
+   */
+  public suspend fun history(request: EpicsHistoryRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsHistoryResponse>
+
+  /**
+   *  Pause pauses the named orreryd epic, so its planner starts no turn.
+   */
+  public suspend fun pause(request: EpicsPauseRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsPauseResponse>
+
+  /**
+   *  Resume clears the named orreryd epic's pause and resumes its limited task steps.
+   */
+  public suspend fun resume(request: EpicsResumeRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsResumeResponse>
+
+  /**
+   *  Stop pauses the named orreryd epic and stops the step of its running turn.
+   */
+  public suspend fun stop(request: EpicsStopRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsStopResponse>
+
+  /**
+   *  Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
+   */
+  public suspend fun retry(request: EpicsRetryRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsRetryResponse>
+
+  /**
+   *  Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
+   */
+  public suspend fun answer(request: EpicsAnswerRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsAnswerResponse>
 }

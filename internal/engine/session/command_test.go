@@ -18,6 +18,8 @@ const (
 	testResume = "00000000-0000-4000-8000-000000000001"
 	testModel  = "haiku"
 	testAgent  = "haiku-medium"
+	// testAgents is a synthetic inline agent definition, the JSON object claude takes as its --agents argument.
+	testAgents = `{"reviewer":{"description":"Synthetic reviewer","prompt":"Review the synthetic change."}}`
 	testSchema = `{"type":"object"}`
 	// testSettings is a synthetic settings document routing the session's API traffic to loopback.
 	testSettings = `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example"}}`
@@ -180,6 +182,39 @@ func TestCommandAgentResumedModelSession(t *testing.T) {
 	}
 	want := append(wantSessionArgs(testClaude, testMode), "--resume", testResume, "--model", testModel,
 		"--agent", testAgent, "--strict-mcp-config", "--json-schema", testSchema)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandAgentsSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Agents = testAgents
+	cfg.Agent = testAgent
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode),
+		"--agents", testAgents, "--agent", testAgent, "--strict-mcp-config")
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandAgentsResumedSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Resume = testResume
+	cfg.Agents = testAgents
+	cfg.Agent = testAgent
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--resume", testResume,
+		"--agents", testAgents, "--agent", testAgent, "--strict-mcp-config")
 	if !slices.Equal(cmd.Args, want) {
 		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
 	}

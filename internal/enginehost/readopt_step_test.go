@@ -242,6 +242,8 @@ func TestReadoptStepUnattachableHolderIsClearedNotDrained(t *testing.T) {
 	pids := holderPids(t, holderDir(t, rig.root, stepA))
 
 	restarted, sink := restartBeforeReconcile(t, rig)
+	// The stopped holder answers no attach, so the attach runs out of time however short its bound is.
+	restarted.attachTimeout = time.Millisecond
 	// A stopped holder keeps its lock and its socket, but never answers a hello.
 	if err := syscall.Kill(pids.Holder, syscall.SIGSTOP); err != nil {
 		t.Fatalf("stop holder %d: %v", pids.Holder, err)

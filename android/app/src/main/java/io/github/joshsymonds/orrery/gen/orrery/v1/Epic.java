@@ -26,6 +26,7 @@ public  final class Epic extends
     runningSteps_ = emptyProtobufList();
     problem_ = "";
     source_ = "";
+    outcomeDetail_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -687,6 +688,114 @@ public  final class Epic extends
     checkByteStringIsUtf8(value);
     source_ = value.toStringUtf8();
 
+  }
+
+  public static final int OUTCOME_DETAIL_FIELD_NUMBER = 11;
+  private java.lang.String outcomeDetail_;
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   * @return The outcomeDetail.
+   */
+  @java.lang.Override
+  public java.lang.String getOutcomeDetail() {
+    return outcomeDetail_;
+  }
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   * @return The bytes for outcomeDetail.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getOutcomeDetailBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(outcomeDetail_);
+  }
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   * @param value The outcomeDetail to set.
+   */
+  private void setOutcomeDetail(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    outcomeDetail_ = value;
+  }
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   */
+  private void clearOutcomeDetail() {
+
+    outcomeDetail_ = getDefaultInstance().getOutcomeDetail();
+  }
+  /**
+   * <pre>
+   * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+   * </pre>
+   *
+   * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+   * @param value The bytes for outcomeDetail to set.
+   */
+  private void setOutcomeDetailBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    outcomeDetail_ = value.toStringUtf8();
+
+  }
+
+  public static final int WAITING_FIELD_NUMBER = 12;
+  private boolean waiting_;
+  /**
+   * <pre>
+   * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+   * effort task. False for an orreryd epic.
+   * </pre>
+   *
+   * <code>bool waiting = 12 [json_name = "waiting"];</code>
+   * @return The waiting.
+   */
+  @java.lang.Override
+  public boolean getWaiting() {
+    return waiting_;
+  }
+  /**
+   * <pre>
+   * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+   * effort task. False for an orreryd epic.
+   * </pre>
+   *
+   * <code>bool waiting = 12 [json_name = "waiting"];</code>
+   * @param value The waiting to set.
+   */
+  private void setWaiting(boolean value) {
+    
+    waiting_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+   * effort task. False for an orreryd epic.
+   * </pre>
+   *
+   * <code>bool waiting = 12 [json_name = "waiting"];</code>
+   */
+  private void clearWaiting() {
+
+    waiting_ = false;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
@@ -1482,6 +1591,118 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+     * </pre>
+     *
+     * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+     * @return The outcomeDetail.
+     */
+    @java.lang.Override
+    public java.lang.String getOutcomeDetail() {
+      return instance.getOutcomeDetail();
+    }
+    /**
+     * <pre>
+     * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+     * </pre>
+     *
+     * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+     * @return The bytes for outcomeDetail.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getOutcomeDetailBytes() {
+      return instance.getOutcomeDetailBytes();
+    }
+    /**
+     * <pre>
+     * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+     * </pre>
+     *
+     * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+     * @param value The outcomeDetail to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOutcomeDetail(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setOutcomeDetail(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+     * </pre>
+     *
+     * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOutcomeDetail() {
+      copyOnWrite();
+      instance.clearOutcomeDetail();
+      return this;
+    }
+    /**
+     * <pre>
+     * The record head state.json's outcome_detail, as written. Empty for an orreryd epic.
+     * </pre>
+     *
+     * <code>string outcome_detail = 11 [json_name = "outcomeDetail"];</code>
+     * @param value The bytes for outcomeDetail to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOutcomeDetailBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setOutcomeDetailBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+     * effort task. False for an orreryd epic.
+     * </pre>
+     *
+     * <code>bool waiting = 12 [json_name = "waiting"];</code>
+     * @return The waiting.
+     */
+    @java.lang.Override
+    public boolean getWaiting() {
+      return instance.getWaiting();
+    }
+    /**
+     * <pre>
+     * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+     * effort task. False for an orreryd epic.
+     * </pre>
+     *
+     * <code>bool waiting = 12 [json_name = "waiting"];</code>
+     * @param value The waiting to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWaiting(boolean value) {
+      copyOnWrite();
+      instance.setWaiting(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the epic is accepted and waiting to start: a live record epic with no outcome, no running step and no
+     * effort task. False for an orreryd epic.
+     * </pre>
+     *
+     * <code>bool waiting = 12 [json_name = "waiting"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearWaiting() {
+      copyOnWrite();
+      instance.clearWaiting();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -1509,10 +1730,13 @@ public  final class Epic extends
             "endedSteps_",
             "problem_",
             "source_",
+            "outcomeDetail_",
+            "waiting_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0000\u0001\n\n\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208";
+              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208\u000b\u0208" +
+              "\f\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

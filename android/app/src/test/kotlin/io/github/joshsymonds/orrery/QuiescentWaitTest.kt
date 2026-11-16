@@ -17,11 +17,14 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
+import io.github.joshsymonds.orrery.push.PushRegistration
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import java.util.Timer
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.schedule
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -39,6 +42,8 @@ private const val PANE_ID = "%3"
 private const val SLOW_ANSWER_MILLIS = 3_000L
 private const val NOW = 1_700_000_000L
 private const val LATE_START_MILLIS = 300L
+private const val LATE_TEXT_MILLIS = 1_000L
+private const val REGISTER_PATH = "/orrery.v1.Push/Register"
 
 /**
  * The waits end when their condition holds and fail as soon as nothing can make it hold, with no clock deadline:
@@ -127,7 +132,7 @@ class QuiescentWaitTest {
         FakeOrreryServer().use { server ->
             server.respond(PANES_PATH, panes(), delayMillis = SLOW_ANSWER_MILLIS)
             val answer = AtomicReference<String?>()
-            BackgroundWork.run { answer.set(OrreryClient(server.baseUrl).panes().single().label) }
+            BackgroundWork.run("synthetic slow call") { answer.set(OrreryClient(server.baseUrl).panes().single().label) }
 
             Quiescence.awaitUntil("the slow answer") { answer.get() != null }
             assertEquals("synthetic-label", answer.get())
@@ -140,11 +145,12 @@ class QuiescentWaitTest {
         // A timer starts the work's thread late, so when the wait first looks no thread has the work yet: the
         // order in which ReplyReceiverTest.blankReplySendsNothingAndShowsNotSent saw "nothing is in flight".
         val startLate: (Runnable) -> Unit = { work -> Timer(true).schedule(LATE_START_MILLIS) { Thread(work).start() } }
+        val startUncountedLate: (String, Runnable) -> Unit = { _, work -> startLate(work) }
         try {
             // As before: the thread was started outside the count, so the wait judged too early.
             val uncounted = CountDownLatch(1)
-            BackgroundWork.start = startLate
-            BackgroundWork.run { uncounted.countDown() }
+            BackgroundWork.start = startUncountedLate
+            BackgroundWork.run("synthetic late work") { uncounted.countDown() }
             assertThrows(AssertionError::class.java) {
                 Quiescence.awaitUntil("the late-started work") { uncounted.count == 0L }
             }
@@ -152,11 +158,89 @@ class QuiescentWaitTest {
 
             // Now: BackgroundWork is counted from the moment it is asked for, so the wait holds until it ends.
             val counted = CountDownLatch(1)
-            BackgroundWork.start = { work -> Quiescence.countedStart(work, startLate) }
-            BackgroundWork.run { counted.countDown() }
+            BackgroundWork.start = { name, work -> Quiescence.countedStart(name, work, startLate) }
+            BackgroundWork.run("synthetic late work") { counted.countDown() }
             Quiescence.awaitUntil("the late-started work") { counted.count == 0L }
         } finally {
             BackgroundWork.start = previous
+        }
+    }
+
+    @Test
+    fun workAnEarlierTestLeftRunningDoesNotHoldThisTestsClock() {
+        // Work that never ends, as OrreryPushServiceTest's registration did when its server closed before it took
+        // the answer: it retried the closed server for the rest of the JVM.
+        val release = CountDownLatch(1)
+        BackgroundWork.run("synthetic endless work") { release.await() }
+        try {
+            assertEquals("the work counts while its own test runs", 1, Quiescence.backgroundWorkRunning())
+
+            // The next test begins. Counted still, the work held every later wait whose screen needs the clock to
+            // move: they yielded to it forever (PaneScreenStreamTest's silent streams, to the 20-minute timeout).
+            Quiescence.newTest()
+            assertEquals("an earlier test's work no longer counts", null, Quiescence.inFlight())
+            composeRule.setContent {
+                var shown by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    delay(LATE_TEXT_MILLIS)
+                    shown = true
+                }
+                if (shown) Text("synthetic shown a second later")
+            }
+
+            composeRule.awaitExactlyOne(hasText("synthetic shown a second later"))
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test
+    fun aTestThatEndsWithItsWorkAsleepFailsNamingTheWork() {
+        // Work that only the clock could end, with nothing in flight, as the push registration in its retry sleep.
+        BackgroundWork.run("synthetic sleeping work") {
+            try {
+                Thread.sleep(Long.MAX_VALUE)
+            } catch (e: InterruptedException) {
+                // Let go by the test below.
+            }
+        }
+
+        val failure = assertThrows(AssertionError::class.java) { Quiescence.endTest() }
+
+        assertTrue(failure.message, failure.message!!.contains("\"synthetic sleeping work\""))
+        Thread.getAllStackTraces().keys.single { it.name == "synthetic sleeping work" }.interrupt()
+        Quiescence.awaitUntil("the sleeping work to end") { Quiescence.backgroundWorkRunning() == 0 }
+    }
+
+    @Test
+    fun aTestEndWaitsForWorkThatFinishesLateOnAnAnswer() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_PATH, panes(), delayMillis = SLOW_ANSWER_MILLIS)
+            val label = AtomicReference<String?>()
+            BackgroundWork.run("synthetic late call") { label.set(OrreryClient(server.baseUrl).panes().single().label) }
+
+            Quiescence.endTest()
+
+            assertEquals("synthetic-label", label.get())
+            assertEquals(0, Quiescence.backgroundWorkRunning())
+        }
+    }
+
+    @Test
+    fun aRefusedRegistrationLeftRetryingFailsTheTestEnd() {
+        // OrreryPushServiceTest's leak, forced: the server refuses, so the registration sleeps before its retry.
+        FakeOrreryServer().use { server ->
+            server.fail(REGISTER_PATH, Code.UNAVAILABLE, "synthetic refusal")
+            BackgroundWork.run("push registration") {
+                PushRegistration(OrreryClient(server.baseUrl)).register("https://push.example.com/up", "key", "auth")
+            }
+
+            val failure = assertThrows(AssertionError::class.java) { Quiescence.endTest() }
+            assertTrue(failure.message, failure.message!!.contains("\"push registration\""))
+
+            // Accepted on its next try, the registration ends, and the server's close finds nothing left running.
+            server.respond(REGISTER_PATH, RegisterResponse.getDefaultInstance())
+            Quiescence.awaitUntil("the registration to be accepted") { Quiescence.backgroundWorkRunning() == 0 }
         }
     }
 

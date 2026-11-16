@@ -47,6 +47,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
+	"github.com/joshsymonds/orrery/internal/storetest"
+	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
@@ -65,6 +67,9 @@ const (
 	// judgeDelay is the --judge-delay test seam the daemons of the notice tests run with, so a plain done is judged at
 	// once and not after route.JudgeDelay of real time. route's own tests check that wait on fake timers.
 	judgeDelay = "0s"
+	// writeTick is the --write-tick test seam every orreryd a test starts runs with, so a wait for a stored engine op
+	// waits milliseconds for the engine writer's tick, not the production 100 ms. A step round waits for several.
+	writeTick = "5ms"
 )
 
 // cleanupGrace is how long a cleanup waits for a process it asked to end before it kills the process. It is a fallback
@@ -93,10 +98,18 @@ func runWithBinaries(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "isolate the tests from the host: %v\n", err)
 		return 1
 	}
+	// The migrated store image every fixture seeds from is made while the binaries build, so the tests that start at
+	// once copy it and do not all wait for its migrations.
+	prepared := make(chan error, 1)
+	go func() { prepared <- storetest.Prepare() }()
 	// One go build builds both commands at once, where two builds ran one after the other. With -o naming a directory,
 	// each binary lands there under its command's name.
 	out, buildErr := exec.Command("go", "build", "-o", dir+string(os.PathSeparator), "../../cmd/orrery", "../../cmd/orreryd").
 		CombinedOutput()
+	if prepareErr := <-prepared; prepareErr != nil {
+		fmt.Fprintf(os.Stderr, "make the migrated store image: %v\n", prepareErr)
+		return 1
+	}
 	if buildErr != nil {
 		fmt.Fprintf(os.Stderr, "build orrery and orreryd: %v\n%s", buildErr, out)
 		return 1
@@ -273,8 +286,8 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 	t.Helper()
 	if name == "orreryd" {
 		// Every orreryd a test starts names testHost as its host, so no desk line, notice or pool carries the
-		// machine's own name.
-		args = append([]string{"--host", testHost}, args...)
+		// machine's own name, and stores its engine ops at writeTick.
+		args = append([]string{"--host", testHost, "--write-tick", writeTick}, args...)
 	}
 	p := &orreryProcess{
 		name:    name,
@@ -294,16 +307,30 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 		}
 		close(p.done)
 	}()
-	t.Cleanup(func() {
-		p.asked.Store(true)
-		select {
-		case <-p.done:
-		default:
-			_ = p.cmd.Process.Kill()
-			<-p.done
-		}
-	})
+	t.Cleanup(func() { terminate(p) })
 	return p
+}
+
+// terminate stops p when it is still running at its test's cleanup, as the test would have: SIGTERM, then the wait for
+// its exit. On SIGTERM an orreryd stops its sessions and ends its summary, judge and grant runs before it exits, so
+// none of them writes into the test's directories once terminate returns. SIGKILL would skip that, and a run still
+// writing then races the removal of the test's temporary directory. When p has not exited cleanupGrace after SIGTERM,
+// it gets SIGKILL.
+func terminate(p *orreryProcess) {
+	p.asked.Store(true)
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-p.done:
+		return
+	case <-time.After(cleanupGrace):
+	}
+	_ = p.cmd.Process.Kill()
+	<-p.done
 }
 
 // waitForListener polls address on network until a client connects, failing the test if the process exits first. It
@@ -990,16 +1017,15 @@ cat > "$R/stdin"
 ` + judgeRunScript + `printf 'summary: example summary\n'
 : > "$R/done"
 `
-	// slowFakeClaudeScript is fakeClaudeScript after a pause, replying with a label line as well as the summary.
-	slowFakeClaudeScript = `#!/bin/sh
+	// labelFakeClaudeScript is fakeClaudeScript replying with a label line as well as the summary.
+	labelFakeClaudeScript = `#!/bin/sh
 D=$(dirname "$0")
 mkdir -p "$D/calls"
 R=$(mktemp -d "$D/calls/run.XXXXXX")
 printf '%s\n' "$@" > "$R/args"
 env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
 cat > "$R/stdin"
-` + judgeRunScript + `sleep 1
-printf 'summary: example summary\nlabel: example label\n'
+` + judgeRunScript + `printf 'summary: example summary\nlabel: example label\n'
 : > "$R/done"
 `
 )
@@ -1135,18 +1161,32 @@ func readOption(t *testing.T, client *tmuxctl.Client, pane, name string) string 
 	return got
 }
 
-// waitForOption polls pane until option reads want. It has no deadline of its own.
-func waitForOption(t *testing.T, client *tmuxctl.Client, pane, name, want string) {
+// waitForOption polls pane until option reads want, for an option that daemon writes on its own time, such as a summary
+// run's. It has no deadline of its own, and fails at once when daemon exits first and option still does not read want.
+// An option a hook sets is set once sendHook returns, so it is read with requireOption.
+func waitForOption(t *testing.T, daemon *orreryProcess, client *tmuxctl.Client, pane, name, want string) {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
-	for {
-		got := readOption(t, client, pane, name)
-		if got == want {
+	for readOption(t, client, pane, name) != want {
+		select {
+		case <-daemon.done:
+			if got := readOption(t, client, pane, name); got != want {
+				t.Fatalf("%s exited with %s = %q on %s, want %q; stderr %q",
+					daemon.name, name, got, pane, want, daemon.stderr.String())
+			}
 			return
+		case <-ticker.C:
+			stopIfFailed(t)
 		}
-		stopIfFailed(t)
-		<-ticker.C
+	}
+}
+
+// requireOption fails the test unless pane's option reads want.
+func requireOption(t *testing.T, client *tmuxctl.Client, pane, name, want string) {
+	t.Helper()
+	if got := readOption(t, client, pane, name); got != want {
+		t.Fatalf("%s = %q on %s, want %q", name, got, pane, want)
 	}
 }
 
@@ -1263,9 +1303,36 @@ func assertSummaryRun(t *testing.T, run string) {
 	}
 }
 
-// sendHook runs orrery hook in project for the session in pane, with hook as its JSON stdin and extra added to
-// the environment.
-func sendHook(t *testing.T, socket, pane, project string, hook map[string]any, extra ...string) {
+// sendHook sends hook for pane, run in cwd, straight to the orreryd on socket as the hook command would, and returns
+// once orreryd closes the connection, which it does after it has applied the frame, run its observers and synced the
+// pane. So the options the frame sets are set when it returns: a test reads them, and waits only for what orreryd
+// writes later on its own, such as a summary. It spawns no orrery process: the hook command exits before orreryd has
+// applied its frame, so a wait after it has nothing that ends it. TestOrrerydDrivesHooksEndToEnd runs the command
+// itself. The wait has no deadline of its own, and ends when orreryd closes the connection or exits.
+func sendHook(t *testing.T, socket, pane, cwd string, hook map[string]any) {
+	t.Helper()
+	payload, err := json.Marshal(hook)
+	if err != nil {
+		t.Fatalf("encode hook: %v", err)
+	}
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(t.Context(), "unix", socket)
+	if err != nil {
+		t.Fatalf("dial %s: %v", socket, err)
+	}
+	defer conn.Close()
+	frame := protocol.HookFrame{Hook: payload, TmuxPane: pane, Cwd: cwd, AnthropicBaseURL: examplePatchbayURL}
+	if err = protocol.WriteFrame(conn, frame); err != nil {
+		t.Fatalf("write hook frame: %v", err)
+	}
+	if _, err = io.Copy(io.Discard, conn); err != nil {
+		t.Fatalf("wait for orreryd to close the hook connection: %v", err)
+	}
+}
+
+// runHookCommand runs `orrery hook` in project with hook on its stdin, as Claude Code runs it for pane, with extra
+// added to its environment. The command exits 0 once it has written its frame, before orreryd applies it.
+func runHookCommand(t *testing.T, socket, pane, project string, hook map[string]any, extra ...string) {
 	t.Helper()
 	payload, err := json.Marshal(hook)
 	if err != nil {
@@ -1299,19 +1366,19 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	daemon.waitForListener(t, "unix", socket)
 	notices := startNoticeReader(t, scrubbedEnv(), socket)
 
-	sendHook(t, socket, pane, project, map[string]any{
+	runHookCommand(t, socket, pane, project, map[string]any{
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
 	})
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
-	waitForOption(t, client, pane, protocol.OptionSummary, exampleSummary)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	waitForOption(t, daemon, client, pane, protocol.OptionSummary, exampleSummary)
 	runs := finishedRuns(t, dir)
 	if len(runs) != 1 {
 		t.Fatalf("finished claude runs %v, want exactly one", runs)
 	}
 	assertSummaryRun(t, runs[0])
 
-	sendHook(t, socket, pane, project, map[string]any{
+	runHookCommand(t, socket, pane, project, map[string]any{
 		"hook_event_name": "PermissionRequest",
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
@@ -1323,7 +1390,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		t.Fatalf("waiting notice %+v, want state waiting, title %q, body %q", waiting, exampleTitle, question)
 	}
 
-	sendHook(t, socket, pane, project, map[string]any{
+	runHookCommand(t, socket, pane, project, map[string]any{
 		"hook_event_name":        "Stop",
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
@@ -1339,17 +1406,17 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	// pane, which then notifies exactly once. The pane's waiting state marks the sentinel applied. Connections are
 	// accepted in order, so the summarizer's connection was accepted before it and Serve awaits it at shutdown.
 	sentinelPane := splitPane(t, client, pane, "sleep 300")
-	sendHook(t, socket, pane, project, map[string]any{
+	runHookCommand(t, socket, pane, project, map[string]any{
 		"hook_event_name": "PermissionRequest",
 		"tool_name":       "example-summarizer-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	}, protocol.EnvSummarizer+"="+protocol.SummarizerValue)
-	sendHook(t, socket, sentinelPane, project, map[string]any{
+	runHookCommand(t, socket, sentinelPane, project, map[string]any{
 		"hook_event_name": "PermissionRequest",
 		"tool_name":       "example-sentinel-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	waitForOption(t, client, sentinelPane, protocol.OptionState, string(protocol.StateWaiting))
+	waitForOption(t, daemon, client, sentinelPane, protocol.OptionState, string(protocol.StateWaiting))
 
 	// orreryd writes every queued notice to its open streams before it exits, so once the stream has ended the reader
 	// holds every notice the run produced, whatever the order of their bodies.
@@ -1387,33 +1454,65 @@ func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
+	daemon, socket, dir := startSummaryDaemon(t, name, gatedFakeClaudeScript)
 	transcript := filepath.Join(dir, "transcript.jsonl")
 	writeFile(t, transcript, exampleTranscript, 0o600)
 
+	// The UserPromptSubmit starts the pane's summary run, which the fake holds, and the Stop's request waits behind it.
+	// The SessionEnd forgets the pane while the run is held, and the run is released only then, so it finishes for a
+	// forgotten pane.
 	sendHook(t, socket, pane, dir, map[string]any{
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
 	})
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	sendHook(t, socket, pane, dir, map[string]any{
 		"hook_event_name":        "Stop",
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
 	})
-	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
 	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
-	waitForOption(t, client, pane, protocol.OptionState, "")
+	requireOption(t, client, pane, protocol.OptionState, "")
 
-	// The run in flight at SessionEnd finishes, then a late summary write has this window to land before the daemon
-	// stops. A stop cancels any run still in flight, so it must come after the window.
-	const lateWriteWindow = 500 * time.Millisecond
-	waitForFinishedRuns(t, dir, 1)
-	<-time.After(lateWriteWindow)
-	wantExit(t, daemon.stop(t), 0)
+	writeFile(t, filepath.Join(dir, summaryReleaseFile), "", 0o600)
+	// Once orreryd has logged that it dropped the run's reply, the run can write nothing, and the Stop's request went
+	// with the SessionEnd, so no later run writes either.
+	daemon.waitForForgottenRun(t, client, pane)
 	for _, option := range []string{protocol.OptionSummary, protocol.OptionLabel} {
-		if got := readOption(t, client, pane, option); got != "" {
-			t.Fatalf("%s = %q after SessionEnd, want unset", option, got)
+		requireOption(t, client, pane, option, "")
+	}
+	wantExit(t, daemon.stop(t), 0)
+}
+
+// waitForForgottenRun waits until p logs summary.ForgottenRunLog for pane, which it does once a run in flight at the
+// pane's SessionEnd has finished and written nothing. It has no deadline of its own, and fails at once when the run
+// ends any other way: p logs summary.FailedRunLog for pane, or the run writes the pane's summary, or p exits.
+func (p *orreryProcess) waitForForgottenRun(t *testing.T, client *tmuxctl.Client, pane string) {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		for line := range strings.SplitSeq(p.stderr.String(), "\n") {
+			if !strings.Contains(line, "pane="+pane) {
+				continue
+			}
+			if strings.Contains(line, summary.ForgottenRunLog) {
+				return
+			}
+			if strings.Contains(line, summary.FailedRunLog) {
+				t.Fatalf("the summary run of forgotten pane %s failed: %s", pane, line)
+			}
+		}
+		if got := readOption(t, client, pane, protocol.OptionSummary); got != "" {
+			t.Fatalf("%s = %q on forgotten pane %s; stderr %q", protocol.OptionSummary, got, pane, p.stderr.String())
+		}
+		select {
+		case <-p.done:
+			t.Fatalf("%s exited before it logged %q for pane %s; stderr %q", p.name, summary.ForgottenRunLog, pane,
+				p.stderr.String())
+		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -1422,7 +1521,7 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
-	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
+	daemon, socket, dir := startSummaryDaemon(t, name, labelFakeClaudeScript)
 	long := filepath.Join(dir, "long.jsonl")
 	writeFile(t, long, strings.Repeat(exampleTranscript, exampleExchanges), 0o600)
 	short := filepath.Join(dir, "short.jsonl")
@@ -1434,9 +1533,9 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 		"transcript_path":        long,
 		"last_assistant_message": exampleLastMessage,
 	})
-	waitForOption(t, client, pane, protocol.OptionLabel, exampleLabel)
+	waitForOption(t, daemon, client, pane, protocol.OptionLabel, exampleLabel)
 	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
-	waitForOption(t, client, pane, protocol.OptionLabel, "")
+	requireOption(t, client, pane, protocol.OptionLabel, "")
 
 	// The next session has one exchange, far below the first session's label count, yet its first run asks for a label.
 	sendHook(t, socket, pane, dir, map[string]any{
@@ -1487,6 +1586,7 @@ func attachViewer(t *testing.T, inner *tmuxctl.Client, innerName string) viewer 
 	if err != nil {
 		t.Fatalf("outer list-panes: %v", err)
 	}
+	detachFirst(t, inner, outer, strings.TrimSpace(pane))
 	waitUntil(t, func() bool {
 		out, listErr := inner.Run(t.Context(), "list-clients", "-F", "#{client_name}")
 		if listErr != nil {
@@ -1496,6 +1596,32 @@ func attachViewer(t *testing.T, inner *tmuxctl.Client, innerName string) viewer 
 	})
 
 	return viewer{inner: inner, outer: outer, outerPane: strings.TrimSpace(pane)}
+}
+
+// detachFirst makes the viewer's client detach from inner before the outer server's cleanup kills it. Killed first, the
+// outer server takes away the pane of script while its client is still attached, and script takes seconds to exit.
+// The outer pane stays once script exits, so the outer server keeps running until its own cleanup, and the cleanup
+// here returns once script has exited.
+func detachFirst(t *testing.T, inner, outer *tmuxctl.Client, pane string) {
+	t.Helper()
+	if _, err := outer.Run(t.Context(), "set-option", "-w", "-t", pane, "remain-on-exit", "on"); err != nil {
+		t.Fatalf("outer remain-on-exit: %v", err)
+	}
+	pid, err := outer.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("outer pane_pid: %v", err)
+	}
+	pgid, err := strconv.Atoi(strings.TrimSpace(pid))
+	if err != nil {
+		t.Fatalf("outer pane_pid %q: %v", pid, err)
+	}
+	t.Cleanup(func() {
+		if _, detachErr := inner.Run(context.Background(), "detach-client", "-s", "s1"); detachErr != nil {
+			t.Errorf("detach the viewer's client: %v", detachErr)
+			return
+		}
+		waitGroupGone(pgid, nil)
+	})
 }
 
 // clientActivity returns the latest client_activity among the clients of the server behind client, or 0 when none.
@@ -1569,12 +1695,12 @@ func TestOrrerydMarksViewedPaneSeenOnDone(t *testing.T) {
 	// so paneA's seen mark cannot land before paneB's observer has returned.
 	sendHook(t, socket, paneB, dir, prompt)
 	sendHook(t, socket, paneB, dir, stop)
-	waitForOption(t, inner, paneB, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, inner, paneB, protocol.OptionState, string(protocol.StateDone))
 
 	sendHook(t, socket, paneA, dir, prompt)
-	waitForOption(t, inner, paneA, protocol.OptionState, string(protocol.StateWorking))
+	requireOption(t, inner, paneA, protocol.OptionState, string(protocol.StateWorking))
 	sendHook(t, socket, paneA, dir, stop)
-	waitForOption(t, inner, paneA, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, inner, paneA, protocol.OptionState, string(protocol.StateDone))
 	waitUntil(t, func() bool {
 		return readOption(t, inner, paneA, protocol.OptionSeen) != ""
 	})

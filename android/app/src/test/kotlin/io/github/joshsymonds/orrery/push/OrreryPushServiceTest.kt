@@ -188,13 +188,17 @@ class OrreryPushServiceTest {
             RegisterRequest.newBuilder().setEndpoint(endpointUrl).setP256Dh(publicKey).setAuth(authSecret).build(),
             RegisterRequest.parseFrom(request.body),
         )
+        // The registration retries until the server accepts, so it must take the answer before the server closes;
+        // left running, it retries a closed server for the rest of the JVM.
+        Quiescence.awaitUntil("the registration to take its answer") { Quiescence.backgroundWorkRunning() == 0 }
+        assertEquals(1, server.requests.size)
     }
 
     @Test
     fun endpointWithoutKeysPostsNothing() {
         service.onNewEndpoint(PushEndpoint(endpointUrl, null), instance)
 
-        Thread.sleep(500)
+        assertEquals("no registration work starts", 0, Quiescence.backgroundWorkRunning())
         assertTrue(server.requests.isEmpty())
     }
 

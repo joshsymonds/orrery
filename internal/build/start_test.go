@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -406,10 +407,19 @@ func reviewTask(base, revision string, gatePos int64) store.EpicTask {
 	return task
 }
 
+// agentReviewer is an enabled task-stage reviewer named name that runs the reviewer agent and must hold the diff.
+func agentReviewer(name string) reviewers.Reviewer {
+	return reviewers.Reviewer{
+		Name: name, Enabled: true, Stage: []string{reviewers.StageTask}, Agent: "reviewer", Limit: 60,
+		Must: []string{"the diff is correct"}, Verify: true,
+	}
+}
+
 func TestStartReviewIsReadOnlyAtRevisionWithReviewAgentGate(t *testing.T) {
 	t.Parallel()
-	setup := newStartSetup(t, readoptReviewGate())
+	setup := newStartSetup(t)
 	setup.epic.ReviewGates = []string{"review"}
+	setup.epic.Reviewers = []reviewers.Reviewer{agentReviewer("review")}
 	revision := buildCommit(t, setup.epic.Repository)
 	task := reviewTask(setup.base, revision, 0)
 	id := StepID(setup.epic.ID, task.Seq, StageReview, task.Build.Attempt, task.Build.Rerun, 0, 0)
@@ -440,6 +450,9 @@ func TestStartReviewIsReadOnlyAtRevisionWithReviewAgentGate(t *testing.T) {
 	if start.AgentGate == nil || start.AgentGate.Name != "review" || start.AgentGate.Agent != "reviewer" {
 		t.Errorf("review start AgentGate = %+v, want the epic's review agent gate", start.AgentGate)
 	}
+	if start.Agents != "" {
+		t.Errorf("review start Agents = %s, want none for an agent reviewer", start.Agents)
+	}
 	if want := ReviewPrompt(setup.epic, task, setup.base, revision); start.Prompt != want {
 		t.Errorf("review start Prompt = %q, want %q", start.Prompt, want)
 	}
@@ -448,28 +461,51 @@ func TestStartReviewIsReadOnlyAtRevisionWithReviewAgentGate(t *testing.T) {
 	}
 }
 
-func TestStartReviewCommandGateErrors(t *testing.T) {
+// TestStartReviewWithoutTaskReviewerErrors covers R3: a review gate that no enabled task-stage reviewer of the epic
+// is named by is an error, and no start reaches the engine. An epic command gate of the same name is not a reviewer.
+func TestStartReviewWithoutTaskReviewerErrors(t *testing.T) {
 	t.Parallel()
-	setup := newStartSetup(t, readoptCommandGate("lint"))
-	setup.epic.ReviewGates = []string{"lint"}
-	task := reviewTask(setup.base, setup.base, 0)
-	steps := &startSteps{}
-	_, err := startRunner(setup, steps, &startEvidence{}).startStep(
-		context.Background(), setup.epic, View{Task: task},
-		Action{Kind: ActStartStep, Unit: StageReview, ID: "id"},
-	)
-	if err == nil || !strings.Contains(err.Error(), "is a command gate, not an agent gate") {
-		t.Fatalf("startStep with a command review gate = %v, want a command gate error", err)
+	epicStage := agentReviewer("review")
+	epicStage.Stage = []string{reviewers.StageEpic}
+	disabled := agentReviewer("review")
+	disabled.Enabled = false
+	cases := []struct {
+		name      string
+		gates     []store.EpicGate
+		reviewers []reviewers.Reviewer
+	}{
+		{name: "missing", reviewers: nil},
+		{name: "command gate", gates: []store.EpicGate{readoptCommandGate("review")}, reviewers: nil},
+		{name: "epic stage", reviewers: []reviewers.Reviewer{epicStage}},
+		{name: "disabled", reviewers: []reviewers.Reviewer{disabled}},
 	}
-	if len(steps.starts) != 0 {
-		t.Errorf("Start calls = %d for a command review gate, want none", len(steps.starts))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			setup := newStartSetup(t, tc.gates...)
+			setup.epic.ReviewGates = []string{"review"}
+			setup.epic.Reviewers = tc.reviewers
+			task := reviewTask(setup.base, setup.base, 0)
+			steps := &startSteps{}
+			_, err := startRunner(setup, steps, &startEvidence{}).startStep(
+				context.Background(), setup.epic, View{Task: task},
+				Action{Kind: ActStartStep, Unit: StageReview, ID: "id"},
+			)
+			if err == nil || !strings.Contains(err.Error(), "is not a task-stage reviewer") {
+				t.Fatalf("startStep without a task-stage reviewer = %v, want a task-stage reviewer error", err)
+			}
+			if len(steps.starts) != 0 {
+				t.Errorf("Start calls = %d without a task-stage reviewer, want none", len(steps.starts))
+			}
+		})
 	}
 }
 
 func TestStartReviewGatePositionOutOfRangeErrors(t *testing.T) {
 	t.Parallel()
-	setup := newStartSetup(t, readoptReviewGate())
+	setup := newStartSetup(t)
 	setup.epic.ReviewGates = []string{"review"}
+	setup.epic.Reviewers = []reviewers.Reviewer{agentReviewer("review")}
 	task := reviewTask(setup.base, setup.base, 1)
 	steps := &startSteps{}
 	_, err := startRunner(setup, steps, &startEvidence{}).startStep(

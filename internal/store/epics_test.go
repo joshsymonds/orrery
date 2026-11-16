@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/reviewers"
 )
 
 // epicCreated returns the unix second every test epic is created at.
@@ -59,6 +61,18 @@ func fullEpic(id string) EpicRow {
 			{Seq: 9, ID: "D1", Text: "Use the store", Time: time.Unix(5, 0)},
 			{Seq: 9, ID: "D2", Text: "Rows, not JSON", Time: time.Unix(5, 0)},
 		},
+		Reviewers: []reviewers.Reviewer{
+			{
+				Name: "floor", Enabled: true, Stage: []string{"task", "epic"},
+				Must: []string{"Names the failing check"}, MustNot: []string{"Edits a file"},
+				Prompt: "Review the diff against the floor", Model: "synthetic-model",
+				Tools: []string{"Read", "Grep"}, Effort: "high", Limit: 900, Verify: true,
+			},
+			{
+				Name: "security", Enabled: false, Stage: []string{"epic"},
+				Must: []string{"Lists each trust boundary"}, Agent: "security-agent", Limit: 1800, Verify: false,
+			},
+		},
 	}
 }
 
@@ -74,6 +88,7 @@ func seededDecisions() []EpicDecision {
 func headOnly(row EpicRow) EpicRow {
 	row.Failures, row.Additions, row.Requirements, row.Premises = nil, nil, nil, nil
 	row.Exclusions, row.Alternatives, row.ReleaseSteps, row.Decisions = nil, nil, nil, nil
+	row.Reviewers = nil
 	return row
 }
 
@@ -115,6 +130,59 @@ func TestCreatedEpicReadsBackEveryFieldInOrder(t *testing.T) {
 	want.Decisions = seededDecisions()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epic round trip differs:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+func TestStoredReviewerKeepsNoToolsApartFromUnsetTools(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = "orrery-1a2b3c4/epic-store"
+	row := fullEpic(id)
+	row.Reviewers = []reviewers.Reviewer{
+		{
+			Name:    "no_tools",
+			Enabled: true,
+			Stage:   []string{"task"},
+			Must:    []string{"Reads the diff"},
+			Prompt:  "Review the diff",
+			Model:   "synthetic-model",
+			Tools:   []string{},
+			Effort:  "low",
+			Limit:   60,
+			Verify:  true,
+		},
+		{
+			Name: "all_tools", Enabled: true, Stage: []string{"task"}, Must: []string{"Reads the diff"},
+			Prompt: "Review the diff", Model: "synthetic-model", Limit: 60, Verify: true,
+		},
+	}
+	createEpic(t, s, row)
+
+	got, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if !reflect.DeepEqual(got.Reviewers, row.Reviewers) {
+		t.Errorf("Reviewers round trip differs:\n got %+v\nwant %+v", got.Reviewers, row.Reviewers)
+	}
+}
+
+func TestEpicWithoutReviewersReadsBackNil(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = "orrery-1a2b3c4/epic-store"
+	row := fullEpic(id)
+	row.Reviewers = nil
+	createEpic(t, s, row)
+
+	got, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if got.Reviewers != nil {
+		t.Errorf("Reviewers = %+v, want nil", got.Reviewers)
 	}
 }
 

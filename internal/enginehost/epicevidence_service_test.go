@@ -57,8 +57,8 @@ func TestEpicCreateStoresBaseAsFullCommit(t *testing.T) {
 	}
 }
 
-// TestEpicCreateStoresGatesListsAndItems asserts the gates, the Done and review lists and each Requirement's capture
-// or supplied item come back from CreateEpic and GetEpic equal to the request, in order.
+// TestEpicCreateStoresGatesListsAndItems asserts the gates, the Done list and each Requirement's capture or supplied
+// item come back from CreateEpic and GetEpic equal to the request, in order.
 func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
@@ -68,7 +68,6 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 	req.Contract.Base = "HEAD"
 	req.Contract.Gates = epicEvidenceGates()
 	req.Contract.DoneGates = []string{"check", "unit"}
-	req.Contract.ReviewGates = []string{"audit", "review"}
 	req.Contract.Requirements[0].Item = &v1.EvidenceItem{
 		Kind:       "capture",
 		Capture:    []string{"scripts/unit"},

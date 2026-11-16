@@ -16,6 +16,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -166,11 +168,28 @@ type passFixture struct {
 	runner    *Runner
 }
 
-// newPassFixture returns a fixture whose epic has reviewGates as its review gates. Its repository has main at the base,
-// and the epic has no branch yet.
+// newPassFixture returns a fixture whose epic has an agent reviewer for each of reviewGates, in order, as its task-stage
+// reviewers. Its repository has main at the base, and the epic has no branch yet.
 func newPassFixture(t *testing.T, reviewGates ...string) *passFixture {
 	t.Helper()
+	revs := make([]reviewers.Reviewer, 0, len(reviewGates))
+	for _, name := range reviewGates {
+		revs = append(revs, agentReviewer(name))
+	}
+	return newPassFixtureWith(t, revs)
+}
+
+// newPassFixtureWith returns a fixture whose epic declares revs as its reviewers. Its review gates are the names of its
+// enabled task-stage reviewers in order, as epic_create fills them. Its repository has main at the base, and the epic
+// has no branch yet.
+func newPassFixtureWith(t *testing.T, revs []reviewers.Reviewer) *passFixture {
+	t.Helper()
 	ctx := context.Background()
+	taskRevs := reviewers.ForStage(revs, reviewers.StageTask)
+	reviewGates := make([]string, 0, len(taskRevs))
+	for _, rev := range taskRevs {
+		reviewGates = append(reviewGates, rev.Name)
+	}
 	setup := newStartSetup(t, readoptCommandGate("check"), readoptReviewGate())
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
@@ -186,7 +205,7 @@ func newPassFixture(t *testing.T, reviewGates ...string) *passFixture {
 	if err = s.CreateEpic(ctx, store.EpicRow{
 		ID: passEpic, Repository: setup.epic.Repository, Base: setup.base, Title: "Build the thing",
 		Phase: "accepted", Created: passClock(), Changed: passClock(), Gates: setup.epic.Gates,
-		ReviewGates: reviewGates,
+		ReviewGates: reviewGates, Reviewers: revs,
 	}); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
@@ -732,6 +751,84 @@ func TestPassGreenPassedStartsReviewGate(t *testing.T) {
 	}
 	if build := f.task().Build; build.Stage != StageReview || build.GreenRun != passRunID(StageGreen, 1) {
 		t.Errorf("build = %+v, want review with the green run kept", build)
+	}
+}
+
+// TestPassReviewRunsEachTaskReviewerAsDeclared covers R3: a task's review steps are its enabled task-stage reviewers in
+// merged order, and each step carries its reviewer's gate, a model reviewer's inline agent, and an agent reviewer's
+// prompt heading the review prompt.
+func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
+	t.Parallel()
+	floor := reviewers.Reviewer{
+		Name: "floor", Enabled: true, Stage: []string{reviewers.StageTask}, Model: "test-model",
+		Tools: []string{"Read", "Grep"}, Effort: "high", Prompt: "Review the diff.", Limit: 900, Verify: true,
+		Must: []string{"the diff is correct"}, MustNot: []string{"the tests were weakened"},
+	}
+	conformance := agentReviewer("conformance")
+	conformance.Stage = []string{reviewers.StageEpic}
+	disabled := agentReviewer("disabled")
+	disabled.Enabled = false
+	custom := reviewers.Reviewer{
+		Name: "custom", Enabled: true, Stage: []string{reviewers.StageTask}, Agent: "custom-review",
+		Prompt: "Check the migration.", Limit: 600, Verify: true, Must: []string{"the migration is reversible"},
+	}
+	f := newPassFixtureWith(t, []reviewers.Reviewer{floor, conformance, disabled, custom})
+	f.pass()
+	f.setGreen(1, evidence.VerdictHolds)
+	f.pass()
+	if len(f.steps.starts) != 1 {
+		t.Fatalf("Start calls = %d, want the floor review step", len(f.steps.starts))
+	}
+	f.setStep(passStep(StageReview, 1, 0), "done", "")
+	f.pass()
+	if len(f.steps.starts) != 2 {
+		t.Fatalf("Start calls = %d, want the floor and custom review steps", len(f.steps.starts))
+	}
+
+	epic, task := f.epic(), f.task()
+	base, revision := task.Build.Base, task.Build.Revision
+	first, second := f.steps.starts[0], f.steps.starts[1]
+	if first.ID != passStep(StageReview, 1, 0) || second.ID != StepID(passEpic, 1, StageReview, 1, 0, 1, 0) {
+		t.Fatalf("review step ids = %s, %s, want floor at position 0 then custom at position 1", first.ID, second.ID)
+	}
+
+	gate := first.AgentGate
+	if !first.ReadOnly || gate == nil || gate.Name != "floor" || gate.Agent != "orrery-reviewer-floor" ||
+		gate.Limit != 900*time.Second ||
+		!slices.Equal(gate.Assertions, []gates.Assertion{
+			{Text: "the diff is correct", Kind: gates.KindMust},
+			{Text: "the tests were weakened", Kind: gates.KindMustNot},
+		}) {
+		t.Errorf("floor review ReadOnly %t, AgentGate %+v, want the floor gate read-only", first.ReadOnly, gate)
+	}
+	var inline map[string]struct {
+		Model  string   `json:"model"`
+		Tools  []string `json:"tools"`
+		Effort string   `json:"effort"`
+		Prompt string   `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(first.Agents), &inline); err != nil {
+		t.Fatalf("floor review Agents = %q, want a JSON object of agents: %v", first.Agents, err)
+	}
+	def := inline["orrery-reviewer-floor"]
+	if def.Model != "test-model" || !slices.Equal(def.Tools, []string{"Read", "Grep"}) ||
+		def.Effort != "high" || def.Prompt != "Review the diff." {
+		t.Errorf("floor review inline agent = %+v, want the floor's model, tools, effort and prompt", def)
+	}
+	if want := ReviewPrompt(epic, task, base, revision); first.Prompt != want {
+		t.Errorf("floor review Prompt = %q, want the review prompt %q", first.Prompt, want)
+	}
+
+	gate = second.AgentGate
+	if gate == nil || gate.Name != "custom" || gate.Agent != "custom-review" || gate.Limit != 600*time.Second ||
+		!slices.Equal(gate.Assertions, []gates.Assertion{{Text: "the migration is reversible", Kind: gates.KindMust}}) {
+		t.Errorf("custom review AgentGate = %+v, want the custom gate", gate)
+	}
+	if second.Agents != "" {
+		t.Errorf("custom review Agents = %s, want none for an agent reviewer", second.Agents)
+	}
+	if want := "Check the migration.\n\n" + ReviewPrompt(epic, task, base, revision); second.Prompt != want {
+		t.Errorf("custom review Prompt = %q, want %q", second.Prompt, want)
 	}
 }
 

@@ -72,6 +72,8 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 	q := sqlcgen.New(openStoreForInspection(t, f.dbPath))
 
 	want := make([]string, 0, panePulses)
+	// Every pulse is the same session, so its row id, once the first pulse has minted it, is read from the store.
+	var rowID string
 	for i := range panePulses {
 		state, event := protocol.StateWorking, "UserPromptSubmit"
 		if i%2 == 1 {
@@ -81,8 +83,8 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 		// The frame goes straight to orreryd's socket: the subject is the pane syncs under the sessions' load, not
 		// the hook command, so no orrery process is spawned per pulse.
 		paceStreams(t, dirs, i+2)
-		sendHookFrame(t, f.socket, pane, pulseDir, hook)
-		waitForPaneState(t, q, client, pane, state)
+		sendHook(t, f.socket, pane, pulseDir, hook)
+		rowID = waitForPaneState(t, q, client, pane, rowID, state)
 		want = append(want, string(state))
 	}
 
@@ -145,27 +147,37 @@ func fixturePane(t *testing.T, client *tmuxctl.Client) string {
 	return panes[0]
 }
 
-// waitForPaneState polls until the store row of pane holds state. It has no deadline of its own. The pane has no row
-// until orreryd mints its id, so a missing id or row is polled again.
-func waitForPaneState(t *testing.T, q *sqlcgen.Queries, client *tmuxctl.Client, pane string, state protocol.State) {
+// waitForPaneState polls until the store row of pane holds state, and returns the row's id. It has no deadline of its
+// own. id is the row's id from an earlier wait, or "" when the caller has none. A known id is read from the store
+// alone; the pane's id option, a tmux call, is read only while that row does not hold state, so a new id is followed.
+// The pane has no row until orreryd mints its id, so a missing id or row is polled again.
+func waitForPaneState(
+	t *testing.T, q *sqlcgen.Queries, client *tmuxctl.Client, pane, id string, state protocol.State,
+) string {
 	t.Helper()
-	ctx := t.Context()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
-		id := readOption(t, client, pane, protocol.OptionID)
-		if id != "" {
-			row, err := q.GetSession(ctx, id)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				t.Fatalf("read row %s: %v", id, err)
-			}
-			if err == nil && row.State == string(state) {
-				return
-			}
+		if id != "" && rowHolds(t, q, id, state) {
+			return id
+		}
+		if current := readOption(t, client, pane, protocol.OptionID); current != id {
+			id = current
+			continue
 		}
 		stopIfFailed(t)
 		<-ticker.C
 	}
+}
+
+// rowHolds reports whether the store row id exists and holds state.
+func rowHolds(t *testing.T, q *sqlcgen.Queries, id string, state protocol.State) bool {
+	t.Helper()
+	row, err := q.GetSession(t.Context(), id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("read row %s: %v", id, err)
+	}
+	return err == nil && row.State == string(state)
 }
 
 // eventStates returns, in order, the state each session_changed event for session id records.

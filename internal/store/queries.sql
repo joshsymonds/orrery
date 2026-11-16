@@ -194,8 +194,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
                    started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -375,6 +375,12 @@ UPDATE epics SET changed = ? WHERE id = ?;
 
 -- name: SetEpicBranch :exec
 UPDATE epics SET branch = ? WHERE id = ?;
+
+-- name: ListUnsummarizedEpics :many
+SELECT * FROM epics WHERE summary = '' ORDER BY id;
+
+-- name: SetEpicSummary :exec
+UPDATE epics SET summary = ? WHERE id = ? AND summary = '';
 
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
@@ -603,8 +609,17 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (bat
 INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: InsertEpicTaskFinding :exec
-INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by,
+                                step, result, reason, unverified)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEpicReviewer :exec
+INSERT INTO epic_reviewers (epic, position, name, enabled, stage, must, must_not, prompt, agent, model, tools, effort,
+                            limit_seconds, verify)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicReviewers :many
+SELECT * FROM epic_reviewers WHERE epic = ? ORDER BY position;
 
 -- name: SetEpicTaskFindingResult :execrows
 UPDATE epic_task_findings
@@ -708,6 +723,9 @@ UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
+
+-- name: ListEpicTriggers :many
+SELECT * FROM epic_triggers WHERE epic = ? ORDER BY created, id;
 
 -- name: ListEpicsWithTurns :many
 SELECT * FROM epics

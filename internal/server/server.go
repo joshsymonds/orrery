@@ -116,7 +116,7 @@ type StepClient interface {
 }
 
 // EpicStoreClient is the part of orreryd's Epics service serve uses: ListEpics and GetEpic, which the Epics service
-// merges with the gambit records. It has no CreateEpic or AnswerEpic, so serve cannot write an epic.
+// merges with the gambit records. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
 type EpicStoreClient interface {
 	ListEpics(
 		context.Context,
@@ -191,6 +191,9 @@ type Config struct {
 	Records string
 	// EpicStore is orreryd's Epics client, which List and Get merge with the records, or nil for no orreryd epics.
 	EpicStore EpicStoreClient
+	// EpicCommands is orreryd's Epics client, which Pause, Resume, Stop, Retry and Answer forward the owner's commands
+	// to, or nil, which answers unavailable.
+	EpicCommands enginev1connect.EpicsClient
 	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
 	// reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
@@ -305,11 +308,12 @@ func New(cfg Config) (http.Handler, error) {
 }
 
 // registerEpicServices mounts the Epics service and the Evidence service on mux, both over the records, steps, epic
-// store and evidence client of cfg, and returns their paths. The Epics service dates its records from now.
+// store, epic commands and evidence client of cfg, and returns their paths. The Epics service dates its records from
+// now.
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string) {
 	epicsPath, epicsService := newEpicsHandler(
-		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.Evidence, cfg.ControlTimeout, now, rpcretry.SystemClock{},
-		cfg.HandlerOptions...,
+		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.ControlTimeout, now,
+		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(epicsPath, epicsService)
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)

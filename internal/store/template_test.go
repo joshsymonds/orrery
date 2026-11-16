@@ -2,20 +2,32 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/pressly/goose/v3"
 )
 
-// migratedImage is the bytes of a store file that Open created and fully migrated, made once per test binary.
-// Migrating a fresh store costs about 0.4 s under the race detector, and reopening a migrated one costs
-// milliseconds, so tests that only need an open store start from a copy of this image.
+// storeImages are the store files the tests start from, each made once per test binary on first use. Migrating a
+// fresh store costs about 0.4 s under the race detector, and copying a migrated one costs milliseconds.
 //
-//nolint:gochecknoglobals // one image per test binary, made on first use and read by every test
-var migratedImage = sync.OnceValues(func() ([]byte, error) {
+// migrated is a store file that Open created and fully migrated, for tests that only need an open store. versions are
+// the store file at each migration version, from one walk of the migrations from the first, for tests that store rows
+// under an older schema and then migrate them: a version a test names costs its copy, not the walk up to it.
+//
+//nolint:gochecknoglobals // one set of images per test binary, made on first use and read by every test
+var storeImages = struct {
+	migrated func() ([]byte, error)
+	versions func() (map[int64][]byte, error)
+}{migrated: sync.OnceValues(migrateImage), versions: sync.OnceValues(versionImages)}
+
+// migrateImage returns the bytes of a store file that Open created and fully migrated.
+func migrateImage() ([]byte, error) {
 	dir, err := os.MkdirTemp("", "orrery-store-image-")
 	if err != nil {
 		return nil, err
@@ -26,15 +38,57 @@ var migratedImage = sync.OnceValues(func() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = s.Close(); err != nil {
-		return nil, err
+	if closeErr := s.Close(); closeErr != nil {
+		return nil, closeErr
 	}
 	// Closing the last connection checkpoints the WAL into the file and removes it, so the file alone is the store.
 	if _, err = os.Stat(path + "-wal"); !errors.Is(err, fs.ErrNotExist) {
 		return nil, errors.New("store image: the WAL outlived Close")
 	}
 	return os.ReadFile(path)
-})
+}
+
+// versionImages returns, by migration version, the bytes of a store file the embedded migrations have taken to that
+// version and no further, as goose leaves a file it migrates one version at a time. The file keeps the default rollback
+// journal, so each version's commit is in the file itself when its bytes are read.
+func versionImages() (map[int64][]byte, error) {
+	dir, err := os.MkdirTemp("", "orrery-store-versions-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "orrery.db")
+	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationsFS)
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	images := map[int64][]byte{}
+	for {
+		result, upErr := provider.UpByOne(ctx)
+		if errors.Is(upErr, goose.ErrNoNextVersion) {
+			return images, nil
+		}
+		if upErr != nil {
+			return nil, upErr
+		}
+		image, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, readErr
+		}
+		images[result.Source.Version] = image
+	}
+}
 
 // noSync is the Open option this package's test stores open with: synchronous OFF, so their commits and checkpoints
 // skip the fsyncs a throwaway file does not need.
@@ -51,7 +105,7 @@ func seedMigrated(t *testing.T, path string) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	image, err := migratedImage()
+	image, err := storeImages.migrated()
 	if err != nil {
 		t.Fatalf("make migrated store image: %v", err)
 	}

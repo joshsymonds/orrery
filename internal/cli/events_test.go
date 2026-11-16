@@ -284,7 +284,9 @@ func TestEventsFollowWithoutAfterWritesOnlyEventsAfterList(t *testing.T) {
 
 	// Each retry wait moves the clock a whole window, so serve's Unavailable end is retried once and then given up.
 	call := startEventsOnClock(t, rpcretry.Window, "--url", url, "--follow")
-	<-watched
+	if _, _, received := receiveUntil(watched, doneClosed(call.done)); !received {
+		t.Fatalf("Events returned %v before it opened its Watch", call.err)
+	}
 	// The Watch request follows the command's List, so every event written from here on is past List's seq.
 	writeEventsState(t, s, "state-2")
 	writeEventsState(t, s, "state-3")
