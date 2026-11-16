@@ -519,22 +519,43 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	}
 }
 
-// TestEpicSeenMigrationSeedsReleasedAndDoneEpicsAtTheirPhaseAt stores a released, a done and an accepted epic at
-// migration 42, before epic_seen exists, and reads them after Open migrates the store: the released and the done epic
-// were seen at their phase time, and the accepted epic was never seen.
-func TestEpicSeenMigrationSeedsReleasedAndDoneEpicsAtTheirPhaseAt(t *testing.T) {
+// TestEpicSeenMigrationSeedsEveryEndedEpicAtItsPhaseAt stores one epic in each stored phase at migration 42, before
+// epic_seen exists, and reads them after Open migrates the store: each ended epic was seen at its phase time, and each
+// other epic was never seen.
+func TestEpicSeenMigrationSeedsEveryEndedEpicAtItsPhaseAt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	seeds := []struct {
+	phases := []struct {
+		phase string
+		seen  bool
+	}{
+		{"accepted", false},
+		{"reviewing", false},
+		{"correcting", false},
+		{"built", false},
+		{"releasing", false},
+		{"clean", true},
+		{"ended_with_gaps", true},
+		{"stopped", true},
+		{"released", true},
+		{"done", true},
+		{"met_at_base", true},
+	}
+	type seed struct {
 		id, phase string
 		phaseAt   int64
 		seen      bool
-	}{
-		{"orrery-0123456/epic-released", "released", 1700000300, true},
-		{"orrery-0123456/epic-done", "done", 1700000400, true},
-		{"orrery-0123456/epic-accepted", "accepted", 1700000500, false},
+	}
+	seeds := make([]seed, len(phases))
+	for i, p := range phases {
+		seeds[i] = seed{
+			id:      "orrery-0123456/epic-" + p.phase,
+			phase:   p.phase,
+			phaseAt: 1700000300 + int64(i)*100,
+			seen:    p.seen,
+		}
 	}
 	fixture := openStoreAtVersion(t, path, 42)
 	for _, seed := range seeds {
