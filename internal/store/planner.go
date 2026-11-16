@@ -399,7 +399,7 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 // trigger the turn claimed is consumed. When epic has a running plan run whose pinned workflow holds a build node
 // under the plan, each task also gets a running build child run under that node in the same write. A turn that is not
 // running, or does not exist, is ErrTurnNotRunning and writes nothing. A question of the plan that breaks a rule of
-// QuestionRefusals is ErrBadQuestion, and the call writes nothing.
+// QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing.
 func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
 	if err := checkQuestions(plan.Questions); err != nil {
 		return err
@@ -527,7 +527,7 @@ func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, tur
 }
 
 // insertQuestions stores questions as the next question seqs of epic after its highest, each open, with its label,
-// choices, recommendation and replacement.
+// choices, recommendation and replacement, and closes each question a question replaces.
 func insertQuestions(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -548,6 +548,11 @@ func insertQuestions(
 		replaces, ok := replacesSeq(question.Replaces)
 		if !ok {
 			return fmt.Errorf("replaces of question %d of epic %s: %q is not Q<n>", seq, epic, question.Replaces)
+		}
+		if replaces != 0 {
+			if replaceErr := replaceQuestion(ctx, queries, epic, replaces, seq); replaceErr != nil {
+				return fmt.Errorf("question %q: %w", question.Label, replaceErr)
+			}
 		}
 		return queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
 			Epic: epic, Seq: seq, Turn: turn, Text: question.Text, Label: question.Label, Choices: string(choices),

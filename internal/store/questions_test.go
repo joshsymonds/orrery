@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // shapedQuestion returns a question that passes QuestionRefusals: the label and text given, two synthetic choices with
@@ -172,16 +175,11 @@ func TestCompleteTurnStoresShapedQuestionsAndReadsThemBack(t *testing.T) {
 		t.Fatalf("second CompleteTurn: %v", err)
 	}
 
-	want := []EpicQuestion{
-		{
-			Seq: 1, Turn: 1, Text: first.Text, State: "open", Label: first.Label, Choices: first.Choices,
-			Recommended: first.Recommended, Why: first.Why, Confidence: first.Confidence,
-		},
-		{
-			Seq: 2, Turn: 2, Text: second.Text, State: "open", Label: second.Label, Choices: second.Choices,
-			Recommended: second.Recommended, Why: second.Why, Confidence: second.Confidence, Replaces: 1,
-		},
-	}
+	firstStored := openStored(first, 1, 1)
+	firstStored.State, firstStored.ReplacedBy = QuestionReplaced, 2
+	secondStored := openStored(second, 2, 2)
+	secondStored.Replaces = 1
+	want := []EpicQuestion{firstStored, secondStored}
 	epic, err := s.Epic(ctx, id)
 	if err != nil {
 		t.Fatalf("Epic: %v", err)
@@ -193,7 +191,139 @@ func TestCompleteTurnStoresShapedQuestionsAndReadsThemBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenQuestions: %v", err)
 	}
-	if !reflect.DeepEqual(open, want) {
+	if !reflect.DeepEqual(open, want[1:]) {
+		t.Errorf("OpenQuestions = %+v, want %+v", open, want[1:])
+	}
+}
+
+// claimLaterTurn stores a pending trigger for turn and claims it on claimEpic, as a later planner trigger would.
+func claimLaterTurn(t *testing.T, s *Store, turn int64) {
+	t.Helper()
+	insertPendingTrigger(t, s, claimEpic, fmt.Sprintf("turn-%d", turn), "later trigger")
+	at := claimedAt().Add(time.Duration(turn) * time.Minute)
+	if _, err := s.ClaimTurn(context.Background(), claimEpic, at); err != nil {
+		t.Fatalf("ClaimTurn of turn %d: %v", turn, err)
+	}
+}
+
+// completeLaterTurn completes the running turn on claimEpic with a plan of the questions given.
+func completeLaterTurn(t *testing.T, s *Store, turn int64, questions ...EpicQuestionInput) {
+	t.Helper()
+	plan := EpicPlan{Questions: questions, Outcome: "wait"}
+	if err := s.CompleteTurn(context.Background(), claimEpic, turn, plan,
+		completedAt().Add(time.Duration(turn)*time.Minute)); err != nil {
+		t.Fatalf("CompleteTurn of turn %d: %v", turn, err)
+	}
+}
+
+// replacing returns a shaped question with label and text that replaces the question replaces, a Q<n>.
+func replacing(label, text, replaces string) EpicQuestionInput {
+	question := shapedQuestion(label, text)
+	question.Replaces = replaces
+	return question
+}
+
+func TestCompleteTurnReplacingAnsweredQuestionClosesNothingAndOpensTheNewOne(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("which-store", "Which store?"))
+	if err := sqlcgen.New(s.db).SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+		Choice: ChoiceOther, Epic: id, Seq: 1,
+	}); err != nil {
+		t.Fatalf("answer question 1: %v", err)
+	}
+	before, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic before: %v", err)
+	}
+	claimLaterTurn(t, s, 2)
+	second := replacing("which-cache", "Which cache?", "Q1")
+	completeLaterTurn(t, s, 2, second)
+
+	epic, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if answered := epic.Questions[0]; !reflect.DeepEqual(answered, before.Questions[0]) {
+		t.Errorf("answered question after replacing it = %+v, want unchanged %+v", answered, before.Questions[0])
+	}
+	if got := epic.Questions[0].State; got != QuestionAnswered {
+		t.Errorf("answered question state = %q, want %q", got, QuestionAnswered)
+	}
+	secondStored := openStored(second, 2, 2)
+	secondStored.Replaces = 1
+	if got := epic.Questions[1]; !reflect.DeepEqual(got, secondStored) {
+		t.Errorf("new question = %+v, want %+v", got, secondStored)
+	}
+	open, err := s.OpenQuestions(ctx, id)
+	if err != nil {
+		t.Fatalf("OpenQuestions: %v", err)
+	}
+	if !reflect.DeepEqual(open, []EpicQuestion{secondStored}) {
+		t.Errorf("OpenQuestions = %+v, want only the new question %+v", open, secondStored)
+	}
+}
+
+func TestCompleteTurnReplacingReplacedQuestionClosesNothingAndOpensTheNewOne(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("which-store", "Which store?"))
+	claimLaterTurn(t, s, 2)
+	completeLaterTurn(t, s, 2, replacing("which-cache", "Which cache?", "Q1"))
+	before, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic before: %v", err)
+	}
+	claimLaterTurn(t, s, 3)
+	third := replacing("which-index", "Which index?", "Q1")
+	completeLaterTurn(t, s, 3, third)
+
+	epic, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if replaced := epic.Questions[0]; !reflect.DeepEqual(replaced, before.Questions[0]) {
+		t.Errorf("replaced question after replacing it again = %+v, want unchanged %+v", replaced, before.Questions[0])
+	}
+	if got := epic.Questions[0]; got.State != QuestionReplaced || got.ReplacedBy != 2 {
+		t.Errorf("replaced question = state %q replaced by %d, want %q by 2",
+			got.State, got.ReplacedBy, QuestionReplaced)
+	}
+	thirdStored := openStored(third, 3, 3)
+	thirdStored.Replaces = 1
+	if got := epic.Questions[2]; !reflect.DeepEqual(got, thirdStored) {
+		t.Errorf("new question = %+v, want %+v", got, thirdStored)
+	}
+	open, err := s.OpenQuestions(ctx, id)
+	if err != nil {
+		t.Fatalf("OpenQuestions: %v", err)
+	}
+	if want := []EpicQuestion{epic.Questions[1], thirdStored}; !reflect.DeepEqual(open, want) {
 		t.Errorf("OpenQuestions = %+v, want %+v", open, want)
+	}
+}
+
+func TestCompleteTurnReplacingUnknownQuestionIsBadQuestionAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	s := openEpicStore(t)
+	questionedEpic(t, s, shapedQuestion("which-store", "Which store?"))
+	claimLaterTurn(t, s, 2)
+	before := planRowsOf(t, s)
+
+	bad := replacing("which-cache", "Which cache?", "Q9")
+	err := s.CompleteTurn(context.Background(), claimEpic, 2,
+		EpicPlan{Questions: []EpicQuestionInput{bad}, Outcome: "wait"}, completedAt().Add(2*time.Minute))
+	if !errors.Is(err, ErrBadQuestion) {
+		t.Fatalf("CompleteTurn replacing Q9 = %v, want ErrBadQuestion", err)
+	}
+	if !strings.Contains(err.Error(), `"which-cache"`) || !strings.Contains(err.Error(), "Q9") {
+		t.Errorf("CompleteTurn error %q does not name the question and Q9", err)
+	}
+	if after := planRowsOf(t, s); !reflect.DeepEqual(after, before) {
+		t.Errorf("rows after a refused CompleteTurn = %v, want the rows before %v", after, before)
 	}
 }

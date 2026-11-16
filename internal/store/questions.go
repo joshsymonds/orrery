@@ -1,17 +1,28 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // ErrBadQuestion reports a planner question that CompleteTurn refuses. The error names the question and its first
 // refusal, and the turn writes nothing.
 var ErrBadQuestion = errors.New("bad planner question")
+
+// The states a planner question moves through: open until it is answered, or replaced by a later question.
+const (
+	QuestionOpen     = "open"
+	QuestionAnswered = "answered"
+	QuestionReplaced = "replaced"
+)
 
 // ChoiceOther is the choice orrery offers on every question. A question never declares it.
 const ChoiceOther = "other"
@@ -130,6 +141,28 @@ func replacesSeq(replaces string) (int64, bool) {
 	}
 	seq, err := strconv.ParseInt(replaces[1:], 10, 64)
 	return seq, err == nil
+}
+
+// replaceQuestion closes the question replaces of epic when it is open: it becomes replaced, with replacedBy set to the
+// seq of the question that replaces it. An answered or replaced question closes nothing. A question epic does not hold
+// is ErrBadQuestion.
+func replaceQuestion(ctx context.Context, queries *sqlcgen.Queries, epic string, replaces, replacedBy int64) error {
+	stored, err := queries.GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: epic, Seq: replaces})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: replaces Q%d: no such question", ErrBadQuestion, replaces)
+	}
+	if err != nil {
+		return fmt.Errorf("read question %d of epic %s: %w", replaces, epic, err)
+	}
+	if stored.State != QuestionOpen {
+		return nil
+	}
+	if _, err = queries.SetEpicQuestionReplaced(ctx, sqlcgen.SetEpicQuestionReplacedParams{
+		ReplacedBy: replacedBy, Epic: epic, Seq: replaces,
+	}); err != nil {
+		return fmt.Errorf("replace question %d of epic %s: %w", replaces, epic, err)
+	}
+	return nil
 }
 
 // choicesOf decodes the JSON array of choices a question stores.
