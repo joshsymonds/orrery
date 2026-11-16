@@ -584,19 +584,24 @@ INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?
 -- name: InsertEpicTaskContribute :exec
 INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: InsertEpicTaskTestChange :exec
+INSERT INTO epic_task_test_changes (epic, task, position, path) VALUES (?, ?, ?, ?);
+
 -- name: SetEpicTaskBuild :execrows
 UPDATE epic_tasks
 SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_attempt),
     rerun = sqlc.arg(to_rerun), no_verdict = sqlc.arg(to_no_verdict), held = sqlc.arg(to_held),
     step = sqlc.arg(to_step), red_run = sqlc.arg(to_red_run), green_run = sqlc.arg(to_green_run),
     revision = sqlc.arg(to_revision), failure = sqlc.arg(to_failure), review = sqlc.arg(to_review),
-    refs = sqlc.arg(to_refs), gate_pos = sqlc.arg(to_gate_pos), finding_pos = sqlc.arg(to_finding_pos)
+    refs = sqlc.arg(to_refs), gate_pos = sqlc.arg(to_gate_pos), finding_pos = sqlc.arg(to_finding_pos),
+    guard = sqlc.arg(to_guard)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
   AND stage = sqlc.arg(from_stage) AND base = sqlc.arg(from_base) AND attempt = sqlc.arg(from_attempt)
   AND rerun = sqlc.arg(from_rerun) AND no_verdict = sqlc.arg(from_no_verdict) AND held = sqlc.arg(from_held)
   AND step = sqlc.arg(from_step) AND red_run = sqlc.arg(from_red_run) AND green_run = sqlc.arg(from_green_run)
   AND revision = sqlc.arg(from_revision) AND failure = sqlc.arg(from_failure) AND review = sqlc.arg(from_review)
-  AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos);
+  AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos)
+  AND guard = sqlc.arg(from_guard);
 
 -- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
@@ -690,6 +695,9 @@ SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicTaskContributes :many
 SELECT * FROM epic_task_contributes WHERE epic = ? ORDER BY task, position;
+
+-- name: ListEpicTaskTestChanges :many
+SELECT * FROM epic_task_test_changes WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicTaskReviews :many
 SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;

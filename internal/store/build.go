@@ -19,13 +19,15 @@ var ErrTaskMoved = errors.New("task moved")
 // runs. Step is the step of the current unit, RedRun and GreenRun name its red and green evidence runs, and Revision
 // is the revision the current unit runs at. Failure is the reason of the last failed unit. Review is whether the
 // review gates have run, and Refs is the refs snapshot the implementer's step is checked against. GatePos and
-// FindingPos are the review gate and the finding the build is on.
+// FindingPos are the review gate and the finding the build is on. Guard is the text of the guard's last refusal of the
+// task's build, empty when it refused nothing.
 type TaskBuild struct {
 	Stage, Base                            string
 	Attempt, Rerun, NoVerdict              int64
 	Held, Step, RedRun, GreenRun, Revision string
 	Failure, Review, Refs                  string
 	GatePos, FindingPos                    int64
+	Guard                                  string
 }
 
 // TaskFinding is one finding a review raised: its position among the review's findings, its id, the claim it makes,
@@ -69,7 +71,7 @@ func buildOf(stored sqlcgen.EpicTask) TaskBuild {
 		Stage: stored.Stage, Base: stored.Base, Attempt: stored.Attempt, Rerun: stored.Rerun,
 		NoVerdict: stored.NoVerdict, Held: stored.Held, Step: stored.Step, RedRun: stored.RedRun,
 		GreenRun: stored.GreenRun, Revision: stored.Revision, Failure: stored.Failure, Review: stored.Review,
-		Refs: stored.Refs, GatePos: stored.GatePos, FindingPos: stored.FindingPos,
+		Refs: stored.Refs, GatePos: stored.GatePos, FindingPos: stored.FindingPos, Guard: stored.Guard,
 	}
 }
 
@@ -107,12 +109,13 @@ func setEpicTaskBuildParams(epic string, seq int64, from, to TaskBuild) sqlcgen.
 		ToStage: to.Stage, ToBase: to.Base, ToAttempt: to.Attempt, ToRerun: to.Rerun,
 		ToNoVerdict: to.NoVerdict, ToHeld: to.Held, ToStep: to.Step, ToRedRun: to.RedRun,
 		ToGreenRun: to.GreenRun, ToRevision: to.Revision, ToFailure: to.Failure, ToReview: to.Review,
-		ToRefs: to.Refs, ToGatePos: to.GatePos, ToFindingPos: to.FindingPos,
+		ToRefs: to.Refs, ToGatePos: to.GatePos, ToFindingPos: to.FindingPos, ToGuard: to.Guard,
 		Epic: epic, Seq: seq,
 		FromStage: from.Stage, FromBase: from.Base, FromAttempt: from.Attempt, FromRerun: from.Rerun,
 		FromNoVerdict: from.NoVerdict, FromHeld: from.Held, FromStep: from.Step, FromRedRun: from.RedRun,
 		FromGreenRun: from.GreenRun, FromRevision: from.Revision, FromFailure: from.Failure,
 		FromReview: from.Review, FromRefs: from.Refs, FromGatePos: from.GatePos, FromFindingPos: from.FindingPos,
+		FromGuard: from.Guard,
 	}
 }
 
