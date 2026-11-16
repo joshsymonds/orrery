@@ -38,30 +38,30 @@ func TestDecideLedgerPlanTrigger(t *testing.T) {
 	t.Parallel()
 	planDone := ended(startOf("plan", "plan", "plan", 0), "complete")
 	flow := []workflow.Node{planNode(), ledgerLoop()}
+	emptyReview := store.Review{}
+	openReview := ledgerOpen()
 	decideCases(t, []decideCase{
 		{
 			name: "fix in round 1 that starts while correcting writes the ledger trigger, empty ledger included",
 			flow: flow,
-			rows: ledgerCorrecting(rowsOf(nil, nil, planDone, running(loopOf(1, 0))), store.Review{}),
+			rows: ledgerCorrecting(rowsOf(nil, nil, planDone, running(loopOf(1, 0))), emptyReview),
 			want: []Action{{
 				Kind: ActStart, Runs: []store.NodeRun{startOf("refine@1/fix", "fix", "plan", 1)},
 				Trigger: &store.NodeTrigger{
 					ID:    "ledger:" + store.NodeRunID(decideEpic, "refine@1/fix", 1, "ledger"),
-					Cause: "ledger round 1: no confirmed findings; nothing to correct",
+					Cause: kinds.LedgerCause(emptyReview, 1),
 				},
 			}},
 		},
 		{
 			name: "fix in round 2 that starts while correcting writes the ledger trigger with that round's open findings",
 			flow: flow,
-			rows: ledgerCorrecting(rowsOf(nil, nil, planDone, running(loopOf(2, 0))), ledgerOpen()),
+			rows: ledgerCorrecting(rowsOf(nil, nil, planDone, running(loopOf(2, 0))), openReview),
 			want: []Action{{
 				Kind: ActStart, Runs: []store.NodeRun{startOf("refine@2/fix", "fix", "plan", 2)},
 				Trigger: &store.NodeTrigger{
-					ID: "ledger:" + store.NodeRunID(decideEpic, "refine@2/fix", 2, "ledger"),
-					Cause: "ledger round 2: open findings to correct\n" +
-						"security-1 (security): claim: the claim; citation: the citation; location: the location; " +
-						"evidence: the evidence; reason: the reason",
+					ID:    "ledger:" + store.NodeRunID(decideEpic, "refine@2/fix", 2, "ledger"),
+					Cause: kinds.LedgerCause(openReview, 2),
 				},
 			}},
 		},
