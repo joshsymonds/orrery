@@ -85,3 +85,93 @@ func TestEpicFlowOfUnknownEpicIsErrNoEpic(t *testing.T) {
 		t.Fatalf("EpicFlow of unknown id err = %v, want ErrNoEpic", err)
 	}
 }
+
+// TestEpicFlowReadsReviewAndLabeledStepsOfItsReviewRuns checks that EpicFlow returns the review EpicReview returns, and
+// after the agent steps exactly the steps labeled with its epic and the path of one of its review or closure runs, each
+// once, in the order of its runs.
+func TestEpicFlowReadsReviewAndLabeledStepsOfItsReviewRuns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = "orrery-1a2b3c4/epic-flow-review"
+	const other = "orrery-1a2b3c4/epic-flow-review-other"
+	createEpic(t, s, fullEpic(id))
+
+	const agentRunID = "id-agent"
+	runs := []NodeRun{
+		{Path: "agent", ID: agentRunID, Node: "agent", Kind: "agent", Attempt: 1},
+		{Path: "review", ID: "id-review", Node: "review", Kind: "review", Attempt: 1},
+		{Path: "correct@1/closure", ID: "id-closure", Node: "closure", Kind: "closure", Attempt: 1},
+	}
+	if err := s.StartNodes(ctx, id, runs, nil, epicCreated()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := s.FreezeReview(ctx, id, "review", 1, "rev-frozen"); err != nil {
+		t.Fatalf("FreezeReview: %v", err)
+	}
+	ops := []EngineOp{
+		stepAddOf(NodeWorkID(agentRunID, 1, "step")),
+		labelledStepOf("step-agent-path", id, "agent"),
+		labelledStepOf("step-review-a", id, "review"),
+		labelledStepOf("step-review-b", id, "review"),
+		labelledStepOf("step-closure", id, "correct@1/closure"),
+		labelledStepOf("step-other-epic", other, "review"),
+		labelledStepOf("step-no-run", id, "plan"),
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	flow, err := s.EpicFlow(ctx, id)
+	if err != nil {
+		t.Fatalf("EpicFlow: %v", err)
+	}
+	review, err := s.EpicReview(ctx, id)
+	if err != nil {
+		t.Fatalf("EpicReview: %v", err)
+	}
+	if flow.Review.Frozen != "rev-frozen" || !reflect.DeepEqual(flow.Review, review) {
+		t.Errorf("EpicFlow review = %+v, want the review EpicReview returns %+v", flow.Review, review)
+	}
+	want := []string{NodeWorkID(agentRunID, 1, "step"), "step-closure", "step-review-a", "step-review-b"}
+	if got := stepIDsOf(flow.Steps); !reflect.DeepEqual(got, want) {
+		t.Fatalf("EpicFlow steps = %v, want %v", got, want)
+	}
+	for _, row := range flow.Steps {
+		got, err := s.Step(ctx, row.ID)
+		if err != nil {
+			t.Fatalf("Step %s: %v", row.ID, err)
+		}
+		if !reflect.DeepEqual(row, got) {
+			t.Errorf("EpicFlow step %s = %+v, want the row Step returns %+v", row.ID, row, got)
+		}
+	}
+}
+
+// TestEpicFlowWithoutReviewHasNoLabeledSteps checks that EpicFlow of an epic whose review has not started returns the
+// zero Review, and no labeled step even when it is labeled with the path of a run that is not a review or closure.
+func TestEpicFlowWithoutReviewHasNoLabeledSteps(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = "orrery-1a2b3c4/epic-flow-no-review"
+	createEpic(t, s, fullEpic(id))
+	runs := []NodeRun{{Path: "plan", ID: "id-plan", Node: "plan", Kind: "plan", Attempt: 1}}
+	if err := s.StartNodes(ctx, id, runs, nil, epicCreated()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{labelledStepOf("step-plan", id, "plan")}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	flow, err := s.EpicFlow(ctx, id)
+	if err != nil {
+		t.Fatalf("EpicFlow: %v", err)
+	}
+	if !reflect.DeepEqual(flow.Review, Review{}) {
+		t.Errorf("EpicFlow review = %+v, want the zero Review", flow.Review)
+	}
+	if len(flow.Steps) != 0 {
+		t.Errorf("EpicFlow steps = %v, want none", stepIDsOf(flow.Steps))
+	}
+}

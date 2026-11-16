@@ -519,6 +519,39 @@ func TestEndPlanBuiltNeedsFirstEndRunning(t *testing.T) {
 		Node: "integrate", Kind: "integrate", Attempt: 1, State: NodeRunning, Started: integrateStartedAt()})
 }
 
+// TestEndPlanBuiltInCorrectingKeepsPhase checks that EndPlanBuilt of a plan that ends while its epic is correcting ends
+// the plan run and the runs under it, and leaves the epic's phase correcting.
+func TestEndPlanBuiltInCorrectingKeepsPhase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	if err := sqlcgen.New(s.db).SetEpicPhase(ctx, sqlcgen.SetEpicPhaseParams{
+		Phase: "correcting", ID: integrateEpic,
+	}); err != nil {
+		t.Fatalf("set phase of epic %s: %v", integrateEpic, err)
+	}
+	startIntegrateRuns(t, s,
+		NodeRun{Path: "plan", ID: "id-plan", Node: "plan", Kind: "plan", Attempt: 1},
+		NodeRun{Path: "plan/S1/integrate", ID: "id-s1", Node: "integrate", Kind: "integrate", Attempt: 1},
+	)
+
+	ends := []NodeEnd{
+		{Path: "plan", Outcome: "passed", Output: "built"},
+		{Path: "plan/S1/integrate", Outcome: "passed"},
+	}
+	if err := s.EndPlanBuilt(ctx, integrateEpic, ends, integrateEndedAt()); err != nil {
+		t.Fatalf("EndPlanBuilt: %v", err)
+	}
+	if row := integrateEpicRow(t, s); row.Phase != "correcting" {
+		t.Errorf("phase of epic %s after EndPlanBuilt = %q, want correcting", integrateEpic, row.Phase)
+	}
+	requireIntegrateRun(t, s, "plan", NodeRun{Path: "plan", ID: "id-plan", Node: "plan", Kind: "plan", Attempt: 1,
+		Outcome: "passed", Output: "built", State: NodeEnded, Started: integrateStartedAt(), Ended: integrateEndedAt()})
+	requireIntegrateRun(t, s, "plan/S1/integrate", NodeRun{Path: "plan/S1/integrate", ID: "id-s1",
+		Node: "integrate", Kind: "integrate", Attempt: 1, Outcome: "passed", State: NodeEnded,
+		Started: integrateStartedAt(), Ended: integrateEndedAt()})
+}
+
 // TestParkNodeFinalParksRunEpicAndPhaseOnce checks that ParkNodeFinal parks the running run at its attempt, parks the
 // epic with its reason as one tell and sets the phase to met_at_base. A run at another attempt changes nothing, and a
 // repeat changes nothing.

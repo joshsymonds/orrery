@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/childproc"
 )
 
 // Outcome is how a command ended.
@@ -43,30 +45,28 @@ func RunCommand(ctx context.Context, argv []string, limit time.Duration, env []s
 		Env:         append([]string{}, env...),
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
-	if err = cmd.Start(); err != nil {
+	// The command dies with orreryd however orreryd dies, so a killed orreryd leaves no wake, status or admit running.
+	waited, err := childproc.Start(cmd)
+	if err != nil {
 		return Failed, fmt.Errorf("grants: start %s: %w", argv[0], err)
 	}
 	pid := cmd.Process.Pid
 	var waitErr error
-	waited := make(chan struct{})
-	go func() {
-		waitErr = cmd.Wait()
-		close(waited)
-	}()
 
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
 	select {
-	case <-waited:
+	case waitErr = <-waited:
 	case <-timer.C:
 		killErr := commandKillGroup(pid)
-		<-waited
-		return Failed, errors.Join(fmt.Errorf("grants: command %s passed its limit %s", argv[0], limit), killErr)
+		waitErr = <-waited
+		return Failed, errors.Join(
+			fmt.Errorf("grants: command %s passed its limit %s", argv[0], limit), killErr, waitErr)
 	case <-ctx.Done():
 		killErr := commandKillGroup(pid)
-		<-waited
+		waitErr = <-waited
 		return Failed, errors.Join(
-			fmt.Errorf("grants: command %s ended by its context: %w", argv[0], ctx.Err()), killErr)
+			fmt.Errorf("grants: command %s ended by its context: %w", argv[0], ctx.Err()), killErr, waitErr)
 	}
 	if waitErr == nil {
 		return Succeeded, nil

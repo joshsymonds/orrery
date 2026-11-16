@@ -132,8 +132,8 @@ func (s *Store) SetTaskBuild(ctx context.Context, epic string, seq int64, from, 
 	})
 }
 
-// BuildEpics returns the ids, ordered by id, of the epics that have a base, are accepted, and hold at least one open
-// task.
+// BuildEpics returns the ids, ordered by id, of the epics that have a base, are not in an ended phase (met_at_base,
+// clean, ended_with_gaps, released, done or stopped), and hold at least one open task.
 func (s *Store) BuildEpics(ctx context.Context) ([]string, error) {
 	ids, err := sqlcgen.New(s.db).ListBuildEpics(ctx)
 	if err != nil {

@@ -118,7 +118,7 @@ func TestDecideLoopChecks(t *testing.T) {
 		},
 		{
 			name: "failed check ends the round, so the node after it in the body does not start",
-			flow: []workflow.Node{checkRefine(kindNode("check", "gate"), kindNode("review", "review"))},
+			flow: []workflow.Node{checkRefine(kindNode("check", "gate"), kindNode("review", "verdict"))},
 			rows: rowsOf(nil, nil,
 				running(loopOf(1, 0)),
 				ended(startOf("refine@1/check", "check", "gate", 1), "failed"),
