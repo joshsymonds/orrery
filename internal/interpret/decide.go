@@ -16,8 +16,8 @@ import (
 type ActionKind string
 
 // The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch and ActParkEpic change the node
-// runs or the epic in the store, ActWork hands a check node run's work to the interpreter, and ActRun hands a node run
-// to its kind.
+// runs or the epic in the store, ActWork hands a check or release node run's work to the interpreter, and ActRun hands a
+// node run to its kind.
 const (
 	ActStart    ActionKind = "start"
 	ActEnd      ActionKind = "end"
@@ -35,9 +35,10 @@ const (
 // at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
 // its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
 // when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
-// parks the epic for Reason, with Trigger. Work carries a check node run's work: Work is the kind's action, prepare,
-// start, capture, refs or advance, and Def, Run, IDs, Items and Tasks are what it is for. An advance carries its Output
-// and the Trigger its passed batch writes.
+// parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
+// prepare, start, capture, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items and
+// Tasks are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance the Trigger
+// its passed batch writes.
 type Action struct {
 	Kind     ActionKind
 	Runs     []store.NodeRun
@@ -72,6 +73,7 @@ const (
 	outcomeFailed = "failed"
 	triggerPrefix = "workflow:"
 	kindIntegrate = "integrate"
+	kindRelease   = "release"
 )
 
 // place is where a list of nodes sits. A check node that ends failed is decided by its place: at the top level it
@@ -208,7 +210,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	switch act.Kind {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance:
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance,
+		kinds.ActTake, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop, kinds.ActEnding, kinds.ActFree:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
@@ -389,15 +392,14 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 	}
 }
 
-// work returns the work action of a check node run: the kind's prepare, start, capture, refs or advance, and the ids,
-// items and tasks the work is for. An advance also carries its output and the trigger its passed batch writes.
+// work returns the work action of a check or release node run: the kind's action, and the ids, items, tasks, output and
+// outcome the work is for. An advance also carries the trigger its passed batch writes.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
-		Items: act.Items, Tasks: act.Tasks,
+		Items: act.Items, Tasks: act.Tasks, Outcome: act.Outcome, Output: act.Output,
 	}
 	if act.Kind == kinds.ActAdvance {
-		out.Output = act.Output
 		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)
 	}
 	return out

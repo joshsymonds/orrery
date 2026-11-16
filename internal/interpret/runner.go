@@ -48,6 +48,10 @@ type Store interface {
 	CheckNodeRefs(
 		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
 	) error
+	TakeReleaseSlot(ctx context.Context, epic string) (string, error)
+	FreeReleaseSlot(ctx context.Context, epic string) error
+	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
+	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -86,7 +90,8 @@ type Builder interface {
 
 // Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv
 // means os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner
-// that runs an epic with such nodes needs each of them.
+// that runs an epic with such nodes needs each of them. Ending ends the epics whose release is decided, so a Runner
+// that runs a release needs it.
 type Config struct {
 	Store    Store
 	Planner  Planner
@@ -94,6 +99,7 @@ type Config struct {
 	Checks   Checks
 	Evidence Evidence
 	Steps    Steps
+	Ending   Ending
 	Getenv   func(string) string
 	Tick     time.Duration
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
@@ -114,6 +120,7 @@ type Runner struct {
 	checks   Checks
 	evidence Evidence
 	steps    Steps
+	ending   Ending
 	getenv   func(string) string
 	tick     time.Duration
 	ticks    <-chan time.Time
@@ -137,12 +144,12 @@ const builtinEpic = "epic"
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		steps: cfg.Steps, ending: cfg.Ending, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
 		ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
-			kindIntegrate: kinds.Integrate{},
+			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
 		},
 	}
 	if runner.tick <= 0 {
@@ -253,7 +260,7 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows := kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending,
+		Pending: read.Pending, Releases: read.Releases, Slot: read.Slot,
 	}
 	return read.Epic, Decide(flow, rows, r.kinds), nil
 }

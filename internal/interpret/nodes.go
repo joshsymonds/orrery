@@ -36,8 +36,12 @@ const (
 const stepPart = "step"
 
 // work carries out one work action of a check node run: the prepare, start, capture, refs check or advance its kind asks
-// for. An integrate run's prepare claims its batch, and its advance moves the epic's branch.
+// for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. The work of a release run
+// is carried out by release.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	if act.NodeKind == kindRelease {
+		return r.release(ctx, epic, act, at)
+	}
 	switch act.Work {
 	case kinds.ActPrepare:
 		if act.NodeKind == kindIntegrate {
@@ -125,7 +129,7 @@ func (r *Runner) refSnapshot(ctx context.Context, epic store.EpicRow) (string, e
 // an owned run's result. The work of a kind whose service the runner was not given is an error, not a start.
 func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) error {
 	switch act.NodeKind {
-	case kindGate, kindCommand, kindIntegrate:
+	case kindGate, kindCommand, kindIntegrate, kindRelease:
 		if r.checks == nil {
 			return missingService("checks")
 		}
@@ -153,14 +157,14 @@ func missingService(service string) error {
 }
 
 // startCheck starts the check of a gate or command run under the id its action names, at the run's revision. The check of
-// an integrate run is one of its Done gates, which the action names.
+// an integrate or release run is one of its Done gates, which the action names.
 func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
 	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
 	var err error
 	switch act.NodeKind {
 	case kindGate:
 		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
-	case kindIntegrate:
+	case kindIntegrate, kindRelease:
 		check, err = r.withGate(ctx, epic, act.Items[0], check)
 	default:
 		check.Argv = act.Def.Settings.Argv
