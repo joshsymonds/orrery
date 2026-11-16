@@ -502,17 +502,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if host == "" {
 		return errors.New("host name is empty")
 	}
-	storePath, err := push.DefaultStorePath(getenv)
+	storePath, store, pushes, err := openPushes(opts, getenv)
 	if err != nil {
-		return fmt.Errorf("push store: %w", err)
-	}
-	store, err := push.NewStore(storePath, opts.pushHosts)
-	if err != nil {
-		return fmt.Errorf("push store: %w", err)
-	}
-	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout}, opts.metrics)
-	if err != nil {
-		return fmt.Errorf("push publisher: %w", err)
+		return err
 	}
 	noticeLog, err := route.OpenLog(filepath.Join(filepath.Dir(storePath), noticeLogName))
 	if err != nil {
@@ -603,6 +595,24 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		serveErr = fmt.Errorf("serve: %w", serveErr)
 	}
 	return errors.Join(startErr, serveErr, sessionErr)
+}
+
+// openPushes opens the push store at its default path, for opts' push hosts, and the publisher that sends through it.
+// It returns the store's path too, which the notice log lies beside.
+func openPushes(opts options, getenv func(string) string) (string, *push.Store, *push.Publisher, error) {
+	storePath, err := push.DefaultStorePath(getenv)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("push store: %w", err)
+	}
+	store, err := push.NewStore(storePath, opts.pushHosts)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("push store: %w", err)
+	}
+	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout}, opts.metrics)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("push publisher: %w", err)
+	}
+	return storePath, store, pushes, nil
 }
 
 // awaitServe returns the error daemon.Serve returns on serveDone. Once ctx has ended, the wait for Serve's shutdown is

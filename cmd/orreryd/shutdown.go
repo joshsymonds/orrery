@@ -46,7 +46,7 @@ func watchShutdown(ctx context.Context, logger *slog.Logger, dir string, after t
 	ended := false
 	var timer *time.Timer
 	stopStart := context.AfterFunc(ctx, func() {
-		logger.Info(shutdownStartedMsg)
+		logger.InfoContext(ctx, shutdownStartedMsg)
 		mu.Lock()
 		defer mu.Unlock()
 		if ended {
@@ -60,10 +60,10 @@ func watchShutdown(ctx context.Context, logger *slog.Logger, dir string, after t
 			}
 			path, err := writeStacks(dir)
 			if err != nil {
-				logger.Error(shutdownStacksMsg, "error", err)
+				logger.ErrorContext(ctx, shutdownStacksMsg, "error", err)
 				return
 			}
-			logger.Warn(shutdownStacksMsg, "path", path)
+			logger.WarnContext(ctx, shutdownStacksMsg, "path", path)
 		})
 	})
 	return func() {
