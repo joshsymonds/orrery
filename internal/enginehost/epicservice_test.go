@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,7 +111,6 @@ func fullEpicRequest(repo, id string) *v1.CreateEpicRequest {
 			Base:        epicTestBase(repo),
 			Gates:       epicTestGates(),
 			DoneGates:   []string{"check"},
-			ReviewGates: []string{"review"},
 		},
 		Decisions: []*v1.EpicDecisionInput{
 			{Id: "D1", Text: "Synthetic decision one."},
@@ -249,6 +250,11 @@ func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Care = "dire" },
 			want:   "care: not limited, serious or severe",
 		},
+		{
+			name:   "review gates set",
+			mutate: func(req *v1.CreateEpicRequest) { req.Contract.ReviewGates = []string{"review"} },
+			want:   "review_gates: refused, the reviewers fill the review list",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -265,6 +271,172 @@ func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 			}
 		})
 	}
+}
+
+// epicReviewerNames returns the names of the reviewers msgs holds, in order.
+func epicReviewerNames(msgs []*v1.EpicReviewer) []string {
+	names := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		names = append(names, msg.GetName())
+	}
+	return names
+}
+
+// TestEpicCreateStoresMergedReviewers asserts a create merges the reviewers of orrery's defaults, the repository's
+// project file and the contract, stores them in the order their names first appear, and returns them from GetEpic. Its
+// review list is the enabled task-stage names of those reviewers, in the same order, and GetEpic echoes neither a
+// review gate nor a contract reviewer.
+func TestEpicCreateStoresMergedReviewers(t *testing.T) {
+	t.Parallel()
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	repo := stepGitTestRepo(t)
+	stepGitTestWrite(t, repo, ".orrery/project.toml", strings.Join([]string{
+		"[[reviewers]]",
+		`name = "floor"`,
+		"limit = 600",
+		"",
+		"[[reviewers]]",
+		`name = "synthetic_check"`,
+		`stage = ["task"]`,
+		`agent = "code-reviewer"`,
+		`must = ["Synthetic statement holds."]`,
+		"",
+	}, "\n"))
+	req := fullEpicRequest(repo, epicServiceID)
+	req.Contract.Reviewers = []*v1.EpicReviewer{
+		{Name: "floor", Limit: new(int64(300))},
+		{Name: "security", Enabled: new(false)},
+	}
+
+	stored := createEpicOK(t, client, req)
+	got := getEpicOK(t, client)
+	if !proto.Equal(got, stored) {
+		t.Fatalf("GetEpic = %v, want the created epic %v", got, stored)
+	}
+	want := []string{"floor", "conformance", "integration", "security", "test_parsimony", "synthetic_check"}
+	if names := epicReviewerNames(got.GetReviewers()); !slices.Equal(names, want) {
+		t.Fatalf("reviewers = %v, want %v", names, want)
+	}
+	byName := make(map[string]*v1.EpicReviewer, len(got.GetReviewers()))
+	for _, rev := range got.GetReviewers() {
+		byName[rev.GetName()] = rev
+	}
+	if limit := byName["floor"].GetLimit(); limit != 300 {
+		t.Fatalf("floor limit = %d, want 300 from the contract over the project's 600", limit)
+	}
+	if byName["security"].GetEnabled() {
+		t.Fatal("security enabled, want the contract to disable it")
+	}
+	if agent := byName["synthetic_check"].GetAgent(); agent != "code-reviewer" {
+		t.Fatalf("synthetic_check agent = %q, want code-reviewer from the project file", agent)
+	}
+	if gates := got.GetContract().GetReviewGates(); len(gates) != 0 {
+		t.Fatalf("contract review_gates = %q, want none echoed", gates)
+	}
+	if declared := got.GetContract().GetReviewers(); len(declared) != 0 {
+		t.Fatalf("contract reviewers = %d, want none echoed", len(declared))
+	}
+
+	row, err := st.Epic(t.Context(), epicServiceID)
+	if err != nil {
+		t.Fatalf("store Epic: %v", err)
+	}
+	wantReview := []string{"floor", "test_parsimony", "synthetic_check"}
+	if !slices.Equal(row.ReviewGates, wantReview) {
+		t.Fatalf("review list = %v, want the enabled task-stage reviewers %v", row.ReviewGates, wantReview)
+	}
+}
+
+// TestEpicCreateRefusesBadReviewerEntry asserts an entry of the project file, or a reviewer of the contract, that the
+// layers cannot hold is refused InvalidArgument with the message naming its file or epic_create, its entry and its
+// key, and nothing is stored.
+func TestEpicCreateRefusesBadReviewerEntry(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		project  string
+		declared []*v1.EpicReviewer
+		want     func(repo string) string
+	}{
+		{
+			name:    "project file entry",
+			project: "[[reviewers]]\nname = \"floor\"\nlimit = \"soon\"\n",
+			want: func(repo string) string {
+				return "read the reviewers of " + repo + ": " + filepath.Join(repo, ".orrery", "project.toml") +
+					": reviewers[0] floor: limit: has the wrong type"
+			},
+		},
+		{
+			name:     "contract entry",
+			declared: []*v1.EpicReviewer{{Name: "floor", Limit: new(int64(0))}},
+			want: func(repo string) string {
+				return "merge the reviewers of " + repo +
+					": epic_create: reviewers[0] floor: limit: must be at least 1 second"
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			st := epicTestStore(t)
+			client := newEpicsClient(t, startEpicServer(t, st))
+			repo := stepGitTestRepo(t)
+			if tc.project != "" {
+				stepGitTestWrite(t, repo, ".orrery/project.toml", tc.project)
+			}
+			req := fullEpicRequest(repo, epicServiceID)
+			req.Contract.Reviewers = tc.declared
+
+			_, err := client.CreateEpic(t.Context(), connect.NewRequest(req))
+			wantConnectError(t, err, connect.CodeInvalidArgument, tc.want(repo))
+			if _, err = st.Epic(t.Context(), epicServiceID); !errors.Is(err, store.ErrNoEpic) {
+				t.Fatalf("refused epic stored: Epic err = %v, want ErrNoEpic", err)
+			}
+		})
+	}
+}
+
+// TestEpicGetShowsUnverifiedFinding asserts a task finding stored unverified, as a review with verify off settles it,
+// reads back unverified, and a finding a verifier settled reads back verified.
+func TestEpicGetShowsUnverifiedFinding(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, client := plannedBuildEpic(t)
+	review := store.TaskBuild{Stage: "review", Base: buildBaseRevision, Attempt: 1, Revision: buildHeadRevision}
+	if err := st.SetTaskBuild(ctx, epicServiceID, 1, store.TaskBuild{}, review); err != nil {
+		t.Fatalf("SetTaskBuild: %v", err)
+	}
+	if err := st.AddTaskReview(ctx, epicServiceID, 1, review, review, store.TaskReview{
+		Attempt: 1, Position: 0, Gate: "floor", Step: buildReviewStepID, Verdict: "fails",
+		Findings: []store.TaskFinding{
+			{Position: 0, ID: "F1", Claim: "Synthetic claim one.", Citation: "R1", Location: "a.go:10",
+				Evidence: "Synthetic evidence one.", VerifyBy: "Synthetic check one.",
+				Step: buildReviewStepID, Result: "confirmed", Unverified: true},
+			{Position: 1, ID: "F2", Claim: "Synthetic claim two.", Citation: "R2", Location: "b.go:20",
+				Evidence: "Synthetic evidence two.", VerifyBy: "Synthetic check two.",
+				Step: buildVerifyStepID, Result: "dropped", Reason: "Synthetic reason two."},
+		},
+	}); err != nil {
+		t.Fatalf("AddTaskReview: %v", err)
+	}
+
+	got := taskWithID(t, getEpicOK(t, client), "T1")
+	wantProtos(t, "T1 reviews", got.GetReviews(), []*v1.EpicTaskReview{
+		{
+			Attempt: 1, Gate: "floor", Step: buildReviewStepID, Verdict: "fails",
+			Findings: []*v1.EpicTaskFinding{
+				{
+					Id: "F1", Claim: "Synthetic claim one.", Location: "a.go:10", Step: buildReviewStepID,
+					Result: "confirmed", Unverified: true,
+				},
+				{
+					Id: "F2", Claim: "Synthetic claim two.", Location: "b.go:20", Step: buildVerifyStepID,
+					Result: "dropped", Reason: "Synthetic reason two.",
+				},
+			},
+		},
+	})
 }
 
 func TestEpicGetUnknownIsNotFound(t *testing.T) {

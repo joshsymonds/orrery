@@ -637,9 +637,9 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 }
 
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
-// claude session with the step's agent and schema, registered as a step with the observer it was started with. It first
-// waits for a drained holder of id to end (see awaitStopping), so the new process never starts over the old holder's record
-// or directory. Then it takes the step slot kept for id, or one under StepCap, before reading the rows, so a full cap
+// claude session with the step's agent, inline agents and schema, registered as a step with the observer it was started
+// with. It first waits for a drained holder of id to end (see awaitStopping), so the new process never starts over the
+// old holder's record or directory. Then it takes the step slot kept for id, or one under StepCap, before reading the rows, so a full cap
 // refuses the respawn before anything is recorded (see reserveStep). A directory that is gone, an agent that no longer
 // resolves, or a spawn that fails, records the step failed without a notice and returns the error. It returns the step
 // claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a single process. It returns an error
@@ -665,7 +665,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
-	if err = m.resolveStepAgent(StepSession{ID: id, Dir: row.Dir, Agent: step.Agent}); err != nil {
+	if err = m.resolveStepAgent(StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}); err != nil {
 		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -673,7 +673,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	observer := m.stepObservers[id]
 	m.mu.Unlock()
 	live, err := m.spawnLive(ctx, id, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, agent: step.Agent,
-		schema: step.Schema, step: true, observer: observer})
+		agents: step.Agents, schema: step.Schema, step: true, observer: observer})
 	if err != nil {
 		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
@@ -1323,11 +1323,13 @@ func newWriteID() (string, error) {
 }
 
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
-// agent and schema it runs with, and the observer of its hand-offs. step marks a step session.
+// agent, the JSON object of inline agents and the schema it runs with, and the observer of its hand-offs. step marks a
+// step session.
 type spawnSpec struct {
 	claudeSession string
 	model         string
 	agent         string
+	agents        string
 	schema        string
 	step          bool
 	observer      StepObserver
@@ -1358,6 +1360,7 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 		Resume:         sp.claudeSession,
 		Model:          sp.model,
 		Agent:          sp.agent,
+		Agents:         sp.agents,
 		Schema:         sp.schema,
 		Name:           id,
 		HolderScope:    m.holderScope,

@@ -244,6 +244,20 @@ func fullContract() *v1.EpicContract {
 		}},
 		DoneGates:   []string{"check"},
 		ReviewGates: []string{"floor"},
+		Reviewers: []*v1.EpicReviewer{{
+			Name:    "money_rail_check",
+			Enabled: proto.Bool(true),
+			Stage:   []string{"task"},
+			Must:    []string{"The money rail holds."},
+			MustNot: []string{"The change moves money twice."},
+			Prompt:  proto.String("Check the money rail."),
+			Agent:   proto.String("rail-reviewer"),
+			Model:   proto.String("sonnet"),
+			Tools:   []string{"Read", "Grep"},
+			Effort:  proto.String("high"),
+			Limit:   proto.Int64(900),
+			Verify:  proto.Bool(false),
+		}},
 	}
 }
 

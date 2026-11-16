@@ -26,7 +26,8 @@ func ShellArgs(login bool, argv0, program string, args ...string) []string {
 
 // Config describes one session start. Shell is the owner's login shell, Claude the claude binary, Dir
 // the working directory, Resume a session id to resume or empty, Model the model alias to run or empty,
-// Name orrery's name for the session, Agent the claude agent to run or empty, Schema the JSON schema
+// Name orrery's name for the session, Agent the claude agent to run or empty, Agents the JSON object of
+// inline agent definitions claude takes as its --agents argument or empty, Schema the JSON schema
 // claude must return its result in or empty, Settings the JSON settings claude takes as its one
 // --settings argument or empty, HolderScope the absolute path of systemd-run that runs the session's
 // holder in its own user scope or empty to start the holder plainly, StateDir the state directory that
@@ -40,6 +41,7 @@ type Config struct {
 	Resume         string
 	Model          string
 	Agent          string
+	Agents         string
 	Schema         string
 	Settings       string
 	Name           string
@@ -50,10 +52,11 @@ type Config struct {
 
 // Command returns the process that starts a headless session: the owner's login shell execs claude in
 // the stream-json form with the permission prompt tool on stdio and the configured permission mode. It
-// takes Settings as its --settings argument when set, resumes Resume when set, runs Model when set, and
-// runs Agent with a strict MCP config and returns Schema as its result when set. The environment is
-// Environ without the names dropsEnv drops, then the session marker. An error is returned, with no
-// Command, when Shell or Claude is not absolute, or when Dir, PermissionMode or Name is empty.
+// takes Settings as its --settings argument when set, resumes Resume when set, runs Model when set,
+// takes Agents as its --agents argument when set, and runs Agent with a strict MCP config and returns
+// Schema as its result when set. The environment is Environ without the names dropsEnv drops, then the
+// session marker. An error is returned, with no Command, when Shell or Claude is not absolute, or when
+// Dir, PermissionMode or Name is empty.
 func Command(cfg Config) (proc.Config, error) {
 	for _, path := range []struct{ name, value string }{
 		{"shell", cfg.Shell}, {"claude", cfg.Claude},
@@ -87,6 +90,9 @@ func Command(cfg Config) (proc.Config, error) {
 	}
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
+	}
+	if cfg.Agents != "" {
+		args = append(args, "--agents", cfg.Agents)
 	}
 	if cfg.Agent != "" {
 		args = append(args, "--agent", cfg.Agent, "--strict-mcp-config")
