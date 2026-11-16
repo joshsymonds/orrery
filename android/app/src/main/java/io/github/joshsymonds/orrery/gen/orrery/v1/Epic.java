@@ -344,7 +344,7 @@ public  final class Epic extends
   /**
    * <pre>
    * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-   * orreryd epic is live until its phase is released.
+   * orreryd epic is live until its phase is released or done.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -357,7 +357,7 @@ public  final class Epic extends
   /**
    * <pre>
    * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-   * orreryd epic is live until its phase is released.
+   * orreryd epic is live until its phase is released or done.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -370,7 +370,7 @@ public  final class Epic extends
   /**
    * <pre>
    * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-   * orreryd epic is live until its phase is released.
+   * orreryd epic is live until its phase is released or done.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -1223,7 +1223,7 @@ public  final class Epic extends
     /**
      * <pre>
      * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-     * orreryd epic is live until its phase is released.
+     * orreryd epic is live until its phase is released or done.
      * </pre>
      *
      * <code>bool live = 6 [json_name = "live"];</code>
@@ -1236,7 +1236,7 @@ public  final class Epic extends
     /**
      * <pre>
      * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-     * orreryd epic is live until its phase is released.
+     * orreryd epic is live until its phase is released or done.
      * </pre>
      *
      * <code>bool live = 6 [json_name = "live"];</code>
@@ -1251,7 +1251,7 @@ public  final class Epic extends
     /**
      * <pre>
      * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
-     * orreryd epic is live until its phase is released.
+     * orreryd epic is live until its phase is released or done.
      * </pre>
      *
      * <code>bool live = 6 [json_name = "live"];</code>

@@ -17,6 +17,22 @@ const (
 	releaseOtherEpicID = "epic-2"
 )
 
+// releaseFrozen returns the review of a clean release epic: it froze and holds no verdict, ledger or round, so it names
+// no gap.
+func releaseFrozen() store.Review {
+	return store.Review{Frozen: testRev}
+}
+
+// releaseGapped returns the review of a release epic whose security reviewer gave a gap verdict.
+func releaseGapped() store.Review {
+	return store.Review{
+		Frozen: testRev,
+		Verdicts: []store.ReviewVerdict{{
+			Position: 1, Reviewer: "security", Verdict: "gap", Reason: "security gave no verdict twice: done: boom",
+		}},
+	}
+}
+
 // attemptWorkID returns the id of the work labeled label of the test run at attempt.
 func attemptWorkID(attempt int64, label string) string {
 	return store.NodeWorkID(testRunID, attempt, label)
@@ -44,9 +60,9 @@ func candidateRun(attempt int64, passed bool, head string) store.ReleaseRun {
 	return store.ReleaseRun{Part: store.ReleasePartCandidate, Attempt: attempt, Head: head, Passed: passed}
 }
 
-// judgeRun returns a judge run of attempt that passed or not, for reason.
-func judgeRun(attempt int64, passed bool, reason string) store.ReleaseRun {
-	return store.ReleaseRun{Part: store.ReleasePartJudge, Attempt: attempt, Passed: passed, Reason: reason}
+// judgeRun returns a judge run of the first attempt that passed or not, for reason.
+func judgeRun(passed bool, reason string) store.ReleaseRun {
+	return store.ReleaseRun{Part: store.ReleasePartJudge, Attempt: 1, Passed: passed, Reason: reason}
 }
 
 // doneCheck returns the ended check of the done gate at position i of attempt, passed or not.
@@ -91,16 +107,30 @@ func TestReleasePhases(t *testing.T) {
 			Action{Kind: ActEnd, Outcome: outcomePassed},
 		},
 		{
-			"clean epic with no release steps ends done",
+			"clean epic with no release steps ends done with no gaps",
 			releaseNode(1, "", ""),
-			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}},
-			Action{Kind: ActEnding, Outcome: outcomeDone},
+			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseFrozen()},
+			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil)},
 		},
 		{
 			"clean epic with no release steps ends done whoever holds the slot",
 			releaseNode(1, "", ""),
-			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Slot: releaseOtherEpicID},
-			Action{Kind: ActEnding, Outcome: outcomeDone},
+			Rows{
+				Epic:   store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean},
+				Slot:   releaseOtherEpicID,
+				Review: releaseFrozen(),
+			},
+			Action{Kind: ActEnding, Outcome: outcomeDone, Output: EndingBody(phaseDone, nil)},
+		},
+		{
+			"clean epic with no release steps ends done naming the gap its review holds",
+			releaseNode(1, "", ""),
+			Rows{Epic: store.EpicRow{ID: releaseEpicID, Phase: store.PhaseClean}, Review: releaseGapped()},
+			Action{
+				Kind: ActEnding, Outcome: outcomeDone,
+				Output: EndingBody(phaseDone,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"}),
+			},
 		},
 		{
 			"clean epic whose slot another epic holds gives none",
@@ -568,14 +598,30 @@ func TestReleaseJudge(t *testing.T) {
 			Action{Kind: ActJudge, IDs: []string{attemptWorkID(1, "judge")}, Items: []string{"judge", "cand-1"}},
 		},
 		{
-			"passed judge of this attempt ends released",
+			"passed judge of this attempt ends released with no gaps",
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     epic,
 				Slot:     releaseEpicID,
-				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(1, true, "")},
+				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
+				Review:   releaseFrozen(),
 			},
-			Action{Kind: ActEnding, Outcome: outcomeReleased},
+			Action{Kind: ActEnding, Outcome: outcomeReleased, Output: EndingBody(phaseReleased, nil)},
+		},
+		{
+			"passed judge of this attempt ends released naming the gap its review holds",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic:     epic,
+				Slot:     releaseEpicID,
+				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
+				Review:   releaseGapped(),
+			},
+			Action{
+				Kind: ActEnding, Outcome: outcomeReleased,
+				Output: EndingBody(phaseReleased,
+					[]string{"reviewer security: security gave no verdict twice: done: boom"}),
+			},
 		},
 		{
 			"failed judge of this attempt stops with its reason",
@@ -583,7 +629,7 @@ func TestReleaseJudge(t *testing.T) {
 			Rows{
 				Epic:     epic,
 				Slot:     releaseEpicID,
-				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(1, false, "the tag is missing")},
+				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(false, "the tag is missing")},
 			},
 			Action{Kind: ActStop, Output: "the tag is missing"},
 		},
@@ -593,7 +639,7 @@ func TestReleaseJudge(t *testing.T) {
 			Rows{
 				Epic:     epic,
 				Slot:     releaseEpicID,
-				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(1, true, "")},
+				Releases: []store.ReleaseRun{candidate, passedStep, judgeRun(true, "")},
 			},
 			Action{Kind: ActJudge, IDs: []string{attemptWorkID(2, "judge")}, Items: []string{"judge", "cand-1"}},
 		},

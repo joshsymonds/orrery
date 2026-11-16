@@ -24,7 +24,7 @@ func (Conclude) Decide(_ Node, rows Rows) Action {
 	}
 	return Action{
 		Kind: ActEnd, Outcome: outcomePassed, Phase: phaseEndedWithGaps,
-		Output: fmt.Sprintf("epic %s ended with gaps: %s", rows.Epic.ID, strings.Join(gaps, "; ")),
+		Output: EndingBody(phaseEndedWithGaps, gaps),
 	}
 }
 

@@ -48,7 +48,7 @@ export interface EpicsView {
   blocks: EpicBlock[];
   waiting: EpicItem[];
   live: number;
-  folded: number;
+  folded: EpicItem[];
   details: Map<string, EpicsGetResponse>;
 }
 
@@ -57,7 +57,7 @@ export interface EpicSection {
   epics: EpicBlock[];
   waiting: EpicItem[];
   rows: Row[];
-  folded: number;
+  folded: EpicItem[];
   count: number;
 }
 
@@ -76,11 +76,12 @@ const epicsTitle = "Epics";
 // A repository's record name ends in a dash and seven lowercase hex digits; the folder it is named for does not.
 const hexSuffix = /-[0-9a-f]{7}$/;
 
-export const noEpics: EpicsView = { blocks: [], waiting: [], live: 0, folded: 0, details: new Map() };
+export const noEpics: EpicsView = { blocks: [], waiting: [], live: 0, folded: [], details: new Map() };
 
-// Blocks the live epics that draw, collects the live epics waiting to start in input order, and counts every other epic
-// as folded. Epics with a running or held step draw first, in input order; quiet live epics follow in input order while
-// fewer than shownBlocks are drawn. An epic with no detail reads as unknown, with a gauge of zero.
+// Blocks the live epics that draw, collects the live epics waiting to start in input order, and lists every other epic
+// as folded, in input order, live or not. Epics with a running or held step draw first, in input order; quiet live
+// epics follow in input order while fewer than shownBlocks are drawn. An epic with no detail reads as unknown, with a
+// gauge of zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
@@ -101,31 +102,38 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
     }
   }
   const blocks = [...busy, ...quiet.slice(0, Math.max(0, shownBlocks - busy.length))];
-  return { blocks, waiting, live, folded: epics.length - blocks.length - waiting.length, details };
+  const placed = new Set([...blocks.map((block) => block.epic.id), ...waiting.map((item) => item.id)]);
+  const folded = epics.filter((epic) => !placed.has(epic.id)).map((epic) => itemOf(epic, details.get(epic.id)));
+  return { blocks, waiting, live, folded, details };
 }
 
 function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
-  const tasks = detail?.tasks ?? [];
   const slices = detail?.slices ?? [];
-  const strip = stripOf(tasks, slices);
+  const item = itemOf(epic, detail);
   const full = epic.runningSteps.length > 0;
   return {
-    epic: {
-      kind: "epic",
-      key: `epic:${epic.id}`,
-      id: epic.id,
-      slug: epic.slug,
-      repository: epic.repository,
-      outcome: epic.outcome,
-      known: detail !== undefined,
-      done: doneOf(tasks),
-      total: tasks.length,
-      strip,
-    },
+    epic: item,
     full,
     steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic, step, slices)),
     more: Math.max(0, epic.runningSteps.length - shownSteps),
-    tail: full ? tailOf(epic.endedSteps, strip, slices) : "",
+    tail: full ? tailOf(epic.endedSteps, item.strip, slices) : "",
+  };
+}
+
+// An epic's line: its identity, and its gauge and strip from the detail when one is held.
+function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
+  const tasks = detail?.tasks ?? [];
+  return {
+    kind: "epic",
+    key: `epic:${epic.id}`,
+    id: epic.id,
+    slug: epic.slug,
+    repository: epic.repository,
+    outcome: epic.outcome,
+    known: detail !== undefined,
+    done: doneOf(tasks),
+    total: tasks.length,
+    strip: stripOf(tasks, detail?.slices ?? []),
   };
 }
 
@@ -192,14 +200,14 @@ export function repositoryName(repository: string): string {
 
 // A row section, counting its rows.
 function rowSection(section: Section): EpicSection {
-  return { title: section.title, epics: [], waiting: [], rows: section.rows, folded: 0, count: section.rows.length };
+  return { title: section.title, epics: [], waiting: [], rows: section.rows, folded: [], count: section.rows.length };
 }
 
 // Wraps each section, then places the Epics group after the Needs you section, or first when there is none. The group
 // counts every live epic and is left out when no epic is drawn, waiting or folded.
 export function withEpicsGroup(sections: Section[], view: EpicsView): EpicSection[] {
   const result = sections.map(rowSection);
-  if (view.blocks.length === 0 && view.waiting.length === 0 && view.folded === 0) {
+  if (view.blocks.length === 0 && view.waiting.length === 0 && view.folded.length === 0) {
     return result;
   }
   const after = sections.findIndex((section) => section.title === needsYouTitle) + 1;
@@ -235,7 +243,7 @@ export function placeEpics(sections: Section[], blocks: EpicBlock[]): EpicSectio
     }
   }
   for (const [repository, epics] of unmatched) {
-    result.push({ title: repository, epics, waiting: [], rows: [], folded: 0, count: epics.length });
+    result.push({ title: repository, epics, waiting: [], rows: [], folded: [], count: epics.length });
   }
   return result;
 }

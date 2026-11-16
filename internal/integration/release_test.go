@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -77,8 +78,9 @@ func newReleaseRig(t *testing.T) *buildRig {
 	return r
 }
 
-// seedReleaseEpic stores the rig's epic at phase clean, pinned to the release workflow, with steps as its release steps.
-// The epic plans nothing, so its release is the only work it runs.
+// seedReleaseEpic stores the rig's epic at phase clean, pinned to the release workflow, with steps as its release
+// steps, and a frozen review at its base, as an epic that ended clean has. The epic plans nothing, so its release is
+// the only work it runs.
 func seedReleaseEpic(t *testing.T, r *buildRig, steps ...store.EpicReleaseStep) {
 	t.Helper()
 	ctx := t.Context()
@@ -113,6 +115,27 @@ func seedReleaseEpic(t *testing.T, r *buildRig, steps ...store.EpicReleaseStep) 
 	}
 	if err = st.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
+	}
+	freezeReviewRow(t, r.f.dbPath, buildRigEpic, r.base)
+}
+
+// freezeReviewRow stores the review of epic id as frozen at revision in the store file at path, the row a review
+// leaves on an epic that ended clean. It writes the row directly: a review run's freeze also sets the epic's phase to
+// reviewing, which the release epic is not in.
+func freezeReviewRow(t *testing.T, path, id, revision string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open store file: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store file: %v", err)
+		}
+	}()
+	_, err = db.ExecContext(t.Context(), "INSERT INTO epic_reviews (epic, frozen) VALUES (?, ?)", id, revision)
+	if err != nil {
+		t.Fatalf("insert review of epic %s: %v", id, err)
 	}
 }
 
@@ -217,8 +240,8 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 		t.Fatalf("judge run %+v, want ended done and passed", judged)
 	}
 
-	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell, and the next
-	// pass frees the slot it held.
+	// orreryd's Ending is the store's EndEpic: the passed judge ends the epic released with one tell that names no gap,
+	// and the next pass frees the slot it held.
 	passReleaseUntil(t, daemon, ack, "the released epic to free its slot", func() bool {
 		return r.releaseEpic(t).GetReleaseSlot() == ""
 	})
@@ -228,7 +251,7 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 	}
 	endings := 0
 	for _, tell := range released.GetTells() {
-		if tell.GetText() == "Epic "+buildRigEpic+" ended released." {
+		if tell.GetText() == "Released. No gaps." {
 			endings++
 		}
 	}

@@ -555,6 +555,9 @@ data class EpicAlternativeRow(val alternative: String, val whyNot: String, val r
 /** One step of an orreryd epic's contract that leaves the machine on release, with how it is [undo]ne. */
 data class EpicReleaseStepRow(val step: String, val target: String, val undo: String)
 
+internal fun EpicReleaseStepProto.toEpicReleaseStepRow(): EpicReleaseStepRow =
+    EpicReleaseStepRow(step = step, target = target, undo = undo)
+
 /**
  * An orreryd epic's accepted contract, its sections in the contract's order, without its requirements. [accepted] is
  * when orreryd stored the epic, in unix seconds.
@@ -586,7 +589,7 @@ data class EpicContractRow(
  * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
  * when it is not. [sessions] are the sessions that work on the epic, each with its newest epic call, in the order the
  * server lists them. [repository] is the absolute path of the git repository the epic belongs to, empty when none is
- * named.
+ * named. [handover] is the epic's handover rows, empty for a record epic.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -601,6 +604,7 @@ data class EpicDetail(
     val questions: List<EpicQuestionRow> = emptyList(),
     val paused: Boolean = false,
     val parked: String = "",
+    val handover: EpicHandoverRow = EpicHandoverRow(),
     val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
 )
@@ -877,6 +881,7 @@ class OrreryClient(
             questions = response.questionsList.map { it.toEpicQuestionRow() },
             paused = response.paused,
             parked = response.parked,
+            handover = response.toEpicHandoverRow(),
             sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
         )
@@ -1338,9 +1343,6 @@ class OrreryClient(
 
     private fun EpicAlternativeProto.toEpicAlternativeRow(): EpicAlternativeRow =
         EpicAlternativeRow(alternative = alternative, whyNot = whyNot, reconsider = reconsider)
-
-    private fun EpicReleaseStepProto.toEpicReleaseStepRow(): EpicReleaseStepRow =
-        EpicReleaseStepRow(step = step, target = target, undo = undo)
 
     private fun EpicSliceProto.toEpicSliceRow(): EpicSliceRow =
         EpicSliceRow(

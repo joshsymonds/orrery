@@ -4746,7 +4746,8 @@ func (x *EpicFollow) GetFollowed() int64 {
 	return 0
 }
 
-// ReleaseEpicRequest names the epic whose stopped release resumes, and the undo-none release steps to run again.
+// ReleaseEpicRequest names the epic to release, and the undo-none release steps to run again when its stopped release
+// resumes.
 type ReleaseEpicRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epic's id.
@@ -4801,7 +4802,7 @@ func (x *ReleaseEpicRequest) GetUndoNone() []int32 {
 	return nil
 }
 
-// ReleaseEpicResponse carries the resumed epic.
+// ReleaseEpicResponse carries the epic read back after its release resumed or started.
 type ReleaseEpicResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored epic.

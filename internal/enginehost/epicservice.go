@@ -476,9 +476,10 @@ func (s *epicService) RetryEpic(
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
 }
 
-// ReleaseEpic resumes the stopped release of the epic at its first unfinished step, running again the undo-none release
-// steps undo_none names, and returns the epic read back. An empty id, and a position in undo_none below 1, are refused
-// before the store is asked.
+// ReleaseEpic releases the epic. It resumes the stopped release at its first unfinished step, running again the
+// undo-none release steps undo_none names. An epic that ended with gaps is released on the owner's word instead, and
+// the store refuses a non-empty undo_none for it. It returns the epic read back. An empty id, and a position in
+// undo_none below 1, are refused before the store is asked.
 func (s *epicService) ReleaseEpic(
 	ctx context.Context,
 	req *connect.Request[v1.ReleaseEpicRequest],

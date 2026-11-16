@@ -308,24 +308,26 @@ func epicTellTexts(t *testing.T, s *store.Store) []string {
 }
 
 // TestRunnerConcludeEndsEpicOnceAndRunPassed: a conclusion run that ends ends its epic once, with its phase and body,
-// and ends its run passed, the store being the runner's Ending. A pass after the run ended ends nothing again.
+// and ends its run passed, the store being the runner's Ending. A pass after the run ended ends nothing again. It ends
+// the epic ended_with_gaps, a phase that tells, so a second ending would show as a second tell.
 func TestRunnerConcludeEndsEpicOnceAndRunPassed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
 	createRunEpic(t, s, store.EpicWorkflow{})
+	body := kinds.EndingBody("ended_with_gaps", []string{"reviewer security: gave no verdict twice"})
 	runner := runnerReviewRunner(s, runnerReviewers{}, s)
 	runner.kinds[concludeNodeKind] = runnerEnds(kinds.Action{
-		Kind: kinds.ActEnd, Outcome: "passed", Phase: "clean", Output: runnerConcludeBody,
+		Kind: kinds.ActEnd, Outcome: "passed", Phase: "ended_with_gaps", Output: body,
 	})
 	runner.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 	runner.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 
-	if got := epicTellTexts(t, s); !slices.Equal(got, []string{runnerConcludeBody}) {
-		t.Errorf("tells = %q, want the one ending %q", got, runnerConcludeBody)
+	if got := epicTellTexts(t, s); !slices.Equal(got, []string{body}) {
+		t.Errorf("tells = %q, want the one ending %q", got, body)
 	}
-	if phase := epicOf(t, s).Phase; phase != "clean" {
-		t.Errorf("epic phase = %q, want clean", phase)
+	if phase := epicOf(t, s).Phase; phase != "ended_with_gaps" {
+		t.Errorf("epic phase = %q, want ended_with_gaps", phase)
 	}
 	if run := runAt(t, s, concludeNodeKind); run.State != store.NodeEnded || run.Outcome != "passed" {
 		t.Errorf("conclude run = %+v, want ended passed", run)
@@ -352,10 +354,10 @@ func (k killedAfterEnding) EndEpic(
 }
 
 // TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce forces the crash window of conclude: orreryd is killed
-// right after the write that ends the epic ended_with_gaps, a release ends it clean before the restart, as the owner's
-// release of a gapped epic does through the store's ending, and the restarted runner passes the epic again. The
-// conclusion run ended in the ending's write, so the restart decides no second ending: the epic keeps the release's
-// phase and holds the two tells, the conclusion's and the release's, once each.
+// right after the write that ends the epic ended_with_gaps, the owner releases it (store.Store.ReleaseEpic moves it to
+// clean) before the restart, and the restarted runner passes the epic again. The conclusion run ended in the ending's
+// write, so the restart decides no second ending: the epic keeps the release's phase and holds the conclusion's tell
+// once.
 func TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -368,16 +370,15 @@ func TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce(t *testing.T
 	killed.kinds[concludeNodeKind] = conclude
 	killed.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 
-	const released = "Epic released."
-	if err := s.EndEpic(ctx, runEpic, "clean", released, nil, runClock().Add(time.Minute)); err != nil {
-		t.Fatalf("release the epic clean: %v", err)
+	if err := s.ReleaseEpic(ctx, runEpic, nil, runClock().Add(time.Minute)); err != nil {
+		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	restarted := runnerReviewRunner(s, runnerReviewers{}, s)
 	restarted.kinds[concludeNodeKind] = conclude
 	restarted.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 
-	if got, want := epicTellTexts(t, s), []string{runnerConcludeBody, released}; !slices.Equal(got, want) {
-		t.Errorf("tells after the restart = %q, want %q: the ending told once, then the release", got, want)
+	if got, want := epicTellTexts(t, s), []string{runnerConcludeBody}; !slices.Equal(got, want) {
+		t.Errorf("tells after the restart = %q, want %q: the ending told once", got, want)
 	}
 	if phase := epicOf(t, s).Phase; phase != "clean" {
 		t.Errorf("epic phase after the restart = %q, want clean, as the release left it", phase)

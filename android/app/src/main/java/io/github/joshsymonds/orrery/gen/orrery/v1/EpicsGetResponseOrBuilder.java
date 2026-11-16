@@ -287,6 +287,90 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> 
+      getLedgerList();
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding getLedger(int index);
+  /**
+   * <pre>
+   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
+   */
+  int getLedgerCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> 
+      getReleasesList();
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun getReleases(int index);
+  /**
+   * <pre>
+   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
+   * before its release and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
+   */
+  int getReleasesCount();
+
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> 
+      getReviewsList();
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict getReviews(int index);
+  /**
+   * <pre>
+   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
+   */
+  int getReviewsCount();
+
+  /**
+   * <pre>
    * The sessions that work on the epic, each with its newest epic call.
    * </pre>
    *

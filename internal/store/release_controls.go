@@ -14,19 +14,28 @@ import (
 // surrounding space. Once such a step has failed, the owner must name it to run it again.
 const releaseUndoNone = "none"
 
+// phaseEndedWithGaps is the phase an epic ends in when its review leaves a gap, and releaseEndedWithGapsID is the id of
+// the owner decision that releases such an epic.
+const (
+	phaseEndedWithGaps     = "ended_with_gaps"
+	releaseEndedWithGapsID = "release-ended-with-gaps"
+)
+
 // isUndoNone reports whether undo is releaseUndoNone, trimmed and in any case, as the release kind reads it.
 func isUndoNone(undo string) bool {
 	return strings.EqualFold(strings.TrimSpace(undo), releaseUndoNone)
 }
 
-// ReleaseEpic resumes the stopped release of epic in one write, at its first unfinished release step, and returns an
-// error matching ErrNoEpic for an id no epic has. It is a RefusalError when epic is not stopped, when epic has no parked
-// release node run, when another epic holds the release slot of its repository, when a position in undoNone is not an
-// undo-none release step, and when the first unfinished step is undo-none, has failed and is not in undoNone. Otherwise
-// it takes the release slot when it is free, stores a named release run for each distinct position in undoNone for the
-// release node run's next attempt, records one owner decision per such position, moves the release node run to that
-// attempt and unparks epic as RetryNode does, moves epic from stopped to releasing, and adds one tell that says where
-// the release resumed.
+// ReleaseEpic releases epic in one write, and returns an error matching ErrNoEpic for an id no epic has. When epic ended
+// with gaps it records the owner decision that releases it and moves it to clean, so its release run takes the release
+// slot of its repository and no tell is added; it is a RefusalError when undoNone is not empty, as such an epic has no
+// release run to name a step of. Otherwise it resumes the stopped release of epic at its first unfinished release step.
+// That is a RefusalError when epic is not stopped, when epic has no parked release node run, when another epic holds the
+// release slot of its repository, when a position in undoNone is not an undo-none release step, and when the first
+// unfinished step is undo-none, has failed and is not in undoNone. Otherwise it takes the release slot when it is free,
+// stores a named release run for each distinct position in undoNone for the release node run's next attempt, records one
+// owner decision per such position, moves the release node run to that attempt and unparks epic as RetryNode does, moves
+// epic from stopped to releasing, and adds one tell that says where the release resumed.
 func (s *Store) ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return resumeRelease(ctx, queries, epic, undoNone, at)
@@ -42,13 +51,16 @@ type releaseResume struct {
 	unfinished int64
 }
 
-// resumeRelease resumes the stopped release of epic in the caller's write, as ReleaseEpic does.
+// resumeRelease releases epic in the caller's write, as ReleaseEpic does.
 func resumeRelease(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
 ) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return err
+	}
+	if head.Phase == phaseEndedWithGaps {
+		return releaseEndedWithGaps(ctx, queries, head.ID, undoNone, at)
 	}
 	resume, err := checkReleaseResume(ctx, queries, head, undoNone)
 	if err != nil {
@@ -73,6 +85,22 @@ func resumeRelease(
 		return fmt.Errorf("move epic %s to releasing: %w", epic, err)
 	}
 	return insertTell(ctx, queries, epic, resumedReleaseText(resume.steps, resume.unfinished), at)
+}
+
+// releaseEndedWithGaps releases epic, which ended with gaps, in the caller's write: it records the owner's decision and
+// moves epic to clean, so its release run takes the release slot of its repository. It is a RefusalError when undoNone
+// names any position, since epic has not started a release.
+func releaseEndedWithGaps(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
+) error {
+	if len(undoNone) > 0 {
+		return RefusalError(fmt.Sprintf("epic %s has not started a release; name no undo-none step", epic))
+	}
+	text := fmt.Sprintf("owner released epic %s, which ended with gaps", epic)
+	if _, err := appendDecision(ctx, queries, epic, releaseEndedWithGapsID, text, 0, at); err != nil {
+		return err
+	}
+	return setEpicPhase(ctx, queries, epic, PhaseClean)
 }
 
 // checkReleaseResume returns the state the stopped release of head resumes from. It is a RefusalError when head is not
