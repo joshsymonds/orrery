@@ -3,7 +3,9 @@ package io.github.joshsymonds.orrery
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -22,6 +24,8 @@ import io.github.joshsymonds.orrery.push.PushRegistration
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import java.util.Timer
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.schedule
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -267,6 +271,34 @@ class QuiescentWaitTest {
             beforeStoppedClockJudgment = {}
         }
         assertEquals("synthetic answer", shown.get())
+    }
+
+    @Test
+    fun aStateTheTestWritesIsAppliedBeforeAWaitOnAPlainConditionJudges() {
+        // PoolsScreenTest's forced recomposition: the test writes a state the content reads, then waits on a
+        // condition that reads no Compose state. A global write reaches the recomposer only when the snapshot's apply
+        // notifications are sent; with nothing else in flight nothing sent them, the content never recomposed, and
+        // the wait spent its budget on frames that had nothing to compose.
+        // Compose's GlobalSnapshotManager sends them after a write, from a message on the main looper; Robolectric
+        // clears that looper between tests, so a test that ended with the message queued leaves the manager sure a
+        // send is already on its way, for the rest of the JVM. That stuck state is forced here.
+        val written = mutableIntStateOf(0)
+        val seen = AtomicInteger()
+        composeRule.setContent {
+            val value = written.intValue
+            SideEffect { seen.set(value) }
+        }
+        composeRule.waitForIdle()
+        val sent = Class.forName("androidx.compose.ui.platform.GlobalSnapshotManager").getDeclaredField("sent")
+            .apply { isAccessible = true }.get(null) as AtomicBoolean
+        val wasSent = sent.getAndSet(true)
+        try {
+            composeRule.runOnIdle { written.intValue = 1 }
+
+            composeRule.awaitUntil("the content to see the write") { seen.get() == 1 }
+        } finally {
+            sent.set(wasSent)
+        }
     }
 
     private fun showFirstPaneLabel(server: FakeOrreryServer) {
