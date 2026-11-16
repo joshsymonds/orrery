@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { createClients, createTransport } from "./client";
 import { start } from "./main";
 import { until } from "./testwait";
-import { installTestDom, removeTestDom } from "./testdom";
+import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 const panesListPath = "/orrery.v1.Panes/List";
 const sessionsListPath = "/orrery.v1.Sessions/List";
@@ -210,14 +210,19 @@ async function withPage(
   const root = document.createElement("div");
   const server = fakeServer();
   const stop = start(root, clientsFor(server), longPollMs, retryMs);
+  // The page is stopped and the DOM removed when the test ends, or as soon as signal aborts if it times out first, so
+  // the page never runs on into the next test (see teardownOnce).
+  const teardown = teardownOnce(signal, async () => {
+    stop();
+    await removeTestDom(window);
+  });
   try {
     await until(signal, () => isCursored(root, apiRow), "the api row under the cursor");
     await until(signal, () => server.paneStreams === 1, "the api pane's stream");
     await until(signal, () => server.notices !== null, "the notice stream");
     await check(root, server);
   } finally {
-    stop();
-    await removeTestDom(window);
+    await teardown();
   }
 }
 
