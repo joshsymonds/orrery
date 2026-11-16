@@ -638,6 +638,19 @@ class MainActivityEpicsTest {
     }
 
     @Test
+    fun tappingARedProofCardOpensThatTasksPhaseOutputAtImplementing() {
+        serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
+        openEpicFromHome()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("proof-card:red:0"))
+
+        composeRule.onNodeWithTag("proof-card:red:0").performClick()
+
+        awaitNode(hasTestTag("phase-body:implementing"))
+        composeRule.onNodeWithTag("crumb:2").assertTextEquals("$TASK_ID · implementing")
+        awaitNone(hasTestTag("epic-summary"))
+    }
+
+    @Test
     fun tappingAPhaseRowReplacesThePhaseOpenInPlace() {
         serveEpic(contracted = true, steps = checkingSteps(), buildTasks = listOf(taskBuild()))
         val controller = openEpicFromHome()
