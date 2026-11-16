@@ -61,13 +61,15 @@ type View struct {
 // ActionKind is what a pass does for a task.
 type ActionKind string
 
-// The actions a pass takes for a task. ActNone waits. ActMove stores Next as the build. ActSnapshot takes the refs
-// snapshot the implementer's step is checked against, and ActRefs checks the step's ref moves. ActStartRun starts the
-// evidence run of Phase, and ActStartStep the step of Unit. ActFail, ActAccept, ActPause and ActPark end the task's
-// build. ActReview stores a review and ActFinding a finding's verification.
+// The actions a pass takes for a task. ActNone waits. ActMove stores Next as the build. ActGuard guards the implementer's
+// commit before Next, the green build, is stored. ActSnapshot takes the refs snapshot the implementer's step is checked
+// against, and ActRefs checks the step's ref moves. ActStartRun starts the evidence run of Phase, and ActStartStep the
+// step of Unit. ActFail, ActAccept, ActPause and ActPark end the task's build. ActReview stores a review and ActFinding
+// a finding's verification.
 const (
 	ActNone      ActionKind = "none"
 	ActMove      ActionKind = "move"
+	ActGuard     ActionKind = "guard"
 	ActSnapshot  ActionKind = "snapshot"
 	ActRefs      ActionKind = "refs"
 	ActStartRun  ActionKind = "start_run"

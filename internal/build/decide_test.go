@@ -303,22 +303,22 @@ func TestDecideImplement(t *testing.T) {
 			want: Action{Kind: ActRefs, Next: implement},
 		},
 		{
-			name: "done with a commit moves to green at the commit",
+			name: "done with a commit guards the commit before green at the commit",
 			view: View{
 				Epic: decideEpic, Head: "head-sha", Step: implementStep("done", "", doneCommit, ""),
 				Task: store.EpicTask{Seq: 3, Build: implement},
 			},
-			want: Action{Kind: ActMove, Next: store.TaskBuild{
+			want: Action{Kind: ActGuard, Next: store.TaskBuild{
 				Stage: StageGreen, Base: decideBranch, Attempt: 1, RedRun: "red-run", Revision: "abc123",
 			}},
 		},
 		{
-			name: "goal unmet without a commit moves to green at the head",
+			name: "goal unmet without a commit guards the head before green at the head",
 			view: View{
 				Epic: decideEpic, Head: "head-sha", Step: implementStep("goal_unmet", "", doneNoCommit, ""),
 				Task: store.EpicTask{Seq: 3, Build: implement},
 			},
-			want: Action{Kind: ActMove, Next: store.TaskBuild{
+			want: Action{Kind: ActGuard, Next: store.TaskBuild{
 				Stage: StageGreen, Base: decideBranch, Attempt: 1, RedRun: "red-run", Revision: "head-sha",
 			}},
 		},
