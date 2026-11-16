@@ -19,6 +19,7 @@ import (
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // epicNotFound is the fixed message for a Get of an id that the record root does not list.
@@ -38,15 +39,17 @@ const (
 	epicSourceOrreryd = "orreryd"
 )
 
-// epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, the runs of evidence, and the
-// labeled steps of steps. A nil steps answers unavailable. A nil store lists no database epics, a nil commands answers
-// the epic commands unavailable, and a nil evidence client attaches no runs. Each rpc of the service is a method here.
+// epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, the runs of evidence, the
+// labeled steps of steps, and the sessions that called each epic in sessions. A nil steps answers unavailable. A nil
+// store lists no database epics, a nil commands answers the epic commands unavailable, a nil evidence client attaches
+// no runs, and a nil sessions reader lists no sessions. Each rpc of the service is a method here.
 type epicsServer struct {
 	root     string
 	steps    StepClient
 	store    EpicStoreClient
 	commands enginev1connect.EpicsClient
 	evidence EvidenceClient
+	sessions *store.Reader
 	timeout  time.Duration
 	now      func() time.Time
 	clock    rpcretry.Clock
@@ -105,8 +108,8 @@ func (e epicsServer) List(
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
 // the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its open
 // questions, its contract with its acceptance time, its summary, whether it is paused and why it is parked, its
-// repository, and the tasks of its record when one exists. An id that neither the database nor the record root lists answers not_found,
-// and the id is never joined into a path.
+// repository, its sessions newest call first, and the tasks of its record when one exists. An id that neither the
+// database nor the record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -149,6 +152,7 @@ func (e epicsServer) Get(
 		Steps:      epicStepMessages(labeled),
 		Slices:     epicSlices(labeled),
 		Repository: repository,
+		Sessions:   e.listSessions(ctx, id),
 	}
 	if inStore {
 		resp.Epic = storedEpicMessage(
@@ -213,6 +217,36 @@ func (e epicsServer) listEvidence(ctx context.Context, epic string) []*enginev1.
 		return nil
 	}
 	return resp.Msg.GetRuns()
+}
+
+// listSessions asks the store reader for the sessions that called epic, newest call first. A nil reader, or a read that
+// fails, lists none, so the epic is answered without sessions.
+func (e epicsServer) listSessions(ctx context.Context, epic string) []*orreryv1.EpicSession {
+	if e.sessions == nil {
+		return nil
+	}
+	rows, err := e.sessions.EpicSessions(ctx, epic)
+	if err != nil {
+		return nil
+	}
+	sessions := make([]*orreryv1.EpicSession, 0, len(rows))
+	for _, row := range rows {
+		sessions = append(sessions, epicSessionMessage(row))
+	}
+	return sessions
+}
+
+// epicSessionMessage converts a row of epic calls to its EpicSession. A pane row, whose kind is empty, carries its pane
+// and its label. Any other row is headless: it names no pane and its label is headlessLabel of its id and dir.
+func epicSessionMessage(row store.EpicSessionRow) *orreryv1.EpicSession {
+	session := &orreryv1.EpicSession{Id: row.Session, Call: row.Call, At: row.At}
+	if row.Kind == "" {
+		session.Pane = row.Pane
+		session.Label = row.Label
+		return session
+	}
+	session.Label = headlessLabel(row.Session, row.Dir)
+	return session
 }
 
 // listStored asks the epic store for its epics. A nil store lists none, and so does a ListEpics that is unimplemented, as
@@ -880,15 +914,16 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 }
 
 // newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, the
-// epic commands commands forwards, the runs evidence lists, and the labeled steps of steps, reading at most
-// maxControlBody bytes of each request. A zero timeout is defaultControlTimeout. now dates each record epic's liveness,
-// and clock times the retries of the calls to orreryd.
+// epic commands commands forwards, the runs evidence lists, the labeled steps of steps, and the sessions that called
+// each epic in sessions, reading at most maxControlBody bytes of each request. A zero timeout is defaultControlTimeout.
+// now dates each record epic's liveness, and clock times the retries of the calls to orreryd.
 func newEpicsHandler(
 	root string,
 	steps StepClient,
 	store EpicStoreClient,
 	commands enginev1connect.EpicsClient,
 	evidence EvidenceClient,
+	sessions *store.Reader,
 	timeout time.Duration,
 	now func() time.Time,
 	clock rpcretry.Clock,
@@ -900,8 +935,8 @@ func newEpicsHandler(
 	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewEpicsHandler(
 		epicsServer{
-			root: root, steps: steps, store: store, commands: commands, evidence: evidence, timeout: timeout,
-			now: now, clock: clock, heads: newHeadCache(),
+			root: root, steps: steps, store: store, commands: commands, evidence: evidence, sessions: sessions,
+			timeout: timeout, now: now, clock: clock, heads: newHeadCache(),
 		},
 		options...,
 	)
