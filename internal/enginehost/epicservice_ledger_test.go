@@ -108,7 +108,7 @@ func TestEpicGetReturnsLedgerOfTheReview(t *testing.T) {
 		secondClosures, at); err != nil {
 		t.Fatalf("EndClosure of round 2: %v", err)
 	}
-	if err := st.EndEpic(ctx, epicServiceID, "clean", "Epic ended clean.", at); err != nil {
+	if err := st.EndEpic(ctx, epicServiceID, "clean", "Epic ended clean.", nil, at); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
 

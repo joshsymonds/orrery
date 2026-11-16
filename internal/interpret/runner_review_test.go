@@ -293,27 +293,97 @@ func TestRunnerClosureEndLandsItsRound(t *testing.T) {
 	}
 }
 
-// TestRunnerConcludeEndsEpicOnceAndRunPassed: a conclusion run that ends ends its epic once, with its phase and body, and
-// ends its run passed. A pass after the run ended ends nothing again.
+// epicTellTexts returns the texts of the test epic's tells, in order.
+func epicTellTexts(t *testing.T, s *store.Store) []string {
+	t.Helper()
+	history, err := s.EpicHistory(context.Background(), runEpic)
+	if err != nil {
+		t.Fatalf("EpicHistory: %v", err)
+	}
+	texts := make([]string, 0, len(history.Tells))
+	for _, tell := range history.Tells {
+		texts = append(texts, tell.Text)
+	}
+	return texts
+}
+
+// TestRunnerConcludeEndsEpicOnceAndRunPassed: a conclusion run that ends ends its epic once, with its phase and body,
+// and ends its run passed, the store being the runner's Ending. A pass after the run ended ends nothing again.
 func TestRunnerConcludeEndsEpicOnceAndRunPassed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
 	createRunEpic(t, s, store.EpicWorkflow{})
-	ending := &recordingEnding{}
-	runner := runnerReviewRunner(s, runnerReviewers{}, ending)
+	runner := runnerReviewRunner(s, runnerReviewers{}, s)
 	runner.kinds[concludeNodeKind] = runnerEnds(kinds.Action{
 		Kind: kinds.ActEnd, Outcome: "passed", Phase: "clean", Output: runnerConcludeBody,
 	})
 	runner.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 	runner.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
 
-	want := []endedEpic{{epic: runEpic, phase: "clean", body: runnerConcludeBody, at: runClock()}}
-	if !reflect.DeepEqual(ending.calls, want) {
-		t.Errorf("ending calls = %+v, want %+v", ending.calls, want)
+	if got := epicTellTexts(t, s); !slices.Equal(got, []string{runnerConcludeBody}) {
+		t.Errorf("tells = %q, want the one ending %q", got, runnerConcludeBody)
+	}
+	if phase := epicOf(t, s).Phase; phase != "clean" {
+		t.Errorf("epic phase = %q, want clean", phase)
 	}
 	if run := runAt(t, s, concludeNodeKind); run.State != store.NodeEnded || run.Outcome != "passed" {
 		t.Errorf("conclude run = %+v, want ended passed", run)
+	}
+}
+
+// errKilled is what killedAfterEnding returns in place of the process that a kill ends.
+var errKilled = errors.New("orreryd killed after the write")
+
+// killedAfterEnding is an Ending over the store that ends the epic as the store does, then fails: what the store wrote
+// stays, and the conclude that called it carries out nothing more, as when orreryd is killed right after that write.
+type killedAfterEnding struct {
+	store *store.Store
+}
+
+// EndEpic ends the epic in the store, then reports the kill.
+func (k killedAfterEnding) EndEpic(
+	ctx context.Context, epic, phase, body string, ends []store.NodeEnd, at time.Time,
+) error {
+	if err := k.store.EndEpic(ctx, epic, phase, body, ends, at); err != nil {
+		return fmt.Errorf("end epic: %w", err)
+	}
+	return errKilled
+}
+
+// TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce forces the crash window of conclude: orreryd is killed
+// right after the write that ends the epic ended_with_gaps, a release ends it clean before the restart, as the owner's
+// release of a gapped epic does through the store's ending, and the restarted runner passes the epic again. The
+// conclusion run ended in the ending's write, so the restart decides no second ending: the epic keeps the release's
+// phase and holds the two tells, the conclusion's and the release's, once each.
+func TestRunnerConcludeKilledAfterItsEndingThenReleasedEndsEpicOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunStore(t)
+	createRunEpic(t, s, store.EpicWorkflow{})
+	conclude := runnerEnds(kinds.Action{
+		Kind: kinds.ActEnd, Outcome: "passed", Phase: "ended_with_gaps", Output: runnerConcludeBody,
+	})
+	killed := runnerReviewRunner(s, runnerReviewers{}, killedAfterEnding{store: s})
+	killed.kinds[concludeNodeKind] = conclude
+	killed.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
+
+	const released = "Epic released."
+	if err := s.EndEpic(ctx, runEpic, "clean", released, nil, runClock().Add(time.Minute)); err != nil {
+		t.Fatalf("release the epic clean: %v", err)
+	}
+	restarted := runnerReviewRunner(s, runnerReviewers{}, s)
+	restarted.kinds[concludeNodeKind] = conclude
+	restarted.passFlow(ctx, store.EpicRow{ID: runEpic}, runnerFlow(concludeNodeKind))
+
+	if got, want := epicTellTexts(t, s), []string{runnerConcludeBody, released}; !slices.Equal(got, want) {
+		t.Errorf("tells after the restart = %q, want %q: the ending told once, then the release", got, want)
+	}
+	if phase := epicOf(t, s).Phase; phase != "clean" {
+		t.Errorf("epic phase after the restart = %q, want clean, as the release left it", phase)
+	}
+	if run := runAt(t, s, concludeNodeKind); run.State != store.NodeEnded || run.Outcome != "passed" {
+		t.Errorf("conclude run = %+v, want ended passed by the ending's write", run)
 	}
 }
 
