@@ -158,6 +158,7 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	if err != nil {
 		return nil, err
 	}
+	requirementClaims(message, flow)
 	message.Nodes, err = nodeMessages(flow)
 	if err != nil {
 		return nil, err
@@ -910,6 +911,7 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		Deliverable:  task.Deliverable,
 		Files:        task.Files,
 		Requirements: task.Requirements,
+		Contributes:  task.Contributes,
 		Gate:         task.Gate,
 		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
@@ -975,6 +977,8 @@ func evidenceItemMessage(item evidence.Item) *v1.EvidenceItem {
 		Supplied:   item.Supplied,
 		Conclusion: item.Conclusion,
 		Judge:      item.Judge,
+		Kind:       string(item.Kind),
+		Tests:      item.Tests,
 	}
 }
 

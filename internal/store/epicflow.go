@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
@@ -27,10 +28,11 @@ const (
 
 // EpicFlow is one epic's rows as the interpreter decides from them: the epic as Epic returns it, its review as
 // EpicReview returns it, its node runs as NodeRuns returns them, its checks as NodeChecks returns them, its evidence
-// runs as EvidenceRuns returns them, its steps, its release runs as ReleaseRuns returns them, the holder of its
-// repository's release slot, and how many of its triggers are pending. Steps holds the steps its agent and release node
-// runs ran under as Step returns them, for the runs that have them, then every step labeled with the epic and the path
-// of one of its review or closure node runs, in the order of the runs.
+// runs as EvidenceRuns returns them, less the runs whose kept spec is no longer current with the item now stored under
+// their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, and
+// how many of its triggers are pending. Steps holds the steps its agent and release node runs ran under as Step returns
+// them, for the runs that have them, then every step labeled with the epic and the path of one of its review or closure
+// node runs, in the order of the runs.
 type EpicFlow struct {
 	Epic     EpicRow
 	Review   Review
@@ -80,7 +82,7 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
-	evidence, err := readEvidenceRuns(ctx, queries, id)
+	stored, err := readEvidenceRuns(ctx, queries, id)
 	if err != nil {
 		return EpicFlow{}, err
 	}
@@ -106,8 +108,8 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 		return EpicFlow{}, fmt.Errorf("count pending triggers of epic %s: %w", id, err)
 	}
 	return EpicFlow{
-		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: evidence, Steps: steps, Releases: releases,
-		Slot: slot, Pending: int(pending),
+		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
+		Releases: releases, Slot: slot, Pending: int(pending),
 	}, nil
 }
 
@@ -119,6 +121,26 @@ func readEvidenceRuns(ctx context.Context, queries *sqlcgen.Queries, epic string
 		return nil, fmt.Errorf("list evidence runs of epic %s: %w", epic, err)
 	}
 	return evidenceRunsOf(ctx, queries, stored)
+}
+
+// currentRuns returns the runs of epic whose kept spec is current with the item now stored under their Item, in the
+// order given. A Requirement's run is named by the Requirement's id and holds its item; a task's run is named T and the
+// task's seq and holds the task's evidence. A run whose Item names nothing stored is not current.
+func currentRuns(runs []EvidenceRun, epic EpicRow) []EvidenceRun {
+	items := make(map[string]evidence.Item, len(epic.Requirements)+len(epic.Tasks))
+	for _, requirement := range epic.Requirements {
+		items[requirement.ID] = requirement.Item
+	}
+	for _, task := range epic.Tasks {
+		items[fmt.Sprintf("T%d", task.Seq)] = task.Evidence
+	}
+	var current []EvidenceRun
+	for _, run := range runs {
+		if item, ok := items[run.Item]; ok && evidence.Current(run.Spec, item) {
+			current = append(current, run)
+		}
+	}
+	return current
 }
 
 // readRunSteps returns, in the order of runs, each step a node run has: for each part workParts gives the run's kind,

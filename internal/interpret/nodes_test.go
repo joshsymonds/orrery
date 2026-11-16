@@ -194,10 +194,21 @@ func (f *fakeEvidence) RunItem(
 	if !errors.Is(err, store.ErrNoEvidenceRun) {
 		return store.EvidenceRun{}, fmt.Errorf("read evidence run %s: %w", id, err)
 	}
-	// The fixture's items capture, so the run's source is captured, as the real service gives it.
+	// The run keeps the Requirement's item as its spec, and the fixture's items capture, so the run's source is
+	// captured, as the real service gives them.
+	row, err := f.store.Epic(ctx, epic)
+	if err != nil {
+		return store.EvidenceRun{}, fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	var spec evidence.Item
+	for _, requirement := range row.Requirements {
+		if requirement.ID == item {
+			spec = requirement.Item
+		}
+	}
 	run := store.EvidenceRun{
 		ID: id, Epic: epic, Item: item, Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-		Created: runClock(),
+		Spec: spec, Created: runClock(),
 	}
 	if err = f.store.AddEvidenceRun(ctx, run); err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("add evidence run %s: %w", id, err)

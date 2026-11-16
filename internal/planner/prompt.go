@@ -205,10 +205,10 @@ func questionLines(questions []store.EpicQuestion) []string {
 	return lines
 }
 
-// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, gate, and its
-// evidence item as compact JSON.
+// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, contributes,
+// gate, and its evidence item as compact JSON.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
-	lines := make([]string, 0, 6*len(tasks))
+	lines := make([]string, 0, 7*len(tasks))
 	for _, task := range tasks {
 		evidence, err := json.Marshal(task.Evidence)
 		if err != nil {
@@ -219,6 +219,7 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 			"  deliverable: "+task.Deliverable,
 			"  files: "+strings.Join(task.Files, ", "),
 			"  requirements: "+strings.Join(task.Requirements, ", "),
+			"  contributes: "+strings.Join(task.Contributes, ", "),
 			"  gate: "+task.Gate,
 			"  evidence: "+string(evidence),
 		)

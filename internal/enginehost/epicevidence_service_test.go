@@ -69,6 +69,7 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 	req.Contract.Gates = epicEvidenceGates()
 	req.Contract.DoneGates = []string{"check", "unit"}
 	req.Contract.Requirements[0].Item = &v1.EvidenceItem{
+		Kind:       "capture",
 		Capture:    []string{"scripts/unit"},
 		Limit:      120,
 		Artifacts:  []string{"out/unit.json"},
@@ -76,6 +77,7 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		Judge:      "reviewer",
 	}
 	req.Contract.Requirements[1].Item = &v1.EvidenceItem{
+		Kind:       "supplied",
 		Supplied:   []string{"docs/report.md"},
 		Conclusion: "Synthetic conclusion.",
 		Judge:      "reviewer",
@@ -85,6 +87,9 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		t.Fatal("clone of the contract is not an EpicContract")
 	}
 	want.Base = epicTestBase(repo)
+	for _, requirement := range want.GetRequirements() {
+		requirement.State = "pending"
+	}
 
 	stored := createEpicOK(t, client, req)
 	if !proto.Equal(stored.GetContract(), want) {

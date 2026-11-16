@@ -64,13 +64,14 @@ func buildOfMessage(task *v1.EpicTask) store.TaskBuild {
 }
 
 // recordBuildRun stores an evidence run of task T1 with id for phase at buildHeadRevision, captured with exit, and
-// judged with verdict and passed. Its one artifact is missing.
+// judged with verdict and passed. Its spec is the evidence plannedReturn stored for task 1, and its one artifact is
+// missing.
 func recordBuildRun(t *testing.T, st *store.Store, id, phase string, exit int, verdict string, passed bool) {
 	t.Helper()
 	ctx := t.Context()
 	if err := st.AddEvidenceRun(ctx, store.EvidenceRun{
 		ID: id, Epic: epicServiceID, Item: "T1", Revision: buildHeadRevision, Phase: phase, Source: "captured",
-		Created: time.Unix(turnStarted, 0),
+		Spec: plannedReturn().Tasks[0].Evidence, Created: time.Unix(turnStarted, 0),
 	}); err != nil {
 		t.Fatalf("AddEvidenceRun %s: %v", phase, err)
 	}

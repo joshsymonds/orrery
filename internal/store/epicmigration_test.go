@@ -52,6 +52,7 @@ func epicTableColumns() map[string][]string {
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
+		"epic_task_contributes":  {"epic", "task", "position", "requirement"},
 		"epic_task_reviews":      {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
 		"epic_task_findings": {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",

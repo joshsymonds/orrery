@@ -552,7 +552,13 @@ type EpicRequirement struct {
 	// How the requirement is shown: check or review. Kept for epics stored before O3d2; a new epic leaves it empty.
 	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
 	// The evidence that shows the requirement is true. Empty for epics stored before O3d2, which keep evidence and kind.
-	Item          *EvidenceItem `protobuf:"bytes,5,opt,name=item,proto3" json:"item,omitempty"`
+	Item *EvidenceItem `protobuf:"bytes,5,opt,name=item,proto3" json:"item,omitempty"`
+	// The id of the task not failed that claims the requirement, T<seq>; empty when no task claims it.
+	Owner string `protobuf:"bytes,6,opt,name=owner,proto3" json:"owner,omitempty"`
+	// The ids of the tasks not failed that contribute to the requirement, T<seq>, in seq order.
+	Contributors []string `protobuf:"bytes,7,rep,name=contributors,proto3" json:"contributors,omitempty"`
+	// How far the requirement is shown: pending, red or green, from the runs of its current item.
+	State         string `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -620,6 +626,27 @@ func (x *EpicRequirement) GetItem() *EvidenceItem {
 		return x.Item
 	}
 	return nil
+}
+
+func (x *EpicRequirement) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *EpicRequirement) GetContributors() []string {
+	if x != nil {
+		return x.Contributors
+	}
+	return nil
+}
+
+func (x *EpicRequirement) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
 }
 
 // EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
@@ -791,7 +818,12 @@ type EvidenceItem struct {
 	// The conclusion the judge checks the evidence against.
 	Conclusion string `protobuf:"bytes,5,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
 	// The agent that judges the evidence.
-	Judge         string `protobuf:"bytes,6,opt,name=judge,proto3" json:"judge,omitempty"`
+	Judge string `protobuf:"bytes,6,opt,name=judge,proto3" json:"judge,omitempty"`
+	// How the evidence shows the requirement or task is done: test, capture or supplied; empty for an item stored without
+	// a kind.
+	Kind string `protobuf:"bytes,7,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The repository-relative test files a test item runs beside its capture; empty for an item that is not a test.
+	Tests         []string `protobuf:"bytes,8,rep,name=tests,proto3" json:"tests,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -866,6 +898,20 @@ func (x *EvidenceItem) GetJudge() string {
 		return x.Judge
 	}
 	return ""
+}
+
+func (x *EvidenceItem) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EvidenceItem) GetTests() []string {
+	if x != nil {
+		return x.Tests
+	}
+	return nil
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -1660,7 +1706,9 @@ type EpicTask struct {
 	// The green evidence run the build names; absent until the build names one.
 	Green *EvidenceRun `protobuf:"bytes,20,opt,name=green,proto3" json:"green,omitempty"`
 	// The reviews of the task's build, in attempt then position order.
-	Reviews       []*EpicTaskReview `protobuf:"bytes,21,rep,name=reviews,proto3" json:"reviews,omitempty"`
+	Reviews []*EpicTaskReview `protobuf:"bytes,21,rep,name=reviews,proto3" json:"reviews,omitempty"`
+	// The Requirement ids the task contributes to without claiming them, R<n>.
+	Contributes   []string `protobuf:"bytes,22,rep,name=contributes,proto3" json:"contributes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1838,6 +1886,13 @@ func (x *EpicTask) GetGreen() *EvidenceRun {
 func (x *EpicTask) GetReviews() []*EpicTaskReview {
 	if x != nil {
 		return x.Reviews
+	}
+	return nil
+}
+
+func (x *EpicTask) GetContributes() []string {
+	if x != nil {
+		return x.Contributes
 	}
 	return nil
 }
@@ -4826,13 +4881,16 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06_modelB\t\n" +
 	"\a_effortB\b\n" +
 	"\x06_limitB\t\n" +
-	"\a_verify\"\x99\x01\n" +
+	"\a_verify\"\xe9\x01\n" +
 	"\x0fEpicRequirement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
 	"\bevidence\x18\x03 \x01(\tR\bevidence\x12\x12\n" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x122\n" +
-	"\x04item\x18\x05 \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\x04item\"8\n" +
+	"\x04item\x18\x05 \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\x04item\x12\x14\n" +
+	"\x05owner\x18\x06 \x01(\tR\x05owner\x12\"\n" +
+	"\fcontributors\x18\a \x03(\tR\fcontributors\x12\x14\n" +
+	"\x05state\x18\b \x01(\tR\x05state\"8\n" +
 	"\fEpicGateNeed\x12\x12\n" +
 	"\x04pool\x18\x01 \x01(\tR\x04pool\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\"\xc3\x01\n" +
@@ -4843,7 +4901,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05needs\x18\x04 \x03(\v2\x1e.orrery.engine.v1.EpicGateNeedR\x05needs\x12\x14\n" +
 	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x12\n" +
 	"\x04must\x18\x06 \x03(\tR\x04must\x12\x19\n" +
-	"\bmust_not\x18\a \x03(\tR\amustNot\"\xae\x01\n" +
+	"\bmust_not\x18\a \x03(\tR\amustNot\"\xd8\x01\n" +
 	"\fEvidenceItem\x12\x18\n" +
 	"\acapture\x18\x01 \x03(\tR\acapture\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x03R\x05limit\x12\x1c\n" +
@@ -4852,7 +4910,9 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\n" +
 	"conclusion\x18\x05 \x01(\tR\n" +
 	"conclusion\x12\x14\n" +
-	"\x05judge\x18\x06 \x01(\tR\x05judge\"d\n" +
+	"\x05judge\x18\x06 \x01(\tR\x05judge\x12\x12\n" +
+	"\x04kind\x18\a \x01(\tR\x04kind\x12\x14\n" +
+	"\x05tests\x18\b \x03(\tR\x05tests\"d\n" +
 	"\x10EvidenceArtifact\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x12\n" +
@@ -4915,7 +4975,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\x06 \x01(\tR\aoutcome\x12\x1c\n" +
 	"\tdecisions\x18\a \x03(\tR\tdecisions\x12\x18\n" +
 	"\astarted\x18\b \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\t \x01(\x03R\x05ended\"\xfa\x04\n" +
+	"\x05ended\x18\t \x01(\x03R\x05ended\"\x9c\x05\n" +
 	"\bEpicTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x14\n" +
@@ -4938,7 +4998,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x04held\x18\x12 \x01(\tR\x04held\x12/\n" +
 	"\x03red\x18\x13 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x03red\x123\n" +
 	"\x05green\x18\x14 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x05green\x12:\n" +
-	"\areviews\x18\x15 \x03(\v2 .orrery.engine.v1.EpicTaskReviewR\areviews\"\xab\x01\n" +
+	"\areviews\x18\x15 \x03(\v2 .orrery.engine.v1.EpicTaskReviewR\areviews\x12 \n" +
+	"\vcontributes\x18\x16 \x03(\tR\vcontributes\"\xab\x01\n" +
 	"\x0eEpicTaskReview\x12\x18\n" +
 	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
 	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +

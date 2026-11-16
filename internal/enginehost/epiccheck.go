@@ -269,6 +269,8 @@ func evidenceItemOf(item *v1.EvidenceItem) evidence.Item {
 		Supplied:   item.GetSupplied(),
 		Conclusion: item.GetConclusion(),
 		Judge:      item.GetJudge(),
+		Kind:       evidence.Kind(item.GetKind()),
+		Tests:      item.GetTests(),
 	}
 }
 

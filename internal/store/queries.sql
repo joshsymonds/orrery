@@ -609,6 +609,9 @@ INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: InsertEpicTaskContribute :exec
+INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?);
+
 -- name: SetEpicTaskBuild :execrows
 UPDATE epic_tasks
 SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_attempt),
@@ -712,6 +715,9 @@ SELECT * FROM epic_task_files WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicTaskRequirements :many
 SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
+
+-- name: ListEpicTaskContributes :many
+SELECT * FROM epic_task_contributes WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicTaskReviews :many
 SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
