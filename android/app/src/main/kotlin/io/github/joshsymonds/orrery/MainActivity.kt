@@ -17,10 +17,12 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -28,17 +30,23 @@ import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
+import io.github.joshsymonds.orrery.ui.Crumb
 import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
@@ -47,10 +55,18 @@ import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
+import io.github.joshsymonds.orrery.ui.TalkScreen
+import io.github.joshsymonds.orrery.ui.TalkSession
+import io.github.joshsymonds.orrery.ui.TalkSessionScreen
+import io.github.joshsymonds.orrery.ui.TalkTarget
+import io.github.joshsymonds.orrery.ui.TitleRow
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
 import io.github.joshsymonds.orrery.ui.theme.spec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 internal const val ROOT_CONTENT_TAG = "root-content"
 internal const val TOP_BAND_TAG = "top-band"
@@ -116,6 +132,14 @@ class MainActivity : ComponentActivity() {
                                                 screen = Screen.Step(it.id, epicId = current.id, held = it.held)
                                             },
                                             onOpenContract = { screen = Screen.Contract(current.id) },
+                                            actions = {
+                                                TextButton(
+                                                    onClick = { screen = Screen.Talk(current.id) },
+                                                    modifier = Modifier.testTag("epic-talk"),
+                                                ) {
+                                                    Text("Talk")
+                                                }
+                                            },
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
                                         )
                                     }
@@ -135,6 +159,27 @@ class MainActivity : ComponentActivity() {
                                             client = client,
                                             onBack = { screen = Screen.Epic(current.epicId) },
                                             step = StepMode(held = current.held),
+                                        )
+                                    }
+                                    is Screen.Talk -> {
+                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        TalkListScreen(
+                                            client = client,
+                                            epicId = current.epicId,
+                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            onHome = { screen = Screen.Panes },
+                                            onOpen = { target, line ->
+                                                screen = Screen.Conversation(current.epicId, line, target)
+                                            },
+                                        )
+                                    }
+                                    is Screen.Conversation -> {
+                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        TalkSessionScreen(
+                                            epicLine = current.epicLine,
+                                            target = current.target,
+                                            client = client,
+                                            onBack = { screen = Screen.Epic(current.epicId) },
                                         )
                                     }
                                     is Screen.Pane -> {
@@ -224,13 +269,13 @@ class MainActivity : ComponentActivity() {
 
     /**
      * How deep a screen sits: the home list is 0; a pane, a session, the pools, the settings or an epic is 1; an epic's
-     * contract or step is 2.
+     * contract, step, Talk list or Talk conversation is 2.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
             Screen.Pools, Screen.Settings, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
-            is Screen.Contract, is Screen.Step -> 2
+            is Screen.Contract, is Screen.Step, is Screen.Talk, is Screen.Conversation -> 2
         }
 
     private sealed interface Screen {
@@ -249,5 +294,77 @@ class MainActivity : ComponentActivity() {
          * held state when it was opened.
          */
         data class Step(val id: String, val epicId: String, val held: Boolean) : Screen
+
+        /** An epic's Talk list, reached from the epic's title row: back returns to the epic. */
+        data class Talk(val epicId: String) : Screen
+
+        /**
+         * A Talk conversation, reached from the epic's Talk list: a tap on [epicLine], the epic's slug, returns to
+         * [epicId]. [target] is the session or pane it shows.
+         */
+        data class Conversation(val epicId: String, val epicLine: String, val target: TalkTarget) : Screen
     }
+}
+
+/**
+ * An epic's Talk list as its own screen: the crumbs orrery, the epic's slug and talk, then [TalkScreen] with the epic's
+ * sessions and repository. The orrery crumb calls [onHome]; back and the slug crumb call [onBack]. The epic is read off
+ * the main thread; a read that fails, or an epic with no such id, says so in the list's place. [onOpen] receives the
+ * target a row or a new session opens, with the epic's slug, the line its conversation shows under.
+ */
+@Composable
+private fun TalkListScreen(
+    client: OrreryClient,
+    epicId: String,
+    onBack: () -> Unit,
+    onHome: () -> Unit,
+    onOpen: (TalkTarget, epicLine: String) -> Unit,
+) {
+    var load by remember(client, epicId) { mutableStateOf<TalkLoad>(TalkLoad.Loading) }
+    LaunchedEffect(client, epicId) {
+        load = try {
+            val detail = withContext(Dispatchers.IO) { client.epic(epicId) }
+            if (detail == null) TalkLoad.NotFound else TalkLoad.Loaded(detail)
+        } catch (error: IOException) {
+            TalkLoad.Failed
+        }
+    }
+
+    val detail = (load as? TalkLoad.Loaded)?.detail
+    Column(modifier = Modifier.fillMaxSize()) {
+        TitleRow(
+            crumbs = listOfNotNull(
+                Crumb("orrery", onHome),
+                detail?.let { Crumb(it.epic.slug, onBack) },
+                Crumb("talk"),
+            ),
+            onBack = onBack,
+        )
+        when (val current = load) {
+            TalkLoad.Loading -> Text("Loading...", modifier = Modifier.padding(16.dp))
+            TalkLoad.Failed -> Text(
+                "could not load epic",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(16.dp),
+            )
+            TalkLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
+            is TalkLoad.Loaded -> TalkScreen(
+                epicId = epicId,
+                sessions = current.detail.sessions.map {
+                    TalkSession(id = it.id, pane = it.pane, label = it.label, call = it.call, at = it.at)
+                },
+                repository = current.detail.repository,
+                client = client,
+                onOpen = { target -> onOpen(target, current.detail.epic.slug) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+private sealed interface TalkLoad {
+    data object Loading : TalkLoad
+    data object Failed : TalkLoad
+    data object NotFound : TalkLoad
+    data class Loaded(val detail: EpicDetail) : TalkLoad
 }
