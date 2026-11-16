@@ -327,3 +327,154 @@ func TestCompleteTurnReplacingUnknownQuestionIsBadQuestionAndWritesNothing(t *te
 		t.Errorf("rows after a refused CompleteTurn = %v, want the rows before %v", after, before)
 	}
 }
+
+// parkQuestionOf returns the open park question a store reads back for a park with text at seq that is not final: one
+// declared choice, retry, recommended with a low confidence.
+func parkQuestionOf(seq int64, text string) EpicQuestion {
+	return EpicQuestion{
+		Seq: seq, Turn: 0, Text: text, State: QuestionOpen, Label: ParkLabel,
+		Choices: []EpicChoice{{
+			ID:   "retry",
+			Does: "end the park and start a turn on the waiting triggers, as orrery epic retry does",
+		}},
+		Recommended: "retry",
+		Why:         "no model judges a park; retry runs the epic again on its waiting triggers",
+		Confidence:  "low",
+	}
+}
+
+// finalParkQuestionOf returns the open park question a store reads back for a final park with text at seq: no
+// declared choice and no recommendation.
+func finalParkQuestionOf(seq int64, text string) EpicQuestion {
+	return EpicQuestion{Seq: seq, Turn: 0, Text: text, State: QuestionOpen, Label: ParkLabel, Choices: []EpicChoice{}}
+}
+
+// questionsOf returns the questions of claimEpic a store reads back.
+func questionsOf(t *testing.T, s *Store) []EpicQuestion {
+	t.Helper()
+	epic, err := s.Epic(context.Background(), claimEpic)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	return epic.Questions
+}
+
+func TestThreeFailedTurnsInARowOpenAParkQuestion(t *testing.T) {
+	t.Parallel()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	addPendingTrigger(t, s)
+	claimAndFail(t, s, "first failure")
+	claimAndFail(t, s, "second failure")
+	claimAndFail(t, s, "third failure")
+
+	want := []EpicQuestion{parkQuestionOf(1, parkPrefix+"third failure")}
+	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
+		t.Errorf("questions after the third failure = %+v, want %+v", got, want)
+	}
+}
+
+func TestFreeTurnWithParkOpensAParkQuestion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	turn, err := s.ClaimTurn(ctx, claimEpic, claimedAt())
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	if err := s.FreeTurn(ctx, claimEpic, turn.Seq, TurnFree{Reason: "stopped", Park: "needs a human"},
+		failedAt()); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
+	}
+
+	want := []EpicQuestion{parkQuestionOf(1, "needs a human")}
+	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
+		t.Errorf("questions after a free park = %+v, want %+v", got, want)
+	}
+}
+
+func TestParkEpicOpensAParkQuestionAndItsTellCarriesItsSeq(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	if err := s.ParkEpic(ctx, claimEpic, "credit ran out", completedAt()); err != nil {
+		t.Fatalf("ParkEpic: %v", err)
+	}
+
+	want := []EpicQuestion{parkQuestionOf(1, "credit ran out")}
+	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
+		t.Errorf("questions after ParkEpic = %+v, want %+v", got, want)
+	}
+	tells, err := sqlcgen.New(s.db).ListEpicTells(ctx, claimEpic)
+	if err != nil {
+		t.Fatalf("ListEpicTells: %v", err)
+	}
+	if len(tells) != 1 || tells[0].Text != "credit ran out" || tells[0].Question != 1 {
+		t.Errorf("tells after ParkEpic = %+v, want one tell %q carrying question 1", tells, "credit ran out")
+	}
+}
+
+func TestParkAgainReplacesTheOpenParkQuestion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	if err := s.ParkEpic(ctx, claimEpic, "credit ran out", completedAt()); err != nil {
+		t.Fatalf("first ParkEpic: %v", err)
+	}
+	if err := s.ParkEpic(ctx, claimEpic, "needs a human", completedAt().Add(time.Minute)); err != nil {
+		t.Fatalf("second ParkEpic: %v", err)
+	}
+
+	replaced := parkQuestionOf(1, "credit ran out")
+	replaced.State, replaced.ReplacedBy = QuestionReplaced, 2
+	successor := parkQuestionOf(2, "needs a human")
+	successor.Replaces = 1
+	if got, want := questionsOf(t, s), []EpicQuestion{replaced, successor}; !reflect.DeepEqual(got, want) {
+		t.Errorf("questions after parking again = %+v, want %+v", got, want)
+	}
+	open, err := s.OpenQuestions(ctx, claimEpic)
+	if err != nil {
+		t.Fatalf("OpenQuestions: %v", err)
+	}
+	if want := []EpicQuestion{successor}; !reflect.DeepEqual(open, want) {
+		t.Errorf("OpenQuestions after parking again = %+v, want %+v", open, want)
+	}
+}
+
+func TestParkNodeFinalOpensAFinalParkQuestionOnlyWhenItParks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(claimEpic))
+	runs := []NodeRun{{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1}}
+	if err := s.StartNodes(ctx, claimEpic, runs, nil, claimedAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+
+	if err := s.ParkNodeFinal(ctx, claimEpic, "red", 2, "failed", "wrong attempt", "parked for good",
+		completedAt()); err != nil {
+		t.Fatalf("ParkNodeFinal at another attempt: %v", err)
+	}
+	if got := questionsOf(t, s); len(got) != 0 {
+		t.Errorf("questions after a ParkNodeFinal that parks nothing = %+v, want none", got)
+	}
+
+	if err := s.ParkNodeFinal(ctx, claimEpic, "red", 1, "failed", "R1 met", "parked for good",
+		completedAt()); err != nil {
+		t.Fatalf("ParkNodeFinal: %v", err)
+	}
+	want := []EpicQuestion{finalParkQuestionOf(1, "parked for good")}
+	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
+		t.Errorf("questions after ParkNodeFinal = %+v, want %+v", got, want)
+	}
+	head, err := sqlcgen.New(s.db).GetEpic(ctx, claimEpic)
+	if err != nil {
+		t.Fatalf("GetEpic: %v", err)
+	}
+	if head.Phase != phaseMetAtBase {
+		t.Errorf("phase after ParkNodeFinal = %q, want %q", head.Phase, phaseMetAtBase)
+	}
+}

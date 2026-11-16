@@ -197,6 +197,7 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 	})
 	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{
 		syntheticQuestionMessage("Q1", 1, "synthetic-question-one", "Synthetic question one?"),
+		parkQuestionMessage("Q2", "needs a human"),
 	})
 }
 
@@ -211,6 +212,47 @@ func syntheticQuestionMessage(id string, turn int64, label, text string) *v1.Epi
 		},
 		Recommendation: &v1.EpicRecommendation{Choice: "synthetic-a", Why: "Synthetic reason.", Confidence: "low"},
 	}
+}
+
+// parkQuestionMessage returns the EpicQuestion message of the open park question id with text, which a park that is not
+// final opens: one declared choice, retry, recommended with a low confidence.
+func parkQuestionMessage(id, text string) *v1.EpicQuestion {
+	return &v1.EpicQuestion{
+		Id: id, Turn: 0, Text: text, State: "open", Label: "park",
+		Choices: []*v1.EpicQuestionChoice{{
+			Id:   "retry",
+			Does: "end the park and start a turn on the waiting triggers, as orrery epic retry does",
+		}},
+		Recommendation: &v1.EpicRecommendation{
+			Choice:     "retry",
+			Why:        "no model judges a park; retry runs the epic again on its waiting triggers",
+			Confidence: "low",
+		},
+	}
+}
+
+func TestEpicGetShowsFinalParkQuestionWithNoChoiceOrRecommendation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, _ := openPlannerStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	runs := []store.NodeRun{{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1}}
+	if err := st.StartNodes(ctx, epicServiceID, runs, nil, time.Unix(turnStarted, 0)); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := st.ParkNodeFinal(ctx, epicServiceID, "red", 1, "failed", "R1 met", "parked for good",
+		time.Unix(turnFreed, 0)); err != nil {
+		t.Fatalf("ParkNodeFinal: %v", err)
+	}
+
+	got := getEpicOK(t, client)
+	if got.GetParked() != "parked for good" {
+		t.Fatalf("parked = %q, want %q", got.GetParked(), "parked for good")
+	}
+	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{{
+		Id: "Q1", Turn: 0, Text: "parked for good", State: "open", Label: "park",
+	}})
 }
 
 func TestEpicGetShowsQuestionReplacedByAnother(t *testing.T) {

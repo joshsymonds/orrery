@@ -174,21 +174,32 @@ func endAndBuild(ctx context.Context, queries *sqlcgen.Queries, epic string, end
 }
 
 // ParkNodeFinal parks the running run at path of epic at attempt as ParkNode does, and sets the phase of epic to
-// met_at_base, in one write. A park that changes nothing sets no phase. RetryEpic and RetryNode refuse an epic in that
-// phase.
+// met_at_base before it parks epic, so the park question is final, in one write. A park that changes nothing sets no
+// phase. RetryEpic and RetryNode refuse an epic in that phase.
 func (s *Store) ParkNodeFinal(
 	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		parked, err := parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, reason, at)
+		parked, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
+			Outcome: outcome, Output: capNodeOutput(output), Epic: epic, Path: path, Attempt: attempt,
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 		}
-		if !parked {
+		if parked == 0 {
 			return nil
 		}
-		return setEpicPhase(ctx, queries, epic, phaseMetAtBase)
+		return parkFinal(ctx, queries, epic, reason, at)
 	})
+}
+
+// parkFinal sets the phase of epic to met_at_base and then parks epic with reason and adds reason as a tell, in the
+// caller's write. The phase comes first, so the park question the park opens is final.
+func parkFinal(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
+	if err := setEpicPhase(ctx, queries, epic, phaseMetAtBase); err != nil {
+		return err
+	}
+	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
 }
 
 // setEpicPhase stores phase as the phase of epic in the caller's write.

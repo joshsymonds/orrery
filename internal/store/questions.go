@@ -27,8 +27,20 @@ const (
 // ChoiceOther is the choice orrery offers on every question. A question never declares it.
 const ChoiceOther = "other"
 
+// ChoiceRetry is the choice a park question that is not final declares: ending the park and starting a turn on the
+// waiting triggers.
+const ChoiceRetry = "retry"
+
 // ParkLabel is the label of the questions orrery asks when it parks an epic. A planner question never takes it.
 const ParkLabel = "park"
+
+// The advice a park question that is not final gives its retry choice: what retry does, why orrery recommends it, and
+// how confident that recommendation is.
+const (
+	parkRetryDoes  = "end the park and start a turn on the waiting triggers, as orrery epic retry does"
+	parkRetryWhy   = "no model judges a park; retry runs the epic again on its waiting triggers"
+	parkConfidence = "low"
+)
 
 // EpicChoice is one declared choice of a question: its id and what choosing it does.
 type EpicChoice struct {
@@ -163,6 +175,57 @@ func replaceQuestion(ctx context.Context, queries *sqlcgen.Queries, epic string,
 		return fmt.Errorf("replace question %d of epic %s: %w", replaces, epic, err)
 	}
 	return nil
+}
+
+// parkQuestion returns the question a park with reason asks. A park that is not final declares retry and recommends it.
+// A final park declares no choice and recommends none, so only other is offered.
+func parkQuestion(reason string, final bool) EpicQuestionInput {
+	question := EpicQuestionInput{Label: ParkLabel, Text: reason, Choices: []EpicChoice{}}
+	if !final {
+		question.Choices = []EpicChoice{{ID: ChoiceRetry, Does: parkRetryDoes}}
+		question.Recommended, question.Why, question.Confidence = ChoiceRetry, parkRetryWhy, parkConfidence
+	}
+	return question
+}
+
+// insertParkQuestion opens question, a park question, for epic in the caller's write, as the next question seq of epic,
+// and returns that seq. An open park question of epic is replaced by it, as a planner question replaces the question it
+// names. A park leaves at most one park question open, so one park replaces at most one.
+func insertParkQuestion(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	question EpicQuestionInput,
+) (int64, error) {
+	open, err := queries.ListOpenEpicParkQuestions(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read open park questions of epic %s: %w", epic, err)
+	}
+	highest, err := queries.MaxEpicQuestionSeq(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read question count of epic %s: %w", epic, err)
+	}
+	seq := highest + 1
+	var replaces int64
+	for _, stored := range open {
+		if _, err = queries.SetEpicQuestionReplaced(ctx, sqlcgen.SetEpicQuestionReplacedParams{
+			ReplacedBy: seq, Epic: epic, Seq: stored.Seq,
+		}); err != nil {
+			return 0, fmt.Errorf("replace park question %d of epic %s: %w", stored.Seq, epic, err)
+		}
+		replaces = stored.Seq
+	}
+	choices, err := json.Marshal(question.Choices)
+	if err != nil {
+		return 0, fmt.Errorf("choices of park question %d of epic %s: %w", seq, epic, err)
+	}
+	if err = queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
+		Epic: epic, Seq: seq, Turn: 0, Text: question.Text, Label: question.Label, Choices: string(choices),
+		Recommended: question.Recommended, Why: question.Why, Confidence: question.Confidence, Replaces: replaces,
+	}); err != nil {
+		return 0, fmt.Errorf("insert park question %d of epic %s: %w", seq, epic, err)
+	}
+	return seq, nil
 }
 
 // choicesOf decodes the JSON array of choices a question stores.

@@ -153,32 +153,35 @@ func setTaskStatus(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 	return nil
 }
 
-// parkWithTell parks epic with reason and adds reason as a tell, in the write the caller runs.
+// parkWithTell parks epic with reason, opens its park question, and adds reason as a tell that carries the seq of that
+// question, in the write the caller runs.
 func parkWithTell(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
-	if err := setParked(ctx, queries, epic, reason); err != nil {
+	question, err := setParked(ctx, queries, epic, reason)
+	if err != nil {
 		return err
 	}
-	return insertTell(ctx, queries, epic, reason, at)
+	return insertTell(ctx, queries, epic, reason, question, at)
 }
 
-// insertTells adds each of texts to epic as tells, in order, as insertTell does.
+// insertTells adds each of texts to epic as tells, in order, as insertTell does with no question.
 func insertTells(ctx context.Context, queries *sqlcgen.Queries, epic string, texts []string, at time.Time) error {
 	for _, text := range texts {
-		if err := insertTell(ctx, queries, epic, text, at); err != nil {
+		if err := insertTell(ctx, queries, epic, text, 0, at); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// insertTell adds text to epic as its next tell, numbered one past its highest, and not yet told.
-func insertTell(ctx context.Context, queries *sqlcgen.Queries, epic, text string, at time.Time) error {
+// insertTell adds text to epic as its next tell, numbered one past its highest, and not yet told. question is the seq
+// of the park question the tell belongs to, or 0 for none.
+func insertTell(ctx context.Context, queries *sqlcgen.Queries, epic, text string, question int64, at time.Time) error {
 	highest, err := queries.MaxEpicTellSeq(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read tells of epic %s: %w", epic, err)
 	}
 	if err = queries.InsertEpicTell(ctx, sqlcgen.InsertEpicTellParams{
-		Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(),
+		Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(), Question: question,
 	}); err != nil {
 		return fmt.Errorf("insert tell of epic %s: %w", epic, err)
 	}

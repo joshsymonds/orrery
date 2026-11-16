@@ -79,7 +79,10 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	if err := s.PauseEpic(ctx, id); err != nil {
 		t.Fatalf("PauseEpic: %v", err)
 	}
-	parkEpic(t, s, id, "credit ran out")
+	parkedAt := completedAt().Add(2 * time.Minute)
+	if err := s.ParkEpic(ctx, id, "credit ran out", parkedAt); err != nil {
+		t.Fatalf("ParkEpic: %v", err)
+	}
 
 	got, err := s.Attention(ctx)
 	if err != nil {
@@ -87,7 +90,10 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	}
 	want := []EpicAttention{{
 		Epic: id, Title: "Synthetic epic", Parked: "credit ran out", Paused: true,
-		Open: []EpicQuestion{openStored(secondTurn, 2, 2), openStored(which, 3, 2)},
+		Open: []EpicQuestion{
+			openStored(secondTurn, 2, 2), openStored(which, 3, 2), parkQuestionOf(4, "credit ran out"),
+		},
+		Tells: []EpicTell{{Seq: 1, Text: "credit ran out", At: parkedAt}}, LatestTell: parkedAt,
 		Latest: EpicTurn{
 			Epic: id, Seq: 2, State: "succeeded", Seen: int64(len(seededDecisions())), Outcome: "wait",
 			Started: claimedAt().Add(time.Minute), Ended: completedAt().Add(time.Minute),
