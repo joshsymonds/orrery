@@ -19,17 +19,35 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition as EpicAdditionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAlternative as EpicAlternativeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask as EpicBuildTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract as EpicContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicDecision as EpicDecisionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure as EpicFailureProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry as EpicHistoryEntryProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell as EpicTellProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger as EpicTriggerProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact as EvidenceArtifactProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceClient
@@ -83,6 +101,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.MalformedURLException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
 import kotlin.time.Duration
@@ -249,7 +268,12 @@ data class PickRow(
 /** One gate check of a step. [stdout] and [stderr] are the redacted tails of a failed gate check, empty otherwise. */
 data class StepCheckRow(val round: Int, val name: String, val ok: Boolean, val stdout: String, val stderr: String)
 
-/** One labelled step as the epics view shows it. [end] is "" while the step runs. */
+/**
+ * One labelled step as the epics view shows it. [end] is "" while the step runs. [stage] is the stage the step is in,
+ * empty when it has none, and [stageStarted] is when that stage started, 0 when unknown. [limited] is whether a usage
+ * limit of [limitKind] holds the step. [readOnly] is whether the step is read-only, [role] is the role it plays, and
+ * [summary] is its redacted summary.
+ */
 data class StepRow(
     val id: String,
     val task: String,
@@ -262,6 +286,13 @@ data class StepRow(
     val doing: String,
     val checks: List<StepCheckRow>,
     val reason: String,
+    val stage: String = "",
+    val stageStarted: Long = 0L,
+    val limited: Boolean = false,
+    val limitKind: String = "",
+    val readOnly: Boolean = false,
+    val role: String = "",
+    val summary: String = "",
 )
 
 /**
@@ -299,7 +330,8 @@ data class EpicRequirementRow(
 /**
  * One evidence run of a requirement, for one [phase] (red or green), produced by [source] (captured or supplied).
  * [passed] is whether the run passes its phase, [logBytes] and [stderrBytes] are the sizes of its stdout and stderr logs,
- * and [artifacts] are the files it kept.
+ * and [artifacts] are the files it kept. [item] is the requirement or task whose evidence the run shows, set by an
+ * epic's history and empty elsewhere.
  */
 data class EvidenceRunRow(
     val id: String,
@@ -318,7 +350,58 @@ data class EvidenceRunRow(
     val logBytes: Long,
     val stderrBytes: Long,
     val artifacts: List<EvidenceArtifactRow>,
+    val item: String = "",
 )
+
+/**
+ * One entry of an epic's history: [time] is its time in unix seconds and [cursor] names it for the next page. [kind] is
+ * the row the entry carries, one of turn, trigger, step, evidence, decision and tell, and "" when it carries none. Only
+ * the row [kind] names is set.
+ */
+data class EpicHistoryRow(
+    val time: Long,
+    val cursor: String,
+    val kind: String,
+    val turn: EpicTurnRow? = null,
+    val trigger: EpicTriggerRow? = null,
+    val step: StepRow? = null,
+    val evidence: EvidenceRunRow? = null,
+    val decision: EpicDecisionRow? = null,
+    val tell: EpicTellRow? = null,
+)
+
+/**
+ * A planner turn in an epic's history: [seq] is its position on the epic, [decisions] are the decisions its return
+ * recorded, and [started] and [ended] are unix seconds, [ended] 0 while the turn runs.
+ */
+data class EpicTurnRow(
+    val seq: Long,
+    val step: String,
+    val state: String,
+    val reason: String,
+    val outline: String,
+    val outcome: String,
+    val decisions: List<String>,
+    val started: Long,
+    val ended: Long,
+)
+
+/**
+ * A cause that asked an epic's planner for a turn. [turn] is the position of the turn that claimed it, 0 while pending.
+ */
+data class EpicTriggerRow(val id: String, val cause: String, val state: String, val turn: Long, val created: Long)
+
+/** A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. */
+data class EpicDecisionRow(val seq: Long, val id: String, val text: String, val time: Long, val question: String)
+
+/** Something an epic told its owner. [told] is whether the owner has been told it. */
+data class EpicTellRow(val seq: Long, val text: String, val at: Long, val told: Boolean)
+
+/**
+ * One page of an epic's history, oldest first. [next] is the cursor to pass as after for the next page, empty when none
+ * follows.
+ */
+data class EpicHistoryPage(val entries: List<EpicHistoryRow>, val next: String)
 
 /** One file an evidence run kept, with the [state] it was kept in. */
 data class EvidenceArtifactRow(val path: String, val state: String, val size: Long, val mediaType: String)
@@ -326,7 +409,14 @@ data class EvidenceArtifactRow(val path: String, val state: String, val size: Lo
 /** The bytes of one artifact or log an evidence run kept, with their [mediaType]. */
 data class EvidenceArtifactFile(val data: ByteArray, val mediaType: String)
 
-data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
+/** One task from an effort's state.json. [requirements] are the requirement ids the task names, in order. */
+data class EpicTaskRow(
+    val effort: Int,
+    val slug: String,
+    val subject: String,
+    val status: String,
+    val requirements: List<String> = emptyList(),
+)
 
 /**
  * One task's slice of the epic chart as serve sends it: rings outermost first. [at] is the ring a running or held task
@@ -386,7 +476,8 @@ data class EpicNodeCheckRow(
 
 /**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
- * unit. [red] and [green] are the evidence runs the build names, null until it names one.
+ * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
+ * requirement ids the task covers, in order.
  */
 data class EpicBuildTaskRow(
     val id: String,
@@ -395,13 +486,57 @@ data class EpicBuildTaskRow(
     val stage: String,
     val red: EvidenceRunRow?,
     val green: EvidenceRunRow?,
+    val requirements: List<String> = emptyList(),
+)
+
+/** One open question an orreryd epic's planner asked, in the order they were asked. */
+data class EpicQuestionRow(val id: String, val text: String, val turn: Long, val asked: Long)
+
+/** One failure an orreryd epic's contract guards against, with its [rating] and what the epic does about it. */
+data class EpicFailureRow(val id: String, val text: String, val rating: String, val response: String)
+
+/** One thing an orreryd epic's contract adds that the owner did not ask for. */
+data class EpicAdditionRow(val location: String, val what: String, val why: String, val cost: String)
+
+/** One assumption an orreryd epic's contract makes, with what changes if it is wrong. */
+data class EpicPremiseRow(val id: String, val text: String, val ifWrong: String)
+
+/** One approach an orreryd epic's contract considered and did not choose. */
+data class EpicAlternativeRow(val alternative: String, val whyNot: String, val reconsider: String)
+
+/** One step of an orreryd epic's contract that leaves the machine on release, with how it is [undo]ne. */
+data class EpicReleaseStepRow(val step: String, val target: String, val undo: String)
+
+/**
+ * An orreryd epic's accepted contract, its sections in the contract's order, without its requirements. [accepted] is
+ * when orreryd stored the epic, in unix seconds.
+ */
+data class EpicContractRow(
+    val title: String,
+    val approved: String,
+    val intent: String,
+    val failures: List<EpicFailureRow>,
+    val care: String,
+    val additions: List<EpicAdditionRow>,
+    val premises: List<EpicPremiseRow>,
+    val exclusions: List<String>,
+    val approach: String,
+    val alternatives: List<EpicAlternativeRow>,
+    val releaseSteps: List<EpicReleaseStepRow>,
+    val releaseThen: String,
+    val checks: String,
+    val base: String,
+    val accepted: Long,
 )
 
 /**
  * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [nodes] are its
  * workflow node runs in the order the server lists them. [buildTasks] are an orreryd epic's planned tasks in the order
- * they were planned, empty for a record epic.
+ * they were planned, empty for a record epic. [summary] is the epic's summary paragraph, empty until it is written.
+ * [contract] is the accepted contract, null for a record epic. [questions] are the open questions in the order they
+ * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
+ * when it is not.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -411,9 +546,14 @@ data class EpicDetail(
     val requirements: List<EpicRequirementRow> = emptyList(),
     val nodes: List<EpicNodeRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
+    val summary: String = "",
+    val contract: EpicContractRow? = null,
+    val questions: List<EpicQuestionRow> = emptyList(),
+    val paused: Boolean = false,
+    val parked: String = "",
 )
 
-/** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
+/** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
     data object Landed : StepCallResult
     data class Refused(val message: String) : StepCallResult
@@ -674,6 +814,24 @@ class OrreryClient(
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             nodes = response.nodesList.map { it.toEpicNodeRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
+            summary = response.summary,
+            contract = if (response.hasContract()) response.contract.toEpicContractRow() else null,
+            questions = response.questionsList.map { it.toEpicQuestionRow() },
+            paused = response.paused,
+            parked = response.parked,
+        )
+    }
+
+    /**
+     * One page of an epic's history, oldest first: the entries after the cursor [after] names, at most [limit] of them.
+     * A zero [limit] asks the server for its default. [EpicHistoryPage.next] is the cursor to pass for the next page.
+     */
+    fun history(id: String, after: String = "", limit: Int = 0): EpicHistoryPage {
+        val request = EpicsHistoryRequest.newBuilder().setId(id).setAfter(after).setLimit(limit).build()
+        val response = call(write = false) { standard.epics.history(request, CLIENT_HEADERS) }
+        return EpicHistoryPage(
+            entries = response.entriesList.map { it.toEpicHistoryRow() },
+            next = response.next,
         )
     }
 
@@ -832,6 +990,53 @@ class OrreryClient(
         return stepCall { call(write = true) { standard.steps.stop(request, CLIENT_HEADERS) } }
     }
 
+    /**
+     * Pauses the orreryd epic [id], so its planner starts no turn. A refused pause answers [StepCallResult.Refused].
+     */
+    fun pauseEpic(id: String): StepCallResult {
+        val request = EpicsPauseRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.pause(request, CLIENT_HEADERS) } }
+    }
+
+    /** Clears the pause of the orreryd epic [id]. A refused resume answers [StepCallResult.Refused]. */
+    fun resumeEpic(id: String): StepCallResult {
+        val request = EpicsResumeRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.resume(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Stops the orreryd epic [id]: it is paused, and the step of its running turn stops. A refused stop answers
+     * [StepCallResult.Refused].
+     */
+    fun stopEpic(id: String): StepCallResult {
+        val request = EpicsStopRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.stop(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Ends the park of the orreryd epic [id], or with [node] set reruns the parked runs of that workflow node. A
+     * refused retry answers [StepCallResult.Refused].
+     */
+    fun retryEpic(id: String, node: String = ""): StepCallResult {
+        val request = EpicsRetryRequest.newBuilder().setId(id).setNode(node).build()
+        return stepCall { call(write = true) { standard.epics.retry(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Records [text] as the owner's answer on the orreryd epic [epicId], tied to the question [questionId] names, or as
+     * a note when [questionId] is empty. A refused answer answers [StepCallResult.Refused].
+     */
+    fun answerEpic(epicId: String, questionId: String, text: String): StepCallResult {
+        // The decision id is the caller's, and orreryd refuses an empty one. A fresh id makes each answer a decision.
+        val request = EpicsAnswerRequest.newBuilder()
+            .setEpicId(epicId)
+            .setId(UUID.randomUUID().toString())
+            .setText(text)
+            .setQuestion(questionId)
+            .build()
+        return stepCall { call(write = true) { standard.epics.answer(request, CLIENT_HEADERS) } }
+    }
+
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
         val request = RegisterRequest.newBuilder().setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()
         call(write = true) { standard.push.register(request, CLIENT_HEADERS) }
@@ -917,10 +1122,46 @@ class OrreryClient(
             logBytes = logBytes,
             stderrBytes = stderrBytes,
             artifacts = artifactsList.map { it.toEvidenceArtifactRow() },
+            item = item,
         )
 
     private fun EvidenceArtifactProto.toEvidenceArtifactRow(): EvidenceArtifactRow =
         EvidenceArtifactRow(path = path, state = state, size = size, mediaType = mediaType)
+
+    private fun EpicHistoryEntryProto.toEpicHistoryRow(): EpicHistoryRow {
+        val row = EpicHistoryRow(time = time, cursor = cursor, kind = "")
+        return when {
+            hasTurn() -> row.copy(kind = "turn", turn = turn.toEpicTurnRow())
+            hasTrigger() -> row.copy(kind = "trigger", trigger = trigger.toEpicTriggerRow())
+            hasStep() -> row.copy(kind = "step", step = step.toStepRow())
+            hasEvidence() -> row.copy(kind = "evidence", evidence = evidence.toEvidenceRunRow())
+            hasDecision() -> row.copy(kind = "decision", decision = decision.toEpicDecisionRow())
+            hasTell() -> row.copy(kind = "tell", tell = tell.toEpicTellRow())
+            else -> row
+        }
+    }
+
+    private fun EpicTurnProto.toEpicTurnRow(): EpicTurnRow =
+        EpicTurnRow(
+            seq = seq,
+            step = step,
+            state = state,
+            reason = reason,
+            outline = outline,
+            outcome = outcome,
+            decisions = decisionsList.toList(),
+            started = started,
+            ended = ended,
+        )
+
+    private fun EpicTriggerProto.toEpicTriggerRow(): EpicTriggerRow =
+        EpicTriggerRow(id = id, cause = cause, state = state, turn = turn, created = created)
+
+    private fun EpicDecisionProto.toEpicDecisionRow(): EpicDecisionRow =
+        EpicDecisionRow(seq = seq, id = id, text = text, time = time, question = question)
+
+    private fun EpicTellProto.toEpicTellRow(): EpicTellRow =
+        EpicTellRow(seq = seq, text = text, at = at, told = told)
 
     private fun EpicStepProto.toStepRow(): StepRow =
         StepRow(
@@ -935,6 +1176,13 @@ class OrreryClient(
             doing = doing,
             checks = checksList.map { it.toStepCheckRow() },
             reason = reason,
+            stage = stage,
+            stageStarted = stageStarted,
+            limited = limited,
+            limitKind = limitKind,
+            readOnly = readOnly,
+            role = role,
+            summary = summary,
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
@@ -948,10 +1196,54 @@ class OrreryClient(
             stage = stage,
             red = if (hasRed()) red.toEvidenceRunRow() else null,
             green = if (hasGreen()) green.toEvidenceRunRow() else null,
+            requirements = requirementsList.toList(),
         )
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
-        EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)
+        EpicTaskRow(
+            effort = effort,
+            slug = slug,
+            subject = subject,
+            status = status,
+            requirements = requirementsList.toList(),
+        )
+
+    private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
+        EpicQuestionRow(id = id, text = text, turn = turn, asked = asked)
+
+    private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
+        EpicContractRow(
+            title = title,
+            approved = approved,
+            intent = intent,
+            failures = failuresList.map { it.toEpicFailureRow() },
+            care = care,
+            additions = additionsList.map { it.toEpicAdditionRow() },
+            premises = premisesList.map { it.toEpicPremiseRow() },
+            exclusions = exclusionsList.toList(),
+            approach = approach,
+            alternatives = alternativesList.map { it.toEpicAlternativeRow() },
+            releaseSteps = releaseStepsList.map { it.toEpicReleaseStepRow() },
+            releaseThen = releaseThen,
+            checks = checks,
+            base = base,
+            accepted = accepted,
+        )
+
+    private fun EpicFailureProto.toEpicFailureRow(): EpicFailureRow =
+        EpicFailureRow(id = id, text = text, rating = rating, response = response)
+
+    private fun EpicAdditionProto.toEpicAdditionRow(): EpicAdditionRow =
+        EpicAdditionRow(location = location, what = what, why = why, cost = cost)
+
+    private fun EpicPremiseProto.toEpicPremiseRow(): EpicPremiseRow =
+        EpicPremiseRow(id = id, text = text, ifWrong = ifWrong)
+
+    private fun EpicAlternativeProto.toEpicAlternativeRow(): EpicAlternativeRow =
+        EpicAlternativeRow(alternative = alternative, whyNot = whyNot, reconsider = reconsider)
+
+    private fun EpicReleaseStepProto.toEpicReleaseStepRow(): EpicReleaseStepRow =
+        EpicReleaseStepRow(step = step, target = target, undo = undo)
 
     private fun EpicSliceProto.toEpicSliceRow(): EpicSliceRow =
         EpicSliceRow(
@@ -1149,8 +1441,8 @@ class OrreryClient(
     }
 
     /**
-     * The answer of a step call: [Refused] when the server answered failed_precondition, which carries the
-     * reason a hold, nudge or stop was refused. Any other failure is thrown as [call] throws it.
+     * The answer of a step or epic call: [Refused] when the server answered failed_precondition, which carries the
+     * reason the call was refused. Any other failure is thrown as [call] throws it.
      */
     private fun stepCall(rpc: () -> Any): StepCallResult =
         try {

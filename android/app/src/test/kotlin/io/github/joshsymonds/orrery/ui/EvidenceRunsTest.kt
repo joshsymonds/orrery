@@ -22,6 +22,7 @@ import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
@@ -48,6 +49,7 @@ class EvidenceRunsTest {
         const val STDERR = "example stderr line one\n"
         const val EPIC_ID = "example-repo/example-epic"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
+        const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val EVIDENCE_ARTIFACT = "/orrery.v1.Evidence/Artifact"
         const val CHANGED = 4_102_444_800L
         const val IMAGE_TAG = "evidence-image:1:0:0"
@@ -140,6 +142,8 @@ class EvidenceRunsTest {
     }
 
     private fun setScreen(server: FakeOrreryServer) {
+        // The screen reads the epic's history with its detail, so an empty history is served beside it.
+        server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
         // One client for the screen's life: a client built inside the content keys the screen's load anew each time
         // the content recomposes (see PoolsScreenTest's aClientBuiltInsideTheContentReloadsTheScreen...).
         val client = OrreryClient(server.baseUrl)

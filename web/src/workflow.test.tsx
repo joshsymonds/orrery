@@ -4,10 +4,10 @@ import { test } from "node:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 
-import { EpicView } from "./epicview";
 import type { LoadArtifact } from "./evidence";
 import { type EpicNode, EpicNodeSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { installTestDom, removeTestDom } from "./testdom";
+import { Workflow } from "./workflow";
 
 function detail(init: MessageInitShape<typeof EpicsGetResponseSchema>): EpicsGetResponse {
   return create(EpicsGetResponseSchema, init);
@@ -20,9 +20,6 @@ function node(init: MessageInitShape<typeof EpicNodeSchema>): EpicNode {
 
 const epic = { id: "e1", slug: "demo-epic", repository: "demo-repo", outcome: "ship the demo" };
 
-// testNow is 15:00 on 13 November 2026 in the local zone: the now the view is read at. No test reads the wall clock.
-const testNow = Math.floor(new Date(2026, 10, 13, 15).getTime() / 1000);
-
 // noArtifacts answers no artifact: a test that draws no image or log never calls it.
 const noArtifacts: LoadArtifact = () => Promise.reject(new Error("the view loaded an artifact no test expected"));
 
@@ -33,8 +30,9 @@ async function withView(
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
+  const { nodes } = detail(init);
   try {
-    render(<EpicView detail={detail(init)} cursorStep="" now={testNow} loadArtifact={loadArtifact} />, container);
+    render(<Workflow nodes={nodes} loadArtifact={loadArtifact} />, container);
     await check(container);
   } finally {
     render(null, container);
@@ -48,10 +46,6 @@ async function settled(holds: () => boolean): Promise<void> {
   for (let turn = 0; turn < 100 && !holds(); turn += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-}
-
-function classOf(element: Element): string | null {
-  return element.getAttribute("class");
 }
 
 // rowsOf are the node rows of the WORKFLOW section, in the order the view draws them.
@@ -70,12 +64,6 @@ function spansStarting(row: Element, prefix: string): (string | null)[] {
 function listsOf(row: Element): (string | null)[][] {
   return [...row.querySelectorAll("ul")].map((list) => [...list.children].map((item) => item.textContent));
 }
-
-test("a response with no nodes draws no WORKFLOW section", () =>
-  withView({ epic }, (container) => {
-    assert.equal(container.textContent?.includes("WORKFLOW") ?? false, false);
-    assert.equal(container.querySelectorAll("section").length, 0);
-  }));
 
 test("the WORKFLOW section lists the nodes in the order given, each with its path, kind, state, outcome and round", () =>
   withView(
@@ -323,20 +311,5 @@ test("markup in a node's path, outcome, output, step and check tails draws as te
       assert.equal(row.textContent?.includes("<i>o</i>"), true);
       assert.equal(row.textContent?.includes("<script>alert(1)</script>"), true);
       assert.equal(row.textContent?.includes("<img src=x onerror=alert(1)>"), true);
-    },
-  ));
-
-test("the WORKFLOW section follows the Requirements and comes before the chart", () =>
-  withView(
-    {
-      epic,
-      requirements: [{ id: "R1", text: "the phase reads in the head", kind: "check" }],
-      nodes: [node({ path: "1", node: "plan", kind: "plan", state: "ended" })],
-    },
-    (container) => {
-      assert.deepEqual(
-        [...(container.querySelector(".epic-view")?.children ?? [])].slice(0, 4).map(classOf),
-        ["epic-head", "requirements", null, "no-steps"],
-      );
     },
   ));

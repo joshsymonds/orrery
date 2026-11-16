@@ -69,7 +69,6 @@ class OrbitGeometryTest {
     @Test
     fun firstSliceStartsAt8DegreesAndSlicesTileTo352() {
         assertEquals(8f, sliceStart(0, 12), 1e-4f)
-        assertEquals(22.333f, sliceMid(0, 12), 1e-3f)
         for (count in listOf(1, 2, 5, 12, 35, 80, 150)) {
             assertEquals("N=$count", 352f, sliceStart(count, count), 1e-3f)
             assertEquals("N=$count", sliceStart(0, count) + sliceSpan(count), sliceStart(1, count), 1e-3f)
@@ -113,46 +112,6 @@ class OrbitGeometryTest {
     }
 
     @Test
-    fun bezelIsAbsentBelowTenSlices() {
-        assertTrue(bezelTicks(5).isEmpty())
-        assertTrue(bezelTicks(9).isEmpty())
-    }
-
-    @Test
-    fun bezelTickOnTheFifthSliceSitsAtItsMiddleAndItsNumberAt192Point5() {
-        val fifth = bezelTicks(10).first { it.slice == 5 }
-        assertEquals(sliceMid(4, 10), fifth.angle, 1e-3f)
-        assertEquals(179f, fifth.inner, 1e-3f)
-        assertEquals(184f, fifth.outer, 1e-3f)
-        val expected = polar(sliceMid(4, 10), 192.5f) + Offset(206f, 206f)
-        val label = fifth.numberCentre!!
-        assertEquals(expected.x, label.x, 0.01f)
-        assertEquals(expected.y, label.y, 0.01f)
-    }
-
-    @Test
-    fun bezelTicksAndNumbersForTwelve() {
-        val ticks = bezelTicks(12)
-        assertEquals(listOf(5, 10), ticks.map { it.slice })
-        assertEquals(listOf(true, true), ticks.map { it.numberCentre != null })
-    }
-
-    @Test
-    fun bezelTicksAndNumbersForEighty() {
-        val ticks = bezelTicks(80)
-        assertEquals((5..80 step 5).toList(), ticks.map { it.slice })
-        assertEquals((10..80 step 10).toList(), ticks.filter { it.numberCentre != null }.map { it.slice })
-        assertTrue(ticks.all { it.outer == if (it.numberCentre != null) 184f else 182f })
-    }
-
-    @Test
-    fun bezelTicksAndNumbersForOneFifty() {
-        val ticks = bezelTicks(150)
-        assertEquals((5..150 step 5).toList(), ticks.map { it.slice })
-        assertEquals(listOf(25, 50, 75, 100, 125, 150), ticks.filter { it.numberCentre != null }.map { it.slice })
-    }
-
-    @Test
     fun cellLiesBetweenItsRadii() {
         // Ring 0 is 162.5 to 173.5 from the centre; ring 4 is 94.5 to 105.5.
         assertBetweenRadii(cellPath(1, 0, 0, 1f), 162.5f, 173.5f, 1f)
@@ -165,11 +124,6 @@ class OrbitGeometryTest {
         assertBetweenRadii(cellPath(1, 0, 0, 2f), 162.5f, 173.5f, 2f)
     }
 
-    @Test
-    fun cursorWedgeLiesBetweenItsRadii() {
-        assertBetweenRadii(cursorWedge(1, 0, 1f), 91f, 177f, 1f)
-    }
-
     // The distances from the centre of every point on the path's outline, in units. The outline comes from approximate(),
     // since getBounds() of a path with curves takes in their control points and reaches past the radii.
     private fun assertBetweenRadii(path: Path, inner: Float, outer: Float, u: Float) {
@@ -179,15 +133,5 @@ class OrbitGeometryTest {
         assertTrue(radii.all { it >= inner - 0.05f && it <= outer + 0.05f })
         assertEquals(inner, radii.min(), 0.05f)
         assertEquals(outer, radii.max(), 0.05f)
-    }
-
-    @Test
-    fun cursorHandPointsOutFromTheBase() {
-        // One slice's middle is 180 degrees: the tip at radius 89, the base corners at 82.5 and 3.4 units either side.
-        val hand = cursorHand(1, 0, 1f).getBounds()
-        assertEquals(202.6f, hand.left, 0.01f)
-        assertEquals(209.4f, hand.right, 0.01f)
-        assertEquals(288.5f, hand.top, 0.01f)
-        assertEquals(295f, hand.bottom, 0.01f)
     }
 }

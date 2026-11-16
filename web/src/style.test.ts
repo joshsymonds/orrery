@@ -22,7 +22,7 @@ function declarationsFor(text: string, selector: string): string {
     .join(";");
 }
 
-// mediaBlock returns the body of the first @media block with the given header, matching its braces.
+// mediaBlock returns the body of the first block with the given header, an @media or a @keyframes, matching its braces.
 function mediaBlock(text: string, header: string): string {
   const start = text.indexOf(header);
   assert.notEqual(start, -1, `style.css has ${header}`);
@@ -70,7 +70,7 @@ test("the html element takes the mono family", () => {
   assert.match(declarationsFor(css, "html"), /font-family:\s*var\(--mono\)/);
 });
 
-test("from 760px the page fills the window and the list, reader and epic column scroll", () => {
+test("from 760px the page fills the window and the list, reader and epic page scroll", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   assert.match(declarationsFor(wide, "body"), /height:\s*100dvh/);
   assert.match(declarationsFor(wide, "body"), /overflow:\s*hidden/);
@@ -81,7 +81,7 @@ test("from 760px the page fills the window and the list, reader and epic column 
   assert.match(declarationsFor(wide, ".list"), /grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;/);
   assert.doesNotMatch(declarationsFor(wide, ".list"), /overflow/);
   // .read > .reader is the scroll box of both the conversation and the pinned conversation.
-  for (const selector of [".list > .rows", ".read > .reader", ".side"]) {
+  for (const selector of [".list > .rows", ".read > .reader", "section.page"]) {
     assert.match(declarationsFor(wide, selector), /overflow-y:\s*auto/, `${selector} scrolls`);
     assert.match(declarationsFor(wide, selector), /min-height:\s*0(?![\d.])/, `${selector} can shrink`);
   }
@@ -98,53 +98,60 @@ test("from 760px the tracks are 440px, fluid and 380px with no gap, and a pin sp
   );
 });
 
-test("from 760px each column keeps its own track, and to 1100px the epic column takes the reader's", () => {
+test("from 760px each column keeps its own track in the one row, and the epic page takes the reader's track", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
-  // One row for every column: the epic column placed before the pin's track must not wrap to a second row.
-  for (const selector of [".panes > .list", ".panes > .read", ".panes > .side"]) {
+  // One row for every column: a column placed in an earlier track than the one before it must not wrap to a second row.
+  for (const selector of [".panes > .list", ".panes > .read", ".panes > section.page"]) {
     assert.match(declarationsFor(wide, selector), /grid-row:\s*1;/, `${selector} sits in the one row`);
   }
   assert.match(declarationsFor(wide, ".panes > .list"), /grid-column:\s*1;/);
   assert.match(declarationsFor(wide, ".panes > .read"), /grid-column:\s*2;/);
   assert.match(declarationsFor(wide, ".panes > .read.pinned"), /grid-column:\s*3;/);
-  assert.match(declarationsFor(wide, ".panes > .side"), /grid-column:\s*3;/);
-  const narrow = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1100px) {");
-  assert.match(declarationsFor(narrow, ".panes > .side"), /grid-column:\s*2;/);
+  assert.match(declarationsFor(wide, ".panes > section.page"), /grid-column:\s*2\s*\/\s*-1;/);
 });
 
-test("from 760px a conversation with no epic column and no pin spans the tracks right of the list", () => {
+test("from 760px with no pin, the reader and the epic page run to the last track right of the list", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
-  // The epic column follows the reader in the source, so only :has can see that it is hidden.
   assert.match(
-    declarationsFor(wide, ".panes:not(.split):has(> .side[hidden]) > .read"),
+    declarationsFor(wide, ".panes:not(.split) > .read"),
     /grid-column:\s*2\s*\/\s*-1;/,
-    "the reader runs to the last line when the epic column is hidden and nothing is pinned",
+    "the reader runs to the last line when nothing is pinned",
   );
 });
 
-test("from 760px a pinned epic column takes the reader's track, and a step hides it", () => {
+test("from 760px a pinned epic page takes the reader's track, one track wide", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
-  assert.match(declarationsFor(wide, ".panes.split .side"), /grid-column:\s*2;/);
-  assert.match(declarationsFor(wide, ".panes.split.with-step .side"), /display:\s*none;/);
+  assert.match(declarationsFor(wide, ".panes.split > section.page"), /grid-column:\s*2;/);
 });
 
-test("from 760px the body is base, the list is crust behind surface0, and the epic column is behind --rule", () => {
+test("from 760px the body is base, the list is crust behind surface0, and the epic page is behind --rule", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   assert.match(declarationsFor(wide, "body"), /background:\s*var\(--base\);/);
   assert.match(declarationsFor(wide, ".list"), /background:\s*var\(--crust\);/);
   assert.match(declarationsFor(wide, ".list"), /border-right:\s*1px solid var\(--surface0\);/);
-  assert.match(declarationsFor(wide, ".side"), /border-left:\s*1px solid var\(--rule\);/);
+  assert.match(declarationsFor(wide, "section.page"), /border-left:\s*1px solid var\(--rule\);/);
   assert.match(declarationsFor(wide, ".read.pinned"), /border-left:\s*1px solid var\(--rule\);/);
 });
 
-test("from 760px the top, rows, head, conversation, foot and epic column keep their padding", () => {
+test("from 760px the epic page scrolls on its own inside the reader's padding", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  const page = declarationsFor(wide, "section.page");
+  assert.match(page, /overflow-y:\s*auto;/);
+  assert.match(page, /padding:\s*18px 28px 10px;/);
+});
+
+test("a hidden epic page or reader takes no place", () => {
+  assert.match(declarationsFor(css, "section.page[hidden]"), /display:\s*none;/);
+  assert.match(declarationsFor(css, ".read[hidden]"), /display:\s*none;/);
+});
+
+test("from 760px the top, rows, head, conversation and foot keep their padding", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   assert.match(declarationsFor(wide, ".top"), /padding:\s*12px 14px 10px;/);
   assert.match(declarationsFor(wide, ".list > .rows"), /padding:\s*0 6px 10px;/);
   assert.match(declarationsFor(wide, ".head"), /padding:\s*12px 28px 11px;/);
   assert.match(declarationsFor(wide, ".read > .reader"), /padding:\s*18px 28px 10px;/);
   assert.match(declarationsFor(wide, ".send"), /padding:\s*0 28px 14px;/);
-  assert.match(declarationsFor(wide, ".side"), /padding:\s*16px 20px 24px;/);
 });
 
 test("from 760px the reader is a head, its conversation and a foot, and only the conversation scrolls", () => {
@@ -295,7 +302,7 @@ test("under 760px the body is crust and unpadded, and the columns stack behind t
   assert.match(panes, /padding-right:\s*max\(16px, env\(safe-area-inset-right, 0px\)\);/);
 });
 
-test("from 760px to 1500px the list is 400px and the epic column 340px", () => {
+test("from 760px to 1500px the list is 400px and the third track 340px", () => {
   const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1500px) {");
   assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*400px minmax\(0,\s*1fr\) 340px;/);
   assert.match(
@@ -304,26 +311,13 @@ test("from 760px to 1500px the list is 400px and the epic column 340px", () => {
   );
 });
 
-test("from 760px to 1100px the list is 380px in two tracks, and a step hides the epic column", () => {
+test("from 760px to 1100px the list is 380px in two tracks", () => {
   const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1100px) {");
   assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*380px minmax\(0,\s*1fr\);/);
   assert.match(
     declarationsFor(block, ".panes.split"),
     /grid-template-columns:\s*380px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
-  assert.match(declarationsFor(block, ".panes.with-step .side"), /display:\s*none;/);
-});
-
-test("from 1700px a pinned frame has four tracks, with the epic column in the fourth", () => {
-  const block = mediaBlock(css, "@media (min-width: 1700px) {");
-  assert.match(
-    declarationsFor(block, ".panes.split"),
-    /grid-template-columns:\s*440px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\) 380px;/,
-  );
-  // The shown epic column takes the fourth track; a hidden one keeps display none.
-  const side = declarationsFor(block, ".panes.split .side:not([hidden])");
-  assert.match(side, /grid-column:\s*4;/);
-  assert.match(side, /display:\s*block;/);
 });
 
 test("the brand row sets a 22px mark and 11.5px counts, and new counts are lavender", () => {
@@ -572,215 +566,254 @@ test("the epic's count and the capitals held tag have no rules", () => {
   assert.doesNotMatch(css, /\.b-row \.count|\.b-row \.held/);
 });
 
-test("the column's eyebrow is 700 10.5px over 14px mono at .13em in overlay1 with no margin, its sub 400 at no spacing in overlay0, 6px in", () => {
-  const eyebrow = declarationsFor(css, ".epic-view .eyebrow");
-  assert.match(eyebrow, /margin:\s*0;/);
-  assert.match(eyebrow, /font:\s*700 10\.5px\/14px var\(--mono\);/);
-  assert.match(eyebrow, /letter-spacing:\s*\.13em;/);
-  assert.match(eyebrow, /color:\s*var\(--overlay1\);/);
-  const sub = declarationsFor(css, ".epic-view .eyebrow .sub");
+test("the Pause, Stop and Answer commands are mono buttons on surface0, and Answer is the mauve primary", () => {
+  assert.match(declarationsFor(css, "button.act"), /background:\s*var\(--surface0\);/);
+  const primary = declarationsFor(css, "button.act.primary");
+  assert.match(primary, /background:\s*var\(--mauve\);/);
+  assert.match(primary, /color:\s*var\(--crust\);/);
+});
+
+test("the three moves press, state and layout are 120, 200 and 280 ms, drill is 320 ms ease-out and leave 200 ms ease-in", () => {
+  const root = declarationsFor(css, ":root");
+  assert.match(root, /--move-press:\s*120ms cubic-bezier\(0\.2, 0, 0, 1\);/);
+  assert.match(root, /--move-state:\s*200ms cubic-bezier\(0\.2, 0, 0, 1\);/);
+  assert.match(root, /--move-layout:\s*280ms cubic-bezier\(0\.2, 0, 0, 1\);/);
+  assert.match(root, /--move-drill:\s*320ms cubic-bezier\(0\.2, 0, 0, 1\);/);
+  assert.match(root, /--move-leave:\s*200ms cubic-bezier\(0\.4, 0, 1, 1\);/);
+});
+
+test("the palette has the teal the phone draws accepted in", () => {
+  assert.match(declarationsFor(css, ":root"), /--teal:\s*#94e2d5;/);
+});
+
+test("the three keyframes: a drill and a leave move the page in, and fade changes opacity alone", () => {
+  assert.match(css, /@keyframes move-drill\s*\{/);
+  assert.match(css, /@keyframes move-leave\s*\{/);
+  assert.match(css, /@keyframes move-fade\s*\{/);
+  assert.match(mediaBlock(css, "@keyframes move-drill {"), /transform/);
+  assert.match(mediaBlock(css, "@keyframes move-leave {"), /transform/);
+  const fade = mediaBlock(css, "@keyframes move-fade {");
+  assert.match(fade, /opacity/);
+  assert.doesNotMatch(fade, /transform/);
+});
+
+test("a page moving deeper drills in over the drill move, and a page coming back leaves in over the leave move", () => {
+  assert.match(declarationsFor(css, "section.page.drill"), /animation:\s*move-drill var\(--move-drill\);/);
+  assert.match(declarationsFor(css, "section.page.leave"), /animation:\s*move-leave var\(--move-leave\);/);
+});
+
+test("under reduced motion every move is one 100 ms linear step, and a drilling or leaving page fades", () => {
+  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
+  const root = declarationsFor(reduced, ":root");
+  for (const name of ["press", "state", "layout", "drill", "leave"]) {
+    assert.match(root, new RegExp(`--move-${name}:\\s*100ms linear;`), `--move-${name} is 100ms linear`);
+  }
+  assert.match(declarationsFor(reduced, "section.page.drill"), /animation:\s*move-fade var\(--move-drill\);/);
+  assert.match(declarationsFor(reduced, "section.page.leave"), /animation:\s*move-fade var\(--move-leave\);/);
+});
+
+test("buttons transition their transform and background over the press move, and a pressed one shrinks", () => {
+  for (const selector of ["button.act", ".back", ".crumb"]) {
+    assert.match(
+      declarationsFor(css, selector),
+      /transition:\s*transform var\(--move-press\), background-color var\(--move-press\);/,
+      selector,
+    );
+  }
+  assert.match(declarationsFor(css, "button.act:active"), /transform:\s*scale\(\.97\);/);
+});
+
+test("the state colours and the dim move over the state move: the cells, the title row's state and blocker, and the proof sections", () => {
+  assert.match(declarationsFor(css, ".orrery .cell"), /transition:\s*fill var\(--move-state\);/);
+  assert.match(declarationsFor(css, ".title-row .state"), /transition:\s*color var\(--move-state\);/);
+  assert.match(declarationsFor(css, ".title-row .blocker"), /transition:\s*color var\(--move-state\);/);
+  assert.match(declarationsFor(css, ".epic-page .proof"), /transition:\s*opacity var\(--move-state\);/);
+});
+
+test("the Just happened lines transition over the layout move, and a line that enters starts faded", () => {
+  assert.match(
+    declarationsFor(css, ".epic-page .happen.just li"),
+    /transition:\s*opacity var\(--move-layout\), transform var\(--move-layout\);/,
+  );
+  assert.match(css, /@starting-style\s*\{\s*\.epic-page \.happen\.just li\s*\{\s*opacity:\s*0;/);
+});
+
+test("a running wedge's now cell glows and pulses on 1.8s, and under reduced motion the glow holds still at half strength", () => {
+  assert.match(declarationsFor(css, ".orrery .glow"), /animation:\s*orbit-glow 1\.8s ease-in-out infinite;/);
+  // The orrery draws no SVG filter, so a glow may name none: a url(#...) here points at nothing.
+  assert.doesNotMatch(css, /url\(#/);
+  assert.match(css, /@keyframes orbit-glow\s*\{/);
+  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
+  assert.match(declarationsFor(reduced, ".orrery .glow"), /animation:\s*none;/);
+  assert.match(declarationsFor(reduced, ".orrery .glow"), /opacity:\s*\.5;/);
+});
+
+test("the epic page is one column of its sections, with a 12px gap", () => {
+  const page = declarationsFor(css, ".epic-page");
+  assert.match(page, /display:\s*flex;/);
+  assert.match(page, /flex-direction:\s*column;/);
+  assert.match(page, /(?<![-\w])gap:\s*12px;/);
+});
+
+test("a section heading is 700 10.5px over 14px mono at .13em in overlay1, and its count is 400 at no spacing, 6px in", () => {
+  const heading = declarationsFor(css, ".epic-page h3");
+  assert.match(heading, /margin:\s*0;/);
+  assert.match(heading, /font:\s*700 10\.5px\/14px var\(--mono\);/);
+  assert.match(heading, /letter-spacing:\s*\.13em;/);
+  assert.match(heading, /color:\s*var\(--overlay1\);/);
+  const sub = declarationsFor(css, ".epic-page h3 .sub");
   assert.match(sub, /font-weight:\s*400;/);
   assert.match(sub, /letter-spacing:\s*0;/);
   assert.match(sub, /color:\s*var\(--overlay0\);/);
   assert.match(sub, /margin-left:\s*6px;/);
 });
 
-test("the head line is a baseline flex row 9px apart that does not wrap", () => {
-  const line = declarationsFor(css, ".epic-view .head-line");
-  assert.match(line, /display:\s*flex;/);
-  assert.match(line, /align-items:\s*baseline;/);
-  assert.match(line, /(?<![-\w])gap:\s*9px;/);
-  assert.match(line, /white-space:\s*nowrap;/);
-  assert.match(line, /min-width:\s*0;/);
+test("the title row lays its back, crumbs, state, blocker and commands on one line, the commands pushed right", () => {
+  const row = declarationsFor(css, ".title-row");
+  assert.match(row, /display:\s*flex;/);
+  assert.match(row, /white-space:\s*nowrap;/);
+  assert.match(declarationsFor(css, ".title-row .acts"), /margin-left:\s*auto;/);
 });
 
-test("the head's slug is 700 14px over 20px mono and does not shrink; its repo is cut to one line in overlay1; its reading sits at the right in 11.5px subtext0", () => {
-  const slug = declarationsFor(css, ".epic-view .head-line .slug");
-  assert.match(slug, /margin:\s*0;/);
-  assert.match(slug, /font:\s*700 14px\/20px var\(--mono\);/);
-  assert.match(slug, /(?<![-\w])flex:\s*none;/);
-  const repo = declarationsFor(css, ".epic-view .head-line .repo");
-  assert.match(repo, /overflow:\s*hidden;/);
-  assert.match(repo, /text-overflow:\s*ellipsis;/);
-  assert.match(repo, /font:\s*11\.5px\/20px var\(--mono\);/);
-  assert.match(repo, /color:\s*var\(--overlay1\);/);
-  const reading = declarationsFor(css, ".epic-view .head-line .rt");
-  assert.match(reading, /margin-left:\s*auto;/);
-  assert.match(reading, /font:\s*11\.5px\/20px var\(--mono\);/);
-  assert.match(reading, /color:\s*var\(--subtext0\);/);
-  assert.match(reading, /(?<![-\w])flex:\s*none;/);
+test("the title row's state is a bold 11.5px mono word, and its blocker is cut to one line in peach", () => {
+  assert.match(declarationsFor(css, ".title-row .state"), /font:\s*700 11\.5px\/22px var\(--mono\);/);
+  const blocker = declarationsFor(css, ".title-row .blocker");
+  assert.match(blocker, /color:\s*var\(--peach\);/);
+  assert.match(blocker, /overflow:\s*hidden;/);
+  assert.match(blocker, /text-overflow:\s*ellipsis;/);
 });
 
-test("a problem is red and flush with the head, and its long text wraps", () => {
-  const problem = declarationsFor(css, ".epic-head .problem");
-  assert.match(problem, /color:\s*var\(--red\);/);
-  assert.match(problem, /margin:\s*0;/);
-  assert.match(problem, /overflow-wrap:\s*anywhere;/);
+test("the crumb that names the page is bold, and the other crumbs are plain buttons on no background", () => {
+  assert.match(declarationsFor(css, ".title-row .crumb.here"), /font-weight:\s*700;/);
+  assert.match(declarationsFor(css, ".crumb"), /background:\s*none;/);
+  assert.match(declarationsFor(css, ".crumb"), /cursor:\s*pointer;/);
 });
 
-test("the column strip is 4px tall under a 9px top margin", () => {
-  const strip = declarationsFor(css, ".epic-view .strip");
-  assert.match(strip, /(?<![-\w])height:\s*4px;/);
-  assert.match(strip, /margin:\s*9px 0 0;/);
+test("the now block is a column of its sentence, its blocker's line or form, and Stop", () => {
+  const block = declarationsFor(css, ".now-block");
+  assert.match(block, /display:\s*flex;/);
+  assert.match(block, /flex-direction:\s*column;/);
+  assert.match(declarationsFor(css, ".now-block .now"), /color:\s*var\(--text\);/);
+  assert.match(declarationsFor(css, ".now-block .blocked"), /color:\s*var\(--peach\);/);
 });
 
-test("the task rows are a 1px grid pulled 8px into the column, each row a 14px mark, slug, agent and pips grid, its line on the second row", () => {
-  const tasks = declarationsFor(css, ".epic-view .tasks");
-  assert.match(tasks, /display:\s*grid;/);
-  assert.match(tasks, /(?<![-\w])gap:\s*1px;/);
-  assert.match(tasks, /margin:\s*0 -8px;/);
-  const task = declarationsFor(css, ".epic-view .task");
-  assert.match(task, /display:\s*grid;/);
-  assert.match(task, /grid-template-columns:\s*14px minmax\(0,\s*auto\) minmax\(0,\s*1fr\) auto;/);
-  assert.match(task, /gap:\s*1px 7px;/);
-  assert.match(task, /align-items:\s*center;/);
-  assert.match(task, /padding:\s*4px 8px 5px;/);
-  assert.match(task, /border-radius:\s*8px;/);
-  assert.match(task, /font:\s*12px\/18px var\(--mono\);/);
-  assert.match(declarationsFor(css, ".epic-view .task .line"), /grid-column:\s*2 \/ -1;/);
+test("a question's form is a column with its question in peach and its answer box in a surface1 ring", () => {
+  assert.match(declarationsFor(css, ".now-block .answer"), /flex-direction:\s*column;/);
+  assert.match(declarationsFor(css, ".now-block .answer .question"), /color:\s*var\(--peach\);/);
+  assert.match(
+    declarationsFor(css, ".now-block .answer textarea"),
+    /box-shadow:\s*inset 0 0 0 1px var\(--surface1\);/,
+  );
 });
 
-test("a task's mark is a centred bold colour of its kind; a running mark is a 10px disc that turns, and holds still under reduced motion", () => {
-  const mark = declarationsFor(css, ".epic-view .task .um");
-  assert.match(mark, /text-align:\s*center;/);
-  assert.match(mark, /font-weight:\s*700;/);
-  assert.match(mark, /color:\s*var\(--k, var\(--overlay0\)\);/);
-  const spinner = declarationsFor(css, ".epic-view .task .um.g-working");
-  assert.match(spinner, /(?<![-\w])width:\s*10px;/);
-  assert.match(spinner, /(?<![-\w])height:\s*10px;/);
-  assert.match(spinner, /justify-self:\s*center;/);
-  assert.match(spinner, /border-radius:\s*50%;/);
-  assert.match(spinner, /animation:\s*rot 1\.1s linear infinite;/);
-  const reduced = mediaBlock(css.slice(css.indexOf(".epic-view .task .um.g-working")), "@media (prefers-reduced-motion: reduce) {");
-  assert.match(declarationsFor(reduced, ".epic-view .task .um.g-working"), /animation:\s*none;/);
+test("the contract summary is a full-width, left-aligned mantle button", () => {
+  const summary = declarationsFor(css, ".epic-page .summary");
+  assert.match(summary, /(?<![-\w])width:\s*100%;/);
+  assert.match(summary, /text-align:\s*left;/);
+  assert.match(summary, /background:\s*var\(--mantle\);/);
 });
 
-test("a task's slug is subtext1 and its agent overlay0, each cut to one line; its line is 11px over 15px in overlay1", () => {
-  for (const selector of [".epic-view .task .slug", ".epic-view .task .agent", ".epic-view .task .line"]) {
-    const rule = declarationsFor(css, selector);
-    assert.match(rule, /overflow:\s*hidden;/, selector);
-    assert.match(rule, /text-overflow:\s*ellipsis;/, selector);
-    assert.match(rule, /white-space:\s*nowrap;/, selector);
+test("the orrery fills its column to at most 404px and sets its text in mono", () => {
+  const orrery = declarationsFor(css, ".orrery");
+  assert.match(orrery, /(?<![-\w])width:\s*100%;/);
+  assert.match(orrery, /max-width:\s*404px;/);
+  assert.match(declarationsFor(css, ".orrery text"), /font-family:\s*var\(--mono\);/);
+});
+
+test("a passed cell is green, an ahead or planned cell is the track colour, and a now cell takes its tone", () => {
+  assert.match(declarationsFor(css, ".orrery .cell.passed"), /fill:\s*var\(--green\);/);
+  for (const selector of [".orrery .cell.ahead", ".orrery .cell.planned"]) {
+    assert.match(
+      declarationsFor(css, selector),
+      /fill:\s*color-mix\(in srgb, var\(--surface0\) 60%, var\(--crust\)\);/,
+      selector,
+    );
   }
-  assert.match(declarationsFor(css, ".epic-view .task .slug"), /color:\s*var\(--subtext1\);/);
-  assert.match(declarationsFor(css, ".epic-view .task .agent"), /color:\s*var\(--overlay0\);/);
-  const line = declarationsFor(css, ".epic-view .task .line");
-  assert.match(line, /font:\s*11px\/15px var\(--mono\);/);
-  assert.match(line, /color:\s*var\(--overlay1\);/);
+  assert.match(declarationsFor(css, ".orrery .cell.now"), /fill:\s*var\(--tone\);/);
 });
 
-test("the cursor's task row is surface0 with an inset 1px mauve ring and a bold text slug", () => {
-  const cur = declarationsFor(css, ".epic-view .task.cur");
-  assert.match(cur, /background:\s*var\(--surface0\);/);
-  assert.match(cur, /box-shadow:\s*inset 0 0 0 1px var\(--mauve\);/);
-  assert.match(declarationsFor(css, ".epic-view .task.cur .slug"), /font-weight:\s*700;/);
-  assert.match(declarationsFor(css, ".epic-view .task.cur .slug"), /color:\s*var\(--text\);/);
-});
-
-test("a held task's mark and line are peach, and an out task's slug and line are overlay0", () => {
-  for (const selector of [".epic-view .task.held .um", ".epic-view .task.held .line"]) {
-    assert.match(declarationsFor(css, selector), /color:\s*var\(--peach\);/, selector);
-  }
-  for (const selector of [".epic-view .task.out .slug", ".epic-view .task.out .line"]) {
-    assert.match(declarationsFor(css, selector), /color:\s*var\(--overlay0\);/, selector);
+test("each tone names its colour: run yellow, mine peach, bad red, acc teal and ok green", () => {
+  const tones: [string, string][] = [
+    ["run", "yellow"],
+    ["mine", "peach"],
+    ["bad", "red"],
+    ["acc", "teal"],
+    ["ok", "green"],
+  ];
+  for (const [tone, colour] of tones) {
+    assert.match(
+      declarationsFor(css, `.t-${tone}`),
+      new RegExp(`--tone:\\s*var\\(--${colour}\\);`),
+      `t-${tone} is ${colour}`,
+    );
   }
 });
 
-test("the now card is a 12px-rounded surface0 ring with 10px 12px 11px padding", () => {
-  const card = declarationsFor(css, ".epic-view .now-card");
-  assert.match(card, /padding:\s*10px 12px 11px;/);
-  assert.match(card, /border-radius:\s*12px;/);
+test("a proven requirement's arc is green, an open one is an overlay0 wash, and only a phase cell that opens is a pointer", () => {
+  assert.match(declarationsFor(css, ".orrery .req.proven"), /fill:\s*var\(--green\);/);
+  assert.match(
+    declarationsFor(css, ".orrery .req.open"),
+    /fill:\s*color-mix\(in srgb, var\(--overlay0\) 45%, transparent\);/,
+  );
+  assert.match(declarationsFor(css, ".orrery .cell.open"), /cursor:\s*pointer;/);
+  assert.doesNotMatch(declarationsFor(css, ".orrery .req.open"), /cursor/);
+  assert.equal(declarationsFor(css, ".open"), "", "no rule selects a bare .open");
+});
+
+test("the hover card is a mantle box with a surface0 ring, and its task is bold", () => {
+  const card = declarationsFor(css, ".epic-page .slice-card");
+  assert.match(card, /background:\s*var\(--mantle\);/);
   assert.match(card, /box-shadow:\s*inset 0 0 0 1px var\(--surface0\);/);
+  assert.match(declarationsFor(css, ".epic-page .card-task"), /font-weight:\s*700;/);
 });
 
-test("the now card's cap is 700 10px over 16px mono at .12em in overlay1; its doing is 13px over 19px; its time line is 11.5px over 17px in overlay1 under a 7px margin", () => {
-  const cap = declarationsFor(css, ".epic-view .now-card .cap");
-  assert.match(cap, /font:\s*700 10px\/16px var\(--mono\);/);
-  assert.match(cap, /letter-spacing:\s*\.12em;/);
-  assert.match(cap, /color:\s*var\(--overlay1\);/);
-  assert.match(declarationsFor(css, ".epic-view .now-card p"), /margin:\s*4px 0 0;/);
-  assert.match(declarationsFor(css, ".epic-view .now-card .doing"), /font:\s*13px\/19px var\(--mono\);/);
-  const time = declarationsFor(css, ".epic-view .now-card .m");
-  assert.match(time, /margin-top:\s*7px;/);
-  assert.match(time, /font:\s*11\.5px\/17px var\(--mono\);/);
-  assert.match(time, /color:\s*var\(--overlay1\);/);
+test("a Now row takes its tone's colour, a row that opens its task is a pointer, and +n earlier is a bare overlay0 button", () => {
+  assert.match(declarationsFor(css, ".epic-page .happen.now li"), /color:\s*var\(--tone\);/);
+  assert.match(declarationsFor(css, ".epic-page .happen li.open"), /cursor:\s*pointer;/);
+  const more = declarationsFor(css, ".epic-page .happen .more");
+  assert.match(more, /background:\s*none;/);
+  assert.match(more, /color:\s*var\(--overlay0\);/);
 });
 
-test("the steps fold is a full-width, left-aligned mantle button with no border, and its ▸ turns ▾ when expanded", () => {
-  const fold = declarationsFor(css, ".epic-view .steps-fold");
-  assert.match(fold, /display:\s*block;/);
-  assert.match(fold, /(?<![-\w])width:\s*100%;/);
-  assert.match(fold, /text-align:\s*left;/);
-  assert.match(fold, /padding:\s*5px 10px;/);
-  assert.match(fold, /border:\s*0;/);
-  assert.match(fold, /border-radius:\s*7px;/);
-  assert.match(fold, /background:\s*var\(--mantle\);/);
-  assert.match(fold, /font:\s*12px\/20px var\(--mono\);/);
-  assert.match(fold, /color:\s*var\(--subtext0\);/);
-  const marker = declarationsFor(css, ".epic-view .steps-fold::before");
-  assert.match(marker, /content:\s*"▸";/);
-  assert.match(marker, /color:\s*var\(--overlay0\);/);
-  assert.match(marker, /font-size:\s*10px;/);
-  assert.match(declarationsFor(css, '.epic-view .steps-fold[aria-expanded="true"]::before'), /content:\s*"▾";/);
+test("a proof section dims to 45% when its phase is not reached", () => {
+  assert.match(declarationsFor(css, ".epic-page .proof.dim"), /opacity:\s*\.45;/);
 });
 
-test("the step list's pips are a flex row of 4px gaps, scoped to .epic-view .step .pips", () => {
-  const pips = declarationsFor(css, ".epic-view .step .pips");
-  assert.match(pips, /display:\s*flex;/);
-  assert.match(pips, /(?<![-\w])gap:\s*4px;/);
-  assert.match(pips, /align-items:\s*center;/);
+test("a proof card is a grid of id, text and kind, its conclusion under them, and an open card is a pointer", () => {
+  const card = declarationsFor(css, ".epic-page .proof-card");
+  assert.match(card, /grid-template-columns:\s*minmax\(0,\s*auto\) minmax\(0,\s*1fr\) auto;/);
+  assert.match(card, /(?<![-\w])gap:\s*7px;/);
+  assert.match(declarationsFor(css, ".epic-page .proof-card.open"), /cursor:\s*pointer;/);
+  assert.match(declarationsFor(css, ".epic-page .proof-card .conclusion"), /grid-column:\s*2\s*\/\s*-1;/);
 });
 
-test("the chart keeps the column's width at 100% and at most 404px", () => {
-  const chart = declarationsFor(css, ".epic-view .chart");
-  assert.match(chart, /(?<![-\w])width:\s*100%;/);
-  assert.match(chart, /max-width:\s*404px;/);
-});
-
-test("the requirements list is a 1px grid, and no rule names a bare .epic-view .requirements", () => {
-  const list = declarationsFor(css, ".epic-view ol.requirements");
-  assert.match(list, /display:\s*grid;/);
-  assert.match(list, /(?<![-\w])gap:\s*1px;/);
-  assert.doesNotMatch(css, /\.epic-view \.requirements\b/);
-});
-
-test("a requirement row is a 7px grid of minmax(0, auto), minmax(0, 1fr) and auto columns at 12px over 18px mono", () => {
-  const row = declarationsFor(css, ".epic-view .requirement");
-  assert.match(row, /display:\s*grid;/);
-  assert.match(row, /grid-template-columns:\s*minmax\(0,\s*auto\) minmax\(0,\s*1fr\) auto;/);
-  assert.match(row, /(?<![-\w])gap:\s*7px;/);
-  assert.match(row, /font:\s*12px\/18px var\(--mono\);/);
-});
-
-test("a requirement's id is bold in subtext1, its text takes the text colour and wraps, and its kind is overlay0", () => {
-  const rid = declarationsFor(css, ".requirement .rid");
+test("a card's id is bold in subtext1, its text takes the text colour and wraps, and its kind is overlay0", () => {
+  const rid = declarationsFor(css, ".epic-page .proof-card .rid");
   assert.match(rid, /font-weight:\s*700;/);
   assert.match(rid, /(?<![-\w])color:\s*var\(--subtext1\);/);
-  const text = declarationsFor(css, ".requirement .text");
+  const text = declarationsFor(css, ".epic-page .proof-card .text");
   assert.match(text, /(?<![-\w])color:\s*var\(--text\);/);
   assert.match(text, /overflow-wrap:\s*anywhere;/);
   assert.doesNotMatch(text, /white-space:\s*nowrap/);
-  assert.match(declarationsFor(css, ".requirement .kind"), /(?<![-\w])color:\s*var\(--overlay0\);/);
+  assert.match(declarationsFor(css, ".epic-page .proof-card .kind"), /(?<![-\w])color:\s*var\(--overlay0\);/);
 });
 
-test("a requirement's conclusion sits in the row's second and third columns, at 11.5px over 17px mono", () => {
-  const conclusion = declarationsFor(css, ".epic-view .requirement .conclusion");
-  assert.match(conclusion, /grid-column:\s*2 \/ -1;/);
-  assert.match(conclusion, /(?<![-\w])margin:\s*0;/);
-  assert.match(conclusion, /font:\s*11\.5px\/17px var\(--mono\);/);
-  assert.match(conclusion, /(?<![-\w])color:\s*var\(--subtext0\);/);
-  assert.match(conclusion, /overflow-wrap:\s*anywhere;/);
+test("a release step is a grid of step, target and undo, and the closing line is 11.5px subtext0", () => {
+  const step = declarationsFor(css, ".epic-page .release-step");
+  assert.match(step, /grid-template-columns:\s*minmax\(0,\s*auto\) minmax\(0,\s*1fr\) minmax\(0,\s*auto\);/);
+  const then = declarationsFor(css, ".epic-page .release .then");
+  assert.match(then, /font:\s*11\.5px\/17px var\(--mono\);/);
+  assert.match(then, /color:\s*var\(--subtext0\);/);
 });
 
-test("a requirement's runs span the whole row as a 4px grid", () => {
-  const runs = declarationsFor(css, ".epic-view .requirement .runs");
-  assert.match(runs, /grid-column:\s*1 \/ -1;/);
-  assert.match(runs, /display:\s*grid;/);
-  assert.match(runs, /(?<![-\w])gap:\s*4px;/);
+test("the contract's checks keep their line breaks", () => {
+  assert.match(declarationsFor(css, ".contract .checks"), /white-space:\s*pre-wrap;/);
 });
 
-test("a run is a 4px grid card on mantle, padded 6px 8px, with 8px corners at 11.5px over 17px mono", () => {
-  const run = declarationsFor(css, ".epic-view .run");
+test("the evidence runs are a grid of cards, each run a 4px grid on mantle, padded 6px 8px, with 8px corners at 11.5px over 17px mono", () => {
+  assert.match(declarationsFor(css, ".epic-page .runs"), /(?<![-\w])gap:\s*4px;/);
+  assert.match(declarationsFor(css, ".epic-page .proof-card .runs"), /grid-column:\s*1 \/ -1;/);
+  const run = declarationsFor(css, ".epic-page .run");
   assert.match(run, /display:\s*grid;/);
   assert.match(run, /(?<![-\w])gap:\s*4px;/);
   assert.match(run, /padding:\s*6px 8px;/);
@@ -790,19 +823,19 @@ test("a run is a 4px grid card on mantle, padded 6px 8px, with 8px corners at 11
 });
 
 test("a run's head wraps in a flex row, its phase is bold in subtext1, and a passed result is green", () => {
-  const head = declarationsFor(css, ".epic-view .run .run-head");
+  const head = declarationsFor(css, ".epic-page .run .run-head");
   assert.match(head, /display:\s*flex;/);
   assert.match(head, /flex-wrap:\s*wrap;/);
   assert.match(head, /gap:\s*0 9px;/);
   assert.match(head, /(?<![-\w])color:\s*var\(--overlay1\);/);
-  const phase = declarationsFor(css, ".epic-view .run .phase");
+  const phase = declarationsFor(css, ".epic-page .run .phase");
   assert.match(phase, /font-weight:\s*700;/);
   assert.match(phase, /(?<![-\w])color:\s*var\(--subtext1\);/);
-  assert.match(declarationsFor(css, ".epic-view .run .pass.ok"), /(?<![-\w])color:\s*var\(--green\);/);
+  assert.match(declarationsFor(css, ".epic-page .run .pass.ok"), /(?<![-\w])color:\s*var\(--green\);/);
 });
 
 test("the log toggle is a bare button in overlay1 mono that starts its grid cell", () => {
-  const toggle = declarationsFor(css, ".epic-view .run .log-toggle");
+  const toggle = declarationsFor(css, ".epic-page .run .log-toggle");
   assert.match(toggle, /justify-self:\s*start;/);
   assert.match(toggle, /background:\s*none;/);
   assert.match(toggle, /(?<![-\w])border:\s*0;/);
@@ -812,63 +845,43 @@ test("the log toggle is a bare button in overlay1 mono that starts its grid cell
   assert.match(toggle, /(?<![-\w])color:\s*var\(--overlay1\);/);
 });
 
-test("the log is a crust block that scrolls and keeps its line breaks and long words", () => {
-  const log = declarationsFor(css, ".epic-view .run .log");
+test("a log is a crust block that scrolls, keeps its line breaks and long words, and a tail's label is overlay1", () => {
+  const log = declarationsFor(css, ".epic-page .log");
   assert.match(log, /(?<![-\w])margin:\s*0;/);
   assert.match(log, /background:\s*var\(--crust\);/);
-  assert.match(log, /max-height:\s*240px;/);
-  assert.match(log, /overflow:\s*auto;/);
-  assert.match(log, /white-space:\s*pre-wrap;/);
-  assert.match(log, /overflow-wrap:\s*anywhere;/);
-});
-
-test("a step's gate tails wrap onto a full row, and their log takes the run log's declarations", () => {
-  assert.match(declarationsFor(css, ".epic-view .step:has(> .tails)"), /flex-wrap:\s*wrap;/);
-  const tails = declarationsFor(css, ".epic-view .step .tails");
-  assert.match(tails, /flex-basis:\s*100%;/);
-  assert.match(tails, /(?<![-\w])min-width:\s*0;/);
-  const log = declarationsFor(css, ".epic-view .step .tails .log");
-  assert.match(log, /(?<![-\w])margin:\s*0;/);
   assert.match(log, /max-height:\s*240px;/);
   assert.match(log, /overflow:\s*auto;/);
   assert.match(log, /(?<![-\w])padding:\s*6px 8px;/);
   assert.match(log, /border-radius:\s*6px;/);
-  assert.match(log, /background:\s*var\(--crust\);/);
   assert.match(log, /font:\s*11px\/16px var\(--mono\);/);
   assert.match(log, /(?<![-\w])color:\s*var\(--subtext1\);/);
   assert.match(log, /white-space:\s*pre-wrap;/);
   assert.match(log, /overflow-wrap:\s*anywhere;/);
-  assert.match(declarationsFor(css, ".epic-view .step .tail-label"), /(?<![-\w])color:\s*var\(--overlay1\);/);
+  assert.match(declarationsFor(css, ".epic-page .tail-label"), /(?<![-\w])color:\s*var\(--overlay1\);/);
 });
 
 test("the loading line is overlay0 and the unavailable line is red", () => {
-  assert.match(declarationsFor(css, ".epic-view .run .pending"), /(?<![-\w])color:\s*var\(--overlay0\);/);
-  assert.match(declarationsFor(css, ".epic-view .run .unavailable"), /(?<![-\w])color:\s*var\(--red\);/);
+  assert.match(declarationsFor(css, ".epic-page .run .pending"), /(?<![-\w])color:\s*var\(--overlay0\);/);
+  assert.match(declarationsFor(css, ".epic-page .run .unavailable"), /(?<![-\w])color:\s*var\(--red\);/);
 });
 
 test("the artifacts are a 4px grid of wrapping rows, a path wraps, and a drawn image fits its column", () => {
-  const list = declarationsFor(css, ".epic-view .run .artifacts");
+  const list = declarationsFor(css, ".epic-page .run .artifacts");
   assert.match(list, /display:\s*grid;/);
   assert.match(list, /(?<![-\w])gap:\s*4px;/);
-  const artifact = declarationsFor(css, ".epic-view .artifact");
+  const artifact = declarationsFor(css, ".epic-page .artifact");
   assert.match(artifact, /display:\s*flex;/);
   assert.match(artifact, /flex-wrap:\s*wrap;/);
-  assert.match(declarationsFor(css, ".epic-view .artifact .path"), /overflow-wrap:\s*anywhere;/);
-  const image = declarationsFor(css, ".epic-view .artifact-image");
+  assert.match(declarationsFor(css, ".epic-page .artifact .path"), /overflow-wrap:\s*anywhere;/);
+  const image = declarationsFor(css, ".epic-page .artifact-image");
   assert.match(image, /display:\s*block;/);
   assert.match(image, /max-width:\s*100%;/);
   assert.match(image, /height:\s*auto;/);
 });
 
-test("the rules E1-D5 drops have no rules: the task's flex row, its mark and status, the outcome's paragraph, the old slug, the column's bare pips and the tone colours", () => {
-  assert.doesNotMatch(css, /\.epic-view \.mark\b/);
-  assert.doesNotMatch(css, /\.task \.status\b/);
-  assert.doesNotMatch(css, /\.epic-head p\b/);
-  assert.doesNotMatch(css, /\.epic-head \.slug\b/);
-  assert.doesNotMatch(css, /\.epic-view \.pips\b/);
-  assert.doesNotMatch(css, /\.ts-[a-z]/);
-  const flexTask = rulesIn(css).filter((rule) => rule.selectors.includes(".epic-view .task") && /display:\s*flex;/.test(rule.declarations));
-  assert.deepEqual(flexTask, []);
+test("no rule selects the old epic column or the old view", () => {
+  assert.doesNotMatch(css, /\.side(?![\w-])/);
+  assert.doesNotMatch(css, /\.epic-(view|head)\b/);
 });
 
 test("the meters line is one footer line in the footer's type and colour, with no box of its own", () => {

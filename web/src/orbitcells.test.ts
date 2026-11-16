@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
 import { EpicSliceSchema, type EpicSlice } from "./gen/orrery/v1/epics_pb";
-import { cellKind, cellTitle, epicReadout, taskReadout, type CellKind } from "./orbitcells";
+import { cellKind, taskReadout, type CellKind } from "./orbitcells";
 
 type SliceInit = MessageInitShape<typeof EpicSliceSchema>;
 
@@ -111,21 +111,6 @@ test("errorAt wins over a true boolean on the same ring", () => {
   assert.equal(cellKind(slice("t01", { hue: "gap", checks: true, errorAt: 4 }), 4), "errored");
 });
 
-// Section 15's words, one for each kind of cell, on the ring that has it.
-const titles: [ring: number, init: SliceInit, title: string][] = [
-  [1, { redTest: true }, "t07 red test: passed"],
-  [2, { hue: "dispatched", at: 2 }, "t07 working: working now"],
-  [3, { hue: "dispatched", at: 3, held: true }, "t07 tests pass: held here"],
-  [4, { hue: "gap", errorAt: 4 }, "t07 checks: errored here"],
-  [5, {}, "t07 gate accepted: not reached"],
-];
-
-for (const [ring, init, title] of titles) {
-  test(`cellTitle of ring ${ring} reads "${title}"`, () => {
-    assert.equal(cellTitle(slice("t07", init), ring), title);
-  });
-}
-
 // Section 17's synthetic 35: 11 done, 20 gap, 3 running and 1 held. Each entry is a count, the rings the tasks reached,
 // their hue and whether they are held.
 function synthetic35(): EpicSlice[] {
@@ -150,72 +135,6 @@ function synthetic35(): EpicSlice[] {
   }
   return tasks;
 }
-
-test("the synthetic 35 has 35 slices", () => {
-  assert.equal(synthetic35().length, 35);
-});
-
-test("the synthetic 35 reads 11 of 35 done", () => {
-  const readout = epicReadout(synthetic35(), 35);
-  assert.equal(readout.done, 11);
-  assert.equal(readout.total, 35);
-});
-
-test("the synthetic 35 is captioned tasks done when the record lists 35 tasks", () => {
-  assert.equal(epicReadout(synthetic35(), 35).caption, "tasks done");
-});
-
-test("the synthetic 35 has 3 running and 1 held at +31, and 20 gap at +46", () => {
-  assert.deepEqual(epicReadout(synthetic35(), 35).lines, [
-    {
-      offset: 31,
-      tallies: [
-        { text: "3 running", tone: "now" },
-        { text: "1 held", tone: "held" },
-      ],
-    },
-    { offset: 46, tallies: [{ text: "20 gap", tone: "errored" }] },
-  ]);
-});
-
-test("the caption is tracked tasks done when the record lists more tasks than there are slices", () => {
-  assert.equal(epicReadout(synthetic35(), 36).caption, "tracked tasks done");
-});
-
-test("one tally is one line at +38", () => {
-  const slices = [task("t01", "RWTCG", "done"), task("t02", "_W___", "dispatched")];
-  assert.deepEqual(epicReadout(slices, 2).lines, [{ offset: 38, tallies: [{ text: "1 running", tone: "now" }] }]);
-});
-
-test("two tallies share one line at +38", () => {
-  const slices = [task("t01", "_W___", "dispatched"), task("t02", "RW___", "gap")];
-  assert.deepEqual(epicReadout(slices, 2).lines, [
-    {
-      offset: 38,
-      tallies: [
-        { text: "1 running", tone: "now" },
-        { text: "1 gap", tone: "errored" },
-      ],
-    },
-  ]);
-});
-
-test("no tallies, so no lines", () => {
-  assert.deepEqual(epicReadout([task("t01", "RWTCG", "done")], 1).lines, []);
-});
-
-test("a running task is counted running and not held", () => {
-  const slices = [task("t01", "RWT__", "dispatched", true), task("t02", "_W___", "dispatched")];
-  assert.deepEqual(epicReadout(slices, 2).lines, [
-    {
-      offset: 38,
-      tallies: [
-        { text: "1 running", tone: "now" },
-        { text: "1 held", tone: "held" },
-      ],
-    },
-  ]);
-});
 
 test("the task readout counts from one", () => {
   const slices = synthetic35();
