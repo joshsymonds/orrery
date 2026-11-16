@@ -44,6 +44,13 @@ func fakeAt(at int64) *fake {
 	return f
 }
 
+// storeBoundNever arms a store-call bound that never fires. A test that is not about the bound gets each row write in
+// full, however long the machine takes over it, so no write reads as late and arms the row retry; the bound's own
+// tests arm theirs with bounds, which fires on demand.
+func storeBoundNever(time.Duration, func()) func() bool {
+	return func() bool { return true }
+}
+
 // newRestoreRouter returns a Router wired to f that restores stored notices with rebuilds and logs to logger, or
 // discards when logger is nil. The caller closes it.
 func newRestoreRouter(f *fake, rebuilds map[string]route.Rebuild, logger *slog.Logger) *route.Router {
@@ -57,6 +64,7 @@ func newRestoreRouter(f *fake, rebuilds map[string]route.Rebuild, logger *slog.L
 		Log:        f,
 		Logger:     logger,
 		Rebuild:    rebuilds,
+		StoreAfter: storeBoundNever,
 	})
 }
 

@@ -82,6 +82,7 @@ func newRouter(t *testing.T, f *fake) *route.Router {
 		Phone:      f,
 		Subscribed: f.Subscribed,
 		Log:        f,
+		StoreAfter: storeBoundNever,
 	})
 	t.Cleanup(r.Close)
 	return r
@@ -227,6 +228,19 @@ func (f *fake) activeTimers() int {
 	count := 0
 	for _, timer := range f.timers {
 		if timer.active() {
+			count++
+		}
+	}
+	return count
+}
+
+// activeTimersOf returns how many of the fake's timers that wait d are active.
+func (f *fake) activeTimersOf(d time.Duration) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count := 0
+	for _, timer := range f.timers {
+		if timer.active() && timer.d == d {
 			count++
 		}
 	}
@@ -764,6 +778,7 @@ func TestJudgeWaitsTheConfiguredDelay(t *testing.T) {
 	r := route.New(route.Config{
 		Host: testHost, Now: f.Now, After: f.After, JudgeDelay: delay,
 		Desk: f, Phone: f, Subscribed: f.Subscribed, Log: f,
+		StoreAfter: storeBoundNever,
 	})
 	t.Cleanup(r.Close)
 
@@ -789,6 +804,7 @@ func TestJudgeAtOnceWithNoJudgeDelay(t *testing.T) {
 	r := route.New(route.Config{
 		Host: testHost, Now: f.Now, After: f.After, JudgeDelay: route.NoJudgeDelay,
 		Desk: f, Phone: f, Subscribed: f.Subscribed, Log: f,
+		StoreAfter: storeBoundNever,
 	})
 	t.Cleanup(r.Close)
 
