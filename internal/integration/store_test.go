@@ -71,7 +71,7 @@ func (f *storeFixture) startOrreryd(t *testing.T) *orreryProcess {
 		scrubbedEnv("XDG_STATE_HOME="+f.stateHome),
 		"-L", f.server, "--socket", f.socket,
 		"--claude", f.fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
-	daemon.waitForListener(t, "unix", f.socket)
+	daemon.waitForListener(t, f.socket)
 	f.notices = startNoticeReader(t, scrubbedEnv(), f.socket)
 	return daemon
 }

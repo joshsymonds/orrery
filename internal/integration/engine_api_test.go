@@ -37,13 +37,13 @@ func (f *engineFixture) homeSessionDir(t *testing.T) string {
 	return dir
 }
 
-// startAPIServe starts orrery serve on a free loopback address with env, for tmux server name and the allowed login
-// exampleLogin, and waits for its listener. It returns the process and the base URL of its API.
+// startAPIServe starts orrery serve with env, for tmux server name and the allowed login exampleLogin, on a port of its
+// own choosing. It returns the process and the base URL of the API at the address serve bound.
 func startAPIServe(t *testing.T, env []string, name string) (*orreryProcess, string) {
 	t.Helper()
-	addr := freeLoopbackAddr(t)
-	p := startBinary(t, "orrery", env, "-L", name, "serve", "--listen", addr, "--allow-login", exampleLogin)
-	p.waitForListener(t, "tcp", addr)
+	p := startBinary(t, "orrery", env, "-L", name, "serve", "--listen", loopbackListen(t),
+		"--allow-login", exampleLogin)
+	addr := p.serveAddr(t)
 	return p, "http://" + addr
 }
 
