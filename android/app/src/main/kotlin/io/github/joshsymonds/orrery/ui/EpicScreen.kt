@@ -197,15 +197,14 @@ private fun noticeOf(call: () -> StepCallResult, answer: String): String {
 
 // stateLineOf is the epic's state for the title row: its state word, and its time once its phase has begun, never below
 // zero when the clock is behind the server's stamp. An empty state stays empty.
-private fun stateLineOf(state: String, phaseAt: Long, now: Long): String =
+internal fun stateLineOf(state: String, phaseAt: Long, now: Long): String =
     if (state.isNotEmpty() && phaseAt > 0L) "$state · ${durationText((now - phaseAt).coerceAtLeast(0L))}" else state
 
 // blockerLineOf is the blocker's line in the title row: its text, and how long it has waited. A park is left out, since
 // the now section shows its text and it has no time.
 private fun blockerLineOf(blocker: EpicBlocker?, now: Long): String = when {
     blocker == null || blocker is EpicBlocker.Parked -> ""
-    blocker.since > 0 -> "${blocker.text} · ${durationText((now - blocker.since).coerceAtLeast(0L))}"
-    else -> blocker.text
+    else -> blockerTextOf(blocker, now)
 }
 
 /** The body of a loaded epic: one list, each section one item. */

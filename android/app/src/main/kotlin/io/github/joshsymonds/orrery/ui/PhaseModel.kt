@@ -178,7 +178,7 @@ fun wedgesOf(detail: EpicDetail): List<Wedge> = tasksOf(detail).map { task ->
 
 // Whether a requirement is proven: its own green run passed, or, with no requirement of that id, every wedge naming it
 // is integrated.
-private fun provenOf(id: String, wedges: List<Wedge>, requirements: List<EpicRequirementRow>): Boolean {
+internal fun provenOf(id: String, wedges: List<Wedge>, requirements: List<EpicRequirementRow>): Boolean {
     val requirement = requirements.find { it.id == id }
     if (requirement != null) {
         return requirement.runs.any { it.phase == "green" && it.passed }
