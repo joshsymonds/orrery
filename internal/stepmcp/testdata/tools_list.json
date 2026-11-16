@@ -253,7 +253,7 @@
   },
   {
     "name": "epic_stop",
-    "description": "Pause an epic by id and stop the step of its running turn. Returns the stored epic. An epic with no running turn is refused, and nothing is stopped.",
+    "description": "Pause an epic by id and stop the step of its running turn. Returns the stored epic. An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's release slot: then the slot is freed, its open release step is stopped if one runs, and the epic is not paused. epic_release resumes a stopped release.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -279,6 +279,29 @@
         "node": {
           "type": "string",
           "description": "the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "epic_release",
+    "description": "Resume the stopped release of an epic by id, at its first unfinished step. undoNone names the 1-based positions of undo-none release steps to run again. Returns the stored epic. Refused unless the release is stopped and each position is undo-none.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "undoNone": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "the 1-based positions of the undo-none release steps to run again; omit to name none"
         }
       },
       "required": [

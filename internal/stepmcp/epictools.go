@@ -45,6 +45,13 @@ type epicRetryArgs struct {
 	Node string `json:"node,omitempty" jsonschema:"the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"`
 }
 
+// epicReleaseArgs is the arguments of epic_release, described for its input schema. UndoNone names the 1-based positions
+// of the undo-none release steps to run again; omitted, none runs again.
+type epicReleaseArgs struct {
+	ID       string `json:"id"`
+	UndoNone []int  `json:"undoNone,omitempty" jsonschema:"the 1-based positions of the undo-none release steps to run again; omit to name none"`
+}
+
 // epicTools returns the epic tools, each calling epics.
 func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 	createInput, err := argumentSchema[epicCreateArgs](nil)
@@ -64,6 +71,10 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		return nil, err
 	}
 	retryInput, err := argumentSchema[epicRetryArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	releaseInput, err := argumentSchema[epicReleaseArgs](nil)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +130,9 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		{
 			Name: "epic_stop",
 			Description: "Pause an epic by id and stop the step of its running turn. Returns the stored epic. " +
-				"An epic with no running turn is refused, and nothing is stopped.",
+				"An epic with no running turn is refused, and nothing is stopped, unless it holds its repository's " +
+				"release slot: then the slot is freed, its open release step is stopped if one runs, and the epic " +
+				"is not paused. epic_release resumes a stopped release.",
 			InputSchema: idInput,
 			Handler:     epicStopHandler(epics),
 		},
@@ -131,6 +144,14 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 				"that is not parked is refused.",
 			InputSchema: retryInput,
 			Handler:     epicRetryHandler(epics),
+		},
+		{
+			Name: "epic_release",
+			Description: "Resume the stopped release of an epic by id, at its first unfinished step. " +
+				"undoNone names the 1-based positions of undo-none release steps to run again. " +
+				"Returns the stored epic. Refused unless the release is stopped and each position is undo-none.",
+			InputSchema: releaseInput,
+			Handler:     epicReleaseHandler(epics),
 		},
 	}, nil
 }
@@ -283,5 +304,19 @@ func epicRetryHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(retried.Msg.GetEpic())
+	}
+}
+
+func epicReleaseHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.ReleaseEpicRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		released, err := epics.ReleaseEpic(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(released.Msg.GetEpic())
 	}
 }
