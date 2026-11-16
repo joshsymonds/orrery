@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -359,7 +360,8 @@ func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
+	// The run dies with orreryd however orreryd dies, so a killed orreryd leaves no summary run behind.
+	if err = childproc.Run(cmd); err != nil {
 		return "", fmt.Errorf("claude run: %w: %s", err, failureDetail(runCtx, err, stdout.String(), stderr.String()))
 	}
 	return stdout.String(), nil
