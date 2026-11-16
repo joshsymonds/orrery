@@ -118,6 +118,13 @@ func (f *recordingEpics) RetryEpic(
 	return respond(f, req.Msg, &v1.RetryEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) FollowEpics(
+	_ context.Context,
+	req *connect.Request[v1.FollowEpicsRequest],
+) (*connect.Response[v1.FollowEpicsResponse], error) {
+	return respond(f, req.Msg, &v1.FollowEpicsResponse{})
+}
+
 // recorded returns the requests the fake received, under its lock.
 func (f *recordingEpics) recorded() []proto.Message {
 	f.mu.Lock()

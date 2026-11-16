@@ -37,6 +37,7 @@ type EpicCommands interface {
 		ctx context.Context, epic, id, text string, question int64, at time.Time,
 	) (store.EpicDecision, error)
 	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
+	Follows(ctx context.Context) ([]store.LabelFollow, error)
 	PauseEpic(ctx context.Context, epic string) error
 	ResumeEpic(ctx context.Context, epic string) error
 	StopEpic(ctx context.Context, epic string) (string, error)
@@ -150,6 +151,21 @@ func (s *epicService) ListEpics(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.ListEpicsResponse{Epics: epicMap(rows, summaryMessage)}), nil
+}
+
+// FollowEpics returns the follow count of every label across all epics, in label order.
+func (s *epicService) FollowEpics(
+	ctx context.Context,
+	_ *connect.Request[v1.FollowEpicsRequest],
+) (*connect.Response[v1.FollowEpicsResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	follows, err := s.epics.Follows(ctx)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.FollowEpicsResponse{Follows: epicMap(follows, followMessage)}), nil
 }
 
 // AnswerEpic records the answer on the epic, once. It refuses an empty epic_id, id or text first. An answer with no
@@ -736,11 +752,7 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 
 // decisionMessage returns the EpicDecision message of d, its question as Q<n> when it answers one, empty for a note.
 func decisionMessage(d store.EpicDecision) *v1.EpicDecision {
-	message := &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix()}
-	if d.Question != 0 {
-		message.Question = questionID(d.Question)
-	}
-	return message
+	return &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix(), Question: questionRef(d.Question)}
 }
 
 // turnMessage returns the EpicTurn message of turn. Ended is 0 while the turn runs.
@@ -872,14 +884,49 @@ func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
 	}
 }
 
-// questionMessage returns the EpicQuestion message of question, its id Q<seq>.
+// questionMessage returns the EpicQuestion message of question: its id Q<seq>, its label, its declared choices, its
+// recommendation, which is unset when it recommends none, the questions it replaces and replaced, and its answer.
 func questionMessage(question store.EpicQuestion) *v1.EpicQuestion {
 	return &v1.EpicQuestion{
-		Id:    questionID(question.Seq),
-		Turn:  question.Turn,
-		Text:  question.Text,
-		State: question.State,
+		Id:             questionID(question.Seq),
+		Turn:           question.Turn,
+		Text:           question.Text,
+		State:          question.State,
+		Label:          question.Label,
+		Choices:        epicMap(question.Choices, choiceMessage),
+		Recommendation: recommendationMessage(question),
+		Replaces:       questionRef(question.Replaces),
+		ReplacedBy:     questionRef(question.ReplacedBy),
+		Choice:         question.Choice,
 	}
+}
+
+// choiceMessage returns the EpicQuestionChoice message of choice.
+func choiceMessage(choice store.EpicChoice) *v1.EpicQuestionChoice {
+	return &v1.EpicQuestionChoice{Id: choice.ID, Does: choice.Does}
+}
+
+// recommendationMessage returns the EpicRecommendation message of question, or nil when question recommends none.
+func recommendationMessage(question store.EpicQuestion) *v1.EpicRecommendation {
+	if question.Recommended == "" {
+		return nil
+	}
+	return &v1.EpicRecommendation{
+		Choice: question.Recommended, Why: question.Why, Confidence: question.Confidence,
+	}
+}
+
+// followMessage returns the EpicFollow message of follow.
+func followMessage(follow store.LabelFollow) *v1.EpicFollow {
+	return &v1.EpicFollow{Label: follow.Label, Answered: follow.Answered, Followed: follow.Followed}
+}
+
+// questionRef returns the id Q<seq> of the question with seq, or empty when seq is 0, which names no question.
+func questionRef(seq int64) string {
+	if seq == 0 {
+		return ""
+	}
+	return questionID(seq)
 }
 
 // questionID returns the id of the question with seq, Q<seq>.

@@ -67,9 +67,9 @@ func TestEpicAnswerToOpenQuestionTiesDecisionAndClosesIt(t *testing.T) {
 	if reply.GetWarning() != "" {
 		t.Fatalf("warning = %q, want none for an answer to a question", reply.GetWarning())
 	}
-	wantProtos(t, "questions", getEpicOK(t, client).GetQuestions(), []*v1.EpicQuestion{
-		{Id: "Q1", Turn: 1, Text: "Synthetic question one?", State: "answered"},
-	})
+	answered := syntheticQuestionMessage("Q1", 1, "synthetic-question-1", "Synthetic question one?")
+	answered.State, answered.Choice = "answered", store.ChoiceOther
+	wantProtos(t, "questions", getEpicOK(t, client).GetQuestions(), []*v1.EpicQuestion{answered})
 }
 
 func TestEpicNoteWithOpenQuestionsWarnsNamingThem(t *testing.T) {
@@ -92,8 +92,8 @@ func TestEpicNoteWithOpenQuestionsWarnsNamingThem(t *testing.T) {
 		t.Fatalf("warning = %q, want %q", reply.GetWarning(), want)
 	}
 	wantProtos(t, "questions", getEpicOK(t, client).GetQuestions(), []*v1.EpicQuestion{
-		{Id: "Q1", Turn: 1, Text: "Synthetic question one?", State: "open"},
-		{Id: "Q2", Turn: 1, Text: "Synthetic question two?", State: "open"},
+		syntheticQuestionMessage("Q1", 1, "synthetic-question-1", "Synthetic question one?"),
+		syntheticQuestionMessage("Q2", 1, "synthetic-question-2", "Synthetic question two?"),
 	})
 }
 

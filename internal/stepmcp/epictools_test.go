@@ -146,6 +146,13 @@ func (f *fakeEpics) RetryEpic(
 	return connect.NewResponse(f.retryReply), nil
 }
 
+func (f *fakeEpics) FollowEpics(
+	_ context.Context,
+	_ *connect.Request[v1.FollowEpicsRequest],
+) (*connect.Response[v1.FollowEpicsResponse], error) {
+	return connect.NewResponse(&v1.FollowEpicsResponse{}), nil
+}
+
 // epicCalls is a copy of the requests the fake received.
 type epicCalls struct {
 	creates []*v1.CreateEpicRequest

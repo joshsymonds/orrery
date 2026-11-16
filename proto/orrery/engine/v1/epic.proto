@@ -27,6 +27,9 @@ service Epics {
 
   // RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
   rpc RetryEpic(RetryEpicRequest) returns (RetryEpicResponse);
+
+  // FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
+  rpc FollowEpics(FollowEpicsRequest) returns (FollowEpicsResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -501,6 +504,46 @@ message EpicQuestion {
 
   // The question's state: open until the owner answers it.
   string state = 4;
+
+  // The label the question is filed under, kebab-case. Empty for a question stored before labels.
+  string label = 5;
+
+  // The choices the question declares. The owner may also answer with other, which every question offers.
+  repeated EpicQuestionChoice choices = 6;
+
+  // The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+  EpicRecommendation recommendation = 7;
+
+  // The question this one replaces, Q<n>; empty when it replaces none.
+  string replaces = 8;
+
+  // The question that replaced this one, Q<n>; empty while it is not replaced.
+  string replaced_by = 9;
+
+  // The choice that answered the question: a declared choice's id, or other for the owner's words. Empty while the
+  // question is open or replaced.
+  string choice = 10;
+}
+
+// EpicQuestionChoice is one choice a planner question declares.
+message EpicQuestionChoice {
+  // The choice's id, the answer the owner gives to choose it.
+  string id = 1;
+
+  // What the choice does.
+  string does = 2;
+}
+
+// EpicRecommendation is the choice a planner question recommends, why, and how sure the planner is of it.
+message EpicRecommendation {
+  // The recommended choice's id.
+  string choice = 1;
+
+  // Why the planner recommends the choice.
+  string why = 2;
+
+  // How sure the planner is: low, medium or high.
+  string confidence = 3;
 }
 
 // EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
@@ -700,6 +743,9 @@ message AnswerEpicRequest {
 
   // The question, Q<n>, the answer names; empty for a note.
   string question = 4;
+
+  // The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+  string choice = 5;
 }
 
 // AnswerEpicResponse carries the recorded decision.
@@ -767,6 +813,27 @@ message RetryEpicRequest {
 message RetryEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+}
+
+// FollowEpicsRequest asks for the follow counts of every label. It has no fields.
+message FollowEpicsRequest {}
+
+// FollowEpicsResponse carries the follow counts of every label.
+message FollowEpicsResponse {
+  // The follow counts, one per label in label order. Empty when no answered question had a recommendation.
+  repeated EpicFollow follows = 1;
+}
+
+// EpicFollow is one label's count of how often the owner took the advice across all epics.
+message EpicFollow {
+  // The label.
+  string label = 1;
+
+  // The answered questions with the label that had a recommendation.
+  int64 answered = 2;
+
+  // The answered questions with the label that were answered with the recommended choice.
+  int64 followed = 3;
 }
 
 // RunEvidenceRequest asks for one item's evidence to run at a revision for one phase.

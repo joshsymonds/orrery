@@ -51,6 +51,8 @@ const (
 	EpicsStopEpicProcedure = "/orrery.engine.v1.Epics/StopEpic"
 	// EpicsRetryEpicProcedure is the fully-qualified name of the Epics's RetryEpic RPC.
 	EpicsRetryEpicProcedure = "/orrery.engine.v1.Epics/RetryEpic"
+	// EpicsFollowEpicsProcedure is the fully-qualified name of the Epics's FollowEpics RPC.
+	EpicsFollowEpicsProcedure = "/orrery.engine.v1.Epics/FollowEpics"
 	// EvidenceRunEvidenceProcedure is the fully-qualified name of the Evidence's RunEvidence RPC.
 	EvidenceRunEvidenceProcedure = "/orrery.engine.v1.Evidence/RunEvidence"
 	// EvidenceListEvidenceProcedure is the fully-qualified name of the Evidence's ListEvidence RPC.
@@ -78,6 +80,8 @@ type EpicsClient interface {
 	StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error)
 	// RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
+	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
+	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.engine.v1.Epics service. By default, it uses
@@ -139,19 +143,26 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("RetryEpic")),
 			connect.WithClientOptions(opts...),
 		),
+		followEpics: connect.NewClient[v1.FollowEpicsRequest, v1.FollowEpicsResponse](
+			httpClient,
+			baseURL+EpicsFollowEpicsProcedure,
+			connect.WithSchema(epicsMethods.ByName("FollowEpics")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // epicsClient implements EpicsClient.
 type epicsClient struct {
-	createEpic *connect.Client[v1.CreateEpicRequest, v1.CreateEpicResponse]
-	getEpic    *connect.Client[v1.GetEpicRequest, v1.GetEpicResponse]
-	listEpics  *connect.Client[v1.ListEpicsRequest, v1.ListEpicsResponse]
-	answerEpic *connect.Client[v1.AnswerEpicRequest, v1.AnswerEpicResponse]
-	pauseEpic  *connect.Client[v1.PauseEpicRequest, v1.PauseEpicResponse]
-	resumeEpic *connect.Client[v1.ResumeEpicRequest, v1.ResumeEpicResponse]
-	stopEpic   *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
-	retryEpic  *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
+	createEpic  *connect.Client[v1.CreateEpicRequest, v1.CreateEpicResponse]
+	getEpic     *connect.Client[v1.GetEpicRequest, v1.GetEpicResponse]
+	listEpics   *connect.Client[v1.ListEpicsRequest, v1.ListEpicsResponse]
+	answerEpic  *connect.Client[v1.AnswerEpicRequest, v1.AnswerEpicResponse]
+	pauseEpic   *connect.Client[v1.PauseEpicRequest, v1.PauseEpicResponse]
+	resumeEpic  *connect.Client[v1.ResumeEpicRequest, v1.ResumeEpicResponse]
+	stopEpic    *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
+	retryEpic   *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
+	followEpics *connect.Client[v1.FollowEpicsRequest, v1.FollowEpicsResponse]
 }
 
 // CreateEpic calls orrery.engine.v1.Epics.CreateEpic.
@@ -194,6 +205,11 @@ func (c *epicsClient) RetryEpic(ctx context.Context, req *connect.Request[v1.Ret
 	return c.retryEpic.CallUnary(ctx, req)
 }
 
+// FollowEpics calls orrery.engine.v1.Epics.FollowEpics.
+func (c *epicsClient) FollowEpics(ctx context.Context, req *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error) {
+	return c.followEpics.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.engine.v1.Epics service.
 type EpicsHandler interface {
 	// CreateEpic stores an accepted contract with its seed decisions and returns the stored epic.
@@ -212,6 +228,8 @@ type EpicsHandler interface {
 	StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error)
 	// RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
+	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
+	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -269,6 +287,12 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("RetryEpic")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsFollowEpicsHandler := connect.NewUnaryHandler(
+		EpicsFollowEpicsProcedure,
+		svc.FollowEpics,
+		connect.WithSchema(epicsMethods.ByName("FollowEpics")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsCreateEpicProcedure:
@@ -287,6 +311,8 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsStopEpicHandler.ServeHTTP(w, r)
 		case EpicsRetryEpicProcedure:
 			epicsRetryEpicHandler.ServeHTTP(w, r)
+		case EpicsFollowEpicsProcedure:
+			epicsFollowEpicsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -326,6 +352,10 @@ func (UnimplementedEpicsHandler) StopEpic(context.Context, *connect.Request[v1.S
 
 func (UnimplementedEpicsHandler) RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.RetryEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.FollowEpics is not implemented"))
 }
 
 // EvidenceClient is a client for the orrery.engine.v1.Evidence service.
