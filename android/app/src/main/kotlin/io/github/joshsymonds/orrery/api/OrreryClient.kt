@@ -23,7 +23,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition as EpicAdditionPr
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAlternative as EpicAlternativeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask as EpicBuildTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract as EpicContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicDecision as EpicDecisionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure as EpicFailureProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry as EpicHistoryEntryProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProto
@@ -34,9 +36,18 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell as EpicTellProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger as EpicTriggerProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact as EvidenceArtifactProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceClient
@@ -90,6 +101,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.MalformedURLException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
 import kotlin.time.Duration
@@ -318,7 +330,8 @@ data class EpicRequirementRow(
 /**
  * One evidence run of a requirement, for one [phase] (red or green), produced by [source] (captured or supplied).
  * [passed] is whether the run passes its phase, [logBytes] and [stderrBytes] are the sizes of its stdout and stderr logs,
- * and [artifacts] are the files it kept.
+ * and [artifacts] are the files it kept. [item] is the requirement or task whose evidence the run shows, set by an
+ * epic's history and empty elsewhere.
  */
 data class EvidenceRunRow(
     val id: String,
@@ -337,7 +350,58 @@ data class EvidenceRunRow(
     val logBytes: Long,
     val stderrBytes: Long,
     val artifacts: List<EvidenceArtifactRow>,
+    val item: String = "",
 )
+
+/**
+ * One entry of an epic's history: [time] is its time in unix seconds and [cursor] names it for the next page. [kind] is
+ * the row the entry carries, one of turn, trigger, step, evidence, decision and tell, and "" when it carries none. Only
+ * the row [kind] names is set.
+ */
+data class EpicHistoryRow(
+    val time: Long,
+    val cursor: String,
+    val kind: String,
+    val turn: EpicTurnRow? = null,
+    val trigger: EpicTriggerRow? = null,
+    val step: StepRow? = null,
+    val evidence: EvidenceRunRow? = null,
+    val decision: EpicDecisionRow? = null,
+    val tell: EpicTellRow? = null,
+)
+
+/**
+ * A planner turn in an epic's history: [seq] is its position on the epic, [decisions] are the decisions its return
+ * recorded, and [started] and [ended] are unix seconds, [ended] 0 while the turn runs.
+ */
+data class EpicTurnRow(
+    val seq: Long,
+    val step: String,
+    val state: String,
+    val reason: String,
+    val outline: String,
+    val outcome: String,
+    val decisions: List<String>,
+    val started: Long,
+    val ended: Long,
+)
+
+/**
+ * A cause that asked an epic's planner for a turn. [turn] is the position of the turn that claimed it, 0 while pending.
+ */
+data class EpicTriggerRow(val id: String, val cause: String, val state: String, val turn: Long, val created: Long)
+
+/** A decision recorded on an epic. [question] is the Q<n> it answers, empty for a note. */
+data class EpicDecisionRow(val seq: Long, val id: String, val text: String, val time: Long, val question: String)
+
+/** Something an epic told its owner. [told] is whether the owner has been told it. */
+data class EpicTellRow(val seq: Long, val text: String, val at: Long, val told: Boolean)
+
+/**
+ * One page of an epic's history, oldest first. [next] is the cursor to pass as after for the next page, empty when none
+ * follows.
+ */
+data class EpicHistoryPage(val entries: List<EpicHistoryRow>, val next: String)
 
 /** One file an evidence run kept, with the [state] it was kept in. */
 data class EvidenceArtifactRow(val path: String, val state: String, val size: Long, val mediaType: String)
@@ -489,7 +553,7 @@ data class EpicDetail(
     val parked: String = "",
 )
 
-/** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
+/** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
     data object Landed : StepCallResult
     data class Refused(val message: String) : StepCallResult
@@ -748,6 +812,19 @@ class OrreryClient(
     }
 
     /**
+     * One page of an epic's history, oldest first: the entries after the cursor [after] names, at most [limit] of them.
+     * A zero [limit] asks the server for its default. [EpicHistoryPage.next] is the cursor to pass for the next page.
+     */
+    fun history(id: String, after: String = "", limit: Int = 0): EpicHistoryPage {
+        val request = EpicsHistoryRequest.newBuilder().setId(id).setAfter(after).setLimit(limit).build()
+        val response = call(write = false) { standard.epics.history(request, CLIENT_HEADERS) }
+        return EpicHistoryPage(
+            entries = response.entriesList.map { it.toEpicHistoryRow() },
+            next = response.next,
+        )
+    }
+
+    /**
      * One artifact of an evidence run, or one of its logs when [name] is empty: the stderr log when [stderr] is set,
      * the stdout log otherwise. Null when the server answered not_found.
      */
@@ -902,6 +979,53 @@ class OrreryClient(
         return stepCall { call(write = true) { standard.steps.stop(request, CLIENT_HEADERS) } }
     }
 
+    /**
+     * Pauses the orreryd epic [id], so its planner starts no turn. A refused pause answers [StepCallResult.Refused].
+     */
+    fun pauseEpic(id: String): StepCallResult {
+        val request = EpicsPauseRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.pause(request, CLIENT_HEADERS) } }
+    }
+
+    /** Clears the pause of the orreryd epic [id]. A refused resume answers [StepCallResult.Refused]. */
+    fun resumeEpic(id: String): StepCallResult {
+        val request = EpicsResumeRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.resume(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Stops the orreryd epic [id]: it is paused, and the step of its running turn stops. A refused stop answers
+     * [StepCallResult.Refused].
+     */
+    fun stopEpic(id: String): StepCallResult {
+        val request = EpicsStopRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.stop(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Ends the park of the orreryd epic [id], or with [node] set reruns the parked runs of that workflow node. A
+     * refused retry answers [StepCallResult.Refused].
+     */
+    fun retryEpic(id: String, node: String = ""): StepCallResult {
+        val request = EpicsRetryRequest.newBuilder().setId(id).setNode(node).build()
+        return stepCall { call(write = true) { standard.epics.retry(request, CLIENT_HEADERS) } }
+    }
+
+    /**
+     * Records [text] as the owner's answer on the orreryd epic [epicId], tied to the question [questionId] names, or as
+     * a note when [questionId] is empty. A refused answer answers [StepCallResult.Refused].
+     */
+    fun answerEpic(epicId: String, questionId: String, text: String): StepCallResult {
+        // The decision id is the caller's, and orreryd refuses an empty one. A fresh id makes each answer a decision.
+        val request = EpicsAnswerRequest.newBuilder()
+            .setEpicId(epicId)
+            .setId(UUID.randomUUID().toString())
+            .setText(text)
+            .setQuestion(questionId)
+            .build()
+        return stepCall { call(write = true) { standard.epics.answer(request, CLIENT_HEADERS) } }
+    }
+
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
         val request = RegisterRequest.newBuilder().setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()
         call(write = true) { standard.push.register(request, CLIENT_HEADERS) }
@@ -987,10 +1111,46 @@ class OrreryClient(
             logBytes = logBytes,
             stderrBytes = stderrBytes,
             artifacts = artifactsList.map { it.toEvidenceArtifactRow() },
+            item = item,
         )
 
     private fun EvidenceArtifactProto.toEvidenceArtifactRow(): EvidenceArtifactRow =
         EvidenceArtifactRow(path = path, state = state, size = size, mediaType = mediaType)
+
+    private fun EpicHistoryEntryProto.toEpicHistoryRow(): EpicHistoryRow {
+        val row = EpicHistoryRow(time = time, cursor = cursor, kind = "")
+        return when {
+            hasTurn() -> row.copy(kind = "turn", turn = turn.toEpicTurnRow())
+            hasTrigger() -> row.copy(kind = "trigger", trigger = trigger.toEpicTriggerRow())
+            hasStep() -> row.copy(kind = "step", step = step.toStepRow())
+            hasEvidence() -> row.copy(kind = "evidence", evidence = evidence.toEvidenceRunRow())
+            hasDecision() -> row.copy(kind = "decision", decision = decision.toEpicDecisionRow())
+            hasTell() -> row.copy(kind = "tell", tell = tell.toEpicTellRow())
+            else -> row
+        }
+    }
+
+    private fun EpicTurnProto.toEpicTurnRow(): EpicTurnRow =
+        EpicTurnRow(
+            seq = seq,
+            step = step,
+            state = state,
+            reason = reason,
+            outline = outline,
+            outcome = outcome,
+            decisions = decisionsList.toList(),
+            started = started,
+            ended = ended,
+        )
+
+    private fun EpicTriggerProto.toEpicTriggerRow(): EpicTriggerRow =
+        EpicTriggerRow(id = id, cause = cause, state = state, turn = turn, created = created)
+
+    private fun EpicDecisionProto.toEpicDecisionRow(): EpicDecisionRow =
+        EpicDecisionRow(seq = seq, id = id, text = text, time = time, question = question)
+
+    private fun EpicTellProto.toEpicTellRow(): EpicTellRow =
+        EpicTellRow(seq = seq, text = text, at = at, told = told)
 
     private fun EpicStepProto.toStepRow(): StepRow =
         StepRow(
@@ -1270,8 +1430,8 @@ class OrreryClient(
     }
 
     /**
-     * The answer of a step call: [Refused] when the server answered failed_precondition, which carries the
-     * reason a hold, nudge or stop was refused. Any other failure is thrown as [call] throws it.
+     * The answer of a step or epic call: [Refused] when the server answered failed_precondition, which carries the
+     * reason the call was refused. Any other failure is thrown as [call] throws it.
      */
     private fun stepCall(rpc: () -> Any): StepCallResult =
         try {
