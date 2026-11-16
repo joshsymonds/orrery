@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { render } from "preact";
+import { act } from "preact/test-utils";
 
 import { CENTRE, RING_RADII, cellPath, point, sector, sliceSpan, sliceStart } from "./orbits";
 import { Orrery } from "./orrery";
-import { PHASES, type PhaseSlice, type RequirementArc, type SliceState, type Wedge } from "./phases";
+import { PHASES, type Phase, type PhaseSlice, type RequirementArc, type SliceState, type Wedge } from "./phases";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // now is the clock the orrery reads its running and passed times against, in the same seconds as the slices' since.
@@ -113,11 +114,14 @@ function cellOf(container: HTMLElement, task: string, phase: string): Element {
   return found;
 }
 
-async function withOrrery(check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
+async function withOrrery(
+  check: (container: HTMLElement) => void | Promise<void>,
+  onOpenPhase?: (task: string, phase: Phase) => void,
+): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<Orrery wedges={wedges} arcs={arcs} now={now} />, container);
+    render(<Orrery wedges={wedges} arcs={arcs} now={now} onOpenPhase={onOpenPhase} />, container);
     await check(container);
   } finally {
     render(null, container);
@@ -128,6 +132,13 @@ async function withOrrery(check: (container: HTMLElement) => void | Promise<void
 async function hover(container: HTMLElement, task: string, phase: string): Promise<void> {
   cellOf(container, task, phase).dispatchEvent(new Event("pointerenter"));
   await turn();
+}
+
+// click clicks a task's phase cell, or its rim cell for "planned", and lets Preact draw what the click changed.
+async function click(container: HTMLElement, task: string, phase: string): Promise<void> {
+  await act(() => {
+    cellOf(container, task, phase).dispatchEvent(new Event("click"));
+  });
 }
 
 test("the svg reads its view box, role and integrated count of wedges", () =>
@@ -303,4 +314,52 @@ test("the orrery draws no legend, key, ring letter or text beyond its labels", (
       texts.every((element) => allowedTexts.includes(element.getAttribute("class") ?? "")),
       true,
     );
+  }));
+
+test("a click on a phase cell calls onOpenPhase once with that cell's task and phase", () => {
+  const opened: [string, string][] = [];
+  return withOrrery(
+    async (container) => {
+      await click(container, "t2", "implementing");
+      await click(container, "t4", "checking");
+      assert.deepEqual(opened, [
+        ["t2", "implementing"],
+        ["t4", "checking"],
+      ]);
+    },
+    (task, phase) => {
+      opened.push([task, phase]);
+    },
+  );
+});
+
+test("a click on a rim cell calls nothing, and a phase click after it still calls once", () => {
+  const opened: [string, string][] = [];
+  return withOrrery(
+    async (container) => {
+      await click(container, "t3", "planned");
+      assert.deepEqual(opened, []);
+      await click(container, "t2", "implementing");
+      assert.deepEqual(opened, [["t2", "implementing"]]);
+    },
+    (task, phase) => {
+      opened.push([task, phase]);
+    },
+  );
+});
+
+test("with onOpenPhase every phase cell is a button marked open, and no rim cell is", () =>
+  withOrrery(
+    (container) => {
+      assert.equal(container.querySelectorAll(".cell.open").length, wedges.length * PHASES.length);
+      assert.equal(container.querySelectorAll('.cell[role="button"]').length, wedges.length * PHASES.length);
+      assert.equal(container.querySelectorAll('.rim.open, .rim[role="button"]').length, 0);
+    },
+    () => {},
+  ));
+
+test("without onOpenPhase no cell is marked open or is a button", () =>
+  withOrrery((container) => {
+    assert.equal(container.querySelectorAll(".cell.open").length, 0);
+    assert.equal(container.querySelectorAll('.cell[role="button"]').length, 0);
   }));

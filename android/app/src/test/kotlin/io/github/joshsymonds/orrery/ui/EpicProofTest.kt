@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -10,12 +11,14 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.api.EpicContractRow
 import io.github.joshsymonds.orrery.api.EpicReleaseStepRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -96,15 +99,37 @@ class EpicProofTest {
             accepted = CHANGED,
         )
 
+    private fun wedge(task: String, requirements: List<String>): Wedge =
+        Wedge(
+            task = task,
+            title = "example title $task",
+            requirements = requirements,
+            place = WedgePlace.IMPLEMENTING,
+            tone = WedgeTone.RUN,
+            slices = emptyList(),
+        )
+
     private fun setSections(
         requirements: List<EpicRequirementRow>,
         contract: EpicContractRow? = null,
         released: Boolean = false,
+        wedges: List<Wedge> = emptyList(),
+        onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
     ) {
         composeRule.setContent {
             Column {
-                RedProof(requirements = requirements, loadArtifact = { _, _, _ -> null })
-                GreenProof(requirements = requirements, loadArtifact = { _, _, _ -> null })
+                RedProof(
+                    requirements = requirements,
+                    loadArtifact = { _, _, _ -> null },
+                    wedges = wedges,
+                    onOpenPhase = onOpenPhase,
+                )
+                GreenProof(
+                    requirements = requirements,
+                    loadArtifact = { _, _, _ -> null },
+                    wedges = wedges,
+                    onOpenPhase = onOpenPhase,
+                )
                 ReleaseProof(contract = contract, released = released)
                 Report()
             }
@@ -118,6 +143,10 @@ class EpicProofTest {
     private fun stateOf(tag: String): String? =
         composeRule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
             .config.getOrNull(SemanticsProperties.StateDescription)
+
+    private fun hasClickAction(tag: String): Boolean =
+        composeRule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
+            .config.contains(SemanticsActions.OnClick)
 
     @Test
     fun redCardsHoldOnlyRedRunsInRequirementOrder() {
@@ -300,5 +329,61 @@ class EpicProofTest {
         assertEquals(1, countIn("proof:green", hasText("Green proof")))
         assertEquals(1, countIn("proof:release", hasText("Release proof")))
         assertEquals(1, countIn("proof:report", hasText("Report")))
+    }
+
+    @Test
+    fun aRedCardTapOpensTheFirstWedgeNamingItsRequirementAtImplementing() {
+        val opened = mutableListOf<Pair<String, Phase>>()
+        setSections(
+            requirements = listOf(requirement("R1", "example requirement one")),
+            wedges = listOf(wedge("example-task-1", listOf("R1")), wedge("example-task-2", listOf("R1"))),
+            onOpenPhase = { task, phase -> opened += task to phase },
+        )
+
+        composeRule.onNodeWithTag("proof-card:red:0").performClick()
+
+        assertEquals(listOf("example-task-1" to Phase.IMPLEMENTING), opened)
+    }
+
+    @Test
+    fun aGreenCardTapOpensTheFirstWedgeNamingItsRequirementAtChecking() {
+        val opened = mutableListOf<Pair<String, Phase>>()
+        setSections(
+            requirements = listOf(requirement("R1", "example requirement one")),
+            wedges = listOf(wedge("example-task-1", listOf("R1")), wedge("example-task-2", listOf("R1"))),
+            onOpenPhase = { task, phase -> opened += task to phase },
+        )
+
+        composeRule.onNodeWithTag("proof-card:green:0").performClick()
+
+        assertEquals(listOf("example-task-1" to Phase.CHECKING), opened)
+    }
+
+    @Test
+    fun aCardNoWedgeNamesHasNoClickAction() {
+        setSections(
+            requirements = listOf(
+                requirement("R1", "example requirement one"),
+                requirement("R2", "example requirement two"),
+            ),
+            wedges = listOf(wedge("example-task-1", listOf("R1"))),
+            onOpenPhase = { _, _ -> },
+        )
+
+        assertTrue(hasClickAction("proof-card:red:0"))
+        assertTrue(hasClickAction("proof-card:green:0"))
+        assertFalse(hasClickAction("proof-card:red:1"))
+        assertFalse(hasClickAction("proof-card:green:1"))
+    }
+
+    @Test
+    fun withoutTheCallbackNoCardHasAClickAction() {
+        setSections(
+            requirements = listOf(requirement("R1", "example requirement one")),
+            wedges = listOf(wedge("example-task-1", listOf("R1"))),
+        )
+
+        assertFalse(hasClickAction("proof-card:red:0"))
+        assertFalse(hasClickAction("proof-card:green:0"))
     }
 }

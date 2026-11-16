@@ -98,6 +98,95 @@ test("Next lists only the planned wedges, each with its task and title", () => {
   });
 });
 
+test("a click on a Now row calls onOpenPhase with its task and the phase it is in", () => {
+  const wedges = [
+    wedge("b1", "build one", "implementing", "run", now - 90),
+    wedge("b2", "build two", "checking", "mine", now - 7_500),
+    wedge("b3", "build three", "planned", "plan"),
+  ];
+  const opened: [string, string][] = [];
+  return withRender(
+    <NowRows
+      wedges={wedges}
+      now={now}
+      onOpenPhase={(task, phase) => {
+        opened.push([task, phase]);
+      }}
+    />,
+    async (container) => {
+      assert.deepEqual(
+        [...container.querySelectorAll("section.happen.now li")].map((row) => row.getAttribute("class")),
+        ["t-run open", "t-mine open"],
+      );
+      assert.deepEqual(
+        [...container.querySelectorAll("section.happen.now li")].map((row) => row.getAttribute("role")),
+        ["button", "button"],
+      );
+      await act(() => {
+        for (const row of container.querySelectorAll<HTMLLIElement>("section.happen.now li")) {
+          row.click();
+        }
+      });
+      assert.deepEqual(opened, [
+        ["b1", "implementing"],
+        ["b2", "checking"],
+      ]);
+    },
+  );
+});
+
+test("a click on a Next row calls onOpenPhase with its task and implementing", () => {
+  const wedges = [
+    wedge("n1", "first", "planned", "plan"),
+    wedge("b1", "building", "implementing", "run", now - 30),
+    wedge("n2", "second", "planned", "plan"),
+  ];
+  const opened: [string, string][] = [];
+  return withRender(
+    <NextRows
+      wedges={wedges}
+      onOpenPhase={(task, phase) => {
+        opened.push([task, phase]);
+      }}
+    />,
+    async (container) => {
+      assert.deepEqual(
+        [...container.querySelectorAll("section.happen.next li")].map((row) => row.getAttribute("class")),
+        ["open", "open"],
+      );
+      assert.deepEqual(
+        [...container.querySelectorAll("section.happen.next li")].map((row) => row.getAttribute("role")),
+        ["button", "button"],
+      );
+      await act(() => {
+        for (const row of container.querySelectorAll<HTMLLIElement>("section.happen.next li")) {
+          row.click();
+        }
+      });
+      assert.deepEqual(opened, [
+        ["n1", "implementing"],
+        ["n2", "implementing"],
+      ]);
+    },
+  );
+});
+
+test("without onOpenPhase no Now or Next row is clickable", () => {
+  const wedges = [wedge("b1", "build one", "implementing", "run", now - 90), wedge("n1", "first", "planned", "plan")];
+  return withRender(
+    <>
+      <NowRows wedges={wedges} now={now} />
+      <NextRows wedges={wedges} />
+    </>,
+    (container) => {
+      assert.equal(container.querySelectorAll("section.happen li[role='button']").length, 0);
+      assert.equal(container.querySelectorAll("section.happen li.open").length, 0);
+      assert.deepEqual(textsOf(container, "section.happen.now li"), ["b1 · implementing · 1 min"]);
+      assert.deepEqual(textsOf(container, "section.happen.next li"), ["n1 · first"]);
+    },
+  );
+});
+
 test("Just happened shows the newest three, and +n earlier opens the rest in place and goes", async () => {
   const entries = [
     entry({ time: 100n, cursor: "c1", item: { case: "turn", value: { seq: 1n, state: "succeeded" } } }),

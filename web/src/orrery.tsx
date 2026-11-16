@@ -45,9 +45,15 @@ function SliceCard(props: { task: string; slice: PhaseSlice; now: number }): JSX
 
 // Orrery draws the wedges as rings of cells, one wedge per task and one ring per phase with the planned rim outside
 // them. A running wedge's now slice glows, the requirement arcs ring the wedges, and the centre counts the integrated
-// wedges. Hovering a phase cell shows its slice card.
-export function Orrery(props: { wedges: Wedge[]; arcs: RequirementArc[]; now: number }): JSX.Element {
-  const { wedges, arcs, now } = props;
+// wedges. Hovering a phase cell shows its slice card. With onOpenPhase, a click on a phase cell opens its task and
+// phase; the rim cells never open.
+export function Orrery(props: {
+  wedges: Wedge[];
+  arcs: RequirementArc[];
+  now: number;
+  onOpenPhase?: (task: string, phase: Phase) => void;
+}): JSX.Element {
+  const { wedges, arcs, now, onOpenPhase } = props;
   const [held, setHeld] = useState<Held | undefined>(undefined);
   const count = wedges.length;
   const integrated = wedges.filter((wedge) => wedge.place === "integrated").length;
@@ -61,6 +67,7 @@ export function Orrery(props: { wedges: Wedge[]; arcs: RequirementArc[]; now: nu
   );
   const arcStart = sliceStart(count, 0);
   const arcSpan = sliceSpan(count);
+  const openClass = onOpenPhase === undefined ? "" : " open";
   return (
     <Fragment>
       <svg class="orrery" viewBox={`0 0 ${VIEW} ${VIEW}`} role="img" aria-label={`${readout} integrated`}>
@@ -77,10 +84,12 @@ export function Orrery(props: { wedges: Wedge[]; arcs: RequirementArc[]; now: nu
           wedge.slices.map((slice, ring) => (
             <path
               key={`${wedge.task}-${slice.phase}`}
-              class={`cell phase-${slice.phase} ${slice.state}${slice.state === "now" ? ` t-${wedge.tone}` : ""}`}
+              class={`cell phase-${slice.phase} ${slice.state}${slice.state === "now" ? ` t-${wedge.tone}` : ""}${openClass}`}
               d={cellPath(count, index, ring + 2)}
               data-task={wedge.task}
               data-phase={slice.phase}
+              role={onOpenPhase === undefined ? undefined : "button"}
+              onClick={onOpenPhase === undefined ? undefined : () => onOpenPhase(wedge.task, slice.phase)}
               onPointerEnter={() => setHeld({ task: wedge.task, phase: slice.phase })}
               onPointerLeave={() => setHeld(undefined)}
             />
