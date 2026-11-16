@@ -82,6 +82,18 @@ func TestPromptWithEmptyCallerEndsWithAssertions(t *testing.T) {
 	}
 }
 
+func TestVerdictInstructionStrictReadingFailsAssertionsHeldOnlyUnderLooserReading(t *testing.T) {
+	inOrder(t, verdictInstruction,
+		"Read each assertion strictly.",
+		"When the revision satisfies an assertion only under a looser reading, the result is fails, not holds.",
+		"The evidence for that fails names the strict reading",
+		"the looser reading it does.",
+	)
+	if !strings.Contains(verdictInstruction, "or satisfies it only under a looser reading") {
+		t.Errorf("fails result does not cover an assertion held only under a looser reading:\n%s", verdictInstruction)
+	}
+}
+
 func TestVerdictInstructionCarriesJudgingRules(t *testing.T) {
 	for _, term := range []string{"holds", "fails", "undetermined", "citation", "observations", "missing_evidence", "edit", "blocked", "test_runner_requests"} {
 		if !strings.Contains(verdictInstruction, term) {
