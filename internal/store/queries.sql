@@ -366,7 +366,7 @@ SELECT * FROM epics ORDER BY id;
 
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
-WHERE epics.base <> '' AND epics.phase = 'accepted'
+WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped')
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
