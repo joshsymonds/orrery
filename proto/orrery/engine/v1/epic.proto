@@ -922,6 +922,15 @@ message StoredEpic {
 
   // The epic's tells in seq order. Only a GetEpic that asks for history fills them.
   repeated EpicTell tells = 22;
+
+  // When the epic's phase was last set, in unix seconds.
+  int64 phase_at = 23;
+
+  // The epic's report, written when the epic ends. Unset until it is written.
+  EpicReport report = 24;
+
+  // The epic's release steps, each with the state its release runs give it, in contract order.
+  repeated EpicReleaseProof release_proof = 25;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -963,6 +972,51 @@ message EpicReleaseRun {
   int64 at = 12;
 }
 
+// EpicReleaseProof is one release step of an epic with the state its release runs give it.
+message EpicReleaseProof {
+  // The step's place in the contract's release steps, counted from 1.
+  int64 position = 1;
+
+  // What the step does.
+  string step = 2;
+
+  // Where the step sends what leaves the machine.
+  string target = 3;
+
+  // How the step is undone.
+  string undo = 4;
+
+  // The step's state: waiting, running, passed or failed.
+  string state = 5;
+
+  // The evidence the deciding run gave; empty when no run has decided the step.
+  string evidence = 6;
+
+  // Why the deciding run passed or failed; empty when no run has decided the step.
+  string reason = 7;
+
+  // The attempt the deciding run belongs to, counted from 1.
+  int64 attempt = 8;
+
+  // When the deciding run was recorded, in unix seconds; 0 when no run has decided the step.
+  int64 at = 9;
+}
+
+// EpicReport is what an ended epic shipped of its contract's Requirements, and what it did not.
+message EpicReport {
+  // The ending phase the report reports.
+  string outcome = 1;
+
+  // The Requirement ids the epic shipped, in contract order.
+  repeated string shipped = 2;
+
+  // The Requirement ids the epic did not ship, in contract order.
+  repeated string not_shipped = 3;
+
+  // Why the epic shipped what it did and left the rest out.
+  string why = 4;
+}
+
 // EpicSummary is an epic's head fields, without its contract.
 message EpicSummary {
   // The epic's id, "<repo-id>/<epic-slug>".
@@ -982,6 +1036,9 @@ message EpicSummary {
 
   // When the epic last changed, in unix seconds.
   int64 changed = 6;
+
+  // When the epic's phase was last set, in unix seconds.
+  int64 phase_at = 7;
 }
 
 // CreateEpicRequest asks for a new epic.

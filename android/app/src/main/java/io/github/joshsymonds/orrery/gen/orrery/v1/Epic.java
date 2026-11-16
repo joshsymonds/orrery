@@ -798,6 +798,44 @@ public  final class Epic extends
     waiting_ = false;
   }
 
+  public static final int PHASE_AT_FIELD_NUMBER = 13;
+  private long phaseAt_;
+  /**
+   * <pre>
+   * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+   * </pre>
+   *
+   * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+   * @return The phaseAt.
+   */
+  @java.lang.Override
+  public long getPhaseAt() {
+    return phaseAt_;
+  }
+  /**
+   * <pre>
+   * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+   * </pre>
+   *
+   * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+   * @param value The phaseAt to set.
+   */
+  private void setPhaseAt(long value) {
+    
+    phaseAt_ = value;
+  }
+  /**
+   * <pre>
+   * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+   * </pre>
+   *
+   * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+   */
+  private void clearPhaseAt() {
+
+    phaseAt_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1703,6 +1741,46 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+     * </pre>
+     *
+     * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+     * @return The phaseAt.
+     */
+    @java.lang.Override
+    public long getPhaseAt() {
+      return instance.getPhaseAt();
+    }
+    /**
+     * <pre>
+     * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+     * </pre>
+     *
+     * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+     * @param value The phaseAt to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPhaseAt(long value) {
+      copyOnWrite();
+      instance.setPhaseAt(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+     * </pre>
+     *
+     * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPhaseAt() {
+      copyOnWrite();
+      instance.clearPhaseAt();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -1732,11 +1810,12 @@ public  final class Epic extends
             "source_",
             "outcomeDetail_",
             "waiting_",
+            "phaseAt_",
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000\r\u0000\u0000\u0001\r\r\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208\u000b\u0208" +
-              "\f\u0007";
+              "\f\u0007\r\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

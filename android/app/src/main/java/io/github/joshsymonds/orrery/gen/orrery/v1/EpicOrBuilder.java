@@ -219,4 +219,14 @@ public interface EpicOrBuilder extends
    * @return The waiting.
    */
   boolean getWaiting();
+
+  /**
+   * <pre>
+   * When the orreryd epic's phase was last set, in unix seconds; 0 when unknown and for a record epic.
+   * </pre>
+   *
+   * <code>int64 phase_at = 13 [json_name = "phaseAt"];</code>
+   * @return The phaseAt.
+   */
+  long getPhaseAt();
 }
