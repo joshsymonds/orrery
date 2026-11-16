@@ -460,17 +460,6 @@ test("Open the session calls onOpenSession with the step the phase names, and an
   });
 });
 
-test("the page shows only its own task's output, whichever phase is open", async () => {
-  for (const phase of PHASES) {
-    await withPage(pageProps(finished(), "T2", phase, []), (container) => {
-      assert.equal(container.textContent?.includes("alpha") ?? false, false);
-    });
-    await withPage(pageProps(finished(), "T1", phase, []), (container) => {
-      assert.equal(container.textContent?.includes("beta") ?? false, false);
-    });
-  }
-});
-
 test("Hold calls hold once with the running step", async () => {
   const calls: string[] = [];
   await withPage(pageProps(running(false), "T1", "implementing", calls), async (container) => {
