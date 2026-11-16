@@ -231,6 +231,11 @@ func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 		return fmt.Errorf("tasks: %w", err)
 	}
 
+	return loadQuestions(ctx, queries, row)
+}
+
+// loadQuestions fills the questions of row from the rows stored under row.ID, in seq order.
+func loadQuestions(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
 	questions, err := queries.ListEpicQuestions(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list questions: %w", err)
