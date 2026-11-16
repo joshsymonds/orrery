@@ -18,7 +18,6 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035 and 00036 create, and of the columns those migrations and 00020, 00021, 00022, 00025,
 // 00029, 00033, 00034, 00035 and 00038 add to epic tables.
 func epicTableColumns() map[string][]string {
