@@ -63,12 +63,15 @@ export function nowSentence(wedges: Wedge[]): string {
 }
 
 // AnswerForm answers one open question. Answer stays disabled while the trimmed answer is empty and sends the trimmed
-// answer. A returned error shows under the form and keeps the answer; an empty return clears it.
-function AnswerForm({
+// answer. A returned error shows under the form and keeps the answer; an empty return clears it. hideQuestion leaves
+// out the question's own line, for a caller that already draws the question.
+export function AnswerForm({
   question,
+  hideQuestion = false,
   onAnswer,
 }: {
   question: EpicQuestion;
+  hideQuestion?: boolean;
   onAnswer: (questionId: string, text: string) => Promise<string>;
 }): JSX.Element {
   const [text, setText] = useState("");
@@ -101,7 +104,7 @@ function AnswerForm({
         void submit();
       }}
     >
-      <p class="question">{question.text}</p>
+      {!hideQuestion && <p class="question">{question.text}</p>}
       <textarea
         aria-label="answer"
         value={text}
