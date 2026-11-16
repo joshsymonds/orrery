@@ -234,21 +234,6 @@ func TestBarePathServeConfigResolvesClaude(t *testing.T) {
 	}
 }
 
-// serveFreeLoopbackAddr returns a loopback address with a port nothing listens on now, for a test of an address serve
-// must not bind. A test that has serve bind starts it with serveStart instead.
-func serveFreeLoopbackAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatalf("close probe listener: %v", err)
-	}
-	return addr
-}
-
 // TestServeAnswersPageAtRoot runs orrery serve through runServe on a free loopback port. GET / with the allowed login
 // and no client header answers the embedded page, with the page's CSP and nosniff headers, and the page's bytes.
 func TestServeAnswersPageAtRoot(t *testing.T) {

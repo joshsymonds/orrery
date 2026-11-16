@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -234,42 +233,36 @@ func (c *reopenClock) After(time.Duration) <-chan time.Time {
 	return fired
 }
 
+// TestEventsRetriesWatchThatFailsToOpen drops the first Watch call before it opens: the held server closes the
+// connection without a reply, as a serve that is away does, so the call fails unavailable. The retry clock lets the
+// next Watch through during its wait. The server is held for the whole test, so no other test can answer at its address.
 func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
 	t.Parallel()
 	events := &scriptedEvents{steps: []watchStep{sendThen(nil, 5)}}
-	first, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	addr := first.Addr().String()
+	var serving atomic.Bool
 	mux := http.NewServeMux()
 	sessionsPath, sessions := orreryv1connect.NewSessionsHandler(listedSessions{seq: 5})
-	mux.Handle(sessionsPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The client must drop this connection and close the listener, so the Watch call dials a closed port.
-		w.Header().Set("Connection", "close")
-		sessions.ServeHTTP(w, r)
-		_ = first.Close()
-	}))
+	mux.Handle(sessionsPath, sessions)
 	eventsPath, eventsHandler := orreryv1connect.NewEventsHandler(events)
-	mux.Handle(eventsPath, eventsHandler)
-	srv := &http.Server{Handler: mux}
-	go func() { _ = srv.Serve(first) }()
-	t.Cleanup(func() { _ = srv.Close() })
-
-	// The retry clock listens on the same address again during its wait, so the retry dials a live server.
-	clock := &reopenClock{reopen: func() {
-		second, listenErr := net.Listen("tcp", addr)
-		if listenErr != nil {
-			t.Errorf("reopen %s: %v", addr, listenErr)
+	mux.Handle(eventsPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serving.Load() {
+			eventsHandler.ServeHTTP(w, r)
 			return
 		}
-		again := &http.Server{Handler: mux}
-		go func() { _ = again.Serve(second) }()
-		t.Cleanup(func() { _ = again.Close() })
-	}}
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Errorf("hijack the first Watch: %v", err)
+			return
+		}
+		_ = conn.Close()
+	}))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	clock := &reopenClock{reopen: func() { serving.Store(true) }}
 	ctx := t.Context()
 	var out bytes.Buffer
-	if err := eventsWithClock(ctx, clock, []string{"--url", "http://" + addr, "--after", "4"}, &out); err != nil {
+	if err := eventsWithClock(ctx, clock, []string{"--url", srv.URL, "--after", "4"}, &out); err != nil {
 		t.Fatalf("Events: %v", err)
 	}
 	if got := resumeSeqs(t, &out); !slices.Equal(got, []int64{5}) {
@@ -278,7 +271,7 @@ func TestEventsRetriesWatchThatFailsToOpen(t *testing.T) {
 	if clock.waits != 1 {
 		t.Errorf("Events waited %d times before the retry, want once", clock.waits)
 	}
-	// The refused dial never reaches the script, so the one answered call shows the retry resumed after 4.
+	// The dropped call never reaches the script, so the one answered call shows the retry resumed after 4.
 	if got := events.Afters(); !slices.Equal(got, []int64{4}) {
 		t.Errorf("Watch calls answered after %v, want 4", got)
 	}
