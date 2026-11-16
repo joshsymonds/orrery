@@ -94,25 +94,25 @@ function texts(conversation: Conversation | undefined): string[] {
   return (conversation?.items ?? []).map((item) => item.text);
 }
 
-test("a pane row streams its conversation, and onChange receives each delta folded in", async () => {
+test("a pane row streams its conversation, and onChange receives each delta folded in", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
   const row: Followed = { kind: "pane", id: "%1" };
   const stop = follow(clientsFor(fake), row, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(() => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request");
     assert.equal(fake.served[0].path, panesPath);
     assert.equal(fake.served[0].body.pane, "%1");
     assert.equal(fake.served[0].body.transcript ?? "", "");
     assert.equal(Number(fake.served[0].body.after ?? 0), 0);
 
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
-    await until(() => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta");
     assert.deepEqual(texts(seen[0]), ["one"]);
     assert.equal(seen[0].seq, 3n);
 
     fake.emit(0, { transcript: "t1", seq: "4", items: [{ kind: "assistant", text: "two" }] });
-    await until(() => seen.length === 2, "the second delta");
+    await until(t.signal, () => seen.length === 2, "the second delta");
     assert.deepEqual(texts(seen[1]), ["one", "two"]);
     assert.equal(seen[1].seq, 4n);
   } finally {
@@ -138,7 +138,7 @@ class HeldSchedule {
   }
 }
 
-test("a stream that ends or fails reconnects after retryMs with the held transcript and seq", async () => {
+test("a stream that ends or fails reconnects after retryMs with the held transcript and seq", async (t) => {
   // The forced order: each end of the stream must arm one wait of retryMs, and no request may go out until the test
   // ends that wait.
   const fake = new FakeConnect();
@@ -152,30 +152,30 @@ test("a stream that ends or fails reconnects after retryMs with the held transcr
     held.schedule,
   );
   try {
-    await until(() => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request");
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
-    await until(() => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta");
     fake.end(0);
 
-    await until(() => held.waits.length === 1, "the retry wait after a clean end");
+    await until(t.signal, () => held.waits.length === 1, "the retry wait after a clean end");
     assert.equal(held.waits[0].ms, retryMs, "the retry after a clean end did not wait retryMs");
     assert.equal(fake.served.length, 1, "a request went out before the retry wait ended");
     held.end(0);
-    await until(() => fake.served.length === 2, "the reconnect after a clean end");
+    await until(t.signal, () => fake.served.length === 2, "the reconnect after a clean end");
     assert.equal(fake.served[1].path, panesPath);
     assert.equal(fake.served[1].body.pane, "%1");
     assert.equal(fake.served[1].body.transcript, "t1");
     assert.equal(Number(fake.served[1].body.after), 3);
 
     fake.emit(1, { transcript: "t1", seq: "4", items: [{ kind: "assistant", text: "two" }] });
-    await until(() => seen.length === 2, "the delta after the reconnect");
+    await until(t.signal, () => seen.length === 2, "the delta after the reconnect");
     fake.fail(1);
 
-    await until(() => held.waits.length === 2, "the retry wait after a failure");
+    await until(t.signal, () => held.waits.length === 2, "the retry wait after a failure");
     assert.equal(held.waits[1].ms, retryMs, "the retry after a failure did not wait retryMs");
     assert.equal(fake.served.length, 2, "a request went out before the retry wait after the failure ended");
     held.end(1);
-    await until(() => fake.served.length === 3, "the reconnect after a failure");
+    await until(t.signal, () => fake.served.length === 3, "the reconnect after a failure");
     assert.equal(fake.served[2].body.transcript, "t1");
     assert.equal(Number(fake.served[2].body.after), 4);
     assert.deepEqual(texts(seen[1]), ["one", "two"]);
@@ -184,22 +184,22 @@ test("a stream that ends or fails reconnects after retryMs with the held transcr
   }
 });
 
-test("a session row streams through Sessions.WatchConversation with its id", async () => {
+test("a session row streams through Sessions.WatchConversation with its id", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
   const stop = follow(clientsFor(fake), { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(() => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request");
     assert.equal(fake.served[0].path, sessionsPath);
     assert.equal(fake.served[0].body.id, "s1");
     assert.equal(Number(fake.served[0].body.after ?? 0), 0);
 
     fake.emit(0, { transcript: "s-t", seq: "7", reset: true, items: [{ kind: "assistant", text: "notes" }] });
-    await until(() => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta");
     assert.deepEqual(texts(seen[0]), ["notes"]);
 
     fake.fail(0);
-    await until(() => fake.served.length === 2, "the reconnect");
+    await until(t.signal, () => fake.served.length === 2, "the reconnect");
     assert.equal(fake.served[1].path, sessionsPath);
     assert.equal(fake.served[1].body.id, "s1");
     assert.equal(Number(fake.served[1].body.after), 7);
@@ -208,13 +208,13 @@ test("a session row streams through Sessions.WatchConversation with its id", asy
   }
 });
 
-test("after stop, onChange is not called and no request is made", async () => {
+test("after stop, onChange is not called and no request is made", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
   const stop = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
-  await until(() => fake.served.length === 1, "the first request");
+  await until(t.signal, () => fake.served.length === 1, "the first request");
   fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
-  await until(() => seen.length === 1, "the reset delta");
+  await until(t.signal, () => seen.length === 1, "the reset delta");
 
   stop();
   fake.emit(0, { transcript: "t1", seq: "4", items: [{ kind: "assistant", text: "two" }] });
@@ -223,14 +223,14 @@ test("after stop, onChange is not called and no request is made", async () => {
   assert.equal(fake.served.length, 1);
 });
 
-test("stop cancels a pending retry", async () => {
+test("stop cancels a pending retry", async (t) => {
   const fake = new FakeConnect();
   const seen: Conversation[] = [];
   const stop = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(() => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request");
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
-    await until(() => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta");
     fake.fail(0);
 
     await sleep(10);

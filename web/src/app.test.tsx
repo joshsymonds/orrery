@@ -358,8 +358,8 @@ async function withApp(
 }
 
 // until waits as testwait's until does, with each pause run inside act, so the renders it lets through are applied.
-function until(check: () => boolean, what: string): Promise<void> {
-  return waitUntil(check, what, { step: () => act(pause) });
+function until(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
+  return waitUntil(signal, check, what, { step: () => act(pause) });
 }
 
 // settle lets pending promises run, so a write the test expects to be absent has time to start.
@@ -649,7 +649,7 @@ function answerLine(container: HTMLElement, key: string): string | null {
   return rowElement(container, key).querySelector(".ans")?.textContent ?? null;
 }
 
-test("j and ArrowDown move the cursor one row down and clamp at the last row", () =>
+test("j and ArrowDown move the cursor one row down and clamp at the last row", (t) =>
   withApp({}, async (container) => {
     assert.equal(cursorKey(container), "a");
     await press("j");
@@ -662,7 +662,7 @@ test("j and ArrowDown move the cursor one row down and clamp at the last row", (
     assert.equal(cursorKey(container), "d");
   }));
 
-test("k and ArrowUp move the cursor one row up and clamp at the first row", () =>
+test("k and ArrowUp move the cursor one row up and clamp at the first row", (t) =>
   withApp({}, async (container) => {
     await press("G");
     assert.equal(cursorKey(container), "d");
@@ -676,7 +676,7 @@ test("k and ArrowUp move the cursor one row up and clamp at the first row", () =
     assert.equal(cursorKey(container), "a");
   }));
 
-test("gg goes to the first row, and a lone g or a g broken by another key does not", () =>
+test("gg goes to the first row, and a lone g or a g broken by another key does not", (t) =>
   withApp({}, async (container) => {
     await press("G");
     await press("g");
@@ -688,13 +688,13 @@ test("gg goes to the first row, and a lone g or a g broken by another key does n
     assert.equal(cursorKey(container), "a");
   }));
 
-test("G goes to the last row", () =>
+test("G goes to the last row", (t) =>
   withApp({}, async (container) => {
     await press("G");
     assert.equal(cursorKey(container), "d");
   }));
 
-test("a shows rows by attention and keeps the cursor's row", () =>
+test("a shows rows by attention and keeps the cursor's row", (t) =>
   withApp({}, async (container) => {
     await press("p");
     await press("j");
@@ -705,7 +705,7 @@ test("a shows rows by attention and keeps the cursor's row", () =>
     assert.deepEqual(sectionTitles(container), ["Needs you", "New since you looked", "Working", "Seen"]);
   }));
 
-test("p shows rows by project and keeps the cursor's row", () =>
+test("p shows rows by project and keeps the cursor's row", (t) =>
   withApp({}, async (container) => {
     await press("j");
     assert.equal(cursorKey(container), "c");
@@ -715,7 +715,7 @@ test("p shows rows by project and keeps the cursor's row", () =>
     assert.deepEqual(sectionTitles(container), ["/work/api", "/work/docs", "/work/web"]);
   }));
 
-test("w goes to the first waiting row and does nothing when no row waits", () =>
+test("w goes to the first waiting row and does nothing when no row waits", (t) =>
   withApp({}, async (container, fake) => {
     await press("G");
     assert.equal(cursorKey(container), "d");
@@ -728,7 +728,7 @@ test("w goes to the first waiting row and does nothing when no row waits", () =>
     assert.equal(cursorKey(container), "d");
   }));
 
-test("n goes to the next unseen row after the cursor and wraps", () =>
+test("n goes to the next unseen row after the cursor and wraps", (t) =>
   withApp({}, async (container) => {
     assert.equal(cursorKey(container), "a");
     await press("n");
@@ -737,7 +737,7 @@ test("n goes to the next unseen row after the cursor and wraps", () =>
     assert.equal(cursorKey(container), "a");
   }));
 
-test("/ focuses the filter input and does not type the slash", () =>
+test("/ focuses the filter input and does not type the slash", (t) =>
   withApp({}, async (container) => {
     const event = await press("/");
     assert.equal(event.defaultPrevented, true, "the slash was left to the input");
@@ -745,7 +745,7 @@ test("/ focuses the filter input and does not type the slash", () =>
     assert.equal(filterInput(container).value, "");
   }));
 
-test("? toggles a help panel listing exactly the keys", () =>
+test("? toggles a help panel listing exactly the keys", (t) =>
   withApp({}, async (container) => {
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await press("?");
@@ -757,14 +757,14 @@ test("? toggles a help panel listing exactly the keys", () =>
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
 
-test("Esc closes the help when the filter does not have focus", () =>
+test("Esc closes the help when the filter does not have focus", (t) =>
   withApp({}, async (container) => {
     await press("?");
     await press("Escape");
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
 
-test("? opens the key list over the page, outside the list, and a second ? closes it", () =>
+test("? opens the key list over the page, outside the list, and a second ? closes it", (t) =>
   withApp({}, async (container) => {
     await press("?");
     const help = container.querySelector('[aria-label="keys"]');
@@ -777,13 +777,13 @@ test("? opens the key list over the page, outside the list, and a second ? close
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
 
-test("the footer names the loaded rows' hosts once each, in the order first seen, and ends with the keys hint", () =>
+test("the footer names the loaded rows' hosts once each, in the order first seen, and ends with the keys hint", (t) =>
   withApp({}, (container) => {
     assert.deepEqual(hostTexts(container), ["box", "laptop"]);
     assert.equal(container.querySelector(".lfoot > .keys-hint")?.textContent, "? keys");
   }));
 
-test("the footer lists hosts in the order the rows first show them", () =>
+test("the footer lists hosts in the order the rows first show them", (t) =>
   withApp(
     {
       rows: [
@@ -797,7 +797,7 @@ test("the footer lists hosts in the order the rows first show them", () =>
     },
   ));
 
-test("a session row's empty host adds nothing to the footer", () =>
+test("a session row's empty host adds nothing to the footer", (t) =>
   withApp(
     {
       rows: [
@@ -810,14 +810,14 @@ test("a session row's empty host adds nothing to the footer", () =>
     },
   ));
 
-test("the footer's meters button follows the host names and reads the status's host and first stat", () =>
+test("the footer's meters button follows the host names and reads the status's host and first stat", (t) =>
   withApp({ host: hostStatus() }, (container) => {
     assert.deepEqual(footerChildren(container), ["host", "host", "meters", "keys-hint"]);
     assert.equal(meterText(container, ".meters-host"), "den");
     assert.equal(meterText(container, ".meter-label"), "cpu");
   }));
 
-test("m opens a panel with every stat, and a second m closes it", () =>
+test("m opens a panel with every stat, and a second m closes it", (t) =>
   withApp({ host: hostStatus() }, async (container) => {
     assert.equal(meterPanelShown(container), false);
     await press("m");
@@ -826,7 +826,7 @@ test("m opens a panel with every stat, and a second m closes it", () =>
     assert.equal(meterPanelShown(container), false);
   }));
 
-test("a click on the meters button opens the panel, and a second click closes it", () =>
+test("a click on the meters button opens the panel, and a second click closes it", (t) =>
   withApp({ host: hostStatus() }, async (container) => {
     await clickMeterButton(container);
     assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
@@ -834,7 +834,7 @@ test("a click on the meters button opens the panel, and a second click closes it
     assert.equal(meterPanelShown(container), false);
   }));
 
-test("with a null status the footer draws no meters button, and m opens no panel, even once a status arrives", () =>
+test("with a null status the footer draws no meters button, and m opens no panel, even once a status arrives", (t) =>
   withApp({ host: null }, async (container, fake) => {
     assert.equal(meterButtonShown(container), false);
     await press("m");
@@ -851,14 +851,14 @@ test("with a null status the footer draws no meters button, and m opens no panel
     assert.equal(meterPanelShown(container), false);
   }));
 
-test("with no status given the footer draws no meters button, and m opens no panel", () =>
+test("with no status given the footer draws no meters button, and m opens no panel", (t) =>
   withApp({}, async (container) => {
     assert.equal(meterButtonShown(container), false);
     await press("m");
     assert.equal(meterPanelShown(container), false);
   }));
 
-test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
+test("with the filter focused, shortcut keys do nothing and Enter blurs it", (t) =>
   withApp({}, async (container, fake) => {
     await press("/");
     await press("j");
@@ -877,7 +877,7 @@ test("with the filter focused, shortcut keys do nothing and Enter blurs it", () 
     assert.equal(cursorKey(container), "c");
   }));
 
-test("Esc in the filter clears it and blurs it", () =>
+test("Esc in the filter clears it and blurs it", (t) =>
   withApp({}, async (container) => {
     await press("/");
     await typeFilter(container, "docs");
@@ -888,7 +888,7 @@ test("Esc in the filter clears it and blurs it", () =>
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
   }));
 
-test("the filter keeps rows whose fields contain every typed word, case-insensitively", () =>
+test("the filter keeps rows whose fields contain every typed word, case-insensitively", (t) =>
   withApp({}, async (container) => {
     await press("/");
     await typeFilter(container, "API WAITING");
@@ -903,14 +903,14 @@ test("the filter keeps rows whose fields contain every typed word, case-insensit
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
   }));
 
-test("the filter hides sections left empty", () =>
+test("the filter hides sections left empty", (t) =>
   withApp({}, async (container) => {
     await press("/");
     await typeFilter(container, "docs");
     assert.deepEqual(sectionTitles(container), ["New since you looked"]);
   }));
 
-test("modifier keys leave the cursor alone", () =>
+test("modifier keys leave the cursor alone", (t) =>
   withApp({}, async (container) => {
     await press("j", { ctrlKey: true });
     await press("j", { metaKey: true });
@@ -919,7 +919,7 @@ test("modifier keys leave the cursor alone", () =>
     assert.equal(cursorKey(container), "a");
   }));
 
-test("u and N outside the filter change nothing", () =>
+test("u and N outside the filter change nothing", (t) =>
   withApp({}, async (container, fake) => {
     await press("u");
     await press("N");
@@ -931,7 +931,7 @@ test("u and N outside the filter change nothing", () =>
     assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
   }));
 
-test("the cursor keeps its row across new rows and clamps when its row leaves", () =>
+test("the cursor keeps its row across new rows and clamps when its row leaves", (t) =>
   withApp({}, async (container, fake) => {
     await press("j");
     await press("j");
@@ -945,7 +945,7 @@ test("the cursor keeps its row across new rows and clamps when its row leaves", 
     assert.equal(cursorKey(container), "d");
   }));
 
-test("an unmoved cursor keeps its row when a row sorts in above it", () =>
+test("an unmoved cursor keeps its row when a row sorts in above it", (t) =>
   withApp({}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
@@ -953,7 +953,7 @@ test("an unmoved cursor keeps its row when a row sorts in above it", () =>
     assert.equal(cursorKey(container), "a");
   }));
 
-test("a clamped cursor keeps the row it moved to", () =>
+test("a clamped cursor keeps the row it moved to", (t) =>
   withApp({}, async (container, fake) => {
     await press("j");
     await press("j");
@@ -965,7 +965,7 @@ test("a clamped cursor keeps the row it moved to", () =>
     assert.equal(cursorKey(container), "d");
   }));
 
-test("only unseen rows carry the unseen mark", () =>
+test("only unseen rows carry the unseen mark", (t) =>
   withApp({}, (container) => {
     const marked = [...container.querySelectorAll("[data-unseen]")].map((element) => element.getAttribute("data-key"));
     assert.deepEqual(marked, ["a", "c"]);
@@ -973,7 +973,7 @@ test("only unseen rows carry the unseen mark", () =>
     assert.equal(rowElement(container, "d").hasAttribute("data-unseen"), false);
   }));
 
-test("a row shows its tag, label, project's last path element, age, and reply text", () =>
+test("a row shows its tag, label, project's last path element, age, and reply text", (t) =>
   withApp({}, (container) => {
     const element = rowElement(container, "a");
     assert.equal(element.querySelector(".label")?.textContent, "api");
@@ -994,7 +994,7 @@ function stateRows(): Row[] {
   ];
 }
 
-test("a waiting row leads its first line with a QUESTION or WAITING tag, and no other row has a tag", () =>
+test("a waiting row leads its first line with a QUESTION or WAITING tag, and no other row has a tag", (t) =>
   withApp({ rows: stateRows() }, (container) => {
     const tagOf = (key: string) => rowElement(container, key).querySelector(".l1 .ty")?.textContent ?? null;
     assert.equal(tagOf("q"), "QUESTION", "a waiting row with a question");
@@ -1005,7 +1005,7 @@ test("a waiting row leads its first line with a QUESTION or WAITING tag, and no 
     assert.equal(rowElement(container, "q").querySelector(".l1")?.firstElementChild?.classList.contains("ty"), true);
   }));
 
-test("no row draws a state element, and no row's first line holds its state word", () =>
+test("no row draws a state element, and no row's first line holds its state word", (t) =>
   withApp({ rows: stateRows() }, (container) => {
     const rows = [...container.querySelectorAll("[data-row]")];
     assert.equal(
@@ -1022,7 +1022,7 @@ test("no row draws a state element, and no row's first line holds its state word
     }
   }));
 
-test("each row's glyph carries its state class", () =>
+test("each row's glyph carries its state class", (t) =>
   withApp({ rows: stateRows() }, (container) => {
     const glyphOf = (key: string) => rowElement(container, key).querySelector(".g")?.getAttribute("class") ?? null;
     assert.equal(glyphOf("q"), "g g-waiting");
@@ -1031,13 +1031,13 @@ test("each row's glyph carries its state class", () =>
     assert.equal(glyphOf("i"), "g g-interrupted");
   }));
 
-test("an unseen row's reply text runs two lines, and a seen row's runs one", () =>
+test("an unseen row's reply text runs two lines, and a seen row's runs one", (t) =>
   withApp({}, (container) => {
     assert.equal(rowElement(container, "a").querySelector(".l2")?.getAttribute("class"), "l2", "a is unseen");
     assert.equal(rowElement(container, "b").querySelector(".l2")?.getAttribute("class"), "l2 one", "b is seen");
   }));
 
-test("a section head shows its title and its row count, and Needs you and New since you looked carry their marks", () =>
+test("a section head shows its title and its row count, and Needs you and New since you looked carry their marks", (t) =>
   withApp(
     {
       rows: [
@@ -1055,7 +1055,7 @@ test("a section head shows its title and its row count, and Needs you and New si
     },
   ));
 
-test("a row that is not waiting shows its summary, not its question", () =>
+test("a row that is not waiting shows its summary, not its question", (t) =>
   withApp(
     {
       rows: [row({ key: "s", state: "working", question: "stale?", summary: "compiling" })],
@@ -1065,7 +1065,7 @@ test("a row that is not waiting shows its summary, not its question", () =>
     },
   ));
 
-test("reply text renders as text, never as markup", () =>
+test("reply text renders as text, never as markup", (t) =>
   withApp(
     {
       rows: [row({ key: "x", state: "working", summary: "<script>alert(1)</script> and <img src=x onerror=alert(1)>" })],
@@ -1080,26 +1080,26 @@ test("reply text renders as text, never as markup", () =>
     },
   ));
 
-test("an empty project title shows the row's host", () =>
+test("an empty project title shows the row's host", (t) =>
   withApp({ rows: [row({ key: "p", project: "", host: "box", state: "working" })] }, async (container) => {
     await press("p");
     assert.deepEqual(sectionTitles(container), ["box"]);
   }));
 
-test("an empty project title with no host shows no directory", () =>
+test("an empty project title with no host shows no directory", (t) =>
   withApp({ rows: [row({ key: "p", project: "", host: "", state: "working" })] }, async (container) => {
     await press("p");
     assert.deepEqual(sectionTitles(container), ["no directory"]);
   }));
 
-test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", () =>
+test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", (t) =>
   withApp({}, (container) => {
     assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
     assert.deepEqual(topChildren(container), ["brand", "filter", "views"]);
     assert.deepEqual(outsideList(container, ".top, .error"), []);
   }));
 
-test("a non-empty error shows one line in the top block, above the rows", () =>
+test("a non-empty error shows one line in the top block, above the rows", (t) =>
   withApp({ error: "list unavailable" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
     assert.deepEqual(topChildren(container), ["brand", "filter", "views", "error"]);
@@ -1107,12 +1107,12 @@ test("a non-empty error shows one line in the top block, above the rows", () =>
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
-test("no error line shows when the error is empty", () =>
+test("no error line shows when the error is empty", (t) =>
   withApp({ error: "" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]') === null, true);
   }));
 
-test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive tech", () =>
+test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive tech", (t) =>
   withApp({}, (container) => {
     assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("viewBox"), "18 18 72 72");
     assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("aria-hidden"), "true");
@@ -1121,33 +1121,33 @@ test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive
     assert.equal(container.querySelectorAll(".brand > svg.mark > path").length, 5);
   }));
 
-test("the brand reads orrery, and its counts stay in place when every count is zero", () =>
+test("the brand reads orrery, and its counts stay in place when every count is zero", (t) =>
   withApp({ rows: [] }, (container) => {
     assert.equal(container.querySelector(".brand")?.textContent, "orrery");
     assert.equal(container.querySelector(".brand .counts") === null, false, "the counts span stays");
     assert.deepEqual(countTexts(container), []);
   }));
 
-test("the brand counts the loaded rows that need you, are working, and are new", () =>
+test("the brand counts the loaded rows that need you, are working, and are new", (t) =>
   withApp({}, (container) => {
     assert.deepEqual(countTexts(container), fixtureCounts);
   }));
 
-test("a count of zero is left out of the brand", () =>
+test("a count of zero is left out of the brand", (t) =>
   withApp({ rows: [row({ key: "s", state: "working", changed: 1, seen: 1 })] }, (container) => {
     assert.deepEqual(countTexts(container), ["st-working: 1 working"]);
   }));
 
-test("a successful seen write takes its row out of the new count", () =>
+test("a successful seen write takes its row out of the new count", (t) =>
   withApp({}, async (container, fake) => {
     assert.equal(newCount(container), "✱ 2 new");
     await press("x");
-    await until(() => newCount(container) === "✱ 1 new", "the new count to fall");
+    await until(t.signal, () => newCount(container) === "✱ 1 new", "the new count to fall");
     assert.deepEqual(countTexts(container), ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 1 new"]);
     assert.equal(fake.callsTo(markPanePath).length, 1);
   }));
 
-test("typing a filter leaves the counts as they were", () =>
+test("typing a filter leaves the counts as they were", (t) =>
   withApp({}, async (container) => {
     await press("/");
     await typeFilter(container, "docs");
@@ -1155,9 +1155,9 @@ test("typing a filter leaves the counts as they were", () =>
     assert.deepEqual(countTexts(container), fixtureCounts);
   }));
 
-test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", () =>
+test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     assert.equal(stream.body.pane, "a");
     fake.emit(stream, {
@@ -1166,10 +1166,10 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
       reset: true,
       items: [{ kind: "assistant", text: "the streamed reply" }],
     });
-    await until(() => readerText(container).includes("the streamed reply"), "the streamed reply");
+    await until(t.signal, () => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("the cursor's reader opens on its head: the label, the project and host, and the state's pill", () =>
+test("the cursor's reader opens on its head: the label, the project and host, and the state's pill", (t) =>
   withApp({ rows: [paneRow] }, (container) => {
     assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
     assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "api");
@@ -1178,7 +1178,7 @@ test("the cursor's reader opens on its head: the label, the project and host, an
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a session's head has no where line and a pill of its state, with no tool or clock", () =>
+test("a session's head has no where line and a pill of its state, with no tool or clock", (t) =>
   withApp({ rows: [sessionRow] }, (container) => {
     assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "notes");
     assert.equal(readerHead(container)?.querySelector(".where") === null, true);
@@ -1187,11 +1187,11 @@ test("a session's head has no where line and a pill of its state, with no tool o
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a step's head names the step, its epic, agent and round, and its pill runs from the step's start", () => {
+test("a step's head names the step, its epic, agent and round, and its pill runs from the step's start", (t) => {
   const running = makeStep("s1", { started: BigInt(now - 60) });
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
   return withApp({ epics }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "s1");
     assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "first › builder · step · round 1");
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "running");
@@ -1199,23 +1199,23 @@ test("a step's head names the step, its epic, agent and round, and its pill runs
   });
 });
 
-test("a held step's head pill reads held with no clock", () => {
+test("a held step's head pill reads held with no clock", (t) => {
   const held = makeStep("s1", { held: true });
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [held] })], new Map());
   return withApp({ epics }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "held");
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   });
 });
 
-test("each step box takes its own step's held flag, and a box the cursor left keeps its own", () => {
+test("each step box takes its own step's held flag, and a box the cursor left keeps its own", (t) => {
   const epics = epicsView(
     [makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { held: true }), makeStep("s2")] })],
     new Map(),
   );
   return withApp({ epics }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.deepEqual(edgesOf(cursorStepInput(container)), ["edge-held"]);
     assert.equal(cursorStepInput(container).placeholder, "Nudge s1: it resumes the step with your text");
     await press("j");
@@ -1226,12 +1226,12 @@ test("each step box takes its own step's held flag, and a box the cursor left ke
   });
 });
 
-test("a working pane's delta puts its tool and time in the head's pill, and draws no note under the reader", () =>
+test("a working pane's delta puts its tool and time in the head's pill, and draws no note under the reader", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerHead(container)?.querySelector(".pill .word")?.textContent === "working", "the working pill");
+    await until(t.signal, () => readerHead(container)?.querySelector(".pill .word")?.textContent === "working", "the working pill");
     assert.equal(readerHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
     assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
     assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
@@ -1239,37 +1239,37 @@ test("a working pane's delta puts its tool and time in the head's pill, and draw
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
   }));
 
-test("a later delta whose pane is done drops the pill's tool and draws no working note", () =>
+test("a later delta whose pane is done drops the pill's tool and draws no working note", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerHead(container)?.querySelector(".pill .tool")?.textContent === "Bash", "the working tool");
+    await until(t.signal, () => readerHead(container)?.querySelector(".pill .tool")?.textContent === "Bash", "the working tool");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(() => readerHead(container)?.querySelector(".pill .word")?.textContent === "done", "the done pill");
+    await until(t.signal, () => readerHead(container)?.querySelector(".pill .word")?.textContent === "done", "the done pill");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
     assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
   }));
 
-test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
+test("moving the cursor to a session row aborts the pane's stream and opens the session's", (t) =>
   withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [pane] = fake.callsTo(paneWatchPath);
     await press("j");
     assert.equal(cursorKey(container), "s1");
     assert.equal(pane.signal.aborted, true, "the pane stream was aborted");
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.equal(fake.callsTo(sessionWatchPath)[0].body.id, "s1");
   }));
 
-test("leaving the page stops the cursor's stream", () =>
+test("leaving the page stops the cursor's stream", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     await act(() => {
       render(null, container);
@@ -1277,19 +1277,19 @@ test("leaving the page stops the cursor's stream", () =>
     assert.equal(stream.signal.aborted, true, "the stream was aborted on unmount");
   }));
 
-test("Enter in the composer sends the text to the pane with Panes.SendText", () =>
+test("Enter in the composer sends the text to the pane with Panes.SendText", (t) =>
   withApp({}, async (container, fake) => {
     await press("i");
     const box = composer(container);
     assert.equal(document.activeElement === box, true);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
-    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
     assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
-    await until(() => box.value === "", "the sent draft cleared");
+    await until(t.signal, () => box.value === "", "the sent draft cleared");
   }));
 
-test("a click on the send button sends the cursor's text once with Panes.SendText", () =>
+test("a click on the send button sends the cursor's text once with Panes.SendText", (t) =>
   withApp({}, async (container, fake) => {
     await press("i");
     const box = composer(container);
@@ -1297,16 +1297,16 @@ test("a click on the send button sends the cursor's text once with Panes.SendTex
     await act(() => {
       composerSendButton(container).dispatchEvent(clickEvent());
     });
-    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
     await settle();
     assert.equal(fake.callsTo(sendTextPath).length, 1, "the click sent once");
     assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
-    await until(() => box.value === "", "the sent draft cleared");
+    await until(t.signal, () => box.value === "", "the sent draft cleared");
   }));
 
-test("the cursor's reader is its head, its conversation and its foot, and nothing else", () =>
+test("the cursor's reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
       "header.head",
       "div.reader",
@@ -1314,9 +1314,9 @@ test("the cursor's reader is its head, its conversation and its foot, and nothin
     ]);
   }));
 
-test("a step's reader is its head, its conversation and its foot, and nothing else", () =>
+test("a step's reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
       "header.head",
       "div.reader",
@@ -1324,9 +1324,9 @@ test("a step's reader is its head, its conversation and its foot, and nothing el
     ]);
   }));
 
-test("a step's reader draws its brief as a fold, its round's checks as a card, and the owner's nudge as YOU", () =>
+test("a step's reader draws its brief as a fold, its round's checks as a card, and the owner's nudge as YOU", (t) =>
   withApp({ epics: checkedEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     const [stream] = fake.callsTo(sessionWatchPath);
     fake.emit(stream, {
       transcript: "t1",
@@ -1339,7 +1339,7 @@ test("a step's reader draws its brief as a fold, its round's checks as a card, a
       ],
     });
     const reader = '[aria-label="reader"] > .reader';
-    await until(() => container.querySelector(`${reader} .you`) !== null, "the owner's nudge");
+    await until(t.signal, () => container.querySelector(`${reader} .you`) !== null, "the owner's nudge");
     assert.equal(container.querySelectorAll(`${reader} button.fold.brief`).length, 1, "one brief fold");
     assert.equal(container.querySelector(`${reader} button.fold.brief b`)?.textContent, "Brief");
     assert.equal(container.querySelectorAll(`${reader} .card`).length, 1, "one round card");
@@ -1356,9 +1356,9 @@ test("a step's reader draws its brief as a fold, its round's checks as a card, a
     assert.equal(you.includes("the brief"), false, "the YOU bubble holds no brief");
   }));
 
-test("a pane row's reader draws its prompts as YOU, whatever their sender and round", () =>
+test("a pane row's reader draws its prompts as YOU, whatever their sender and round", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, {
       transcript: "t1",
@@ -1367,18 +1367,18 @@ test("a pane row's reader draws its prompts as YOU, whatever their sender and ro
       items: [{ kind: "prompt", text: "lint failed", sender: "engine", round: 1 }],
     });
     const reader = '[aria-label="reader"] > .reader';
-    await until(() => container.querySelector(`${reader} .you`) !== null, "the prompt");
+    await until(t.signal, () => container.querySelector(`${reader} .you`) !== null, "the prompt");
     assert.equal(container.querySelectorAll(`${reader} .card`).length, 0, "no round card");
     assert.equal(container.querySelectorAll(`${reader} .fold`).length, 0, "no fold");
     const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
     assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
   }));
 
-test("the pinned reader is its head, its conversation and its foot, and nothing else", () =>
+test("the pinned reader is its head, its conversation and its foot, and nothing else", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
       "header.head",
       "div.reader",
@@ -1386,9 +1386,9 @@ test("the pinned reader is its head, its conversation and its foot, and nothing 
     ]);
   }));
 
-test("the cursor's queued messages dock in its foot, oldest first, and draw nowhere in its reader", () =>
+test("the cursor's queued messages dock in its foot, oldest first, and draw nowhere in its reader", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, {
       transcript: "t1",
@@ -1402,7 +1402,7 @@ test("the cursor's queued messages dock in its foot, oldest first, and draw nowh
         ],
       },
     });
-    await until(() => queueTexts(container).length === 2, "the queued messages");
+    await until(t.signal, () => queueTexts(container).length === 2, "the queued messages");
     assert.deepEqual(queueTexts(container), ["first waiting", "second waiting"]);
     assert.equal(container.querySelectorAll('[aria-label="reader"] .send .queue li.canceled').length, 1);
     const reader = container.querySelector('[aria-label="reader"] > .reader')?.textContent ?? "";
@@ -1411,11 +1411,11 @@ test("the cursor's queued messages dock in its foot, oldest first, and draw nowh
     assert.ok(reader.includes("a reply"));
   }));
 
-test("a row's queued messages draw in no other foot: the pin keeps its own, and a hidden composer shows none", () =>
+test("a row's queued messages draw in no other foot: the pin keeps its own, and a hidden composer shows none", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     fake.emit(pinnedStream, {
       transcript: "t1",
@@ -1424,10 +1424,10 @@ test("a row's queued messages draw in no other foot: the pin keeps its own, and 
       items: [],
       state: { waiting: [{ text: "pinned waiting", canceled: false }] },
     });
-    await until(() => pinnedQueueTexts(container).length === 1, "the pinned queue");
+    await until(t.signal, () => pinnedQueueTexts(container).length === 1, "the pinned queue");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
     const cursorStream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
     assert.ok(cursorStream !== undefined, "the cursor's stream on c");
     fake.emit(cursorStream, {
@@ -1437,26 +1437,26 @@ test("a row's queued messages draw in no other foot: the pin keeps its own, and 
       items: [],
       state: { waiting: [{ text: "c waiting", canceled: false }] },
     });
-    await until(() => queueTexts(container).includes("c waiting"), "c's queue");
+    await until(t.signal, () => queueTexts(container).includes("c waiting"), "c's queue");
     assert.deepEqual(queueTexts(container), ["c waiting"], "only c's composer draws c's queue");
     assert.deepEqual(pinnedQueueTexts(container), ["pinned waiting"]);
     assert.equal(container.querySelector(".reply[hidden] .queue") === null, true, "a's hidden composer draws no queue");
   }));
 
-test("Enter in a session's composer sends the text with Control.Say and a prompt id", () =>
+test("Enter in a session's composer sends the text with Control.Say and a prompt id", (t) =>
   withApp({ rows: [sessionRow] }, async (container, fake) => {
     await press("i");
     const box = composer(container);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
-    await until(() => fake.callsTo(sayPath).length === 1, "the say");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
     const [say] = fake.callsTo(sayPath);
     assert.equal(say.body.id, "s1");
     assert.equal(say.body.text, "keep going");
     assert.match(String(say.body.promptId), /^[0-9a-f-]{36}$/);
   }));
 
-test("a draft survives moving the cursor away and back", () =>
+test("a draft survives moving the cursor away and back", (t) =>
   withApp({}, async (container) => {
     await press("i");
     const box = composer(container);
@@ -1469,7 +1469,7 @@ test("a draft survives moving the cursor away and back", () =>
     assert.equal(composer(container).value, "half a thought");
   }));
 
-test("a failed send keeps its prompt id when the cursor moves away and back", () =>
+test("a failed send keeps its prompt id when the cursor moves away and back", (t) =>
   withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
     fake.failNext.add(sayPath);
     await press("j");
@@ -1478,7 +1478,7 @@ test("a failed send keeps its prompt id when the cursor moves away and back", ()
     const box = composer(container);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
-    await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
     await pressIn(box, "Escape");
     await press("k");
     assert.equal(cursorKey(container), "a");
@@ -1486,13 +1486,13 @@ test("a failed send keeps its prompt id when the cursor moves away and back", ()
     assert.equal(cursorKey(container), "s1");
     assert.equal(composer(container).value, "keep going", "the draft survived");
     await pressIn(composer(container), "Enter");
-    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 2, "the second say");
     const [first, second] = fake.callsTo(sayPath);
     assert.equal(second.body.text, "keep going");
     assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
   }));
 
-test("a failed send keeps its draft and prompt id through a poll that lists no sessions", () =>
+test("a failed send keeps its draft and prompt id through a poll that lists no sessions", (t) =>
   withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
     fake.failNext.add(sayPath);
     await press("j");
@@ -1500,7 +1500,7 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
     await pressIn(composer(container), "Escape");
     // A poll whose Sessions.List failed lists the panes only; the next poll lists the session again.
     await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients, seen: fake.seen });
@@ -1511,12 +1511,12 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
     assert.equal(cursorKey(container), "s1");
     assert.equal(composer(container).value, "keep going", "the draft survived the poll");
     await pressIn(composer(container), "Enter");
-    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 2, "the second say");
     const [first, second] = fake.callsTo(sayPath);
     assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
   }));
 
-test("keys typed in the composer never act as list keys, and Escape leaves it", () =>
+test("keys typed in the composer never act as list keys, and Escape leaves it", (t) =>
   withApp({}, async (container) => {
     await press("i");
     const box = composer(container);
@@ -1534,16 +1534,16 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     assert.equal(cursorKey(container), "c");
   }));
 
-test("i focuses the composer, and o opens and closes a compaction's summary", () =>
+test("i focuses the composer, and o opens and closes a compaction's summary", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], {
       transcript: "t1",
       seq: "1",
       reset: true,
       items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
     });
-    await until(() => container.querySelector(".compaction") !== null, "the compaction");
+    await until(t.signal, () => container.querySelector(".compaction") !== null, "the compaction");
     assert.equal(container.querySelector(".summary") === null, true, "the summary is hidden at first");
 
     await press("o");
@@ -1555,55 +1555,55 @@ test("i focuses the composer, and o opens and closes a compaction's summary", ()
     assert.equal(document.activeElement === composer(container), true);
   }));
 
-test("ArrowUp in an empty pane composer pulls the queued text back", () =>
+test("ArrowUp in an empty pane composer pulls the queued text back", (t) =>
   withApp({}, async (container, fake) => {
     await press("i");
     const box = composer(container);
     await pressIn(box, "ArrowUp");
-    await until(() => box.value === queuedText, "the pulled text");
+    await until(t.signal, () => box.value === queuedText, "the pulled text");
     assert.equal(fake.callsTo(pullPath).length, 1);
   }));
 
-test("ArrowUp in a session's composer pulls nothing", () =>
+test("ArrowUp in a session's composer pulls nothing", (t) =>
   withApp({ rows: [sessionRow] }, async (container, fake) => {
     await press("i");
     const box = composer(container);
     await pressIn(box, "ArrowUp");
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.equal(fake.callsTo(pullPath).length, 0, "a session has no queue to pull");
     assert.equal(box.value, "");
   }));
 
-test("Enter on the list writes Panes.MarkSeen for the cursor's pane row", () =>
+test("Enter on the list writes Panes.MarkSeen for the cursor's pane row", (t) =>
   withApp({}, async (container, fake) => {
     await press("Enter");
-    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the seen write");
     assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
     assert.equal(cursorKey(container), "a");
   }));
 
-test("x on the list writes Panes.MarkSeen for a pane row and Control.Seen for a session row", () =>
+test("x on the list writes Panes.MarkSeen for a pane row and Control.Seen for a session row", (t) =>
   withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
     await press("x");
-    await until(() => fake.callsTo(markPanePath).length === 1, "the pane write");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the pane write");
     assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
     await press("j");
     assert.equal(cursorKey(container), "s1");
     await press("x");
-    await until(() => fake.callsTo(markSessionPath).length === 1, "the session write");
+    await until(t.signal, () => fake.callsTo(markSessionPath).length === 1, "the session write");
     assert.deepEqual(fake.callsTo(markSessionPath)[0].body, { id: "s1" });
   }));
 
-test("e writes seen for the cursor's row, then rests on the next unseen row", () =>
+test("e writes seen for the cursor's row, then rests on the next unseen row", (t) =>
   withApp({}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     await press("e");
-    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the seen write");
     assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
     assert.equal(cursorKey(container), "c");
   }));
 
-test("Enter in a composer sends its text and writes no seen, even for keys typed as shortcuts", () =>
+test("Enter in a composer sends its text and writes no seen, even for keys typed as shortcuts", (t) =>
   withApp({}, async (container, fake) => {
     await press("i");
     const box = composer(container);
@@ -1611,27 +1611,27 @@ test("Enter in a composer sends its text and writes no seen, even for keys typed
     await pressIn(box, "x");
     await pressIn(box, "e");
     await pressIn(box, "Enter");
-    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0);
     assert.equal(fake.callsTo(markSessionPath).length, 0);
   }));
 
-test("resting one second on an unseen row with recent input writes seen once", () =>
+test("resting one second on an unseen row with recent input writes seen once", (t) =>
   withApp({}, async (container, fake) => {
     fake.seen.input.emit("keydown");
     fake.seen.advance(999);
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "not yet a second");
     fake.seen.advance(1);
-    await until(() => fake.callsTo(markPanePath).length === 1, "the dwell write");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the dwell write");
     assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
     fake.seen.advance(5000);
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 1, "the row is written once");
   }));
 
-test("a hidden page writes no seen on the fake clock", () =>
+test("a hidden page writes no seen on the fake clock", (t) =>
   withApp({}, async (container, fake) => {
     fake.seen.state.visibilityState = "hidden";
     fake.seen.input.emit("keydown");
@@ -1640,7 +1640,7 @@ test("a hidden page writes no seen on the fake clock", () =>
     assert.equal(fake.callsTo(markPanePath).length, 0);
   }));
 
-test("an unfocused page writes no seen on the fake clock", () =>
+test("an unfocused page writes no seen on the fake clock", (t) =>
   withApp({}, async (container, fake) => {
     fake.seen.state.focused = false;
     fake.seen.input.emit("keydown");
@@ -1649,7 +1649,7 @@ test("an unfocused page writes no seen on the fake clock", () =>
     assert.equal(fake.callsTo(markPanePath).length, 0);
   }));
 
-test("a page refocused with no input in the last 30 s writes no seen until input comes", () =>
+test("a page refocused with no input in the last 30 s writes no seen until input comes", (t) =>
   withApp({}, async (container, fake) => {
     fake.seen.state.focused = false;
     fake.seen.input.emit("keydown");
@@ -1661,29 +1661,29 @@ test("a page refocused with no input in the last 30 s writes no seen until input
     assert.equal(fake.callsTo(markPanePath).length, 0, "the last input is over 30 s old");
     fake.seen.input.emit("keydown");
     fake.seen.advance(1000);
-    await until(() => fake.callsTo(markPanePath).length === 1, "the write after fresh input");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the write after fresh input");
   }));
 
-test("a row that changes while the cursor rests on it is written again after one second", () =>
+test("a row that changes while the cursor rests on it is written again after one second", (t) =>
   withApp({}, async (container, fake) => {
     fake.seen.input.emit("keydown");
     fake.seen.advance(1000);
-    await until(() => fake.callsTo(markPanePath).length === 1, "the first dwell write");
-    await until(() => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the first dwell write");
+    await until(t.signal, () => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
 
     const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
     await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "the newer change is unseen");
     fake.seen.input.emit("keydown");
     fake.seen.advance(1000);
-    await until(() => fake.callsTo(markPanePath).length === 2, "the second dwell write");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 2, "the second dwell write");
   }));
 
-test("a written row stops showing unseen until its changed time moves past the one it had", () =>
+test("a written row stops showing unseen until its changed time moves past the one it had", (t) =>
   withApp({}, async (container, fake) => {
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true);
     await press("x");
-    await until(() => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
+    await until(t.signal, () => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
 
     await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), false, "the server has not caught up yet");
@@ -1693,16 +1693,16 @@ test("a written row stops showing unseen until its changed time moves past the o
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "a newer change is unseen again");
   }));
 
-test("a failed write leaves the row unseen and shows a fixed line", () =>
+test("a failed write leaves the row unseen and shows a fixed line", (t) =>
   withApp({}, async (container, fake) => {
     fake.failNext.add(markPanePath);
     await press("x");
-    await until(() => container.querySelector('[role="alert"]') !== null, "the seen failure line");
+    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the seen failure line");
     assert.equal(container.querySelector('[role="alert"]')?.textContent, seenFailedText);
     assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true);
   }));
 
-test("leaving the page stops the seen watch before its dwell writes", () =>
+test("leaving the page stops the seen watch before its dwell writes", (t) =>
   withApp({}, async (container, fake) => {
     fake.seen.input.emit("keydown");
     await act(() => {
@@ -1735,17 +1735,17 @@ const otherSessionRow = row({
   seen: 10,
 });
 
-test("2 on a waiting pane row sends its digit with the row's question hash", () =>
+test("2 on a waiting pane row sends its digit with the row's question hash", (t) =>
   withApp({ rows: [answerableRow] }, async (container, fake) => {
     await press("2");
-    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-1" });
     assert.deepEqual(alertTexts(container), [], "no line shows for a sent answer");
   }));
 
-test("1 on a session row answers the request its stream holds with the first option", () =>
+test("1 on a session row answers the request its stream holds with the first option", (t) =>
   withApp({ rows: [sessionRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], {
       transcript: "t1",
       seq: "1",
@@ -1753,15 +1753,15 @@ test("1 on a session row answers the request its stream holds with the first opt
       items: [{ kind: "assistant", text: "the streamed question" }],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
-    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
     await press("1");
-    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
   }));
 
-test("a stream held for another row never answers the cursor's row", () =>
+test("a stream held for another row never answers the cursor's row", (t) =>
   withApp({ rows: [sessionRow, otherSessionRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], {
       transcript: "t1",
       seq: "1",
@@ -1769,34 +1769,34 @@ test("a stream held for another row never answers the cursor's row", () =>
       items: [{ kind: "assistant", text: "the streamed question" }],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
-    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
     await press("j");
     assert.equal(cursorKey(container), "s2");
     await press("1");
-    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
     assert.equal(fake.callsTo(answerPath).length, 0, "the other row's request was not answered");
   }));
 
-test("3 on a row with no answerable question sends nothing and shows the fixed line", () =>
+test("3 on a row with no answerable question sends nothing and shows the fixed line", (t) =>
   withApp({}, async (container, fake) => {
     await press("3");
-    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
     await settle();
     assert.equal(fake.callsTo(sendKeysPath).length, 0);
     assert.equal(fake.callsTo(answerPath).length, 0);
   }));
 
-test("a rejected answer shows the fixed line, never the server's text, and is not retried", () =>
+test("a rejected answer shows the fixed line, never the server's text, and is not retried", (t) =>
   withApp({ rows: [answerableRow] }, async (container, fake) => {
     fake.failNext.add(sendKeysPath);
     await press("2");
-    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
     await settle();
     assert.equal(fake.callsTo(sendKeysPath).length, 1, "the answer was not retried");
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
   }));
 
-test("1 2 and 3 do nothing while the filter or a composer has focus", () =>
+test("1 2 and 3 do nothing while the filter or a composer has focus", (t) =>
   withApp({ rows: [answerableRow] }, async (container, fake) => {
     await press("/");
     await press("2");
@@ -1879,74 +1879,74 @@ const permissionStream = {
 };
 
 // openPermissionRequest waits for the cursor's session stream, sends the permission request, and waits for its chips.
-async function openPermissionRequest(container: HTMLElement, fake: FakeServer): Promise<void> {
-  await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+async function openPermissionRequest(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
+  await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
   fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
-  await until(() => chipTexts(container, "s1").length === 2, "the chips");
+  await until(signal, () => chipTexts(container, "s1").length === 2, "the chips");
 }
 
-test("a waiting pane row's options are numbered chips, the fourth unnumbered, and 2 sends keys [\"2\"]", () =>
+test("a waiting pane row's options are numbered chips, the fourth unnumbered, and 2 sends keys [\"2\"]", (t) =>
   withApp({ rows: [fourOptionRow] }, async (container, fake) => {
     assert.deepEqual(chipTexts(container, "f"), ["1Alpha", "2Beta", "3Gamma", "Delta"]);
     assert.deepEqual(keyCaps(container, "f"), ["1", "2", "3", null]);
     const chipIsButton = rowElement(container, "f").querySelector(".opts button") !== null;
     assert.equal(chipIsButton, false, "chips are labels, not buttons");
     await press("2");
-    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "f", keys: ["2"], expectQuestion: "qh-f" });
   }));
 
-test("a pane permission question's chips read 1Yes, 2Yes, don't ask again, and 3No", () =>
+test("a pane permission question's chips read 1Yes, 2Yes, don't ask again, and 3No", (t) =>
   withApp({ rows: [permissionRow] }, (container) => {
     assert.deepEqual(chipTexts(container, "p"), ["1Yes", "2Yes, don't ask again", "3No"]);
     assert.deepEqual(keyCaps(container, "p"), ["1", "2", "3"]);
   }));
 
-test("a landed pane answer leaves one line naming its choice in place of the chips", () =>
+test("a landed pane answer leaves one line naming its choice in place of the chips", (t) =>
   withApp({ rows: [fourOptionRow] }, async (container) => {
     await press("2");
-    await until(() => answerLine(container, "f") !== null, "the answer line");
+    await until(t.signal, () => answerLine(container, "f") !== null, "the answer line");
     assert.equal(answerLine(container, "f"), "You answered 2 · Beta");
     assert.deepEqual(chipTexts(container, "f"), [], "the chips give way to the line");
   }));
 
-test("a failed answer leaves no line, and the chips stay", () =>
+test("a failed answer leaves no line, and the chips stay", (t) =>
   withApp({ rows: [fourOptionRow] }, async (container, fake) => {
     fake.failNext.add(sendKeysPath);
     await press("2");
-    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await until(t.signal, () => alertTexts(container).includes(answerFailedText), "the fixed line");
     await settle();
     assert.equal(answerLine(container, "f"), null, "no line for an answer that did not land");
     assert.equal(chipTexts(container, "f").length, 4, "the chips stay");
   }));
 
-test("a waiting session row's held permission request is its chips, and 2 answers deny by its request id", () =>
+test("a waiting session row's held permission request is its chips, and 2 answers deny by its request id", (t) =>
   withApp({ rows: [waitingSession] }, async (container, fake) => {
-    await openPermissionRequest(container, fake);
+    await openPermissionRequest(t.signal, container, fake);
     assert.deepEqual(chipTexts(container, "s1"), ["1allow", "2deny"]);
     assert.deepEqual(keyCaps(container, "s1"), ["1", "2"]);
     await press("2");
-    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "deny" });
-    await until(() => answerLine(container, "s1") !== null, "the answer line");
+    await until(t.signal, () => answerLine(container, "s1") !== null, "the answer line");
     assert.equal(answerLine(container, "s1"), "You answered 2 · deny");
     assert.deepEqual(chipTexts(container, "s1"), [], "no chips once answered");
   }));
 
-test("a landed session answer's line goes when its row turns working", () =>
+test("a landed session answer's line goes when its row turns working", (t) =>
   withApp({ rows: [waitingSession] }, async (container, fake) => {
-    await openPermissionRequest(container, fake);
+    await openPermissionRequest(t.signal, container, fake);
     await press("2");
-    await until(() => answerLine(container, "s1") !== null, "the answer line");
+    await until(t.signal, () => answerLine(container, "s1") !== null, "the answer line");
     await mount(container, { rows: [workingSession], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(answerLine(container, "s1"), null, "the line goes with the waiting");
     assert.deepEqual(chipTexts(container, "s1"), [], "a working row shows no chips");
   }));
 
-test("a landed answer's line goes when its row waits on another question, and the new question's chips show", () =>
+test("a landed answer's line goes when its row waits on another question, and the new question's chips show", (t) =>
   withApp({ rows: [fourOptionRow] }, async (container, fake) => {
     await press("2");
-    await until(() => answerLine(container, "f") !== null, "the answer line");
+    await until(t.signal, () => answerLine(container, "f") !== null, "the answer line");
     const nextQuestion = JSON.stringify({
       questions: [{ question: "Next?", options: [{ label: "Yes", description: "" }] }],
     });
@@ -1961,22 +1961,22 @@ test("a landed answer's line goes when its row waits on another question, and th
     assert.deepEqual(chipTexts(container, "f"), ["1Yes"]);
   }));
 
-test("a waiting session row with no held request shows no chips", () =>
+test("a waiting session row with no held request shows no chips", (t) =>
   withApp({ rows: [waitingSession] }, async (container, fake) => {
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     await settle();
     assert.deepEqual(chipTexts(container, "s1"), []);
   }));
 
-test("a working session row shows no chips, though its held stream carries a request", () =>
+test("a working session row shows no chips, though its held stream carries a request", (t) =>
   withApp({ rows: [workingSession] }, async (container, fake) => {
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
-    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
     assert.deepEqual(chipTexts(container, "s1"), []);
   }));
 
-test("only the waiting row of the fixture draws chips", () =>
+test("only the waiting row of the fixture draws chips", (t) =>
   withApp({}, (container) => {
     const drawsChips = ["a", "b", "c", "d"].map((key) => chipTexts(container, key).length > 0);
     assert.deepEqual(drawsChips, [true, false, false, false]);
@@ -2000,11 +2000,11 @@ function pinnedNote(container: HTMLElement): Element | null {
   return pinnedColumn(container)?.querySelector(".work-note") ?? null;
 }
 
-test("the pinned head names the pinned row while the cursor rests on another, and no .pin-head is drawn", () =>
+test("the pinned head names the pinned row while the cursor rests on another, and no .pin-head is drawn", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
     assert.equal(pinnedHead(container)?.querySelector("h1")?.textContent, "api");
@@ -2014,14 +2014,14 @@ test("the pinned head names the pinned row while the cursor rests on another, an
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
 
-test("the pinned column draws the pill of its own stream and no note while the cursor rests on another pane", () =>
+test("the pinned column draws the pill of its own stream and no note while the cursor rests on another pane", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     assert.equal(pinnedStream.body.pane, "a");
     fake.emit(pinnedStream, {
@@ -2031,7 +2031,7 @@ test("the pinned column draws the pill of its own stream and no note while the c
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(() => pinnedHead(container)?.querySelector(".pill .word")?.textContent === "working", "the pinned pill");
+    await until(t.signal, () => pinnedHead(container)?.querySelector(".pill .word")?.textContent === "working", "the pinned pill");
     assert.equal(pinnedHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
     assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
     assert.equal(pinnedNote(container) === null, true, "the pinned reader draws no working note");
@@ -2044,7 +2044,7 @@ test("the pinned column draws the pill of its own stream and no note while the c
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
   }));
 
-test("the reader's composer on a working row has the working edge and says it queues", () =>
+test("the reader's composer on a working row has the working edge and says it queues", (t) =>
   withApp({}, async (container) => {
     await press("j");
     await press("j");
@@ -2053,28 +2053,28 @@ test("the reader's composer on a working row has the working edge and says it qu
     assert.equal(composer(container).placeholder, "Queue for web; it lands at Claude's next step");
   }));
 
-test("a working pane turns a waiting row's composer from answering to queueing", () =>
+test("a working pane turns a waiting row's composer from answering to queueing", (t) =>
   withApp({}, async (container, fake) => {
     assert.deepEqual(edgesOf(composer(container)), ["edge-waiting"]);
     assert.equal(composer(container).placeholder, "Answer api");
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
     assert.equal(composer(container).placeholder, "Queue for api; it lands at Claude's next step");
   }));
 
-test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", () =>
+test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream on a");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream on a");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
     const stream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
     assert.ok(stream, "the cursor's stream on c is open");
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
     assert.equal(composer(container).placeholder, "Queue for docs; it lands at Claude's next step");
     const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
@@ -2083,29 +2083,29 @@ test("a pane on the cursor's stream turns only the shown composer; a visited row
     assert.deepEqual(api === undefined ? [] : edgesOf(api), ["edge-waiting"]);
   }));
 
-test("the pinned composer follows its own stream's pane while the cursor rests on another row", () =>
+test("the pinned composer follows its own stream's pane while the cursor rests on another row", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     assert.equal(pinnedStream.body.pane, "a");
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
+    await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
     assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
     assert.equal(pinnedComposer(container).placeholder, "Queue for api; it lands at Claude's next step");
     assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
     assert.equal(composer(container).placeholder, "Reply to docs");
   }));
 
-test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
+test("| pins the cursor's row in a second column that streams it while the cursor moves on", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     assert.ok(pinnedColumn(container), "the pinned column is shown");
     const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
     assert.equal(pinnedStream.body.pane, "a");
@@ -2115,20 +2115,20 @@ test("| pins the cursor's row in a second column that streams it while the curso
       reset: true,
       items: [{ kind: "assistant", text: "pinned reply" }],
     });
-    await until(() => pinnedColumn(container)?.textContent?.includes("pinned reply") === true, "the pinned reply");
+    await until(t.signal, () => pinnedColumn(container)?.textContent?.includes("pinned reply") === true, "the pinned reply");
 
     await press("j");
     assert.equal(cursorKey(container), "c");
-    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
     assert.equal(cursorStream.signal.aborted, true, "the cursor's stream on a was aborted");
     assert.equal(pinnedStream.signal.aborted, false, "the pinned stream on a stays open");
     assert.ok(pinnedColumn(container)?.textContent?.includes("api"), "the pinned column still names row a");
   }));
 
-test("the pinned column's draft survives the cursor's moves, and Enter sends it to the pinned row only", () =>
+test("the pinned column's draft survives the cursor's moves, and Enter sends it to the pinned row only", (t) =>
   withApp({}, async (container, fake) => {
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await typeInto(pinnedComposer(container), "keep going");
     await press("j");
     assert.equal(cursorKey(container), "c");
@@ -2137,16 +2137,16 @@ test("the pinned column's draft survives the cursor's moves, and Enter sends it 
       pinnedComposer(container).focus();
     });
     await pressIn(pinnedComposer(container), "Enter");
-    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
     assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
-    await until(() => pinnedComposer(container).value === "", "the sent draft cleared");
+    await until(t.signal, () => pinnedComposer(container).value === "", "the sent draft cleared");
     assert.equal(fake.callsTo(markPanePath).length, 0, "the send writes no seen for the cursor's row");
   }));
 
-test("| again removes the pinned column and aborts its stream, and the cursor's stream stays", () =>
+test("| again removes the pinned column and aborts its stream, and the cursor's stream stays", (t) =>
   withApp({}, async (container, fake) => {
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
     await press("|");
     assert.equal(pinnedColumn(container) === null, true, "the pinned column is removed");
@@ -2154,10 +2154,10 @@ test("| again removes the pinned column and aborts its stream, and the cursor's 
     assert.equal(cursorStream.signal.aborted, false, "the cursor's stream stays open");
   }));
 
-test("leaving the page stops the pinned stream as well", () =>
+test("leaving the page stops the pinned stream as well", (t) =>
   withApp({}, async (container, fake) => {
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     await act(() => {
       render(null, container);
@@ -2165,10 +2165,10 @@ test("leaving the page stops the pinned stream as well", () =>
     assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted on unmount");
   }));
 
-test("with the pinned reply box focused, | is text; after it blurs, i focuses the cursor's reply box", () =>
+test("with the pinned reply box focused, | is text; after it blurs, i focuses the cursor's reply box", (t) =>
   withApp({}, async (container, fake) => {
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await act(() => {
       pinnedComposer(container).focus();
     });
@@ -2180,10 +2180,10 @@ test("with the pinned reply box focused, | is text; after it blurs, i focuses th
     assert.equal(document.activeElement === composer(container), true, "i focuses the cursor's reply box");
   }));
 
-test("a pinned column's draft survives closing the pin and reopening it on the same row", () =>
+test("a pinned column's draft survives closing the pin and reopening it on the same row", (t) =>
   withApp({}, async (container, fake) => {
     await press("|");
-    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await act(() => {
       pinnedComposer(container).focus();
     });
@@ -2196,7 +2196,7 @@ test("a pinned column's draft survives closing the pin and reopening it on the s
     assert.equal(pinnedComposer(container).value, "half a thought", "the draft survived the close");
   }));
 
-test("a failed send in the pinned column keeps its prompt id through a close and reopen", () =>
+test("a failed send in the pinned column keeps its prompt id through a close and reopen", (t) =>
   withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
     await press("j");
     assert.equal(cursorKey(container), "s1");
@@ -2208,14 +2208,14 @@ test("a failed send in the pinned column keeps its prompt id through a close and
     });
     await typeInto(pinnedComposer(container), "keep going");
     await pressIn(pinnedComposer(container), "Enter");
-    await until(() => fake.callsTo(sayPath).length === 1, "the failed say");
-    await until(() => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the failed say");
+    await until(t.signal, () => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
     await pressIn(pinnedComposer(container), "Escape");
     await press("|");
     await press("|");
     assert.equal(pinnedComposer(container).value, "keep going", "the draft survived the close");
     await pressIn(pinnedComposer(container), "Enter");
-    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 2, "the second say");
     const [first, second] = fake.callsTo(sayPath);
     assert.equal(second.body.text, "keep going");
     assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
@@ -2242,12 +2242,12 @@ const askRow = row({
   unseen: true,
 });
 
-test("a waiting pane row shows its question's text, never its raw JSON, and a button click answers it", () =>
+test("a waiting pane row shows its question's text, never its raw JSON, and a button click answers it", (t) =>
   withApp({ rows: [askRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
     assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Which fruit?");
-    await until(() => container.querySelector(".question-card") !== null, "the question card");
+    await until(t.signal, () => container.querySelector(".question-card") !== null, "the question card");
     const reader = container.querySelector(".reader")?.textContent ?? "";
     assert.ok(reader.includes("Which fruit?"));
     for (const text of [container.querySelector(".l2")?.textContent ?? "", reader]) {
@@ -2260,13 +2260,13 @@ test("a waiting pane row shows its question's text, never its raw JSON, and a bu
     await act(() => {
       options[1].click();
     });
-    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-2" });
   }));
 
-test("a session row's reader draws the question its stream holds, and a button click answers by request id", () =>
+test("a session row's reader draws the question its stream holds, and a button click answers by request id", (t) =>
   withApp({ rows: [sessionRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], {
       transcript: "t1",
       seq: "1",
@@ -2274,27 +2274,27 @@ test("a session row's reader draws the question its stream holds, and a button c
       items: [],
       state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
     });
-    await until(() => container.querySelector(".question-card") !== null, "the question card");
+    await until(t.signal, () => container.querySelector(".question-card") !== null, "the question card");
     assert.ok(readerText(container).includes("Pick one"));
     const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
     assert.equal(options.length, 2);
     await act(() => {
       options[0].click();
     });
-    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
     assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
   }));
 
-test("a click on the compaction rule shows its summary, and a second click hides it, as o does", () =>
+test("a click on the compaction rule shows its summary, and a second click hides it, as o does", (t) =>
   withApp({ rows: [sessionRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     fake.emit(fake.callsTo(sessionWatchPath)[0], {
       transcript: "t1",
       seq: "1",
       reset: true,
       items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
     });
-    await until(() => container.querySelector(".reader .compaction button.rule") !== null, "the compaction rule");
+    await until(t.signal, () => container.querySelector(".reader .compaction button.rule") !== null, "the compaction rule");
     const rule = (): HTMLButtonElement => {
       const button = container.querySelector<HTMLButtonElement>(".reader .compaction button.rule");
       assert.ok(button, "the rule is a button");
@@ -2315,21 +2315,21 @@ function clickEvent(): Event {
   return new Event("click", { bubbles: true, cancelable: true });
 }
 
-test("a click on a row moves the cursor to it, and the reader streams that row", () =>
+test("a click on a row moves the cursor to it, and the reader streams that row", (t) =>
   withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const [first] = fake.callsTo(paneWatchPath);
     await act(() => {
       rowElement(container, "c").dispatchEvent(clickEvent());
     });
     assert.equal(cursorKey(container), "c");
     assert.equal(first.signal.aborted, true, "the stream for a was aborted");
-    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the pane stream for c");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the pane stream for c");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "a click alone writes no seen");
   }));
 
-test("a double click on a row writes seen for that row, as Enter does for the cursor's row", () =>
+test("a double click on a row writes seen for that row, as Enter does for the cursor's row", (t) =>
   withApp({}, async (container, fake) => {
     const target = rowElement(container, "c");
     await act(() => {
@@ -2338,11 +2338,11 @@ test("a double click on a row writes seen for that row, as Enter does for the cu
       target.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
     });
     assert.equal(cursorKey(container), "c");
-    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    await until(t.signal, () => fake.callsTo(markPanePath).length === 1, "the seen write");
     assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "c" });
   }));
 
-test("a click on the view labels switches the view as a and p do", () =>
+test("a click on the view labels switches the view as a and p do", (t) =>
   withApp({}, async (container) => {
     const labels = container.querySelectorAll<HTMLElement>(".views .view");
     assert.equal(labels.length, 2);
@@ -2362,9 +2362,9 @@ const linkedRows = fixture().map((item) =>
   item.key === "c" ? { ...item, summary: "see https://example.com/notes" } : item,
 );
 
-test("a click or double click on a link in a row opens the link and moves nothing else", () =>
+test("a click or double click on a link in a row opens the link and moves nothing else", (t) =>
   withApp({ rows: linkedRows }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const link = rowElement(container, "c").querySelector("a");
     assert.ok(link, "row c shows its link");
     const click = clickEvent();
@@ -2382,16 +2382,16 @@ test("a click or double click on a link in a row opens the link and moves nothin
     assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
   }));
 
-test("a click on a link in the reader opens the link and moves the cursor nowhere", () =>
+test("a click on a link in the reader opens the link and moves the cursor nowhere", (t) =>
   withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], {
       transcript: "t1",
       seq: "1",
       reset: true,
       items: [{ kind: "assistant", text: "read https://example.com/doc" }],
     });
-    await until(() => container.querySelector(".reader a") !== null, "the reader's link");
+    await until(t.signal, () => container.querySelector(".reader a") !== null, "the reader's link");
     const link = container.querySelector(".reader a");
     assert.ok(link);
     const click = clickEvent();
@@ -2465,7 +2465,7 @@ function sectionOf(container: HTMLElement, title: string): HTMLElement {
   return section;
 }
 
-test("the Epics group follows Needs you, and an epic reads its outcome and count, or tasks unavailable", () => {
+test("the Epics group follows Needs you, and an epic reads its outcome and count, or tasks unavailable", (t) => {
   const first = makeEpic(widgetsRepo, "first", { outcome: "build" });
   const second = makeEpic(gadgetsRepo, "second", { outcome: "build" });
   const epics = epicsView([first, second], new Map([[first.id, detailOf(first, ["done", "integrated", "pending"])]]));
@@ -2494,7 +2494,7 @@ test("the Epics group follows Needs you, and an epic reads its outcome and count
   });
 });
 
-test("the Epics head counts every live epic, drawn or folded, and a seventh quiet epic folds", () => {
+test("the Epics head counts every live epic, drawn or folded, and a seventh quiet epic folds", (t) => {
   const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic(widgetsRepo, slug));
   const epics = epicsView(quiet, new Map());
   return withApp({ epics }, (container) => {
@@ -2508,7 +2508,7 @@ test("the Epics head counts every live epic, drawn or folded, and a seventh quie
   });
 });
 
-test("accepted, waiting epics fold into one line that opens to their names, and closes again", () => {
+test("accepted, waiting epics fold into one line that opens to their names, and closes again", (t) => {
   const live = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const first = makeEpic(widgetsRepo, "queued", { waiting: true });
   const second = makeEpic(gadgetsRepo, "next", { waiting: true });
@@ -2539,7 +2539,7 @@ test("accepted, waiting epics fold into one line that opens to their names, and 
   });
 });
 
-test("an epic shows four running steps with the held one marked, then its more, tail and folded lines", () => {
+test("an epic shows four running steps with the held one marked, then its more, tail and folded lines", (t) => {
   const steps = ["one", "two", "three", "four", "five"].map((name) => makeStep(name, { held: name === "two" }));
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: steps, endedSteps: 3 });
   const folded = [makeEpic(widgetsRepo, "old", { live: false }), makeEpic(gadgetsRepo, "older", { live: false })];
@@ -2577,7 +2577,7 @@ test("an epic shows four running steps with the held one marked, then its more, 
   });
 });
 
-test("a folded epic opens from its line, and its page draws the handover its one Epics.Get answers", () => {
+test("a folded epic opens from its line, and its page draws the handover its one Epics.Get answers", (t) => {
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const released = makeEpic(gadgetsRepo, "shipped", { live: false, outcome: "released" });
   // The poll loaded the live epic's detail, so only the released epic is asked for.
@@ -2610,7 +2610,7 @@ test("a folded epic opens from its line, and its page draws the handover its one
     await act(() => {
       rowElement(container, epicKey(released)).dispatchEvent(clickEvent());
     });
-    await until(() => handoverText().includes("the ledger claim"), "the handover the answer holds");
+    await until(t.signal, () => handoverText().includes("the ledger claim"), "the handover the answer holds");
     assert.equal(fake.callsTo(getEpicPath).length, 1, "the epic is asked for once");
     assert.equal(fake.callsTo(getEpicPath)[0].body.id, released.id);
 
@@ -2624,7 +2624,7 @@ test("a folded epic opens from its line, and its page draws the handover its one
   });
 });
 
-test("the folded epics draw in list order after the rows, and keys reach them while the line is open", () => {
+test("the folded epics draw in list order after the rows, and keys reach them while the line is open", (t) => {
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const older = makeEpic(gadgetsRepo, "older", { live: false });
   const newer = makeEpic(gadgetsRepo, "newer", { live: false });
@@ -2652,14 +2652,14 @@ test("the folded epics draw in list order after the rows, and keys reach them wh
   });
 });
 
-test("an epic the poll loaded draws its page from the poll, and Epics.Get is not asked", () =>
+test("an epic the poll loaded draws its page from the poll, and Epics.Get is not asked", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     await press("j");
     assert.equal(epicPageDrawn(container), true, "the page draws from the poll's detail");
     assert.equal(fake.callsTo(getEpicPath).length, 0, "no Epics.Get is asked for an epic the poll loaded");
   }));
 
-test("an epic with no outcome reads its count alone, and tasks unavailable alone", () => {
+test("an epic with no outcome reads its count alone, and tasks unavailable alone", (t) => {
   const known = makeEpic(widgetsRepo, "first");
   const unknown = makeEpic(gadgetsRepo, "second");
   const epics = epicsView([known, unknown], new Map([[known.id, detailOf(known, ["done", "integrated", "pending"])]]));
@@ -2669,7 +2669,7 @@ test("an epic with no outcome reads its count alone, and tasks unavailable alone
   });
 });
 
-test("a full epic draws a strip with one segment per record task, in each task's tone", () => {
+test("a full epic draws a strip with one segment per record task, in each task's tone", (t) => {
   const slices = [
     { task: "task-0", hue: "done" },
     { task: "task-1", hue: "done" },
@@ -2699,7 +2699,7 @@ function fullEpicOf(count: number): EpicsView {
   return epicsView([epic], new Map([[epic.id, detailOf(epic, statuses)]]));
 }
 
-test("a full epic of 61 tasks draws a dense strip of 61 segments", () =>
+test("a full epic of 61 tasks draws a dense strip of 61 segments", (t) =>
   withApp({ epics: fullEpicOf(61) }, (container) => {
     const strip = sectionOf(container, "Epics").querySelector(".strip");
     assert.ok(strip !== null, "the full epic draws its strip");
@@ -2708,7 +2708,7 @@ test("a full epic of 61 tasks draws a dense strip of 61 segments", () =>
     assert.equal([...strip.children].every((segment) => segment.className === "k-none"), true);
   }));
 
-test("a full epic of 60 tasks draws a strip that is not dense", () =>
+test("a full epic of 60 tasks draws a strip that is not dense", (t) =>
   withApp({ epics: fullEpicOf(60) }, (container) => {
     const strip = sectionOf(container, "Epics").querySelector(".strip");
     assert.ok(strip !== null, "the full epic draws its strip");
@@ -2716,7 +2716,7 @@ test("a full epic of 60 tasks draws a strip that is not dense", () =>
     assert.equal(strip.children.length, 60);
   }));
 
-test("a one-line epic draws no strip, and a full epic with no detail draws none", () => {
+test("a one-line epic draws no strip, and a full epic with no detail draws none", (t) => {
   const quiet = makeEpic(widgetsRepo, "quiet", { outcome: "build" });
   const busy = makeEpic(gadgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const detail = detailOf(quiet, ["done", "pending"], [], [{ task: "task-0", hue: "done" }]);
@@ -2731,7 +2731,7 @@ test("a one-line epic draws no strip, and a full epic with no detail draws none"
   });
 });
 
-test("a running step draws its spinner, its label, its five pips and its doing", () => {
+test("a running step draws its spinner, its label, its five pips and its doing", (t) => {
   const running = makeStep("s1", { task: "task-0", doing: "writing the test" });
   const slices = [{ task: "task-0", hue: "dispatched", at: 4, redTest: true, working: true, testsPass: true }];
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [running] });
@@ -2753,7 +2753,7 @@ test("a running step draws its spinner, its label, its five pips and its doing",
   });
 });
 
-test("a held step draws its mark, and reads held with its reason, or held alone without one", () => {
+test("a held step draws its mark, and reads held with its reason, or held alone without one", (t) => {
   const withReason = makeStep("s1", { doing: "writing the test", held: true, reason: "waiting on review" });
   const withoutReason = makeStep("s2", { doing: "writing the test", held: true });
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [withReason, withoutReason] });
@@ -2769,7 +2769,7 @@ test("a held step draws its mark, and reads held with its reason, or held alone 
   });
 });
 
-test("by project, an epic sits atop its folder, and an epic with no folder gets a section of its own", () => {
+test("by project, an epic sits atop its folder, and an epic with no folder gets a section of its own", (t) => {
   const rows = [
     row({ key: "p", project: "/work/orrery", state: "working" }),
     row({ key: "q", project: "/work/api", state: "working" }),
@@ -2784,7 +2784,7 @@ test("by project, an epic sits atop its folder, and an epic with no folder gets 
   });
 });
 
-test("an unmatched epic with no repository name is titled no directory in project view", () => {
+test("an unmatched epic with no repository name is titled no directory in project view", (t) => {
   const epics = epicsView([makeEpic("", "loose")], new Map());
   return withApp({ rows: [], epics }, async (container) => {
     await press("p");
@@ -2792,9 +2792,9 @@ test("an unmatched epic with no repository name is titled no directory in projec
   });
 });
 
-test("j and k reach epic and step entries; the reader is hidden on an epic and shown on a step", () => {
+test("j and k reach epic and step entries; the reader is hidden on an epic and shown on a step", (t) => {
   return withApp({ epics: oneEpic() }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const [stream] = fake.callsTo(paneWatchPath);
     const before = fake.calls.length;
     await press("j");
@@ -2822,7 +2822,7 @@ test("j and k reach epic and step entries; the reader is hidden on an epic and s
   });
 });
 
-test("w and n skip the epic and step entries", () => {
+test("w and n skip the epic and step entries", (t) => {
   return withApp({ epics: oneEpic() }, async (container) => {
     await press("j");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
@@ -2835,9 +2835,9 @@ test("w and n skip the epic and step entries", () => {
   });
 });
 
-test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothing", () => {
+test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothing", (t) => {
   return withApp({ epics: oneEpic() }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const before = fake.calls.length;
     await press("j");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
@@ -2853,7 +2853,7 @@ test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothin
   });
 });
 
-test("resting on an epic or step writes no seen, even with input on the page", () => {
+test("resting on an epic or step writes no seen, even with input on the page", (t) => {
   return withApp({ epics: oneEpic() }, async (_container, fake) => {
     fake.seen.input.emit("keydown");
     await press("j");
@@ -2866,7 +2866,7 @@ test("resting on an epic or step writes no seen, even with input on the page", (
   });
 });
 
-test("a step's doing text draws as text, never as markup", () => {
+test("a step's doing text draws as text, never as markup", (t) => {
   const text = "<img src=x onerror=alert(1)> and <b>bold</b>";
   const running = makeStep("s1", { doing: text });
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
@@ -2877,11 +2877,11 @@ test("a step's doing text draws as text, never as markup", () => {
   });
 });
 
-test("a click on a step moves the cursor to it, and a click on a link in its text moves nothing", () => {
+test("a click on a step moves the cursor to it, and a click on a link in its text moves nothing", (t) => {
   const doing = "see https://example.com/notes";
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { doing })] })], new Map());
   return withApp({ epics }, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const step = rowElement(container, "step:s1");
     const link = step.querySelector("a");
     assert.ok(link, "the step shows its link");
@@ -2975,7 +2975,7 @@ async function submitIn(container: HTMLElement, selector: string): Promise<void>
   });
 }
 
-test("an epic entry shows the epic page beside the list, and no epic column remains", () =>
+test("an epic entry shows the epic page beside the list, and no epic column remains", (t) =>
   withApp({ epics: pageEpic() }, async (container) => {
     await press("j");
     assert.equal(cursorKey(container), `epic:${widgetsFirst}`);
@@ -2990,7 +2990,7 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     assert.equal(pageSlug(container), "first", "the page names the epic");
   }));
 
-test("an epic page shows the handover of its verdicts and ledger findings, with their texts", () =>
+test("an epic page shows the handover of its verdicts and ledger findings, with their texts", (t) =>
   withApp(
     {
       epics: pageEpic({
@@ -3017,7 +3017,7 @@ test("an epic page shows the handover of its verdicts and ledger findings, with 
     },
   ));
 
-test("an epic page with no reviews, ledger findings or releases shows no handover section", () =>
+test("an epic page with no reviews, ledger findings or releases shows no handover section", (t) =>
   withApp({ epics: pageEpic() }, async (container) => {
     await press("j");
     assert.equal(epicPageDrawn(container), true, "the page draws the epic page");
@@ -3028,7 +3028,7 @@ test("an epic page with no reviews, ledger findings or releases shows no handove
     );
   }));
 
-test("a step entry shows its reader alone, and no epic page", () =>
+test("a step entry shows its reader alone, and no epic page", (t) =>
   withApp({ epics: pageEpic() }, async (container) => {
     await press("j");
     await press("j");
@@ -3038,12 +3038,12 @@ test("a step entry shows its reader alone, and no epic page", () =>
     assert.equal(container.querySelector("aside.side") === null, true, "no aside.side remains");
   }));
 
-test("a pin splits the panes around a step's reader, and the epic page stays hidden", () =>
+test("a pin splits the panes around a step's reader, and the epic page stays hidden", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     await press("g");
     await press("g");
     await press("|");
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), true, "row a is pinned");
     assert.equal(readerHidden(container), false, "the step's reader shows");
     assert.equal(epicPageShown(container), false, "no epic page shows beside the step");
@@ -3053,7 +3053,7 @@ test("a pin splits the panes around a step's reader, and the epic page stays hid
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), true, "the pin stays open");
   }));
 
-test("a pane row hides the epic page, and an epic shows it again", () =>
+test("a pane row hides the epic page, and an epic shows it again", (t) =>
   withApp({ epics: pageEpic() }, async (container) => {
     await press("j");
     assert.equal(epicPageShown(container), true, "the page shows on an epic entry");
@@ -3067,7 +3067,7 @@ test("a pane row hides the epic page, and an epic shows it again", () =>
     assert.equal(epicPageShown(container), true, "the page shows again");
   }));
 
-test("a session row hides the epic page", () =>
+test("a session row hides the epic page", (t) =>
   withApp({ rows: [sessionRow], epics: pageEpic() }, async (container) => {
     assert.equal(cursorKey(container), `epic:${widgetsFirst}`);
     assert.equal(epicPageShown(container), true, "the page shows on an epic entry");
@@ -3077,7 +3077,7 @@ test("a session row hides the epic page", () =>
     assert.equal(epicPageShown(container), false, "a session row hides the page");
   }));
 
-test("an epic with no detail shows epic unavailable in its page, and a step of it shows no page", () =>
+test("an epic with no detail shows epic unavailable in its page, and a step of it shows no page", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     fake.failNext.add(getEpicPath);
     await press("j");
@@ -3092,7 +3092,7 @@ test("an epic with no detail shows epic unavailable in its page, and a step of i
     assert.equal(epicPageShown(container), false, "a step shows no page");
   }));
 
-test("with a row pinned, the epic page follows the cursor from one epic to another, and a step between them shows its reader", () => {
+test("with a row pinned, the epic page follows the cursor from one epic to another, and a step between them shows its reader", (t) => {
   const first = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1"), makeStep("s2")] });
   const second = makeEpic(gadgetsRepo, "second", { runningSteps: [makeStep("s3")] });
   const epics = epicsView(
@@ -3123,7 +3123,7 @@ test("with a row pinned, the epic page follows the cursor from one epic to anoth
   });
 });
 
-test("the summary opens the contract page in place, and the page moves deeper", () =>
+test("the summary opens the contract page in place, and the page moves deeper", (t) =>
   withApp({ epics: pageEpic({ summary: "Ship the demo", contract: acceptedContract }) }, async (container) => {
     await press("j");
     assert.equal(pageClass(container), "page");
@@ -3135,7 +3135,7 @@ test("the summary opens the contract page in place, and the page moves deeper", 
     assert.equal(pageSlug(container), "contract", "the contract is the current page");
   }));
 
-test("back and the slug crumb restore the epic page's scroll place, and the page moves back with leave", () =>
+test("back and the slug crumb restore the epic page's scroll place, and the page moves back with leave", (t) =>
   withApp({ epics: pageEpic({ summary: "Ship the demo", contract: acceptedContract }) }, async (container) => {
     await press("j");
     moveScroll(container, 120);
@@ -3153,7 +3153,7 @@ test("back and the slug crumb restore the epic page's scroll place, and the page
     assert.equal(pageScroll(container), 120, "the slug crumb restores the scroll place");
   }));
 
-test("the orrery crumb closes the page from the contract page too", () =>
+test("the orrery crumb closes the page from the contract page too", (t) =>
   withApp({ epics: pageEpic({ summary: "Ship the demo", contract: acceptedContract }) }, async (container) => {
     await press("j");
     await clickButton(container, ".epic-page", "Ship the demo");
@@ -3161,7 +3161,7 @@ test("the orrery crumb closes the page from the contract page too", () =>
     assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
   }));
 
-test("back and the orrery crumb close the epic page until the cursor moves", () =>
+test("back and the orrery crumb close the epic page until the cursor moves", (t) =>
   withApp({ epics: pageEpic() }, async (container) => {
     await press("j");
     await clickButton(container, 'section.page[aria-label="epic"] .title-row', "‹");
@@ -3240,7 +3240,7 @@ async function openCheckingPhase(container: HTMLElement): Promise<void> {
   await clickFirst(container, checkingCell);
 }
 
-test("a click on an orrery cell opens its task's phase output with that phase open, and the page moves deeper", () =>
+test("a click on an orrery cell opens its task's phase output with that phase open, and the page moves deeper", (t) =>
   withApp({ epics: phaseEpic() }, async (container) => {
     await openCheckingPhase(container);
     assert.equal(phaseOutputShown(container), true, "the task's phase output is drawn");
@@ -3249,7 +3249,7 @@ test("a click on an orrery cell opens its task's phase output with that phase op
     assert.equal(pageClass(container), "page drill", "opening the phase output moves the page deeper");
   }));
 
-test("a click on a proof card opens the task that names its requirement at implementing", () =>
+test("a click on a proof card opens the task that names its requirement at implementing", (t) =>
   withApp({ epics: phaseEpic() }, async (container) => {
     await press("j");
     await clickFirst(container, 'section.page[aria-label="epic"] .proof.red article.proof-card.open');
@@ -3259,7 +3259,7 @@ test("a click on a proof card opens the task that names its requirement at imple
     assert.equal(pageClass(container), "page drill");
   }));
 
-test("a click on a Now row opens its task at the phase it is in", () =>
+test("a click on a Now row opens its task at the phase it is in", (t) =>
   withApp({ epics: phaseEpic() }, async (container) => {
     await press("j");
     await clickFirst(container, 'section.page[aria-label="epic"] .happen.now li.open');
@@ -3269,7 +3269,7 @@ test("a click on a Now row opens its task at the phase it is in", () =>
     assert.equal(pageClass(container), "page drill");
   }));
 
-test("a phase head opens its phase in place, and no page moves", () =>
+test("a phase head opens its phase in place, and no page moves", (t) =>
   withApp({ epics: phaseEpic() }, async (container) => {
     await openCheckingPhase(container);
     assert.equal(pageClass(container), "page drill");
@@ -3281,14 +3281,14 @@ test("a phase head opens its phase in place, and no page moves", () =>
     assert.equal(epicPageDrawn(container), true, "‹ goes straight to the epic page: the head pushed no page");
   }));
 
-test("Open the session streams the step's worker session as text, and moves the page deeper", () =>
+test("Open the session streams the step's worker session as text, and moves the page deeper", (t) =>
   withApp({ epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
     await clickButton(container, phaseBody, "Open the session ›");
     assert.equal(sessionPageShown(container), true, "the worker session is drawn");
     assert.equal(pageSlug(container), "session");
     assert.equal(pageClass(container), "page drill", "opening the session moves the page deeper");
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.deepEqual(
       fake.callsTo(sessionWatchPath).map((call) => call.body.id),
       ["run1"],
@@ -3300,16 +3300,16 @@ test("Open the session streams the step's worker session as text, and moves the 
       reset: true,
       items: [{ kind: "assistant", text: "the checking reply" }],
     });
-    await until(() => pageReaderText(container).includes("the checking reply"), "the session reply");
+    await until(t.signal, () => pageReaderText(container).includes("the checking reply"), "the session reply");
   }));
 
-test("‹ on the session returns to the phase output, and ‹ again to the epic page at its scroll place", () =>
+test("‹ on the session returns to the phase output, and ‹ again to the epic page at its scroll place", (t) =>
   withApp({ epics: phaseEpic() }, async (container, fake) => {
     await press("j");
     moveScroll(container, 120);
     await clickFirst(container, checkingCell);
     await clickButton(container, phaseBody, "Open the session ›");
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     await clickButton(container, pageTitleRow, "‹");
     assert.equal(phaseOutputShown(container), true, "‹ returns to the phase output");
     assert.equal(sessionPageShown(container), false, "the session is no longer drawn");
@@ -3321,7 +3321,7 @@ test("‹ on the session returns to the phase output, and ‹ again to the epic 
     assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
   }));
 
-test("the epic crumb on the phase output returns to the epic page at its scroll place", () =>
+test("the epic crumb on the phase output returns to the epic page at its scroll place", (t) =>
   withApp({ epics: phaseEpic() }, async (container) => {
     await press("j");
     moveScroll(container, 120);
@@ -3332,83 +3332,83 @@ test("the epic crumb on the phase output returns to the epic page at its scroll 
     assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
   }));
 
-test("the orrery crumb closes the page from the session, and the session's stream stops", () =>
+test("the orrery crumb closes the page from the session, and the session's stream stops", (t) =>
   withApp({ epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
     await clickButton(container, phaseBody, "Open the session ›");
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     await clickButton(container, pageTitleRow, "orrery");
     assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
     assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "the closed page's stream stops");
   }));
 
-test("Hold on the phase output calls Steps.Hold with the running step's id", () =>
+test("Hold on the phase output calls Steps.Hold with the running step's id", (t) =>
   withApp({ epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
     await clickButton(container, `${pageTitleRow} .acts`, "Hold");
-    await until(() => fake.callsTo(holdPath).length === 1, "the Hold call");
+    await until(t.signal, () => fake.callsTo(holdPath).length === 1, "the Hold call");
     assert.deepEqual(fake.callsTo(holdPath).map((call) => call.body.id), ["run1"]);
   }));
 
-test("a nudge in the session calls Steps.Nudge with the step's id and the text", () =>
+test("a nudge in the session calls Steps.Nudge with the step's id and the text", (t) =>
   withApp({ epics: phaseEpic() }, async (container, fake) => {
     await openCheckingPhase(container);
     await clickButton(container, phaseBody, "Open the session ›");
-    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     const box = container.querySelector<HTMLTextAreaElement>('section.page[aria-label="epic"] .stepbox textarea');
     assert.ok(box, "the session's step box has an input");
     await typeInto(box, "try the other route");
     await clickFirst(container, 'section.page[aria-label="epic"] .stepbox button[aria-label="send"]');
-    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath).map((call) => [call.body.id, call.body.text]), [
       ["run1", "try the other route"],
     ]);
   }));
 
-test("Pause sends Epics.Pause with the epic's id", () =>
+test("Pause sends Epics.Pause with the epic's id", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
-    await until(() => fake.callsTo(pauseEpicPath).length === 1, "the Pause call");
+    await until(t.signal, () => fake.callsTo(pauseEpicPath).length === 1, "the Pause call");
     assert.equal(fake.callsTo(pauseEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Resume sends Epics.Resume with the epic's id on a paused epic", () =>
+test("Resume sends Epics.Resume with the epic's id on a paused epic", (t) =>
   withApp({ epics: pageEpic({ paused: true }) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Resume");
-    await until(() => fake.callsTo(resumeEpicPath).length === 1, "the Resume call");
+    await until(t.signal, () => fake.callsTo(resumeEpicPath).length === 1, "the Resume call");
     assert.equal(fake.callsTo(resumeEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Stop asks first: Keep it running sends nothing, and the confirm sends Epics.Stop", () =>
+test("Stop asks first: Keep it running sends nothing, and the confirm sends Epics.Stop", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Stop…");
     await clickButton(container, ".epic-page .title-row .acts", "Keep it running");
     await clickButton(container, ".epic-page .title-row .acts", "Stop…");
     await clickButton(container, ".epic-page .title-row .acts", "Stop first");
-    await until(() => fake.callsTo(stopEpicPath).length >= 1, "the Stop call");
+    await until(t.signal, () => fake.callsTo(stopEpicPath).length >= 1, "the Stop call");
     assert.equal(fake.callsTo(stopEpicPath).length, 1, "only the confirm sends: Keep it running sent nothing");
     assert.equal(fake.callsTo(stopEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Retry on a parked epic sends Epics.Retry with the epic's id", () =>
+test("Retry on a parked epic sends Epics.Retry with the epic's id", (t) =>
   withApp({ epics: pageEpic({ parked: "rate limit" }) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".now-block", "Retry");
-    await until(() => fake.callsTo(retryEpicPath).length === 1, "the Retry call");
+    await until(t.signal, () => fake.callsTo(retryEpicPath).length === 1, "the Retry call");
     assert.equal(fake.callsTo(retryEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Answer sends Epics.Answer with the epic, a fresh decision id, the trimmed text and the question's id", () =>
+test("Answer sends Epics.Answer with the epic, a fresh decision id, the trimmed text and the question's id", (t) =>
   withApp({ epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container, fake) => {
     await press("j");
     const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
     assert.ok(box, "the open question shows its answer box");
     await typeInto(box, " postgres ");
     await submitIn(container, ".now-block form.answer");
-    await until(() => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
+    await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
     const body = fake.callsTo(answerEpicPath)[0].body;
     assert.equal(body.epicId, widgetsFirst);
     assert.equal(body.text, "postgres", "the answer is sent trimmed");
@@ -3417,7 +3417,7 @@ test("Answer sends Epics.Answer with the epic, a fresh decision id, the trimmed 
     assert.equal(body.id !== widgetsFirst && body.id !== "Q1", true, "the decision id is its own, not the epic's or the question's");
   }));
 
-test("a refused answer shows the server's message under the answer form", () =>
+test("a refused answer shows the server's message under the answer form", (t) =>
   withApp({ epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container, fake) => {
     fake.refuseNext.set(answerEpicPath, "question is closed");
     await press("j");
@@ -3425,13 +3425,13 @@ test("a refused answer shows the server's message under the answer form", () =>
     assert.ok(box, "the open question shows its answer box");
     await typeInto(box, "postgres");
     await submitIn(container, ".now-block form.answer");
-    await until(
+    await until(t.signal, 
       () => alertTexts(container).some((text) => text.includes("question is closed")),
       "the refusal line",
     );
   }));
 
-test("keys typed in the answer box are text: j and p do nothing there, and Escape leaves it", () =>
+test("keys typed in the answer box are text: j and p do nothing there, and Escape leaves it", (t) =>
   withApp({ epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container) => {
     await press("j");
     const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
@@ -3454,37 +3454,37 @@ test("keys typed in the answer box are text: j and p do nothing there, and Escap
     assert.equal(document.activeElement === box, false, "Escape blurs the answer box");
   }));
 
-test("a command that fails shows a fixed line, and one that lands clears it", () =>
+test("a command that fails shows a fixed line, and one that lands clears it", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     fake.failNext.add(pauseEpicPath);
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
-    await until(() => alertTexts(container).includes(commandFailedText), "the fixed line");
+    await until(t.signal, () => alertTexts(container).includes(commandFailedText), "the fixed line");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
-    await until(() => alertTexts(container).length === 0, "the line to clear");
+    await until(t.signal, () => alertTexts(container).length === 0, "the line to clear");
   }));
 
-test("Just happened shows the epic's history, read from its first entry", () =>
+test("Just happened shows the epic's history, read from its first entry", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     fake.replies.set(historyPath, [
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "use postgres" } }], next: "" },
     ]);
     await press("j");
-    await until(() => historyText(container).includes("decision · use postgres"), "the history entry");
+    await until(t.signal, () => historyText(container).includes("decision · use postgres"), "the history entry");
     const [call] = fake.callsTo(historyPath);
     assert.equal(call.body.id, widgetsFirst);
     assert.equal(call.body.after, undefined, "the first page reads from the start");
     assert.equal(call.body.limit, 200);
   }));
 
-test("the history reads page by page until a page names no next cursor", () =>
+test("the history reads page by page until a page names no next cursor", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     fake.replies.set(historyPath, [
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "first decision" } }], next: "c1" },
       { entries: [{ cursor: "c2", decision: { id: "d2", text: "second decision" } }], next: "" },
     ]);
     await press("j");
-    await until(() => historyText(container).includes("second decision"), "the second page");
+    await until(t.signal, () => historyText(container).includes("second decision"), "the second page");
     assert.equal(historyText(container).includes("first decision"), true, "the first page shows too");
     assert.deepEqual(
       fake.callsTo(historyPath).map((call) => call.body.after),
@@ -3493,14 +3493,14 @@ test("the history reads page by page until a page names no next cursor", () =>
     );
   }));
 
-test("a change to the epic's last write reads its history again", () =>
+test("a change to the epic's last write reads its history again", (t) =>
   withApp({ epics: pageEpic({}, 1n) }, async (container, fake) => {
     fake.replies.set(historyPath, [
       { entries: [{ cursor: "c1", decision: { id: "d1", text: "before the change" } }], next: "" },
       { entries: [{ cursor: "c2", decision: { id: "d2", text: "after the change" } }], next: "" },
     ]);
     await press("j");
-    await until(() => historyText(container).includes("before the change"), "the first history");
+    await until(t.signal, () => historyText(container).includes("before the change"), "the first history");
     await mount(container, {
       rows: fixture(),
       error: "",
@@ -3509,15 +3509,15 @@ test("a change to the epic's last write reads its history again", () =>
       seen: fake.seen,
       epics: pageEpic({}, 2n),
     });
-    await until(() => historyText(container).includes("after the change"), "the reloaded history");
+    await until(t.signal, () => historyText(container).includes("after the change"), "the reloaded history");
     assert.equal(fake.callsTo(historyPath).length, 2);
   }));
 
-test("a history that fails draws no history and no error line, and the page stays open", () =>
+test("a history that fails draws no history and no error line, and the page stays open", (t) =>
   withApp({ epics: pageEpic() }, async (container, fake) => {
     fake.failNext.add(historyPath);
     await press("j");
-    await until(() => fake.callsTo(historyPath).length === 1, "the History call");
+    await until(t.signal, () => fake.callsTo(historyPath).length === 1, "the History call");
     await act(async () => {});
     assert.equal(historyText(container).includes("decision"), false, "no entries are drawn");
     assert.deepEqual(alertTexts(container), [], "the failed read shows no error line");
@@ -3525,11 +3525,11 @@ test("a history that fails draws no history and no error line, and the page stay
   }));
 
 // onStepOne moves the cursor from row a down to the first step of oneEpic, s1, and waits for its stream to start.
-async function onStepOne(container: HTMLElement, fake: FakeServer): Promise<void> {
+async function onStepOne(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
   await press("j");
   await press("j");
   assert.equal(cursorKey(container), "step:s1");
-  await until(() => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
+  await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
 }
 
 // stepButton is the button of the cursor's step box with the given label: Interrupt and ⋯ on the line, and Stop,
@@ -3578,9 +3578,9 @@ async function clickIn(element: Element): Promise<void> {
   });
 }
 
-test("a step entry streams Sessions.WatchConversation by its id, and the reader draws its reply as text", () =>
+test("a step entry streams Sessions.WatchConversation by its id, and the reader draws its reply as text", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     const [stream] = fake.callsTo(sessionWatchPath);
     assert.equal(stream.body.id, "s1");
     fake.emit(stream, {
@@ -3589,30 +3589,30 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
       reset: true,
       items: [{ kind: "assistant", text: "the step reply" }],
     });
-    await until(() => readerText(container).includes("the step reply"), "the step reply");
+    await until(t.signal, () => readerText(container).includes("the step reply"), "the step reply");
     assert.equal(readerHidden(container), false, "the reader shows on a step");
     assert.equal(container.querySelector(".question-card") === null, true, "a step draws no question");
     assert.equal(container.querySelector(".reader .option") === null, true, "a step draws no answer");
   }));
 
-test("Enter in a step's box calls Steps.Nudge once with its id and text, and clears the draft when it lands", () =>
+test("Enter in a step's box calls Steps.Nudge once with its id and text, and clears the draft when it lands", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     const box = composer(container);
     assert.equal(document.activeElement === box, true);
     await typeInto(box, "try the other route");
     await pressIn(box, "Enter");
-    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
-    await until(() => box.value === "", "the landed draft cleared");
+    await until(t.signal, () => box.value === "", "the landed draft cleared");
     await settle();
     assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
   }));
 
-test("the send button calls Steps.Nudge once with the step's id and text, and a blank box sends nothing", () =>
+test("the send button calls Steps.Nudge once with the step's id and text, and a blank box sends nothing", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "   ");
     await clickIn(sendButton(container));
@@ -3620,75 +3620,75 @@ test("the send button calls Steps.Nudge once with the step's id and text, and a 
     assert.equal(fake.callsTo(nudgePath).length, 0, "a blank box sends nothing");
     await typeInto(composer(container), "try the other route");
     await clickIn(sendButton(container));
-    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
-    await until(() => composer(container).value === "", "the landed draft cleared");
+    await until(t.signal, () => composer(container).value === "", "the landed draft cleared");
     await settle();
     assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
   }));
 
-test("a nudge on the cursor's step calls Steps.Nudge with that step's id, not the first step visited", () =>
+test("a nudge on the cursor's step calls Steps.Nudge with that step's id, not the first step visited", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
     await press("i");
     await typeInto(composer(container), "on two");
     await pressIn(composer(container), "Enter");
-    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge on s2");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge on s2");
     assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s2", text: "on two" });
-    await until(() => composer(container).value === "", "the landed draft cleared");
+    await until(t.signal, () => composer(container).value === "", "the landed draft cleared");
     await typeInto(composer(container), "again on two");
     await clickIn(sendButton(container));
-    await until(() => fake.callsTo(nudgePath).length === 2, "the nudge on s2 by the send button");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 2, "the nudge on s2 by the send button");
     assert.deepEqual(fake.callsTo(nudgePath)[1].body, { id: "s2", text: "again on two" });
-    await until(() => composer(container).value === "", "the second landed draft cleared");
+    await until(t.signal, () => composer(container).value === "", "the second landed draft cleared");
     await pressIn(composer(container), "Escape");
     await press("k");
     assert.equal(cursorKey(container), "step:s1");
     await press("i");
     await typeInto(composer(container), "back on one");
     await pressIn(composer(container), "Enter");
-    await until(() => fake.callsTo(nudgePath).length === 3, "the nudge on s1");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 3, "the nudge on s1");
     assert.deepEqual(fake.callsTo(nudgePath)[2].body, { id: "s1", text: "back on one" });
   }));
 
-test("a refused nudge keeps the step's draft and shows the refusal", () =>
+test("a refused nudge keeps the step's draft and shows the refusal", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     fake.refuseNext.set(nudgePath, refusedNudgeText);
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "try again");
     await pressIn(composer(container), "Enter");
-    await until(() => alertTexts(container).includes(`nudge refused: ${refusedNudgeText}`), "the refusal line");
+    await until(t.signal, () => alertTexts(container).includes(`nudge refused: ${refusedNudgeText}`), "the refusal line");
     assert.equal(composer(container).value, "try again", "the draft is kept");
   }));
 
-test("an unknown nudge outcome shows not known, keeps the draft, and Enter does not resend it", () =>
+test("an unknown nudge outcome shows not known, keeps the draft, and Enter does not resend it", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     fake.failNext.add(nudgePath);
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "try again");
     await pressIn(composer(container), "Enter");
-    await until(() => alertTexts(container).some((text) => text.startsWith("nudge not known")), "the unknown line");
+    await until(t.signal, () => alertTexts(container).some((text) => text.startsWith("nudge not known")), "the unknown line");
     assert.equal(composer(container).value, "try again", "the draft is kept");
     await pressIn(composer(container), "Enter");
     await settle();
     assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was not resent");
   }));
 
-test("Interrupt calls Steps.Hold with the step's id", () =>
+test("Interrupt calls Steps.Hold with the step's id", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await clickIn(stepButton(container, "Interrupt"));
-    await until(() => fake.callsTo(holdPath).length === 1, "the hold");
+    await until(t.signal, () => fake.callsTo(holdPath).length === 1, "the hold");
     assert.deepEqual(fake.callsTo(holdPath)[0].body, { id: "s1" });
   }));
 
-test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", () =>
+test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.equal(stepButtonAbsent(container, "Stop"), true, "no Stop until ⋯ is pressed");
     await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
@@ -3700,13 +3700,13 @@ test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.S
     await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     await clickIn(stepButton(container, "Confirm stop"));
-    await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");
+    await until(t.signal, () => fake.callsTo(stopStepPath).length === 1, "the stop");
     assert.deepEqual(fake.callsTo(stopStepPath)[0].body, { id: "s1" });
   }));
 
-test("a draft stays with its step across cursor moves, and each step keeps its own box", () =>
+test("a draft stays with its step across cursor moves, and each step keeps its own box", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "for one");
     await pressIn(composer(container), "Escape");
@@ -3718,9 +3718,9 @@ test("a draft stays with its step across cursor moves, and each step keeps its o
     assert.equal(composer(container).value, "for one", "the draft survived");
   }));
 
-test("a step's draft survives a poll that no longer lists the step", () =>
+test("a step's draft survives a poll that no longer lists the step", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Escape");
@@ -3729,13 +3729,13 @@ test("a step's draft survives a poll that no longer lists the step", () =>
     await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, epics: oneEpic() });
     await press("g");
     await press("g");
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     assert.equal(composer(container).value, "keep going", "the draft survived the poll");
   }));
 
-test("i focuses the step's box, its keys are text, and Escape leaves it", () =>
+test("i focuses the step's box, its keys are text, and Escape leaves it", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await press("i");
     const box = composer(container);
     assert.equal(document.activeElement === box, true);
@@ -3749,9 +3749,9 @@ test("i focuses the step's box, its keys are text, and Escape leaves it", () =>
     assert.equal(cursorKey(container), "step:s2");
   }));
 
-test("1, x, e, Enter and | on a step entry call nothing and pin nothing", () =>
+test("1, x, e, Enter and | on a step entry call nothing and pin nothing", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     const before = fake.calls.length;
     await pressEach(["x", "Enter", "e", "1", "2", "3", "|"]);
     await settle();
@@ -3760,20 +3760,20 @@ test("1, x, e, Enter and | on a step entry call nothing and pin nothing", () =>
     assert.equal(cursorKey(container), "step:s1");
   }));
 
-test("no Control or Panes call names a step, and no call starts a step", () =>
+test("no Control or Panes call names a step, and no call starts a step", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     await pressEach(["x", "Enter", "e", "1", "2", "3", "|"]);
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    await until(t.signal, () => fake.callsTo(nudgePath).length === 1, "the nudge");
     await clickIn(stepButton(container, "Interrupt"));
-    await until(() => fake.callsTo(holdPath).length === 1, "the hold");
+    await until(t.signal, () => fake.callsTo(holdPath).length === 1, "the hold");
     await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     await clickIn(stepButton(container, "Confirm stop"));
-    await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");
+    await until(t.signal, () => fake.callsTo(stopStepPath).length === 1, "the stop");
     for (const call of fake.calls) {
       assert.equal(call.path.includes("StartStep"), false, `${call.path} is not a start`);
       if (call.path.startsWith("/orrery.v1.Panes/") || call.path.startsWith("/orrery.v1.Control/")) {
@@ -3783,14 +3783,14 @@ test("no Control or Panes call names a step, and no call starts a step", () =>
     }
   }));
 
-test("leaving a step stops its stream, and the stream follows the cursor's step", () =>
+test("leaving a step stops its stream, and the stream follows the cursor's step", (t) =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(container, fake);
+    await onStepOne(t.signal, container, fake);
     const [first] = fake.callsTo(sessionWatchPath);
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
     assert.equal(first.signal.aborted, true, "moving to s2 stops s1's stream");
-    await until(() => fake.callsTo(sessionWatchPath).length === 2, "the s2 stream");
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 2, "the s2 stream");
     assert.equal(fake.callsTo(sessionWatchPath)[1].body.id, "s2");
     await press("j");
     assert.equal(cursorKey(container), "c");
@@ -3852,13 +3852,13 @@ async function closeDock(container: HTMLElement): Promise<void> {
   });
 }
 
-test("Talk is the first command in the epic page's title row", () =>
+test("Talk is the first command in the epic page's title row", (t) =>
   withApp({ epics: pageEpic({ repository: talkRepository }) }, async (container) => {
     await press("j");
     assert.equal(titleCommands(container)[0], "Talk", "Talk leads the title row's commands");
   }));
 
-test("choosing a session in Talk docks its conversation beside the epic page, and × closes it", () =>
+test("choosing a session in Talk docks its conversation beside the epic page, and × closes it", (t) =>
   withApp({ epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }) }, async (container, fake) => {
     await press("j");
     assert.equal(dockShown(container), false, "no conversation is docked before a choice");
@@ -3867,7 +3867,7 @@ test("choosing a session in Talk docks its conversation beside the epic page, an
     assert.equal(dockShown(container), true, "the session's conversation docks beside the epic page");
     assert.equal(dockLabel(container), "auth work", "the dock is named for the session");
     assert.equal(pageDocked(container), true, "the epic section is docked");
-    await until(
+    await until(t.signal, 
       () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-1"),
       "the docked session's stream",
     );
@@ -3877,25 +3877,25 @@ test("choosing a session in Talk docks its conversation beside the epic page, an
     assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "× stops the session's stream");
   }));
 
-test("New session in the repository starts a session there with the first prompt, and docks it", () =>
+test("New session in the repository starts a session there with the first prompt, and docks it", (t) =>
   withApp({ epics: pageEpic({ repository: talkRepository }) }, async (container, fake) => {
     fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Talk");
     await clickButton(container, ".talk", "New session in widgets");
-    await until(() => fake.callsTo(startSessionPath).length === 1, "the Control.Start call");
+    await until(t.signal, () => fake.callsTo(startSessionPath).length === 1, "the Control.Start call");
     const body = fake.callsTo(startSessionPath)[0].body;
     assert.equal(body.dir, talkRepository, "the session starts in the epic's repository");
     assert.equal(body.prompt, talkFirstPrompt, "the session's first prompt names the epic");
-    await until(() => dockShown(container), "the docked session");
+    await until(t.signal, () => dockShown(container), "the docked session");
     assert.equal(dockLabel(container), "widgets", "the dock is named for the repository");
-    await until(
+    await until(t.signal, 
       () => fake.callsTo(sessionWatchPath).some((call) => call.body.id === "sess-new"),
       "the new session's stream",
     );
   }));
 
-test("an epic with no repository lists its sessions in Talk and offers no new session", () =>
+test("an epic with no repository lists its sessions in Talk and offers no new session", (t) =>
   withApp({ epics: pageEpic({ sessions: [talkSession] }) }, async (container) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Talk");
@@ -3911,7 +3911,7 @@ test("an epic with no repository lists its sessions in Talk and offers no new se
     );
   }));
 
-test("showing another epic closes the docked conversation, and the first epic's dock does not come back", () => {
+test("showing another epic closes the docked conversation, and the first epic's dock does not come back", (t) => {
   const first = makeEpic(widgetsRepo, "first");
   const second = makeEpic(gadgetsRepo, "second");
   const epics = epicsView(

@@ -202,15 +202,18 @@ function sleep(ms: number): Promise<void> {
 // withPage starts a page over a fake server in a fresh DOM, waits until its list, its cursor's pane stream and its
 // notice stream are up, runs check, and stops the page. The pane stream opens from an effect declared after the
 // cursor's own effect, so once it is open the cursor has settled and a click lands on the cursor the page holds.
-async function withPage(check: (root: HTMLElement, server: FakeServer) => Promise<void>): Promise<void> {
+async function withPage(
+  signal: AbortSignal,
+  check: (root: HTMLElement, server: FakeServer) => Promise<void>,
+): Promise<void> {
   const window = installTestDom();
   const root = document.createElement("div");
   const server = fakeServer();
   const stop = start(root, clientsFor(server), longPollMs, retryMs);
   try {
-    await until(() => isCursored(root, apiRow), "the api row under the cursor");
-    await until(() => server.paneStreams === 1, "the api pane's stream");
-    await until(() => server.notices !== null, "the notice stream");
+    await until(signal, () => isCursored(root, apiRow), "the api row under the cursor");
+    await until(signal, () => server.paneStreams === 1, "the api pane's stream");
+    await until(signal, () => server.notices !== null, "the notice stream");
     await check(root, server);
   } finally {
     stop();
@@ -218,53 +221,53 @@ async function withPage(check: (root: HTMLElement, server: FakeServer) => Promis
   }
 }
 
-test("a notice from the stream shows in the page's banner", () =>
-  withPage(async (root, server) => {
+test("a notice from the stream shows in the page's banner", (t) =>
+  withPage(t.signal, async (root, server) => {
     assert.deepEqual(bannerTitles(root), []);
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
   }));
 
-test("an ended notice leaves the banner", () =>
-  withPage(async (root, server) => {
+test("an ended notice leaves the banner", (t) =>
+  withPage(t.signal, async (root, server) => {
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
     sendNotice(server, endedMessage({ pane: "%2" }));
-    await until(() => bannerTitles(root).length === 0, "the banner to empty");
+    await until(t.signal, () => bannerTitles(root).length === 0, "the banner to empty");
   }));
 
-test("a click on a pane notice sends Seen with its key and moves the cursor to that pane's row", () =>
-  withPage(async (root, server) => {
+test("a click on a pane notice sends Seen with its key and moves the cursor to that pane's row", (t) =>
+  withPage(t.signal, async (root, server) => {
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
     assert.equal(clickBanner(root, "web needs you"), true, "no banner button for the notice");
-    await until(() => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
     assert.equal(server.seen[0].pane, "%2");
-    await until(() => isCursored(root, webRow), "the cursor on the web row");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     assert.equal(isCursored(root, apiRow), false, "the cursor is still on the api row");
   }));
 
-test("a click on a limit notice sends Seen and moves nothing", () =>
-  withPage(async (root, server) => {
+test("a click on a limit notice sends Seen and moves nothing", (t) =>
+  withPage(t.signal, async (root, server) => {
     assert.equal(clickRow(root, webRow), true, "no row for the web pane");
-    await until(() => isCursored(root, webRow), "the cursor on the web row");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
-    await until(() => bannerTitles(root).includes("limit reached"), "the limit notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("limit reached"), "the limit notice in the banner");
     assert.equal(clickBanner(root, "limit reached"), true, "no banner button for the notice");
-    await until(() => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
     assert.equal(server.seen[0].limit, limitKey);
     assert.equal(isCursored(root, webRow), true, "the cursor left the web row");
     assert.equal(isCursored(root, apiRow), false, "the cursor moved to the api row");
   }));
 
-test("a failed Seen is dropped without a page error, and the click still moves the cursor", () =>
-  withPage(async (root, server) => {
+test("a failed Seen is dropped without a page error, and the click still moves the cursor", (t) =>
+  withPage(t.signal, async (root, server) => {
     server.seenFails = true;
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
     assert.equal(clickBanner(root, "web needs you"), true, "no banner button for the notice");
-    await until(() => server.seen.length === 1, "the Seen report");
-    await until(() => isCursored(root, webRow), "the cursor on the web row");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     await sleep(settleMs);
     assert.deepEqual(errorTexts(root), []);
   }));
