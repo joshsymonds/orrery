@@ -180,6 +180,10 @@ func parserFor(path string) func(src []byte) ([]Test, error) {
 	if strings.HasSuffix(path, "_test.go") {
 		return goTests
 	}
+	if strings.HasSuffix(path, ".test.ts") || strings.HasSuffix(path, ".test.tsx") ||
+		strings.HasSuffix(path, ".test.js") {
+		return nodeTests
+	}
 	return nil
 }
 
