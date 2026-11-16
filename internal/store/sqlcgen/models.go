@@ -211,6 +211,27 @@ type EpicQuestion struct {
 	State string
 }
 
+type EpicReleaseRun struct {
+	Epic     string
+	Part     string
+	Position int64
+	Attempt  int64
+	Step     string
+	Start    string
+	Head     string
+	Finish   string
+	Commits  string
+	Evidence string
+	Passed   bool
+	Reason   string
+	At       int64
+}
+
+type EpicReleaseSlot struct {
+	Repository string
+	Epic       string
+}
+
 type EpicReleaseStep struct {
 	Epic     string
 	Position int64
@@ -299,6 +320,13 @@ type EpicTask struct {
 	GatePos     int64
 	FindingPos  int64
 	Batch       string
+}
+
+type EpicTaskContribute struct {
+	Epic        string
+	Task        int64
+	Position    int64
+	Requirement string
 }
 
 type EpicTaskFile struct {
@@ -576,6 +604,7 @@ type Step struct {
 	LoopStage       string
 	LoopStageFrom   int64
 	Agents          string
+	Unowned         int64
 }
 
 type ToldLimitStep struct {

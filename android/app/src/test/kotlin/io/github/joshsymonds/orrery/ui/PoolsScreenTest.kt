@@ -1,16 +1,17 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHold as PoolHoldProto
@@ -23,6 +24,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsFreeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsHoldResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -49,11 +51,53 @@ class PoolsScreenTest {
     }
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private fun setScreen(server: FakeOrreryServer) {
+        // One client for the screen's life, as MainActivity remembers its own: a client built inside the content is
+        // a new key for the screen's load effect each time the content recomposes, and so an extra reload.
+        val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
-            PoolsScreen(client = OrreryClient(server.baseUrl), onBack = {}, now = { NOW })
+            PoolsScreen(client = client, onBack = {}, now = { NOW })
+        }
+    }
+
+    @Test
+    fun aClientBuiltInsideTheContentReloadsTheScreenOnItsOwn() {
+        // The old setup built the client inside the content. The content recomposes once after the screen first
+        // composes, which gave the screen a new client, a new key for its load effect, and a second load nobody asked
+        // for: its Loading and its result could replace what a test had just asserted, and on the unconfined rule its
+        // writes ran on the IO thread beside the main thread's layout.
+        FakeOrreryServer().use { server ->
+            server.respond(POOLS_STATUS, status(listOf(freeMember(FREE))))
+            composeRule.setContent {
+                PoolsScreen(client = OrreryClient(server.baseUrl), onBack = {}, now = { NOW })
+            }
+
+            composeRule.awaitUntil("a second load nobody asked for") { statusCalls(server) == 2 }
+            awaitTag("member:$FREE")
+        }
+    }
+
+    @Test
+    fun aRecompositionAboveTheScreenKeepsItsClientAndDoesNotReload() {
+        // As setScreen does now: one client for the screen's life, so neither the content's own recomposition nor a
+        // forced one reloads.
+        val recompose = mutableIntStateOf(0)
+        FakeOrreryServer().use { server ->
+            server.respond(POOLS_STATUS, status(listOf(freeMember(FREE))))
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent {
+                recompose.intValue
+                PoolsScreen(client = client, onBack = {}, now = { NOW })
+            }
+            awaitTag("member:$FREE")
+
+            composeRule.runOnIdle { recompose.intValue++ }
+            composeRule.waitForIdle()
+
+            assertEquals("nothing is in flight", null, Quiescence.inFlight())
+            assertEquals(1, statusCalls(server))
         }
     }
 

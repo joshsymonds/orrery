@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,9 +97,13 @@ func (f *passEvidence) RunTask(
 	if f.err != nil {
 		return store.EvidenceRun{}, f.err
 	}
+	spec, err := taskItem(ctx, f.store, epic, seq)
+	if err != nil {
+		return store.EvidenceRun{}, err
+	}
 	if err := f.store.AddEvidenceRun(ctx, store.EvidenceRun{
 		ID: id, Epic: epic, Item: taskLabel(seq), Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-		Created: passClock(),
+		Spec: spec, Created: passClock(),
 	}); err != nil {
 		return store.EvidenceRun{}, err
 	}
@@ -106,6 +111,21 @@ func (f *passEvidence) RunTask(
 		f.onRun()
 	}
 	return f.store.EvidenceRun(ctx, id)
+}
+
+// taskItem returns the evidence item task seq of epic holds in the store. A run of the task keeps that item as its
+// spec, as enginehost.Evidence.RunTask does.
+func taskItem(ctx context.Context, s *store.Store, epic string, seq int64) (evidence.Item, error) {
+	row, err := s.Epic(ctx, epic)
+	if err != nil {
+		return evidence.Item{}, fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	for _, task := range row.Tasks {
+		if task.Seq == seq {
+			return task.Evidence, nil
+		}
+	}
+	return evidence.Item{}, fmt.Errorf("epic %s has no task %d", epic, seq)
 }
 
 func (f *passEvidence) Artifact(_ context.Context, _, _ string) ([]byte, string, error) {
@@ -137,6 +157,7 @@ type passFixture struct {
 	t         *testing.T
 	ctx       context.Context
 	store     *store.Store
+	dbPath    string
 	repo      string
 	base      string
 	stateDir  string
@@ -198,7 +219,7 @@ func newPassFixtureWith(t *testing.T, revs []reviewers.Reviewer) *passFixture {
 	steps := &passSteps{rows: make(map[string]store.StepRow)}
 	fakeEvidence := &passEvidence{store: s}
 	return &passFixture{
-		t: t, ctx: ctx, store: s, repo: setup.epic.Repository, base: setup.base, stateDir: setup.stateDir,
+		t: t, ctx: ctx, store: s, dbPath: path, repo: setup.epic.Repository, base: setup.base, stateDir: setup.stateDir,
 		rolesPath: setup.rolesPath, getenv: setup.getenv, steps: steps, evidence: fakeEvidence,
 		runner: New(Config{
 			Store: s, Steps: steps, Evidence: fakeEvidence, Getenv: setup.getenv, StateDir: setup.stateDir,
@@ -293,7 +314,7 @@ func (f *passFixture) addRun(id, phase, revision string, exit int, verdict strin
 	case errors.Is(err, store.ErrNoEvidenceRun):
 		if err = f.store.AddEvidenceRun(f.ctx, store.EvidenceRun{
 			ID: id, Epic: passEpic, Item: "T1", Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-			Created: at,
+			Spec: f.task().Evidence, Created: at,
 		}); err != nil {
 			f.t.Fatalf("AddEvidenceRun: %v", err)
 		}
@@ -582,6 +603,44 @@ func TestPassRedFailingAtBaseSnapshotsRefsAndStartsImplementer(t *testing.T) {
 	}
 	if want := filepath.Join(TaskDir(f.stateDir, passEpic, 1), id); start.Workspace != want {
 		t.Errorf("start Workspace = %s, want %s", start.Workspace, want)
+	}
+}
+
+// TestPassRedRunOfChangedItemReadsMissing covers R3: a red run that ends passing at the base is kept only while its
+// spec is current with the task's stored evidence item. Once the item changes, the run reads missing, so the build
+// asks for the run again and stays at red, and no implementer starts.
+func TestPassRedRunOfChangedItemReadsMissing(t *testing.T) {
+	t.Parallel()
+	f := newPassFixture(t)
+	f.pass()
+	red := f.lastRun()
+	f.addRun(red.id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
+	item := f.task().Evidence
+	item.Conclusion = "the thing is broken"
+	raw, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	db, err := sql.Open("sqlite", f.dbPath)
+	if err != nil {
+		t.Fatalf("open store file: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store file: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(f.ctx,
+		"UPDATE epic_tasks SET evidence = ? WHERE epic = ? AND seq = 1", string(raw), passEpic); err != nil {
+		t.Fatalf("UPDATE epic_tasks: %v", err)
+	}
+	f.pass()
+	build := f.task().Build
+	if build.Stage != StageRed || build.RedRun != "" {
+		t.Errorf("build stage %q red run %q, want red with no red run", build.Stage, build.RedRun)
+	}
+	if len(f.steps.starts) != 0 {
+		t.Errorf("Start calls = %d, want 0", len(f.steps.starts))
 	}
 }
 

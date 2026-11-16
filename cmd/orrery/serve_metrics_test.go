@@ -32,18 +32,10 @@ func TestServeMetricsListenScrapesConnectSeries(t *testing.T) {
 
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
-	addr := serveFreeLoopbackAddr(t)
-	metricsAddr := serveFreeLoopbackAddr(t)
 	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- runServe(ctx, opts, []string{
-			"--listen", addr, "--allow-login", serveTestLogin, "--metrics-listen", metricsAddr,
-		}, getenv)
-	}()
-	serveAwaitListener(t, addr, done)
+	done, addr, metricsAddr := serveStartWithMetrics(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
 
 	// The call answers unavailable with no daemon behind serve. The series counts the call whatever its answer.
 	httpClient := &http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}
@@ -129,7 +121,7 @@ func TestServeMetricsListenRefusesNonLoopback(t *testing.T) {
 		apiAddr := serveFreeLoopbackAddr(t)
 		err := runServe(t.Context(), opts, []string{
 			"--listen", apiAddr, "--allow-login", serveTestLogin, "--metrics-listen", metricsAddr,
-		}, getenv)
+		}, getenv, io.Discard)
 		if err == nil {
 			t.Fatalf("runServe --metrics-listen %s returned nil, want an error", metricsAddr)
 		}

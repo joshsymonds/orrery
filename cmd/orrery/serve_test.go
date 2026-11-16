@@ -234,7 +234,8 @@ func TestBarePathServeConfigResolvesClaude(t *testing.T) {
 	}
 }
 
-// serveFreeLoopbackAddr returns a loopback address with a port nothing listens on, for runServe to bind.
+// serveFreeLoopbackAddr returns a loopback address with a port nothing listens on now, for a test of an address serve
+// must not bind. A test that has serve bind starts it with serveStart instead.
 func serveFreeLoopbackAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -253,14 +254,10 @@ func serveFreeLoopbackAddr(t *testing.T) string {
 func TestServeAnswersPageAtRoot(t *testing.T) {
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
-	addr := serveFreeLoopbackAddr(t)
 	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
-	}()
+	done, addr := serveStart(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
 
 	var resp *http.Response
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -319,14 +316,10 @@ func TestServeReportsInputToDaemon(t *testing.T) {
 	got := receiveFrame(ln)
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
-	addr := serveFreeLoopbackAddr(t)
 	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
-	}()
+	done, addr := serveStart(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
 
 	presence := orreryv1connect.NewPresenceClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
@@ -611,16 +604,12 @@ func TestServeReportsPaneReadToDaemon(t *testing.T) {
 	daemonSocket, daemon := listenDaemon(t)
 	got := receiveFrame(daemon)
 
-	addr := serveFreeLoopbackAddr(t)
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
 	opts := globals{server: tmuxServer, daemonSocket: daemonSocket}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
-	}()
+	done, addr := serveStart(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
 
 	panes := orreryv1connect.NewPanesClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
@@ -777,23 +766,79 @@ func serveFakeNotices(t *testing.T, fake *serveNotices) string {
 	})
 }
 
-// serveAwaitListener waits until a connection to addr succeeds. It fails the test when done reports that runServe
-// returned first. It has no deadline of its own.
-func serveAwaitListener(t *testing.T, addr string, done <-chan error) {
+// serveLines is runServe's stderr: it keeps what serve writes and wakes a waiter on each write.
+type serveLines struct {
+	mu    sync.Mutex
+	buf   strings.Builder
+	wrote chan struct{}
+}
+
+// Write appends p and wakes a waiter.
+func (l *serveLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	n, err := l.buf.Write(p)
+	l.mu.Unlock()
+	select {
+	case l.wrote <- struct{}{}:
+	default:
+	}
+	return n, err
+}
+
+// addr returns the address on the line that starts with prefix, if serve has written it.
+func (l *serveLines) addr(prefix string) (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for line := range strings.SplitSeq(l.buf.String(), "\n") {
+		if addr, ok := strings.CutPrefix(line, prefix); ok {
+			return addr, true
+		}
+	}
+	return "", false
+}
+
+// serveStart runs runServe with ctx, opts and getenv on its own goroutine, on --listen 127.0.0.1:0 and then args, so
+// serve binds a port of its own choosing. It returns the channel runServe's result arrives on and the address serve
+// bound (see serveStartLines).
+func serveStart(ctx context.Context, t *testing.T, opts globals, getenv func(string) string,
+	args ...string) (<-chan error, string) {
 	t.Helper()
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
+	done, addr, _ := serveStartLines(ctx, t, opts, getenv, false, args)
+	return done, addr
+}
+
+// serveStartWithMetrics is serveStart with --metrics-listen 127.0.0.1:0 too, and returns the metrics address serve
+// bound as well.
+func serveStartWithMetrics(ctx context.Context, t *testing.T, opts globals, getenv func(string) string,
+	args ...string) (<-chan error, string, string) {
+	t.Helper()
+	return serveStartLines(ctx, t, opts, getenv, true, args)
+}
+
+// serveStartLines starts runServe as serveStart does, with --metrics-listen 127.0.0.1:0 when metrics is set, and
+// waits until serve has written the addresses it bound: its API line comes last. A test that picks a free port and
+// passes it on races any other process that binds the port meanwhile. The wait has no deadline of its own, and fails
+// at once when runServe returns first.
+func serveStartLines(ctx context.Context, t *testing.T, opts globals, getenv func(string) string, metrics bool,
+	args []string) (<-chan error, string, string) {
+	t.Helper()
+	argv := []string{"--listen", "127.0.0.1:0"}
+	if metrics {
+		argv = append(argv, "--metrics-listen", "127.0.0.1:0")
+	}
+	argv = append(argv, args...)
+	lines := &serveLines{wrote: make(chan struct{}, 1)}
+	done := make(chan error, 1)
+	go func() { done <- runServe(ctx, opts, argv, getenv, lines) }()
 	for {
+		if addr, ok := lines.addr(serveListeningPrefix); ok {
+			metricsAddr, _ := lines.addr(serveMetricsListeningPrefix)
+			return done, addr, metricsAddr
+		}
 		select {
 		case err := <-done:
-			t.Fatalf("runServe returned before serving: %v", err)
-		case <-ticker.C:
-			if conn, err := net.Dial("tcp", addr); err == nil {
-				if err := conn.Close(); err != nil {
-					t.Errorf("close probe connection: %v", err)
-				}
-				return
-			}
+			t.Fatalf("runServe returned before it wrote its listening line: %v", err)
+		case <-lines.wrote:
 		}
 	}
 }
@@ -813,15 +858,10 @@ func TestServeForwardsPools(t *testing.T) {
 	daemon := serveFakePools(t, fake)
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
-	addr := serveFreeLoopbackAddr(t)
 	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
-	}()
-	serveAwaitListener(t, addr, done)
+	done, addr := serveStart(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
 
 	pools := orreryv1connect.NewPoolsClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
@@ -868,15 +908,10 @@ func TestServeForwardsNoticeSeen(t *testing.T) {
 	daemon := serveFakeNotices(t, fake)
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
-	addr := serveFreeLoopbackAddr(t)
 	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
-	}()
-	serveAwaitListener(t, addr, done)
+	done, addr := serveStart(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
 
 	notices := orreryv1connect.NewNoticesClient(
 		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)

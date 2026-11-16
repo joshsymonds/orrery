@@ -24,6 +24,7 @@ func validTask(title string, files ...string) Task {
 		Requirements: []string{"R1"},
 		Gate:         "check",
 		Evidence: evidence.Item{
+			Kind:       evidence.KindCapture,
 			Capture:    []string{"scripts/check"},
 			Limit:      60,
 			Conclusion: "a conclusion for " + title,
@@ -240,32 +241,51 @@ func TestCheckRefusesEvidenceForm(t *testing.T) {
 	}{
 		{
 			name:     "no capture and no supplied files",
-			evidence: evidence.Item{Conclusion: "c", Judge: "a judge"},
-			want:     []string{`tasks[0] "T" evidence.capture: none, name a capture or supplied files`},
+			evidence: evidence.Item{Kind: evidence.KindCapture, Conclusion: "c", Judge: "a judge"},
+			want: []string{
+				`tasks[0] "T" evidence.capture: none, name a capture or supplied files`,
+				`tasks[0] "T" evidence.kind: capture without a capture`,
+			},
 		},
 		{
-			name:     "blank conclusion",
-			evidence: evidence.Item{Capture: []string{"scripts/check"}, Limit: 60, Conclusion: " ", Judge: "a judge"},
-			want:     []string{`tasks[0] "T" evidence.conclusion: empty or blank`},
+			name: "blank conclusion",
+			evidence: evidence.Item{
+				Kind: evidence.KindCapture, Capture: []string{"scripts/check"}, Limit: 60,
+				Conclusion: " ", Judge: "a judge",
+			},
+			want: []string{`tasks[0] "T" evidence.conclusion: empty or blank`},
 		},
 		{
-			name:     "blank judge",
-			evidence: evidence.Item{Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "c"},
-			want:     []string{`tasks[0] "T" evidence.judge: empty or blank`},
+			name: "blank judge",
+			evidence: evidence.Item{
+				Kind: evidence.KindCapture, Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "c",
+			},
+			want: []string{`tasks[0] "T" evidence.judge: empty or blank`},
 		},
 		{
-			name:     "capture program without a slash",
-			evidence: evidence.Item{Capture: []string{"check"}, Limit: 60, Conclusion: "c", Judge: "a judge"},
-			want:     []string{`tasks[0] "T" evidence.capture[0]: not a path with a / in it`},
+			name:     "no kind",
+			evidence: evidence.Item{Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "c", Judge: "a judge"},
+			want:     []string{`tasks[0] "T" evidence.kind: none, name test, capture or supplied`},
 		},
 		{
-			name:     "limit outside the range beside a capture",
-			evidence: evidence.Item{Capture: []string{"scripts/check"}, Conclusion: "c", Judge: "a judge"},
-			want:     []string{`tasks[0] "T" evidence.limit: 0 is outside 1 to 9223372036 seconds`},
+			name: "capture program without a slash",
+			evidence: evidence.Item{
+				Kind: evidence.KindCapture, Capture: []string{"check"}, Limit: 60, Conclusion: "c", Judge: "a judge",
+			},
+			want: []string{`tasks[0] "T" evidence.capture[0]: not a path with a / in it`},
+		},
+		{
+			name: "limit outside the range beside a capture",
+			evidence: evidence.Item{
+				Kind: evidence.KindCapture, Capture: []string{"scripts/check"}, Conclusion: "c",
+				Judge: "a judge",
+			},
+			want: []string{`tasks[0] "T" evidence.limit: 0 is outside 1 to 9223372036 seconds`},
 		},
 		{
 			name: "artifact path outside the repository",
 			evidence: evidence.Item{
+				Kind:    evidence.KindCapture,
 				Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{"../out"},
 				Conclusion: "c", Judge: "a judge",
 			},
@@ -363,9 +383,13 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 	if task == nil {
 		t.Fatalf("Schema has no tasks items")
 	}
-	wantTask := []string{"title", "deliverable", "files", "requirements", "gate", "evidence"}
+	wantTask := []string{"title", "deliverable", "files", "requirements", "contributes", "gate", "evidence"}
 	if !reflect.DeepEqual(task.Required, wantTask) {
 		t.Errorf("task required = %q, want %q", task.Required, wantTask)
+	}
+	contributes := task.Properties["contributes"]
+	if contributes.Type != "array" || contributes.Items == nil || contributes.Items.Type != "string" {
+		t.Errorf("contributes is not an array of strings: type %q", contributes.Type)
 	}
 	if _, ok := task.Properties["check"]; ok {
 		t.Errorf("task still has a check property")
@@ -375,7 +399,7 @@ func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
 	}
 
 	ev := task.Properties["evidence"]
-	wantEvidence := []string{"capture", "limit", "artifacts", "supplied", "conclusion", "judge"}
+	wantEvidence := []string{"capture", "limit", "artifacts", "supplied", "conclusion", "judge", "kind", "tests"}
 	if !reflect.DeepEqual(ev.Required, wantEvidence) {
 		t.Errorf("evidence required = %q, want %q", ev.Required, wantEvidence)
 	}

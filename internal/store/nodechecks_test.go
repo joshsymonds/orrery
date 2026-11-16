@@ -24,12 +24,25 @@ func checkTime(offset int64) time.Time {
 	return time.Unix(1700000400+offset, 0)
 }
 
-// openCheckStore opens a migrated store with checkEpic and checkOther created.
+// checkItem is the evidence item of Requirement R1 of the check epics, which the red run of R1 keeps as its spec.
+func checkItem() evidence.Item {
+	return evidence.Item{
+		Capture: []string{"make", "check"}, Limit: 60, Artifacts: []string{"out/log.txt"},
+		Conclusion: "The check runs", Judge: "Read the output",
+	}
+}
+
+// openCheckStore opens a migrated store with checkEpic and checkOther created, each with Requirement R1 holding
+// checkItem.
 func openCheckStore(t *testing.T) *store.Store {
 	t.Helper()
 	s, _ := openNodeStore(t)
 	for _, id := range []string{checkEpic, checkOther} {
-		if err := s.CreateEpic(context.Background(), loopEpicRow(id)); err != nil {
+		row := loopEpicRow(id)
+		row.Requirements = []store.EpicRequirement{{
+			ID: "R1", Text: "The check runs", Evidence: "make check", Kind: "check", Item: checkItem(),
+		}}
+		if err := s.CreateEpic(context.Background(), row); err != nil {
 			t.Fatalf("CreateEpic %s: %v", id, err)
 		}
 	}
@@ -296,11 +309,7 @@ func TestEpicFlowReadsChecksEvidenceAndAgentSteps(t *testing.T) {
 	}
 	if err := s.AddEvidenceRun(ctx, store.EvidenceRun{
 		ID: "run-r1-red", Epic: checkEpic, Item: "R1", Revision: "rev-1", Phase: "red", Source: "captured",
-		Spec: evidence.Item{
-			Capture: []string{"make", "check"}, Limit: 60, Artifacts: []string{"out/log.txt"},
-			Conclusion: "The check runs", Judge: "Read the output",
-		},
-		Created: checkTime(0),
+		Spec: checkItem(), Created: checkTime(0),
 	}); err != nil {
 		t.Fatalf("AddEvidenceRun: %v", err)
 	}

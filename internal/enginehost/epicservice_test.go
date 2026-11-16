@@ -170,6 +170,10 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	after := time.Now().Unix()
 
 	want := fullEpicRequest(repo, epicServiceID).GetContract()
+	// A stored Requirement reads with the state its runs give; none has run yet.
+	for _, requirement := range want.GetRequirements() {
+		requirement.State = "pending"
+	}
 	if !proto.Equal(stored.GetContract(), want) {
 		t.Fatalf("created contract = %v, want %v", stored.GetContract(), want)
 	}

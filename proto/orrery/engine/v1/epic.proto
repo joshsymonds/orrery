@@ -27,6 +27,10 @@ service Epics {
 
   // RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
   rpc RetryEpic(RetryEpicRequest) returns (RetryEpicResponse);
+
+  // ReleaseEpic resumes the stopped release of a stored epic at its first unfinished step, running again the undo-none
+  // release steps it names, and returns the stored epic.
+  rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -194,6 +198,15 @@ message EpicRequirement {
 
   // The evidence that shows the requirement is true. Empty for epics stored before O3d2, which keep evidence and kind.
   EvidenceItem item = 5;
+
+  // The id of the task not failed that claims the requirement, T<seq>; empty when no task claims it.
+  string owner = 6;
+
+  // The ids of the tasks not failed that contribute to the requirement, T<seq>, in seq order.
+  repeated string contributors = 7;
+
+  // How far the requirement is shown: pending, red or green, from the runs of its current item.
+  string state = 8;
 }
 
 // EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
@@ -248,6 +261,13 @@ message EvidenceItem {
 
   // The agent that judges the evidence.
   string judge = 6;
+
+  // How the evidence shows the requirement or task is done: test, capture or supplied; empty for an item stored without
+  // a kind.
+  string kind = 7;
+
+  // The repository-relative test files a test item runs beside its capture; empty for an item that is not a test.
+  repeated string tests = 8;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
@@ -490,6 +510,9 @@ message EpicTask {
 
   // The reviews of the task's build, in attempt then position order.
   repeated EpicTaskReview reviews = 21;
+
+  // The Requirement ids the task contributes to without claiming them, R<n>.
+  repeated string contributes = 22;
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
@@ -827,6 +850,14 @@ message StoredEpic {
   // The revision the epic ended clean at. Empty until the epic ends clean.
   string clean = 17;
 
+  // The epic's release runs in the order the store reads them: by attempt, then part, then position. Every epic RPC
+  // that returns the epic fills it.
+  repeated EpicReleaseRun releases = 18;
+
+  // The epic that holds the release slot of the epic's repository, empty when the slot is free. A waiting epic shows
+  // whose release it waits on.
+  string release_slot = 19;
+
   // The epic's summary, written once from its contract. Empty until it is written.
   string summary = 20;
 
@@ -835,6 +866,45 @@ message StoredEpic {
 
   // The epic's tells in seq order. Only a GetEpic that asks for history fills them.
   repeated EpicTell tells = 22;
+}
+
+// EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
+message EpicReleaseRun {
+  // The run's part: candidate, release, judge or named.
+  string part = 1;
+
+  // The run's position within its part, from 1.
+  int64 position = 2;
+
+  // The attempt of the release node run the run was recorded under.
+  int64 attempt = 3;
+
+  // The release step the run is for.
+  string step = 4;
+
+  // The revision the run started at.
+  string start = 5;
+
+  // The revision the run recorded as its head.
+  string head = 6;
+
+  // The end of the run's step, such as done or failed: a release step's or the judge's.
+  string end = 7;
+
+  // The commits the run made, in order.
+  repeated string commits = 8;
+
+  // The evidence the run's step returned, as text.
+  string evidence = 9;
+
+  // Whether the run passed.
+  bool passed = 10;
+
+  // The reason the run recorded, such as why a step failed; empty when it recorded none.
+  string reason = 11;
+
+  // When the run was recorded, in unix seconds.
+  int64 at = 12;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -978,6 +1048,21 @@ message RetryEpicRequest {
 
 // RetryEpicResponse carries the retried epic.
 message RetryEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// ReleaseEpicRequest names the epic whose stopped release resumes, and the undo-none release steps to run again.
+message ReleaseEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
+  repeated int32 undo_none = 2;
+}
+
+// ReleaseEpicResponse carries the resumed epic.
+message ReleaseEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
 }

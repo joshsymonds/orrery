@@ -403,10 +403,14 @@ func (e crashEvidence) RunTask(
 func (w *crashWorld) runEvidence(
 	ctx context.Context, id, epic string, seq int64, revision, phase string, exit int, verdict string,
 ) error {
+	spec, err := taskItem(ctx, w.store, epic, seq)
+	if err != nil {
+		return err
+	}
 	at := w.now()
 	if err := w.store.AddEvidenceRun(ctx, store.EvidenceRun{
 		ID: id, Epic: epic, Item: taskLabel(seq), Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-		Created: at,
+		Spec: spec, Created: at,
 	}); err != nil {
 		return wrapErr("add evidence run "+id, err)
 	}

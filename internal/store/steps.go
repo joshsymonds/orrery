@@ -73,6 +73,7 @@ type StepAdd struct {
 	DoneValue    string
 	ReadOnly     bool
 	Owned        []string
+	Unowned      bool
 	Gate         []string
 	GateName     string
 	GateSource   string
@@ -168,6 +169,7 @@ type StepRow struct {
 	DoneValue       string
 	ReadOnly        bool
 	Owned           []string
+	Unowned         bool
 	Gate            []string
 	GateName        string
 	GateSource      string
@@ -221,8 +223,8 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
 		DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
-		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
-		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
+		Owned: string(owned), Unowned: boolInt(op.Unowned), Gate: string(gate), GateName: op.GateName,
+		GateSource: op.GateSource, GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
 		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents,
 	}); err != nil {
@@ -471,6 +473,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		DoneValue:       row.DoneValue,
 		ReadOnly:        row.ReadOnly,
 		Owned:           owned,
+		Unowned:         row.Unowned != 0,
 		Gate:            gate,
 		GateName:        row.GateName,
 		GateSource:      row.GateSource,

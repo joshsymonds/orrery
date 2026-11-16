@@ -146,6 +146,15 @@ func (d *heldDaemon) RetryEpic(
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: &v1.StoredEpic{}}), nil
 }
 
+func (d *heldDaemon) ReleaseEpic(
+	ctx context.Context, _ *connect.Request[v1.ReleaseEpicRequest],
+) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	if err := d.hold(ctx, "ReleaseEpic"); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.ReleaseEpicResponse{Epic: &v1.StoredEpic{}}), nil
+}
+
 func (d *heldDaemon) RunEvidence(
 	ctx context.Context, _ *connect.Request[v1.RunEvidenceRequest],
 ) (*connect.Response[v1.RunEvidenceResponse], error) {

@@ -140,9 +140,12 @@ class EvidenceRunsTest {
     }
 
     private fun setScreen(server: FakeOrreryServer) {
+        // One client for the screen's life: a client built inside the content keys the screen's load anew each time
+        // the content recomposes (see PoolsScreenTest.aClientBuiltInsideTheContentReloadsTheScreenOnItsOwn).
+        val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             EpicScreen(
-                client = OrreryClient(server.baseUrl),
+                client = client,
                 epicId = EPIC_ID,
                 onBack = {},
                 onOpenStep = {},

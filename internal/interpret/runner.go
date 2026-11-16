@@ -48,6 +48,10 @@ type Store interface {
 	CheckNodeRefs(
 		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
 	) error
+	TakeReleaseSlot(ctx context.Context, epic string) (string, error)
+	FreeReleaseSlot(ctx context.Context, epic string) error
+	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
+	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
 	FreezeReview(ctx context.Context, epic, path string, attempt int64, revision string) error
 	EndReview(
 		ctx context.Context, epic, path string, attempt int64, output string, verdicts []store.ReviewVerdict,
@@ -104,7 +108,9 @@ type Reviewers interface {
 // Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv
 // means os.Getenv. A nil Logger discards. Checks, Evidence and Steps carry out the work of check node runs, so a Runner
 // that runs an epic with such nodes needs each of them. Reviewers and Ending carry the end-of-epic review: with both set,
-// its review and closure kinds run, and without both an epic waits at its review node.
+// its review and closure kinds run, and without both an epic waits at its review node. Ending also ends the epics whose
+// release is decided, so a Runner that runs a release needs it. StateDir is the state directory release steps'
+// worktrees live under, so a Runner that runs a release step needs it.
 type Config struct {
 	Store     Store
 	Planner   Planner
@@ -114,6 +120,7 @@ type Config struct {
 	Steps     Steps
 	Reviewers Reviewers
 	Ending    Ending
+	StateDir  string
 	Getenv    func(string) string
 	Tick      time.Duration
 	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
@@ -136,6 +143,7 @@ type Runner struct {
 	steps     Steps
 	reviewers Reviewers
 	ending    Ending
+	stateDir  string
 	getenv    func(string) string
 	tick      time.Duration
 	ticks     <-chan time.Time
@@ -160,12 +168,12 @@ const builtinEpic = "epic"
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, getenv: cfg.Getenv, tick: cfg.Tick,
-		now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
+		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
+		tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
-			kindIntegrate: kinds.Integrate{},
+			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
 		},
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
@@ -272,8 +280,8 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 	return false
 }
 
-// decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and the
-// actions flow asks for on the rows.
+// decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
+// the actions flow asks for on the rows.
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
@@ -281,7 +289,7 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows := kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, Review: read.Review,
+		Pending: read.Pending, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
 	}
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)

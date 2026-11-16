@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -21,9 +22,12 @@ import (
 // epicRetryForm names the form of `orrery epic retry`.
 const epicRetryForm = "retry ID [NODE]"
 
+// epicReleaseForm names the form of `orrery epic release`.
+const epicReleaseForm = "release ID [--undo-none N]..."
+
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
 const epicForms = "create FILE|-, get ID, list, answer EPIC --id ID [--question QN] TEXT, pause ID, resume ID, " +
-	"stop ID, " + epicRetryForm
+	"stop ID, " + epicRetryForm + ", " + epicReleaseForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
 const epicAnswerForm = "answer EPIC --id ID [--question QN] TEXT"
@@ -40,6 +44,12 @@ type epicIDArgs struct {
 type epicRetryArgs struct {
 	ID   string `json:"id"`
 	Node string `json:"node,omitempty"`
+}
+
+// epicReleaseArgs is the arguments of epic_release. UndoNone is omitted when the form names no position.
+type epicReleaseArgs struct {
+	ID       string `json:"id"`
+	UndoNone []int  `json:"undoNone,omitempty"`
 }
 
 // epicAnswerArgs is the arguments of epic_answer. Question is omitted for a note.
@@ -78,6 +88,8 @@ func epicCommand(
 		return epicInvoke(ctx, epics, "epic_"+verb, epicIDArgs{ID: rest[0]}, stdout)
 	case "retry":
 		return epicRetry(ctx, epics, rest, stdout)
+	case "release":
+		return epicRelease(ctx, epics, rest, stdout)
 	default:
 		return epicForm(epicForms)
 	}
@@ -94,6 +106,29 @@ func epicRetry(ctx context.Context, epics enginev1connect.EpicsClient, rest []st
 	default:
 		return epicForm(epicRetryForm)
 	}
+}
+
+// epicRelease implements `release ID [--undo-none N]...`. Each N is a 1-based position of an undo-none release step to
+// run again; the positions are sent in the order given, and the service decides what they mean.
+func epicRelease(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
+	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+		return epicForm(epicReleaseForm)
+	}
+	flags := flag.NewFlagSet("epic release", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var undoNone []int
+	flags.Func("undo-none", "the 1-based position of an undo-none release step to run again", func(value string) error {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 {
+			return fmt.Errorf("--undo-none %q is not a positive integer", value)
+		}
+		undoNone = append(undoNone, n)
+		return nil
+	})
+	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
+		return epicForm(epicReleaseForm)
+	}
+	return epicInvoke(ctx, epics, "epic_release", epicReleaseArgs{ID: rest[0], UndoNone: undoNone}, stdout)
 }
 
 // epicForm returns the usage error for `orrery epic` given the wrong arguments; form names the form it takes.

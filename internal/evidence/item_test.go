@@ -9,9 +9,10 @@ import (
 // maxLimit is the largest limit in seconds that Check accepts: math.MaxInt64 divided by one second in nanoseconds.
 const maxLimit = 9223372036
 
-// captureItem is a well-formed item that runs a capture.
+// captureItem is a well-formed item of kind capture that runs a capture.
 func captureItem() Item {
 	return Item{
+		Kind:       KindCapture,
 		Capture:    []string{"scripts/gate", "--quick"},
 		Limit:      60,
 		Artifacts:  []string{"out/report.json"},
@@ -20,13 +21,22 @@ func captureItem() Item {
 	}
 }
 
-// suppliedItem is a well-formed item whose files a person supplies in place of a capture.
+// suppliedItem is a well-formed item of kind supplied whose files a person supplies in place of a capture.
 func suppliedItem() Item {
 	return Item{
+		Kind:       KindSupplied,
 		Supplied:   []string{"docs/evidence.md"},
 		Conclusion: "the document holds",
 		Judge:      "a reviewer reads the document",
 	}
+}
+
+// testItem is a well-formed item of kind test that runs a capture beside the test file it lists.
+func testItem() Item {
+	return edit(captureItem(), func(i *Item) {
+		i.Kind = KindTest
+		i.Tests = []string{"internal/evidence/item_test.go"}
+	})
 }
 
 // edit returns a copy of item changed by change.
@@ -49,7 +59,60 @@ func TestCheckRefusals(t *testing.T) {
 				i.Limit = 0
 				i.Artifacts = nil
 			}),
-			want: []string{"capture: none, name a capture or supplied files"},
+			want: []string{"capture: none, name a capture or supplied files", "kind: capture without a capture"},
+		},
+		{
+			name: "kind none",
+			item: edit(captureItem(), func(i *Item) { i.Kind = "" }),
+			want: []string{"kind: none, name test, capture or supplied"},
+		},
+		{
+			name: "kind not test, capture or supplied",
+			item: edit(captureItem(), func(i *Item) { i.Kind = "check" }),
+			want: []string{`kind: "check" is not test, capture or supplied`},
+		},
+		{
+			name: "test kind without a capture",
+			item: edit(suppliedItem(), func(i *Item) {
+				i.Kind = KindTest
+				i.Tests = []string{"internal/evidence/item_test.go"}
+			}),
+			want: []string{"kind: test without a capture"},
+		},
+		{
+			name: "capture kind without a capture",
+			item: edit(suppliedItem(), func(i *Item) { i.Kind = KindCapture }),
+			want: []string{"kind: capture without a capture"},
+		},
+		{
+			name: "supplied kind without supplied files",
+			item: edit(captureItem(), func(i *Item) { i.Kind = KindSupplied }),
+			want: []string{"kind: supplied without supplied files"},
+		},
+		{
+			name: "test kind without test files",
+			item: edit(captureItem(), func(i *Item) { i.Kind = KindTest }),
+			want: []string{"tests: none, a test item lists its test files"},
+		},
+		{
+			name: "tests set on a capture item",
+			item: edit(captureItem(), func(i *Item) { i.Tests = []string{"internal/evidence/item_test.go"} }),
+			want: []string{"tests: set on a capture item"},
+		},
+		{
+			name: "tests set on a supplied item",
+			item: edit(suppliedItem(), func(i *Item) { i.Tests = []string{"internal/evidence/item_test.go"} }),
+			want: []string{"tests: set on a supplied item"},
+		},
+		{
+			name: "test file not a normalized path",
+			item: edit(testItem(), func(i *Item) { i.Tests = []string{"internal/a_test.go", "internal/../b_test.go"} }),
+			want: []string{"tests[1]: not a normalized repository-relative file path"},
+		},
+		{
+			name: "test file named twice",
+			item: edit(testItem(), func(i *Item) { i.Tests = []string{"internal/a_test.go", "internal/a_test.go"} }),
+			want: []string{"tests[1]: named twice within the list"},
 		},
 		{
 			name: "both capture and supplied",
@@ -173,6 +236,9 @@ func TestCheckRefusals(t *testing.T) {
 
 func TestCheckAcceptsWellFormedItems(t *testing.T) {
 	t.Parallel()
+	if got := Check(testItem()); got != nil {
+		t.Errorf("Check(test item) = %q, want nil", got)
+	}
 	if got := Check(captureItem()); got != nil {
 		t.Errorf("Check(capture item) = %q, want nil", got)
 	}
@@ -181,10 +247,32 @@ func TestCheckAcceptsWellFormedItems(t *testing.T) {
 	}
 }
 
+// TestItemStoredBeforeKindsReadsBackUnchanged asserts an item stored before kinds, which names neither capture nor
+// supplied files, decodes kindless and encodes back to the same stored form: the kind and tests keys stay out of it.
+func TestItemStoredBeforeKindsReadsBackUnchanged(t *testing.T) {
+	t.Parallel()
+	const stored = `{"capture":[],"limit":0,"artifacts":[],"supplied":[],"conclusion":"c","judge":"j"}`
+	var item Item
+	if err := json.Unmarshal([]byte(stored), &item); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if item.Kind != "" || item.Tests != nil {
+		t.Fatalf("item = %+v, want no kind and no tests", item)
+	}
+	data, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(data) != stored {
+		t.Errorf("Marshal = %s, want the stored form %s", data, stored)
+	}
+}
+
 func TestItemJSONRoundTrip(t *testing.T) {
 	t.Parallel()
 	want := map[string]bool{
 		"capture": true, "limit": true, "artifacts": true, "supplied": true, "conclusion": true, "judge": true,
+		"kind": true,
 	}
 	for name, item := range map[string]Item{"capture": captureItem(), "supplied": suppliedItem()} {
 		data, err := json.Marshal(item)
@@ -196,7 +284,7 @@ func TestItemJSONRoundTrip(t *testing.T) {
 			t.Fatalf("%s: Unmarshal fields: %v", name, err)
 		}
 		if len(fields) != len(want) {
-			t.Errorf("%s: encoded keys = %q, want exactly %d keys with no omitempty", name, fields, len(want))
+			t.Errorf("%s: encoded keys = %q, want exactly %d keys", name, fields, len(want))
 		}
 		for key := range want {
 			if _, ok := fields[key]; !ok {
@@ -207,7 +295,7 @@ func TestItemJSONRoundTrip(t *testing.T) {
 		if err := json.Unmarshal(data, &back); err != nil {
 			t.Fatalf("%s: Unmarshal: %v", name, err)
 		}
-		if !slices.Equal(back.Capture, item.Capture) || back.Limit != item.Limit ||
+		if back.Kind != item.Kind || !slices.Equal(back.Capture, item.Capture) || back.Limit != item.Limit ||
 			!slices.Equal(back.Artifacts, item.Artifacts) || !slices.Equal(back.Supplied, item.Supplied) ||
 			back.Conclusion != item.Conclusion || back.Judge != item.Judge {
 			t.Errorf("%s: round trip = %+v, want %+v", name, back, item)

@@ -44,6 +44,7 @@ type EpicCommands interface {
 	StopEpic(ctx context.Context, epic string) (string, error)
 	RetryEpic(ctx context.Context, epic string) error
 	RetryNode(ctx context.Context, epic, node string) error
+	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -145,9 +146,9 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 	return nil
 }
 
-// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs and its review, all read in
-// one read of the store, so every reply that carries the epic shows the same nodes and the same review. It returns an
-// error matching store.ErrNoEpic when no epic has that id.
+// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its review, its release
+// runs and the holder of its repository's release slot, all read in one read of the store, so every reply that carries
+// the epic shows the same state. It returns an error matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
 	flow, err := s.epics.EpicFlow(ctx, id)
 	if err != nil {
@@ -157,6 +158,7 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	if err != nil {
 		return nil, err
 	}
+	requirementClaims(message, flow)
 	message.Nodes, err = nodeMessages(flow)
 	if err != nil {
 		return nil, err
@@ -164,6 +166,8 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	message.Ledger = reviewLedgerMessage(flow.Review)
 	message.Frozen = flow.Review.Frozen
 	message.Clean = flow.Review.Clean
+	message.Releases = epicMap(flow.Releases, releaseRunMessage)
+	message.ReleaseSlot = flow.Slot
 	return message, nil
 }
 
@@ -434,6 +438,39 @@ func (s *epicService) RetryEpic(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
+}
+
+// ReleaseEpic resumes the stopped release of the epic at its first unfinished step, running again the undo-none release
+// steps undo_none names, and returns the epic read back. An empty id, and a position in undo_none below 1, are refused
+// before the store is asked.
+func (s *epicService) ReleaseEpic(
+	ctx context.Context,
+	req *connect.Request[v1.ReleaseEpicRequest],
+) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	undoNone := make([]int64, 0, len(req.Msg.GetUndoNone()))
+	for _, position := range req.Msg.GetUndoNone() {
+		if position < 1 {
+			return nil, refuseEpic(
+				connect.CodeInvalidArgument, fmt.Sprintf("undo_none: position %d is below 1", position),
+			)
+		}
+		undoNone = append(undoNone, int64(position))
+	}
+	if err := s.epics.ReleaseEpic(ctx, id, undoNone, time.Now()); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	message, err := s.storedEpic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.ReleaseEpicResponse{Epic: message}), nil
 }
 
 // retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
@@ -842,6 +879,15 @@ func turnMessage(turn store.EpicTurn) *v1.EpicTurn {
 	}
 }
 
+// releaseRunMessage returns the EpicReleaseRun message of run, its time in unix seconds.
+func releaseRunMessage(run store.ReleaseRun) *v1.EpicReleaseRun {
+	return &v1.EpicReleaseRun{
+		Part: run.Part, Position: run.Position, Attempt: run.Attempt, Step: run.Step, Start: run.Start, Head: run.Head,
+		End: run.End, Commits: run.Commits, Evidence: run.Evidence, Passed: run.Passed, Reason: run.Reason,
+		At: run.At.Unix(),
+	}
+}
+
 // taskMessages returns the EpicTask messages of tasks, in order. It fails when a task's messages fail.
 func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
 	out := make([]*v1.EpicTask, 0, len(tasks))
@@ -865,6 +911,7 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		Deliverable:  task.Deliverable,
 		Files:        task.Files,
 		Requirements: task.Requirements,
+		Contributes:  task.Contributes,
 		Gate:         task.Gate,
 		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
@@ -930,6 +977,8 @@ func evidenceItemMessage(item evidence.Item) *v1.EvidenceItem {
 		Supplied:   item.Supplied,
 		Conclusion: item.Conclusion,
 		Judge:      item.Judge,
+		Kind:       string(item.Kind),
+		Tests:      item.Tests,
 	}
 }
 

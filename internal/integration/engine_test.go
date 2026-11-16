@@ -115,12 +115,12 @@ func (f *engineFixture) startOrreryd(t *testing.T, sessions bool, extra ...strin
 	}
 	args = append(args, extra...)
 	daemon := startBinary(t, "orreryd", f.env, args...)
-	daemon.waitForListener(t, "unix", f.socket)
+	daemon.waitForListener(t, f.socket)
 	if sessions {
 		// sessions.sock listens only after the store open, which has no bound, so the listen's wait limit starts at
 		// the store-open line.
 		daemon.waitForStoreOpen(t)
-		daemon.waitForListener(t, "unix", f.sessions)
+		daemon.waitForListener(t, f.sessions)
 	}
 	return daemon
 }

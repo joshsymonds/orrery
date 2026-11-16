@@ -151,8 +151,9 @@ func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
 	// still writing, and the say's retry complete.
 	writeFile(t, filepath.Join(dir, "fakeclaude.release"), "", 0o600)
 	wantExit(t, say.exitOutcome(t), 0)
-	f.waitForBlock(t, id, "fake reply 3")
-	f.waitForHistory(t, id, turnDone)
+	// The BIG prompt arrived while the TRICKLEHELD turn ran, so its turn records no working state of its own: the state
+	// reads done from the TRICKLEHELD turn's end through the whole BIG turn. Only the turn's own end shows it finished.
+	f.waitForHistory(t, id, func(h store.EngineHistory) bool { return turnEndsAfterBlock(h, "fake reply 3") })
 	var wantTrickle []string
 	for k := 1; k <= 60; k++ {
 		wantTrickle = append(wantTrickle, fmt.Sprintf("fake trickle 2.%d", k))
@@ -357,6 +358,23 @@ func completedTurns(history store.EngineHistory) int {
 		}
 	}
 	return n
+}
+
+// turnEndsAfterBlock reports whether history holds the assistant block text and, after it, an engine_turn_ended event:
+// the end of the turn the block is in. A session's state cannot show that: a turn started by a prompt sent while
+// another turn ran records no working state, so the state reads done while it runs.
+func turnEndsAfterBlock(history store.EngineHistory, text string) bool {
+	seen := false
+	for _, ev := range history.Events {
+		switch {
+		case seen && ev.Kind == store.EventEngineTurnEnded:
+			return true
+		case !seen && ev.Kind == store.EventEngineBlock:
+			var block engineBlock
+			seen = json.Unmarshal([]byte(ev.Payload), &block) == nil && block.Role == "assistant" && block.Text == text
+		}
+	}
+	return false
 }
 
 // unfinishedIs reports whether history holds exactly one unfinished text, and that text is want.

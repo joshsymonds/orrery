@@ -419,7 +419,7 @@ func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
 	// sessions.sock listens only after the store open, which has no bound, so the listen's wait limit starts at the
 	// store-open line.
 	daemon.waitForStoreOpen(t)
-	daemon.waitForListener(t, "unix", protocol.SessionSocketPath(socket))
+	daemon.waitForListener(t, protocol.SessionSocketPath(socket))
 	writeJudgeReply(t, dir, judgeUnneededReply)
 	transcript := filepath.Join(dir, "transcript.jsonl")
 	writeFile(t, transcript, exampleTranscript, 0o600)

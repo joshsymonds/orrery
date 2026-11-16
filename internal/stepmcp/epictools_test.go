@@ -22,24 +22,26 @@ const testEpicID = "demo-0a1b2c3/epic-login"
 
 // fakeEpics answers the epic commands with the configured replies and records each request.
 type fakeEpics struct {
-	mu          sync.Mutex
-	creates     []*v1.CreateEpicRequest
-	gets        []*v1.GetEpicRequest
-	lists       []*v1.ListEpicsRequest
-	answers     []*v1.AnswerEpicRequest
-	pauses      []*v1.PauseEpicRequest
-	resumes     []*v1.ResumeEpicRequest
-	stops       []*v1.StopEpicRequest
-	retries     []*v1.RetryEpicRequest
-	createReply *v1.CreateEpicResponse
-	getReply    *v1.GetEpicResponse
-	listReply   *v1.ListEpicsResponse
-	answerReply *v1.AnswerEpicResponse
-	pauseReply  *v1.PauseEpicResponse
-	resumeReply *v1.ResumeEpicResponse
-	stopReply   *v1.StopEpicResponse
-	retryReply  *v1.RetryEpicResponse
-	err         error
+	mu           sync.Mutex
+	creates      []*v1.CreateEpicRequest
+	gets         []*v1.GetEpicRequest
+	lists        []*v1.ListEpicsRequest
+	answers      []*v1.AnswerEpicRequest
+	pauses       []*v1.PauseEpicRequest
+	resumes      []*v1.ResumeEpicRequest
+	stops        []*v1.StopEpicRequest
+	retries      []*v1.RetryEpicRequest
+	releases     []*v1.ReleaseEpicRequest
+	createReply  *v1.CreateEpicResponse
+	getReply     *v1.GetEpicResponse
+	listReply    *v1.ListEpicsResponse
+	answerReply  *v1.AnswerEpicResponse
+	pauseReply   *v1.PauseEpicResponse
+	resumeReply  *v1.ResumeEpicResponse
+	stopReply    *v1.StopEpicResponse
+	retryReply   *v1.RetryEpicResponse
+	releaseReply *v1.ReleaseEpicResponse
+	err          error
 }
 
 func (f *fakeEpics) CreateEpic(
@@ -146,36 +148,51 @@ func (f *fakeEpics) RetryEpic(
 	return connect.NewResponse(f.retryReply), nil
 }
 
+func (f *fakeEpics) ReleaseEpic(
+	_ context.Context,
+	req *connect.Request[v1.ReleaseEpicRequest],
+) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.releases = append(f.releases, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.releaseReply), nil
+}
+
 // epicCalls is a copy of the requests the fake received.
 type epicCalls struct {
-	creates []*v1.CreateEpicRequest
-	gets    []*v1.GetEpicRequest
-	lists   []*v1.ListEpicsRequest
-	answers []*v1.AnswerEpicRequest
-	pauses  []*v1.PauseEpicRequest
-	resumes []*v1.ResumeEpicRequest
-	stops   []*v1.StopEpicRequest
-	retries []*v1.RetryEpicRequest
+	creates  []*v1.CreateEpicRequest
+	gets     []*v1.GetEpicRequest
+	lists    []*v1.ListEpicsRequest
+	answers  []*v1.AnswerEpicRequest
+	pauses   []*v1.PauseEpicRequest
+	resumes  []*v1.ResumeEpicRequest
+	stops    []*v1.StopEpicRequest
+	retries  []*v1.RetryEpicRequest
+	releases []*v1.ReleaseEpicRequest
 }
 
 func (f *fakeEpics) calls() epicCalls {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return epicCalls{
-		creates: slices.Clone(f.creates),
-		gets:    slices.Clone(f.gets),
-		lists:   slices.Clone(f.lists),
-		answers: slices.Clone(f.answers),
-		pauses:  slices.Clone(f.pauses),
-		resumes: slices.Clone(f.resumes),
-		stops:   slices.Clone(f.stops),
-		retries: slices.Clone(f.retries),
+		creates:  slices.Clone(f.creates),
+		gets:     slices.Clone(f.gets),
+		lists:    slices.Clone(f.lists),
+		answers:  slices.Clone(f.answers),
+		pauses:   slices.Clone(f.pauses),
+		resumes:  slices.Clone(f.resumes),
+		stops:    slices.Clone(f.stops),
+		retries:  slices.Clone(f.retries),
+		releases: slices.Clone(f.releases),
 	}
 }
 
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
-		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries)
+		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.releases)
 }
 
 // fullContract is an epic contract with every field set, each to a value distinct from the others.
@@ -211,7 +228,12 @@ func fullContract() *v1.EpicContract {
 				Supplied:   []string{"docs/roundtrip.md"},
 				Conclusion: "Every contract field reaches the service.",
 				Judge:      "reviewer",
+				Kind:       "test",
+				Tests:      []string{"internal/roundtrip/roundtrip_test.go"},
 			},
+			Owner:        "T1",
+			Contributors: []string{"T2"},
+			State:        "pending",
 		}},
 		Premises: []*v1.EpicPremise{{
 			Id:      "P1",
@@ -339,7 +361,7 @@ func unmarshalResult(t *testing.T, text string, msg proto.Message) {
 	}
 }
 
-func TestToolsListNamesTheEightEpicTools(t *testing.T) {
+func TestToolsListNamesTheNineEpicTools(t *testing.T) {
 	p := newPeer(t, nil, &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
@@ -358,6 +380,7 @@ func TestToolsListNamesTheEightEpicTools(t *testing.T) {
 	}
 	names := []string{
 		"epic_create", "epic_get", "epic_list", "epic_answer", "epic_pause", "epic_resume", "epic_stop", "epic_retry",
+		"epic_release",
 	}
 	for _, name := range names {
 		schema, ok := schemas[name]
@@ -617,6 +640,7 @@ func TestEpicToolsRefuseUnknownKeysBeforeAnyCall(t *testing.T) {
 		{name: "resume unknown key", tool: "epic_resume", args: `{"id":"` + testEpicID + `","bogus":1}`},
 		{name: "stop unknown key", tool: "epic_stop", args: `{"id":"` + testEpicID + `","bogus":1}`},
 		{name: "retry unknown key", tool: "epic_retry", args: `{"id":"` + testEpicID + `","bogus":1}`},
+		{name: "release unknown key", tool: "epic_release", args: `{"id":"` + testEpicID + `","bogus":1}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -655,14 +679,16 @@ func TestEpicControlSendsOneCallAndReturnsTheEpic(t *testing.T) {
 		{tool: "epic_pause", ids: func(c epicCalls) []string { return requestIDs(c.pauses) }},
 		{tool: "epic_stop", ids: func(c epicCalls) []string { return requestIDs(c.stops) }},
 		{tool: "epic_retry", ids: func(c epicCalls) []string { return requestIDs(c.retries) }},
+		{tool: "epic_release", ids: func(c epicCalls) []string { return requestIDs(c.releases) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
 			stored := storedEpicOf(fullContract())
 			fake := &fakeEpics{
-				pauseReply: &v1.PauseEpicResponse{Epic: stored},
-				stopReply:  &v1.StopEpicResponse{Epic: stored},
-				retryReply: &v1.RetryEpicResponse{Epic: stored},
+				pauseReply:   &v1.PauseEpicResponse{Epic: stored},
+				stopReply:    &v1.StopEpicResponse{Epic: stored},
+				retryReply:   &v1.RetryEpicResponse{Epic: stored},
+				releaseReply: &v1.ReleaseEpicResponse{Epic: stored},
 			}
 			p := newPeer(t, nil, fake)
 
@@ -721,6 +747,50 @@ func TestEpicRetryPassesTheNodeInOneCall(t *testing.T) {
 			if got := calls.retries[0]; got.GetId() != testEpicID || got.GetNode() != tc.node {
 				t.Fatalf("RetryEpic request = id %q node %q, want id %q node %q",
 					got.GetId(), got.GetNode(), testEpicID, tc.node)
+			}
+		})
+	}
+}
+
+// TestEpicReleasePassesTheIDAndPositionsInOneCall checks that epic_release sends one ReleaseEpic call carrying the id
+// and the undo-none positions it names, and an empty list when it names none.
+func TestEpicReleasePassesTheIDAndPositionsInOneCall(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		args     string
+		undoNone []int32
+	}{
+		{name: "named positions", args: `{"id":"` + testEpicID + `","undoNone":[2,3]}`, undoNone: []int32{2, 3}},
+		{name: "no positions", args: `{"id":"` + testEpicID + `"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stored := storedEpicOf(fullContract())
+			fake := &fakeEpics{releaseReply: &v1.ReleaseEpicResponse{Epic: stored}}
+			p := newPeer(t, nil, fake)
+
+			outcome := p.tool("epic_release", tc.args)
+
+			if outcome.isError {
+				t.Fatalf("epic_release returned an error: %s", outcome.text)
+			}
+			calls := fake.calls()
+			if n := calls.total(); n != 1 {
+				t.Fatalf("epic_release made %d service calls, want 1", n)
+			}
+			if len(calls.releases) != 1 {
+				t.Fatalf("epic_release made %d ReleaseEpic calls, want 1", len(calls.releases))
+			}
+			if got := calls.releases[0]; got.GetId() != testEpicID || !slices.Equal(got.GetUndoNone(), tc.undoNone) {
+				t.Fatalf("ReleaseEpic request = id %q undo_none %v, want id %q undo_none %v",
+					got.GetId(), got.GetUndoNone(), testEpicID, tc.undoNone)
+			}
+			var got v1.StoredEpic
+			unmarshalResult(t, outcome.text, &got)
+			if !proto.Equal(&got, stored) {
+				t.Fatalf("epic_release result = %s, want the stored epic", outcome.text)
 			}
 		})
 	}
@@ -788,6 +858,7 @@ func TestEpicControlRefusalIsAnErrorCarryingItsText(t *testing.T) {
 		{tool: "epic_resume", refusal: "epic " + testEpicID + " is not paused"},
 		{tool: "epic_stop", refusal: "epic " + testEpicID + " has no running turn"},
 		{tool: "epic_retry", refusal: "epic " + testEpicID + " is not parked"},
+		{tool: "epic_release", refusal: "epic " + testEpicID + " is not stopped"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
