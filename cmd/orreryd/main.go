@@ -524,13 +524,15 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	// A failed sessions start cancels ctx, so everything that ctx ends stops as it does on a signal.
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
+	// The watch logs the shutdown's start and writes the goroutine stacks of one that runs long, until serve returns.
+	defer watchShutdown(ctx, logger, stacksDir(getenv), shutdownStacksAfter)()
 	ln, deskLn, err := listenSockets(opts.socket)
 	if err != nil {
 		return err
 	}
 	desk := startDesk(ctx, host, deskLn, logger)
 	// The hub closes last, after the sessions and notices that post to it have stopped.
-	defer desk.Close()
+	defer shutdownPhase(logger, "desk", desk.Close)
 	// shutdownServe closes pages first, so its Watch streams end before the session socket stops.
 	pages := inapp.NewHub()
 
@@ -594,13 +596,36 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		close(tidyStart)
 		notifyReady(ctx, logger, opts)
 	}
-	serveErr := <-serveDone
-	opts.stopMetricsListener()
+	serveErr := awaitServe(ctx, logger, serveDone)
+	shutdownPhase(logger, "metrics listener", opts.stopMetricsListener)
 	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
 		serveErr = fmt.Errorf("serve: %w", serveErr)
 	}
 	return errors.Join(startErr, serveErr, sessionErr)
+}
+
+// awaitServe returns the error daemon.Serve returns on serveDone. Once ctx has ended, the wait for Serve's shutdown is
+// logged as the hook socket phase.
+func awaitServe(ctx context.Context, logger *slog.Logger, serveDone <-chan error) error {
+	select {
+	case err := <-serveDone:
+		return err
+	case <-ctx.Done():
+	}
+	var err error
+	shutdownPhase(logger, "hook socket", func() { err = <-serveDone })
+	return err
+}
+
+// stacksDir returns the flight traces directory beside the store, which a slow shutdown writes its goroutine stacks
+// to. A store path that does not resolve gives "", and the write then fails and is logged.
+func stacksDir(getenv func(string) string) string {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(storePath), flightDirName)
 }
 
 // flightNow is the time on the clock the flight recorder times phases on: opts.clock, or time.Now when it is nil.
@@ -696,12 +721,12 @@ func shutdownServe(
 	router *route.Router,
 	notices *notice.Notices,
 ) error {
-	pages.Close()
-	hub.wait()
+	shutdownPhase(logger, "pages", pages.Close)
+	shutdownPhase(logger, "pane summaries", hub.wait)
 	// Serve and the summaries have returned, so nothing defers more mirror work, and what was deferred lands before
 	// the store closes.
 	if hub.mirror != nil {
-		hub.mirror.Wait()
+		shutdownPhase(logger, "mirror", hub.mirror.Wait)
 	}
 	var sessionErr error
 	if sessions != nil {
@@ -709,9 +734,9 @@ func shutdownServe(
 	}
 	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it. The
 	// notices close before the store, so a row write the store refused gets its last try while the store is open.
-	shutdownRouter(router)
-	notices.Close(ctx)
-	closeStore(ctx, st, logger)
+	shutdownPhase(logger, "router", func() { shutdownRouter(router) })
+	shutdownPhase(logger, "notices", func() { notices.Close(ctx) })
+	shutdownPhase(logger, "store", func() { closeStore(ctx, st, logger) })
 	return sessionErr
 }
 
@@ -747,6 +772,8 @@ type sessionHost struct {
 	summariesDone chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
+	// logger logs each phase of the shutdown.
+	logger *slog.Logger
 }
 
 // stateDirOf returns the absolute directory the store file lies in, which the store path getenv resolves names. The
@@ -790,6 +817,7 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
+		logger:        logger,
 		writerDone:    make(chan struct{}),
 		idleDone:      make(chan struct{}),
 		flowDone:      make(chan struct{}),
@@ -1004,9 +1032,12 @@ func (h *sessionHost) stopBroker() {
 // connections of the Acquire calls still blocked, and an Acquire whose context ends would end its grant, so the broker
 // closes first. It returns the error the session service ended with, if any.
 func (h *sessionHost) stop() error {
-	h.stopBroker()
-	h.stopServe()
-	serveErr := <-h.serveDone
+	h.phase("broker", h.stopBroker)
+	var serveErr error
+	h.phase("session socket", func() {
+		h.stopServe()
+		serveErr = <-h.serveDone
+	})
 	h.shutdown()
 	if serveErr != nil {
 		return fmt.Errorf("session service: %w", serveErr)
@@ -1286,28 +1317,50 @@ func (h *sessionHost) startSummaries(
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
-		h.stopIdle()
-		<-h.idleDone
-		h.stopFlow()
-		<-h.flowDone
-		h.checks.Close()
-		h.evidence.Close()
+		h.phase("idle check", func() {
+			h.stopIdle()
+			<-h.idleDone
+		})
+		h.phase("flow", func() {
+			h.stopFlow()
+			<-h.flowDone
+		})
+		h.phase("node checks", h.checks.Close)
+		h.phase("evidence", h.evidence.Close)
 		if h.attentionDone != nil {
-			<-h.attentionDone
+			h.phase("attention", func() { <-h.attentionDone })
 		}
-		h.stopLimits()
-		<-h.limitsDone
-		h.stopDue()
-		<-h.dueDone
-		h.stopSummaries()
-		<-h.summariesDone
-		h.steps.Close()
-		h.manager.Close()
+		h.phase("limit notices", func() {
+			h.stopLimits()
+			<-h.limitsDone
+		})
+		h.phase("due pass", func() {
+			h.stopDue()
+			<-h.dueDone
+		})
+		h.phase("epic summaries", func() {
+			h.stopSummaries()
+			<-h.summariesDone
+		})
+		h.phase("steps", h.steps.Close)
+		h.phase("sessions", h.manager.Close)
 	}
 	if h.writer != nil {
-		h.stopWriter()
-		<-h.writerDone
+		h.phase("writer", func() {
+			h.stopWriter()
+			<-h.writerDone
+		})
 	}
+}
+
+// phase runs the shutdown phase name through shutdownPhase on the host's logger, or on a discarding one when the host
+// has none.
+func (h *sessionHost) phase(name string, phase func()) {
+	logger := h.logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	shutdownPhase(logger, name, phase)
 }
 
 // openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
