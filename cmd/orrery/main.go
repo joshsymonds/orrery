@@ -1,7 +1,8 @@
 // Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit
-// codes, and the handler of each subcommand. The handlers cover serve, desk, mcp, epic, run, gate, evidence, hold,
-// step, holder and session, and the tmux commands open, list, seen, send, debug, shell and tree, which act on the
-// tmux server the global flags name.
+// codes, and the dispatch of each subcommand. It handles serve, desk, mcp, epic, run, gate, evidence, hold, step,
+// holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
+// the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their
+// handlers in internal/cli.
 package main
 
 import (
