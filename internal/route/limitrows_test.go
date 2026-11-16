@@ -105,4 +105,38 @@ func TestLimitRowRestoredUnderLimitKey(t *testing.T) {
 		f.checkActiveTimers(t, 0)
 		checkRows(t, reopened)
 	})
+
+	t.Run(
+		"a change whose row delete runs past its bound still ends the notice and retries the delete",
+		func(t *testing.T) {
+			reopened := &flakyRows{Store: parkLimitAtDesk(t), t: t, bounds: &bounds{t: t}}
+
+			f := fakeAt(clockStart)
+			r := route.New(route.Config{
+				Host: testHost, Now: f.Now, After: f.After, Desk: f, Phone: f, Subscribed: f.Subscribed, Log: f,
+				Rebuild:    map[string]route.Rebuild{testSourceKind: rebuildAs(limitNotice())},
+				StoreAfter: reopened.bounds.after,
+			})
+			t.Cleanup(r.Close)
+			r.Attach(t.Context(), reopened)
+			r.Wait()
+
+			reopened.set(faults{block: true})
+			if got := reopened.blockedCalls(func() { r.Changed(notice.Key{Limit: testLimit}) }); len(got) != 1 {
+				t.Fatalf("writes the bound cut short at the change = %q, want the row's delete", got)
+			}
+			f.check(t, []route.Line{lineOf("", clockStart, stateWaiting, route.None, "changed")}, nil, nil)
+			// The notice's own timer, its escalation, is stopped; the one timer left is the retry of the delete.
+			if got := f.activeTimersOf(route.Escalation); got != 0 {
+				t.Errorf("active escalation timers = %d, want 0", got)
+			}
+			f.checkActiveTimers(t, 1)
+			checkRows(t, reopened, limitDeskRow())
+
+			reopened.set(faults{})
+			f.fire(t, route.RowRetry)
+			checkRows(t, reopened)
+			f.checkActiveTimers(t, 0)
+		},
+	)
 }

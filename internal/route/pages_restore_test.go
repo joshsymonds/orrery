@@ -48,6 +48,7 @@ func newPagedRestoreRouter(t *testing.T, f *fake, pages *pageSink, rebuilds map[
 		Log:        f,
 		Pages:      pages,
 		Rebuild:    rebuilds,
+		StoreAfter: storeBoundNever,
 	})
 	t.Cleanup(r.Close)
 	return r

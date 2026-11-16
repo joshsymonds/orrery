@@ -24,12 +24,17 @@ const (
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
 // new notes, the open questions, the advice followed, the tasks, the triggers and the last failure. epic is read after
 // the turn is claimed, so its Turns include turn, and triggers are the triggers turn claimed. follows are the store's
-// follow counts per label. It returns an error when a task's evidence item cannot be encoded.
+// follow counts per label. It returns an error when a gate, a Requirement's evidence item or a task's evidence item
+// cannot be encoded.
 func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
 	last, found := lastTurn(epic.Turns, turn)
-	writeSection(&out, "Contract", contractLines(epic))
+	contract, err := contractLines(epic)
+	if err != nil {
+		return "", fmt.Errorf("contract section: %w", err)
+	}
+	writeSection(&out, "Contract", contract)
 	writeSection(&out, "Decisions", decisionLines(epic, turn))
 	writeSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
 	writeSection(&out, "Open questions", questionLines(epic.Questions))
@@ -68,19 +73,36 @@ func lastTurn(turns []store.EpicTurn, turn int64) (store.EpicTurn, bool) {
 }
 
 // contractLines returns the contract in its order: each text section as `Label: text`, each list as its label and its
-// items, or as `Label: None.` when it has none.
-func contractLines(epic store.EpicRow) []string {
+// items, or as `Label: None.` when it has none. The gates follow the Requirements: the epic's gates, then the names of
+// its done gates and its review gates. It returns an error when a gate or a Requirement's evidence item cannot be
+// encoded.
+func contractLines(epic store.EpicRow) ([]string, error) {
 	lines := []string{"Title: " + epic.Title, "Approved: " + epic.Approved, "Intent: " + epic.Intent}
 	lines = append(lines, listLines("Failures", failureItems(epic.Failures))...)
 	lines = append(lines, "Care: "+epic.Care)
 	lines = append(lines, listLines("Additions", additionItems(epic.Additions))...)
-	lines = append(lines, listLines("Requirements", requirementItems(epic.Requirements))...)
+	requirements, err := requirementItems(epic.Requirements)
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, listLines("Requirements", requirements)...)
+	gates, err := gateItems(epic.Gates)
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, listLines("Gates", gates)...)
+	lines = append(lines, nameLine("Done gates", epic.DoneGates), nameLine("Review gates", epic.ReviewGates))
 	lines = append(lines, listLines("Premises", premiseItems(epic.Premises))...)
 	lines = append(lines, listLines("Exclusions", exclusionItems(epic.Exclusions))...)
 	lines = append(lines, "Approach: "+epic.Approach)
 	lines = append(lines, listLines("Alternatives", alternativeItems(epic.Alternatives))...)
 	lines = append(lines, listLines("Release steps", releaseStepItems(epic.ReleaseSteps))...)
-	return append(lines, "Release then: "+epic.ReleaseThen, "Checks: "+epic.Checks)
+	return append(lines, "Release then: "+epic.ReleaseThen, "Checks: "+epic.Checks), nil
+}
+
+// nameLine returns label with names joined by commas, or with None. when there are none.
+func nameLine(label string, names []string) string {
+	return label + ": " + nameList(names)
 }
 
 // listLines returns label alone above items, or label with None. when there are no items.
@@ -109,13 +131,58 @@ func additionItems(additions []store.EpicAddition) []string {
 	return items
 }
 
-// requirementItems returns each requirement as its id and text, then its evidence and kind.
-func requirementItems(requirements []store.EpicRequirement) []string {
-	items := make([]string, 0, 3*len(requirements))
+// requirementItems returns each requirement as its id and text, then its evidence and kind, then its evidence item as
+// compact JSON, in the form a task's evidence item takes: its kind, capture, tests, limit, artifacts, supplied,
+// conclusion and judge.
+func requirementItems(requirements []store.EpicRequirement) ([]string, error) {
+	items := make([]string, 0, 4*len(requirements))
 	for _, r := range requirements {
-		items = append(items, fmt.Sprintf("- %s: %s", r.ID, r.Text), "  evidence: "+r.Evidence, "  kind: "+r.Kind)
+		item, err := json.Marshal(r.Item)
+		if err != nil {
+			return nil, fmt.Errorf("encode evidence item of %s: %w", r.ID, err)
+		}
+		items = append(items, fmt.Sprintf("- %s: %s", r.ID, r.Text), "  evidence: "+r.Evidence, "  kind: "+r.Kind,
+			"  evidence item: "+string(item))
 	}
-	return items
+	return items, nil
+}
+
+// gateItems returns each gate as its name and what it is. A command gate is `- name: command` with its argv as a JSON
+// array, then its limit in seconds and the pools it needs as `pool x count`. An agent gate is `- name: agent` and its
+// agent, then what it must and must not find, one line each.
+func gateItems(gates []store.EpicGate) ([]string, error) {
+	items := make([]string, 0, 3*len(gates))
+	for _, gate := range gates {
+		if gate.Agent != "" {
+			items = append(items, fmt.Sprintf("- %s: agent %s", gate.Name, gate.Agent))
+			for _, must := range gate.Must {
+				items = append(items, "  must: "+must)
+			}
+			for _, mustNot := range gate.MustNot {
+				items = append(items, "  must not: "+mustNot)
+			}
+			continue
+		}
+		argv, err := json.Marshal(gate.Argv)
+		if err != nil {
+			return nil, fmt.Errorf("encode argv of gate %s: %w", gate.Name, err)
+		}
+		needs := make([]string, 0, len(gate.Needs))
+		for _, need := range gate.Needs {
+			needs = append(needs, fmt.Sprintf("%s x %d", need.Pool, need.Count))
+		}
+		items = append(items, fmt.Sprintf("- %s: command %s", gate.Name, argv), fmt.Sprintf("  limit: %ds", gate.Limit),
+			"  needs: "+nameList(needs))
+	}
+	return items, nil
+}
+
+// nameList returns names joined by commas, or None. when there are none.
+func nameList(names []string) string {
+	if len(names) == 0 {
+		return none
+	}
+	return strings.Join(names, ", ")
 }
 
 // premiseItems returns each premise as its id and text, then its if-wrong clause.

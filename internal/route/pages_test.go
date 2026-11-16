@@ -67,6 +67,7 @@ func newPagedRouter(t *testing.T, f *fake, pages *pageSink) *route.Router {
 		Subscribed: f.Subscribed,
 		Log:        f,
 		Pages:      pages,
+		StoreAfter: storeBoundNever,
 	})
 	t.Cleanup(r.Close)
 	return r
