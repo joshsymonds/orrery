@@ -36,6 +36,7 @@ const queuedText = "queued words";
 const intervalMs = 2;
 const markPanePath = "/orrery.v1.Panes/MarkSeen";
 const markSessionPath = "/orrery.v1.Control/Seen";
+const seenEpicPath = "/orrery.v1.Epics/Seen";
 const seenFailedText = "could not mark seen";
 const sendKeysPath = "/orrery.v1.Panes/SendKeys";
 const answerPath = "/orrery.v1.Control/Answer";
@@ -2934,6 +2935,147 @@ test("a record epic that goes quiet under the cursor folds into the Epics group,
     });
     assert.deepEqual(sectionTitles(container), ["Epics"], "the quiet epic stays in the Epics group");
     assert.deepEqual(moreLines(container), ["1 folded"], "the quiet epic folds into the Epics group's line");
+  });
+});
+
+test("resting on an unseen Just ended epic with presence writes Epics.Seen once, after the dwell", () => {
+  const shipped = endedEpic("shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([shipped], new Map()) }, async (container, fake) => {
+    assert.equal(cursorKey(container), epicKey(shipped), "the cursor rests on the ended epic");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(999);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 0, "not yet a second");
+    fake.seen.advance(1);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 1, "the dwell writes the ending");
+    assert.deepEqual(fake.callsTo(seenEpicPath)[0].body, { id: shipped.id });
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 1, "the ending is written once");
+  });
+});
+
+test("an unseen Just ended epic writes no Epics.Seen without presence", () => {
+  const shipped = endedEpic("shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([shipped], new Map()) }, async (_container, fake) => {
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 0, "no input has come, so the page is not present");
+    fake.seen.state.visibilityState = "hidden";
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 0, "a hidden page is not present");
+  });
+});
+
+test("resting on an ended epic that reads seen writes no Epics.Seen", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const shipped = endedEpic("shipped", endedAt + 60n);
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, shipped], new Map()) }, async (container, fake) => {
+    await act(() => {
+      endedLine(container)?.dispatchEvent(clickEvent());
+    });
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(shipped), "the cursor rests on the seen epic");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 0, "a seen epic is not written");
+  });
+});
+
+test("a landed Epics.Seen reads the epic as seen in this page, and its ending is written once", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const shipped = endedEpic("shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, shipped], new Map()) }, async (container, fake) => {
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(shipped));
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 1, "the dwell writes the ending");
+    assert.deepEqual(fake.callsTo(seenEpicPath)[0].body, { id: shipped.id });
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 1, "the ending is not written again while the cursor rests");
+    assert.deepEqual(rowKeys(container), [epicKey(busy), epicKey(shipped)], "the cursor keeps the epic in Just ended");
+
+    await press("k");
+    await settle();
+    assert.deepEqual(moreLines(container), ["1 ended earlier ›"], "the landed write folds the epic into ended earlier");
+    assert.deepEqual(rowKeys(container), [epicKey(busy)], "the seen epic leaves Just ended");
+
+    await mount(container, {
+      rows: [],
+      error: "",
+      now: endedNow,
+      clients: fake.clients,
+      seen: fake.seen,
+      epics: epicsView([busy, endedEpic("shipped")], new Map()),
+    });
+    assert.deepEqual(
+      moreLines(container),
+      ["1 ended earlier ›"],
+      "a poll that still reads the ending unseen keeps the write",
+    );
+  });
+});
+
+test("a failed Epics.Seen shows could not mark seen and leaves the epic in Just ended", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const shipped = endedEpic("shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, shipped], new Map()) }, async (container, fake) => {
+    fake.failNext.add(seenEpicPath);
+    await press("j");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 1, "the write was sent once");
+    assert.deepEqual(alertTexts(container), [seenFailedText], "the failed write shows the seen line");
+    await press("k");
+    assert.deepEqual(moreLines(container), [], "the epic is still unseen, so no ended earlier line");
+    assert.deepEqual(rowKeys(container), [epicKey(busy), epicKey(shipped)], "the epic stays in Just ended");
+  });
+});
+
+test("a later ending of a seen epic reads unseen again and is written after its own dwell", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const shipped = endedEpic("shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, shipped], new Map()) }, async (container, fake) => {
+    await press("j");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 1, "the first ending is written");
+    await press("k");
+    await settle();
+    assert.deepEqual(moreLines(container), ["1 ended earlier ›"], "the first ending reads seen");
+
+    const later = makeEpic(widgetsRepo, "shipped", {
+      source: "orreryd",
+      live: false,
+      outcome: "released",
+      phaseAt: endedAt + 100n,
+    });
+    await mount(container, {
+      rows: [],
+      error: "",
+      now: endedNow,
+      clients: fake.clients,
+      seen: fake.seen,
+      epics: epicsView([busy, later], new Map()),
+    });
+    assert.deepEqual(rowKeys(container), [epicKey(busy), epicKey(later)], "the later ending is in Just ended");
+
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(later));
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await settle();
+    assert.equal(fake.callsTo(seenEpicPath).length, 2, "the later ending is written after its own dwell");
+    assert.deepEqual(fake.callsTo(seenEpicPath)[1].body, { id: later.id });
   });
 });
 

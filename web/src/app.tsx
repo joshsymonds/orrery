@@ -199,6 +199,8 @@ export function App({
   const handler = useRef<(event: KeyboardEvent) => void>();
   // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
   const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
+  // The endings a seen write landed for, by endingKey. An ended epic reads as seen until a later ending.
+  const [seenEpics, setSeenEpics] = useState<Set<string>>(() => new Set());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
   // Whether the accepted, waiting epics are open under their line. They start closed.
@@ -232,8 +234,8 @@ export function App({
   // waits on the question it answered.
   const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
-  // The row the seen watch last rested on, which its write marks seen.
-  const restedRow = useRef<Row | null>(null);
+  // The row or unseen ended epic the seen watch last rested on, which its write marks seen.
+  const restedSeen = useRef<Row | EpicItem | null>(null);
 
   const words = filter
     .toLowerCase()
@@ -250,8 +252,9 @@ export function App({
   // The cursor's epic stays in Just ended while the cursor rests on it, even once it is seen. The cursor is held by
   // key, so its epic is the seen one the endedEarlier list holds under that key. While the ended earlier line is open
   // the seen epics are drawn in place, so none is kept and the cursor walks them in their drawn order.
-  const cursorEpicId = endedOpen ? "" : (epics.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
-  const kept = keepUnderCursor(epics, cursorEpicId);
+  const seenView = readEpicsAsSeen(epics, seenEpics);
+  const cursorEpicId = endedOpen ? "" : (seenView.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
+  const kept = keepUnderCursor(seenView, cursorEpicId);
   // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
   // the live epics. Only the attention view has the Needs you section that draws them.
   const detailEpics = [...epics.details.values()].flatMap((detail) => (detail.epic === undefined ? [] : [detail.epic]));
@@ -276,6 +279,9 @@ export function App({
   // The cursor's epic entry, which the epic page draws beside the list. A step entry is no epic entry: its reader shows
   // alone.
   const epicEntry = cursorItem?.kind === "epic" ? cursorItem : null;
+  // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
+  const restedEpic =
+    epicEntry !== null && seenView.justEnded.some((item) => item.key === epicEntry.key) ? epicEntry : null;
   const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
   const epicDetail =
     epicEntry === null ? undefined : (epics.details.get(epicEntry.id) ?? askedDetails.get(epicEntry.id));
@@ -422,18 +428,34 @@ export function App({
     restorePageScroll.current = null;
   }, [epicPage]);
 
-  // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen and
-  // shows a fixed line.
-  const writeSeen = async (row: Row) => {
+  // seenWrite runs one seen write. A failure shows the fixed line and runs no landed; a landed write clears the line
+  // and runs landed.
+  const seenWrite = async (write: () => Promise<unknown>, landed: () => void) => {
     try {
-      await actions.markSeen(clients, row);
+      await write();
     } catch {
       setSeenError(seenFailedText);
       return;
     }
     setSeenError("");
-    setSeenWritten((previous) => new Map(previous).set(row.key, row.changed));
+    landed();
   };
+
+  // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen
+  // and shows a fixed line.
+  const writeSeen = (row: Row) =>
+    seenWrite(
+      () => actions.markSeen(clients, row),
+      () => setSeenWritten((previous) => new Map(previous).set(row.key, row.changed)),
+    );
+
+  // writeEpicSeen marks an ended epic seen through Epics.Seen. A success reads its ending as seen; a failure leaves it
+  // unseen and shows the same fixed line.
+  const writeEpicSeen = (epic: EpicItem) =>
+    seenWrite(
+      () => clients.epics.seen({ id: epic.id }),
+      () => setSeenEpics((previous) => new Set(previous).add(endingKey(epic))),
+    );
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
   // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. A landed
@@ -457,14 +479,19 @@ export function App({
       });
   };
 
-  // The seen watch runs for the page's life: its write marks the row it last rested on, and unmount stops it.
+  // The seen watch runs for the page's life: its write marks the row or ended epic it last rested on. Unmount stops it.
   useEffect(() => {
     const watch = watchSeen(
       seenWindow ?? window,
       () => {
-        const row = restedRow.current;
-        if (row !== null) {
-          void writeSeen(row);
+        const target = restedSeen.current;
+        if (target === null) {
+          return;
+        }
+        if (target.kind === "epic") {
+          void writeEpicSeen(target);
+        } else {
+          void writeSeen(target);
         }
       },
       seenClock,
@@ -473,14 +500,18 @@ export function App({
     return () => watch.stop();
   }, [clients, seenClock, seenWindow]);
 
-  // Each render tells the watch the cursor's row and whether it reads as unseen. A changed row is a new key, so a
-  // change made while the cursor rests on it gets its own dwell.
+  // Each render tells the watch the cursor's row, or its unseen ended epic, and whether it reads as unseen. A changed
+  // row is a new key, so a change made while the cursor rests on it gets its own dwell; an ending is a key of its own.
   useEffect(() => {
-    restedRow.current = cursorRow;
-    seenWatch.current?.rest(
-      cursorRow === null ? "" : `${cursorRow.key}@${cursorRow.changed}`,
-      cursorRow?.unseen ?? false,
-    );
+    restedSeen.current = cursorRow ?? restedEpic;
+    if (restedEpic !== null) {
+      seenWatch.current?.rest(endingKey(restedEpic), true);
+    } else {
+      seenWatch.current?.rest(
+        cursorRow === null ? "" : `${cursorRow.key}@${cursorRow.changed}`,
+        cursorRow?.unseen ?? false,
+      );
+    }
   });
 
   // The conversation the cursor's reader holds, only when its stream belongs to the entry the cursor rests on.
@@ -1215,6 +1246,22 @@ function matchesFilter(row: Row, words: string[]): boolean {
 function readAsSeen(row: Row, written: Map<string, number>): Row {
   const writtenAt = written.get(row.key);
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
+}
+
+// endingKey names one ending of an ended epic: its line's key and the time it ended. A later ending has a new key.
+function endingKey(epic: EpicItem): string {
+  return `${epic.key}@${epic.phaseAt}`;
+}
+
+// readEpicsAsSeen moves each just-ended epic whose ending a seen write landed for into endedEarlier, newest ending
+// first, as the epics view draws an epic its poll reads as seen.
+function readEpicsAsSeen(view: EpicsView, written: Set<string>): EpicsView {
+  const isWritten = (epic: EpicItem) => written.has(endingKey(epic));
+  return {
+    ...view,
+    justEnded: view.justEnded.filter((epic) => !isWritten(epic)),
+    endedEarlier: [...view.endedEarlier, ...view.justEnded.filter(isWritten)].sort((a, b) => b.phaseAt - a.phaseAt),
+  };
 }
 
 // keepEntries adds the entry to the entries that keep a box and refreshes each kept entry from the latest list. An
