@@ -12,12 +12,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// daemonChildScript is a launch test child's script that starts a daemon, a setsid sleep with its stdio closed that it
-// leaves running, as ssh leaves a ControlPersist master, and writes the daemon's pid to daemon.pid. It then echoes one
-// line of its stdin and ends, leaving the daemon running. The subshell that starts the daemon exits at once, so the
-// daemon is no child of the child.
-const daemonChildScript = "(setsid sleep 3600 </dev/null >/dev/null 2>&1 & " +
-	"echo $! > daemon.pid.tmp && mv daemon.pid.tmp daemon.pid); IFS= read -r line; printf '%s\\n' \"$line\""
+// daemonChildScript is a launch test child's script that starts a daemon with its stdio closed that it leaves running,
+// as ssh leaves a ControlPersist master. The daemon, in a session of its own, writes its own pid to daemon.pid and then
+// becomes a sleep. The child then echoes one line of its stdin and ends, leaving the daemon running. The subshell that
+// starts the daemon exits at once, so the daemon is no child of the child.
+const daemonChildScript = "(setsid sh -c 'echo $$ > daemon.pid.tmp && mv daemon.pid.tmp daemon.pid; exec sleep 3600' " +
+	"</dev/null >/dev/null 2>&1 &); IFS= read -r line; printf '%s\\n' \"$line\""
 
 // scopeStopLine is the line the fake systemctl records for a stop of testSession's scope.
 const scopeStopLine = "--user stop orrery-hold-" + testSession + ".scope"
@@ -43,9 +43,9 @@ func systemctlCalls(t *testing.T, record string) []string {
 	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
 
-// awaitDaemon waits until the child of p, whose working directory is dir, has written its daemon's pid, and returns the
-// pid once the daemon is checked to be a running sleep. It fails at once when p has ended first. The daemon is killed
-// at cleanup, should a failed test leave it running.
+// awaitDaemon waits until the daemon of p's child, whose working directory is dir, has written its pid, and returns the
+// pid once the daemon is checked to be running. It fails at once when p has ended first. The daemon is killed at
+// cleanup, should a failed test leave it running.
 func awaitDaemon(t *testing.T, p *Process, dir string) int {
 	t.Helper()
 	path := filepath.Join(dir, "daemon.pid")
@@ -55,8 +55,8 @@ func awaitDaemon(t *testing.T, p *Process, dir string) int {
 	})
 	pid := readPid(t, path)
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-	if !processLive(t, pid) || filepath.Base(cmdlineOf(t, pid)[0]) != "sleep" {
-		t.Fatalf("daemon %d is not a running sleep", pid)
+	if !processLive(t, pid) {
+		t.Fatalf("daemon %d is not running", pid)
 	}
 	return pid
 }

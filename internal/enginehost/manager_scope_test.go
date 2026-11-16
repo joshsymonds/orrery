@@ -12,7 +12,7 @@ import (
 )
 
 // scopeDaemon returns the pid of the daemon the fake claude in dir started for a DAEMON prompt, once it is checked to be
-// a running sleep. The daemon is killed at cleanup, should a failed test leave it running.
+// running. The daemon is killed at cleanup, should a failed test leave it running.
 func scopeDaemon(t *testing.T, dir string) int {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(dir, "fakeclaude.daemon"))
@@ -24,9 +24,8 @@ func scopeDaemon(t *testing.T, dir string) int {
 		t.Fatalf("daemon pid %q: %v", data, err)
 	}
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
-	if err != nil || gateProcessGone(pid) || !strings.HasPrefix(string(cmdline), "sleep\x00") {
-		t.Fatalf("daemon %d is not a running sleep: cmdline %q, err %v", pid, cmdline, err)
+	if gateProcessGone(pid) {
+		t.Fatalf("daemon %d is not running", pid)
 	}
 	return pid
 }
