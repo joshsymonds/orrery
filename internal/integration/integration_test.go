@@ -307,16 +307,30 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 		}
 		close(p.done)
 	}()
-	t.Cleanup(func() {
-		p.asked.Store(true)
-		select {
-		case <-p.done:
-		default:
-			_ = p.cmd.Process.Kill()
-			<-p.done
-		}
-	})
+	t.Cleanup(func() { terminate(p) })
 	return p
+}
+
+// terminate stops p when it is still running at its test's cleanup, as the test would have: SIGTERM, then the wait for
+// its exit. On SIGTERM an orreryd stops its sessions and ends its summary, judge and grant runs before it exits, so
+// none of them writes into the test's directories once terminate returns. SIGKILL would skip that, and a run still
+// writing then races the removal of the test's temporary directory. When p has not exited cleanupGrace after SIGTERM,
+// it gets SIGKILL.
+func terminate(p *orreryProcess) {
+	p.asked.Store(true)
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-p.done:
+		return
+	case <-time.After(cleanupGrace):
+	}
+	_ = p.cmd.Process.Kill()
+	<-p.done
 }
 
 // waitForListener polls address on network until a client connects, failing the test if the process exits first. It
