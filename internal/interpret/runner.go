@@ -52,6 +52,10 @@ type Store interface {
 	FreeReleaseSlot(ctx context.Context, epic string) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
 	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
+	RecordCandidate(ctx context.Context, epic string, run store.ReleaseRun) error
+	MarkCandidateStale(
+		ctx context.Context, epic, path string, attempt int64, head, reason string, at time.Time,
+	) error
 	FreezeReview(ctx context.Context, epic, path string, attempt int64, revision string, at time.Time) error
 	EndReview(
 		ctx context.Context, epic, path string, attempt int64, output string, verdicts []store.ReviewVerdict,

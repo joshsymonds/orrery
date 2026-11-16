@@ -89,24 +89,41 @@ func holdsSlot(rows Rows) bool {
 
 // releaseRun decides a releasing epic's run. Its candidate comes first, then its release steps in order, then its judge.
 func releaseRun(run store.NodeRun, rows Rows) Action {
-	candidate, ok := passedCandidate(rows.Releases)
+	candidate, ok := currentCandidate(run, rows)
 	if !ok {
 		return candidateAction(run, rows)
 	}
 	return walkSteps(run, rows, candidate)
 }
 
-// passedCandidate returns the head of the candidate that passed at any attempt, and whether one did.
-func passedCandidate(runs []store.ReleaseRun) (string, bool) {
-	candidate, ok := firstMatch(runs, func(r store.ReleaseRun) bool {
-		return r.Part == store.ReleasePartCandidate && r.Passed
+// currentCandidate returns the head of the candidate the run reuses, and whether it reuses one. That is the latest
+// candidate that passed, at any attempt, unless a verify run of this attempt found origin's main not in it. Before the
+// release's first step starts from a candidate passed at an earlier attempt, the interpreter checks that origin's main is
+// in it, and a candidate that is not is not reused: it is prepared again at this attempt.
+func currentCandidate(run store.NodeRun, rows Rows) (string, bool) {
+	for _, candidate := range slices.Backward(rows.Releases) {
+		if candidate.Part != store.ReleasePartCandidate || !candidate.Passed {
+			continue
+		}
+		if staleAt(run.Attempt, candidate.Head, rows.Releases) {
+			return "", false
+		}
+		return candidate.Head, true
+	}
+	return "", false
+}
+
+// staleAt reports whether a verify run of attempt found origin's main not in the candidate head.
+func staleAt(attempt int64, head string, runs []store.ReleaseRun) bool {
+	_, stale := firstMatch(runs, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartVerify && !r.Passed && r.Attempt == attempt && r.Head == head
 	})
-	return candidate.Head, ok
+	return stale
 }
 
 // candidateAction decides a releasing epic whose candidate has not passed. It stops on a candidate that failed at this
-// attempt. Otherwise it prepares the candidate, stops on the error the prepare recorded, records the candidate when its
-// revision is not behind the target, and holds it at its done gates when it is.
+// attempt. Otherwise it prepares the candidate, stops on the error the prepare recorded, and holds the candidate at its
+// done gates when it is behind the target or prepared again at this attempt. Any other candidate is recorded.
 func candidateAction(run store.NodeRun, rows Rows) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartCandidate && !r.Passed && r.Attempt == run.Attempt
@@ -121,10 +138,34 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 	if run.Revision == "" {
 		return prepareRelease(result, rows)
 	}
-	if result.Behind {
-		return behindAction(run, rows)
+	generation := replacedCount(run.Attempt, rows.Releases)
+	if result.Behind || generation > 0 {
+		return gatesAction(run, rows, generation)
 	}
 	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
+}
+
+// replacedCount returns how many candidates of attempt origin's main was found not in, each a verify run of the attempt
+// that did not pass. Each one is a candidate the attempt has prepared again, so it is the generation of the candidate
+// the run has now.
+func replacedCount(attempt int64, runs []store.ReleaseRun) int64 {
+	var count int64
+	for _, run := range runs {
+		if run.Part == store.ReleasePartVerify && !run.Passed && run.Attempt == attempt {
+			count++
+		}
+	}
+	return count
+}
+
+// gatedRun returns run as the Done gates of its candidate are walked under, at generation. The first candidate of an
+// attempt is walked under the run's own id. A candidate prepared again is walked under an id that carries its generation,
+// so the checks the attempt ran for the candidate it replaces cannot decide its gates.
+func gatedRun(run store.NodeRun, generation int64) store.NodeRun {
+	if generation > 0 {
+		run.ID = fmt.Sprintf("%s-generation-%d", run.ID, generation)
+	}
+	return run
 }
 
 // ParseReleaseResult decodes the result of a release run, which is empty until its prepare writes one. A result that is
@@ -150,12 +191,12 @@ func prepareRelease(result ReleaseResult, rows Rows) Action {
 	return Action{Kind: ActStop, Output: result.Error}
 }
 
-// behindAction decides a candidate whose revision is behind the target by the epic's Done gates, walked as an integrate
-// run walks them (doneGates). It returns the action a gate that is not decided asks for, a gate lost at a restart twice
-// stops the release with the park's reason, a gate that did not pass stops it, and the candidate is recorded once every
-// gate has passed.
-func behindAction(run store.NodeRun, rows Rows) Action {
-	gate, act, settled := doneGates(run, rows)
+// gatesAction decides a candidate held at the epic's Done gates, walked as an integrate run walks them (doneGates), under
+// the generation of the candidate. It returns the action a gate that is not decided asks for, a gate lost at a restart
+// twice stops the release with the park's reason, a gate that did not pass stops it, and the candidate is recorded once
+// every gate has passed.
+func gatesAction(run store.NodeRun, rows Rows, generation int64) Action {
+	gate, act, settled := doneGates(gatedRun(run, generation), rows)
 	switch {
 	case !settled && act.Kind == ActPark:
 		return Action{Kind: ActStop, Output: act.Output}

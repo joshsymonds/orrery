@@ -511,6 +511,10 @@ UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ? WH
 UPDATE epic_node_runs SET revision = ?, refs = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
 
+-- name: ClearEpicNodeRevision :execrows
+UPDATE epic_node_runs SET revision = '', result = ''
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
+
 -- name: RecordEpicNodeResult :exec
 UPDATE epic_node_runs SET result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';

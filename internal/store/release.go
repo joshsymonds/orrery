@@ -10,13 +10,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, and a
-// named position the owner set.
+// The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
+// position the owner set, and a verify run, which records that origin's main was not in a candidate and so the candidate
+// was prepared again.
 const (
 	ReleasePartCandidate = "candidate"
 	ReleasePartStep      = "release"
 	ReleasePartJudge     = "judge"
 	ReleasePartNamed     = "named"
+	ReleasePartVerify    = "verify"
 )
 
 // The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the
@@ -72,6 +74,56 @@ func recordRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, r
 		return fmt.Errorf("insert release run %s of epic %s: %w", run.Part, epic, err)
 	}
 	return nil
+}
+
+// RecordCandidate stores run as a candidate run of epic, in one write, at the next position among the candidate runs epic
+// holds at run's attempt. A candidate prepared again at the attempt of the one it replaces is numbered after it, and is
+// not dropped as a repeat of its key, as RecordRelease would drop it.
+func (s *Store) RecordCandidate(ctx context.Context, epic string, run ReleaseRun) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		run.Part = ReleasePartCandidate
+		return appendRelease(ctx, queries, epic, run)
+	})
+}
+
+// MarkCandidateStale records, in one write, that origin's main is not in the candidate head of the running release run
+// at path and attempt of epic. It stores a verify run of that attempt that did not pass, with reason, and clears the
+// run's revision and result, so the run prepares its candidate again at this attempt. A run that is not running changes
+// nothing, and so records nothing.
+func (s *Store) MarkCandidateStale(
+	ctx context.Context, epic, path string, attempt int64, head, reason string, at time.Time,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		cleared, err := queries.ClearEpicNodeRevision(ctx, sqlcgen.ClearEpicNodeRevisionParams{
+			Epic: epic, Path: path, Attempt: attempt,
+		})
+		if err != nil {
+			return fmt.Errorf("clear revision of node run %s of epic %s: %w", path, epic, err)
+		}
+		if cleared == 0 {
+			return nil
+		}
+		return appendRelease(ctx, queries, epic, ReleaseRun{
+			Part: ReleasePartVerify, Attempt: attempt, Head: head, Reason: reason, At: at,
+		})
+	})
+}
+
+// appendRelease stores run as a release run of epic in the caller's write, at the next position of its part among the
+// release runs epic holds at run's attempt. A candidate and a mark of an attempt are stored this way, so a second one of
+// the attempt is numbered after the first and is not dropped as a repeat of its key.
+func appendRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, run ReleaseRun) error {
+	stored, err := readReleaseRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	run.Position = 0
+	for _, prior := range stored {
+		if prior.Part == run.Part && prior.Attempt == run.Attempt {
+			run.Position++
+		}
+	}
+	return recordRelease(ctx, queries, epic, run)
 }
 
 // TakeReleaseSlot takes the release slot of epic's repository for epic, in one write, and returns the slot's holder

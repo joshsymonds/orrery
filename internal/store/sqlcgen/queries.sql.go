@@ -97,6 +97,25 @@ func (q *Queries) ClearEngineText(ctx context.Context, sessionID string) error {
 	return err
 }
 
+const clearEpicNodeRevision = `-- name: ClearEpicNodeRevision :execrows
+UPDATE epic_node_runs SET revision = '', result = ''
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running'
+`
+
+type ClearEpicNodeRevisionParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) ClearEpicNodeRevision(ctx context.Context, arg ClearEpicNodeRevisionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearEpicNodeRevision, arg.Epic, arg.Path, arg.Attempt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const closeDueResume = `-- name: CloseDueResume :exec
 UPDATE due_resumes SET state = 'done' WHERE id = ?
 `

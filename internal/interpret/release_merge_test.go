@@ -206,8 +206,13 @@ func TestReleasePrepareRepeatChangesNothing(t *testing.T) {
 
 // TestReleasePrepareResultSetPreparesRecordedCandidate: a run whose Result is recorded and whose revision is not, as a
 // crash between the two writes leaves it, is prepared at the candidate its Result names. Origin has moved past the tip
-// since the Result was recorded, so a prepare that read git again would pin a merge. The Result stays as it was, and no
-// ref moves. The epic is paused for the first pass, so the run starts and takes the slot but does not prepare.
+// since the Result was recorded, so a prepare that read git again would pin a merge that contains origin's main. The
+// epic is paused for the first pass, so the run starts and takes the slot but does not prepare.
+//
+// This test used to assert that the recorded candidate stayed and that no ref moved. Its assertions changed because
+// the candidate is now checked before the first step starts, whether an attempt recorded it or an earlier one did: the
+// tip is recorded, origin's main is found not in it, and the attempt prepares again. The verify run that marks the tip
+// stale is the proof that the prepare took the recorded Result rather than reading git again.
 func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
@@ -229,25 +234,20 @@ func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 	if err = w.s.RecordNodeResult(w.t.Context(), runEpic, releaseNodePath, run.Attempt, string(encoded)); err != nil {
 		t.Fatalf("RecordNodeResult: %v", err)
 	}
-	mergeOriginCommit(t, origin, "origin.txt")
-	refs := nodeGit(t, w.repo, "for-each-ref")
+	moved := mergeOriginCommit(t, origin, "origin.txt")
 	if err = w.s.ResumeEpic(w.t.Context(), runEpic); err != nil {
 		t.Fatalf("ResumeEpic: %v", err)
 	}
 	w.pass()
 
+	verify := w.releaseVerifyRuns()
+	if len(verify) != 1 || verify[0].Head != tip || verify[0].Attempt != run.Attempt || verify[0].Passed {
+		t.Errorf("verify runs = %+v, want the one mark of the recorded candidate %s at attempt %d",
+			verify, tip, run.Attempt)
+	}
 	got := runAt(t, w.s, releaseNodePath)
-	if got.Result != string(encoded) {
-		t.Errorf("Result = %q, want the recorded %q", got.Result, encoded)
-	}
-	if got.Revision != tip {
-		t.Errorf("revision = %q, want the recorded candidate %q", got.Revision, tip)
-	}
-	if pins := nodeGit(t, w.repo, "for-each-ref", "refs/orrery"); pins != "" {
-		t.Errorf("release refs = %q, want none: the prepare reads nothing from git again", pins)
-	}
-	if after := nodeGit(t, w.repo, "for-each-ref"); after != refs {
-		t.Errorf("refs after the prepare = %q, want %q", after, refs)
+	if got.Revision == tip || !containsCommit(t, w.repo, moved, got.Revision) {
+		t.Errorf("revision = %q, want a new candidate that contains origin's main %s", got.Revision, moved)
 	}
 }
 
