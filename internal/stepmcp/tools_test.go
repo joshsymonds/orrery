@@ -137,8 +137,11 @@ func fullRow() store.StepRow {
 		ReadOnly:  true,
 		Started:   time.Unix(1700000000, 0),
 		Checks: []store.StepCheck{
-			{Round: 1, Name: "gate", OK: false, Detail: "exit 1"},
-			{Round: 2, Name: "gate", OK: true, Detail: ""},
+			{
+				Round: 1, Name: "gate", OK: false, Detail: "exit 1", Stdout: "red\n", Stderr: "err-tail\n",
+				Log: "/state/gates/logs/s1/round-1.log",
+			},
+			{Round: 2, Name: "gate", OK: true, Detail: "", Stdout: "green\n"},
 		},
 		Result: "all good",
 		Status: "pass",
@@ -590,8 +593,11 @@ func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 		"status":    "pass",
 		"result":    "all good",
 		"checks": []any{
-			map[string]any{"round": float64(1), "name": "gate", "ok": false, "detail": "exit 1"},
-			map[string]any{"round": float64(2), "name": "gate", "ok": true, "detail": ""},
+			map[string]any{
+				"round": float64(1), "name": "gate", "ok": false, "detail": "exit 1", "stdout": "red\n",
+				"stderr": "err-tail\n", "log": "/state/gates/logs/s1/round-1.log",
+			},
+			map[string]any{"round": float64(2), "name": "gate", "ok": true, "detail": "", "stdout": "green\n"},
 		},
 		"reason":      "returned",
 		"started":     float64(1700000000),

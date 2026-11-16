@@ -21,49 +21,21 @@ const (
 	restartTextEvery = 33
 )
 
-// restartRow is one seeded engine row: its id, state, question and reason, and whether it holds one unfinished text block.
-type restartRow struct {
-	id, state, question, reason string
-	text                        bool
-}
+// restartIDFormat is the printf format of the i-th seeded row's id, in Go and in SQLite alike.
+const restartIDFormat = "restart-%05d"
 
-// restartRows returns the n rows the restart test seeds. Every restartTurnEvery-th row is a turn that was running:
-// working every restartWorkingEvery-th row, waiting the rest. Every restartTextEvery-th row holds unfinished text. The
-// other rows cycle through done, stopped, failed and interrupted, with no text.
-func restartRows(n int) []restartRow {
-	settled := []restartRow{
-		{state: "done"},
-		{state: "stopped"},
-		{state: "failed", reason: "spawn failed"},
-		{state: "interrupted", reason: "orreryd stopped during the turn"},
-	}
-	rows := make([]restartRow, n)
-	for i := range rows {
-		var row restartRow
-		switch {
-		case i%restartWorkingEvery == 0:
-			row = restartRow{state: "working"}
-		case i%restartTurnEvery == 0:
-			row = restartRow{state: "waiting", question: "Which color?"}
-		default:
-			row = settled[i%len(settled)]
-		}
-		row.id = restartRowID(i)
-		row.text = i%restartTextEvery == 1
-		rows[i] = row
-	}
-	return rows
-}
-
-// restartRowID is the id of the i-th row restartRows returns.
+// restartRowID is the id of the i-th row seedRestartRows adds.
 func restartRowID(i int) string {
-	return fmt.Sprintf("restart-%05d", i)
+	return fmt.Sprintf(restartIDFormat, i)
 }
 
-// seedRestartRows adds rows to the store at path, each with the state, question and reason it names and its unfinished
-// text block when it has one. The rows go in through one transaction of prepared statements: ApplyEngine prepares every
-// statement it runs, and seeding this many rows through it costs more than the restart under test.
-func seedRestartRows(t *testing.T, path string, rows []restartRow) {
+// seedRestartRows adds count engine rows to the store at path, the i-th with id restartRowID(i). Every
+// restartTurnEvery-th row is a turn that was running: working every restartWorkingEvery-th row, waiting with a question
+// the rest. The other rows cycle through done, stopped, failed and interrupted by i modulo 4, the failed and
+// interrupted ones with their reason. Every restartTextEvery-th row, from row 1, holds one unfinished text block.
+// SQLite makes the rows itself, in two statements of one transaction: a statement per row, as ApplyEngine runs, costs
+// seconds for this many rows, more than the restart under test.
+func seedRestartRows(t *testing.T, path string, count int) {
 	t.Helper()
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -78,38 +50,32 @@ func seedRestartRows(t *testing.T, path string, rows []restartRow) {
 	if err != nil {
 		t.Fatalf("begin seed: %v", err)
 	}
-	insertSession, err := tx.Prepare(`
+	if _, err = tx.Exec(`
+		WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i + 1 < ?1)
 		INSERT INTO sessions (id, server, pane, kind, dir, state, changed, question, reason)
-		VALUES (?, '', '', ?, '/example/project', ?, '1', ?, ?)`)
-	if err != nil {
-		t.Fatalf("prepare session insert: %v", err)
+		SELECT printf(?2, i), '', '', ?3, '/example/project',
+			CASE
+				WHEN i % ?4 = 0 THEN 'working'
+				WHEN i % ?5 = 0 THEN 'waiting'
+				ELSE CASE i % 4 WHEN 0 THEN 'done' WHEN 1 THEN 'stopped' WHEN 2 THEN 'failed' ELSE 'interrupted' END
+			END,
+			'1',
+			CASE WHEN i % ?5 = 0 AND i % ?4 != 0 THEN 'Which color?' ELSE '' END,
+			CASE
+				WHEN i % ?5 = 0 THEN ''
+				WHEN i % 4 = 2 THEN 'spawn failed'
+				WHEN i % 4 = 3 THEN 'orreryd stopped during the turn'
+				ELSE ''
+			END
+		FROM n`, count, restartIDFormat, store.KindEngine, restartWorkingEvery, restartTurnEvery); err != nil {
+		t.Fatalf("seed sessions: %v", err)
 	}
-	defer func() {
-		if closeErr := insertSession.Close(); closeErr != nil {
-			t.Errorf("close session insert: %v", closeErr)
-		}
-	}()
-	insertText, err := tx.Prepare(`
+	if _, err = tx.Exec(`
+		WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i + 1 < ?1)
 		INSERT INTO engine_text (session_id, message_id, block_index, parent_tool_use_id, kind, text)
-		VALUES (?, 'm1', 0, '', 'text', 'partial')`)
-	if err != nil {
-		t.Fatalf("prepare text insert: %v", err)
-	}
-	defer func() {
-		if closeErr := insertText.Close(); closeErr != nil {
-			t.Errorf("close text insert: %v", closeErr)
-		}
-	}()
-	for _, row := range rows {
-		if _, err = insertSession.Exec(row.id, store.KindEngine, row.state, row.question, row.reason); err != nil {
-			t.Fatalf("seed session %s: %v", row.id, err)
-		}
-		if !row.text {
-			continue
-		}
-		if _, err = insertText.Exec(row.id); err != nil {
-			t.Fatalf("seed text of session %s: %v", row.id, err)
-		}
+		SELECT printf(?2, i), 'm1', 0, '', 'text', 'partial' FROM n WHERE i % ?3 = 1`,
+		count, restartIDFormat, restartTextEvery); err != nil {
+		t.Fatalf("seed unfinished text: %v", err)
 	}
 	if err = tx.Commit(); err != nil {
 		t.Fatalf("commit seed: %v", err)
@@ -144,7 +110,7 @@ func waitForAccept(t *testing.T, daemon *orreryProcess, path string) {
 // it, returning once the daemon has logged its store-open line.
 func startRestartDaemon(t *testing.T, f *engineFixture) *orreryProcess {
 	t.Helper()
-	seedRestartRows(t, f.dbPath, restartRows(restartRowCount))
+	seedRestartRows(t, f.dbPath, restartRowCount)
 	daemon := startBinary(t, "orreryd", f.env,
 		"-L", f.server, "--socket", f.socket, "--claude", f.fakeClaude,
 		"--sessions", "--session-shell", f.shell)

@@ -349,10 +349,30 @@ func awaitStatus(t *testing.T, status <-chan int) int {
 	return got
 }
 
-// waitClosed waits until ch closes; its last argument names what it waits for. It has no deadline of its own.
+// waitClosed waits until ch closes; its last argument names what it waits for. It has no deadline of its own. It is for
+// the waits after the run has returned, on a fake's handler that ends once it sees the run's stream close.
 func waitClosed(t *testing.T, ch <-chan struct{}, _ string) {
 	t.Helper()
 	<-ch
+}
+
+// awaitClosed waits until ch closes while the run whose result arrives on status runs; what names what it waits for.
+// It has no deadline of its own, and fails at once when the run returns first (see receiveDuringRun).
+func awaitClosed(t *testing.T, ch <-chan struct{}, status <-chan int, what string) {
+	t.Helper()
+	receiveDuringRun(t, ch, status, what)
+}
+
+// receiveDuringRun receives from ch, which the run whose result arrives on status feeds, and reports whether ch was
+// open. It has no deadline of its own, and fails the test with the run's status once the run has returned and ch
+// still has nothing (see receiveUntil): what names what the test waited for.
+func receiveDuringRun[T any](t *testing.T, ch <-chan T, status <-chan int, what string) (T, bool) {
+	t.Helper()
+	v, open, received := receiveUntil(ch, resultQueued(status))
+	if !received {
+		t.Fatalf("the run returned %d while the test waited for %s", <-status, what)
+	}
+	return v, open
 }
 
 // stdoutPipe returns a pipe for a command's stdout: the command writes to w and the test reads r.
@@ -369,15 +389,17 @@ func stdoutPipe(t *testing.T) (r, w *os.File) {
 	return r, w
 }
 
-// awaitReady returns the first line r reads, which a helper prints once it is running. It has no deadline of its own.
-func awaitReady(t *testing.T, r io.Reader) string {
+// awaitReady returns the first line r reads, which a helper prints once it is running under the run whose result
+// arrives on status. It has no deadline of its own, and fails at once when the run returns first (see
+// receiveDuringRun).
+func awaitReady(t *testing.T, r io.Reader, status <-chan int) string {
 	t.Helper()
 	line := make(chan string, 1)
 	go func() {
 		text, _ := bufio.NewReader(r).ReadString('\n')
 		line <- text
 	}()
-	text := <-line
+	text, _ := receiveDuringRun(t, line, status, "the command's ready line")
 	return text
 }
 
@@ -640,7 +662,7 @@ func TestRunWithGrantStopsCommandWhenContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	status := runAsync(ctx, runConfig(t, socket, "sleep", w, io.Discard))
-	awaitReady(t, ready)
+	awaitReady(t, ready, status)
 	cancel()
 	if got := awaitStatus(t, status); got != stoppedStatus {
 		t.Errorf("RunWithGrant = %d, want the command's SIGTERM status %d", got, stoppedStatus)
@@ -660,7 +682,7 @@ func TestRunWithGrantStopsCommandWhenGrantEnds(t *testing.T) {
 	ready, w := stdoutPipe(t)
 	var stderr bytes.Buffer
 	status := runAsync(context.Background(), runConfig(t, socket, "sleep", w, &stderr))
-	pid := readyPID(t, awaitReady(t, ready))
+	pid := readyPID(t, awaitReady(t, ready, status))
 	close(gate)
 	if got := awaitStatus(t, status); got != cli.ExitNoGrant {
 		t.Errorf("RunWithGrant = %d, want ExitNoGrant %d", got, cli.ExitNoGrant)
@@ -695,12 +717,18 @@ func TestRunWithGrantDiesWithItsClient(t *testing.T) {
 		t.Fatalf("start client: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Process.Kill() })
+	// The client's run returns as the client exits, so the client's exit status is the run's.
+	status := make(chan int, 1)
+	go func() {
+		_ = client.Wait()
+		status <- client.ProcessState.ExitCode()
+	}()
 
-	pid := readyPID(t, awaitReady(t, ready))
+	pid := readyPID(t, awaitReady(t, ready, status))
 	if err := client.Process.Kill(); err != nil {
 		t.Fatalf("kill client: %v", err)
 	}
-	_ = client.Wait()
+	<-status
 
 	waitClosed(t, fake.ended, "the server saw no end of the stream after its client was killed")
 	waitGone(t, pid)

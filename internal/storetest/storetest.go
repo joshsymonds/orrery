@@ -16,10 +16,20 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// image is the bytes of a store file that store.Open created and fully migrated, made once per test binary.
+// images are the store images a test binary starts its stores from, each made once on first use. migrated is the
+// bytes of a store file that store.Open created and fully migrated. filled holds, by key, the migrated store after a
+// caller's fill has written to it (see SeedFilled).
 //
-//nolint:gochecknoglobals // one image per test binary, made on first use and read by every test
-var image = sync.OnceValues(func() ([]byte, error) {
+//nolint:gochecknoglobals // one set of images per test binary, made on first use and read by every test
+var images = struct {
+	migrated func() ([]byte, error)
+	mu       sync.Mutex
+	filled   map[string]func() ([]byte, error)
+}{migrated: sync.OnceValues(makeMigrated), filled: map[string]func() ([]byte, error){}}
+
+// makeMigrated returns the bytes of a store file that store.Open created and fully migrated, made in a directory of
+// its own that it removes.
+func makeMigrated() ([]byte, error) {
 	dir, err := os.MkdirTemp("", "orrery-store-image-")
 	if err != nil {
 		return nil, fmt.Errorf("make image directory: %w", err)
@@ -29,7 +39,51 @@ var image = sync.OnceValues(func() ([]byte, error) {
 		err = errors.Join(err, fmt.Errorf("remove image directory: %w", rmErr))
 	}
 	return raw, err
-})
+}
+
+// makeFilled returns the bytes of the migrated store after fill has written to it, made in a directory of its own
+// that it removes.
+func makeFilled(fill func(context.Context, *store.Store) error) ([]byte, error) {
+	raw, err := images.migrated()
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp("", "orrery-store-filled-")
+	if err != nil {
+		return nil, fmt.Errorf("make image directory: %w", err)
+	}
+	path := filepath.Join(dir, "orrery.db")
+	if err = os.WriteFile(path, raw, 0o600); err != nil {
+		err = fmt.Errorf("write migrated store: %w", err)
+	} else {
+		raw, err = filled(path, fill)
+	}
+	if rmErr := os.RemoveAll(dir); rmErr != nil {
+		err = errors.Join(err, fmt.Errorf("remove image directory: %w", rmErr))
+	}
+	return raw, err
+}
+
+// filled opens the migrated store at path, runs fill on it, closes it and returns the file's bytes.
+func filled(path string, fill func(context.Context, *store.Store) error) ([]byte, error) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, path, NoSync())
+	if err != nil {
+		return nil, fmt.Errorf("open image store: %w", err)
+	}
+	if err = fill(ctx, st); err != nil {
+		return nil, errors.Join(fmt.Errorf("fill image store: %w", err), st.Close())
+	}
+	return closedImage(st, path)
+}
+
+// Prepare makes the migrated store image now, so the first Seed copies it in place of making it. A TestMain calls it
+// beside its other setup, so the tests that start at once do not all wait for the image's migrations. It returns the
+// error of making the image, which Seed would otherwise report.
+func Prepare() error {
+	_, err := images.migrated()
+	return err
+}
 
 // migrated opens a new store at path, which store.Open migrates, closes it and returns the file's bytes.
 func migrated(path string) ([]byte, error) {
@@ -37,11 +91,16 @@ func migrated(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open image store: %w", err)
 	}
-	if err = s.Close(); err != nil {
+	return closedImage(s, path)
+}
+
+// closedImage closes s, the store at path, and returns the file's bytes.
+func closedImage(s *store.Store, path string) ([]byte, error) {
+	if err := s.Close(); err != nil {
 		return nil, fmt.Errorf("close image store: %w", err)
 	}
 	// Closing the last connection checkpoints the WAL into the file and removes it, so the file alone is the store.
-	if _, err = os.Stat(path + "-wal"); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(path + "-wal"); !errors.Is(err, fs.ErrNotExist) {
 		return nil, errors.New("the image store's WAL outlived Close")
 	}
 	raw, err := os.ReadFile(filepath.Clean(path))
@@ -66,14 +125,45 @@ func Seed(t *testing.T, path string) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	raw, err := image()
+	raw, err := images.migrated()
 	if err != nil {
 		t.Fatalf("make migrated store image: %v", err)
 	}
-	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	writeImage(t, path, raw)
+}
+
+// SeedFilled writes at path, as Seed does, a copy of the migrated store after fill has written to it, unless a file is
+// already there. The filled store is made once per test binary for each key, the first time a test names the key, so
+// fill must write the same rows whenever it is called with that key: only the first call's are kept. A test whose
+// setup writes many rows before its subject seeds them this way, and pays for the writes once.
+func SeedFilled(t *testing.T, path, key string, fill func(context.Context, *store.Store) error) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		return
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	images.mu.Lock()
+	build, ok := images.filled[key]
+	if !ok {
+		build = sync.OnceValues(func() ([]byte, error) { return makeFilled(fill) })
+		images.filled[key] = build
+	}
+	images.mu.Unlock()
+	raw, err := build()
+	if err != nil {
+		t.Fatalf("make filled store image %q: %v", key, err)
+	}
+	writeImage(t, path, raw)
+}
+
+// writeImage writes raw, a store image, at path, mode 0600, in a directory it creates 0700.
+func writeImage(t *testing.T, path string, raw []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("make store directory: %v", err)
 	}
-	if err = os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatalf("write migrated store: %v", err)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write store image: %v", err)
 	}
 }

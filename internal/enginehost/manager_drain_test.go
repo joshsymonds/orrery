@@ -112,13 +112,14 @@ func stalledSession(t *testing.T, rig crashRig, dir string) (string, int, holder
 }
 
 // TestReconcileDrainsOneVersionOlderHolderAfterItsTurn crashes orreryd partway through a trickling turn, so the turn's
-// later blocks and its end are only in the holder's spool. The restart re-adopts the holder of one version older, records
-// the rest of the turn on it, and stops the holder once the turn has ended.
+// later blocks are only in the holder's spool. The fake holds the turn's last block until the restart has re-adopted
+// the holder of one version older, so the turn is still running then. The restart records the rest of the turn on it,
+// and stops the holder once the turn has ended.
 func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, blockTrigger("fake trickle 1.5"), false)
 	dir := t.TempDir()
-	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "TRICKLE"})
+	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "TRICKLEHELD"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -129,6 +130,12 @@ func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	restarted, sink := restartDrain(t, rig, rig.store, holder.WireVersion+1)
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
+	}
+	if !slices.Contains(restarted.Live(), id) {
+		t.Fatalf("session %s is not live after the restart, want its held turn re-adopted", id)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.release"), nil, 0o600); err != nil {
+		t.Fatalf("release the turn's last block: %v", err)
 	}
 
 	history := waitHistory(

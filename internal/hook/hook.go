@@ -15,11 +15,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// forwardDeadline bounds the dial and the write of one frame. A slow or absent daemon must
+// forwardDeadline bounds how long one hook frame waits on a daemon that is not reading it. A slow or absent daemon must
 // not hold up the Claude Code hook.
 const forwardDeadline = 20 * time.Millisecond
 
-// reportDeadline bounds the dial and the write of one seen or read report.
+// reportDeadline bounds how long one seen or read report waits on a daemon that is not reading it.
 const reportDeadline = time.Second
 
 // Run forwards the hook JSON read from stdin, with the pane, tmux, working directory and
@@ -29,6 +29,11 @@ const reportDeadline = time.Second
 // protocol.EnvSession marker is non-empty) sends nothing and returns without reading stdin,
 // and an empty socketPath sends nothing.
 func Run(stdin io.Reader, getenv func(string) string, socketPath string) {
+	run(stdin, getenv, socketPath, time.Now)
+}
+
+// run is Run with the clock it times the forward on.
+func run(stdin io.Reader, getenv func(string) string, socketPath string, now func() time.Time) {
 	if protocol.IsSummarizer(getenv) || getenv(protocol.EnvSession) != "" || socketPath == "" {
 		return
 	}
@@ -48,31 +53,85 @@ func Run(stdin io.Reader, getenv func(string) string, socketPath string) {
 		AnthropicBaseURL: getenv("ANTHROPIC_BASE_URL"),
 	}
 
-	// Encoding runs before the clock starts: the deadline bounds only the dial and the write.
 	var payload bytes.Buffer
 	if err = protocol.WriteFrame(&payload, frame); err != nil {
 		return
 	}
+	// A failed delivery has nowhere to report: Run stays silent and the hook exits 0.
+	if err = deliver(socketPath, payload.Bytes(), forwardDeadline, now); err != nil {
+		return
+	}
+}
 
-	deadline := time.Now().Add(forwardDeadline)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	defer cancel()
+// deliver writes payload to the daemon listening on socketPath, waiting on the daemon for at most wait. It never waits on
+// a daemon that is keeping up, so no stall of this process, however long, drops a frame such a daemon would take. A unix
+// connect does not wait: it connects, or a missing socket, a refused connection or a full backlog fails it at once. The
+// frame is then written without waiting, and goes whole into the socket's buffer when it fits there. Only the part that
+// does not fit waits for the daemon to read, until wait after the time now reads then. An error says why the frame did
+// not go whole.
+func deliver(socketPath string, payload []byte, wait time.Duration, now func() time.Time) error {
 	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	conn, err := dialer.DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
-		return
+		return fmt.Errorf("dial orreryd: %w", err)
 	}
-	defer func() {
-		// A failed close has nowhere to report: Run stays silent and the hook exits 0.
-		if closeErr := conn.Close(); closeErr != nil {
-			return
+	unix, ok := conn.(*net.UnixConn)
+	if !ok {
+		return errors.Join(fmt.Errorf("dial orreryd: %T is no unix connection", conn), conn.Close())
+	}
+	err = writeWaiting(unix, payload, wait, now)
+	// The frame is written, or dropped, by the time the connection closes, so a failed close loses nothing.
+	if closeErr := conn.Close(); closeErr != nil {
+		return err
+	}
+	return err
+}
+
+// writeWaiting writes payload to conn: first as much as conn's socket takes without waiting, then the rest, waiting for
+// the daemon to read it until wait after the time now reads once the first write is done.
+func writeWaiting(conn *net.UnixConn, payload []byte, wait time.Duration, now func() time.Time) error {
+	written, err := writeNoWait(conn, payload)
+	if err != nil {
+		return err
+	}
+	if written == len(payload) {
+		return nil
+	}
+	if err = conn.SetDeadline(now().Add(wait)); err != nil {
+		return fmt.Errorf("set write deadline: %w", err)
+	}
+	if _, err = conn.Write(payload[written:]); err != nil {
+		return fmt.Errorf("write frame: %w", err)
+	}
+	return nil
+}
+
+// writeNoWait writes as much of payload to conn as its socket takes at once and returns how much. It does not wait and
+// reads no deadline: the socket is non-blocking, so a full buffer writes nothing and reports EAGAIN, which is no error.
+func writeNoWait(conn *net.UnixConn, payload []byte) (int, error) {
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return 0, fmt.Errorf("raw connection: %w", err)
+	}
+	var written int
+	var writeErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		for {
+			written, writeErr = syscall.Write(int(fd), payload)
+			if !errors.Is(writeErr, syscall.EINTR) {
+				return
+			}
 		}
-	}()
-	if err = conn.SetDeadline(deadline); err != nil {
-		return
-	}
-	if _, err = conn.Write(payload.Bytes()); err != nil {
-		return
+	})
+	switch {
+	case controlErr != nil:
+		return 0, fmt.Errorf("raw connection: %w", controlErr)
+	case errors.Is(writeErr, syscall.EAGAIN):
+		return 0, nil
+	case writeErr != nil:
+		return 0, fmt.Errorf("write frame: %w", writeErr)
+	default:
+		return written, nil
 	}
 }
 
@@ -105,29 +164,12 @@ func sendReport(socketPath string, frame protocol.HookFrame) error {
 	if err := protocol.WriteFrame(&payload, frame); err != nil {
 		return fmt.Errorf("encode report: %w", err)
 	}
-
-	deadline := time.Now().Add(reportDeadline)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	defer cancel()
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	err := deliver(socketPath, payload.Bytes(), reportDeadline, time.Now)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		return nil
+	}
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
-			return nil
-		}
-		return fmt.Errorf("dial orreryd: %w", err)
-	}
-	defer func() {
-		// The frame is already written when the connection closes, so a failed close loses nothing.
-		if closeErr := conn.Close(); closeErr != nil {
-			return
-		}
-	}()
-	if err = conn.SetDeadline(deadline); err != nil {
-		return fmt.Errorf("set report deadline: %w", err)
-	}
-	if _, err = conn.Write(payload.Bytes()); err != nil {
-		return fmt.Errorf("write report: %w", err)
+		return fmt.Errorf("report: %w", err)
 	}
 	return nil
 }

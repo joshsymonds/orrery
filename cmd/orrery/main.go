@@ -509,18 +509,20 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return err
 	}
 	var (
-		engine    enginev1connect.EngineClient
-		steps     server.StepClient
-		epicStore server.EpicStoreClient
-		evidence  server.EvidenceClient
-		pools     enginev1connect.PoolsClient
-		notices   enginev1connect.NoticesClient
+		engine       enginev1connect.EngineClient
+		steps        server.StepClient
+		epicStore    server.EpicStoreClient
+		epicCommands enginev1connect.EpicsClient
+		evidence     server.EvidenceClient
+		pools        enginev1connect.PoolsClient
+		notices      enginev1connect.NoticesClient
 	)
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
 		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
 		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
-		epicStore, evidence = enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL),
+		epicsClient := enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
+		epicStore, epicCommands, evidence = epicsClient, epicsClient,
 			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 		notices = enginev1connect.NewNoticesClient(sessionClient, cli.SessionBaseURL)
@@ -551,6 +553,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Notices:        notices,
 		Records:        records,
 		EpicStore:      epicStore,
+		EpicCommands:   epicCommands,
 		Evidence:       evidence,
 		Home:           home,
 		Picker:         servePickerConfig(tmux, getenv),

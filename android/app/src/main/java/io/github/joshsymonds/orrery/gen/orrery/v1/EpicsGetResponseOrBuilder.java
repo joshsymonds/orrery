@@ -187,4 +187,101 @@ public interface EpicsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
    */
   int getBuildTasksCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> 
+      getQuestionsList();
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion getQuestions(int index);
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  int getQuestionsCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   * @return Whether the contract field is set.
+   */
+  boolean hasContract();
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   * @return The contract.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract getContract();
+
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * </pre>
+   *
+   * <code>bool paused = 10 [json_name = "paused"];</code>
+   * @return The paused.
+   */
+  boolean getPaused();
+
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   * @return The parked.
+   */
+  java.lang.String getParked();
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   * @return The bytes for parked.
+   */
+  com.google.protobuf.ByteString
+      getParkedBytes();
+
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   * @return The summary.
+   */
+  java.lang.String getSummary();
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   * @return The bytes for summary.
+   */
+  com.google.protobuf.ByteString
+      getSummaryBytes();
 }

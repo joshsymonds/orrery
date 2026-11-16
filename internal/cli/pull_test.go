@@ -3,7 +3,6 @@ package cli_test
 import (
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,18 +61,20 @@ func pullWait(t *testing.T, ch <-chan pullResult) (string, error) {
 	return r.text, r.err
 }
 
-// pullAwaitUp waits until the Up key has reached the pane, which records every byte it receives in file.
-func pullAwaitUp(t *testing.T, file string) {
+// pullAwaitUp waits until the Up key has reached the pane, which records every byte it receives in file. It has no
+// deadline of its own (see sendAwaitFile). The pull whose result arrives on ch waits for its popAll records after it
+// sends Up, so its return first fails the test.
+func pullAwaitUp(t *testing.T, client *tmuxctl.Client, pane, file string, ch <-chan pullResult) {
 	t.Helper()
-	sendPollUntil(t, "Up on the pane", func() (bool, error) {
-		data, err := os.ReadFile(file)
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
+	sendAwaitFile(t, client, pane, file, "Up", func(data []byte) bool {
+		if strings.Contains(string(data), pullUp) {
+			return true
 		}
-		if err != nil {
-			return false, err
+		if len(ch) > 0 {
+			r := <-ch
+			t.Fatalf("PullQueued returned %q, %v before the Up key reached the pane", r.text, r.err)
 		}
-		return strings.Contains(string(data), pullUp), nil
+		return false
 	})
 }
 
@@ -127,7 +128,7 @@ func TestPullQueuedTakesQueuedMessages(t *testing.T) {
 	transcript := pullTranscript(t)
 
 	ch := pullStart(t, standstillClock{}, client, pane, transcript)
-	pullAwaitUp(t, file)
+	pullAwaitUp(t, client, pane, file, ch)
 	pullWritePopped(t, transcript, "first", "second")
 
 	text, err := pullWait(t, ch)
@@ -138,7 +139,7 @@ func TestPullQueuedTakesQueuedMessages(t *testing.T) {
 		t.Fatalf("PullQueued = %q, want %q", text, "first\nsecond")
 	}
 	want := pullUp + strings.Repeat(pullBackspace, len("first\nsecond"))
-	sendAwaitInput(t, file, want)
+	sendAwaitInput(t, client, pane, file, want)
 }
 
 // TestPullQueuedBusyInputSendsNothing covers each state that refuses the pull: typed text in the box, a pane in a
@@ -177,7 +178,7 @@ func TestPullQueuedBusyInputSendsNothing(t *testing.T) {
 
 			sendRun(t, client, "copy-mode", "-q", "-t", pane)
 			sendRun(t, client, "send-keys", "-t", pane, "-l", "--", "X")
-			sendAwaitInput(t, file, "X")
+			sendAwaitInput(t, client, pane, file, "X")
 		})
 	}
 }
@@ -218,7 +219,7 @@ func TestPullQueuedNothingQueued(t *testing.T) {
 			// The pane reads its input in order, so once a marker sent after PullQueued returned has arrived, every key
 			// PullQueued sent has too, and the pane holds no stray key between them.
 			sendRun(t, client, "send-keys", "-t", pane, "-l", "--", pullMarker)
-			sendAwaitInput(t, file, want+pullMarker)
+			sendAwaitInput(t, client, pane, file, want+pullMarker)
 		})
 	}
 }

@@ -63,6 +63,7 @@ type Epic struct {
 	PauseSource    string
 	StoredBase     string
 	Candidate      string
+	Summary        string
 }
 
 type EpicAddition struct {

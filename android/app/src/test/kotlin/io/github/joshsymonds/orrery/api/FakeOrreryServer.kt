@@ -101,6 +101,8 @@ class FakeOrreryServer : AutoCloseable {
 
     init {
         Quiescence.install()
+        // The first fake server a test opens begins its count; a second one inside the same test keeps it.
+        if (live.isEmpty()) Quiescence.newTest()
         live += this
         server.executor = workers
         server.createContext("/") { exchange -> handle(exchange) }
@@ -147,8 +149,20 @@ class FakeOrreryServer : AutoCloseable {
         routes[procedure] = script
     }
 
+    /**
+     * Closes the server. Closing a test's last open server ends the test's work first: it waits, the server still
+     * answering, for the test's BackgroundWork to finish, and fails naming any the test left running.
+     */
     override fun close() {
-        live -= this
+        try {
+            if (live == setOf(this)) Quiescence.endTest()
+        } finally {
+            live -= this
+            stop()
+        }
+    }
+
+    private fun stop() {
         server.stop(0)
         workers.shutdownNow()
     }

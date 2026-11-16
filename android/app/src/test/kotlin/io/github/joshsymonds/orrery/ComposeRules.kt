@@ -53,15 +53,22 @@ private class MainThreadDrain(private val scheduler: TestCoroutineScheduler) : I
 
     override fun registerIdleTransitionCallback(callback: IdlingResource.ResourceCallback?) = Unit
 
-    /** [base] with this drain registered while it runs. */
+    /**
+     * [base] with this drain registered while it runs, then the test's end: a test that leaves BackgroundWork
+     * running fails, naming it (Quiescence.endTest). A failure of the test itself stays the failure reported.
+     */
     fun around(base: Statement): Statement = object : Statement() {
         override fun evaluate() {
             IdlingRegistry.getInstance().register(this@MainThreadDrain)
             try {
                 base.evaluate()
+            } catch (failure: Throwable) {
+                runCatching { Quiescence.endTest() }.exceptionOrNull()?.let(failure::addSuppressed)
+                throw failure
             } finally {
                 IdlingRegistry.getInstance().unregister(this@MainThreadDrain)
             }
+            Quiescence.endTest()
         }
     }
 }
@@ -106,6 +113,7 @@ class MainThreadAndroidComposeRule<A : ComponentActivity> internal constructor(
 @OptIn(ExperimentalTestApi::class)
 fun mainThreadComposeRule(): MainThreadComposeRule {
     Quiescence.install()
+    Quiescence.newTest()
     val scheduler = TestCoroutineScheduler()
     return MainThreadComposeRule(createComposeRule(StandardTestDispatcher(scheduler)), scheduler)
 }
@@ -113,6 +121,7 @@ fun mainThreadComposeRule(): MainThreadComposeRule {
 @OptIn(ExperimentalTestApi::class)
 fun mainThreadEmptyComposeRule(): MainThreadEmptyComposeRule {
     Quiescence.install()
+    Quiescence.newTest()
     val scheduler = TestCoroutineScheduler()
     return MainThreadEmptyComposeRule(createEmptyComposeRule(StandardTestDispatcher(scheduler)), scheduler)
 }
@@ -123,6 +132,7 @@ inline fun <reified A : ComponentActivity> mainThreadAndroidComposeRule(): MainT
 @OptIn(ExperimentalTestApi::class)
 fun <A : ComponentActivity> mainThreadAndroidComposeRule(activityClass: Class<A>): MainThreadAndroidComposeRule<A> {
     Quiescence.install()
+    Quiescence.newTest()
     val scheduler = TestCoroutineScheduler()
     return MainThreadAndroidComposeRule(
         createAndroidComposeRule(activityClass, StandardTestDispatcher(scheduler)),

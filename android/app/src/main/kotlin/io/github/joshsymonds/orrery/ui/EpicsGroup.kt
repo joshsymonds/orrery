@@ -27,15 +27,18 @@ private const val MAX_STEP_ROWS = 4
 /**
  * Home's Epics group. Each live epic shows its slug, its repository, up to [MAX_STEP_ROWS] of its
  * running and held steps (a held one marked), and a "more" line for the rest; its ended steps show
- * as one count. Folded epics fold into one line that opens to list them. Tapping an epic, a step or
+ * as one count. Live epics waiting to start fold into one line, "n accepted, waiting to start", that opens
+ * to list them. Folded epics fold into one line that opens to list them. Tapping an epic, a step or
  * a "more" line opens the epic. Nothing here answers a step: the group only opens epics. No epics
  * draws nothing.
  */
 @Composable
 fun EpicsGroup(epics: List<EpicRow>, onOpenEpic: (String) -> Unit, modifier: Modifier = Modifier) {
+    var waitingOpen by remember { mutableStateOf(false) }
     var foldedOpen by remember { mutableStateOf(false) }
     if (epics.isEmpty()) return
-    val live = epics.filter { it.live }
+    val live = epics.filter { it.live && !it.waiting }
+    val waiting = epics.filter { it.live && it.waiting }
     val folded = epics.filterNot { it.live }
     Column(modifier = modifier.fillMaxWidth().testTag("epics-group").padding(vertical = 4.dp)) {
         Text(
@@ -46,22 +49,35 @@ fun EpicsGroup(epics: List<EpicRow>, onOpenEpic: (String) -> Unit, modifier: Mod
         for (epic in live) {
             LiveEpic(epic, onOpenEpic)
         }
-        if (folded.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("epics-folded")
-                    .clickable { foldedOpen = !foldedOpen }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                Text("${folded.size} folded", style = MaterialTheme.typography.labelMedium)
+        if (waiting.isNotEmpty()) {
+            FoldLine("${waiting.size} accepted, waiting to start", "epics-waiting") { waitingOpen = !waitingOpen }
+            if (waitingOpen) {
+                for (epic in waiting) {
+                    EpicLine(epic, onOpenEpic, start = 24.dp)
+                }
             }
+        }
+        if (folded.isNotEmpty()) {
+            FoldLine("${folded.size} folded", "epics-folded") { foldedOpen = !foldedOpen }
             if (foldedOpen) {
                 for (epic in folded) {
                     EpicLine(epic, onOpenEpic, start = 24.dp)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FoldLine(text: String, tag: String, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(tag)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelMedium)
     }
 }
 
