@@ -148,11 +148,15 @@ func TestAttentionClearsTheNoticeOnceATurnEndsAfterTheLatestTell(t *testing.T) {
 	// answer makes the turn that ends after the tell claimable.
 	turn := claimAttentionTurn(t, s)
 	if err := s.CompleteTurn(ctx, runnerEpicID, turn, store.EpicPlan{
-		Questions: []string{"which store?"}, Tasks: plannedRunnerTasks(), Outcome: "work",
+		Questions: []store.EpicQuestionInput{shapedQuestion("which-store", "which store?")},
+		Tasks:     plannedRunnerTasks(),
+		Outcome:   "work",
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
-	if _, err := s.AnswerQuestion(ctx, runnerEpicID, "answer-1", "use the store", 1, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	// The tell is newer than the earlier turn's end, so only the turn that ends after it clears the notice.
@@ -197,5 +201,42 @@ func TestAttentionRoutesATellAgainWhenMarkingItToldFails(t *testing.T) {
 	}
 	if tells := untoldTellsOfRunner(t, s); len(tells) != 0 {
 		t.Errorf("untold tells after the mark succeeds = %+v, want none", tells)
+	}
+}
+
+// parkTellBody is the body of the notice of a park's tell for credit ran out: its text, then the park question's head
+// and its retry advice.
+const parkTellBody = `credit ran out
+Q1 park:
+  retry: end the park and start a turn on the waiting triggers, as orrery epic retry does
+  other: answer in your own words
+  recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers`
+
+func TestAttentionRoutesAParkTellWithTheAdviceOfItsQuestion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	// The turn stays running, so the epic has a turn for Attention to list and no ended turn for the park to notify.
+	claimAttentionTurn(t, s)
+	if err := s.ParkEpic(ctx, runnerEpicID, "credit ran out", claimedAt().Add(time.Second)); err != nil {
+		t.Fatalf("ParkEpic: %v", err)
+	}
+	router := &fakeAttentionRouter{}
+	attention := attentionOver(s, router)
+
+	attention.pass(ctx)
+
+	if len(router.notices) != 1 {
+		t.Fatalf("notices after one pass = %d, want the tell routed once", len(router.notices))
+	}
+	if got := shownOf(t, router.notices[0]).desk.Body; got != parkTellBody {
+		t.Errorf("tell notice body = %q, want %q", got, parkTellBody)
+	}
+
+	attention.pass(ctx)
+
+	if n := len(router.notices); n != 1 {
+		t.Errorf("notices after a second pass = %d, want still one", n)
 	}
 }

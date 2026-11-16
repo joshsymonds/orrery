@@ -10,7 +10,8 @@
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, BGDONE answers with a
 # success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two tasks and
 # ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
-# itself, reading no stdin, which ends with a done return while the second task still runs, PAIR answers with one
+# itself, reading no stdin, which ends with a done return while the second task still runs, BGSELFHELD plays BGSELF but
+# holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
 # structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
@@ -247,6 +248,7 @@ bgdone() {
 # itself. That turn has no user_message_uuids, a result_index of 1 and the origin of a task notification, and ends with a
 # done return while the second task still runs.
 bgself() {
+	held=$1
 	turn_open
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"},{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
 	text_block 0 "fake bgself $n" "fake bgself $n"
@@ -261,6 +263,11 @@ bgself() {
 	answered='[]'
 	turn_open
 	text_block 0 "fake self $n" "fake self $n"
+	if [ -n "$held" ]; then
+		while [ ! -e fakeclaude.open ]; do
+			sleep 0.05
+		done
+	fi
 	structured='{"status":"done","summary":"fake done"}'
 	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
 	result_index=1
@@ -427,6 +434,7 @@ while next; do
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;
 				*BGDONE*) bgdone ;;
+				*BGSELFHELD*) bgself held ;;
 				*BGSELF*) bgself ;;
 				*PAIR*) pair ;;
 				*READDONE*) readdone ;;

@@ -201,12 +201,14 @@ func TestAttentionRoutesALaterTurnAfterARestartThatFollowedARoute(t *testing.T) 
 		t.Fatalf("notices after the restart = %d, want exactly one", len(desk.posted))
 	}
 
-	if _, err := s.AnswerQuestion(ctx, runnerEpicID, "answer-1", "use the store", 1, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	later := claimAttentionTurn(t, s)
 	if err := s.CompleteTurn(ctx, runnerEpicID, later, store.EpicPlan{
-		Questions: []string{"which ticket?"}, Outcome: "wait",
+		Questions: []store.EpicQuestionInput{shapedQuestion("which-ticket", "which ticket?")}, Outcome: "wait",
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn of the later turn: %v", err)
 	}

@@ -145,8 +145,11 @@ fun <A : ComponentActivity> mainThreadAndroidComposeRule(activityClass: Class<A>
     )
 }
 
-/** How long a wait yields while real work is in flight, so the threads doing it can run. */
-private const val CHECK_PAUSE_MILLIS = 10L
+/**
+ * How long a wait yields while real work is in flight, so the threads doing it can run. A fake-server round trip takes
+ * a millisecond or two, so a longer yield is mostly time spent after the work has finished.
+ */
+private const val CHECK_PAUSE_MILLIS = 1L
 
 /**
  * How much virtual time a wait lets pass, with nothing in flight, before it fails. Virtual time moves only while no

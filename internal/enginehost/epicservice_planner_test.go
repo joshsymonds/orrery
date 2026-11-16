@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -46,8 +47,21 @@ func plannedReturn() store.EpicPlan {
 			},
 		},
 		Outline:   "Synthetic outline.",
-		Questions: []string{"Synthetic question one?"},
+		Questions: []store.EpicQuestionInput{syntheticQuestion("synthetic-question-one", "Synthetic question one?")},
 		Outcome:   "Synthetic outcome.",
+	}
+}
+
+// syntheticQuestion returns a question with the label and text given that passes store.QuestionRefusals: two synthetic
+// choices, the first recommended with a low confidence.
+func syntheticQuestion(label, text string) store.EpicQuestionInput {
+	return store.EpicQuestionInput{
+		Label: label, Text: text,
+		Choices: []store.EpicChoice{
+			{ID: "synthetic-a", Does: "Synthetic choice A."},
+			{ID: "synthetic-b", Does: "Synthetic choice B."},
+		},
+		Recommended: "synthetic-a", Why: "Synthetic reason.", Confidence: "low",
 	}
 }
 
@@ -68,9 +82,9 @@ func openPlannerStore(t *testing.T) (*store.Store, string) {
 	return st, path
 }
 
-// insertPendingTrigger writes a pending trigger with id on epicServiceID into the store file at path. The store
-// adds only the created trigger, and a completed turn consumes it, so a second planner turn needs this row.
-func insertPendingTrigger(t *testing.T, path, id string) {
+// execStoreFile runs query with args on the store file at path through its own connection, beside the store that
+// holds it open.
+func execStoreFile(t *testing.T, path, query string, args ...any) {
 	t.Helper()
 	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_busy_timeout=200&_journal_mode=WAL"}).String()
 	db, err := sql.Open("sqlite", dsn)
@@ -82,12 +96,29 @@ func insertPendingTrigger(t *testing.T, path, id string) {
 			t.Errorf("close store file: %v", err)
 		}
 	}()
-	if _, err = db.ExecContext(t.Context(),
+	if _, err = db.ExecContext(t.Context(), query, args...); err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+}
+
+// insertPendingTrigger writes a pending trigger with id on epicServiceID into the store file at path. The store
+// adds only the created trigger, and a completed turn consumes it, so a second planner turn needs this row.
+func insertPendingTrigger(t *testing.T, path, id string) {
+	t.Helper()
+	execStoreFile(t, path,
 		`INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, 'pending', 0, ?)`,
 		epicServiceID, id, "synthetic trigger", turnStarted,
-	); err != nil {
-		t.Fatalf("insert trigger %s: %v", id, err)
-	}
+	)
+}
+
+// setQuestionAnswer marks question seq of epicServiceID answered with choice in the store file at path. AnswerEpic
+// names no choice yet, so the row is written directly, the way an answer with a declared choice leaves it.
+func setQuestionAnswer(t *testing.T, path string, seq int64, choice string) {
+	t.Helper()
+	execStoreFile(t, path,
+		`UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?`,
+		choice, epicServiceID, seq,
+	)
 }
 
 // wantProtos fails the test unless got and want hold equal messages in the same order.
@@ -165,8 +196,139 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 		},
 	})
 	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{
-		{Id: "Q1", Turn: 1, Text: "Synthetic question one?", State: "open"},
+		syntheticQuestionMessage("Q1", 1, "synthetic-question-one", "Synthetic question one?"),
+		parkQuestionMessage("Q2", "needs a human"),
 	})
+}
+
+// syntheticQuestionMessage returns the EpicQuestion message of the open question id, asked at turn, that
+// syntheticQuestion(label, text) stores.
+func syntheticQuestionMessage(id string, turn int64, label, text string) *v1.EpicQuestion {
+	return &v1.EpicQuestion{
+		Id: id, Turn: turn, Text: text, State: "open", Label: label,
+		Choices: []*v1.EpicQuestionChoice{
+			{Id: "synthetic-a", Does: "Synthetic choice A."},
+			{Id: "synthetic-b", Does: "Synthetic choice B."},
+		},
+		Recommendation: &v1.EpicRecommendation{Choice: "synthetic-a", Why: "Synthetic reason.", Confidence: "low"},
+	}
+}
+
+// parkQuestionMessage returns the EpicQuestion message of the open park question id with text, which a park that is not
+// final opens: one declared choice, retry, recommended with a low confidence.
+func parkQuestionMessage(id, text string) *v1.EpicQuestion {
+	return &v1.EpicQuestion{
+		Id: id, Turn: 0, Text: text, State: "open", Label: "park",
+		Choices: []*v1.EpicQuestionChoice{{
+			Id:   "retry",
+			Does: "end the park and start a turn on the waiting triggers, as orrery epic retry does",
+		}},
+		Recommendation: &v1.EpicRecommendation{
+			Choice:     "retry",
+			Why:        "no model judges a park; retry runs the epic again on its waiting triggers",
+			Confidence: "low",
+		},
+	}
+}
+
+func TestEpicGetShowsFinalParkQuestionWithNoChoiceOrRecommendation(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, _ := openPlannerStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	runs := []store.NodeRun{{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1}}
+	if err := st.StartNodes(ctx, epicServiceID, runs, nil, time.Unix(turnStarted, 0)); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := st.ParkNodeFinal(ctx, epicServiceID, "red", 1, "failed", "R1 met", "parked for good",
+		time.Unix(turnFreed, 0)); err != nil {
+		t.Fatalf("ParkNodeFinal: %v", err)
+	}
+
+	got := getEpicOK(t, client)
+	if got.GetParked() != "parked for good" {
+		t.Fatalf("parked = %q, want %q", got.GetParked(), "parked for good")
+	}
+	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{{
+		Id: "Q1", Turn: 0, Text: "parked for good", State: "open", Label: "park",
+	}})
+}
+
+func TestEpicGetShowsQuestionReplacedByAnother(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, path := openPlannerStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	askQuestions(t, st, "Synthetic question one?")
+	insertPendingTrigger(t, path, "t2")
+	second, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnRestarted, 0))
+	if err != nil {
+		t.Fatalf("ClaimTurn of second turn: %v", err)
+	}
+	replacing := syntheticQuestion("synthetic-question-two", "Synthetic question two?")
+	replacing.Replaces = "Q1"
+	plan := plannedReturn()
+	plan.Questions = []store.EpicQuestionInput{replacing}
+	if err = st.CompleteTurn(ctx, epicServiceID, second.Seq, plan, time.Unix(turnFreed, 0)); err != nil {
+		t.Fatalf("CompleteTurn of second turn: %v", err)
+	}
+
+	replaced := syntheticQuestionMessage("Q1", 1, "synthetic-question-1", "Synthetic question one?")
+	replaced.State, replaced.ReplacedBy = "replaced", "Q2"
+	successor := syntheticQuestionMessage("Q2", 2, "synthetic-question-two", "Synthetic question two?")
+	successor.Replaces = "Q1"
+	wantProtos(t, "questions", getEpicOK(t, client).GetQuestions(), []*v1.EpicQuestion{replaced, successor})
+}
+
+func TestEpicFollowsCountsAnsweredRecommendationsPerLabel(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, path := openPlannerStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	plan := plannedReturn()
+	plan.Questions = []store.EpicQuestionInput{
+		syntheticQuestion("which-store", "Which store holds the plan?"),
+		syntheticQuestion("tick-rate", "How often does the runner tick?"),
+		syntheticQuestion("tick-rate", "How often does the planner tick?"),
+		syntheticQuestion("tick-rate", "How often does the notifier tick?"),
+	}
+	if err = st.CompleteTurn(ctx, epicServiceID, turn.Seq, plan, time.Unix(turnCompleted, 0)); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
+	}
+	// Q1 and Q3 are answered as recommended, Q2 with the other declared choice, and Q4 stays open.
+	answers := []struct {
+		seq    int64
+		choice string
+	}{{1, "synthetic-a"}, {2, "synthetic-b"}, {3, "synthetic-a"}}
+	for _, answer := range answers {
+		setQuestionAnswer(t, path, answer.seq, answer.choice)
+	}
+
+	reply, err := client.FollowEpics(ctx, connect.NewRequest(&v1.FollowEpicsRequest{}))
+	if err != nil {
+		t.Fatalf("FollowEpics: %v", err)
+	}
+	wantProtos(t, "follows", reply.Msg.GetFollows(), []*v1.EpicFollow{
+		{Label: "tick-rate", Answered: 2, Followed: 1},
+		{Label: "which-store", Answered: 1, Followed: 1},
+	})
+}
+
+func TestEpicFollowsOfEmptyStoreIsNone(t *testing.T) {
+	t.Parallel()
+	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
+	reply, err := client.FollowEpics(t.Context(), connect.NewRequest(&v1.FollowEpicsRequest{}))
+	if err != nil {
+		t.Fatalf("FollowEpics: %v", err)
+	}
+	wantProtos(t, "follows", reply.Msg.GetFollows(), []*v1.EpicFollow(nil))
 }
 
 func TestEpicGetRunningTurnHasNoEnd(t *testing.T) {

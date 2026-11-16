@@ -40,7 +40,8 @@ import java.util.concurrent.atomic.AtomicReference
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val STREAM_PATH = "/orrery.v1.Panes/WatchConversation"
 private const val PANE_ID = "%3"
-private const val SLOW_ANSWER_MILLIS = 3_000L
+private const val SLOW_ANSWER_MILLIS = 300L
+private const val RETRY_SLEEP_MILLIS = 100L
 private const val NOW = 1_700_000_000L
 private const val LATE_START_MILLIS = 300L
 private const val LATE_TEXT_MILLIS = 1_000L
@@ -234,7 +235,9 @@ class QuiescentWaitTest {
         FakeOrreryServer().use { server ->
             server.fail(REGISTER_PATH, Code.UNAVAILABLE, "synthetic refusal")
             BackgroundWork.run("push registration") {
-                PushRegistration(OrreryClient(server.baseUrl)).register("https://push.example.com/up", "key", "auth")
+                // A short retry sleep: the end judges the sleep itself, not its length.
+                PushRegistration(OrreryClient(server.baseUrl), sleep = { Thread.sleep(RETRY_SLEEP_MILLIS) })
+                    .register("https://push.example.com/up", "key", "auth")
             }
 
             val failure = assertThrows(AssertionError::class.java) { Quiescence.endTest() }

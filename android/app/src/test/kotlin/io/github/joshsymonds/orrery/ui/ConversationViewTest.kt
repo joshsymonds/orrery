@@ -25,17 +25,18 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.WaitingItem
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.junit.After
@@ -70,7 +71,7 @@ private fun inUtc() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
 @Config(sdk = [35])
 class ConversationViewTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val originalZone: TimeZone = TimeZone.getDefault()
 
@@ -867,6 +868,29 @@ class ConversationViewTest {
         }
 
         composeRule.onNodeWithText("synthetic reply 41").assertIsDisplayed()
+    }
+
+    @Test
+    fun anInstantAccessibilityJumpAwayFromTheEndIsKeptWhenANewReplyArrives() {
+        // An accessibility service's jump to a position scrolls in one step: started and ended with no frame
+        // between, so nothing watching for a scroll to start and stop ever sees it. With the clock stopped across
+        // the jump, the view must still see the reader leave the end from where the list now is.
+        val entries = mutableStateOf(replies(1, 40))
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value) }
+        }
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+
+        composeRule.mainClock.autoAdvance = false
+        composeRule.onNodeWithTag("conversation-list").performSemanticsAction(SemanticsActions.ScrollToIndex) { it(0) }
+        composeRule.waitForIdle()
+        composeRule.mainClock.autoAdvance = true
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+
+        composeRule.runOnIdle { entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41") }
+
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 41").assertCountEquals(0)
     }
 
     @Test

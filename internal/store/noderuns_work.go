@@ -103,28 +103,26 @@ func (s *Store) ParkNode(
 	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		_, err := parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, reason, at)
-		return err
+		return parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, reason, at)
 	})
 }
 
 // parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason and
-// adds reason as a tell, in the caller's write. It reports whether a running run was parked, which is meaningless when
-// err is not nil.
+// adds reason as a tell, in the caller's write.
 func parkNodeRun(
 	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output, reason string,
 	at time.Time,
-) (bool, error) {
+) error {
 	parked, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
 		Outcome: outcome, Output: capNodeOutput(output), Epic: epic, Path: path, Attempt: attempt,
 	})
 	if err != nil {
-		return false, fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
+		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 	}
 	if parked == 0 {
-		return false, nil
+		return nil
 	}
-	return true, parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
 }
 
 // EndNodesWaking ends each running node run of epic at the path of ends with its outcome and output, and adds trigger
@@ -145,9 +143,10 @@ func (s *Store) EndNodesWaking(
 }
 
 // RetryNode turns the parked run of node in epic running at its next attempt, with its outcome, output, revision, refs,
-// refs checked, result and end cleared, and unparks epic, in one write. The park ends as RetryEpic ends it. A node with
-// no parked run is a RefusalError, and so is an epic parked for good, which changes nothing. So is the release node,
-// which only ReleaseEpic resumes: retried here, it would run while the phase stays stopped and wait for good.
+// refs checked, result and end cleared, and unparks epic, in one write. The park ends as RetryEpic ends it, and each
+// open park question of epic is answered retry. A node with no parked run is a RefusalError, and so is an epic parked
+// for good, which changes nothing. So is the release node, which only ReleaseEpic resumes: retried here, it would run
+// while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		runs, err := readNodeRuns(ctx, queries, epic)
@@ -164,8 +163,8 @@ func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	})
 }
 
-// retryNode turns the parked run of node in epic running at its next attempt and unparks epic, in the caller's write,
-// as RetryNode does. A node with no parked run is a RefusalError, and so is an epic parked for good.
+// retryNode turns the parked run of node in epic running at its next attempt, answers each open park question of epic
+// retry and unparks epic, in the caller's write, as RetryNode does. A node with no parked run is a RefusalError, and so is an epic parked for good.
 func retryNode(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
 	retried, err := queries.RetryEpicNode(ctx, sqlcgen.RetryEpicNodeParams{Epic: epic, Node: node})
 	if err != nil {
@@ -180,6 +179,10 @@ func retryNode(ctx context.Context, queries *sqlcgen.Queries, epic, node string)
 	}
 	if head.Phase == phaseMetAtBase {
 		return metAtBaseRefusal(epic, head.Parked)
+	}
+	err = closeParkQuestions(ctx, queries, epic)
+	if err != nil {
+		return err
 	}
 	highest, err := queries.MaxEpicTurnSeq(ctx, epic)
 	if err != nil {

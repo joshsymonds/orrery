@@ -89,3 +89,33 @@ func TestMarkTellToldOfAnUnknownTellIsErrNoTell(t *testing.T) {
 		t.Errorf("MarkTellTold of a tell that does not exist err = %v, want ErrNoTell", err)
 	}
 }
+
+func TestAttentionCarriesTheQuestionOfAParkTellAndNoQuestionForAPlainTell(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := openBuildStore(ctx, t)
+	tellBuildEpic(ctx, t, s, "plain tell", writtenAt())
+	if err := s.ParkEpic(ctx, buildEpic, "credit ran out", writtenAt()); err != nil {
+		t.Fatalf("ParkEpic: %v", err)
+	}
+
+	got := attentionOfBuildEpic(ctx, t, s)
+	if len(got.Tells) != 2 {
+		t.Fatalf("Tells = %+v, want the plain tell and the park's tell", got.Tells)
+	}
+	if got.Tells[0].Question != nil {
+		t.Errorf("plain tell Question = %+v, want nil", got.Tells[0].Question)
+	}
+	var parkQuestion *store.EpicQuestion
+	for i := range got.Open {
+		if got.Open[i].Label == store.ParkLabel {
+			parkQuestion = &got.Open[i]
+		}
+	}
+	if parkQuestion == nil {
+		t.Fatalf("Open = %+v, want the park question", got.Open)
+	}
+	if question := got.Tells[1].Question; question == nil || !reflect.DeepEqual(*question, *parkQuestion) {
+		t.Errorf("park tell Question = %+v, want the open park question %+v", question, *parkQuestion)
+	}
+}
