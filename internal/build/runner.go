@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -220,7 +221,7 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTask, tip string) (View, error) {
 	view := View{
 		Epic: epic.ID, Paused: epic.Paused, Parked: epic.Parked != "", ReviewGates: epic.ReviewGates,
-		Task: task, Branch: tip, Candidate: epic.Candidate,
+		NoVerify: noVerify(epic, task), Task: task, Branch: tip, Candidate: epic.Candidate,
 	}
 	runID, stepID := unitIDs(epic.ID, task.Seq, task.Build)
 	if runID != "" {
@@ -253,6 +254,14 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 		view.RefMoves = moves
 	}
 	return view, nil
+}
+
+// noVerify reports whether the task-stage reviewer at task's gate position has verify off. The gate positions are the
+// task-stage reviewers in their merged order, so a position no task-stage reviewer holds has verify on.
+func noVerify(epic store.EpicRow, task store.EpicTask) bool {
+	stage := reviewers.ForStage(epic.Reviewers, reviewers.StageTask)
+	pos := task.Build.GatePos
+	return pos >= 0 && pos < int64(len(stage)) && !stage[pos].Verify
 }
 
 // unitIDs returns the derived ids of the evidence run and of the step of the unit build is on. A red or green unit has

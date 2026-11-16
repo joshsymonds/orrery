@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
@@ -66,6 +67,7 @@ type EpicRow struct {
 	Turns        []EpicTurn
 	Tasks        []EpicTask
 	Questions    []EpicQuestion
+	Reviewers    []reviewers.Reviewer
 }
 
 // EpicWorkflow is the workflow an epic pins: its name, the canonical text it was loaded as, the sha256 of that text,
@@ -242,6 +244,11 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	if err := insertGateList(ctx, queries, row.ID, "review", row.ReviewGates); err != nil {
 		return fmt.Errorf("review gates: %w", err)
 	}
+	if err := insertInOrder(row.Reviewers, func(position int64, rev reviewers.Reviewer) error {
+		return insertReviewer(ctx, queries, row.ID, position, rev)
+	}); err != nil {
+		return fmt.Errorf("reviewers: %w", err)
+	}
 	if err := insertInOrder(row.Premises, func(position int64, p EpicPremise) error {
 		return queries.InsertEpicPremise(ctx, sqlcgen.InsertEpicPremiseParams{
 			Epic: row.ID, Position: position, ID: p.ID, Text: p.Text, IfWrong: p.IfWrong,
@@ -329,6 +336,40 @@ func insertGate(ctx context.Context, queries *sqlcgen.Queries, epic string, posi
 	return nil
 }
 
+// insertReviewer stores rev as reviewer position of epic, its lists as JSON arrays and its flags as 0 or 1.
+func insertReviewer(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	position int64,
+	rev reviewers.Reviewer,
+) error {
+	stage, err := encodeStrings(rev.Stage)
+	if err != nil {
+		return fmt.Errorf("stage: %w", err)
+	}
+	must, err := encodeStrings(rev.Must)
+	if err != nil {
+		return fmt.Errorf("must: %w", err)
+	}
+	mustNot, err := encodeStrings(rev.MustNot)
+	if err != nil {
+		return fmt.Errorf("must not: %w", err)
+	}
+	tools, err := encodeStrings(rev.Tools)
+	if err != nil {
+		return fmt.Errorf("tools: %w", err)
+	}
+	if err = queries.InsertEpicReviewer(ctx, sqlcgen.InsertEpicReviewerParams{
+		Epic: epic, Position: position, Name: rev.Name, Enabled: boolInt(rev.Enabled), Stage: stage, Must: must,
+		MustNot: mustNot, Prompt: rev.Prompt, Agent: rev.Agent, Model: rev.Model, Tools: tools, Effort: rev.Effort,
+		LimitSeconds: rev.Limit, Verify: boolInt(rev.Verify),
+	}); err != nil {
+		return fmt.Errorf("insert reviewer %s: %w", rev.Name, err)
+	}
+	return nil
+}
+
 // insertGateList stores gates as the named list of epic, in order from position 1.
 func insertGateList(ctx context.Context, queries *sqlcgen.Queries, epic, list string, gates []string) error {
 	return insertInOrder(gates, func(position int64, gate string) error {
@@ -358,6 +399,16 @@ func encodeList[T any](items []T) (string, error) {
 	raw, err := json.Marshal(items)
 	if err != nil {
 		return "", fmt.Errorf("encode list: %w", err)
+	}
+	return string(raw), nil
+}
+
+// encodeStrings returns items as JSON, a nil list as null and an empty list as []. The two stay apart because an
+// empty tools list runs a reviewer with no tools, and a nil one leaves the tools to the agent.
+func encodeStrings(items []string) (string, error) {
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("encode strings: %w", err)
 	}
 	return string(raw), nil
 }
@@ -436,6 +487,10 @@ func loadEpicSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 		return fmt.Errorf("gate sections: %w", err)
 	}
 
+	if err = loadEpicReviewers(ctx, queries, row); err != nil {
+		return fmt.Errorf("reviewers: %w", err)
+	}
+
 	premises, err := queries.ListEpicPremises(ctx, row.ID)
 	if err != nil {
 		return fmt.Errorf("list premises: %w", err)
@@ -500,6 +555,19 @@ func loadGateSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 		return fmt.Errorf("list review gates: %w", err)
 	}
 	row.ReviewGates = mapInOrder(reviewGates, func(g sqlcgen.EpicGateList) string { return g.Gate })
+	return nil
+}
+
+// loadEpicReviewers fills the reviewers of row from the rows stored under row.ID, in position order.
+func loadEpicReviewers(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
+	stored, err := queries.ListEpicReviewers(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list reviewers: %w", err)
+	}
+	row.Reviewers, err = convertInOrder(stored, reviewerOf)
+	if err != nil {
+		return fmt.Errorf("convert: %w", err)
+	}
 	return nil
 }
 
@@ -826,6 +894,31 @@ func gateOf(stored sqlcgen.EpicGate) (EpicGate, error) {
 	return EpicGate{
 		Name: stored.Name, Argv: argv, Limit: stored.LimitSeconds, Needs: needs, Agent: stored.Agent,
 		Must: must, MustNot: mustNot,
+	}, nil
+}
+
+// reviewerOf returns the reviewer a stored row holds, its lists decoded and its flags read back as booleans.
+func reviewerOf(stored sqlcgen.EpicReviewer) (reviewers.Reviewer, error) {
+	stage, err := decodeStrings(stored.Stage)
+	if err != nil {
+		return reviewers.Reviewer{}, fmt.Errorf("reviewer %s stage: %w", stored.Name, err)
+	}
+	must, err := decodeStrings(stored.Must)
+	if err != nil {
+		return reviewers.Reviewer{}, fmt.Errorf("reviewer %s must: %w", stored.Name, err)
+	}
+	mustNot, err := decodeStrings(stored.MustNot)
+	if err != nil {
+		return reviewers.Reviewer{}, fmt.Errorf("reviewer %s must not: %w", stored.Name, err)
+	}
+	tools, err := decodeStrings(stored.Tools)
+	if err != nil {
+		return reviewers.Reviewer{}, fmt.Errorf("reviewer %s tools: %w", stored.Name, err)
+	}
+	return reviewers.Reviewer{
+		Name: stored.Name, Enabled: stored.Enabled != 0, Stage: stage, Must: must, MustNot: mustNot,
+		Prompt: stored.Prompt, Agent: stored.Agent, Model: stored.Model, Tools: tools, Effort: stored.Effort,
+		Limit: stored.LimitSeconds, Verify: stored.Verify != 0,
 	}, nil
 }
 

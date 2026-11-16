@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -62,9 +63,10 @@ func (s *epicService) ready() error {
 	return nil
 }
 
-// CreateEpic checks the contract with checkEpic, resolves its base to the full commit the base names, pins the workflow
-// the request names at that commit, then stores it accepted, with its seed decisions, and returns the stored epic read
-// back. A workflow that does not load at the base is refused, and nothing is stored.
+// CreateEpic checks the contract with checkEpic, merges its reviewers, resolves its base to the full commit the base
+// names, pins the workflow the request names at that commit, then stores it accepted, with its seed decisions, and
+// returns the stored epic read back. Its review list is the enabled task-stage reviewers, in merged order. A reviewer
+// no layer can hold, or a workflow that does not load at the base, is refused, and nothing is stored.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -80,6 +82,10 @@ func (s *epicService) CreateEpic(
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	contract := req.Msg.GetContract()
+	merged, err := epicReviewers(ctx, contract, getenv)
+	if err != nil {
+		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
+	}
 	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
 	if err != nil {
 		return nil, epicStoreError(fmt.Errorf("resolve base: %w", err))
@@ -89,6 +95,8 @@ func (s *epicService) CreateEpic(
 		return nil, refuseEpic(connect.CodeInvalidArgument, "workflow: "+err.Error())
 	}
 	row := epicRowOf(req.Msg, base, workflow, time.Now())
+	row.Reviewers = merged
+	row.ReviewGates = taskReviewNames(merged)
 	if err = s.epics.CreateEpic(ctx, row); err != nil {
 		if errors.Is(err, store.ErrEpicExists) {
 			return nil, refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already in the database", row.ID))
@@ -470,8 +478,14 @@ func epicStoreError(err error) error {
 	return errors.Join(connect.NewError(connect.CodeInternal, err))
 }
 
+// taskReviewNames returns the names of the reviewers that run at the task stage, in the order of rs: the per-task
+// review list a task's reviews run through.
+func taskReviewNames(rs []reviewers.Reviewer) []string {
+	return epicMap(reviewers.ForStage(rs, reviewers.StageTask), func(rev reviewers.Reviewer) string { return rev.Name })
+}
+
 // epicRowOf returns the store row of the contract req names, based at base, pinned to workflow and accepted at now, with
-// req's decisions as its seeds.
+// req's decisions as its seeds. Its reviewers and review list are the caller's to set.
 func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkflow, now time.Time) store.EpicRow {
 	contract := req.GetContract()
 	return store.EpicRow{
@@ -501,9 +515,8 @@ func epicRowOf(req *v1.CreateEpicRequest, base string, workflow store.EpicWorkfl
 				Item: evidenceItemOf(r.GetItem()),
 			}
 		}),
-		Gates:       epicMap(contract.GetGates(), epicGateOf),
-		DoneGates:   contract.GetDoneGates(),
-		ReviewGates: contract.GetReviewGates(),
+		Gates:     epicMap(contract.GetGates(), epicGateOf),
+		DoneGates: contract.GetDoneGates(),
 		Premises: epicMap(contract.GetPremises(), func(p *v1.EpicPremise) store.EpicPremise {
 			return store.EpicPremise{ID: p.GetId(), Text: p.GetText(), IfWrong: p.GetIfWrong()}
 		}),
@@ -539,8 +552,8 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 }
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
-// paused and parked state with its turns, tasks and questions in order, its branch state, and its pinned workflow. It
-// fails when a task's messages fail.
+// merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
+// and its pinned workflow. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
@@ -553,6 +566,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Created:   row.Created.Unix(),
 		Changed:   row.Changed.Unix(),
 		Decisions: epicMap(row.Decisions, decisionMessage),
+		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
 		Paused:    row.Paused,
 		Parked:    row.Parked,
 		Turns:     epicMap(row.Turns, turnMessage),
@@ -764,7 +778,8 @@ func nodeCheckMessage(check store.NodeCheck) (*v1.EpicNodeCheck, error) {
 	}, nil
 }
 
-// contractMessage returns the EpicContract message of row, every section in order.
+// contractMessage returns the EpicContract message of row, every section in order. Its review gates and reviewers are
+// left empty: the stored epic carries its reviewers, and its review list is derived from them.
 func contractMessage(row store.EpicRow) *v1.EpicContract {
 	return &v1.EpicContract{
 		Id:         row.ID,
@@ -785,9 +800,8 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 				Id: r.ID, Text: r.Text, Evidence: r.Evidence, Kind: r.Kind, Item: requirementItemMessage(r.Item),
 			}
 		}),
-		Gates:       epicMap(row.Gates, epicGateMessage),
-		DoneGates:   row.DoneGates,
-		ReviewGates: row.ReviewGates,
+		Gates:     epicMap(row.Gates, epicGateMessage),
+		DoneGates: row.DoneGates,
 		Premises: epicMap(row.Premises, func(p store.EpicPremise) *v1.EpicPremise {
 			return &v1.EpicPremise{Id: p.ID, Text: p.Text, IfWrong: p.IfWrong}
 		}),
@@ -893,15 +907,17 @@ func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
 	}
 }
 
-// taskFindingMessage returns the EpicTaskFinding message of finding: its id, claim, location and verification.
+// taskFindingMessage returns the EpicTaskFinding message of finding: its id, claim, location, verification, and whether
+// it was settled as confirmed without one.
 func taskFindingMessage(finding store.TaskFinding) *v1.EpicTaskFinding {
 	return &v1.EpicTaskFinding{
-		Id:       finding.ID,
-		Claim:    finding.Claim,
-		Location: finding.Location,
-		Step:     finding.Step,
-		Result:   finding.Result,
-		Reason:   finding.Reason,
+		Id:         finding.ID,
+		Claim:      finding.Claim,
+		Location:   finding.Location,
+		Step:       finding.Step,
+		Result:     finding.Result,
+		Reason:     finding.Reason,
+		Unverified: finding.Unverified,
 	}
 }
 

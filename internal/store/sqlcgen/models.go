@@ -257,6 +257,23 @@ type EpicReviewVerdict struct {
 	Reason   string
 }
 
+type EpicReviewer struct {
+	Epic         string
+	Position     int64
+	Name         string
+	Enabled      int64
+	Stage        string
+	Must         string
+	MustNot      string
+	Prompt       string
+	Agent        string
+	Model        string
+	Tools        string
+	Effort       string
+	LimitSeconds int64
+	Verify       int64
+}
+
 type EpicTask struct {
 	Epic        string
 	Seq         int64
@@ -292,20 +309,21 @@ type EpicTaskFile struct {
 }
 
 type EpicTaskFinding struct {
-	Epic     string
-	Task     int64
-	Attempt  int64
-	Review   int64
-	Position int64
-	ID       string
-	Claim    string
-	Citation string
-	Location string
-	Evidence string
-	VerifyBy string
-	Step     string
-	Result   string
-	Reason   string
+	Epic       string
+	Task       int64
+	Attempt    int64
+	Review     int64
+	Position   int64
+	ID         string
+	Claim      string
+	Citation   string
+	Location   string
+	Evidence   string
+	VerifyBy   string
+	Step       string
+	Result     string
+	Reason     string
+	Unverified int64
 }
 
 type EpicTaskRequirement struct {
@@ -557,6 +575,7 @@ type Step struct {
 	CheckoutHash    string
 	LoopStage       string
 	LoopStageFrom   int64
+	Agents          string
 }
 
 type ToldLimitStep struct {

@@ -112,6 +112,46 @@ func TestAddTaskReviewStoresReviewFindingsAndNextBuild(t *testing.T) {
 	}
 }
 
+func TestAddTaskReviewStoresSettledFindings(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := openBuildStore(ctx, t)
+	if err := s.SetTaskBuild(ctx, buildEpic, 1, store.TaskBuild{}, reviewBuildOf()); err != nil {
+		t.Fatalf("SetTaskBuild: %v", err)
+	}
+
+	// With verify off, the findings of a failed review are stored confirmed and unverified.
+	review := failedReviewOf()
+	for i := range review.Findings {
+		review.Findings[i].Step = "review-1-0"
+		review.Findings[i].Result = "confirmed"
+		review.Findings[i].Reason = "verify is off"
+		review.Findings[i].Unverified = true
+	}
+	if err := s.AddTaskReview(ctx, buildEpic, 1, reviewBuildOf(), verifyBuildOf(), review); err != nil {
+		t.Fatalf("AddTaskReview: %v", err)
+	}
+
+	task := buildTaskOf(ctx, t, s)
+	if want := []store.TaskReview{review}; !reflect.DeepEqual(task.Reviews, want) {
+		t.Errorf("task reviews = %+v, want %+v", task.Reviews, want)
+	}
+
+	// A settled finding has its result, so verifying it again is refused.
+	result := store.TaskFindingResult{
+		Attempt:  1,
+		Review:   0,
+		Position: 0,
+		Step:     "verify-1-0-0",
+		Result:   "dropped",
+		Reason:   "not in a.go",
+	}
+	err := s.SetFindingResult(ctx, buildEpic, 1, verifyBuildOf(), verifiedBuildOf(), result)
+	if !errors.Is(err, store.ErrTaskMoved) {
+		t.Fatalf("SetFindingResult of a settled finding err = %v, want ErrTaskMoved", err)
+	}
+}
+
 func TestAddTaskReviewOnAStaleBuildWritesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

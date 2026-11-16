@@ -121,6 +121,8 @@ func TestParseFileRefusesBadFiles(t *testing.T) {
 			[]string{"pools"}},
 		{"unknown top-level key", "version = 1\n" + file(table("gates.alpha", gateKeys()...)),
 			[]string{"version"}},
+		{"reviewers beside gates", file(table("gates.alpha", gateKeys()...)) + reviewerEntry(),
+			[]string{"reviewers"}},
 	}
 	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {
@@ -163,6 +165,28 @@ func TestParseProjectAcceptsPoolsTables(t *testing.T) {
 	got, err = ParseProject(testPath, []byte(file(table("gates.alpha", gateKeys()...))+pools))
 	if err != nil {
 		t.Fatalf("ParseProject with gates and pools: %v", err)
+	}
+	if want := []Gate{alphaGate()}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseProject = %+v, want %+v", got, want)
+	}
+}
+
+// reviewerEntry is one [[reviewers]] entry, which a project file declares beside its gates and pools.
+func reviewerEntry() string {
+	return `[[reviewers]]
+name = "money_rail_check"
+stage = ["task"]
+model = "sonnet"
+prompt = "Check the money rail."
+must = ["the rail holds"]
+`
+}
+
+func TestParseProjectSkipsReviewersTables(t *testing.T) {
+	pools := table("pools.alpha", `host = "box-a"`, `cap = 2`, `members = ["m1", "m2"]`)
+	got, err := ParseProject(testPath, []byte(file(table("gates.alpha", gateKeys()...))+pools+reviewerEntry()))
+	if err != nil {
+		t.Fatalf("ParseProject with gates, pools and reviewers: %v", err)
 	}
 	if want := []Gate{alphaGate()}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseProject = %+v, want %+v", got, want)
