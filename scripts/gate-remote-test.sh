@@ -523,6 +523,99 @@ expect_line "$root/work2.err" 'here \(no orrery-gate box could come up: the laun
 expect "a failed launch is not retried by the waiting wake" test "$(wc -l <"$root/ec2-up-calls")" -eq 1
 rm -f "$root/ec2-up-fifo" "$root/ec2-up-status"
 
+# Box-side slots. The box's fake just runs $root/just-<recipe>; the fake `just check` says it started, then holds its
+# run until the test writes to the work tree's release FIFO (30 s at most, so a broken test fails instead of hanging).
+cat >"$root/boxbin/just" <<'EOF'
+#!/usr/bin/env bash
+recipe="$1"
+shift
+exec "$FAKE_ROOT/just-$recipe" "$@"
+EOF
+cat >"$root/just-check" <<'EOF'
+#!/usr/bin/env bash
+tree="${PWD##*/}"
+tree="${tree%-*}"
+touch "$FAKE_ROOT/started-$tree"
+timeout 30 cat "$FAKE_ROOT/release-$tree" >/dev/null
+EOF
+chmod +x "$root/boxbin/just" "$root/just-check"
+git -C "$work" worktree add -q "$root/work3"
+mkfifo "$root/release-work" "$root/release-work2"
+echo "orrery@fake-box" >"$root/gate-host"
+export ORRERY_GATE_FULL_SLOTS=1
+
+# check_in <tree>: starts `just check` from the work tree in the background, its output in $root/<tree>.out and .err.
+check_in() {
+    rm -f "$root/started-$1"
+    (cd "$root/$1" && scripts/gate-remote.sh just check) >"$root/$1.out" 2>"$root/$1.err" &
+}
+
+# box_run_pid <tree>: the box-side shell that holds the work tree's slot (its argv[3] is orrery-gate-run and its
+# argv[4] the run's unit), found by its working directory, the work tree's checkout on the box. A subshell it forked
+# carries the same argv until it execs, so only the topmost match counts.
+box_run_pid() {
+    local p checkout
+    local -a found=()
+    checkout="$root/box/gate/$1-$(printf '%s' "$root/$1" | sha256sum | cut -c1-8)"
+    for p in $(pgrep -f 'orrery-gate-run orrery-gate-'); do
+        [ "$(readlink "/proc/$p/cwd" 2>/dev/null)" = "$checkout" ] || continue
+        if awk -v RS='\0' 'NR == 4 && $0 == "orrery-gate-run" { a = 1 } NR == 5 && $0 ~ /^orrery-gate-/ { b = 1 } END { exit !(a && b) }' \
+            "/proc/$p/cmdline" 2>/dev/null; then
+            found+=("$p")
+        fi
+    done
+    for p in "${found[@]}"; do
+        if ! printf '%s\n' "${found[@]}" | grep -qx "$(ps -o ppid= -p "$p" | tr -d ' ')"; then
+            echo "$p"
+        fi
+    done
+}
+
+# With one full-check slot, a second `just check` waits for the first, and its output says it is queued.
+check_in work
+pid_a=$!
+appears "$root/started-work" || fail "the first full check never started"
+check_in work2
+pid_b=$!
+expect_line_eventually() {
+    if appears "$1" "$2"; then pass "$3"; else fail "$3: no line matching '$2' in:"; sed 's/^/    /' "$1" >&2; fi
+}
+expect_line_eventually "$root/work2.err" '^gate-remote: every full-check slot on .* is held \(1\); queued until one is let go$' "a full check that finds every slot held says it is queued"
+expect "a queued full check has not started" test ! -e "$root/started-work2"
+
+# Light checks share their own slots, so one runs while the full-check slot is held.
+rc=0
+(cd "$root/work3" && scripts/gate-remote.sh bash -c 'exit 0') >"$root/work3.out" 2>"$root/work3.err" || rc=$?
+expect_status 0 "a light check runs while every full-check slot is held"
+expect_line "$root/work3.err" '^gate-remote: took light-check slot 1 of [0-9]+ on .* after 0s$' "a light check takes a light-check slot at once"
+expect "the queued full check is still waiting" test ! -e "$root/started-work2"
+
+# The holder's run ends: the queued run takes the slot.
+echo released >"$root/release-work"
+rc=0
+wait "$pid_a" || rc=$?
+expect "the first full check ends with its status" test "$rc" -eq 0
+expect "the queued full check starts once the slot is let go" appears "$root/started-work2"
+expect_line "$root/work2.err" '^gate-remote: took full-check slot 1 of 1 on .* after [0-9]+s$' "a queued full check says when it took its slot"
+expect_line "$root/work.err" '^gate-remote: took full-check slot 1 of 1 on .* after 0s$' "a full check with a free slot takes it at once"
+
+# The holder dies (SIGKILL, no cleanup): the queued run takes the slot all the same.
+check_in work
+pid_a=$!
+expect_line_eventually "$root/work.err" 'queued until one is let go$' "a full check queues behind the holder"
+holder="$(box_run_pid work2)"
+expect "the holder's box-side shell is found" test -n "$holder"
+[ -z "$holder" ] || kill -KILL "$holder"
+expect "a dead holder lets the queued full check start" appears "$root/started-work"
+echo released >"$root/release-work2"
+echo released >"$root/release-work"
+wait "$pid_b" || true
+rc=0
+wait "$pid_a" || rc=$?
+expect "the full check that waited on a dead holder ends with its status" test "$rc" -eq 0
+expect "no slot waiter outlives the waits" test -z "$(pgrep -f "$root/box/gate/slots/full-" || true)"
+unset ORRERY_GATE_FULL_SLOTS
+
 if [ "$failures" -ne 0 ]; then
     echo "gate-remote-test: $failures failed" >&2
     exit 1
