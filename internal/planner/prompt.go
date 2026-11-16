@@ -1,4 +1,3 @@
-// Package planner decides an epic's next tasks (O3c1).
 package planner
 
 import (

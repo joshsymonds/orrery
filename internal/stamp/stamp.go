@@ -1,4 +1,5 @@
-// Package stamp finds the context stamp that a folder inherits from its settings files.
+// Package stamp finds the context stamp that a folder inherits: the env of the nearest folder whose .claude settings
+// file sets the Anthropic base URL.
 package stamp
 
 import (

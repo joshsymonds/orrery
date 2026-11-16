@@ -1,4 +1,4 @@
-// Package stepmcp exposes the orrery step commands as MCP tools.
+// Package stepmcp exposes the orrery step, epic and evidence commands as MCP tools.
 package stepmcp
 
 import (

@@ -1,4 +1,5 @@
-// Package route routes waiting and done notices to the desk and the phone, and logs each ping and silence.
+// Package route decides where each waiting and done notice goes (the desk, open web pages, the phone, or nowhere), logs
+// each ping and silence, and restores the pending notices from their stored rows after a restart.
 package route
 
 import (

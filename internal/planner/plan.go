@@ -1,4 +1,6 @@
-// Package planner decides an epic's next tasks (O3c1).
+// Package planner runs an epic's planner turns. It claims an epic with pending triggers that is neither paused, parked
+// nor running, checks the plan each turn returns against the epic's Requirements, gates and judges, and tells the owner
+// when an epic needs them.
 package planner
 
 import (

@@ -1,4 +1,6 @@
-// Package store owns orreryd's SQLite store: its path, its private file modes and its embedded migrations.
+// Package store owns orreryd's SQLite store: the file and its connection (its path, its private file modes, WAL mode
+// and embedded migrations), and the reads and writes of its tables, among them epics, node runs, reviews, steps and
+// notices.
 package store
 
 import (

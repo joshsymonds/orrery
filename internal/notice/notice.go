@@ -1,4 +1,6 @@
-// Package notice records the Web Push notices orreryd sent and sends a clear when a pane or session is seen.
+// Package notice records the Web Push notices orreryd sent: the time each key was last noticed, kept in the store
+// once Attach gives it rows. It sends a clear when the pane, session, epic, usage limit or alert that a notice belongs
+// to is seen.
 package notice
 
 import (

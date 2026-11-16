@@ -1,4 +1,4 @@
-// Package keymap holds the one table of key bindings that the tree, its overlays, the help output and the tmux
+// Package keymap holds the one table of key bindings that the tree and its help card, the help output and the tmux
 // configuration read.
 package keymap
 

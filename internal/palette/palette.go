@@ -1,5 +1,5 @@
 // Package palette holds the Catppuccin Mocha colors orrery draws with and the helpers that color text for tmux
-// formats and for terminals. It is the only place the hex values live.
+// formats and for terminals. It is the only place in the Go code the hex values live.
 package palette
 
 import (

@@ -1,4 +1,5 @@
-// Package push holds the registration store for Web Push subscriptions and encrypts payloads for them.
+// Package push holds the registration store for Web Push subscriptions, and publishes notifications to them: each one
+// is encrypted for every stored subscription and POSTed to that subscription's endpoint.
 package push
 
 import (

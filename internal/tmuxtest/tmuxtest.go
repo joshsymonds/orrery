@@ -1,4 +1,5 @@
-// Package tmuxtest gives test files one way to find and stop the tmux servers they start. It is imported only by tests.
+// Package tmuxtest gives test files one way to find and stop the tmux servers they start, and Reaper reaps the ones
+// whose test binary has gone. Only tests and the tmuxreap command import it.
 package tmuxtest
 
 import (

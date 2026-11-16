@@ -1,6 +1,6 @@
 // Package pools reads pool files: TOML files that name the pools a machine offers, their members, and the commands
-// that wake, status, and admit those members. Parse reads one file; Merge joins several and refuses a pool or a
-// member defined twice.
+// that wake, status, and admit those members. Parse reads one file; Merge joins several and refuses a pool defined two
+// ways, or a member in two pools.
 package pools
 
 import (

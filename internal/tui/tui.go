@@ -1,4 +1,5 @@
-// Package tui shows the pane tree and the selected pane's preview in a terminal.
+// Package tui shows the pane tree and the selected pane's preview in a terminal, with overlays for the pools, the help
+// card and the close prompt.
 package tui
 
 import (

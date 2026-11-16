@@ -1,4 +1,6 @@
-// Package server holds the loopback listener and request guard for the orrery HTTP surface.
+// Package server serves orreryd's HTTP surface on a loopback listener: the Connect services and the web page, behind a
+// login check that admits only the Tailscale logins it is given, and a guard that refuses a Connect call lacking the
+// client header or, for a POST, a Connect content type.
 package server
 
 import (
