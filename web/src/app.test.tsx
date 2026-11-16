@@ -980,7 +980,11 @@ test("a row shows its tag, label, project's last path element, age, and reply te
     assert.equal(element.querySelector(".proj")?.textContent, "api");
     assert.equal(element.querySelector(".age")?.textContent, "11m");
     assert.equal(element.querySelector(".ty")?.textContent, "QUESTION");
-    assert.equal(element.querySelector(".l2")?.textContent, "Ship it?", "the question replaces the summary");
+    assert.equal(
+      element.querySelector(".l2")?.textContent,
+      "api asks: Ship it?",
+      "the need's sentence replaces the summary",
+    );
   }));
 
 // stateRows has a row in each state a row can carry, one waiting with a question, one without, and two seen.
@@ -2246,7 +2250,7 @@ test("a waiting pane row shows its question's text, never its raw JSON, and a bu
   withApp({ rows: [askRow] }, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
-    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Which fruit?");
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "api asks: Which fruit?");
     await until(() => container.querySelector(".question-card") !== null, "the question card");
     const reader = container.querySelector(".reader")?.textContent ?? "";
     assert.ok(reader.includes("Which fruit?"));
@@ -2510,6 +2514,152 @@ test("the Epics group follows Needs you, and an epic reads its state and count, 
     assert.equal(unknown.querySelector("svg") === null, true, "no orrery is drawn without detail");
   });
 });
+
+// needSentences is the sentence each need the Needs you section draws, in order.
+function needSentences(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".need-entry .need-text")].map((text) => text.textContent ?? "");
+}
+
+// needButtons is the text of each button the Needs you section's needs draw, in order.
+function needButtons(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".need-entry button")].map((button) => button.textContent ?? "");
+}
+
+// clickNeed clicks the sentence of the need that reads sentence, which the section must draw.
+async function clickNeed(container: HTMLElement, sentence: string): Promise<void> {
+  const target = [...container.querySelectorAll<HTMLElement>(".need-entry .need-text")].find(
+    (text) => text.textContent === sentence,
+  );
+  assert.ok(target !== undefined, `a need reads ${sentence}`);
+  await act(() => {
+    target.dispatchEvent(clickEvent());
+  });
+}
+
+test("Needs you reads each need as a sentence: a waiting row's, an open question's with its form, and a park's with Retry", () => {
+  const asking = makeEpic(widgetsRepo, "first");
+  const parked = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView(
+    [asking, parked],
+    new Map([
+      [asking.id, create(EpicsGetResponseSchema, { epic: asking, questions: [{ id: "Q1", text: "Which way?" }] })],
+      [parked.id, create(EpicsGetResponseSchema, { epic: parked, parked: "a lock is held" })],
+    ]),
+  );
+  return withApp({ epics }, (container) => {
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "api asks: Ship it?");
+    assert.deepEqual(needSentences(container), ["first asks: Which way?", "second is parked: a lock is held"]);
+    assert.deepEqual(needButtons(container), ["Answer", "Retry"]);
+    assert.equal(
+      sectionOf(container, "Needs you").querySelector(".b-sec i")?.textContent,
+      "3",
+      "the head counts row and needs",
+    );
+  });
+});
+
+test("Needs you draws a failed release step with Retry and Stop… bound to its epic, and an unknown need in its own words", () => {
+  const releasing = makeEpic(widgetsRepo, "shipping");
+  const held = makeEpic(gadgetsRepo, "holding");
+  const epics = epicsView(
+    [releasing, held],
+    new Map([
+      [
+        releasing.id,
+        create(EpicsGetResponseSchema, {
+          epic: releasing,
+          parked: "release stopped",
+          releaseSteps: [{ position: 2n, step: "publish", state: "failed", reason: "registry 503" }],
+        }),
+      ],
+      [
+        held.id,
+        create(EpicsGetResponseSchema, {
+          epic: held,
+          steps: [{ id: "s1", task: "build", held: true, started: 100n }],
+        }),
+      ],
+    ]),
+  );
+  return withApp({ epics }, async (container, fake) => {
+    assert.deepEqual(needSentences(container), [
+      "shipping: release step 2 (publish) failed: registry 503",
+      "holding: build held",
+    ]);
+    assert.deepEqual(needButtons(container), ["Retry", "Stop…"], "the unknown need draws no button");
+    await clickButton(container, ".need-entry", "Retry");
+    await until(() => fake.callsTo(retryEpicPath).length === 1, "the Retry call");
+    assert.equal(fake.callsTo(retryEpicPath)[0].body.id, releasing.id);
+    await clickButton(container, ".need-entry", "Stop…");
+    await clickButton(container, ".need-entry", "Stop shipping");
+    await until(() => fake.callsTo(stopEpicPath).length === 1, "the Stop call");
+    assert.equal(fake.callsTo(stopEpicPath)[0].body.id, releasing.id);
+  });
+});
+
+test("answering an open question in Needs you sends Epics.Answer with its epic and question", () => {
+  const epic = makeEpic(widgetsRepo, "first");
+  const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ epics }, async (container, fake) => {
+    const box = container.querySelector<HTMLTextAreaElement>('.need-entry textarea[aria-label="answer"]');
+    assert.ok(box, "the question's need shows its answer box");
+    await typeInto(box, " north ");
+    await submitIn(container, ".need-entry form.answer");
+    await until(() => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
+    const body = fake.callsTo(answerEpicPath)[0].body;
+    assert.equal(body.epicId, epic.id);
+    assert.equal(body.text, "north", "the answer is sent trimmed");
+    assert.equal(body.question, "Q1");
+  });
+});
+
+test("with no waiting row, the epic needs alone make the Needs you section, first in the list", () => {
+  const epic = makeEpic(widgetsRepo, "first");
+  const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ rows: fixture().slice(1), epics }, (container) => {
+    assert.deepEqual(sectionTitles(container), ["Needs you", "Epics", "New since you looked", "Working", "Seen"]);
+    assert.equal(sectionOf(container, "Needs you").querySelector(".b-sec i")?.textContent, "1");
+    assert.equal(sectionOf(container, "Needs you").querySelector(".b-sec")?.getAttribute("class"), "b-sec need");
+    assert.deepEqual(needSentences(container), ["first asks: Which way?"]);
+  });
+});
+
+test("a click on an epic need's sentence moves the cursor to that epic's entry", () => {
+  const epic = makeEpic(widgetsRepo, "first");
+  const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ epics }, async (container) => {
+    assert.equal(cursorKey(container), "a");
+    await clickNeed(container, "first asks: Which way?");
+    assert.equal(cursorKey(container), epicKey(epic));
+  });
+});
+
+test("a click on the need of a folded epic opens the folded line and moves the cursor to that epic", () => {
+  const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic(widgetsRepo, slug));
+  const seventh = quiet[6];
+  const detail = create(EpicsGetResponseSchema, { epic: seventh, questions: [{ id: "Q1", text: "Which way?" }] });
+  const epics = epicsView(quiet, new Map([[seventh.id, detail]]));
+  return withApp({ epics }, async (container) => {
+    assert.equal(rowKeys(container).includes(epicKey(seventh)), false, "the folded line starts closed");
+    await clickNeed(container, "g asks: Which way?");
+    assert.equal(cursorKey(container), epicKey(seventh));
+    assert.equal(rowKeys(container).includes(epicKey(seventh)), true, "the folded line opened");
+  });
+});
+
+test("a waiting row with no question says in its second line that it waits on you, and its summary is the why", () =>
+  withApp(
+    {
+      rows: [row({ key: "w", label: "web", state: "waiting", summary: "build green", changed: 300, seen: 300 })],
+    },
+    (container) => {
+      assert.equal(rowElement(container, "w").querySelector(".l2")?.textContent, "web waits on you");
+      assert.equal(rowElement(container, "w").querySelector(".why")?.textContent, "build green");
+    },
+  ));
 
 test("an epic with an open question draws its blocker in the list, with the time it has waited", () => {
   const epic = makeEpic(widgetsRepo, "asking");

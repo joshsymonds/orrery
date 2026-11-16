@@ -26,12 +26,14 @@ import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { Mark } from "./mark";
 import { MetersButton, MetersPanel } from "./meters";
+import { NeedEntry } from "./needentry";
+import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
-import { byAttention, byProject, type Row } from "./rows";
+import { byAttention, byProject, type Row, type Section } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
@@ -250,9 +252,13 @@ export function App({
   // the seen epics are drawn in place, so none is kept and the cursor walks them in their drawn order.
   const cursorEpicId = endedOpen ? "" : (epics.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
   const kept = keepUnderCursor(epics, cursorEpicId);
+  // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
+  // the live epics. Only the attention view has the Needs you section that draws them.
+  const detailEpics = [...epics.details.values()].flatMap((detail) => (detail.epic === undefined ? [] : [detail.epic]));
+  const needs = view === "attention" ? epicNeeds(detailEpics, epics.details) : [];
   const sections =
     view === "attention"
-      ? withEpicsGroup(byAttention(matching), kept)
+      ? withEpicsGroup(withNeedsSection(byAttention(matching), needs.length > 0), kept)
       : placeEpics(byProject(matching), kept.blocks);
   const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, foldedOpen, endedOpen));
   const index = resolveIndex(flat, cursor);
@@ -534,6 +540,18 @@ export function App({
   // selectItem moves the cursor to an entry the list shows, as a click on that entry does.
   const selectItem = (item: Item) => {
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
+  };
+
+  // openEpic moves the cursor to an epic's entry, first opening the accepted or folded line that holds it when that
+  // line is shut. The entry is then in the list, so the cursor rests on it.
+  const openEpic = (id: string) => {
+    if (epics.waiting.some((item) => item.id === id)) {
+      setWaitingOpen(true);
+    }
+    if (epics.folded.some((item) => item.id === id)) {
+      setFoldedOpen(true);
+    }
+    setCursor({ key: `epic:${id}`, index: shownIndex });
   };
 
   // openNotice counts a notice seen and moves the cursor to the entry its key names, when the list shows it. A failed
@@ -836,7 +854,7 @@ export function App({
               <div class="section">
                 <div class={sectionClass(section.title)}>
                   <span class="title">{sectionTitle(section)}</span>
-                  <i>{section.count}</i>
+                  <i>{section.title === needsYouTitle ? section.count + needs.length : section.count}</i>
                 </div>
                 {section.epics.map((block) => (
                   <Fragment key={block.epic.key}>
@@ -930,14 +948,13 @@ export function App({
                         <span class="age">{ageText(item.changed, now)}</span>
                       </div>
                       <div class={item.unseen ? "l2" : "l2 one"}>
-                        <ReplyText
-                          text={
-                            item.state === stateWaiting && item.question !== ""
-                              ? parseQuestion(item.question).title
-                              : item.summary
-                          }
-                        />
+                        <ReplyText text={item.state === stateWaiting ? rowNeed(item).text : item.summary} />
                       </div>
+                      {item.state === stateWaiting && item.summary !== "" && (
+                        <div class="l2 one why">
+                          <ReplyText text={item.summary} />
+                        </div>
+                      )}
                       <RowOptions
                         row={item}
                         conversation={heldConversation(item.key)}
@@ -946,6 +963,16 @@ export function App({
                     </div>
                   </div>
                 ))}
+                {section.title === needsYouTitle &&
+                  needs.map((need) => (
+                    <NeedEntry
+                      key={`${need.kind}:${need.epic}:${need.question}`}
+                      need={need}
+                      slug={epics.details.get(need.epic)?.epic?.slug ?? ""}
+                      commands={epicCommands(clients, need.epic, setCommandError)}
+                      onOpen={() => openEpic(need.epic)}
+                    />
+                  ))}
                 {section.folded.length > 0 && (
                   <div class="b-more" onClick={() => setFoldedOpen((value) => !value)}>
                     {`${section.folded.length} folded`}
@@ -1372,6 +1399,15 @@ function sectionTitle(section: EpicSection): string {
     return section.title;
   }
   return section.rows[0]?.host || noDirectoryTitle;
+}
+
+// withNeedsSection adds a Needs you section first when epic needs call for one and no waiting row has made it. Its rows
+// are none; the epic needs draw in it.
+function withNeedsSection(sections: Section[], hasNeeds: boolean): Section[] {
+  if (!hasNeeds || sections.some((section) => section.title === needsYouTitle)) {
+    return sections;
+  }
+  return [{ title: needsYouTitle, rows: [] }, ...sections];
 }
 
 // sectionClass marks the two heads that ask for a look: Needs you, and New since you looked.
