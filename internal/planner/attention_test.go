@@ -105,6 +105,18 @@ func askingTurn() store.EpicPlan {
 	}
 }
 
+// askingBody is the body of the notice askingTurn sends: each question's head, then its advice lines.
+const askingBody = `Q1 which-store: which store?
+  first: Synthetic first choice.
+  second: Synthetic second choice.
+  other: answer in your own words
+  recommended: first (medium): Synthetic reason.
+Q2 which-tick: which tick?
+  first: Synthetic first choice.
+  second: Synthetic second choice.
+  other: answer in your own words
+  recommended: first (medium): Synthetic reason.`
+
 func TestAttentionSendsOneNoticeForTheQuestionsOfATurn(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -122,9 +134,9 @@ func TestAttentionSendsOneNoticeForTheQuestionsOfATurn(t *testing.T) {
 	want := shown{
 		key:   notice.Key{Epic: runnerEpicID},
 		state: "waiting",
-		desk:  deskstream.Notice{State: "waiting", Title: runnerEpicID, Body: "Q1: which store?\nQ2: which tick?"},
+		desk:  deskstream.Notice{State: "waiting", Title: runnerEpicID, Body: askingBody},
 		push: push.Notification{
-			Project: "Plan the runner", State: protocol.StateWaiting, Summary: "Q1: which store?\nQ2: which tick?",
+			Project: "Plan the runner", State: protocol.StateWaiting, Summary: askingBody,
 		},
 	}
 	if len(router.notices) != 1 {
@@ -141,6 +153,14 @@ func TestAttentionSendsOneNoticeForTheQuestionsOfATurn(t *testing.T) {
 	}
 }
 
+// creditParkBody is the body of the notice of a park for credit ran out whose question is not final: the reason, then
+// the park question's head and its retry advice.
+const creditParkBody = `parked: credit ran out
+Q1 park:
+  retry: end the park and start a turn on the waiting triggers, as orrery epic retry does
+  other: answer in your own words
+  recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers`
+
 func TestAttentionSendsTheReasonOfAPark(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -153,14 +173,21 @@ func TestAttentionSendsTheReasonOfAPark(t *testing.T) {
 		t.Fatalf("FreeTurn: %v", err)
 	}
 	router := &fakeAttentionRouter{}
+	attention := attentionOver(s, router)
 
-	attentionOver(s, router).pass(ctx)
+	attention.pass(ctx)
 
 	if len(router.notices) != 1 {
 		t.Fatalf("notices after one pass = %d, want exactly one", len(router.notices))
 	}
-	if got := shownOf(t, router.notices[0]).push.Summary; got != "parked: credit ran out" {
-		t.Errorf("park notice summary = %q, want %q", got, "parked: credit ran out")
+	if got := shownOf(t, router.notices[0]).desk.Body; got != creditParkBody {
+		t.Errorf("park notice body = %q, want %q", got, creditParkBody)
+	}
+
+	attention.pass(ctx)
+
+	if n := len(router.notices); n != 1 {
+		t.Errorf("notices after a second pass = %d, want still one", n)
 	}
 }
 
@@ -272,5 +299,33 @@ func TestRestoreNoticeRebuildsTheNoticeAttentionSent(t *testing.T) {
 	}
 	if got, want := shownOf(t, restored), shownOf(t, sent); got != want {
 		t.Errorf("restored notice = %+v, want the sent notice %+v", got, want)
+	}
+}
+
+func TestAttentionBodyShowsAnUnlabelledQuestionAsItsTextAndOtherOnly(t *testing.T) {
+	t.Parallel()
+	entry := store.EpicAttention{Open: []store.EpicQuestion{{
+		Seq: 3, Turn: 1, Text: "an old question", State: store.QuestionOpen,
+	}}}
+
+	want := "Q3: an old question\n  other: answer in your own words"
+	if got := bodyOf(needQuestions, entry); got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
+func TestAttentionBodyOfAFinalParkShowsOnlyOther(t *testing.T) {
+	t.Parallel()
+	entry := store.EpicAttention{
+		Parked: "budget spent",
+		Open: []store.EpicQuestion{{
+			Seq: 4, Turn: 0, Text: "budget spent", State: store.QuestionOpen, Label: store.ParkLabel,
+			Choices: []store.EpicChoice{},
+		}},
+	}
+
+	want := "parked: budget spent\nQ4 park:\n  other: answer in your own words"
+	if got := bodyOf(needPark, entry); got != want {
+		t.Errorf("body = %q, want %q", got, want)
 	}
 }

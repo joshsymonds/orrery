@@ -52,13 +52,14 @@ type TaskFindingResult struct {
 	Step, Result, Reason      string
 }
 
-// EpicTell is one tell an epic holds for its owner: its seq, its text, when it was written, and whether the owner
-// has been told it.
+// EpicTell is one tell an epic holds for its owner: its seq, its text, when it was written, whether the owner has been
+// told it, and the question it belongs to, nil when it belongs to none.
 type EpicTell struct {
-	Seq  int64
-	Text string
-	At   time.Time
-	Told bool
+	Seq      int64
+	Text     string
+	At       time.Time
+	Told     bool
+	Question *EpicQuestion
 }
 
 // buildOf returns the build state a stored task row holds.
