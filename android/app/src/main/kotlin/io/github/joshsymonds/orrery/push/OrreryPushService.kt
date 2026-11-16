@@ -79,6 +79,8 @@ class OrreryPushService : PushService() {
                 epic = json.optString("epic"),
                 limit = json.optString("limit"),
                 alert = json.optString("alert"),
+                block = json.optString("block"),
+                blockRef = json.optString("block_ref"),
                 time = optDecimal(json.optString("time")),
                 silent = json.opt("silent") == SILENT_TRUE,
             )

@@ -36,6 +36,8 @@ data class PushEvent(
     val epic: String = "",
     val limit: String = "",
     val alert: String = "",
+    val block: String = "",
+    val blockRef: String = "",
     val time: Long = 0L,
     val silent: Boolean = false,
 )
@@ -116,7 +118,11 @@ class PushNotifier(private val context: Context) {
     private fun contentIntent(event: PushEvent, tag: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
         when {
-            event.epic.isNotEmpty() -> intent.putExtra(EXTRA_EPIC, event.epic)
+            event.epic.isNotEmpty() -> {
+                intent.putExtra(EXTRA_EPIC, event.epic)
+                if (event.block.isNotEmpty()) intent.putExtra(EXTRA_BLOCK, event.block)
+                if (event.blockRef.isNotEmpty()) intent.putExtra(EXTRA_BLOCK_REF, event.blockRef)
+            }
             event.session.isNotEmpty() -> intent.putExtra(EXTRA_SESSION, event.session)
             event.pane.isNotEmpty() -> intent.putExtra(EXTRA_PANE, event.pane)
         }
@@ -173,6 +179,8 @@ class PushNotifier(private val context: Context) {
         const val EXTRA_PANE = "io.github.joshsymonds.orrery.extra.PANE"
         const val EXTRA_SESSION = "io.github.joshsymonds.orrery.extra.SESSION"
         const val EXTRA_EPIC = "io.github.joshsymonds.orrery.extra.EPIC"
+        const val EXTRA_BLOCK = "io.github.joshsymonds.orrery.extra.BLOCK"
+        const val EXTRA_BLOCK_REF = "io.github.joshsymonds.orrery.extra.BLOCK_REF"
         const val EXTRA_KEY = "io.github.joshsymonds.orrery.extra.KEY"
         const val EXTRA_QUESTION_HASH = "io.github.joshsymonds.orrery.extra.QUESTION_HASH"
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"

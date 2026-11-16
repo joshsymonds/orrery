@@ -5,10 +5,13 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_BLOCK
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_BLOCK_REF
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_EPIC
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -94,6 +97,28 @@ class OrreryPushServiceEpicTest {
         push(notice)
 
         assertEquals(epic, shadowOf(posted().contentIntent).savedIntent.getStringExtra(EXTRA_EPIC))
+    }
+
+    @Test
+    fun epicNoticeTapIntentCarriesBlockBesideEpic() {
+        push(notice)
+
+        val intent = shadowOf(posted().contentIntent).savedIntent
+        assertEquals("question", intent.getStringExtra(EXTRA_BLOCK))
+        assertEquals("Q1", intent.getStringExtra(EXTRA_BLOCK_REF))
+    }
+
+    @Test
+    fun epicNoticeWithoutBlockKeysCarriesNoBlockExtras() {
+        val withoutBlock = JSONObject(notice.toString())
+        withoutBlock.remove("block")
+        withoutBlock.remove("block_ref")
+
+        push(withoutBlock)
+
+        val intent = shadowOf(posted().contentIntent).savedIntent
+        assertFalse(intent.hasExtra(EXTRA_BLOCK))
+        assertFalse(intent.hasExtra(EXTRA_BLOCK_REF))
     }
 
     @Test
