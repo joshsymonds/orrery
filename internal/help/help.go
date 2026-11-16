@@ -1,4 +1,6 @@
-// Package help renders the one-screen help card and the static help page from the keymap table.
+// Package help renders the one-screen help card and the static help page. The tmux and tree rows come from the
+// keymap table; the p and kitty rows are written here, and the tmux prefix in the tmux heading is read from the tmux
+// server.
 package help
 
 import (

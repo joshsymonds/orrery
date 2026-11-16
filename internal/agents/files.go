@@ -1,4 +1,7 @@
-// Package agents reads the agents that Claude Code's user, project and managed agents directories define.
+// Package agents resolves --agent names the way Claude Code does. Resolve returns nil when Claude Code 2.1.321 resolves
+// a name: a built-in agent, an agent that the project, user or managed agent folders define, or an agent of an enabled
+// plugin. Otherwise it returns an error wrapping ErrUnresolved that names each place checked. The package reads those
+// agent files, the settings files and the installed plugins to decide.
 package agents
 
 import (

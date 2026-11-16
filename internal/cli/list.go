@@ -1,4 +1,7 @@
-// Package cli implements the orrery subcommands.
+// Package cli holds the handlers of the orrery subcommands that act on panes, sessions and notices: list and panes,
+// pull of queued input, send and seen, session with its watch and HTTP client, notices, pool status, events, and run
+// with a grant. They reach the tmux server, orreryd's sockets or a serve URL, and the package owns their error values
+// and exit statuses.
 package cli
 
 import (

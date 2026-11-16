@@ -1,5 +1,7 @@
-// Command orrery is the orrery CLI. It parses the global flags and dispatches each subcommand to its
-// internal package.
+// Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit
+// codes, and the handler of each subcommand. The handlers cover serve, desk, mcp, epic, run, gate, evidence, hold,
+// step, holder and session, and the tmux commands open, list, seen, send, debug, shell and tree, which act on the
+// tmux server the global flags name.
 package main
 
 import (

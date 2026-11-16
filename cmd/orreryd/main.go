@@ -1,5 +1,7 @@
 // Command orreryd is the orrery daemon. It listens on a unix socket for hook frames, applies each one to the pane
-// it names, starts summaries, and routes waiting and done notifications to the desk stream and Web Push.
+// it names, starts summaries, and routes waiting and done notifications to the desk stream and Web Push. With
+// --sessions it also serves the engine session socket: the enginehost Manager, Steps, Writer, pools and evidence,
+// and the planner and build runners. With --metrics-listen it serves /metrics and POST /alerts on that address.
 package main
 
 import (

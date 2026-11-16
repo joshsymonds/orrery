@@ -1,4 +1,9 @@
-// Package conversation reads the newest items of a Claude Code session transcript.
+// Package conversation parses Claude Code session transcripts into Items and Conversations. Read and ReadEnd return a
+// transcript's opening prompt, its newest items and its Context figure, and Since returns a Follow of the items
+// appended from an offset. Goals, Newest and Queues each remember how far they have read a transcript, so a later call
+// reads only the bytes appended since, and report its active goal, newest reply time and waiting messages.
+// ReplayQueues returns the QueueReplay counts of queue rows over a set of transcripts, and ReadTail reads a
+// transcript's complete lines backward from its end.
 package conversation
 
 import (

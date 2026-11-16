@@ -1,5 +1,6 @@
-// Package enginehost runs headless engine sessions. Its Writer is the one goroutine that stores every session's
-// engine ops, so sessions never hold the store's or the pane mirror's locks.
+// Package enginehost runs headless engine sessions for orreryd. Manager starts, resumes, answers and stops them, and
+// Serve answers the engine, steps, epics, pools, evidence and notices RPCs that drive them. Writer is the one goroutine
+// that stores the engine ops every session queues on it.
 package enginehost
 
 import (

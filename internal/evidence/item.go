@@ -1,4 +1,4 @@
-// Package evidence holds the evidence item a Requirement or task names, and how a run of it passes (O3d2).
+// Package evidence holds the evidence item a Requirement or task names, and how a run of it passes.
 package evidence
 
 import (

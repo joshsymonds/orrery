@@ -1,4 +1,5 @@
-// Package desk shows desktop notices and plays their sound on the desk.
+// Package desk shows desktop notices and plays their sound on the desk. Link keeps open the notice stream of a host,
+// reads each line it sends, and hands each notice to Notify; Popup shows one notice with its sound.
 package desk
 
 import (

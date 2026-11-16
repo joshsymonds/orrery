@@ -1,5 +1,5 @@
 // Package build runs each planned task of an epic: red at its base, one implementer, green at its commit and the
-// epic's review gates (O3d3).
+// epic's review gates.
 package build
 
 import (

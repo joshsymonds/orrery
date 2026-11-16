@@ -1,6 +1,5 @@
-// Package compose composes a batch of accepted task commits into one candidate commit (O3d4 E4): one commit per task
-// on the batch base, pinned create-only under refs/orrery/, and an epic branch moved only from the commit it is
-// expected at.
+// Package compose composes a batch of accepted task commits into one candidate commit: one commit per task on the
+// batch base, pinned create-only under refs/orrery/, and an epic branch moved only from the commit it is expected at.
 package compose
 
 import (

@@ -1,6 +1,9 @@
-// Package grants decides which waiting requests are granted members of pools, and which members to wake for the
-// requests that are not yet covered. Plan is a pure function: it reads the pools and the waiting requests and returns
-// a Decision, with no I/O, goroutines, or clock.
+// Package grants owns the grant broker of a host: the queue of requests waiting for members of pools, the grants that
+// hold members, the state of each member, the owner holds, and the store that Restore reloads them from. Broker.Run
+// reads each member's status on each tick, RunCommand runs the member commands without a shell, and Status reports
+// the pools in use and the holds. Plan decides which waiting requests are granted members of pools, and which members
+// to wake for the requests that are not yet covered. Plan is a pure function: it reads the pools and the waiting
+// requests and returns a Decision, with no I/O, goroutines, or clock.
 package grants
 
 import "slices"
