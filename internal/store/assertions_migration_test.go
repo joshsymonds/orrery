@@ -3,29 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
-	"io/fs"
 	"path/filepath"
 	"reflect"
 	"testing"
 
-	"github.com/pressly/goose/v3"
-
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
-
-// assertionsProvider returns the goose provider over the embedded migrations, for the Down and Up of a store's tests.
-func assertionsProvider(t *testing.T, db *sql.DB) *goose.Provider {
-	t.Helper()
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-	return provider
-}
 
 // textOf returns the text the query returns as its only value.
 func textOf(t *testing.T, db *sql.DB, query string, args ...any) string {
@@ -331,7 +314,7 @@ func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
 		t.Fatalf("stored kinds before Down = %d, want 4: the requirement, both tasks and the run spec", kinds)
 	}
 
-	provider := assertionsProvider(t, s.db.DB)
+	provider := migrationProvider(t, s.db.DB)
 	if _, err := provider.DownTo(ctx, 36); err != nil {
 		t.Fatalf("DownTo 36: %v", err)
 	}

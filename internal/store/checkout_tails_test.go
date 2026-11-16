@@ -2,11 +2,8 @@ package store
 
 import (
 	"context"
-	"io/fs"
 	"reflect"
 	"testing"
-
-	"github.com/pressly/goose/v3"
 )
 
 // TestStepAddStoresCheckoutBeforeState reads back the checkout head and hash a StepAdd carries, on GetStep's row.
@@ -109,18 +106,9 @@ func TestRecordEvidenceCaptureStoresStderrBesideLog(t *testing.T) {
 func TestCheckoutTailsMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openSyncStore(t)
+	s, provider := storeAtVersion(t, 23)
 	stepColumns := []string{"checkout_head", "checkout_hash"}
 	runColumns := []string{"stderr_hash", "stderr_bytes"}
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
 
 	if _, err := provider.DownTo(ctx, 22); err != nil {
 		t.Fatalf("DownTo 22: %v", err)

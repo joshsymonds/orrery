@@ -172,12 +172,8 @@ func seedEpic(t *testing.T, db *sql.DB) {
 
 func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
+	// The migrated image is the file Open makes of a fresh path, so the store opened from it is a fresh Open's.
+	s := openEpicStore(t)
 
 	tables := tableNames(t, s)
 	columns := epicTableColumns()
@@ -202,16 +198,7 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 func TestReviewersMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openSyncStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
+	s, provider := storeAtVersion(t, 35)
 
 	if _, err := provider.DownTo(ctx, 34); err != nil {
 		t.Fatalf("DownTo 34: %v", err)
@@ -245,11 +232,8 @@ func TestReviewersMigrationDownAndUp(t *testing.T) {
 func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
+	// The migrated image is the file Open makes of a fresh path, so the store opened from it is a fresh Open's.
+	s := openEpicStore(t)
 
 	added := []struct {
 		table, column, typ, dflt string
@@ -642,26 +626,17 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 
 // TestEvidenceMigrationDownAndUp removes the epic gate tables, the base and item columns, and the task gate and evidence
 // with the Down of 00020_evidence.sql, and Up restores them. The task it stores with an evidence item reads its
-// conclusion back as task_check after the Down. The walk down to 19 is shared by both reads, since it is the slow part.
+// conclusion back as task_check after the Down.
 func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openEpicStore(t)
+	s, provider := storeAtVersion(t, 20)
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks
 		(epic, seq, turn, title, deliverable, status, gate, evidence)
 		VALUES ('orrery-0123456/epic-one', 1, 1, 'Build it', 'the down', 'open', 'check',
 		'{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,"conclusion":"go test ./restored",
 		"judge":"a judge"}')`); err != nil {
 		t.Fatalf("insert task: %v", err)
-	}
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
 	}
 
 	if _, err := provider.DownTo(ctx, 19); err != nil {
@@ -718,19 +693,10 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 func TestTaskBuildMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openEpicStore(t)
+	s, provider := storeAtVersion(t, 21)
 	buildColumns := []string{
 		"stage", "base", "attempt", "rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision",
 		"failure", "review", "refs", "gate_pos", "finding_pos",
-	}
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
 	}
 
 	if _, err := provider.DownTo(ctx, 20); err != nil {
@@ -769,17 +735,8 @@ func TestTaskBuildMigrationDownAndUp(t *testing.T) {
 func TestWorkflowMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openEpicStore(t)
+	s, provider := storeAtVersion(t, 22)
 	seedEpic(t, s.db.DB)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
 
 	if _, err := provider.DownTo(ctx, 21); err != nil {
 		t.Fatalf("DownTo 21: %v", err)
@@ -814,16 +771,7 @@ func TestWorkflowMigrationDownAndUp(t *testing.T) {
 func TestDueResumesMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
+	s, provider := storeAtVersion(t, 25)
 
 	if _, err := provider.DownTo(ctx, 24); err != nil {
 		t.Fatalf("DownTo 24: %v", err)
@@ -851,16 +799,7 @@ func TestDueResumesMigrationDownAndUp(t *testing.T) {
 func TestLimitToldMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
+	s, provider := storeAtVersion(t, 26)
 
 	if _, err := provider.DownTo(ctx, 25); err != nil {
 		t.Fatalf("DownTo 25: %v", err)

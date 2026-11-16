@@ -3,11 +3,8 @@ package store
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"reflect"
 	"testing"
-
-	"github.com/pressly/goose/v3"
 )
 
 func int64Of(v int64) *int64 {
@@ -191,19 +188,10 @@ func TestEngineReadoptOpsFailOnMissingRow(t *testing.T) {
 func TestEngineReadoptMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openSyncStore(t)
+	s, provider := storeAtVersion(t, 13)
 
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 10); err != nil {
-		t.Fatalf("DownTo 10: %v", err)
+	if _, err := provider.DownTo(ctx, 12); err != nil {
+		t.Fatalf("DownTo 12: %v", err)
 	}
 	sessionReadopt := []string{"consumed", "replay_from", "background", "turn_output", "prompts_from"}
 
