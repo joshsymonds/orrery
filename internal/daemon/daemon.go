@@ -299,9 +299,10 @@ func (h *frameHandler) reportRead(ctx context.Context, frame protocol.HookFrame)
 	h.cfg.Read(ReadReport{PaneID: frame.TmuxPane, Read: frame.Read})
 }
 
-// apply runs one frame through state.Apply under the mutex and calls every observer when the state changes. With a
+// apply runs one frame through state.ApplyWith under the mutex and calls every observer when the state changes. With a
 // Mirror, it then syncs the frame's pane to the store outside the mutex, so a slow or locked store delays only this
-// frame's connection and never the frames queued behind it.
+// frame's connection and never the frames queued behind it. When the mirror lock is free, the sync's tmux read runs in
+// the frame's own write invocation (see applyLocked).
 func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 	server := resolveServer(h.cfg.Server, frame.Tmux)
 	h.noteServer(server)
@@ -310,12 +311,71 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 		h.logger.ErrorContext(ctx, "resolve tmux server", "error", err)
 		return
 	}
-	if !h.applyLocked(ctx, client, server, frame) {
-		return
-	}
-	if h.cfg.Mirror != nil {
+	out, read, ok := h.applyLocked(ctx, client, server, frame)
+	switch {
+	case read && ok:
+		h.cfg.Mirror.SyncRead(ctx, server, frame.TmuxPane, out)
+	case read:
+		h.cfg.Mirror.ReleaseRead()
+	case ok && h.cfg.Mirror != nil:
 		h.cfg.Mirror.SyncPane(ctx, server, frame.TmuxPane)
 	}
+}
+
+// applyLocked runs state.ApplyWith, with the context and session writes after the hook's own, and the observers under
+// the mutex. Each hook makes at most two tmux invocations: the read of the pane's state, and one write of every option
+// it changes. When the mirror lock is free, it is taken without waiting and the mirror's read of the pane runs last in
+// that write; read reports so, and out is that read's output. ok reports whether state.ApplyWith succeeded. A context
+// or session write that cannot be decided is logged and left out, and the others are written.
+func (h *frameHandler) applyLocked(
+	ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, frame protocol.HookFrame,
+) (out string, read, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	session, err := state.SessionWrites(frame.Hook)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "record pane session", "pane", frame.TmuxPane, "error", err)
+	}
+	extra := slices.Concat([]tmuxctl.OptionWrite{h.contextWrite(ctx, frame)}, session)
+	var then []string
+	if h.cfg.Mirror != nil {
+		then, read = h.cfg.Mirror.TryRead(frame.TmuxPane)
+	}
+	transition, changed, out, err := state.ApplyWith(ctx, client, frame.TmuxPane, frame.Hook, time.Now(), extra, then)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
+		return "", read, false
+	}
+	if !changed {
+		return out, read, true
+	}
+	event := Transition{
+		PaneID: frame.TmuxPane,
+		Server: server,
+		From:   transition.From,
+		To:     transition.To,
+		Frame:  frame,
+	}
+	for _, observe := range h.cfg.Observers {
+		observe(event)
+	}
+	return out, read, true
+}
+
+// contextWrite returns the write of frame's context to its pane's @orrery_context. The context is that of the stamp
+// in effect for the frame's Cwd under h.cfg.Home, or else that of the frame's base URL. When the stamp cannot be read,
+// the option is unset, so the pane is left out of the intent call rather than given a context it may not hold.
+func (h *frameHandler) contextWrite(ctx context.Context, frame protocol.HookFrame) tmuxctl.OptionWrite {
+	found, err := stamp.Find(h.cfg.Home, frame.Cwd)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "find context stamp", "pane", frame.TmuxPane, "cwd", frame.Cwd, "error", err)
+		return tmuxctl.Unset(protocol.OptionContext)
+	}
+	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
+	if found.Folder != "" {
+		contextName = protocol.SummaryContext(found.BaseURL())
+	}
+	return tmuxctl.Set(protocol.OptionContext, contextName)
 }
 
 // noteServer records server as one a frame has named, so the tidy loop tidies it.
@@ -415,62 +475,6 @@ func defaultSocketProblem(socket string) string {
 		return "other users have access"
 	}
 	return ""
-}
-
-// applyLocked runs state.Apply, the context and session writes, and the observers under the mutex. It reports
-// whether state.Apply succeeded.
-func (h *frameHandler) applyLocked(
-	ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, frame protocol.HookFrame,
-) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	transition, changed, err := state.Apply(ctx, client, frame.TmuxPane, frame.Hook, time.Now())
-	if err != nil {
-		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
-		return false
-	}
-	if err = h.setContext(ctx, client, frame); err != nil {
-		h.logger.ErrorContext(ctx, "set pane context", "pane", frame.TmuxPane, "error", err)
-	}
-	if err = state.RecordSession(ctx, client, frame.TmuxPane, frame.Hook); err != nil {
-		h.logger.ErrorContext(ctx, "record pane session", "pane", frame.TmuxPane, "error", err)
-	}
-	if !changed {
-		return true
-	}
-	event := Transition{
-		PaneID: frame.TmuxPane,
-		Server: server,
-		From:   transition.From,
-		To:     transition.To,
-		Frame:  frame,
-	}
-	for _, observe := range h.cfg.Observers {
-		observe(event)
-	}
-	return true
-}
-
-// setContext writes frame's context to its pane's @orrery_context. The context is that of the stamp in effect for the
-// frame's Cwd under h.cfg.Home, or else that of the frame's base URL. When the stamp cannot be read, the option is
-// unset, so the pane is left out of the intent call rather than given a context it may not hold.
-func (h *frameHandler) setContext(ctx context.Context, client *tmuxctl.Client, frame protocol.HookFrame) error {
-	found, err := stamp.Find(h.cfg.Home, frame.Cwd)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "find context stamp", "pane", frame.TmuxPane, "cwd", frame.Cwd, "error", err)
-		if err = client.UnsetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext); err != nil {
-			return fmt.Errorf("unset context option: %w", err)
-		}
-		return nil
-	}
-	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
-	if found.Folder != "" {
-		contextName = protocol.SummaryContext(found.BaseURL())
-	}
-	if err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName); err != nil {
-		return fmt.Errorf("write context option: %w", err)
-	}
-	return nil
 }
 
 // resolveServer returns configured when it is set. Otherwise it returns the socket named by the frame's

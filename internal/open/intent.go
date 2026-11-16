@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/summary"
+	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
 // ActionKind is the kind of an Intent action.
@@ -350,7 +351,7 @@ func ExecuteAction(ctx context.Context, cfg Config, action Action) (Target, erro
 		if action.Session == "" {
 			return Target{}, errors.New("intent: resume needs a session ID")
 		}
-		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude, "--resume", tmuxLiteral(action.Session)})
+		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude, "--resume", tmuxctl.Literal(action.Session)})
 	case ActionContinue:
 		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude, "--continue"})
 	case ActionFresh:

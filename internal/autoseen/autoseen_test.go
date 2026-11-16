@@ -307,7 +307,7 @@ func TestObserverMarksPaneSeenWhenClientIsViewingIt(t *testing.T) {
 	var clk clock
 	var rep reports
 	socket := serve(t, daemon.Config{
-		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record)},
+		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record, nil)},
 	})
 	fx.typeIntoClient(t)
 
@@ -339,7 +339,7 @@ func TestObserverLeavesPaneUnseenWhenClientInputIsStale(t *testing.T) {
 	var clk clock
 	var rep reports
 	socket := serve(t, daemon.Config{
-		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record)},
+		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record, nil)},
 	})
 	fx.typeIntoClient(t)
 
