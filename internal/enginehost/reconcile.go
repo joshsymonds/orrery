@@ -262,7 +262,7 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	if err != nil {
 		return err
 	}
-	var opts []holder.ReattachOption
+	opts := []holder.ReattachOption{holder.WithScope(m.holderScope)}
 	if m.attachTimeout != 0 {
 		opts = append(opts, holder.WithAttachTimeout(m.attachTimeout))
 	}

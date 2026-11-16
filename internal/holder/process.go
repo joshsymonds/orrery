@@ -28,6 +28,8 @@ type Process struct {
 	conn   *Conn
 	socket string
 	remove string
+	// scope stops the holder's user scope once the holder has ended; the zero stopper stops nothing.
+	scope scopeStopper
 	// stopTimeout bounds a stop over the socket before Stop falls back to the holder's own process: holderStopTimeout,
 	// which a test may shorten before it calls Stop.
 	stopTimeout time.Duration
@@ -76,24 +78,28 @@ type Process struct {
 // socket names, on a holder that has not yet spooled or consumed anything. remove is the directory removed once the
 // holder has ended, or empty to keep it.
 func newProcess(held heldProcess, conn *Conn, socket, remove string) *Process {
-	return newAttachedProcess(held, conn, socket, remove, 0, Frame{})
+	return newAttachedProcess(context.Background(), held, conn, socket, remove, 0, Frame{}, scopeStopper{})
 }
 
 // newAttachedProcess returns the Process for held, the holder's own process, whose conn is attached at replayFrom. The
 // stream's out frames start at replayFrom. attached is the attached frame the holder answered: acks carry no consumed or
-// replay-from below its offsets. remove is the directory removed once the holder has ended, or empty to keep it.
+// replay-from below its offsets. remove is the directory removed once the holder has ended, or empty to keep it. scope
+// stops the holder's user scope once the holder has ended, under ctx, which must outlast the holder.
 func newAttachedProcess(
+	ctx context.Context,
 	held heldProcess,
 	conn *Conn,
 	socket, remove string,
 	replayFrom int64,
 	attached Frame,
+	scope scopeStopper,
 ) *Process {
 	process := &Process{
 		held:               held,
 		conn:               conn,
 		socket:             socket,
 		remove:             remove,
+		scope:              scope,
 		stopTimeout:        holderStopTimeout,
 		returned:           replayFrom,
 		next:               replayFrom,
@@ -105,7 +111,7 @@ func newAttachedProcess(
 		pending:            make(map[string]chan error),
 	}
 	go process.run()
-	go process.awaitHolder()
+	go process.awaitHolder(ctx)
 	return process
 }
 
@@ -246,13 +252,17 @@ func (p *Process) run() {
 	close(p.streamDone)
 }
 
-// awaitHolder waits for the holder's process to end and the stream to finish, so the exit record is read first. It then
-// removes the holder's directory unless the process is detached or keeps it, and closes ended. endErr carries the
-// connection's close error and the removal's.
-func (p *Process) awaitHolder() {
+// awaitHolder waits for the holder's process to end and the stream to finish, so the exit record is read first. Unless
+// the process is detached, it then stops the holder's scope, so nothing the child left running, such as a daemon it
+// forked, outlives the holder, and removes the holder's directory unless the process keeps it. It closes ended last.
+// endErr carries the connection's close error, the scope stop's and the removal's.
+func (p *Process) awaitHolder(ctx context.Context) {
 	<-p.held.Done()
 	<-p.streamDone
 	p.endErr = p.closeErr
+	if !p.isDetached() {
+		p.endErr = errors.Join(p.endErr, p.scope.stop(ctx))
+	}
 	if !p.isDetached() && p.remove != "" {
 		if err := os.RemoveAll(p.remove); err != nil {
 			p.endErr = errors.Join(p.endErr, fmt.Errorf("holder: remove %s: %w", p.remove, err))

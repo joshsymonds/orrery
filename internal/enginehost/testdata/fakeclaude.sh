@@ -19,7 +19,9 @@
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
 # exists in its directory, then folds the next line it reads from stdin into its turn: the turn streams one text block
 # and ends with a success result that lists the uuids of both prompts as answered, WAITOPEN waits until fakeclaude.open
-# exists in its directory before it opens its turn, then answers as any other prompt does, LIMIT plays a usage-limit turn (a
+# exists in its directory before it opens its turn, then answers as any other prompt does, DAEMON starts a daemon with
+# its stdio closed that it leaves running, as ssh leaves a ControlPersist master, which writes its pid to
+# fakeclaude.daemon in its directory, and answers as any other prompt does once that pid is written, LIMIT plays a usage-limit turn (a
 # rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
@@ -366,6 +368,18 @@ waitopen() {
 }
 
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
+# daemon starts a daemon with its stdio closed, in a session of its own, and leaves it running. The daemon writes its
+# own pid to fakeclaude.daemon and then becomes a sleep. daemon waits until that pid is written and answers as reply
+# does. The subshell that starts the daemon exits at once, so the daemon is no child of this claude.
+daemon() {
+	(setsid sh -c 'echo $$ > fakeclaude.daemon.tmp && mv fakeclaude.daemon.tmp fakeclaude.daemon; exec sleep 3600' \
+		</dev/null >/dev/null 2>&1 &)
+	until [ -e fakeclaude.daemon ]; do
+		sleep 0.01
+	done
+	reply
+}
+
 die() {
 	turn_open
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
@@ -446,6 +460,7 @@ while next; do
 				*WAITOPEN*) waitopen ;;
 				*LIMITNORESET*) limit noreset ;;
 				*LIMIT*) limit ;;
+				*DAEMON*) daemon ;;
 				*) reply ;;
 			esac
 			;;
