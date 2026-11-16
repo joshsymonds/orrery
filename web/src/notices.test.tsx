@@ -51,20 +51,20 @@ function titles(list: InAppNotice[]): string[] {
   return list.map((item) => item.title);
 }
 
-test("a shown notice joins the end of the list, in the order it was first shown", () => {
+test("a shown notice joins the end of the list, in the order it was first shown", (t) => {
   const first = applyNotice([], shown(notice("%1", "one")));
   const second = applyNotice(first, shown(notice("%2", "two")));
   assert.deepEqual(titles(second), ["one", "two"]);
 });
 
-test("a shown notice under a key already showing replaces it in place and keeps the list it was given", () => {
+test("a shown notice under a key already showing replaces it in place and keeps the list it was given", (t) => {
   const before = [notice("%1", "one"), notice("%2", "two")];
   const after = applyNotice(before, shown(notice("%1", "one again")));
   assert.deepEqual(titles(after), ["one again", "two"]);
   assert.deepEqual(titles(before), ["one", "two"], "the list it was given changed");
 });
 
-test("keys that set different fields are different notices, even when the text matches", () => {
+test("keys that set different fields are different notices, even when the text matches", (t) => {
   const session = create(InAppNoticeSchema, {
     key: create(NoticeKeySchema, { session: "%1" }),
     state: "done",
@@ -75,30 +75,30 @@ test("keys that set different fields are different notices, even when the text m
   assert.deepEqual(titles(after), ["pane", "session"]);
 });
 
-test("alert notices with different names are different notices", () => {
+test("alert notices with different names are different notices", (t) => {
   const first = applyNotice([], shown(alertNotice("backup", "backup")));
   const second = applyNotice(first, shown(alertNotice("deploy", "deploy")));
   assert.deepEqual(titles(second), ["backup", "deploy"]);
 });
 
-test("an ended alert key removes only that alert's notice", () => {
+test("an ended alert key removes only that alert's notice", (t) => {
   const before = [notice("%1", "one"), alertNotice("backup", "backup"), alertNotice("deploy", "deploy")];
   const after = applyNotice(before, ended(alertKey("backup")));
   assert.deepEqual(titles(after), ["one", "deploy"]);
 });
 
-test("an alert notice beside a pane notice with the same text stays separate", () => {
+test("an alert notice beside a pane notice with the same text stays separate", (t) => {
   const after = applyNotice([notice("%1", "same")], shown(alertNotice("same", "same")));
   assert.deepEqual(titles(after), ["same", "same"]);
 });
 
-test("an ended notice leaves the list and the others keep their order", () => {
+test("an ended notice leaves the list and the others keep their order", (t) => {
   const before = [notice("%1", "one"), notice("%2", "two"), notice("%3", "three")];
   const after = applyNotice(before, ended(paneKey("%2")));
   assert.deepEqual(titles(after), ["one", "three"]);
 });
 
-test("an ended notice under a key that is not showing leaves the list as it was", () => {
+test("an ended notice under a key that is not showing leaves the list as it was", (t) => {
   const before = [notice("%1", "one")];
   const after = applyNotice(before, ended(paneKey("%9")));
   assert.deepEqual(titles(after), ["one"]);
@@ -174,20 +174,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-test("watchNotices calls Notices.Watch and delivers the list after each change", async () => {
+test("watchNotices calls Notices.Watch and delivers the list after each change", async (t) => {
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
   try {
-    await until(() => fake.streams.length === 1, "the first stream", { ended });
+    await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
     assert.equal(fake.paths[0], watchPath);
     fake.emitShown(0, "%1", "one");
-    await until(() => lists.length === 1, "the first change", { ended });
+    await until(t.signal, () => lists.length === 1, "the first change", { ended });
     assert.deepEqual(lists[0], ["one"]);
     fake.emitShown(0, "%2", "two");
-    await until(() => lists.length === 2, "the second change", { ended });
+    await until(t.signal, () => lists.length === 2, "the second change", { ended });
     assert.deepEqual(lists[1], ["one", "two"]);
   } finally {
     controller.abort();
@@ -195,23 +195,23 @@ test("watchNotices calls Notices.Watch and delivers the list after each change",
   }
 });
 
-test("a stream that fails clears the list, then reopens after retryMs and delivers again", async () => {
+test("a stream that fails clears the list, then reopens after retryMs and delivers again", async (t) => {
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
   try {
-    await until(() => fake.streams.length === 1, "the first stream", { ended });
+    await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
     fake.emitShown(0, "%1", "one");
-    await until(() => lists.length === 1, "the first change", { ended });
+    await until(t.signal, () => lists.length === 1, "the first change", { ended });
     fake.fail(0);
-    await until(() => lists.length === 2, "the clear after the failure", { ended });
+    await until(t.signal, () => lists.length === 2, "the clear after the failure", { ended });
     assert.deepEqual(lists[1], [], "the list was not cleared when the stream failed");
-    await until(() => fake.streams.length === 2, "the reopened stream", { ended });
+    await until(t.signal, () => fake.streams.length === 2, "the reopened stream", { ended });
     assert.equal(fake.paths[1], watchPath);
     fake.emitShown(1, "%2", "two");
-    await until(() => lists.length === 3, "the change on the reopened stream", { ended });
+    await until(t.signal, () => lists.length === 3, "the change on the reopened stream", { ended });
     assert.deepEqual(lists[2], ["two"]);
   } finally {
     controller.abort();
@@ -219,35 +219,35 @@ test("a stream that fails clears the list, then reopens after retryMs and delive
   }
 });
 
-test("a stream that ends cleanly clears the list and reopens", async () => {
+test("a stream that ends cleanly clears the list and reopens", async (t) => {
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
   try {
-    await until(() => fake.streams.length === 1, "the first stream", { ended });
+    await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
     fake.emitShown(0, "%1", "one");
-    await until(() => lists.length === 1, "the first change", { ended });
+    await until(t.signal, () => lists.length === 1, "the first change", { ended });
     fake.end(0);
-    await until(() => lists.length === 2, "the clear after the end", { ended });
+    await until(t.signal, () => lists.length === 2, "the clear after the end", { ended });
     assert.deepEqual(lists[1], [], "the list was not cleared when the stream ended");
-    await until(() => fake.streams.length === 2, "the reopened stream", { ended });
+    await until(t.signal, () => fake.streams.length === 2, "the reopened stream", { ended });
   } finally {
     controller.abort();
     await done;
   }
 });
 
-test("aborting an open stream ends watchNotices and nothing reaches onChange after it", async () => {
+test("aborting an open stream ends watchNotices and nothing reaches onChange after it", async (t) => {
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
-  await until(() => fake.streams.length === 1, "the first stream", { ended });
+  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
   fake.emitShown(0, "%1", "one");
-  await until(() => lists.length === 1, "the first change", { ended });
+  await until(t.signal, () => lists.length === 1, "the first change", { ended });
   controller.abort();
   await done;
   await sleep(retryMs * 3);
@@ -262,7 +262,7 @@ function collectGarbage(): void {
   gc();
 }
 
-test("aborting an open stream ends watchNotices after the garbage collector has run", async () => {
+test("aborting an open stream ends watchNotices after the garbage collector has run", async (t) => {
   // The forced order of the hang: the stream is open and reading, the garbage collector runs, and only then does the
   // abort come. The Request the fetch built is unreachable by then, so an abort heard only on its signal would never
   // reach the body, and watchNotices would wait on the body forever.
@@ -271,24 +271,24 @@ test("aborting an open stream ends watchNotices after the garbage collector has 
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
-  await until(() => fake.streams.length === 1, "the first stream", { ended });
+  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
   fake.emitShown(0, "%1", "one");
-  await until(() => lists.length === 1, "the first change", { ended });
+  await until(t.signal, () => lists.length === 1, "the first change", { ended });
   collectGarbage();
   controller.abort();
   await done;
   assert.equal(lists.length, 1, "onChange ran after the abort");
 });
 
-test("aborting while a failed stream waits to reopen stops the reopen", async () => {
+test("aborting while a failed stream waits to reopen stops the reopen", async (t) => {
   const fake = new FakeWatch();
   const controller = new AbortController();
   const lists: string[][] = [];
   const done = watchNotices(clientsFor(fake), (list) => lists.push(titles(list)), retryMs, controller.signal);
   const ended = settledFlag(done);
-  await until(() => fake.streams.length === 1, "the first stream", { ended });
+  await until(t.signal, () => fake.streams.length === 1, "the first stream", { ended });
   fake.fail(0);
-  await until(() => lists.length === 1, "the clear after the failure", { ended });
+  await until(t.signal, () => lists.length === 1, "the clear after the failure", { ended });
   controller.abort();
   await done;
   await sleep(retryMs * 3);
@@ -296,7 +296,7 @@ test("aborting while a failed stream waits to reopen stops the reopen", async ()
   assert.equal(lists.length, 1, "onChange ran after the abort");
 });
 
-test("a banner shows each notice's title and body as one button, and a click opens that notice", async () => {
+test("a banner shows each notice's title and body as one button, and a click opens that notice", async (t) => {
   const window = installTestDom();
   const container = document.createElement("div");
   document.body.append(container);

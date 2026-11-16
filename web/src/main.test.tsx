@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { createClients, createTransport } from "./client";
-import { start } from "./main";
+import { start as startPage } from "./main";
 import { until } from "./testwait";
-import { installTestDom, removeTestDom } from "./testdom";
+import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 const panesPath = "/orrery.v1.Panes/List";
 const sessionsPath = "/orrery.v1.Sessions/List";
+const headlessPath = "/orrery.v1.Sessions/ListHeadless";
 const watchPath = "/orrery.v1.Events/Watch";
 const epicsListPath = "/orrery.v1.Epics/List";
 const epicsGetPath = "/orrery.v1.Epics/Get";
@@ -57,6 +60,21 @@ const sessionBody = {
     },
   ],
 };
+
+// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with the
+// label the server derives: the directory's base name and the first 8 characters of the id.
+function headlessSession(id: string, base: string) {
+  return {
+    id,
+    dir: `/work/${base}`,
+    label: `${base} · ${id.slice(0, 8)}`,
+    state: "working",
+    changed: "50",
+    seen: "0",
+    summary: "",
+    question: "",
+  };
+}
 
 // The host Host.Status answers with: one stat, so the meters button has a value to show.
 const hostBody = {
@@ -113,6 +131,8 @@ interface FakeServer {
   maxPanesInFlight: number;
   // The store position Sessions.List reports with its sessions.
   storeSeq: bigint;
+  // The headless sessions Sessions.ListHeadless answers with.
+  headless: ReturnType<typeof headlessSession>[];
   // The Events.Watch calls, in order. Only a server built with streaming answers them.
   watches: Watch[];
   // The Presence.Report calls, in order: the client header each carried and the input age it sent.
@@ -146,6 +166,9 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
       server.paths.add(path);
       if (path === sessionsPath) {
         return json({ ...sessionBody, seq: String(server.storeSeq) });
+      }
+      if (path === headlessPath) {
+        return json({ sessions: server.headless });
       }
       if (path === watchPath && streaming) {
         const body = decodeRequest(new Uint8Array(await request.arrayBuffer()));
@@ -238,6 +261,7 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     panesInFlight: 0,
     maxPanesInFlight: 0,
     storeSeq: 7n,
+    headless: [],
     watches: [],
     reports: [],
     presenceFails: false,
@@ -306,20 +330,49 @@ function errorText(root: HTMLElement): string {
   return root.querySelector(".error")?.textContent ?? "";
 }
 
-// withPage runs check with a fresh DOM, a root element for start, and the test's own cleanup.
-async function withPage(check: (root: HTMLElement) => Promise<void>): Promise<void> {
+// withPage runs check with a fresh DOM, a root element, and a start that starts a page and returns its stop. Every page
+// that start started is stopped, and the DOM removed, when the test ends, or as soon as signal aborts if the test times
+// out first, so a page never runs on into the next test (see teardownOnce). A stop is the page's only once.
+async function withPage(
+  signal: AbortSignal,
+  check: (root: HTMLElement, start: typeof startPage) => Promise<void>,
+): Promise<void> {
   const window = installTestDom();
   const root = document.createElement("div");
-  try {
-    await check(root);
-  } finally {
+  const stops: (() => void)[] = [];
+  const start: typeof startPage = (...args) => {
+    const stop = startPage(...args);
+    let stopped = false;
+    const once = () => {
+      if (!stopped) {
+        stopped = true;
+        stop();
+      }
+    };
+    stops.push(once);
+    return once;
+  };
+  const teardown = teardownOnce(signal, async () => {
+    for (const stop of stops) {
+      stop();
+    }
     await removeTestDom(window);
+  });
+  try {
+    await check(root, start);
+  } finally {
+    await teardown();
   }
 }
 
 // sendEvent writes one event onto a watch's stream. The client only needs the event to arrive, not its content.
 function sendEvent(watch: Watch, seq: number): void {
   enqueue(watch, 0, { seq: String(seq), sessionId: "%1" });
+}
+
+// sendEngineAdded sends the engine_added event of the headless session id in dir.
+function sendEngineAdded(watch: Watch, seq: number, id: string, dir: string): void {
+  enqueue(watch, 0, { seq: String(seq), sessionId: id, engineAdded: { dir, state: "working" } });
 }
 
 function endStream(watch: Watch): void {
@@ -359,20 +412,20 @@ function envelope(flag: number, message: object): Uint8Array {
   return bytes;
 }
 
-test("loaded rows render into the root", () =>
-  withPage(async (root) => {
+test("loaded rows render into the root", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => labels(root).includes("api"), "the pane row");
+      await until(t.signal, () => labels(root).includes("api"), "the pane row");
       assert.ok(labels(root).includes("notes"), `labels were ${JSON.stringify(labels(root))}`);
     } finally {
       stop();
     }
   }));
 
-test("before the first load lands the root holds no rows", () =>
-  withPage(async (root) => {
+test("before the first load lands the root holds no rows", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     let release: () => void = () => {};
     server.gate = new Promise<void>((resolve) => {
@@ -382,27 +435,27 @@ test("before the first load lands the root holds no rows", () =>
     try {
       assert.deepEqual(labels(root), []);
       release();
-      await until(() => labels(root).includes("api"), "the pane row after release");
+      await until(t.signal, () => labels(root).includes("api"), "the pane row after release");
     } finally {
       stop();
     }
   }));
 
-test("a reload shows the changed pane", () =>
-  withPage(async (root) => {
+test("a reload shows the changed pane", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => labels(root).includes("api"), "the first pane label");
+      await until(t.signal, () => labels(root).includes("api"), "the first pane label");
       server.paneLabel = "web";
-      await until(() => labels(root).includes("web") && !labels(root).includes("api"), "the renamed pane");
+      await until(t.signal, () => labels(root).includes("web") && !labels(root).includes("api"), "the renamed pane");
     } finally {
       stop();
     }
   }));
 
-test("a failed Panes.List shows the fixed error and keeps the sessions", () =>
-  withPage(async (root) => {
+test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
+  withPage(t.signal, async (root, start) => {
     const failing: typeof globalThis.fetch = async (input, init) => {
       const path = new URL(new Request(input, init).url).pathname;
       if (path === panesPath) {
@@ -416,7 +469,7 @@ test("a failed Panes.List shows the fixed error and keeps the sessions", () =>
     const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: failing }));
     const stop = start(root, clients, intervalMs);
     try {
-      await until(() => root.querySelector(".error") !== null, "the error line");
+      await until(t.signal, () => root.querySelector(".error") !== null, "the error line");
       assert.equal(root.querySelector(".error")?.textContent, "panes unavailable");
       assert.ok(labels(root).includes("notes"), `labels were ${JSON.stringify(labels(root))}`);
     } finally {
@@ -424,23 +477,118 @@ test("a failed Panes.List shows the fixed error and keeps the sessions", () =>
     }
   }));
 
-test("a reload never starts while the last one is in flight", () =>
-  withPage(async (root) => {
+test("a reload never starts while the last one is in flight", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.panesCalls >= 3, "three loads");
+      await until(t.signal, () => server.panesCalls >= 3, "three loads");
       assert.equal(server.maxPanesInFlight, 1);
     } finally {
       stop();
     }
   }));
 
-test("stop unmounts the root and stops reloading", () =>
-  withPage(async (root) => {
+test("a headless session from Sessions.ListHeadless is a row on the first load", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.headless = [headlessSession("170bf619aa00bb11cc22dd33ee44ff55", "gatehouse")];
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
+      await until(t.signal, () => labels(root).includes("gatehouse · 170bf619"), "the headless session's row");
+      assert.ok(server.paths.has(headlessPath), "the page never called Sessions.ListHeadless");
+    } finally {
+      stop();
+    }
+  }));
+
+test("an engine_added on the open stream adds the new headless session's row without a poll", (t) =>
+  withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api", true);
+    server.headless = [headlessSession("170bf619aa00bb11cc22dd33ee44ff55", "gatehouse")];
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(
+        t.signal,
+        () => server.watches.length === 1 && labels(root).includes("gatehouse · 170bf619"),
+        "the first load and stream",
+      );
+      // The poll waits longPollMs, longer than the suite lets a test run, so the row this wait sees can only come from
+      // the event's reload.
+      const added = headlessSession("cfe64ee3aa00bb11cc22dd33ee44ff55", "orrery");
+      server.headless = [...server.headless, added];
+      sendEngineAdded(server.watches[0], 8, added.id, added.dir);
+      await until(t.signal, () => labels(root).includes("orrery · cfe64ee3"), "the added session's row");
+      assert.ok(labels(root).includes("gatehouse · 170bf619"), "the first headless session's row went away");
+    } finally {
+      stop();
+    }
+  }));
+
+// childEnv marks the run of this file that holds a page open past its test's timeout. Only that run defines the two
+// tests named with childPrefix, and it runs only those.
+const childEnv = "ORRERY_MAIN_TEST_CHILD";
+const childPrefix = "child run: ";
+// childTimeoutMs is the child run's --test-timeout: its first test can only end by timing out, and its second, a page's
+// first load, ends long before it.
+const childTimeoutMs = 3000;
+
+if (process.env[childEnv] === "1") {
+  test(`${childPrefix}a page whose wait never ends`, (t) =>
+    withPage(t.signal, async (root, start) => {
+      start(root, clientsFor(fakeServer("api")), longPollMs);
+      await until(t.signal, () => false, "a state that never comes");
+    }));
+
+  test(`${childPrefix}a page that loads after it`, (t) =>
+    withPage(t.signal, async (root, start) => {
+      start(root, clientsFor(fakeServer("api")), longPollMs);
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
+    }));
+}
+
+test("a page whose test times out stops before the next test, which fails only on its own", async () => {
+  // The forced order: in a child run, the first test's page is up when its test times out, and node:test starts the
+  // second test at once. A page that ran on past its test would render into the second test's DOM, or remove it, and
+  // fail the second test in the first one's place. The child must report the first test alone as failed.
+  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const child = spawn(
+    process.execPath,
+    [
+      "--test",
+      "--test-reporter=spec",
+      `--test-timeout=${childTimeoutMs}`,
+      `--test-name-pattern=^${childPrefix}`,
+      fileURLToPath(import.meta.url),
+    ],
+    { env: { ...env, [childEnv]: "1" }, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
+  assert.notEqual(code, 0, `the child run passed:\n${output}`);
+  assert.ok(output.includes(`✖ ${childPrefix}a page whose wait never ends`), `the first test did not fail:\n${output}`);
+  assert.ok(output.includes(`✔ ${childPrefix}a page that loads after it`), `the second test did not pass:\n${output}`);
+  // node:test counts a test its timeout ends as cancelled, not failed: the first test is the run's one test that did not
+  // pass, and the only one its failing list names.
+  for (const count of ["ℹ pass 1\n", "ℹ fail 0\n", "ℹ cancelled 1\n"]) {
+    assert.ok(output.includes(count), `the child's counts lack ${count.trim()}:\n${output}`);
+  }
+  const failing = output.slice(output.indexOf("failing tests:"));
+  assert.ok(!failing.includes(`${childPrefix}a page that loads after it`), `the second test is listed as failing:\n${output}`);
+});
+
+test("stop unmounts the root and stops reloading", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
-    await until(() => labels(root).includes("api"), "the first load");
+    await until(t.signal, () => labels(root).includes("api"), "the first load");
     stop();
     assert.equal(root.childNodes.length, 0, "stop left nodes in the root");
     const callsAtStop = server.panesCalls;
@@ -449,34 +597,34 @@ test("stop unmounts the root and stops reloading", () =>
     assert.equal(root.childNodes.length, 0, "a reload rendered after stop");
   }));
 
-test("an event on the open stream reloads without waiting for the poll", () =>
-  withPage(async (root) => {
+test("an event on the open stream reloads without waiting for the poll", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       assert.equal(server.watches[0].header, clientValue, "the stream call lacked the client header");
       server.paneLabel = "web";
       // The poll waits longPollMs, longer than the suite lets a test run, so the reload this wait sees can only be the
       // event's.
       sendEvent(server.watches[0], 8);
-      await until(() => labels(root).includes("web"), "the reload after the event");
+      await until(t.signal, () => labels(root).includes("web"), "the reload after the event");
     } finally {
       stop();
     }
   }));
 
-test("a burst of events gives one reload", () =>
-  withPage(async (root) => {
+test("a burst of events gives one reload", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       const before = server.panesCalls;
       for (let seq = 8; seq < 13; seq++) {
         sendEvent(server.watches[0], seq);
       }
-      await until(() => server.panesCalls > before, "the reload after the burst");
+      await until(t.signal, () => server.panesCalls > before, "the reload after the burst");
       await sleep(300);
       assert.equal(server.panesCalls, before + 1, "the burst gave more than one reload");
     } finally {
@@ -484,12 +632,12 @@ test("a burst of events gives one reload", () =>
     }
   }));
 
-test("while the stream is open, poll ticks reload nothing", () =>
-  withPage(async (root) => {
+test("while the stream is open, poll ticks reload nothing", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       const before = server.panesCalls;
       await sleep(intervalMs * 40);
       assert.equal(server.panesCalls, before, "a poll tick reloaded while the stream was open");
@@ -499,8 +647,8 @@ test("while the stream is open, poll ticks reload nothing", () =>
     }
   }));
 
-test("while the stream is open, poll ticks advance the age labels without reloading", () =>
-  withPage(async (root) => {
+test("while the stream is open, poll ticks advance the age labels without reloading", (t) =>
+  withPage(t.signal, async (root, start) => {
     // The clock starts 120 s after the fixture's changed (40 s), so the label reads minutes and not days.
     const realNow = Date.now;
     let offsetMs = 160_000 - realNow();
@@ -508,7 +656,7 @@ test("while the stream is open, poll ticks advance the age labels without reload
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       assert.equal(ageOf(root, "api"), "2m", "the first load did not show the minutes label");
       const before = server.panesCalls;
       offsetMs += 300_000;
@@ -523,17 +671,17 @@ test("while the stream is open, poll ticks advance the age labels without reload
 
 // pollTakesOver ends the first stream with finish, then checks that the poll reloads and the stream reopens from the
 // newest seq the next load reports.
-async function pollTakesOver(finish: (watch: Watch) => void): Promise<void> {
-  await withPage(async (root) => {
+async function pollTakesOver(signal: AbortSignal, finish: (watch: Watch) => void): Promise<void> {
+  await withPage(signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      await until(signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       assert.equal(server.watches[0].after, 7n, "the first stream did not resume from the loaded seq");
       server.storeSeq = 9n;
       const before = server.panesCalls;
       finish(server.watches[0]);
-      await until(() => server.watches.length === 2, "the stream reopened");
+      await until(signal, () => server.watches.length === 2, "the stream reopened");
       assert.ok(server.panesCalls > before, "the poll did not reload after the stream went down");
       assert.equal(server.watches[1].after, 9n, "the stream did not reopen from the newest seq");
     } finally {
@@ -542,50 +690,50 @@ async function pollTakesOver(finish: (watch: Watch) => void): Promise<void> {
   });
 }
 
-test("after the stream ends, the poll reloads and the stream reopens from the newest seq", () =>
-  pollTakesOver(endStream));
+test("after the stream ends, the poll reloads and the stream reopens from the newest seq", (t) =>
+  pollTakesOver(t.signal, endStream));
 
-test("after the stream fails with another code, the poll reloads and the stream reopens from the newest seq", () =>
-  pollTakesOver((watch) => failStream(watch, "internal")));
+test("after the stream fails with another code, the poll reloads and the stream reopens from the newest seq", (t) =>
+  pollTakesOver(t.signal, (watch) => failStream(watch, "internal")));
 
-test("after the stream fails unavailable, it reopens from the last seq it delivered, not from the poll", () =>
-  withPage(async (root) => {
+test("after the stream fails unavailable, it reopens from the last seq it delivered, not from the poll", (t) =>
+  withPage(t.signal, async (root, start) => {
     // longPollMs keeps the poll from running, so only the retry can reopen the stream.
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs, retryMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       sendEvent(server.watches[0], 8);
       failStream(server.watches[0], "unavailable");
-      await until(() => server.watches.length === 2, "the stream reopened");
+      await until(t.signal, () => server.watches.length === 2, "the stream reopened");
       assert.equal(server.watches[1].after, 8n, "the stream did not reopen from the last seq it delivered");
     } finally {
       stop();
     }
   }));
 
-test("a load that reports seq 0 opens no stream, and the poll reloads until a load reports a seq", () =>
-  withPage(async (root) => {
+test("a load that reports seq 0 opens no stream, and the poll reloads until a load reports a seq", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.storeSeq = 0n;
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.panesCalls >= 3, "the poll's reloads");
+      await until(t.signal, () => server.panesCalls >= 3, "the poll's reloads");
       assert.equal(server.watches.length, 0, "a stream opened from seq 0");
       server.storeSeq = 9n;
-      await until(() => server.watches.length === 1, "the stream after a load with a seq");
+      await until(t.signal, () => server.watches.length === 1, "the stream after a load with a seq");
       assert.equal(server.watches[0].after, 9n);
     } finally {
       stop();
     }
   }));
 
-test("stop aborts the open stream", () =>
-  withPage(async (root) => {
+test("stop aborts the open stream", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => server.watches.length === 1, "the stream");
+      await until(t.signal, () => server.watches.length === 1, "the stream");
       stop();
       assert.ok(server.watches[0].signal.aborted, "stop left the stream open");
     } finally {
@@ -593,13 +741,13 @@ test("stop aborts the open stream", () =>
     }
   }));
 
-test("a live epic from Epics.List and Get shows in the list with its count", () =>
-  withPage(async (root) => {
+test("a live epic from Epics.List and Get shows in the list with its count", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
+      await until(t.signal, () => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
       const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
       assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
       assert.equal(epicRow.querySelector(".rt")?.textContent, "1 of 2 tasks done", "the count did not come from Epics.Get");
@@ -610,32 +758,42 @@ test("a live epic from Epics.List and Get shows in the list with its count", () 
     }
   }));
 
-test("the page calls only the list, get and watch paths it reads", () =>
-  withPage(async (root) => {
+test("the page calls only the list, get and watch paths it reads", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
+      await until(t.signal, () => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
       assert.deepEqual(
         [...server.paths].sort(),
-        [epicsGetPath, epicsListPath, "/orrery.v1.Epics/History", hostStatusPath, noticesWatchPath, panesPath, sessionsPath, watchPath].sort(),
+        [
+          epicsGetPath,
+          epicsListPath,
+          "/orrery.v1.Epics/History",
+          hostStatusPath,
+          noticesWatchPath,
+          panesPath,
+          sessionsPath,
+          headlessPath,
+          watchPath,
+        ].sort(),
       );
     } finally {
       stop();
     }
   }));
 
-test("with the event stream open, a poll tick reloads the epics and shows a changed step", () =>
-  withPage(async (root) => {
+test("with the event stream open, a poll tick reloads the epics and shows a changed step", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.watches.length === 1 && labels(root).includes("draft"), "the first step and the stream");
+      await until(t.signal, () => server.watches.length === 1 && labels(root).includes("draft"), "the first step and the stream");
       const panesBefore = server.panesCalls;
       server.epics = [liveEpic("review")];
-      await until(() => labels(root).includes("review") && !labels(root).includes("draft"), "the changed step");
+      await until(t.signal, () => labels(root).includes("review") && !labels(root).includes("draft"), "the changed step");
       assert.equal(server.panesCalls, panesBefore, "the tick reloaded the rows while the stream was open");
       assert.equal(server.watches.length, 1, "the stream was reopened while it was open");
     } finally {
@@ -643,8 +801,8 @@ test("with the event stream open, a poll tick reloads the epics and shows a chan
     }
   }));
 
-test("a failed Epics.List shows the fixed epics error and no epics, beside the rows", () =>
-  withPage(async (root) => {
+test("a failed Epics.List shows the fixed epics error and no epics, beside the rows", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("draft")];
     const clients = createClients(
@@ -652,7 +810,7 @@ test("a failed Epics.List shows the fixed epics error and no epics, beside the r
     );
     const stop = start(root, clients, intervalMs);
     try {
-      await until(
+      await until(t.signal, 
         () => root.querySelector(".error") !== null && labels(root).includes("api"),
         "the error line and the pane row",
       );
@@ -665,15 +823,15 @@ test("a failed Epics.List shows the fixed epics error and no epics, beside the r
     }
   }));
 
-test("a failed Panes.List and a failed Epics.List join their fixed errors in that order", () =>
-  withPage(async (root) => {
+test("a failed Panes.List and a failed Epics.List join their fixed errors in that order", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const clients = createClients(
       createTransport({ baseUrl: "https://orrery.test", fetch: failing(server, [panesPath, epicsListPath]) }),
     );
     const stop = start(root, clients, intervalMs);
     try {
-      await until(
+      await until(t.signal, 
         () => root.querySelector(".error")?.textContent === "panes unavailable; epics unavailable",
         "the joined error line",
       );
@@ -682,8 +840,8 @@ test("a failed Panes.List and a failed Epics.List join their fixed errors in tha
     }
   }));
 
-test("a second tick during a slow epics load starts no second load", () =>
-  withPage(async (root) => {
+test("a second tick during a slow epics load starts no second load", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.epics = [liveEpic("draft")];
     let release: () => void = () => {};
@@ -692,27 +850,27 @@ test("a second tick during a slow epics load starts no second load", () =>
     });
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.epicsListCalls === 1, "the first epics load");
-      await until(() => server.watches.length === 1, "the stream while epics are loading");
+      await until(t.signal, () => server.epicsListCalls === 1, "the first epics load");
+      await until(t.signal, () => server.watches.length === 1, "the stream while epics are loading");
       await sleep(intervalMs * 40);
       assert.equal(server.epicsListCalls, 1, "a tick started a second epics load while the first was in flight");
       assert.equal(server.maxEpicsInFlight, 1);
       release();
-      await until(() => labels(root).includes("alpha"), "the epic after release");
+      await until(t.signal, () => labels(root).includes("alpha"), "the epic after release");
     } finally {
       release();
       stop();
     }
   }));
 
-test("a keydown reports the input age to Presence.Report with the client header", () =>
-  withPage(async (root) => {
+test("a keydown reports the input age to Presence.Report with the client header", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => labels(root).includes("api"), "the first load");
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
       document.dispatchEvent(new KeyboardEvent("keydown"));
-      await until(() => server.reports.length === 1, "the report after the keydown");
+      await until(t.signal, () => server.reports.length === 1, "the report after the keydown");
       assert.equal(server.reports[0].header, clientValue, "the report lacked the client header");
       assert.match(server.reports[0].inputAgeMs, /^\d+$/, "the report did not carry an age in milliseconds");
     } finally {
@@ -721,12 +879,12 @@ test("a keydown reports the input age to Presence.Report with the client header"
   }));
 
 // No report has gone out before stop, so a live watch would send this keydown at once.
-test("a keydown after stop reports nothing", () =>
-  withPage(async (root) => {
+test("a keydown after stop reports nothing", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => labels(root).includes("api"), "the first load");
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
       stop();
       document.dispatchEvent(new KeyboardEvent("keydown"));
       await sleep(intervalMs * 10);
@@ -736,15 +894,15 @@ test("a keydown after stop reports nothing", () =>
     }
   }));
 
-test("a failed Presence.Report leaves the page without an error line and keeps the rows", () =>
-  withPage(async (root) => {
+test("a failed Presence.Report leaves the page without an error line and keeps the rows", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.presenceFails = true;
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => labels(root).includes("api"), "the first load");
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
       document.dispatchEvent(new KeyboardEvent("keydown"));
-      await until(() => server.reports.length === 1, "the failed report");
+      await until(t.signal, () => server.reports.length === 1, "the failed report");
       await sleep(intervalMs * 10);
       assert.equal(root.querySelector(".error")?.textContent ?? "", "", "a failed report showed an error line");
       assert.ok(labels(root).includes("api"), "the rows went away after a failed report");
@@ -753,33 +911,33 @@ test("a failed Presence.Report leaves the page without an error line and keeps t
     }
   }));
 
-test("the start read shows the host in the footer's meters button, before any poll tick", () =>
-  withPage(async (root) => {
+test("the start read shows the host in the footer's meters button, before any poll tick", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     // longPollMs means no tick runs, so only the read at start can show the button.
     const stop = start(root, clientsFor(server), longPollMs);
     try {
-      await until(() => meterHost(root) === "den", "the meters button for the host");
+      await until(t.signal, () => meterHost(root) === "den", "the meters button for the host");
     } finally {
       stop();
     }
   }));
 
-test("a refused Host.Status shows no meters button and no error, while the rows, epics and stream load", () =>
-  withPage(async (root) => {
+test("a refused Host.Status shows no meters button and no error, while the rows, epics and stream load", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.hostFails = true;
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(
+      await until(t.signal, 
         () => labels(root).includes("api") && labels(root).includes("alpha") && server.watches.length === 1,
         "the rows, the epics and the stream",
       );
       // A read starts only once the one before it is handled, so the second read after the stream opens means a refusal
       // from after it has landed. No reload runs with the stream open, so nothing clears the error line after that.
       const readsAtOpen = server.hostCalls;
-      await until(() => server.hostCalls >= readsAtOpen + 2, "two refused reads with the stream open");
+      await until(t.signal, () => server.hostCalls >= readsAtOpen + 2, "two refused reads with the stream open");
       assert.equal(meterButtonShown(root), false, "a refused Host.Status drew a meters button");
       assert.equal(errorText(root), "", "a refused Host.Status showed in the error line");
     } finally {
@@ -787,33 +945,33 @@ test("a refused Host.Status shows no meters button and no error, while the rows,
     }
   }));
 
-test("a Host.Status that starts failing takes the meters button away", () =>
-  withPage(async (root) => {
+test("a Host.Status that starts failing takes the meters button away", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => meterHost(root) === "den", "the meters button");
+      await until(t.signal, () => meterHost(root) === "den", "the meters button");
       server.hostFails = true;
-      await until(() => !meterButtonShown(root), "the meters button gone after a refused read");
+      await until(t.signal, () => !meterButtonShown(root), "the meters button gone after a refused read");
     } finally {
       stop();
     }
   }));
 
-test("each poll tick reads Host.Status while the stream is down", () =>
-  withPage(async (root) => {
+test("each poll tick reads Host.Status while the stream is down", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.storeSeq = 0n;
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.hostCalls >= 2 && server.watches.length === 0, "ticks with the stream down");
+      await until(t.signal, () => server.hostCalls >= 2 && server.watches.length === 0, "ticks with the stream down");
     } finally {
       stop();
     }
   }));
 
-test("a tick during a slow Host.Status starts no second read", () =>
-  withPage(async (root) => {
+test("a tick during a slow Host.Status starts no second read", (t) =>
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     let release: () => void = () => {};
     server.hostGate = new Promise<void>((resolve) => {
@@ -821,13 +979,13 @@ test("a tick during a slow Host.Status starts no second read", () =>
     });
     const stop = start(root, clientsFor(server), intervalMs);
     try {
-      await until(() => server.hostCalls === 1, "the first read");
+      await until(t.signal, () => server.hostCalls === 1, "the first read");
       // With the stream down every tick reloads the rows, so three Panes.List calls mean at least two ticks ran.
       const panesAtFirstRead = server.panesCalls;
-      await until(() => server.panesCalls >= panesAtFirstRead + 3, "ticks while the first read is in flight");
+      await until(t.signal, () => server.panesCalls >= panesAtFirstRead + 3, "ticks while the first read is in flight");
       assert.equal(server.hostCalls, 1, "a tick started a second read while the first was in flight");
       release();
-      await until(() => meterHost(root) === "den", "the host after release");
+      await until(t.signal, () => meterHost(root) === "den", "the host after release");
     } finally {
       release();
       stop();

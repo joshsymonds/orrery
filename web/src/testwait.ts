@@ -1,16 +1,22 @@
 // until polls check until it holds. It has no deadline of its own: the work it waits for runs at the machine's pace,
-// and the web suite's --test-timeout fails, named, a test whose wait never ends. When ended is given, it fails at once,
-// naming what never happened, once ended reports that the producer whose work check waits for has ended while check
-// still does not hold, since check can no longer come true and waiting on would only turn the failure into a hang. Each
-// round waits on step, a short pause by default; a component test passes one that runs the pause inside act, so the
-// renders it lets through are applied.
+// and the web suite's --test-timeout fails, named, a test whose wait never ends. signal is the test's own, node:test's
+// t.signal, which aborts when the test ends, by a timeout among other ways: the wait then stops polling and rejects, so
+// no wait outlives its test and keeps the test file's process alive. When ended is given, it fails at once, naming what
+// never happened, once ended reports that the producer whose work check waits for has ended while check still does not
+// hold, since check can no longer come true and waiting on would only turn the failure into a hang. Each round waits on
+// step, a short pause by default; a component test passes one that runs the pause inside act, so the renders it lets
+// through are applied.
 export async function until(
+  signal: AbortSignal,
   check: () => boolean,
   what: string,
   options: { ended?: () => boolean; step?: () => Promise<void> } = {},
 ): Promise<void> {
   const step = options.step ?? pause;
   while (!check()) {
+    if (signal.aborted) {
+      throw new Error(`${what} never happened: the test ended first`, { cause: signal.reason });
+    }
     if (options.ended?.()) {
       if (check()) {
         return;

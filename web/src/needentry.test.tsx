@@ -161,12 +161,12 @@ test("a question need draws its sentence and an answer form without a question l
   });
 });
 
-test("submitting a question need's answer calls answer with its question id and the trimmed text", () => {
+test("submitting a question need's answer calls answer with its question id and the trimmed text", (t) => {
   const { calls, commands } = recorder();
   return withTree(entry(questionNeed, commands), async (container) => {
     await type(container, "  Use main  ");
     assert.equal(await press(container, "button.act.primary", "Answer"), true);
-    await until(() => answerText(container) === "", "the recorded answer clears the box", { step: () => act(pause) });
+    await until(t.signal, () => answerText(container) === "", "the recorded answer clears the box", { step: () => act(pause) });
     assert.deepEqual(calls, ["answer Q1 Use main"]);
     assert.equal(answerText(container), "", "a recorded answer clears the box");
   });

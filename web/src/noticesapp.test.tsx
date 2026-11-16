@@ -13,7 +13,7 @@ import {
 } from "./gen/orrery/v1/epics_pb";
 import { start } from "./main";
 import { until } from "./testwait";
-import { installTestDom, removeTestDom } from "./testdom";
+import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 const panesListPath = "/orrery.v1.Panes/List";
 const sessionsListPath = "/orrery.v1.Sessions/List";
@@ -248,6 +248,7 @@ function pageButtons(root: HTMLElement): string[] {
 // cursor's own effect, so once it is open the cursor has settled and a click lands on the cursor the page holds.
 // scrolled holds the class of each element a scrollIntoView ran on, in the order the calls ran.
 async function withPage(
+  signal: AbortSignal,
   check: (root: HTMLElement, server: FakeServer, scrolled: string[]) => Promise<void>,
   fixtures: Fixtures = {},
 ): Promise<void> {
@@ -259,64 +260,69 @@ async function withPage(
   const root = document.createElement("div");
   const server = fakeServer(fixtures);
   const stop = start(root, clientsFor(server), longPollMs, retryMs);
-  try {
-    await until(() => isCursored(root, apiRow), "the api row under the cursor");
-    await until(() => server.paneStreams === 1, "the api pane's stream");
-    await until(() => server.notices !== null, "the notice stream");
-    await check(root, server, scrolled);
-  } finally {
+  // The page is stopped and the DOM removed when the test ends, or as soon as signal aborts if it times out first, so
+  // the page never runs on into the next test (see teardownOnce).
+  const teardown = teardownOnce(signal, async () => {
     stop();
     await removeTestDom(window);
+  });
+  try {
+    await until(signal, () => isCursored(root, apiRow), "the api row under the cursor");
+    await until(signal, () => server.paneStreams === 1, "the api pane's stream");
+    await until(signal, () => server.notices !== null, "the notice stream");
+    await check(root, server, scrolled);
+  } finally {
+    await teardown();
   }
 }
 
-test("a notice from the stream shows in the page's banner", () =>
-  withPage(async (root, server) => {
+test("a notice from the stream shows in the page's banner", (t) =>
+  withPage(t.signal, async (root, server) => {
     assert.deepEqual(bannerTitles(root), []);
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
   }));
 
-test("an ended notice leaves the banner", () =>
-  withPage(async (root, server) => {
+test("an ended notice leaves the banner", (t) =>
+  withPage(t.signal, async (root, server) => {
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
     sendNotice(server, endedMessage({ pane: "%2" }));
-    await until(() => bannerTitles(root).length === 0, "the banner to empty");
+    await until(t.signal, () => bannerTitles(root).length === 0, "the banner to empty");
   }));
 
-test("a click on a pane notice sends Seen with its key and moves the cursor to that pane's row", () =>
-  withPage(async (root, server) => {
+test("a click on a pane notice sends Seen with its key and moves the cursor to that pane's row", (t) =>
+  withPage(t.signal, async (root, server) => {
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
     assert.equal(clickBanner(root, "web needs you"), true, "no banner button for the notice");
-    await until(() => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
     assert.equal(server.seen[0].pane, "%2");
-    await until(() => isCursored(root, webRow), "the cursor on the web row");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     assert.equal(isCursored(root, apiRow), false, "the cursor is still on the api row");
   }));
 
-test("a click on a limit notice sends Seen and moves nothing", () =>
-  withPage(async (root, server) => {
+test("a click on a limit notice sends Seen and moves nothing", (t) =>
+  withPage(t.signal, async (root, server) => {
     assert.equal(clickRow(root, webRow), true, "no row for the web pane");
-    await until(() => isCursored(root, webRow), "the cursor on the web row");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
-    await until(() => bannerTitles(root).includes("limit reached"), "the limit notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("limit reached"), "the limit notice in the banner");
     assert.equal(clickBanner(root, "limit reached"), true, "no banner button for the notice");
-    await until(() => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
     assert.equal(server.seen[0].limit, limitKey);
     assert.equal(isCursored(root, webRow), true, "the cursor left the web row");
     assert.equal(isCursored(root, apiRow), false, "the cursor moved to the api row");
   }));
 
-test("a failed Seen is dropped without a page error, and the click still moves the cursor", () =>
-  withPage(async (root, server) => {
+test("a failed Seen is dropped without a page error, and the click still moves the cursor", (t) =>
+  withPage(t.signal, async (root, server) => {
     server.seenFails = true;
     sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
-    await until(() => bannerTitles(root).includes("web needs you"), "the notice in the banner");
+    await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner");
     assert.equal(clickBanner(root, "web needs you"), true, "no banner button for the notice");
-    await until(() => server.seen.length === 1, "the Seen report");
-    await until(() => isCursored(root, webRow), "the cursor on the web row");
+    await until(t.signal, () => server.seen.length === 1, "the Seen report");
+    await until(t.signal, () => isCursored(root, webRow), "the cursor on the web row");
     await sleep(settleMs);
     assert.deepEqual(errorTexts(root), []);
   }));
@@ -376,24 +382,26 @@ const landingFixtures: Fixtures = {
 // clickEpicNotice waits until the list draws asking, which proves the epics loaded, then sends a notice for epic that
 // opens block and clicks it. It waits until the Seen report lands, so the click has run.
 async function clickEpicNotice(
+  signal: AbortSignal,
   root: HTMLElement,
   server: FakeServer,
   epic: Epic,
   block?: Record<string, string>,
 ): Promise<void> {
-  await until(() => lineDrawn(root, epicKeyOf(asking)), "the epics the list holds");
+  await until(signal, () => lineDrawn(root, epicKeyOf(asking)), "the epics the list holds");
   const title = `${epic.slug} needs you`;
   sendNotice(server, shownMessage({ epic: epic.id }, title, block));
-  await until(() => bannerTitles(root).includes(title), "the notice in the banner");
+  await until(signal, () => bannerTitles(root).includes(title), "the notice in the banner");
   assert.equal(clickBanner(root, title), true, "no banner button for the notice");
-  await until(() => server.seen.length === 1, "the Seen report");
+  await until(signal, () => server.seen.length === 1, "the Seen report");
 }
 
-test("a question notice opens its epic at the now block, with the answer form in the page", () =>
+test("a question notice opens its epic at the now block, with the answer form in the page", (t) =>
   withPage(
+    t.signal,
     async (root, server, scrolled) => {
-      await clickEpicNotice(root, server, asking, { kind: "question", ref: "Q1" });
-      await until(() => scrolled.length === 1, "the scroll into view");
+      await clickEpicNotice(t.signal, root, server, asking, { kind: "question", ref: "Q1" });
+      await until(t.signal, () => scrolled.length === 1, "the scroll into view");
       assert.deepEqual(scrolled, ["now-block"]);
       assert.equal(pageCrumb(root), asking.slug);
       assert.equal(isCursored(root, epicKeyOf(asking)), true, "the cursor is not on the epic");
@@ -407,11 +415,12 @@ test("a question notice opens its epic at the now block, with the answer form in
     landingFixtures,
   ));
 
-test("a release-step notice opens its epic at the now block, where Retry and Stop… are", () =>
+test("a release-step notice opens its epic at the now block, where Retry and Stop… are", (t) =>
   withPage(
+    t.signal,
     async (root, server, scrolled) => {
-      await clickEpicNotice(root, server, stuck, { kind: "release_step", ref: "2" });
-      await until(() => scrolled.length === 1, "the scroll into view");
+      await clickEpicNotice(t.signal, root, server, stuck, { kind: "release_step", ref: "2" });
+      await until(t.signal, () => scrolled.length === 1, "the scroll into view");
       assert.deepEqual(scrolled, ["now-block"]);
       assert.equal(pageCrumb(root), stuck.slug);
       assert.equal(pageButtons(root).includes("Retry"), true, "no Retry in the page");
@@ -419,11 +428,12 @@ test("a release-step notice opens its epic at the now block, where Retry and Sto
     landingFixtures,
   ));
 
-test("a report notice for an epic folded under ended earlier opens the line and brings the report into view", () =>
+test("a report notice for an epic folded under ended earlier opens the line and brings the report into view", (t) =>
   withPage(
+    t.signal,
     async (root, server, scrolled) => {
-      await clickEpicNotice(root, server, shipped, { kind: "report", ref: "" });
-      await until(() => scrolled.length === 1, "the scroll into view");
+      await clickEpicNotice(t.signal, root, server, shipped, { kind: "report", ref: "" });
+      await until(t.signal, () => scrolled.length === 1, "the scroll into view");
       assert.deepEqual(scrolled, ["proof report"]);
       assert.equal(pageCrumb(root), shipped.slug);
       assert.equal(isCursored(root, epicKeyOf(shipped)), true, "the cursor is not on the epic");
@@ -431,18 +441,19 @@ test("a report notice for an epic folded under ended earlier opens the line and 
     landingFixtures,
   ));
 
-test("a contract notice opens the contract page of its epic, without a scroll into view", () =>
-  withPage(async (root, server, scrolled) => {
-    await clickEpicNotice(root, server, asking, { kind: "contract", ref: "" });
-    await until(() => pageCrumb(root) === "contract", "the contract page");
+test("a contract notice opens the contract page of its epic, without a scroll into view", (t) =>
+  withPage(t.signal, async (root, server, scrolled) => {
+    await clickEpicNotice(t.signal, root, server, asking, { kind: "contract", ref: "" });
+    await until(t.signal, () => pageCrumb(root) === "contract", "the contract page");
     assert.deepEqual(scrolled, []);
   }, landingFixtures));
 
-test("a notice with no block opens its folded epic at the top of the epic view", () =>
+test("a notice with no block opens its folded epic at the top of the epic view", (t) =>
   withPage(
+    t.signal,
     async (root, server, scrolled) => {
-      await clickEpicNotice(root, server, retired);
-      await until(() => scrolled.length === 1, "the scroll into view");
+      await clickEpicNotice(t.signal, root, server, retired);
+      await until(t.signal, () => scrolled.length === 1, "the scroll into view");
       assert.deepEqual(scrolled, ["epic-page"]);
       assert.equal(pageCrumb(root), retired.slug);
       assert.equal(isCursored(root, epicKeyOf(retired)), true, "the cursor is not on the epic");
@@ -450,19 +461,20 @@ test("a notice with no block opens its folded epic at the top of the epic view",
     landingFixtures,
   ));
 
-test("a notice for an epic the list does not hold moves the cursor and the page nowhere", () =>
+test("a notice for an epic the list does not hold moves the cursor and the page nowhere", (t) =>
   withPage(
+    t.signal,
     async (root, server, scrolled) => {
-      await until(() => lineDrawn(root, epicKeyOf(asking)), "the epics the list holds");
+      await until(t.signal, () => lineDrawn(root, epicKeyOf(asking)), "the epics the list holds");
       assert.equal(clickRow(root, epicKeyOf(asking)), true, "no line for the epic");
-      await until(() => isCursored(root, epicKeyOf(asking)), "the cursor on the epic");
+      await until(t.signal, () => isCursored(root, epicKeyOf(asking)), "the cursor on the epic");
       const title = "gone needs you";
       sendNotice(server, shownMessage({ epic: `${widgetsRepo}/gone` }, title, { kind: "question", ref: "Q1" }));
-      await until(() => bannerTitles(root).includes(title), "the notice in the banner");
+      await until(t.signal, () => bannerTitles(root).includes(title), "the notice in the banner");
       assert.equal(clickBanner(root, title), true, "no banner button for the notice");
-      await until(() => server.seen.length === 1, "the Seen report");
+      await until(t.signal, () => server.seen.length === 1, "the Seen report");
       sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
-      await until(() => bannerTitles(root).includes("limit reached"), "a later notice, drawn after the click");
+      await until(t.signal, () => bannerTitles(root).includes("limit reached"), "a later notice, drawn after the click");
       assert.equal(isCursored(root, epicKeyOf(asking)), true, "the cursor left the epic");
       assert.deepEqual(scrolled, []);
     },
