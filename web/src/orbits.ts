@@ -10,22 +10,9 @@ export const GAP = 16;
 export const RING_RADII = [168, 151, 134, 117, 100];
 
 type Pt = { x: number; y: number };
-type Tick = {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  major: boolean;
-  label: { x: number; y: number; text: string } | null;
-};
 
 const DEG = Math.PI / 180;
 const SWEEP = 360 - GAP;
-const RING_LETTERS = ["R", "W", "T", "C", "G"];
-const BEZEL_STEPS = [5, 10, 25, 50];
-// hitSlice: a pointer closer to the centre than HOLE is the centre, and one farther than REACH is outside the chart.
-const HOLE = 80.5;
-const REACH = 200;
 
 // point is the point at radius r and angle a.
 export function point(r: number, a: number): Pt {
@@ -45,11 +32,6 @@ export function sliceSpan(n: number): number {
 // sliceStart is a0(i), where slice i starts: the start gap's half, then i slices on.
 export function sliceStart(n: number, i: number): number {
   return (GAP / 2) * DEG + i * sliceSpan(n);
-}
-
-// sliceMid is the middle of slice i.
-export function sliceMid(n: number, i: number): number {
-  return sliceStart(n, i) + sliceSpan(n) / 2;
 }
 
 // sliceGap is g, the channel of constant width between neighbouring slices: 0.16 of the slice's arc at 100 u, between
@@ -103,62 +85,3 @@ export function cellPath(n: number, i: number, ring: number): string {
   return sector(radius - 5.5, radius + 5.5, a0, a0 + span, g, Math.min(2, 0.3 * (span * radius - g)));
 }
 
-// wedgePath is the cursor's outline wedge of section 9: slice i, pushed 0.5 u out on each side into the channels.
-export function wedgePath(n: number, i: number): string {
-  return sector(91, 177, sliceStart(n, i), sliceStart(n, i + 1), -1, 3);
-}
-
-// handPath is the cursor's hand of section 9: a triangle pointing outward at slice i's middle, its tip at 89 and its
-// base at 82.5, 3.4 u either side of the middle.
-export function handPath(n: number, i: number): string {
-  const a = sliceMid(n, i);
-  const tip = point(89, a);
-  const base = point(82.5, a);
-  const dx = 3.4 * Math.cos(a);
-  const dy = 3.4 * Math.sin(a);
-  const left = printed({ x: base.x + dx, y: base.y + dy });
-  const right = printed({ x: base.x - dx, y: base.y - dy });
-  return `M${printed(tip)}L${left}L${right}Z`;
-}
-
-// bezel is section 8's rim: a tick at every fifth slice's middle, from 10 slices up. The step between labels is the
-// first of 5, 10, 25 and 50 that leaves at most 8 labels. Above 400 slices no step qualifies, and the largest is used.
-export function bezel(n: number): Tick[] {
-  if (n < 10) return [];
-  const step = BEZEL_STEPS.find((s) => n / s <= 8) ?? BEZEL_STEPS[BEZEL_STEPS.length - 1];
-  const ticks: Tick[] = [];
-  for (let k = 5; k <= n; k += 5) {
-    const a = sliceMid(n, k - 1);
-    const major = k % step === 0;
-    const from = point(179, a);
-    const to = point(major ? 184 : 182, a);
-    const number = point(192.5, a);
-    ticks.push({
-      x1: from.x,
-      y1: from.y,
-      x2: to.x,
-      y2: to.y,
-      major,
-      label: major ? { x: number.x, y: number.y, text: String(k) } : null,
-    });
-  }
-  return ticks;
-}
-
-// ringLetters are section 7's letters in the start gap: one on each ring's radius at 12 o'clock, red test first.
-export function ringLetters(): { letter: string; x: number; y: number }[] {
-  return RING_RADII.map((radius, k) => ({ letter: RING_LETTERS[k], x: CENTRE, y: CENTRE - radius }));
-}
-
-// hitSlice is the slice under a pointer at (x, y), measured from the centre, found by angle alone (section 12). It is
-// 'centre' inside the hole, null past the reach or in the start gap, and otherwise the slice's index.
-export function hitSlice(x: number, y: number, n: number): number | "centre" | null {
-  const r = Math.hypot(x, y);
-  if (r < HOLE) return "centre";
-  if (r > REACH) return null;
-  let a = Math.atan2(x, -y);
-  if (a < 0) a += 2 * Math.PI;
-  const start = (GAP / 2) * DEG;
-  if (a < start || a >= 2 * Math.PI - start) return null;
-  return Math.min(n - 1, Math.floor((a - start) / sliceSpan(n)));
-}
