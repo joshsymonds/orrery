@@ -683,6 +683,113 @@ message EpicNode {
   string step = 15;
 }
 
+// EpicLedger is an epic's end-of-epic review: the verdicts of its reviewers, the findings they returned, and the
+// correction rounds that followed.
+message EpicLedger {
+  // The reviewers' verdicts, by position.
+  repeated EpicReviewVerdict verdicts = 1;
+
+  // The ledger's findings, by position.
+  repeated EpicLedgerFinding findings = 2;
+
+  // The correction rounds, by round.
+  repeated EpicReviewRound rounds = 3;
+}
+
+// EpicReviewVerdict is one reviewer's verdict in the epic's review.
+message EpicReviewVerdict {
+  // The reviewer's 1-based place among the epic's enabled epic-stage reviewers.
+  int64 position = 1;
+
+  // The reviewer's name.
+  string reviewer = 2;
+
+  // The step that gave the verdict. For a gap, the last try's step.
+  string step = 3;
+
+  // The verdict: holds, fails or gap.
+  string verdict = 4;
+
+  // Why the reviewer gave the verdict.
+  string reason = 5;
+}
+
+// EpicLedgerFinding is one finding a reviewer returned, as the review's ledger holds it.
+message EpicLedgerFinding {
+  // The ledger id, <reviewer>-<k>, where k is the finding's 1-based position among the reviewer's findings.
+  string id = 1;
+
+  // The finding's 1-based place in the ledger.
+  int64 position = 2;
+
+  // The reviewer's name.
+  string reviewer = 3;
+
+  // The finding id the reviewer returned.
+  string finding = 4;
+
+  // The claim the finding makes.
+  string claim = 5;
+
+  // The citation the finding gives for its claim.
+  string citation = 6;
+
+  // The location the finding names.
+  string location = 7;
+
+  // The evidence the finding gives.
+  string evidence = 8;
+
+  // How the verifier is to check the finding.
+  string verify_by = 9;
+
+  // The verifier step. Empty when the finding is unverified.
+  string step = 10;
+
+  // The verifier's result: confirmed, dropped or undetermined.
+  string result = 11;
+
+  // Whether verification was off. An unverified finding is confirmed and has no verifier step.
+  bool unverified = 12;
+
+  // Why the verifier reached the result.
+  string reason = 13;
+
+  // The closure verifier's result for the finding in each correction round, in round order.
+  repeated EpicClosure closures = 14;
+}
+
+// EpicClosure is the closure verifier's result for one ledger finding in one correction round.
+message EpicClosure {
+  // The correction round.
+  int64 round = 1;
+
+  // The closure verifier step.
+  string step = 2;
+
+  // The closure result: closed, open or undetermined.
+  string result = 3;
+
+  // Why the closure verifier reached the result.
+  string reason = 4;
+}
+
+// EpicReviewRound is one correction round of the epic's review: the correction tasks it ran and how its closure run
+// ended.
+message EpicReviewRound {
+  // The correction round.
+  int64 round = 1;
+
+  // The stored base the round's closure verifiers ran at.
+  string revision = 2;
+
+  // The round's correction task seqs, in order.
+  repeated int64 tasks = 3;
+
+  // The closure run's outcome: passed or failed.
+  string outcome = 4;
+}
+
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
   // The epic's contract as created.
@@ -728,6 +835,16 @@ message StoredEpic {
   // The epic's reviewers, merged from orrery's defaults, the project file and the contract, in the order their names
   // first appear.
   repeated EpicReviewer reviewers = 14;
+
+  // The epic's end-of-epic review: its verdicts, its ledger of findings with their closures, and its correction rounds.
+  // Empty before the review starts.
+  EpicLedger ledger = 15;
+
+  // The revision the review froze. Empty before the review freezes.
+  string frozen = 16;
+
+  // The revision the epic ended clean at. Empty until the epic ends clean.
+  string clean = 17;
 
   // The epic's summary, written once from its contract. Empty until it is written.
   string summary = 20;

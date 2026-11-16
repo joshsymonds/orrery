@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -51,7 +49,7 @@ func runHolder(ctx context.Context, args []string, stderr io.Writer, getenv func
 	}
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	err = holder.Run(ctx, holder.Config{
+	return holdSession(ctx, holder.Config{
 		Dir:     dir,
 		Session: parsed.session,
 		Child: holder.ChildConfig{
@@ -60,12 +58,24 @@ func runHolder(ctx context.Context, args []string, stderr io.Writer, getenv func
 			GateLimit: parsed.gateLimit,
 			GateTail:  parsed.gateTail,
 		},
-	})
+	}, stderr, holder.Run)
+}
+
+// holdSession serves the session that cfg names with run, which is holder.Run outside tests, and gives the exit status
+// that runHolder documents. The child's status comes from the exit record run returns: once run has released the
+// session lock, a stopper waiting on that lock may already have removed the session's directory with its exit file.
+func holdSession(
+	ctx context.Context,
+	cfg holder.Config,
+	stderr io.Writer,
+	run func(context.Context, holder.Config) (holder.Exit, error),
+) error {
+	exit, err := run(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(stderr, "orrery holder: %v\n", err)
 		return statusError{code: exitFailure}
 	}
-	status, err := childStatus(dir)
+	status, err := childStatus(exit)
 	if err != nil {
 		fmt.Fprintf(stderr, "orrery holder: %v\n", err)
 		return statusError{code: exitFailure}
@@ -138,18 +148,10 @@ func parseHolder(args []string) (holderArgs, error) {
 	}, nil
 }
 
-// childStatus returns the status the holder exits with, read from the exit record in dir. A child the holder stopped
+// childStatus returns the status the holder exits with, from the exit record exit. A child the holder stopped
 // exits 0. A child that ended on its own exits with its exit code, or with 128 plus the number of the signal that ended
 // it.
-func childStatus(dir string) (int, error) {
-	data, err := os.ReadFile(filepath.Join(dir, holder.ExitName))
-	if err != nil {
-		return 0, fmt.Errorf("read exit record: %w", err)
-	}
-	var exit holder.Exit
-	if err = json.Unmarshal(data, &exit); err != nil {
-		return 0, fmt.Errorf("decode exit record: %w", err)
-	}
+func childStatus(exit holder.Exit) (int, error) {
 	switch {
 	case exit.Reason != holder.ReasonExited:
 		return exitOK, nil

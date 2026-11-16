@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -402,5 +403,67 @@ func TestUsageTextListsHolder(t *testing.T) {
 		strings.Repeat(" ", 48) + "until the child ends\n"
 	if !strings.Contains(usageText, want) {
 		t.Errorf("usage text does not list holder as %q:\n%s", want, usageText)
+	}
+}
+
+// TestHolderClearedOnceItsLockIsFreeExitsWithItsChildStatus clears the session directory as soon as holder.Run returns,
+// the order of a stopper that waited on the session lock: holder.Clear takes the freed lock and removes the directory
+// with its exit file before the holder gives its status. The holder still exits as its child's exit record says: 0 for
+// a child it stopped, and the child's own code for one that ended on its own.
+func TestHolderClearedOnceItsLockIsFreeExitsWithItsChildStatus(t *testing.T) {
+	cases := []struct {
+		name  string
+		child func(t *testing.T) []string
+		// stopped ends the holder's context before it runs, so the holder stops its child at once.
+		stopped bool
+		want    int
+	}{
+		{
+			"stopped child",
+			func(t *testing.T) []string { t.Helper(); return []string{holderFakeChild(t)} },
+			true,
+			exitOK,
+		},
+		{"child that exited 3", func(t *testing.T) []string { t.Helper(); return shellChild(t, "exit 3") }, false, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			child := tc.child(t)
+			chdirTemp(t)
+			dir := sessionDirOf(t, shortStateDir(t), "cleared")
+			cfg := holder.Config{
+				Dir:     dir,
+				Session: "cleared",
+				Child:   holder.ChildConfig{Path: child[0], Args: child[1:]},
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.stopped {
+				cancel()
+			}
+			clearedRun := func(ctx context.Context, cfg holder.Config) (holder.Exit, error) {
+				exit, err := holder.Run(ctx, cfg)
+				if clearErr := holder.Clear(context.WithoutCancel(ctx), cfg.Dir); clearErr != nil {
+					t.Errorf("clear %s: %v", cfg.Dir, clearErr)
+				}
+				return exit, err
+			}
+			var stderr strings.Builder
+
+			err := holdSession(ctx, cfg, &stderr, clearedRun)
+
+			if _, statErr := os.Lstat(dir); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("session dir %s: %v, want it cleared before the status", dir, statErr)
+			}
+			code := exitOK
+			if se := (statusError{}); errors.As(err, &se) {
+				code = se.code
+			} else if err != nil {
+				t.Fatalf("holdSession = %v, want an exit status", err)
+			}
+			if code != tc.want || stderr.Len() != 0 {
+				t.Fatalf("exit status %d, stderr %q; want %d and no stderr", code, stderr.String(), tc.want)
+			}
+		})
 	}
 }

@@ -18,8 +18,8 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030 and 00035 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029,
-// 00033, 00034 and 00035 add to epic tables.
+// 00019, 00028, 00030, 00035 and 00036 create, and of the columns those migrations and 00020, 00021, 00022, 00025,
+// 00029, 00033, 00034 and 00035 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -71,8 +71,17 @@ func epicTableColumns() map[string][]string {
 			"id", "epic", "path", "revision", "argv", "limit_seconds", "needs", "state", "grant_id", "holder", "exit",
 			"timed_out", "not_run", "stdout", "stderr", "created", "ended",
 		},
-		"epic_tells":         {"epic", "seq", "text", "at", "told"},
-		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
+		"epic_tells":           {"epic", "seq", "text", "at", "told"},
+		"epic_questions":       {"epic", "seq", "turn", "text", "state"},
+		"epic_reviews":         {"epic", "frozen", "clean"},
+		"epic_review_verdicts": {"epic", "position", "reviewer", "step", "verdict", "reason"},
+		"epic_ledger": {
+			"epic", "id", "position", "reviewer", "finding", "claim", "citation", "location", "evidence", "verify_by",
+			"step", "result", "unverified", "reason",
+		},
+		"epic_review_rounds": {"epic", "round", "revision", "tasks", "outcome"},
+		"epic_closures":      {"epic", "round", "finding", "step", "result", "reason"},
+		"epic_review_holds":  {"epic", "step"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -491,9 +500,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00036_assertions.sql is the newest.
-	if version != 36 {
-		t.Fatalf("store version after Open = %d, want 36", version)
+	// Open applies 00014_epics.sql and every migration after it: 00037_assertions.sql is the newest.
+	if version != 37 {
+		t.Fatalf("store version after Open = %d, want 37", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

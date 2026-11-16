@@ -34,10 +34,10 @@ func endIn(outcomes ...string) scripted {
 	return script
 }
 
-// refineKinds returns the kinds of the refine loop: work ends every round with no outcome, and review ends round r
-// with reviews[r-1].
+// refineKinds returns the kinds of the refine loop: work ends every round with no outcome, and verdict, the kind of
+// the review node, ends round r with reviews[r-1].
 func refineKinds(reviews ...string) map[string]kinds.Kind {
-	return map[string]kinds.Kind{"work": endIn("", ""), "review": endIn(reviews...)}
+	return map[string]kinds.Kind{"work": endIn("", ""), "verdict": endIn(reviews...)}
 }
 
 // kindNode returns a kind node with id that holds body.
@@ -54,7 +54,7 @@ func loopNode(loop workflow.Loop, body ...workflow.Node) workflow.Node {
 // body of work then review.
 func refine(spent string) workflow.Node {
 	settings := workflow.Loop{Max: 2, Until: workflow.Outcome{Node: "review", Name: "done"}, Spent: spent}
-	return loopNode(settings, kindNode("work", "work"), kindNode("review", "review"))
+	return loopNode(settings, kindNode("work", "work"), kindNode("review", "verdict"))
 }
 
 // planNode returns a plan node whose body is one build node.
@@ -140,9 +140,9 @@ func rowsOf(turns []store.EpicTurn, tasks []store.EpicTask, runs ...store.NodeRu
 	return kinds.Rows{Epic: epic, Runs: runs}
 }
 
-// deciding returns rows with the epic still deciding, so its build children wait.
-func deciding(rows kinds.Rows) kinds.Rows {
-	rows.Epic.Phase = "deciding"
+// endedClean returns rows with the epic ended clean, so its build children wait.
+func endedClean(rows kinds.Rows) kinds.Rows {
+	rows.Epic.Phase = "clean"
 	return rows
 }
 
@@ -260,9 +260,9 @@ func TestDecidePlan(t *testing.T) {
 			},
 		},
 		{
-			name: "open children wait while the epic is not accepted",
+			name: "open children wait once the epic has ended",
 			flow: []workflow.Node{planNode()},
-			rows: deciding(rowsOf(
+			rows: endedClean(rowsOf(
 				[]store.EpicTurn{turnAt(1, "work")},
 				[]store.EpicTask{openTask(1, 1)},
 				runningPlan(0),
@@ -438,7 +438,7 @@ func TestDecideLoop(t *testing.T) {
 				running(startOf("refine@2/work", "work", "work", 2)),
 				endedIn(2, "review", "done"),
 			),
-			reg:  map[string]kinds.Kind{"work": endIn(""), "review": endIn("again", "done")},
+			reg:  map[string]kinds.Kind{"work": endIn(""), "verdict": endIn("again", "done")},
 			want: nil,
 		},
 	})

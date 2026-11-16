@@ -35,9 +35,10 @@ const (
 	exitTailChild = "echo out; echo err >&2; exit 3"
 )
 
-// running is one Run in flight. Its result is valid once done closes.
+// running is one Run in flight. Its exit record and error are valid once done closes.
 type running struct {
 	done chan struct{}
+	exit Exit
 	err  error
 }
 
@@ -47,7 +48,7 @@ func startHolder(ctx context.Context, t *testing.T, cfg Config) *running {
 	t.Helper()
 	run := &running{done: make(chan struct{})}
 	go func() {
-		run.err = Run(ctx, cfg)
+		run.exit, run.err = Run(ctx, cfg)
 		close(run.done)
 	}()
 	t.Cleanup(func() {
@@ -406,7 +407,7 @@ func TestHolderStopEndsChildGroupThenWritesExitAndAnswersStopped(t *testing.T) {
 	assertDirNames(t, cfg.Dir, ExitName, PidsName, LockName, segmentName(0))
 }
 
-func TestHolderChildThatExitsAloneWritesItsStatusAndTailThenReturnsNil(t *testing.T) {
+func TestHolderChildThatExitsAloneWritesItsStatusAndTailAndReturnsThem(t *testing.T) {
 	t.Parallel()
 
 	cfg := newHolderConfig(t)
@@ -417,7 +418,11 @@ func TestHolderChildThatExitsAloneWritesItsStatusAndTailThenReturnsNil(t *testin
 	}
 	want := Exit{Reason: ReasonExited, Code: childDiedCode, StdoutEnd: int64(len("out\n")), Stderr: "err\n"}
 	if got := readExitFile(t, cfg.Dir); got != want {
-		t.Errorf("exit = %+v, want %+v", got, want)
+		t.Errorf("exit file = %+v, want %+v", got, want)
+	}
+	// The caller takes the status from the returned record, since the directory can be gone once the lock is free.
+	if run.exit != want {
+		t.Errorf("Run's exit = %+v, want the record it wrote, %+v", run.exit, want)
 	}
 	requireNoSocket(t, socketOf(t, cfg.Dir))
 	assertDirNames(t, cfg.Dir, ExitName, PidsName, LockName, segmentName(0))
@@ -432,7 +437,7 @@ func TestHolderSecondHolderIsLockedOutAndFirstKeepsServing(t *testing.T) {
 	dialHolder(t, run, sock).hello(WireVersion)
 	pid := awaitChildPid(t, run, cfg.Child.Dir)
 
-	if err := Run(t.Context(), cfg); !errors.Is(err, ErrLocked) {
+	if _, err := Run(t.Context(), cfg); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second Run = %v, want ErrLocked", err)
 	}
 	requireChildGroupAlive(t, pid)
@@ -453,7 +458,7 @@ func TestHolderLeftoverExitFileIsUndrainedAndStartsNothing(t *testing.T) {
 		t.Fatalf("WriteExit: %v", err)
 	}
 
-	if err := Run(t.Context(), cfg); !errors.Is(err, ErrUndrained) {
+	if _, err := Run(t.Context(), cfg); !errors.Is(err, ErrUndrained) {
 		t.Fatalf("Run = %v, want ErrUndrained", err)
 	}
 	requireNoSocket(t, socketOf(t, cfg.Dir))
@@ -557,7 +562,7 @@ func TestHolderChildThatCannotStartWritesExitAndReleasesEverything(t *testing.T)
 	missing := filepath.Join(cfg.Child.Dir, "missing")
 	cfg.Child.Path = missing
 
-	if err := Run(t.Context(), cfg); err == nil {
+	if _, err := Run(t.Context(), cfg); err == nil {
 		t.Fatal("Run = nil, want the start failure")
 	}
 	exit := readExitFile(t, cfg.Dir)
@@ -580,7 +585,7 @@ func TestHolderRefusesLeftoverSpoolSegmentsAndReleasesEverything(t *testing.T) {
 		t.Fatalf("WriteFile segment: %v", err)
 	}
 
-	if err := Run(t.Context(), cfg); !errors.Is(err, ErrSpoolExists) {
+	if _, err := Run(t.Context(), cfg); !errors.Is(err, ErrSpoolExists) {
 		t.Fatalf("Run = %v, want ErrSpoolExists", err)
 	}
 	requireNoSocket(t, socketOf(t, cfg.Dir))

@@ -430,71 +430,12 @@ func newServer(t *testing.T) (*tmuxctl.Client, string) {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
-		groups := paneGroups(t, client)
+		// Stop returns once every pane's process group is gone, so no stand-in writes into the TempDir after it.
 		if killErr := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); killErr != nil {
 			t.Errorf("kill-server: %v", killErr)
 		}
-		waitGroupsGone(t, groups)
 	})
 	return client, name
-}
-
-// paneExitLimit bounds how long a pane's process group may outlive kill-server before it is killed.
-const paneExitLimit = 2 * time.Second
-
-// paneGroups returns the process group of each pane on client's server. A pane's command leads its own group, so
-// the group ID is the pane's pid.
-func paneGroups(t *testing.T, client *tmuxctl.Client) []int {
-	t.Helper()
-	out, err := client.Run(context.Background(), "list-panes", "-a", "-F", "#{pane_pid}")
-	if err != nil {
-		t.Errorf("list-panes: %v", err)
-		return nil
-	}
-	var groups []int
-	for _, field := range strings.Fields(out) {
-		pgid, parseErr := strconv.Atoi(field)
-		if parseErr != nil {
-			t.Errorf("pane_pid %q: %v", field, parseErr)
-			continue
-		}
-		// A pane with no process reports 0, and kill(-0) would signal the test's own group.
-		if pgid > 1 {
-			groups = append(groups, pgid)
-		}
-	}
-	return groups
-}
-
-// waitGroupsGone waits after kill-server until no process is left in each of groups. A group still alive after
-// paneExitLimit is SIGKILLed, so that no pane process can write into a TempDir after its test returns; the wait for a
-// killed group has no deadline of its own.
-func waitGroupsGone(t *testing.T, groups []int) {
-	t.Helper()
-	for _, pgid := range groups {
-		if waitGroupGone(pgid, time.After(paneExitLimit)) {
-			continue
-		}
-		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			t.Errorf("kill process group %d: %v", pgid, err)
-		}
-		waitGroupGone(pgid, nil)
-	}
-}
-
-// waitGroupGone reports whether process group pgid has no process left before giveUp fires. A nil giveUp never
-// fires, so the wait lasts until the group is gone.
-func waitGroupGone(pgid int, giveUp <-chan time.Time) bool {
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for !errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
-		select {
-		case <-giveUp:
-			return false
-		case <-ticker.C:
-		}
-	}
-	return true
 }
 
 // startPane starts detached session s1 running command and returns the ID of its only pane.
@@ -1620,7 +1561,7 @@ func detachFirst(t *testing.T, inner, outer *tmuxctl.Client, pane string) {
 			t.Errorf("detach the viewer's client: %v", detachErr)
 			return
 		}
-		waitGroupGone(pgid, nil)
+		tmuxtest.WaitGroupGone(pgid, nil)
 	})
 }
 

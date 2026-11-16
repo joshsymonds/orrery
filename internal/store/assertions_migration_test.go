@@ -50,7 +50,7 @@ func storedKinds(t *testing.T, db *sql.DB) int64 {
 	return kinds
 }
 
-// TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike stores items and a run spec at version 35 and reads them back
+// TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike stores items and a run spec at version 36 and reads them back
 // after Open migrates the store: an item or spec whose capture is a list gains the capture kind, one whose supplied
 // files are a list gains the supplied kind, and the item with neither and the empty item stay as they were. The run
 // kept its Requirement's item, and both migrate to the same kinded item, so the run stays current with it.
@@ -70,7 +70,7 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 			`"conclusion":"the task holds","judge":"a judge"}`
 	)
 	const id = seededEpic
-	fixture := openStoreAtVersion(t, path, 35)
+	fixture := openStoreAtVersion(t, path, 36)
 	seedEpic(t, fixture)
 	seeds := []struct {
 		stmt string
@@ -102,7 +102,7 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 35: %v", err)
+		t.Fatalf("Open at version 36: %v", err)
 	}
 	defer s.Close()
 
@@ -154,7 +154,7 @@ func TestAssertionsMigrationGivesItemsAndRunSpecsAKindAlike(t *testing.T) {
 	}
 }
 
-// TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim stores three tasks that claim R1 at version 35, seq 1 failed,
+// TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim stores three tasks that claim R1 at version 36, seq 1 failed,
 // seq 2 open and seq 3 done, and reads them back after Open migrates the store: the failed task and the lowest
 // unfailed task keep R1, the later unfailed task holds it as a contribution, and the claims that are not R1 stay.
 func TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim(t *testing.T) {
@@ -163,7 +163,7 @@ func TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	const id = seededEpic
-	fixture := openStoreAtVersion(t, path, 35)
+	fixture := openStoreAtVersion(t, path, 36)
 	seedEpic(t, fixture)
 	seeds := []struct {
 		stmt string
@@ -192,7 +192,7 @@ func TestAssertionsMigrationKeepsOnlyTheLowestUnfailedClaim(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 35: %v", err)
+		t.Fatalf("Open at version 36: %v", err)
 	}
 	defer s.Close()
 
@@ -269,7 +269,7 @@ func TestEpicTaskContributesReadBackInOrder(t *testing.T) {
 }
 
 // TestAssertionsMigrationDownAndUpRoundTrips stores kinds, a claim and a contribution to it, and a run spec, then takes
-// the store down to version 35 and back up: the kinds are removed by the Down and derived again by the Up, the
+// the store down to version 36 and back up: the kinds are removed by the Down and derived again by the Up, the
 // contribution moves back to a claim after the task's own claim and returns as a contribution, and the epic reads back
 // as it did before.
 func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
@@ -332,8 +332,8 @@ func TestAssertionsMigrationDownAndUpRoundTrips(t *testing.T) {
 	}
 
 	provider := assertionsProvider(t, s.db.DB)
-	if _, err := provider.DownTo(ctx, 35); err != nil {
-		t.Fatalf("DownTo 35: %v", err)
+	if _, err := provider.DownTo(ctx, 36); err != nil {
+		t.Fatalf("DownTo 36: %v", err)
 	}
 	if tableNames(t, s)["epic_task_contributes"] {
 		t.Errorf("epic_task_contributes after Down: present, want absent")

@@ -79,21 +79,24 @@ func (cfg Config) withDefaults() Config {
 // file from an earlier holder is undrained, and serves the socket. A stop from a controller, the end of ctx, or the
 // idle timeout stops the child: the idle timeout runs while no controller is attached. When the child ends, Run writes
 // the exit file, ends the attached controller's stream with the rest of the output and the exit record, answers the
-// stops and releases what it took.
-func Run(ctx context.Context, cfg Config) error {
+// stops and releases what it took. It returns the exit record it wrote. Once the lock is released a stopper may remove
+// cfg.Dir with the exit file in it, so the caller takes the child's status from the returned record, not from the file.
+// A refusal or failure before the child ran returns the zero Exit with its error.
+func Run(ctx context.Context, cfg Config) (Exit, error) {
 	cfg = cfg.withDefaults()
 	if err := PrepareDir(cfg.Dir); err != nil {
-		return fmt.Errorf("holder: %w", err)
+		return Exit{}, fmt.Errorf("holder: %w", err)
 	}
 	lock, err := Lock(filepath.Join(cfg.Dir, LockName))
 	if err != nil {
-		return fmt.Errorf("session %s: %w", cfg.Session, err)
+		return Exit{}, fmt.Errorf("session %s: %w", cfg.Session, err)
 	}
 	h, err := openHolder(cfg)
 	if err != nil {
-		return errors.Join(err, lock.Close())
+		return Exit{}, errors.Join(err, lock.Close())
 	}
-	return errors.Join(h.run(ctx), lock.Close())
+	exit, err := h.run(ctx)
+	return exit, errors.Join(err, lock.Close())
 }
 
 // openHolder takes what the holder serves with: the socket, the spool and the child. A failure releases what it took
@@ -213,8 +216,8 @@ type stdinWrite struct {
 
 // run serves connections until the child ends. Then it writes the exit file, ends each stream with the rest of the
 // output and the exit record, answers the stops, closes the connections, drains the writes and closes the spool, and
-// returns what those steps report.
-func (h *holder) run(ctx context.Context) error {
+// returns the exit record with what those steps report.
+func (h *holder) run(ctx context.Context) (Exit, error) {
 	h.mu.Lock()
 	h.armIdleLocked()
 	h.mu.Unlock()
@@ -252,7 +255,7 @@ func (h *holder) run(ctx context.Context) error {
 	h.serving.Wait()
 	close(h.writesClosed)
 	<-writing
-	return errors.Join(writeErr, closeErr, connErr, h.spool.Close())
+	return exit, errors.Join(writeErr, closeErr, connErr, h.spool.Close())
 }
 
 // accept serves each connection the listener takes, until the listener closes.
