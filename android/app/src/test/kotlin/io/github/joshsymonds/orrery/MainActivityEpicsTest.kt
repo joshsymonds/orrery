@@ -15,8 +15,10 @@ import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
@@ -44,6 +46,7 @@ private const val HEADLESS_PATH = "/orrery.v1.Sessions/ListHeadless"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
+private const val EPICS_HISTORY_PATH = "/orrery.v1.Epics/History"
 private const val EPIC_ID = "example-repo/example-epic"
 private const val EPIC_SLUG = "example-epic"
 private const val EPIC_REPOSITORY = "example-repo"
@@ -132,6 +135,7 @@ class MainActivityEpicsTest {
             EPICS_GET_PATH,
             EpicsGetResponse.newBuilder().setEpic(liveEpic()).addSteps(epicStep()).build(),
         )
+        server.respond(EPICS_HISTORY_PATH, EpicsHistoryResponse.getDefaultInstance())
     }
 
     /** The header of the open session, by its label. */
@@ -242,7 +246,7 @@ class MainActivityEpicsTest {
 
         composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
 
-        awaitNode(hasTestTag("epic-back"))
+        awaitNode(hasTestTag("title-back"))
         assertAbsent(hasTestTag("pane-row:%1"))
     }
 
@@ -252,31 +256,42 @@ class MainActivityEpicsTest {
         val controller = launch()
         awaitNode(hasTestTag("epic:$EPIC_ID"))
         composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
-        awaitNode(hasTestTag("epic-back"))
+        awaitNode(hasTestTag("title-back"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
         awaitNode(hasTestTag("pane-row:%1"))
-        assertAbsent(hasTestTag("epic-back"))
+        assertAbsent(hasTestTag("title-back"))
     }
 
     @Test
     fun tappingAStepOpensTheSessionScreenAndBackReturnsToTheEpic() {
         serveEpic()
+        server.respond(
+            EPICS_HISTORY_PATH,
+            EpicsHistoryResponse.newBuilder()
+                .addEntries(
+                    EpicHistoryEntry.newBuilder()
+                        .setTime(NOW - 60)
+                        .setCursor("example-cursor-1")
+                        .setStep(epicStep()),
+                )
+                .build(),
+        )
         serveSessions(headlessSession(STEP_ID, STEP_SESSION_LABEL))
         val controller = launch()
         awaitNode(hasTestTag("epic:$EPIC_ID"))
         composeRule.onNodeWithTag("epic:$EPIC_ID").performClick()
-        awaitNode(hasTestTag("step-row:$STEP_ID"))
+        awaitNode(hasTestTag("happened:0"))
 
-        composeRule.onNodeWithTag("step-row:$STEP_ID").performClick()
+        composeRule.onNodeWithTag("happened:0").performClick()
 
         awaitNode(titled(STEP_SESSION_LABEL))
-        assertAbsent(hasTestTag("epic-back"))
+        assertAbsent(hasTestTag("title-back"))
 
         controller.get().onBackPressedDispatcher.onBackPressed()
 
-        awaitNode(hasTestTag("epic-back"))
+        awaitNode(hasTestTag("title-back"))
         assertAbsent(titled(STEP_SESSION_LABEL))
     }
 }
