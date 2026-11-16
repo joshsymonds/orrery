@@ -1,22 +1,17 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,24 +21,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
-import io.github.joshsymonds.orrery.api.EpicRequirementRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
+import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.OrreryClient
-import io.github.joshsymonds.orrery.api.StepCheckRow
+import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
-import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -51,13 +40,23 @@ private sealed interface EpicLoad {
     data object Loading : EpicLoad
     data object Failed : EpicLoad
     data object NotFound : EpicLoad
-    data class Loaded(val detail: EpicDetail) : EpicLoad
+    data class Loaded(val detail: EpicDetail, val history: List<EpicHistoryRow>) : EpicLoad
 }
 
+// The outcome an epic is released with, as written.
+private const val RELEASED = "released"
+
+// The notice a command leaves when the epic could not be reached.
+private const val UNREACHABLE = "could not reach the epic"
+
 /**
- * One epic: its tasks, each with the status as recorded, and its steps one line each.
- * Ended steps fold into one line that opens. Tapping a step calls [onOpenStep] with it. The back
- * button calls [onBack].
+ * One epic as one scrolling list, in the epic page's order: its summary when it has a contract, what is happening now
+ * (the problem and the blocker), the red proof, the implementation (the orrery, the now and next rows, what just
+ * happened, the workflow's nodes), the green proof, [handover] when it is given, the release and the report. Each
+ * section is one item, tagged "epic-section:[name]". A tap on a step calls [onOpenStep] with it, a tap on the summary
+ * calls [onOpenContract], and a tap on the orrery, a proof card or a row calls [onOpenPhase]. [actions] render first in
+ * the title row. [listState] is the list's state, so the caller keeps its scroll. Back and the first crumb call [onBack].
+ * A command runs off the main thread, then the epic is read again; a command that did not land shows as a notice.
  */
 @Composable
 fun EpicScreen(
@@ -66,31 +65,81 @@ fun EpicScreen(
     onBack: () -> Unit,
     onOpenStep: (StepRow) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenContract: () -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
+    onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+    handover: (@Composable () -> Unit)? = null,
 ) {
-    var load by remember { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
-    var generation by remember { mutableIntStateOf(0) }
-    // Kept per client, so a recomposition does not start the evidence loads again.
+    var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
+    var generation by remember(client, epicId) { mutableIntStateOf(0) }
+    var notice by remember(client, epicId) { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     val loadArtifact: ArtifactLoader = remember(client) {
         { run: String, name: String, stderr: Boolean -> client.artifact(run, name, stderr) }
     }
 
+    // send runs one command off the main thread. What did not land shows as the notice, with the typed [answer] beside
+    // it when the command is an answer. Then the epic is read again.
+    fun send(answer: String = "", call: () -> StepCallResult) {
+        scope.launch {
+            notice = withContext(Dispatchers.IO) { noticeOf(call, answer) }
+            generation++
+        }
+    }
+
     LaunchedEffect(client, epicId, generation) {
-        load = EpicLoad.Loading
+        // A reload after a command keeps the epic on screen; only a first load or a retry shows the loading line.
+        if (load !is EpicLoad.Loaded) load = EpicLoad.Loading
         load = try {
-            val detail = withContext(Dispatchers.IO) { client.epic(epicId) }
-            if (detail == null) EpicLoad.NotFound else EpicLoad.Loaded(detail)
+            withContext(Dispatchers.IO) { loadEpic(client, epicId) }
         } catch (error: IOException) {
             EpicLoad.Failed
         }
     }
 
+    val pause = { send { client.pauseEpic(epicId) } }
+    val resume = { send { client.resumeEpic(epicId) } }
+    val stop = { send { client.stopEpic(epicId) } }
+    val retry = { send { client.retryEpic(epicId) } }
+    val onAnswer: (String, String) -> String = { questionId, text ->
+        send(answer = text) { client.answerEpic(epicId, questionId, text) }
+        ""
+    }
+
+    val current = load
+    val detail = (current as? EpicLoad.Loaded)?.detail
+    val now = System.currentTimeMillis() / 1000
     Column(modifier = modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("epic-back")) {
-                Text("‹ Back")
-            }
-        }
-        when (val current = load) {
+        TitleRow(
+            crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
+            onBack = onBack,
+            state = detail?.let(::epicStateOf).orEmpty(),
+            blocker = detail?.let { blockerLineOf(blockerOf(it), now) }.orEmpty(),
+            actions = {
+                actions()
+                if (detail != null && detail.epic.live && detail.epic.outcome.isEmpty()) {
+                    if (detail.paused) {
+                        TextButton(onClick = resume, modifier = Modifier.testTag("epic-resume")) {
+                            Text("Resume")
+                        }
+                    } else {
+                        TextButton(onClick = pause, modifier = Modifier.testTag("epic-pause")) {
+                            Text("Pause")
+                        }
+                    }
+                    AskFirst(
+                        label = "Stop…",
+                        question = "Stop ${detail.epic.slug}?",
+                        confirm = "Stop ${detail.epic.slug}",
+                        keep = "Keep it running",
+                        tag = "epic-stop",
+                        onConfirm = stop,
+                    )
+                }
+            },
+        )
+        when (current) {
             EpicLoad.Loading -> Text("Loading...", modifier = Modifier.padding(16.dp))
             EpicLoad.Failed -> Column(modifier = Modifier.padding(16.dp)) {
                 Text("could not load epic", color = MaterialTheme.colorScheme.error)
@@ -99,168 +148,166 @@ fun EpicScreen(
                 }
             }
             EpicLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
-            is EpicLoad.Loaded -> EpicBody(detail = current.detail, onOpenStep = onOpenStep, loadArtifact = loadArtifact)
+            is EpicLoad.Loaded -> EpicBody(
+                loaded = current,
+                now = now,
+                notice = notice,
+                listState = listState,
+                loadArtifact = loadArtifact,
+                onOpenStep = onOpenStep,
+                onOpenContract = onOpenContract,
+                onOpenPhase = onOpenPhase,
+                onAnswer = onAnswer,
+                onRetry = retry,
+                onStop = stop,
+                handover = handover,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
 
-// In portrait the chart is a square drawing at most CHART_MAX_WIDTH wide, CHART_SIDE_PADDING in from each side, with its
-// two key lines under it, which take CHART_KEYS_HEIGHT. The chart gives up height before the list drops below
-// LIST_MIN_HEIGHT, so task rows stay on screen.
-private val CHART_SIDE_PADDING = 14.dp
-private val CHART_MAX_WIDTH = 420.dp
-private val CHART_KEYS_HEIGHT = 72.dp
-private val LIST_MIN_HEIGHT = 240.dp
-
-// The chart stays outside the list, so it stays on screen while the list scrolls: above the list in portrait, beside it
-// in landscape.
-@Composable
-private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit, loadArtifact: ArtifactLoader) {
-    var selectedRow by remember { mutableStateOf<Int?>(null) }
-    var selectedSlice by remember { mutableStateOf<Int?>(null) }
-    // Tapping a row with a slice marks it and selects its slice; tapping the marked row again clears both; a row with no
-    // slice changes nothing.
-    val onTapTask: (Int) -> Unit = { row ->
-        val slice = sliceOf(detail, row)
-        when {
-            row == selectedRow -> {
-                selectedRow = null
-                selectedSlice = null
-            }
-            slice != null -> {
-                selectedRow = row
-                selectedSlice = slice
-            }
-        }
-    }
-    // The chart selects a slice or clears its selection (null); either way no row is marked.
-    val onSelectSlice: (Int?) -> Unit = { slice ->
-        selectedSlice = slice
-        selectedRow = null
-    }
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        if (maxWidth > maxHeight) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                EpicChart(
-                    detail.slices,
-                    taskCount = detail.tasks.size,
-                    selected = selectedSlice,
-                    onSelect = onSelectSlice,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-                EpicList(
-                    detail,
-                    onOpenStep,
-                    selectedRow,
-                    onTapTask,
-                    loadArtifact,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-            }
-        } else {
-            val side = minOf(
-                maxWidth - CHART_SIDE_PADDING * 2,
-                CHART_MAX_WIDTH,
-                maxHeight - LIST_MIN_HEIGHT - CHART_KEYS_HEIGHT,
-            ).coerceAtLeast(0.dp)
-            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                EpicChart(
-                    detail.slices,
-                    taskCount = detail.tasks.size,
-                    selected = selectedSlice,
-                    onSelect = onSelectSlice,
-                    modifier = Modifier.size(side, side + CHART_KEYS_HEIGHT),
-                )
-                EpicList(
-                    detail,
-                    onOpenStep,
-                    selectedRow,
-                    onTapTask,
-                    loadArtifact,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                )
-            }
-        }
-    }
+// loadEpic reads the epic, then every page of its history, oldest first. Null when no epic has the id.
+private fun loadEpic(client: OrreryClient, epicId: String): EpicLoad {
+    val detail = client.epic(epicId) ?: return EpicLoad.NotFound
+    val history = mutableListOf<EpicHistoryRow>()
+    var after = ""
+    do {
+        val page = client.history(epicId, after)
+        history += page.entries
+        after = page.next
+    } while (after.isNotEmpty())
+    return EpicLoad.Loaded(detail, history)
 }
 
-// sliceOf is the index of the slice labelled with the row's slug, or null when no slice carries that slug.
-private fun sliceOf(detail: EpicDetail, row: Int): Int? =
-    detail.slices.indexOfFirst { it.task == detail.tasks[row].slug }.takeIf { it >= 0 }
+// noticeOf runs one command and says what did not land: "" when it landed, else the server's reason or that the epic
+// could not be reached. An answer that did not land keeps its text in the notice, so it is not lost with the form.
+private fun noticeOf(call: () -> StepCallResult, answer: String): String {
+    val reason = try {
+        when (val result = call()) {
+            StepCallResult.Landed -> return ""
+            is StepCallResult.Refused -> result.message
+        }
+    } catch (error: IOException) {
+        UNREACHABLE
+    }
+    return if (answer.isEmpty()) "not sent: $reason" else "not sent: $reason. Your answer: $answer"
+}
 
+// blockerLineOf is the blocker's line in the title row: its text, and how long it has waited. A park is left out, since
+// the now section shows its text and it has no time.
+private fun blockerLineOf(blocker: EpicBlocker?, now: Long): String = when {
+    blocker == null || blocker is EpicBlocker.Parked -> ""
+    blocker.since > 0 -> "${blocker.text} · ${durationText((now - blocker.since).coerceAtLeast(0L))}"
+    else -> blocker.text
+}
+
+/** The body of a loaded epic: one list, each section one item. */
 @Composable
-private fun EpicList(
-    detail: EpicDetail,
-    onOpenStep: (StepRow) -> Unit,
-    selectedRow: Int?,
-    onTapTask: (Int) -> Unit,
+private fun EpicBody(
+    loaded: EpicLoad.Loaded,
+    now: Long,
+    notice: String,
+    listState: LazyListState,
     loadArtifact: ArtifactLoader,
+    onOpenStep: (StepRow) -> Unit,
+    onOpenContract: () -> Unit,
+    onOpenPhase: ((task: String, phase: Phase) -> Unit)?,
+    onAnswer: (questionId: String, text: String) -> String,
+    onRetry: () -> Unit,
+    onStop: () -> Unit,
+    handover: (@Composable () -> Unit)?,
     modifier: Modifier,
 ) {
-    val running = detail.steps.filter { it.end.isEmpty() }
-    val ended = detail.steps.filter { it.end.isNotEmpty() }
-    var endedOpen by remember { mutableStateOf(false) }
-
-    LazyColumn(modifier = modifier) {
-        item("header") {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(detail.epic.slug, style = MaterialTheme.typography.titleLarge)
+    val detail = loaded.detail
+    val wedges = remember(detail) { wedgesOf(detail) }
+    val arcs = remember(detail) { requirementArcs(wedges, detail.requirements) }
+    val contract = detail.contract
+    LazyColumn(modifier = modifier.fillMaxWidth(), state = listState) {
+        if (contract != null) {
+            section("summary") {
                 Text(
-                    "${detail.epic.repository} · ${detail.epic.outcome}",
-                    style = MaterialTheme.typography.bodySmall,
+                    detail.summary.ifEmpty { contract.title },
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("epic-summary")
+                        .clickable(onClick = onOpenContract)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
         }
-        if (detail.epic.problem.isNotEmpty()) {
-            item("problem") {
+        section("now") {
+            if (detail.epic.problem.isNotEmpty()) {
                 Text(
                     detail.epic.problem,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-        }
-        if (detail.requirements.isNotEmpty()) {
-            item("requirements-heading") { SectionHeading("Requirements") }
-            itemsIndexed(detail.requirements, key = { index, _ -> "requirement:$index" }) { index, requirement ->
-                RequirementRow(index, requirement, loadArtifact)
+            NowBlock(
+                sentence = nowSentence(wedges),
+                blocker = blockerOf(detail),
+                slug = detail.epic.slug,
+                onAnswer = onAnswer,
+                onRetry = onRetry,
+                onStop = onStop,
+            )
+            if (notice.isNotEmpty()) {
+                Text(
+                    notice,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp).testTag("epic-notice"),
+                )
             }
         }
-        if (detail.nodes.isNotEmpty()) {
-            item("workflow-heading") { SectionHeading("Workflow") }
-            itemsIndexed(detail.nodes, key = { index, _ -> "node:$index" }) { index, node ->
-                WorkflowNodeRow(index, node, loadArtifact)
+        section("red") {
+            RedProof(
+                requirements = detail.requirements,
+                loadArtifact = loadArtifact,
+                wedges = wedges,
+                onOpenPhase = onOpenPhase,
+            )
+        }
+        section("implementation") {
+            Orrery(
+                wedges = wedges,
+                arcs = arcs,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(horizontal = 16.dp),
+                onOpenPhase = onOpenPhase,
+            )
+            NowRows(wedges = wedges, now = now, onOpenPhase = onOpenPhase)
+            NextRows(wedges = wedges, onOpenPhase = onOpenPhase)
+            JustHappened(entries = loaded.history, steps = detail.steps, onOpenStep = onOpenStep)
+            if (detail.nodes.isNotEmpty()) {
+                SectionHeading("Workflow")
+                detail.nodes.forEachIndexed { index, node -> WorkflowNodeRow(index, node, loadArtifact) }
             }
         }
-        item("tasks-heading") { SectionHeading("Tasks") }
-        if (detail.buildTasks.isNotEmpty()) {
-            itemsIndexed(detail.buildTasks, key = { index, _ -> "build-task:$index" }) { index, task ->
-                BuildTaskRow(index, task, loadArtifact)
-            }
-        } else {
-            itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
-                TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
-            }
+        section("green") {
+            GreenProof(
+                requirements = detail.requirements,
+                loadArtifact = loadArtifact,
+                wedges = wedges,
+                onOpenPhase = onOpenPhase,
+            )
         }
-        item("steps-heading") { SectionHeading("Steps") }
-        items(running, key = { "step:${it.id}" }) { step ->
-            StepLine(step = step, onOpenStep = onOpenStep)
+        if (handover != null) {
+            section("handover") { handover() }
         }
-        if (ended.isNotEmpty()) {
-            item("ended-steps") {
-                TextButton(
-                    onClick = { endedOpen = !endedOpen },
-                    modifier = Modifier.testTag("ended-steps"),
-                ) {
-                    Text("${ended.size} ended steps")
-                }
-            }
-            if (endedOpen) {
-                items(ended, key = { "step:${it.id}" }) { step ->
-                    StepLine(step = step, onOpenStep = onOpenStep)
-                }
-            }
+        section("release") {
+            ReleaseProof(contract = contract, released = detail.epic.outcome == RELEASED)
         }
+        section("report") {
+            Report()
+        }
+    }
+}
+
+// section is one item of the list: the section's content in a column tagged "epic-section:[name]", keyed "section:[name]".
+private fun LazyListScope.section(name: String, content: @Composable ColumnScope.() -> Unit) {
+    item(key = "section:$name") {
+        Column(modifier = Modifier.fillMaxWidth().testTag("epic-section:$name"), content = content)
     }
 }
 
@@ -270,142 +317,5 @@ private fun SectionHeading(title: String) {
         title,
         style = MaterialTheme.typography.titleSmall,
         modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp),
-    )
-}
-
-@Composable
-private fun TaskRow(index: Int, task: EpicTaskRow, selected: Boolean, onTap: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("task-row:$index")
-            .selectable(selected = selected, onClick = onTap)
-            .background(if (selected) Mocha.Surface0 else Color.Transparent)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
-        Text(task.slug, style = MaterialTheme.typography.bodyLarge)
-        Text(task.subject, style = MaterialTheme.typography.bodySmall)
-        Text(task.status, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-/**
- * The evidence runs of build task [index] are drawn under the key BUILD_TASK_RUNS minus its index: below 0, so never a
- * Requirement's index (from 0) nor a workflow node's (-1), and distinct for each task.
- */
-private const val BUILD_TASK_RUNS = -2
-
-/**
- * One build task of a database epic: its id, title, status and stage, then its red and green runs drawn by
- * [EvidenceRuns]. The stage shows only once the build is on one.
- */
-@Composable
-private fun BuildTaskRow(index: Int, task: EpicBuildTaskRow, loadArtifact: ArtifactLoader) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("build-task-row:$index")
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(task.id, style = MaterialTheme.typography.bodyMedium)
-            Text(task.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            Text(task.status, style = MaterialTheme.typography.labelMedium)
-        }
-        if (task.stage.isNotEmpty()) {
-            Text(task.stage, style = MaterialTheme.typography.labelSmall)
-        }
-        EvidenceRuns(
-            requirement = BUILD_TASK_RUNS - index,
-            runs = listOfNotNull(task.red, task.green),
-            loadArtifact = loadArtifact,
-        )
-    }
-}
-
-@Composable
-private fun RequirementRow(index: Int, requirement: EpicRequirementRow, loadArtifact: ArtifactLoader) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("requirement-row:$index")
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(requirement.id, style = MaterialTheme.typography.bodyMedium)
-            Text(requirement.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            Text(requirement.kind, style = MaterialTheme.typography.labelMedium)
-        }
-        if (requirement.conclusion.isNotEmpty()) {
-            Text(requirement.conclusion, style = MaterialTheme.typography.bodySmall)
-        }
-        EvidenceRuns(requirement = index, runs = requirement.runs, loadArtifact = loadArtifact)
-    }
-}
-
-@Composable
-private fun StepLine(step: StepRow, onOpenStep: (StepRow) -> Unit) {
-    val end = when {
-        step.end.isNotEmpty() -> step.end
-        step.held -> "held"
-        else -> "running"
-    }
-    Column(modifier = Modifier.fillMaxWidth().testTag("step-row:${step.id}")) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onOpenStep(step) }
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(step.agent, style = MaterialTheme.typography.bodyMedium)
-                if (step.task.isNotEmpty()) {
-                    Text(step.task, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                step.checks.forEach { check -> CheckPip(check) }
-            }
-            Text(end, style = MaterialTheme.typography.labelMedium)
-        }
-        step.checks.forEachIndexed { index, check ->
-            if (!check.ok) {
-                if (check.stdout.isNotEmpty()) {
-                    CheckTail(tag = "check-tail:${step.id}:$index:stdout", label = "stdout", tail = check.stdout)
-                }
-                if (check.stderr.isNotEmpty()) {
-                    CheckTail(tag = "check-tail:${step.id}:$index:stderr", label = "stderr", tail = check.stderr)
-                }
-            }
-        }
-    }
-}
-
-/** The tail of a failed gate check, under its [label]: stdout or stderr. The tail is shown as given. */
-@Composable
-private fun CheckTail(tag: String, label: String, tail: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(tag)
-            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelSmall)
-        Text(tail, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-/** One stored check: green when it passed, red when it failed. */
-@Composable
-private fun CheckPip(check: StepCheckRow) {
-    val outcome = if (check.ok) "passed" else "failed"
-    Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(if (check.ok) Mocha.Green else Mocha.Red, CircleShape)
-            .testTag(if (check.ok) "pip:ok" else "pip:failed")
-            .semantics { contentDescription = "${check.name}: $outcome" },
     )
 }
