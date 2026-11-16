@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // endingEndedAt is the second the epic ending tests end an epic at.
@@ -25,7 +23,8 @@ func endingFreezeReview(t *testing.T, s *Store) {
 }
 
 // TestEndEpicCleanStoresStoredBaseAsCleanRevision checks that EndEpic ends a frozen review's epic clean in one write:
-// the phase becomes clean, the body is its one tell, and the review's clean revision is the epic's stored base.
+// the phase becomes clean, no tell is added, since the release that follows tells the ending, and the review's clean
+// revision is the epic's stored base.
 func TestEndEpicCleanStoresStoredBaseAsCleanRevision(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -38,8 +37,8 @@ func TestEndEpicCleanStoresStoredBaseAsCleanRevision(t *testing.T) {
 	if row := integrateEpicRow(t, s); row.Phase != "clean" {
 		t.Errorf("phase of epic %s after EndEpic = %q, want clean", integrateEpic, row.Phase)
 	}
-	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{"Epic ended clean."}) {
-		t.Errorf("tells of epic %s after EndEpic = %q, want one tell %q", integrateEpic, got, "Epic ended clean.")
+	if got := integrateTells(t, s); len(got) != 0 {
+		t.Errorf("tells of epic %s after EndEpic = %q, want none", integrateEpic, got)
 	}
 	requireReview(t, s, Review{Frozen: "rev-7", Clean: integrationBase})
 }
@@ -64,30 +63,25 @@ func TestEndEpicGapsSetsPhaseAndTellAndLeavesCleanEmpty(t *testing.T) {
 	requireReview(t, s, Review{Frozen: "rev-7"})
 }
 
-// TestEndEpicInSamePhaseChangesNothing checks that a repeat EndEpic in the phase the epic is already in adds no tell
-// and keeps the clean revision it stored, even after the epic's stored base has moved.
+// TestEndEpicInSamePhaseChangesNothing checks that a repeat EndEpic in the phase the epic is already in adds no second
+// tell. It repeats ended_with_gaps, a phase that adds a tell, so a repeat that re-added one would show.
 func TestEndEpicInSamePhaseChangesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	endingFreezeReview(t, s)
-	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", endingEndedAt()); err != nil {
+	if err := s.EndEpic(ctx, integrateEpic, "ended_with_gaps", "Epic ended with 1 gap.", endingEndedAt()); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
-	if err := sqlcgen.New(s.db).MoveEpicStoredBase(ctx, sqlcgen.MoveEpicStoredBaseParams{
-		StoredBase: "rev-8", ID: integrateEpic,
-	}); err != nil {
-		t.Fatalf("MoveEpicStoredBase: %v", err)
-	}
 
-	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean again.", endingEndedAt()); err != nil {
+	if err := s.EndEpic(ctx, integrateEpic, "ended_with_gaps", "Epic ended with 2 gaps.", endingEndedAt()); err != nil {
 		t.Fatalf("repeat EndEpic: %v", err)
 	}
-	if row := integrateEpicRow(t, s); row.Phase != "clean" {
-		t.Errorf("phase of epic %s after a repeat = %q, want clean", integrateEpic, row.Phase)
+	if row := integrateEpicRow(t, s); row.Phase != "ended_with_gaps" {
+		t.Errorf("phase of epic %s after a repeat = %q, want ended_with_gaps", integrateEpic, row.Phase)
 	}
-	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{"Epic ended clean."}) {
-		t.Errorf("tells of epic %s after a repeat = %q, want one tell %q", integrateEpic, got, "Epic ended clean.")
+	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{"Epic ended with 1 gap."}) {
+		t.Errorf("tells of epic %s after a repeat = %q, want one tell %q", integrateEpic, got, "Epic ended with 1 gap.")
 	}
-	requireReview(t, s, Review{Frozen: "rev-7", Clean: integrationBase})
+	requireReview(t, s, Review{Frozen: "rev-7"})
 }
