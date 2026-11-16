@@ -36,7 +36,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession as EpicSessionProt
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict as EpicStepVerdictProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskFinding as EpicTaskFindingProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskReview as EpicTaskReviewProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell as EpicTellProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger as EpicTriggerProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn as EpicTurnProto
@@ -266,14 +269,30 @@ data class PickRow(
     val prompt: Boolean,
 )
 
-/** One gate check of a step. [stdout] and [stderr] are the redacted tails of a failed gate check, empty otherwise. */
-data class StepCheckRow(val round: Int, val name: String, val ok: Boolean, val stdout: String, val stderr: String)
+/**
+ * One check of a step in [round]. [stdout] and [stderr] are the redacted tails of a failed gate check, empty otherwise.
+ * [detail] is the check's redacted detail, and [tailStdout] and [tailStderr] are its redacted tails, set for any check.
+ */
+data class StepCheckRow(
+    val round: Int,
+    val name: String,
+    val ok: Boolean,
+    val stdout: String,
+    val stderr: String,
+    val detail: String = "",
+    val tailStdout: String = "",
+    val tailStderr: String = "",
+)
+
+/** One done-judge verdict a step got in [round]: [verdict] is met, unmet or empty, and [reason] is why, redacted. */
+data class StepVerdictRow(val round: Int, val verdict: String, val reason: String)
 
 /**
  * One labelled step as the epics view shows it. [end] is "" while the step runs. [stage] is the stage the step is in,
  * empty when it has none, and [stageStarted] is when that stage started, 0 when unknown. [limited] is whether a usage
  * limit of [limitKind] holds the step. [readOnly] is whether the step is read-only, [role] is the role it plays, and
- * [summary] is its redacted summary.
+ * [summary] is its redacted summary. [gateName] is the gate its return is checked against, empty when it runs none,
+ * and [verdicts] are its done-judge verdicts, in round order.
  */
 data class StepRow(
     val id: String,
@@ -294,6 +313,8 @@ data class StepRow(
     val readOnly: Boolean = false,
     val role: String = "",
     val summary: String = "",
+    val gateName: String = "",
+    val verdicts: List<StepVerdictRow> = emptyList(),
 )
 
 /**
@@ -478,7 +499,7 @@ data class EpicNodeCheckRow(
 /**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
  * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
- * requirement ids the task covers, in order.
+ * requirement ids the task covers, in order. [reviews] are the build's reviews, in attempt then position order.
  */
 data class EpicBuildTaskRow(
     val id: String,
@@ -488,6 +509,32 @@ data class EpicBuildTaskRow(
     val red: EvidenceRunRow?,
     val green: EvidenceRunRow?,
     val requirements: List<String> = emptyList(),
+    val reviews: List<TaskReviewRow> = emptyList(),
+)
+
+/**
+ * One review of a task's build: its [attempt], the [gate] it ran, its [step], its [verdict] (holds or fails) and its
+ * [findings], in position order.
+ */
+data class TaskReviewRow(
+    val attempt: Long,
+    val gate: String,
+    val step: String,
+    val verdict: String,
+    val findings: List<TaskFindingRow>,
+)
+
+/**
+ * One finding a review raised: its [id], [claim] and [location], the [step] that verified it, its [result]
+ * (confirmed, dropped or undecided) and why, in [reason]. [step], [result] and [reason] are empty until it is verified.
+ */
+data class TaskFindingRow(
+    val id: String,
+    val claim: String,
+    val location: String,
+    val step: String,
+    val result: String,
+    val reason: String,
 )
 
 /** One open question an orreryd epic's planner asked, in the order they were asked. */
@@ -1201,10 +1248,24 @@ class OrreryClient(
             readOnly = readOnly,
             role = role,
             summary = summary,
+            gateName = gateName,
+            verdicts = verdictsList.map { it.toStepVerdictRow() },
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
-        StepCheckRow(round = round, name = name, ok = ok, stdout = stdout, stderr = stderr)
+        StepCheckRow(
+            round = round,
+            name = name,
+            ok = ok,
+            stdout = stdout,
+            stderr = stderr,
+            detail = detail,
+            tailStdout = tailStdout,
+            tailStderr = tailStderr,
+        )
+
+    private fun EpicStepVerdictProto.toStepVerdictRow(): StepVerdictRow =
+        StepVerdictRow(round = round, verdict = verdict, reason = reason)
 
     private fun EpicBuildTaskProto.toEpicBuildTaskRow(): EpicBuildTaskRow =
         EpicBuildTaskRow(
@@ -1215,6 +1276,26 @@ class OrreryClient(
             red = if (hasRed()) red.toEvidenceRunRow() else null,
             green = if (hasGreen()) green.toEvidenceRunRow() else null,
             requirements = requirementsList.toList(),
+            reviews = reviewsList.map { it.toTaskReviewRow() },
+        )
+
+    private fun EpicTaskReviewProto.toTaskReviewRow(): TaskReviewRow =
+        TaskReviewRow(
+            attempt = attempt,
+            gate = gate,
+            step = step,
+            verdict = verdict,
+            findings = findingsList.map { it.toTaskFindingRow() },
+        )
+
+    private fun EpicTaskFindingProto.toTaskFindingRow(): TaskFindingRow =
+        TaskFindingRow(
+            id = id,
+            claim = claim,
+            location = location,
+            step = step,
+            result = result,
+            reason = reason,
         )
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =

@@ -573,22 +573,22 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .release .then { font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
 /* Evidence runs, in a proof card and in a workflow node alike: each run a card of its head line, its log toggles and its
    artifacts. */
-.epic-page .runs { display: grid; gap: 4px; }
-.epic-page .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
-.epic-page .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
-.epic-page .run .phase { font-weight: 700; color: var(--subtext1); }
-.epic-page .run .pass.ok { color: var(--green); }
-.epic-page .run .log-toggle {
+.epic-page .runs, .phase-output .runs { display: grid; gap: 4px; }
+.epic-page .run, .phase-output .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
+.epic-page .run .run-head, .phase-output .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-page .run .phase, .phase-output .run .phase { font-weight: 700; color: var(--subtext1); }
+.epic-page .run .pass.ok, .phase-output .run .pass.ok { color: var(--green); }
+.epic-page .run .log-toggle, .phase-output .run .log-toggle {
   justify-self: start; padding: 0; border: 0; background: none; cursor: pointer;
   font: 11px/17px var(--mono); color: var(--overlay1); appearance: none; -webkit-appearance: none;
 }
-.epic-page .run .pending { color: var(--overlay0); }
-.epic-page .run .unavailable { color: var(--red); }
-.epic-page .run .artifacts { display: grid; gap: 4px; }
-.epic-page .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
-.epic-page .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
-.epic-page .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
-.epic-page .log {
+.epic-page .run .pending, .phase-output .run .pending { color: var(--overlay0); }
+.epic-page .run .unavailable, .phase-output .run .unavailable { color: var(--red); }
+.epic-page .run .artifacts, .phase-output .run .artifacts { display: grid; gap: 4px; }
+.epic-page .artifact, .phase-output .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-page .artifact .path, .phase-output .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
+.epic-page .artifact-image, .phase-output .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.epic-page .log, .phase-output .log {
   margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
   font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
 }
@@ -596,6 +596,77 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .end { flex: none; color: var(--overlay1); }
 /* The contract page's checks keep their line breaks, as the machines wrote them. */
 .contract .checks { white-space: pre-wrap; }
+
+/* ============ the phase output and the worker session: a task's four phases as rows, the open row's output, a step's session ============ */
+/* A row's head is its phase's name, its summary and its time. A passed row's name is green, a now row's yellow, and an ahead
+   row dims; its colours move over the state move. The open row's body fades in over the layout move. */
+.phase-output { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.phase-output p { margin: 0; }
+.phase-output .phase-task { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.phase-output .task-title { margin: 0; font: 700 17px/24px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.phase-output .requirements { font: 12px/18px var(--mono); color: var(--overlay1); overflow-wrap: anywhere; }
+.phase-output .notice { padding: 4px 10px; border-radius: 6px; color: var(--red); overflow-wrap: anywhere; }
+.phase-output ol.phases { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.phase-output .phase-row {
+  min-width: 0; border-radius: 8px; background: var(--mantle); box-shadow: inset 0 0 0 1px var(--surface0);
+  transition: color var(--move-state), background-color var(--move-state), box-shadow var(--move-state);
+}
+.phase-output .phase-row.open { box-shadow: inset 0 0 0 1px var(--surface1); }
+.phase-output .phase-row.passed { color: var(--green); }
+.phase-output .phase-row.now { color: var(--yellow); }
+.phase-output .phase-row.ahead { color: var(--overlay0); }
+.phase-output .phase-head {
+  display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline;
+  width: 100%; padding: 6px 10px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
+  font: 12px/20px var(--mono); appearance: none; -webkit-appearance: none;
+}
+.phase-output .phase-head:disabled { cursor: default; }
+.phase-output .phase-name { font-weight: 700; white-space: nowrap; }
+.phase-output .phase-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtext0); }
+.phase-output .phase-time { white-space: nowrap; color: var(--overlay1); }
+.phase-output .phase-row.ahead .phase-summary, .phase-output .phase-row.ahead .phase-time { color: var(--overlay0); }
+.phase-output .phase-body {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 4px 10px 10px;
+  font: 12px/18px var(--mono); color: var(--subtext0); animation: move-fade var(--move-layout);
+}
+.phase-output ol.attempts, .phase-output ol.rounds, .phase-output ul.checks, .phase-output ol.reviews,
+.phase-output ul.findings, .phase-output ul.reviewers { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.phase-output .attempt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.phase-output .attempt-doing { color: var(--yellow); overflow-wrap: anywhere; }
+.phase-output .attempt-end { font-weight: 700; color: var(--subtext1); }
+.phase-output .attempt-text { color: var(--overlay1); overflow-wrap: anywhere; }
+/* A check round is a card: its head, its checks, its gate's tails and its judge's verdict. */
+.phase-output .round { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border-radius: 8px; background: var(--mantle); }
+.phase-output .round-head { color: var(--overlay1); }
+.phase-output .round-no { font-weight: 700; color: var(--subtext1); }
+.phase-output .check { display: flex; flex-wrap: wrap; column-gap: 8px; min-width: 0; }
+.phase-output .check-name { color: var(--subtext0); overflow-wrap: anywhere; }
+.phase-output .check-detail { flex: 1 1 100%; color: var(--red); overflow-wrap: anywhere; }
+.phase-output .gate { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.phase-output .gate-name { font-weight: 700; color: var(--subtext1); }
+.phase-output .gate-result { color: var(--overlay1); }
+.phase-output .gate-detail { color: var(--overlay1); overflow-wrap: anywhere; }
+.phase-output .gate-stdout, .phase-output .gate-stderr {
+  margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
+  font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.phase-output .gate-stderr { color: var(--maroon); }
+.phase-output .judge { color: var(--subtext0); overflow-wrap: anywhere; }
+.phase-output .judge-verdict { font-weight: 700; color: var(--text); }
+/* The reviews: each review's head, its findings as a column of claims, locations, results and reasons, then the reviewers. */
+.phase-output .review { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.phase-output .review-head { color: var(--overlay1); }
+.phase-output .review-verdict { font-weight: 700; color: var(--subtext1); }
+.phase-output .finding { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; border-radius: 6px; box-shadow: inset 2px 0 0 var(--surface1); }
+.phase-output .claim { color: var(--text); overflow-wrap: anywhere; }
+.phase-output .location { color: var(--overlay1); overflow-wrap: anywhere; }
+.phase-output .result { color: var(--subtext0); }
+.phase-output .reason { color: var(--overlay1); overflow-wrap: anywhere; }
+.phase-output .reviewer { color: var(--overlay1); overflow-wrap: anywhere; }
+.phase-output .integration { color: var(--subtext0); }
+/* The worker session is a column that fills its track: its title row, its reader, which alone scrolls, and its step box. */
+.worker-session { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
+.worker-session > .reader { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 /* A control that carries .flash shows a mauve ring for a moment after a use; flash.ts adds and removes the class. */
 .flash { outline: 2px solid var(--mauve); outline-offset: 2px; }

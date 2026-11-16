@@ -25,6 +25,8 @@ import { Handover } from "./handover";
 import { Mark } from "./mark";
 import { MetersButton, MetersPanel } from "./meters";
 import { NoticeBanner } from "./notices";
+import { PhaseOutputPage } from "./phaseoutput";
+import type { Phase } from "./phases";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
@@ -34,6 +36,7 @@ import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
 import { TitleRow } from "./titlerow";
+import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project";
@@ -57,17 +60,34 @@ interface Answer {
   label: string;
 }
 
-// The epic page's view: the epic page, or the contract page its summary opens. move is the class the page section
-// carries while it moves: drill as a page opens deeper, leave as it comes back. closed is set by back and the orrery
-// crumb, and a move of the cursor opens the page again.
+// The page the epic page's section holds: the epic page, the contract its summary opens, a task's phase output, or a
+// step's worker session.
+type PageView =
+  | { kind: "epic" }
+  | { kind: "contract" }
+  | { kind: "phase"; task: string; phase: Phase }
+  | { kind: "session"; task: string; phase: Phase; step: string };
+
+// A page under the open one, with the scroll place it had when the open page opened over it.
+interface PageBelow {
+  page: PageView;
+  scroll: number;
+}
+
+// The epic page's view: the page on top, and the pages under it, bottom first. The epic page is always the first of
+// them when a deeper page is open. move is the class the page section carries while it moves: drill as a page opens
+// deeper, leave as it comes back. closed is set by back and the orrery crumb, and a move of the cursor opens the page
+// again.
 interface EpicPageState {
-  view: "epic" | "contract";
+  page: PageView;
+  below: PageBelow[];
   move: "" | "drill" | "leave";
   closed: boolean;
 }
 
-const openEpicPage: EpicPageState = { view: "epic", move: "", closed: false };
-const closedEpicPage: EpicPageState = { view: "epic", move: "", closed: true };
+const epicPageView: PageView = { kind: "epic" };
+const openEpicPage: EpicPageState = { page: epicPageView, below: [], move: "", closed: false };
+const closedEpicPage: EpicPageState = { page: epicPageView, below: [], move: "", closed: true };
 
 // An epic's history as it was read, with the id of the epic it belongs to, so a page never shows another epic's
 // entries.
@@ -95,6 +115,7 @@ const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const commandFailedText = "epic command failed";
+const sessionUnavailableText = "session unavailable";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
 const heldMark = "‖";
@@ -189,12 +210,13 @@ export function App({
   const [commandError, setCommandError] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
   const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
+  // The worker session the page shows, held under the step it belongs to.
+  const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The conversation Talk docked beside the epic page, with the epic it opened on.
   const [talkDock, setTalkDock] = useState<TalkDockState | null>(null);
-  // The epic page section, and the scroll place it had when its contract opened, which its back restores.
+  // The epic page section, and the scroll place a back restores once the page it returns to is drawn.
   const pageRef = useRef<HTMLElement>(null);
-  const pageScroll = useRef(0);
-  const restorePageScroll = useRef(false);
+  const restorePageScroll = useRef<number | null>(null);
   // loadArtifact reads a run's log or artifact for the epic page. It is stable across renders, so an open log or image
   // is not loaded again on every poll.
   const loadArtifact = useCallback(
@@ -248,6 +270,10 @@ export function App({
   const historyId = epicEntry !== null && epicDetail !== undefined ? epicEntry.id : "";
   const epicChanged = epicDetail?.epic?.changed ?? 0n;
   const shownIndex = Math.max(index, 0);
+  // The step whose worker session the open page shows. Its session is followed only while the page is open on a step
+  // the epic's detail holds, so a step the detail lacks opens no stream.
+  const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
+  const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
   // The dock shows only on the epic it opened on.
   const docked = talkDock !== null && epicEntry !== null && talkDock.epic === epicEntry.id ? talkDock : null;
   const epicId = epicEntry?.id ?? "";
@@ -277,6 +303,17 @@ export function App({
     }
     return follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
   }, [readerKey, clients]);
+
+  // The worker session the page shows is followed while the page shows it. A back or close past it, or a move of the
+  // cursor, which opens the epic page afresh, stops its stream.
+  useEffect(() => {
+    if (shownSession === "") {
+      return undefined;
+    }
+    return follow(clients, { kind: "session", id: shownSession }, (conversation) =>
+      setSessionStream({ key: shownSession, conversation }),
+    );
+  }, [shownSession, clients]);
 
   useEffect(() => {
     setVisited((previous) => keepEntries(previous, rows, cursorRow));
@@ -363,13 +400,13 @@ export function App({
     }
   }, [epicId]);
 
-  // A back from the contract page restores the epic page's scroll place before the page is painted.
+  // A back restores the scroll place of the page it returns to before that page is painted.
   useLayoutEffect(() => {
-    if (restorePageScroll.current && pageRef.current !== null) {
-      pageRef.current.scrollTop = pageScroll.current;
-      restorePageScroll.current = false;
+    if (restorePageScroll.current !== null && pageRef.current !== null) {
+      pageRef.current.scrollTop = restorePageScroll.current;
     }
-  }, [epicPage.view]);
+    restorePageScroll.current = null;
+  }, [epicPage]);
 
   // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen and
   // shows a fixed line.
@@ -442,21 +479,40 @@ export function App({
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
   const toggleOpen = () => setOpen((value) => !value);
   const toggleMeters = () => setMetersOpen((value) => !value);
-  // openContract opens the contract page in place. The epic page's scroll place is kept for its back, and the contract
-  // opens at its top.
-  const openContract = () => {
+  // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
+  // new page opens at its top.
+  const drill = (next: PageView) => {
     const page = pageRef.current;
+    const scroll = page?.scrollTop ?? 0;
     if (page !== null) {
-      pageScroll.current = page.scrollTop;
       page.scrollTop = 0;
     }
-    setEpicPage({ view: "contract", move: "drill", closed: false });
+    setEpicPage((previous) => ({
+      page: next,
+      below: [...previous.below, { page: previous.page, scroll }],
+      move: "drill",
+      closed: false,
+    }));
   };
-  // backToEpic returns from the contract page to the epic page, whose scroll place the layout effect puts back.
-  const backToEpic = () => {
-    restorePageScroll.current = true;
-    setEpicPage({ view: "epic", move: "leave", closed: false });
+  // leaveTo returns to the page under the open one at index, whose scroll place the layout effect puts back. The pages
+  // above it close.
+  const leaveTo = (index: number) => {
+    const target = epicPage.below[index];
+    restorePageScroll.current = target.scroll;
+    setEpicPage({ page: target.page, below: epicPage.below.slice(0, index), move: "leave", closed: false });
   };
+  // back returns from the page on top to the page under it. toEpicPage returns to the epic page from any page over it.
+  const back = () => leaveTo(epicPage.below.length - 1);
+  const toEpicPage = () => leaveTo(0);
+  // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
+  const openPhase = (task: string, phase: Phase) => {
+    if (epicPage.page.kind === "phase") {
+      setEpicPage((previous) => ({ ...previous, page: { kind: "phase", task, phase } }));
+      return;
+    }
+    drill({ kind: "phase", task, phase });
+  };
+  const openContract = () => drill({ kind: "contract" });
   const closeEpicPage = () => setEpicPage(closedEpicPage);
 
   const moveTo = (target: number) => {
@@ -627,6 +683,91 @@ export function App({
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
+
+  // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
+  // or the worker session the page has moved to.
+  const pageNode = (entry: EpicItem, detail: EpicsGetResponse) => {
+    const { page } = epicPage;
+    if (page.kind === "contract" && detail.contract !== undefined) {
+      return (
+        <div>
+          <TitleRow
+            crumbs={[
+              { label: "orrery", onGo: closeEpicPage },
+              { label: detail.epic?.slug ?? "", onGo: toEpicPage },
+              { label: "contract" },
+            ]}
+            onBack={back}
+          />
+          <ContractBody contract={detail.contract} requirements={detail.requirements} />
+        </div>
+      );
+    }
+    if (page.kind === "phase") {
+      return (
+        <PhaseOutputPage
+          key={page.task}
+          detail={detail}
+          epic={detail.epic?.slug ?? ""}
+          task={page.task}
+          phase={page.phase}
+          now={now}
+          loadArtifact={loadArtifact}
+          onBack={back}
+          onGoList={closeEpicPage}
+          onOpenPhase={openPhase}
+          onOpenSession={(step) => drill({ kind: "session", task: page.task, phase: page.phase, step })}
+          hold={(step) => stepCalls(clients, step).hold()}
+          stop={(step) => stepCalls(clients, step).stop()}
+        />
+      );
+    }
+    if (page.kind === "session") {
+      const step = detail.steps.find((candidate) => candidate.id === page.step);
+      if (step === undefined) {
+        return <p class="side-note">{sessionUnavailableText}</p>;
+      }
+      const calls = stepCalls(clients, step.id);
+      return (
+        <WorkerSessionPage
+          conversation={sessionStream !== null && sessionStream.key === page.step ? sessionStream.conversation : null}
+          step={step}
+          epic={detail.epic?.slug ?? ""}
+          task={page.task}
+          phase={page.phase}
+          onGoList={closeEpicPage}
+          onGoEpic={toEpicPage}
+          onBack={back}
+          nudge={calls.nudge}
+          hold={calls.hold}
+          stop={calls.stop}
+        />
+      );
+    }
+    return (
+      <EpicPage
+        detail={detail}
+        history={epicHistory.id === entry.id ? epicHistory.entries : []}
+        now={now}
+        loadArtifact={loadArtifact}
+        commands={epicCommands(clients, entry.id, setCommandError)}
+        onOpenContract={openContract}
+        onOpenPhase={openPhase}
+        onBack={closeEpicPage}
+        handover={Handover({ detail })}
+        actions={
+          <Talk
+            key={entry.id}
+            epic={entry.id}
+            sessions={detail.sessions}
+            repository={detail.repository}
+            start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
+            onOpen={(target) => setTalkDock({ epic: entry.id, target })}
+          />
+        }
+      />
+    );
+  };
 
   return (
     <main class="app">
@@ -915,39 +1056,8 @@ export function App({
           {epicEntry !== null &&
             (epicDetail === undefined ? (
               <p class="side-note">{epicUnavailableText}</p>
-            ) : epicPage.view === "contract" && epicDetail.contract !== undefined ? (
-              <div>
-                <TitleRow
-                  crumbs={[
-                    { label: "orrery", onGo: closeEpicPage },
-                    { label: epicDetail.epic?.slug ?? "", onGo: backToEpic },
-                    { label: "contract" },
-                  ]}
-                  onBack={backToEpic}
-                />
-                <ContractBody contract={epicDetail.contract} requirements={epicDetail.requirements} />
-              </div>
             ) : (
-              <EpicPage
-                detail={epicDetail}
-                history={epicHistory.id === epicEntry.id ? epicHistory.entries : []}
-                now={now}
-                loadArtifact={loadArtifact}
-                commands={epicCommands(clients, epicEntry.id, setCommandError)}
-                onOpenContract={openContract}
-                onBack={closeEpicPage}
-                handover={Handover({ detail: epicDetail })}
-                actions={
-                  <Talk
-                    key={epicEntry.id}
-                    epic={epicEntry.id}
-                    sessions={epicDetail.sessions}
-                    repository={epicDetail.repository}
-                    start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
-                    onOpen={(target) => setTalkDock({ epic: epicEntry.id, target })}
-                  />
-                }
-              />
+              pageNode(epicEntry, epicDetail)
             ))}
           {docked !== null && (
             <TalkDock clients={clients} target={docked.target} onClose={() => setTalkDock(null)} />
