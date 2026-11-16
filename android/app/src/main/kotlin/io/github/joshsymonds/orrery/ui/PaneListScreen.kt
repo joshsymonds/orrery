@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,11 +49,13 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -121,9 +124,10 @@ private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
  * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
  * it. Tapping a row opens that pane. In the All view, the ended headless sessions sit under one
  * "n ended" line below the tree, which opens to a row per ended session.
- * The Epics group sits above the rows and opens an epic through [onOpenEpic]. Each live epic's line reads its
- * detail, and one that has no detail reads "epic unavailable". An epics load that fails shows no group and
- * leaves the panes as they are.
+ * Needs you is the first item, from the waiting panes and the live epics' details; its answer, retry and stop calls run
+ * off the main thread, and a call that did not land shows as a notice under it. The Epics group sits above the rows and
+ * opens an epic through [onOpenEpic]. Each live epic's line reads its detail, and one that has no detail reads "epic
+ * unavailable". An epics load that fails shows no group and leaves the panes as they are.
  */
 @Composable
 fun PaneListScreen(
@@ -142,7 +146,10 @@ fun PaneListScreen(
     var epics by remember { mutableStateOf<List<EpicRow>>(emptyList()) }
     var details by remember { mutableStateOf<Map<String, EpicDetail>>(emptyMap()) }
     var generation by remember { mutableIntStateOf(0) }
+    var epicsGeneration by remember { mutableIntStateOf(0) }
+    var notice by remember { mutableStateOf("") }
     var picking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(client, generation) {
         load = PaneLoad.Loading
@@ -157,9 +164,14 @@ fun PaneListScreen(
         }
     }
 
-    LaunchedEffect(client, generation) {
+    // A new client drops the epics it read, as it drops the panes. A reload keeps them on screen until the new read
+    // lands.
+    LaunchedEffect(client) {
         epics = emptyList()
         details = emptyMap()
+    }
+
+    LaunchedEffect(client, generation, epicsGeneration) {
         val listed = try {
             withContext(Dispatchers.IO) { client.epics() }
         } catch (error: IOException) {
@@ -168,6 +180,22 @@ fun PaneListScreen(
         details = epicDetailsOf(client, listed)
         epics = listed
     }
+
+    // send runs one epic command off the main thread. What did not land shows as the notice, with the typed answer
+    // beside it. Then the epics are read again.
+    fun send(answer: String = "", call: () -> StepCallResult) {
+        scope.launch {
+            notice = withContext(Dispatchers.IO) { commandNoticeOf(call, answer) }
+            epicsGeneration++
+        }
+    }
+
+    val onAnswer: (String, String, String) -> String = { epic, questionId, text ->
+        send(answer = text) { client.answerEpic(epic, questionId, text) }
+        ""
+    }
+    val onRetry: (String) -> Unit = { epic -> send { client.retryEpic(epic) } }
+    val onStop: (String) -> Unit = { epic -> send { client.stopEpic(epic) } }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -241,12 +269,16 @@ fun PaneListScreen(
                 panes = current.panes,
                 epics = epics,
                 details = details,
+                notice = notice,
                 filter = state.filter,
                 collapsed = state.collapsed,
                 endedOpen = state.endedOpen,
                 now = now(),
                 onOpenPane = onOpenPane,
                 onOpenEpic = onOpenEpic,
+                onAnswer = onAnswer,
+                onRetry = onRetry,
+                onStop = onStop,
                 onToggleFolder = state::toggleFolder,
                 onToggleEnded = state::toggleEnded,
             )
@@ -272,6 +304,24 @@ private suspend fun epicDetailsOf(
         }
     }
     reads.awaitAll().filterNotNull().toMap()
+}
+
+// The notice an epic command leaves that did not land by the server's reason, or that the epic could not be reached.
+private const val EPIC_UNREACHABLE = "could not reach the epic"
+
+// commandNoticeOf runs one epic command and says what did not land: "" when it landed, else the server's reason or that
+// the epic could not be reached. An answer that did not land keeps its text in the notice, so it is not lost with the
+// form.
+private fun commandNoticeOf(call: () -> StepCallResult, answer: String): String {
+    val reason = try {
+        when (val result = call()) {
+            StepCallResult.Landed -> return ""
+            is StepCallResult.Refused -> result.message
+        }
+    } catch (error: IOException) {
+        EPIC_UNREACHABLE
+    }
+    return if (answer.isEmpty()) "not sent: $reason" else "not sent: $reason. Your answer: $answer"
 }
 
 /**
@@ -300,16 +350,42 @@ private fun PaneRows(
     panes: List<Pane>,
     epics: List<EpicRow>,
     details: Map<String, EpicDetail>,
+    notice: String,
     filter: PaneFilter,
     collapsed: Set<String>,
     endedOpen: Boolean,
     now: Long,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
+    onAnswer: (epic: String, questionId: String, text: String) -> String,
+    onRetry: (epic: String) -> Unit,
+    onStop: (epic: String) -> Unit,
     onToggleFolder: (String) -> Unit,
     onToggleEnded: () -> Unit,
 ) {
+    val waiting = remember(panes) { waitingPanes(panes) }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item(key = "needs") {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                NeedsYou(
+                    waiting = waiting,
+                    epics = epics,
+                    details = details,
+                    onOpenPane = onOpenPane,
+                    onOpenEpic = onOpenEpic,
+                    onAnswer = onAnswer,
+                    onRetry = onRetry,
+                    onStop = onStop,
+                )
+                if (notice.isNotEmpty()) {
+                    Text(
+                        notice,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp).testTag("needs-notice"),
+                    )
+                }
+            }
+        }
         item(key = "epics") {
             EpicsGroup(epics = epics, details = details, now = now, onOpenEpic = onOpenEpic)
         }
