@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -9,11 +10,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicContractRow
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
+import io.github.joshsymonds.orrery.api.OrreryClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.time.Instant
 import java.time.ZoneId
 
@@ -113,6 +124,70 @@ fun ContractBody(
 
         item { Text("accepted $accepted$base", style = MaterialTheme.typography.labelSmall) }
     }
+}
+
+/**
+ * An epic's accepted contract as its own screen: the crumbs orrery, the epic's slug and contract, then [ContractBody]
+ * for the epic's contract and requirements. The orrery crumb calls [onHome]; back and the slug crumb call [onBack]. The
+ * epic is read off the main thread; a read that fails, or an epic with no contract, says so in the contract's place.
+ */
+@Composable
+fun ContractScreen(
+    client: OrreryClient,
+    epicId: String,
+    onBack: () -> Unit,
+    onHome: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var load by remember(client, epicId) { mutableStateOf<ContractLoad>(ContractLoad.Loading) }
+    LaunchedEffect(client, epicId) {
+        load = try {
+            val detail = withContext(Dispatchers.IO) { client.epic(epicId) }
+            if (detail == null) ContractLoad.NotFound else ContractLoad.Loaded(detail)
+        } catch (error: IOException) {
+            ContractLoad.Failed
+        }
+    }
+
+    val detail = (load as? ContractLoad.Loaded)?.detail
+    Column(modifier = modifier.fillMaxSize().testTag("contract-screen")) {
+        TitleRow(
+            crumbs = listOfNotNull(
+                Crumb("orrery", onHome),
+                detail?.let { Crumb(it.epic.slug, onBack) },
+                Crumb("contract"),
+            ),
+            onBack = onBack,
+        )
+        when (val current = load) {
+            ContractLoad.Loading -> Text("Loading...", modifier = Modifier.padding(16.dp))
+            ContractLoad.Failed -> Text(
+                "could not load epic",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(16.dp),
+            )
+            ContractLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
+            is ContractLoad.Loaded -> {
+                val contract = current.detail.contract
+                if (contract == null) {
+                    Text("this epic has no contract", modifier = Modifier.padding(16.dp))
+                } else {
+                    ContractBody(
+                        contract = contract,
+                        requirements = current.detail.requirements,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private sealed interface ContractLoad {
+    data object Loading : ContractLoad
+    data object Failed : ContractLoad
+    data object NotFound : ContractLoad
+    data class Loaded(val detail: EpicDetail) : ContractLoad
 }
 
 private fun LazyListScope.heading(index: Int, text: String) {

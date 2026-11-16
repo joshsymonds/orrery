@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -473,5 +474,70 @@ func releaseGate(t *testing.T, path string) {
 	}
 	if err = gate.Close(); err != nil {
 		t.Fatalf("close gate %s: %v", path, err)
+	}
+}
+
+// TestWritePaneOptionsKeepsSemicolons writes, in one invocation, values that end in ";", a lone ";", one that ends in
+// "\;", and one with ";" inside, then unsets one of them. tmux reads a final ";" of an argument as a command separator,
+// so each value must come back as written, and the unset must reach its option.
+func TestWritePaneOptionsKeepsSemicolons(t *testing.T) {
+	client, pane := startPane(t)
+	setPaneOption(t, client, pane, protocol.OptionTool, "to unset")
+	values := map[string]string{
+		protocol.OptionSummary:  "ends;",
+		protocol.OptionLabel:    ";",
+		protocol.OptionQuestion: `ends\;`,
+		protocol.OptionContext:  "in;side",
+	}
+	names := []string{protocol.OptionSummary, protocol.OptionLabel, protocol.OptionQuestion, protocol.OptionContext}
+	writes := make([]tmuxctl.OptionWrite, 0, 1+len(names))
+	writes = append(writes, tmuxctl.Unset(protocol.OptionTool))
+	for _, name := range names {
+		writes = append(writes, tmuxctl.Set(name, values[name]))
+	}
+	if err := client.WritePaneOptions(t.Context(), pane, writes); err != nil {
+		t.Fatalf("WritePaneOptions: %v", err)
+	}
+	for name, want := range values {
+		got, ok, err := client.PaneOption(t.Context(), pane, name)
+		if err != nil || !ok || got != want {
+			t.Errorf("%s = (%q, %v, %v), want (%q, true, nil)", name, got, ok, err, want)
+		}
+	}
+	if _, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionTool); err != nil || ok {
+		t.Errorf("%s set after its unset (%v)", protocol.OptionTool, err)
+	}
+}
+
+// TestPaneValuesReadsInOneLine reads a set option, an option set to a value with ";" and a format, and an unset
+// option, which reads as "".
+func TestPaneValuesReadsInOneLine(t *testing.T) {
+	client, pane := startPane(t)
+	setPaneOption(t, client, pane, protocol.OptionState, "working")
+	setPaneOption(t, client, pane, protocol.OptionSummary, "a; #{b};")
+	got, err := client.PaneValues(t.Context(), pane,
+		protocol.OptionState, protocol.OptionSummary, protocol.OptionLabel, "session_name")
+	if err != nil {
+		t.Fatalf("PaneValues: %v", err)
+	}
+	want := []string{"working", "a; #{b};", "", "s1"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("PaneValues = %q, want %q", got, want)
+	}
+}
+
+// TestBatchRunsCommandsInOrder runs two reads as one invocation and returns both outputs in order, and runs nothing
+// for no commands.
+func TestBatchRunsCommandsInOrder(t *testing.T) {
+	client, pane := startPane(t)
+	out, err := client.Batch(t.Context(),
+		[]string{"display-message", "-p", "-t", pane, "#{session_name}"},
+		[]string{"display-message", "-p", "-t", pane, "#{pane_id}"},
+	)
+	if err != nil || out != "s1\n"+pane+"\n" {
+		t.Fatalf("Batch = (%q, %v), want (%q, nil)", out, err, "s1\n"+pane+"\n")
+	}
+	if out, err = client.Batch(t.Context()); err != nil || out != "" {
+		t.Fatalf("Batch() = (%q, %v), want nothing", out, err)
 	}
 }

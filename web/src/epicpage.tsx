@@ -85,6 +85,7 @@ export function EpicPage(props: {
           {detail.summary !== "" ? detail.summary : contract.title}
         </button>
       )}
+      {epic !== undefined && epic.problem !== "" && <p class="problem error">{epic.problem}</p>}
       <NowBlock
         sentence={nowSentence(wedges)}
         blocker={blocker}

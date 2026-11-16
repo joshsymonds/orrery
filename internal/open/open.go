@@ -135,9 +135,9 @@ func transcriptExists(path string) (bool, error) {
 // so the option is set as the session starts.
 func createSession(ctx context.Context, cfg Config, name, dir string, argv []string) error {
 	args := slices.Concat(
-		[]string{"new-session", "-d", "-s", tmuxLiteral(name), "-c", tmuxDirArg(dir)},
+		[]string{"new-session", "-d", "-s", tmuxctl.Literal(name), "-c", tmuxDirArg(dir)},
 		paneArgv(ctx, cfg, argv),
-		[]string{";", "set-option", "-t", "=" + name + ":", protocol.OptionDir, tmuxLiteral(dir)},
+		[]string{";", "set-option", "-t", "=" + name + ":", protocol.OptionDir, tmuxctl.Literal(dir)},
 	)
 	_, err := cfg.Tmux.Run(ctx, args...)
 	if err != nil {
@@ -185,7 +185,7 @@ func claudeCommand(claude, prompt string) []string {
 	if prompt == "" {
 		return []string{claude}
 	}
-	return []string{claude, "--", tmuxLiteral(prompt)}
+	return []string{claude, "--", tmuxctl.Literal(prompt)}
 }
 
 // stampedArgv returns the argv of a Claude pane in dir with the stamp in effect for dir, if any, inserted after the
@@ -199,23 +199,14 @@ func stampedArgv(cfg Config, dir string, argv []string) ([]string, error) {
 	if found.Folder == "" {
 		return argv, nil
 	}
-	settings := tmuxLiteral(stamp.Settings(false, found.Env))
+	settings := tmuxctl.Literal(stamp.Settings(false, found.Env))
 	return slices.Concat(argv[:1], []string{"--settings", settings}, argv[1:]), nil
 }
 
-// tmuxLiteral returns value as an argument that tmux reads back as value. tmux ends a command at an argument
-// ending in ";", so that final ";" is written as "\;".
-func tmuxLiteral(value string) string {
-	if before, ok := strings.CutSuffix(value, ";"); ok {
-		return before + `\;`
-	}
-	return value
-}
-
 // tmuxDirArg returns dir as a -c argument. tmux expands formats in -c, so every "#" is doubled, then the
-// argument is escaped as tmuxLiteral escapes it.
+// argument is escaped as tmuxctl.Literal escapes it.
 func tmuxDirArg(dir string) string {
-	return tmuxLiteral(strings.ReplaceAll(dir, "#", "##"))
+	return tmuxctl.Literal(strings.ReplaceAll(dir, "#", "##"))
 }
 
 // session is one tmux session as listSessions reads it.

@@ -27,9 +27,23 @@ func syntheticEpic() store.EpicRow {
 		Additions: []store.EpicAddition{
 			{Location: "internal/planner", What: "a prompt", Why: "R3", Cost: "one file"},
 		},
-		Requirements: []store.EpicRequirement{
-			{ID: "R1", Text: "a trigger is claimed", Evidence: "store test", Kind: "test"},
+		Requirements: []store.EpicRequirement{{
+			ID: "R1", Text: "a trigger is claimed", Evidence: "store test", Kind: "test",
+			Item: evidence.Item{
+				Kind: evidence.KindTest, Capture: []string{"go", "test", "./internal/store/"},
+				Tests: []string{"internal/store/triggers_test.go"}, Limit: 120,
+				Conclusion: "the trigger test passes", Judge: "haiku-high-ro",
+			},
+		}},
+		Gates: []store.EpicGate{
+			{
+				Name: "check", Argv: []string{"just", "check"}, Limit: 600,
+				Needs: []store.EpicGateNeed{{Pool: "gate", Count: 1}},
+			},
+			{Name: "review", Agent: "reviewer", Must: []string{"tests pass"}, MustNot: []string{"a skipped test"}},
 		},
+		DoneGates:   []string{"check"},
+		ReviewGates: []string{"review"},
 		Premises: []store.EpicPremise{
 			{ID: "P1", Text: "the step runs in process", IfWrong: "use the service"},
 		},
@@ -116,6 +130,18 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"- R1: a trigger is claimed",
 		"  evidence: store test",
 		"  kind: test",
+		`  evidence item: {"capture":["go","test","./internal/store/"],"limit":120,"artifacts":null,"supplied":null,`+
+			`"conclusion":"the trigger test passes","judge":"haiku-high-ro","kind":"test",`+
+			`"tests":["internal/store/triggers_test.go"]}`,
+		"Gates:",
+		`- check: command ["just","check"]`,
+		"  limit: 600s",
+		"  needs: gate x 1",
+		"- review: agent reviewer",
+		"  must: tests pass",
+		"  must not: a skipped test",
+		"Done gates: check",
+		"Review gates: review",
 		"Premises:",
 		"- P1: the step runs in process",
 		"  if wrong: use the service",
@@ -311,4 +337,14 @@ func TestRoleSaysToReuseALabelForTheSameKindOfQuestion(t *testing.T) {
 	if !strings.Contains(role, "reuse a label for the same kind of question") {
 		t.Errorf("role text does not tell the planner to reuse a label for the same kind of question")
 	}
+}
+
+// TestPromptSaysNoneForAnEpicWithNoGates: an epic that declares no gate, done gate or review gate says so in its
+// contract, so the planner reads that it names its gates from the repository's project file.
+func TestPromptSaysNoneForAnEpicWithNoGates(t *testing.T) {
+	t.Parallel()
+	epic := syntheticEpic()
+	epic.Gates, epic.DoneGates, epic.ReviewGates = nil, nil, nil
+	inOrder(t, promptOf(t, epic, 2, syntheticTriggers()),
+		"Requirements:", "Gates: None.", "Done gates: None.", "Review gates: None.", "Premises:")
 }

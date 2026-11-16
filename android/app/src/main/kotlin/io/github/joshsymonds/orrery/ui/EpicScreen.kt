@@ -70,6 +70,7 @@ fun EpicScreen(
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     handover: (@Composable () -> Unit)? = null,
+    now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
@@ -109,13 +110,13 @@ fun EpicScreen(
 
     val current = load
     val detail = (current as? EpicLoad.Loaded)?.detail
-    val now = System.currentTimeMillis() / 1000
+    val nowAt = now()
     Column(modifier = modifier.fillMaxSize()) {
         TitleRow(
             crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
             onBack = onBack,
             state = detail?.let(::epicStateOf).orEmpty(),
-            blocker = detail?.let { blockerLineOf(blockerOf(it), now) }.orEmpty(),
+            blocker = detail?.let { blockerLineOf(blockerOf(it), nowAt) }.orEmpty(),
             actions = {
                 actions()
                 if (detail != null && detail.epic.live && detail.epic.outcome.isEmpty()) {
@@ -150,7 +151,7 @@ fun EpicScreen(
             EpicLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
             is EpicLoad.Loaded -> EpicBody(
                 loaded = current,
-                now = now,
+                now = nowAt,
                 notice = notice,
                 listState = listState,
                 loadArtifact = loadArtifact,

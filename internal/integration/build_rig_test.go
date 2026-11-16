@@ -196,12 +196,12 @@ func (r *buildRig) stepDir(id string) string {
 
 // epics returns the Epics client of the session socket.
 func (r *buildRig) epics() enginev1connect.EpicsClient {
-	return enginev1connect.NewEpicsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewEpicsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // steps returns the Steps client of the session socket.
 func (r *buildRig) steps() enginev1connect.StepsClient {
-	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewStepsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // epic returns the epic as the Epics service reports it.
@@ -281,16 +281,37 @@ func (r *buildRig) stepRow(t *testing.T, id string) *v1.Step {
 	return resp.Msg.GetStep()
 }
 
-// awaitEnd waits until step id has ended, and returns its row.
-func (r *buildRig) awaitEnd(t *testing.T, id string) *v1.Step {
+// awaitEnd waits until step id, which daemon runs, has ended, and returns its row (see awaitStepEnd).
+func (r *buildRig) awaitEnd(t *testing.T, daemon *orreryProcess, id string) *v1.Step {
 	t.Helper()
-	var step *v1.Step
-	waitUntil(t, func() bool {
-		step = r.stepRow(t, id)
-		return step.GetEnd() != ""
-	})
+	return awaitStepEnd(t, daemon, r.steps(), id)
+}
 
-	return step
+// awaitStepEnd polls steps until step id has ended, and returns its row. daemon is the orreryd that runs the step, the
+// one producer of its end: the wait fails, naming daemon's log, once daemon has exited with the step still open, and
+// when a read fails. It has no deadline of its own; a wait the test binary's timeout ends leaves daemon's log on disk.
+func awaitStepEnd(
+	t *testing.T, daemon *orreryProcess, steps enginev1connect.StepsClient, id string,
+) *v1.Step {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		resp, err := steps.StepStatus(t.Context(), connect.NewRequest(&v1.StepStatusRequest{Id: id}))
+		if err != nil {
+			t.Fatalf("read step %s: %v; %s log %s", id, err, daemon.name, daemon.logPath)
+		}
+		if step := resp.Msg.GetStep(); step.GetEnd() != "" {
+			return step
+		}
+		select {
+		case <-daemon.done:
+			t.Fatalf("step %s never ended: %s exited first (%v); log %s",
+				id, daemon.name, daemon.waitErr, daemon.logPath)
+		case <-ticker.C:
+		}
+		stopIfFailed(t)
+	}
 }
 
 // pause pauses the epic. A paused epic starts no evidence run, so a task whose build reaches green stays at green.

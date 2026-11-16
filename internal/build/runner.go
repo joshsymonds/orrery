@@ -217,10 +217,10 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 }
 
 // view returns the View of task, which is open in epic, with the epic's branch at tip and the epic's candidate. It
-// reads the evidence run or step of the task's current unit by its derived id. The run is kept only while its spec is
-// current with the task's evidence item, as the store reads a task's runs, so a run whose item has changed reads
-// missing. For an ended implementer step it reads the HEAD of the step's worktree, and when the step's refs snapshot
-// is set, the ref moves since it.
+// reads the evidence run or step of the task's current unit by its derived id, and the reproduction check of a test
+// item's green unit. The run is kept only while its spec is current with the task's evidence item, as the store reads
+// a task's runs, so a run whose item has changed reads missing. For an ended implementer step it reads the HEAD of the
+// step's worktree, and when the step's refs snapshot is set, the ref moves since it.
 func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTask, tip string) (View, error) {
 	view := View{
 		Epic: epic.ID, Paused: epic.Paused, Parked: epic.Parked != "", ReviewGates: epic.ReviewGates,
@@ -244,6 +244,13 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 		if ok {
 			view.Step = &row
 		}
+	}
+	repro, found, reproErr := r.reproOf(ctx, epic, task)
+	if reproErr != nil {
+		return View{}, reproErr
+	}
+	if found {
+		view.Repro = &repro
 	}
 	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
 		return view, nil
@@ -308,6 +315,27 @@ func (r *Runner) stepRow(ctx context.Context, id string) (store.StepRow, bool, e
 		return store.StepRow{}, false, fmt.Errorf("read step %s: %w", id, err)
 	}
 	return row, true, nil
+}
+
+// reproOf returns the reproduction check of a test item's green unit, and false with no error when the task is at no
+// such unit or the check is not stored.
+func (r *Runner) reproOf(ctx context.Context, epic store.EpicRow, task store.EpicTask) (store.NodeCheck, bool, error) {
+	if task.Build.Stage != StageGreen || task.Evidence.Kind != evidence.KindTest {
+		return store.NodeCheck{}, false, nil
+	}
+	return r.nodeCheck(ctx, RunID(epic.ID, task.Seq, unitRepro, task.Build.Attempt, task.Build.Rerun))
+}
+
+// nodeCheck returns the stored node check with id, and false with no error when no check has that id.
+func (r *Runner) nodeCheck(ctx context.Context, id string) (store.NodeCheck, bool, error) {
+	check, err := r.store.NodeCheck(ctx, id)
+	if errors.Is(err, store.ErrNoNodeCheck) {
+		return store.NodeCheck{}, false, nil
+	}
+	if err != nil {
+		return store.NodeCheck{}, false, fmt.Errorf("read node check %s: %w", id, err)
+	}
+	return check, true, nil
 }
 
 // head returns the commit HEAD names in the worktree at dir. A worktree that cannot be read has no head: the error is

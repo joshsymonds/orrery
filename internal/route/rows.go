@@ -16,6 +16,11 @@ import (
 // returns is late, and is retried.
 const storeDeadline = 200 * time.Millisecond
 
+// RowRetry is how long after a row write fails the Router retries the failed writes, and again after each retry that
+// still fails, until they land or Close runs. A row delete the publish report makes is one: left failed until a later
+// row write, a sent notice's row would outlive a restart in between and be sent to the phone again.
+const RowRetry = 5 * time.Second
+
 // The phases a row records: the wait its notice is in, or sending once its push was handed to the phone.
 const (
 	phaseDeciding = "deciding"
@@ -272,6 +277,7 @@ func (r *Router) retryLocked() {
 func (r *Router) putLocked(ent *entry) {
 	if err := r.putRow(rowOf(ent)); err != nil {
 		r.rowPuts[ent.row] = ent
+		r.armRetryLocked()
 		r.cfg.Logger.Error("write notice row", "key", ent.n.Key, "error", err)
 		return
 	}
@@ -283,10 +289,27 @@ func (r *Router) putLocked(ent *entry) {
 func (r *Router) deleteLocked(id int64, key notice.Key) {
 	if err := r.deleteRow(id); err != nil {
 		r.rowDeletes[id] = key
+		r.armRetryLocked()
 		r.cfg.Logger.Error("delete notice row", "key", key, "error", err)
 		return
 	}
 	delete(r.rowDeletes, id)
+}
+
+// armRetryLocked arms the retry of the failed row writes RowRetry from now, unless one is armed or Close has begun. The
+// retry runs retryLocked, which arms the next retry when a write still fails. The caller holds r.mu.
+func (r *Router) armRetryLocked() {
+	if r.rowRetry != nil || r.closed {
+		return
+	}
+	r.rowRetry = r.cfg.After(RowRetry, func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.rowRetry = nil
+		if !r.closed {
+			r.retryLocked()
+		}
+	})
 }
 
 // bounded runs one store write on parent under the store-call bound and returns its error. A write whose bound fires

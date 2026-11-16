@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -81,7 +83,9 @@ func decodePaneSource(data []byte) (daemon.Transition, error) {
 // turn it ends, written by the Stop's summary run, and not the summary before it. A nil summarized waits for nothing:
 // a waiting notice's body is the question its hook wrote, and a restored notice's summary run ended with the orreryd
 // that started it.
-func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}) route.Notice {
+func (r *relay) paneNotice(
+	ctx context.Context, transition daemon.Transition, summarized <-chan struct{}, view *doneView,
+) route.Notice {
 	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
 	if err != nil {
 		r.logger.WarnContext(ctx, "decide notice push", "pane", transition.PaneID, "error", err)
@@ -95,7 +99,7 @@ func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition, su
 		Key:      notice.Key{Pane: transition.PaneID},
 		State:    string(transition.To),
 		Silent:   silent,
-		Watching: func(ctx context.Context) (bool, error) { return r.watching(ctx, transition) },
+		Watching: r.watchingFrom(transition, view),
 		Desk: func(ctx context.Context) (deskstream.Notice, error) {
 			if !failed {
 				awaitSummary(ctx, summarized)
@@ -170,7 +174,7 @@ func (r *relay) rebuildPane(ctx context.Context, data []byte, at int64) (route.N
 	if err != nil {
 		return route.Notice{}, err
 	}
-	return r.paneNotice(ctx, transition, nil), nil
+	return r.paneNotice(ctx, transition, nil, nil), nil
 }
 
 // checkPane reads transition's pane from its tmux server once. It returns route.ErrChanged when the pane is gone or in
@@ -207,4 +211,18 @@ func checkPane(ctx context.Context, transition daemon.Transition, at int64) erro
 func paneServerNotRunning(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "no server running") || strings.Contains(msg, "error connecting to")
+}
+
+// watchingFrom returns the Watching check of the transition's notice. Its first call answers from view, the viewing
+// check the transition's observer already made, when view is not nil and that check succeeded; every other call checks
+// afresh (see relay.watching). A read report within readWindow counts as watching either way.
+func (r *relay) watchingFrom(transition daemon.Transition, view *doneView) func(context.Context) (bool, error) {
+	var first atomic.Pointer[doneView]
+	first.Store(view)
+	return func(ctx context.Context) (bool, error) {
+		if checked := first.Swap(nil); checked != nil && checked.err == nil {
+			return checked.viewing || r.reads.recent(transition.PaneID, time.Now()), nil
+		}
+		return r.watching(ctx, transition)
+	}
 }

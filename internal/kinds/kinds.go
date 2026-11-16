@@ -48,8 +48,9 @@ type ActionKind string
 
 // The actions a kind returns for its node run. ActNone leaves the run running. ActPrepare records the revision the
 // run's work runs at, ActStart starts work and ActRefs checks the refs the run was prepared with. ActCapture starts
-// Requirement captures. ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run. ActHold
-// pauses the epic once for a review step its owner stopped.
+// Requirement captures, and ActRepro starts the reproductions of Requirements, with IDs and Items as for ActCapture.
+// ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run. ActHold pauses the epic once
+// for a review step its owner stopped.
 const (
 	ActNone    ActionKind = "none"
 	ActRun     ActionKind = "run"
@@ -58,6 +59,7 @@ const (
 	ActStart   ActionKind = "start"
 	ActRefs    ActionKind = "refs"
 	ActCapture ActionKind = "capture"
+	ActRepro   ActionKind = "repro"
 	ActAdvance ActionKind = "advance"
 	ActPark    ActionKind = "park"
 	ActHold    ActionKind = "hold"

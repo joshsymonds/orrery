@@ -364,10 +364,12 @@ async function settle(): Promise<void> {
   await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 }
 
-async function pressIn(element: Element, key: string): Promise<void> {
+async function pressIn(element: Element, key: string): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
   await act(() => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    element.dispatchEvent(event);
   });
+  return event;
 }
 
 async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
@@ -3111,6 +3113,29 @@ test("a refused answer shows the server's message under the answer form", () =>
       () => alertTexts(container).some((text) => text.includes("question is closed")),
       "the refusal line",
     );
+  }));
+
+test("keys typed in the answer box are text: j and p do nothing there, and Escape leaves it", () =>
+  withApp({ epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container) => {
+    await press("j");
+    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
+    assert.ok(box, "the open question shows its answer box");
+    const viewOn = () => container.querySelector(".views .view.on")?.textContent ?? null;
+    const cursor = cursorKey(container);
+    assert.equal(viewOn(), "aBy attention", "the view starts by attention");
+    await act(() => {
+      box.focus();
+    });
+    assert.equal(document.activeElement === box, true);
+    const jEvent = await pressIn(box, "j");
+    assert.equal(cursorKey(container), cursor, "j in the answer box moves no cursor");
+    assert.equal(epicPageShown(container), true, "j in the answer box leaves the epic page open");
+    assert.equal(jEvent.defaultPrevented, false, "j in the answer box is text, not a handled key");
+    await pressIn(box, "p");
+    assert.equal(viewOn(), "aBy attention", "p in the answer box leaves the view");
+    assert.equal(document.activeElement === box, true, "the answer box keeps focus through list keys");
+    await pressIn(box, "Escape");
+    assert.equal(document.activeElement === box, false, "Escape blurs the answer box");
   }));
 
 test("a command that fails shows a fixed line, and one that lands clears it", () =>

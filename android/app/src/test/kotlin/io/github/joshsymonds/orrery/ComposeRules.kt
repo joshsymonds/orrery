@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery
 
 import android.os.Looper
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
@@ -172,6 +173,11 @@ fun ComposeTestRule.awaitUntil(description: String = "the awaited condition", co
     val startedAt = mainClock.currentTime
     while (!condition()) {
         shadowOf(Looper.getMainLooper()).idle()
+        // Apply what the test and the app wrote to state, so the recomposer sees it before the clock moves. In the app,
+        // Compose's GlobalSnapshotManager sends these from a main-looper message after each write; under Robolectric,
+        // which clears the main looper between tests, it can be left sure a send is already queued and never send again
+        // in that JVM (PoolsScreenTest's forced recomposition then never ran).
+        Snapshot.sendApplyNotifications()
         if (Quiescence.inFlight() != null) {
             Thread.sleep(CHECK_PAUSE_MILLIS)
             continue

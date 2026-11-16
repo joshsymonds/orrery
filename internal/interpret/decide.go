@@ -40,7 +40,7 @@ const (
 // its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
 // when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
 // parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
-// prepare, start, capture, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
+// prepare, start, capture, repro, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
 // Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance
 // the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
 // the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path,
@@ -250,7 +250,7 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	switch act.Kind {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance,
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
 		kinds.ActTake, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop, kinds.ActEnding, kinds.ActFree:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:

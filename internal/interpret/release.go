@@ -85,7 +85,7 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 		return errors.New("no Ending configured")
 	}
 	body := fmt.Sprintf("Epic %s ended %s.", epic.ID, act.Outcome)
-	if err := r.ending.EndEpic(ctx, epic.ID, act.Outcome, body, at); err != nil {
+	if err := r.ending.EndEpic(ctx, epic.ID, act.Outcome, body, nil, at); err != nil {
 		return fmt.Errorf("end epic %s: %w", epic.ID, err)
 	}
 	return nil
