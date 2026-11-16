@@ -44,11 +44,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.R
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -117,8 +121,9 @@ private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
  * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
  * it. Tapping a row opens that pane. In the All view, the ended headless sessions sit under one
  * "n ended" line below the tree, which opens to a row per ended session.
- * The Epics group sits above the rows and opens an epic through [onOpenEpic]. An epics load that
- * fails shows no group and leaves the panes as they are.
+ * The Epics group sits above the rows and opens an epic through [onOpenEpic]. Each live epic's line reads its
+ * detail, and one that has no detail reads "epic unavailable". An epics load that fails shows no group and
+ * leaves the panes as they are.
  */
 @Composable
 fun PaneListScreen(
@@ -135,6 +140,7 @@ fun PaneListScreen(
 ) {
     var load by remember { mutableStateOf<PaneLoad>(PaneLoad.Loading) }
     var epics by remember { mutableStateOf<List<EpicRow>>(emptyList()) }
+    var details by remember { mutableStateOf<Map<String, EpicDetail>>(emptyMap()) }
     var generation by remember { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
 
@@ -153,11 +159,14 @@ fun PaneListScreen(
 
     LaunchedEffect(client, generation) {
         epics = emptyList()
-        epics = try {
+        details = emptyMap()
+        val listed = try {
             withContext(Dispatchers.IO) { client.epics() }
         } catch (error: IOException) {
             emptyList()
         }
+        details = epicDetailsOf(client, listed)
+        epics = listed
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -231,6 +240,7 @@ fun PaneListScreen(
             is PaneLoad.Loaded -> PaneRows(
                 panes = current.panes,
                 epics = epics,
+                details = details,
                 filter = state.filter,
                 collapsed = state.collapsed,
                 endedOpen = state.endedOpen,
@@ -242,6 +252,26 @@ fun PaneListScreen(
             )
         }
     }
+}
+
+/**
+ * The detail of every live epic, each read at once. An epic whose read fails, or that has no detail, has no entry, so
+ * its line reads "epic unavailable". A folded epic is never read.
+ */
+private suspend fun epicDetailsOf(
+    client: OrreryClient,
+    epics: List<EpicRow>,
+): Map<String, EpicDetail> = coroutineScope {
+    val reads = epics.filter { it.live }.map { epic ->
+        async(Dispatchers.IO) {
+            try {
+                client.epic(epic.id)?.let { epic.id to it }
+            } catch (error: IOException) {
+                null
+            }
+        }
+    }
+    reads.awaitAll().filterNotNull().toMap()
 }
 
 /**
@@ -269,6 +299,7 @@ private fun TitleMark(modifier: Modifier) {
 private fun PaneRows(
     panes: List<Pane>,
     epics: List<EpicRow>,
+    details: Map<String, EpicDetail>,
     filter: PaneFilter,
     collapsed: Set<String>,
     endedOpen: Boolean,
@@ -280,7 +311,7 @@ private fun PaneRows(
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item(key = "epics") {
-            EpicsGroup(epics = epics, onOpenEpic = onOpenEpic)
+            EpicsGroup(epics = epics, details = details, now = now, onOpenEpic = onOpenEpic)
         }
         when (filter) {
             PaneFilter.ALL -> {

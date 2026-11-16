@@ -32,9 +32,11 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
@@ -77,6 +79,8 @@ private const val EPICS_HISTORY_PATH = "/orrery.v1.Epics/History"
 private const val EPIC_ID = "example-repo/example-epic"
 private const val EPIC_SLUG = "example-epic"
 private const val EPIC_REPOSITORY = "example-repo"
+private const val FOLDED_ID = "example-repo/folded-epic"
+private const val FOLDED_SLUG = "folded-epic"
 private const val STEP_ID = "step-synthetic-alpha"
 private const val HELD_STEP_ID = "step-synthetic-held"
 private const val STEP_SESSION_LABEL = "step-session-label"
@@ -192,8 +196,8 @@ class MainActivityEpicsTest {
         .build()
 
     /**
-     * Serves the epic, with its contract, its one requirement and [summary] when [contracted], with [steps], the planned
-     * [buildTasks] and its [ledger].
+     * Serves the epic, with its contract, its one requirement and [summary] when [contracted], with [steps], the
+     * planned [buildTasks], its [ledger] and its open [questions].
      */
     private fun serveEpic(
         contracted: Boolean = false,
@@ -201,6 +205,7 @@ class MainActivityEpicsTest {
         steps: List<EpicStep> = listOf(epicStep()),
         buildTasks: List<EpicBuildTask> = emptyList(),
         ledger: List<EpicLedgerFinding> = emptyList(),
+        questions: List<EpicQuestion> = emptyList(),
     ) {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(liveEpic()).build())
         val detail = EpicsGetResponse.newBuilder()
@@ -209,12 +214,33 @@ class MainActivityEpicsTest {
             .addAllBuildTasks(buildTasks)
             .setSummary(summary)
             .addAllLedger(ledger)
+            .addAllQuestions(questions)
         if (contracted) {
             detail.setContract(contractProto()).addRequirements(requirement)
         }
         server.respond(EPICS_GET_PATH, detail.build())
         server.respond(EPICS_HISTORY_PATH, EpicsHistoryResponse.getDefaultInstance())
     }
+
+    /** The question the epic waits on, asked two minutes before [NOW]. */
+    private fun openQuestion(): EpicQuestion = EpicQuestion.newBuilder()
+        .setId("Q1")
+        .setText("Synthetic question text?")
+        .setTurn(1L)
+        .setAsked(NOW - 120L)
+        .build()
+
+    /** An epic that has ended and is folded: not live, so Home never asks for its detail. */
+    private fun foldedEpic(): Epic = Epic.newBuilder()
+        .setId(FOLDED_ID)
+        .setRepository(EPIC_REPOSITORY)
+        .setSlug(FOLDED_SLUG)
+        .setOutcome("done")
+        .setChanged(NOW - 3_600L)
+        .setLive(false)
+        .setEndedSteps(0)
+        .setProblem("")
+        .build()
 
     /** One confirmed finding of the epic's review ledger. */
     private fun ledgerFinding(): EpicLedgerFinding = EpicLedgerFinding.newBuilder()
@@ -441,6 +467,45 @@ class MainActivityEpicsTest {
     }
 
     @Test
+    fun homeReadsTheDetailOfALiveEpicAndDrawsItsCountAndBlocker() {
+        serveEpic(questions = listOf(openQuestion()))
+
+        launch()
+
+        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
+        awaitNode(hasTestTag("blocker:$EPIC_ID") and hasText("waits on your answer ·", substring = true))
+    }
+
+    @Test
+    fun aFailedDetailLeavesItsLineReadingEpicUnavailable() {
+        server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(liveEpic()).build())
+        server.fail(EPICS_GET_PATH, Code.UNAVAILABLE, "synthetic failure")
+
+        launch()
+
+        awaitRequest(EPICS_GET_PATH)
+        awaitNode(hasText("epic unavailable") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
+    }
+
+    @Test
+    fun aFoldedEpicIsNeverAskedFor() {
+        server.respond(
+            EPICS_LIST_PATH,
+            EpicsListResponse.newBuilder().addEpics(liveEpic()).addEpics(foldedEpic()).build(),
+        )
+        server.respond(EPICS_GET_PATH, EpicsGetResponse.newBuilder().setEpic(liveEpic()).build())
+
+        launch()
+
+        awaitNode(hasTestTag("epics-folded"))
+        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("epic:$EPIC_ID")))
+        val asked = server.requests
+            .filter { it.rawPath == EPICS_GET_PATH }
+            .map { EpicsGetRequest.parseFrom(it.body).id }
+        assertEquals(listOf(EPIC_ID), asked)
+    }
+
+    @Test
     fun epicsListFailureStillListsThePanesWithNoGroup() {
         server.fail(EPICS_LIST_PATH, Code.UNAVAILABLE, "synthetic failure")
 
@@ -451,6 +516,7 @@ class MainActivityEpicsTest {
         composeRule.waitForIdle()
         assertAbsent(hasTestTag("epics-group"))
         composeRule.onNodeWithTag("pane-row:%2").assertExists()
+        assertEquals(0, server.requests.count { it.rawPath == EPICS_GET_PATH })
     }
 
     @Test
