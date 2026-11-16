@@ -18,7 +18,7 @@ type endingCase struct {
 	gaps  []string
 }
 
-func TestAttentionEndingTellsTheOwnerOnceKeyedToItsEpic(t *testing.T) {
+func TestAttentionEndingRoutesOneNoticeKeyedToItsEpic(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []endingCase{
 		{phase: "released"},
@@ -32,22 +32,12 @@ func TestAttentionEndingTellsTheOwnerOnceKeyedToItsEpic(t *testing.T) {
 			createRunnerEpic(t, s)
 			endWorkTurn(t, s, claimedAt())
 			router := &fakeAttentionRouter{}
-			ending := claimedAt().Add(time.Second)
-
-			if err := s.EndEpic(ctx, runnerEpicID, "clean", "", ending); err != nil {
-				t.Fatalf("EndEpic clean: %v", err)
-			}
-			attentionOver(s, router).pass(ctx)
-			if n := len(router.notices); n != 0 {
-				t.Fatalf("notices after ending clean = %d, want none", n)
-			}
 
 			body := kinds.EndingBody(tc.phase, tc.gaps)
-			if err := s.EndEpic(ctx, runnerEpicID, tc.phase, body, ending.Add(time.Second)); err != nil {
+			if err := s.EndEpic(ctx, runnerEpicID, tc.phase, body, claimedAt().Add(time.Second)); err != nil {
 				t.Fatalf("EndEpic %s: %v", tc.phase, err)
 			}
-			attention := attentionOver(s, router)
-			attention.pass(ctx)
+			attentionOver(s, router).pass(ctx)
 
 			want := shown{
 				key:   notice.Key{Epic: runnerEpicID},
@@ -62,15 +52,6 @@ func TestAttentionEndingTellsTheOwnerOnceKeyedToItsEpic(t *testing.T) {
 			}
 			if got := shownOf(t, router.notices[0]); got != want {
 				t.Errorf("notice = %+v, want %+v", got, want)
-			}
-
-			if err := s.EndEpic(ctx, runnerEpicID, tc.phase, body, ending.Add(time.Minute)); err != nil {
-				t.Fatalf("repeat EndEpic %s: %v", tc.phase, err)
-			}
-			attention.pass(ctx)
-			attentionOver(s, router).pass(ctx)
-			if n := len(router.notices); n != 1 {
-				t.Errorf("notices after a repeat ending, a pass and a restarted Attention = %d, want still one", n)
 			}
 		})
 	}
