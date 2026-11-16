@@ -21,7 +21,9 @@
 # and ends with a success result that lists the uuids of both prompts as answered, WAITOPEN waits until fakeclaude.open
 # exists in its directory before it opens its turn, then answers as any other prompt does, DAEMON starts a daemon with
 # its stdio closed that it leaves running, as ssh leaves a ControlPersist master, which writes its pid to
-# fakeclaude.daemon in its directory, and answers as any other prompt does once that pid is written, LIMIT plays a usage-limit turn (a
+# fakeclaude.daemon in its directory, and answers as any other prompt does once that pid is written, GRADLE runs
+# $FAKE_GRADLE in its directory, as a build a tool call runs, and answers "fake gradle ok n" when it exits 0 and "fake
+# gradle failed n" otherwise, LIMIT plays a usage-limit turn (a
 # rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
@@ -380,6 +382,18 @@ daemon() {
 	reply
 }
 
+# gradle_build runs $FAKE_GRADLE in this directory with its output dropped, then answers "fake gradle ok n" when it exited
+# 0 and "fake gradle failed n" otherwise. The session's login shell resets PATH, so the fake is named by its path.
+gradle_build() {
+	outcome=failed
+	if "$FAKE_GRADLE" </dev/null >/dev/null 2>&1; then
+		outcome=ok
+	fi
+	turn_open
+	text_block 0 "fake gradle $outcome $n" "fake gradle $outcome $n"
+	turn_close
+}
+
 die() {
 	turn_open
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
@@ -461,6 +475,7 @@ while next; do
 				*LIMITNORESET*) limit noreset ;;
 				*LIMIT*) limit ;;
 				*DAEMON*) daemon ;;
+				*GRADLE*) gradle_build ;;
 				*) reply ;;
 			esac
 			;;

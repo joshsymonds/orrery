@@ -853,9 +853,9 @@ func startSessions(
 	var epics enginehost.EpicCommands
 	var evidence enginehost.EvidenceCommands
 	if st != nil {
-		stateDir, err := stateDirOf(getenv)
+		stateDir, childEnviron, err := sessionState(getenv)
 		if err != nil {
-			return nil, fmt.Errorf("step worktrees: %w", err)
+			return nil, err
 		}
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{
 			Applier: st, Tick: opts.writeTick, Logger: logger, Metrics: opts.metrics,
@@ -864,7 +864,7 @@ func startSessions(
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
-			Environ:     os.Environ(),
+			Environ:     childEnviron,
 			HolderScope: opts.holderScope,
 			StateDir:    stateDir,
 			ManagedDir:  managedDir,
@@ -886,7 +886,7 @@ func startSessions(
 			Writer:       host.writer,
 			Pools:        host.pools,
 			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
-			Environ:      os.Environ(),
+			Environ:      childEnviron,
 			Logger:       logger,
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
@@ -906,9 +906,9 @@ func startSessions(
 		epics = st
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
-		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
+		host.startEvidence(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
+		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startSummaries(ctx, st, haiku, logger)
@@ -1078,20 +1078,36 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
+// sessionState returns the state directory getenv names and the environment of every child a holder runs: sessions,
+// steps and gates alike build with Gradle daemonless (enginehost.GradleEnviron), since a holder's scope is stopped when
+// the holder ends, which would end a daemon another step's build runs in.
+func sessionState(getenv func(string) string) (string, []string, error) {
+	stateDir, err := stateDirOf(getenv)
+	if err != nil {
+		return "", nil, fmt.Errorf("step worktrees: %w", err)
+	}
+	environ, err := enginehost.GradleEnviron(os.Environ(), stateDir, enginehost.UserGradleHome(os.Getenv))
+	if err != nil {
+		return "", nil, fmt.Errorf("session environment: %w", err)
+	}
+	return stateDir, environ, nil
+}
+
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
-// them up is logged and serving goes on.
+// them up is logged and serving goes on. Its gates run in environ.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
 	stateDir, holderScope string,
+	environ []string,
 	logger *slog.Logger,
 ) {
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
 		Store:        st,
 		Steps:        h.steps,
 		Pools:        h.pools,
-		Environ:      os.Environ(),
+		Environ:      environ,
 		StateDir:     stateDir,
 		GateStateDir: filepath.Join(stateDir, "gates"),
 		GateScope:    holderScope,
@@ -1104,17 +1120,18 @@ func (h *sessionHost) startEvidence(
 
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
-// serving goes on.
+// serving goes on. Its gates run in environ.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
 	stateDir, holderScope string,
+	environ []string,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
 		Store:        st,
 		Pools:        h.pools,
-		Environ:      os.Environ(),
+		Environ:      environ,
 		StateDir:     stateDir,
 		GateStateDir: filepath.Join(stateDir, "gates"),
 		GateScope:    holderScope,
