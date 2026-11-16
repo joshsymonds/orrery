@@ -13,14 +13,16 @@ import (
 // ErrNoTell reports that the epic has no tell with the seq asked for.
 var ErrNoTell = errors.New("no tell")
 
-// EpicAttention is what an epic needs from its owner: its park reason, whether it is paused, its open questions in seq
-// order, its untold tells in seq order, the time of its newest tell, and its latest ended turn with the number of
-// questions that turn asked.
+// EpicAttention is what an epic needs from its owner: its phase, its park reason, whether it is paused, the lowest
+// release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in seq
+// order, the time of its newest tell, and its latest ended turn with the number of questions that turn asked.
 type EpicAttention struct {
 	Epic        string
 	Title       string
+	Phase       string
 	Parked      string
 	Paused      bool
+	FailedStep  int64
 	Open        []EpicQuestion
 	Tells       []EpicTell
 	LatestTell  time.Time
@@ -53,10 +55,11 @@ func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([
 	return out, nil
 }
 
-// attentionOf returns the attention of epic: its head, its open questions in seq order, its untold tells in seq order
-// with the time of its newest tell, and its latest ended turn with the questions that turn asked. The latest ended turn
-// is read first, so every write that lands between the reads either leaves the turn as the latest or adds the questions
-// it asked to Open; a turn that ends after the read is reported on a later pass.
+// attentionOf returns the attention of epic: its head, the lowest release step its release runs failed, its open
+// questions in seq order, its untold tells in seq order with the time of its newest tell, and its latest ended turn
+// with the questions that turn asked. The latest ended turn is read first, so every write that lands between the reads
+// either leaves the turn as the latest or adds the questions it asked to Open; a turn that ends after the read is
+// reported on a later pass.
 func attentionOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -89,9 +92,13 @@ func attentionOf(
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("untold tells: %w", err)
 	}
+	releases, err := readReleaseRuns(ctx, queries, id)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("release runs: %w", err)
+	}
 	entry := EpicAttention{
-		Epic: head.ID, Title: head.Title, Parked: head.Parked, Paused: head.Paused != 0,
-		Open: questions, Tells: untold,
+		Epic: head.ID, Title: head.Title, Phase: head.Phase, Parked: head.Parked, Paused: head.Paused != 0,
+		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold,
 	}
 	if len(tells) != 0 {
 		entry.LatestTell = time.Unix(tells[len(tells)-1].At, 0)
@@ -142,6 +149,33 @@ func untoldTellsOf(
 		out = append(out, untold)
 	}
 	return out, nil
+}
+
+// failedReleaseStep returns the lowest position of a release step that has a release run of part release that did not
+// pass and no release run at that position that passed, or 0 when no step has.
+func failedReleaseStep(runs []ReleaseRun) int64 {
+	passed := make(map[int64]bool)
+	failed := make(map[int64]bool)
+	for _, run := range runs {
+		if run.Part != ReleasePartStep {
+			continue
+		}
+		if run.Passed {
+			passed[run.Position] = true
+		} else {
+			failed[run.Position] = true
+		}
+	}
+	var lowest int64
+	for position := range failed {
+		if passed[position] {
+			continue
+		}
+		if lowest == 0 || position < lowest {
+			lowest = position
+		}
+	}
+	return lowest
 }
 
 // MarkTellTold sets the told marker of tell seq of epic in one write. A tell that does not exist is an error matching

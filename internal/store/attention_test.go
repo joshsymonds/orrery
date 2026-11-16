@@ -90,7 +90,7 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 	}
 	parkTellQuestion := parkQuestionOf(4, "credit ran out")
 	want := []EpicAttention{{
-		Epic: id, Title: "Synthetic epic", Parked: "credit ran out", Paused: true,
+		Epic: id, Title: "Synthetic epic", Phase: "accepted", Parked: "credit ran out", Paused: true,
 		Open: []EpicQuestion{
 			openStored(secondTurn, 2, 2), openStored(which, 3, 2), parkQuestionOf(4, "credit ran out"),
 		},
@@ -174,5 +174,93 @@ func TestFreeTurnStoresItsResetsAndLatestReadsThem(t *testing.T) {
 	}
 	if !got[0].Latest.Resets.IsZero() {
 		t.Errorf("Latest.Resets of %s without Resets = %v, want zero", other, got[0].Latest.Resets)
+	}
+}
+
+// attentionRun is a release run of part at position and attempt that passed or did not, recorded for the failed step
+// test.
+func attentionRun(part string, position, attempt int64, passed bool) ReleaseRun {
+	return ReleaseRun{
+		Part: part, Position: position, Attempt: attempt, Step: "step", Evidence: "run",
+		Passed: passed, Reason: "not passed", At: completedAt(),
+	}
+}
+
+func TestAttentionFailedStepIsTheLowestFailedReleaseStep(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		runs []ReleaseRun
+		want int64
+	}{
+		{name: "no release runs", want: 0},
+		{
+			name: "step 2 failed after step 1 passed",
+			runs: []ReleaseRun{
+				attentionRun(ReleasePartStep, 1, 1, true),
+				attentionRun(ReleasePartStep, 2, 1, false),
+			},
+			want: 2,
+		},
+		{
+			name: "step failed at attempt 1 and passed at attempt 2",
+			runs: []ReleaseRun{
+				attentionRun(ReleasePartStep, 2, 1, false),
+				attentionRun(ReleasePartStep, 2, 2, true),
+			},
+			want: 0,
+		},
+		{
+			name: "step passed at attempt 1 and failed at attempt 2",
+			runs: []ReleaseRun{
+				attentionRun(ReleasePartStep, 2, 1, true),
+				attentionRun(ReleasePartStep, 2, 2, false),
+			},
+			want: 0,
+		},
+		{
+			name: "lowest failed step is not the first failure read",
+			runs: []ReleaseRun{
+				attentionRun(ReleasePartStep, 2, 1, false),
+				attentionRun(ReleasePartStep, 1, 2, false),
+			},
+			want: 1,
+		},
+		{
+			name: "judge and candidate failures name no step",
+			runs: []ReleaseRun{
+				attentionRun(ReleasePartJudge, 1, 1, false),
+				attentionRun(ReleasePartCandidate, 1, 1, false),
+			},
+			want: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := openEpicStore(t)
+			const id = claimEpic
+			createEpic(t, s, fullEpic(id))
+			if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
+				t.Fatalf("ClaimTurn: %v", err)
+			}
+			for _, run := range tc.runs {
+				if err := s.RecordRelease(ctx, id, run); err != nil {
+					t.Fatalf("RecordRelease %s %d at attempt %d: %v", run.Part, run.Position, run.Attempt, err)
+				}
+			}
+
+			got, err := s.Attention(ctx)
+			if err != nil {
+				t.Fatalf("Attention: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("Attention = %+v, want one entry for %s", got, id)
+			}
+			if got[0].FailedStep != tc.want {
+				t.Errorf("FailedStep = %d, want %d", got[0].FailedStep, tc.want)
+			}
+		})
 	}
 }
