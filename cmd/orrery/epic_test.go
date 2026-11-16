@@ -145,12 +145,23 @@ func runEpicCommand(
 	return stdout.String(), stderr.String(), err
 }
 
-// epicVerbCase is one CLI form and the MCP tool, with the arguments, that it must call.
+// epicVerbCase is one CLI form and the MCP tool, with the arguments, that it must call. setup, when set, configures
+// the fake the form and the tool each run against.
 type epicVerbCase struct {
 	name  string
 	args  []string
 	tool  string
 	input string
+	setup func(*recordingEpics)
+}
+
+// fake returns a recordingEpics configured for the case.
+func (tc epicVerbCase) fake() *recordingEpics {
+	f := newRecordingEpics()
+	if tc.setup != nil {
+		tc.setup(f)
+	}
+	return f
 }
 
 func epicVerbCases() []epicVerbCase {
@@ -160,6 +171,21 @@ func epicVerbCases() []epicVerbCase {
 			args:  []string{"get", epicTestID},
 			tool:  "epic_get",
 			input: `{"id":"demo-0a1b2c3/epic-login"}`,
+			setup: func(f *recordingEpics) {
+				f.epic.Questions = []*v1.EpicQuestion{{
+					Id:      "Q1",
+					Turn:    1,
+					Text:    "Retry the parked build?",
+					State:   "open",
+					Label:   "retry-policy",
+					Choices: []*v1.EpicQuestionChoice{{Id: "retry", Does: "runs the epic again"}},
+					Recommendation: &v1.EpicRecommendation{
+						Choice:     "retry",
+						Why:        "retry runs the epic again",
+						Confidence: "low",
+					},
+				}}
+			},
 		},
 		{
 			name:  "list",
@@ -197,6 +223,12 @@ func epicVerbCases() []epicVerbCase {
 			args:  []string{"follow"},
 			tool:  "epic_follow",
 			input: `{}`,
+			setup: func(f *recordingEpics) {
+				f.follow = &v1.FollowEpicsResponse{Follows: []*v1.EpicFollow{
+					{Label: "retry-policy", Answered: 4, Followed: 3},
+					{Label: "scope", Answered: 2, Followed: 0},
+				}}
+			},
 		},
 		{
 			name:  "pause",
@@ -238,13 +270,13 @@ func TestEpicVerbsSendTheMCPToolsRequest(t *testing.T) {
 	for _, tc := range epicVerbCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cliFake := newRecordingEpics()
+			cliFake := tc.fake()
 			stdout, stderr, err := runEpicCommand(t, cliFake, nil, tc.args...)
 			if err != nil {
 				t.Fatalf("epicCommand(%v) = %v, want nil", tc.args, err)
 			}
 
-			mcpFake := newRecordingEpics()
+			mcpFake := tc.fake()
 			result, err := stepmcp.CallEpicTool(t.Context(), mcpFake, tc.tool, json.RawMessage(tc.input))
 			if err != nil {
 				t.Fatalf("CallEpicTool(%s) = %v, want nil", tc.tool, err)
@@ -430,59 +462,6 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 				t.Errorf("epicCommand(%v) made %d calls, want none", tc.args, n)
 			}
 		})
-	}
-}
-
-// TestEpicFollowPrintsTheCounts checks that `orrery epic follow` prints the label counts epic_follow returns.
-func TestEpicFollowPrintsTheCounts(t *testing.T) {
-	t.Parallel()
-	fake := newRecordingEpics()
-	want := &v1.FollowEpicsResponse{Follows: []*v1.EpicFollow{
-		{Label: "retry-policy", Answered: 4, Followed: 3},
-		{Label: "scope", Answered: 2, Followed: 0},
-	}}
-	fake.follow = want
-
-	stdout, _, err := runEpicCommand(t, fake, nil, "follow")
-	if err != nil {
-		t.Fatalf("epicCommand(follow) = %v, want nil", err)
-	}
-	var got v1.FollowEpicsResponse
-	if err := protojson.Unmarshal([]byte(stdout), &got); err != nil {
-		t.Fatalf("stdout is not a follow response: %v\n%s", err, stdout)
-	}
-	if !proto.Equal(&got, want) {
-		t.Fatalf("printed follows = %v, want %v", &got, want)
-	}
-}
-
-// TestEpicGetPrintsTheQuestionRecommendation checks that `orrery epic get` prints the recommendation of a question the
-// epic holds: its choice, why and confidence.
-func TestEpicGetPrintsTheQuestionRecommendation(t *testing.T) {
-	t.Parallel()
-	fake := newRecordingEpics()
-	want := &v1.EpicRecommendation{Choice: "retry", Why: "retry runs the epic again", Confidence: "low"}
-	fake.epic.Questions = []*v1.EpicQuestion{{
-		Id:             "Q1",
-		Turn:           1,
-		Text:           "Retry the parked build?",
-		State:          "open",
-		Label:          "retry-policy",
-		Choices:        []*v1.EpicQuestionChoice{{Id: "retry", Does: "runs the epic again"}},
-		Recommendation: want,
-	}}
-
-	stdout, _, err := runEpicCommand(t, fake, nil, "get", epicTestID)
-	if err != nil {
-		t.Fatalf("epicCommand(get) = %v, want nil", err)
-	}
-	var got v1.StoredEpic
-	if err := protojson.Unmarshal([]byte(stdout), &got); err != nil {
-		t.Fatalf("stdout is not a stored epic: %v\n%s", err, stdout)
-	}
-	questions := got.GetQuestions()
-	if len(questions) != 1 || !proto.Equal(questions[0].GetRecommendation(), want) {
-		t.Fatalf("printed questions = %v, want the recommendation %v", questions, want)
 	}
 }
 
