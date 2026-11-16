@@ -31,6 +31,8 @@ import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
+import { Talk, type TalkTarget } from "./talk";
+import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
 import { TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
@@ -91,6 +93,12 @@ const closedEpicPage: EpicPageState = { page: epicPageView, below: [], move: "",
 interface EpicHistory {
   id: string;
   entries: EpicHistoryEntry[];
+}
+
+// The conversation Talk docked beside the epic page, and the epic it opened on: showing another epic closes it.
+interface TalkDockState {
+  epic: string;
+  target: TalkTarget;
 }
 
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
@@ -197,6 +205,8 @@ export function App({
   const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
+  // The conversation Talk docked beside the epic page, with the epic it opened on.
+  const [talkDock, setTalkDock] = useState<TalkDockState | null>(null);
   // The epic page section, and the scroll place a back restores once the page it returns to is drawn.
   const pageRef = useRef<HTMLElement>(null);
   const restorePageScroll = useRef<number | null>(null);
@@ -256,6 +266,9 @@ export function App({
   // the epic's detail holds, so a step the detail lacks opens no stream.
   const openStep = !epicPage.closed && epicPage.page.kind === "session" ? epicPage.page.step : "";
   const shownSession = epicDetail?.steps.some((step) => step.id === openStep) === true ? openStep : "";
+  // The dock shows only on the epic it opened on.
+  const docked = talkDock !== null && epicEntry !== null && talkDock.epic === epicEntry.id ? talkDock : null;
+  const epicId = epicEntry?.id ?? "";
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
   useEffect(() => {
@@ -355,6 +368,13 @@ export function App({
   useLayoutEffect(() => {
     setEpicPage(openEpicPage);
   }, [cursorKey]);
+
+  // Showing another epic closes the dock. A row or step shows no epic, so the dock is kept across it.
+  useLayoutEffect(() => {
+    if (epicId !== "") {
+      setTalkDock((previous) => (previous?.epic === epicId ? previous : null));
+    }
+  }, [epicId]);
 
   // A back restores the scroll place of the page it returns to before that page is painted.
   useLayoutEffect(() => {
@@ -646,7 +666,7 @@ export function App({
     const { page } = epicPage;
     if (page.kind === "contract" && detail.contract !== undefined) {
       return (
-        <>
+        <div>
           <TitleRow
             crumbs={[
               { label: "orrery", onGo: closeEpicPage },
@@ -656,7 +676,7 @@ export function App({
             onBack={back}
           />
           <ContractBody contract={detail.contract} requirements={detail.requirements} />
-        </>
+        </div>
       );
     }
     if (page.kind === "phase") {
@@ -710,6 +730,16 @@ export function App({
         onOpenContract={openContract}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
+        actions={
+          <Talk
+            key={entry.id}
+            epic={entry.id}
+            sessions={detail.sessions}
+            repository={detail.repository}
+            start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
+            onOpen={(target) => setTalkDock({ epic: entry.id, target })}
+          />
+        }
       />
     );
   };
@@ -979,7 +1009,7 @@ export function App({
           </div>
         </section>
         <section
-          class={epicPage.move === "" ? "page" : `page ${epicPage.move}`}
+          class={pageClasses(epicPage.move, docked !== null)}
           aria-label="epic"
           hidden={epicEntry === null || epicPage.closed}
           ref={pageRef}
@@ -990,6 +1020,9 @@ export function App({
             ) : (
               pageNode(epicEntry, epicDetail)
             ))}
+          {docked !== null && (
+            <TalkDock clients={clients} target={docked.target} onClose={() => setTalkDock(null)} />
+          )}
         </section>
       </div>
       {helpOpen && (
@@ -1340,6 +1373,11 @@ function rowWhere(row: Row): string {
 // stepWhere is a step's where line: its epic, its agent, and its round.
 function stepWhere(step: StepItem): string {
   return `${step.epicSlug} › ${step.agent} · step · round ${step.round}`;
+}
+
+// pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
+function pageClasses(move: EpicPageState["move"], docked: boolean): string {
+  return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
 }
 
 function lastPathElement(path: string): string {

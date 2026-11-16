@@ -303,6 +303,13 @@ type EpicReviewer struct {
 	Verify       int64
 }
 
+type EpicSession struct {
+	Epic    string
+	Session string
+	Call    string
+	At      int64
+}
+
 type EpicTask struct {
 	Epic        string
 	Seq         int64

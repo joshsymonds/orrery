@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -816,7 +817,8 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure
 // is logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
 // want of pools. The Notices service on it answers from notices, and refuses as
-// unavailable when notices is nil.
+// unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic records its
+// session in st.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -913,10 +915,20 @@ func startSessions(
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
 		host.serveDone <- enginehost.Serve(
-			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, opts.metricsHandlers...,
+			serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices, serveOpts(opts, st, logger)...,
 		)
 	}()
 	return host, nil
+}
+
+// serveOpts returns the handler options the session socket serves with: opts.metricsHandlers, and with st open, the
+// interceptor that records the session of each epic call that names an epic.
+func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.HandlerOption {
+	if st == nil {
+		return opts.metricsHandlers
+	}
+	interceptor := enginehost.EpicCallInterceptor(st, time.Now, logger)
+	return append(slices.Clip(opts.metricsHandlers), connect.WithInterceptors(interceptor))
 }
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a

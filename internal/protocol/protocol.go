@@ -140,6 +140,14 @@ const (
 // EnvSession is the marker that names an orrery-started headless session.
 const EnvSession = "ORRERY_SESSION"
 
+// Request headers that name the session a client call runs in: HeaderSession carries EnvSession, and HeaderTmux and
+// HeaderTmuxPane carry the TMUX and TMUX_PANE of a session in tmux.
+const (
+	HeaderSession  = "Orrery-Session"
+	HeaderTmux     = "Orrery-Tmux"
+	HeaderTmuxPane = "Orrery-Tmux-Pane"
+)
+
 // SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
 // else $XDG_RUNTIME_DIR/orrery/orreryd.sock. It returns an error when none of them is set.
 func SocketPath(flagValue string, getenv func(string) string) (string, error) {

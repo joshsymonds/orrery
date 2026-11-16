@@ -110,6 +110,10 @@ button, input, textarea, select { font-family: var(--mono); }
   .head { padding: 12px 28px 11px; }
   .send { min-width: 0; padding: 0 28px 14px; }
   section.page { overflow-y: auto; padding: 18px 28px 10px; border-left: 1px solid var(--rule); }
+  /* A docked conversation takes a track beside the epic page, and the dock scrolls on its own. Narrower than this frame,
+     the dock stacks under the page. */
+  .page.docked { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); grid-template-rows: minmax(0, 1fr); }
+  .dock { min-height: 0; overflow-y: auto; border-left: 1px solid var(--rule); }
 }
 
 @media (min-width: 760px) and (max-width: 1500px) {
