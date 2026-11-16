@@ -40,8 +40,9 @@ const (
 // its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
 // when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
 // parks the epic for Reason, with Trigger. Work carries a check node run's work: Work is the kind's action, prepare,
-// start, capture, refs or advance, and Def, Run, IDs, Items, Tasks and Units are what it is for. An advance carries its
-// Output and the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason.
+// start, capture, repro, refs or advance, and Def, Run, IDs, Items, Tasks and Units are what it is for. An advance
+// carries its Output and the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0],
+// stopped for Reason.
 // Review ends the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure
 // run at Path, whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion
 // run at Path, whose Attempt ended with Phase and Output.
@@ -248,7 +249,7 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	switch act.Kind {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRefs, kinds.ActAdvance:
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
@@ -445,8 +446,9 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 	}
 }
 
-// work returns the work action of a check node run: the kind's prepare, start, capture, refs or advance, and the ids,
-// items, tasks and units the work is for. An advance also carries its output and the trigger its passed batch writes.
+// work returns the work action of a check node run: the kind's prepare, start, capture, repro, refs or advance, and
+// the ids, items, tasks and units the work is for. An advance also carries its output and the trigger its passed
+// batch writes.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
