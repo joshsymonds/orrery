@@ -233,7 +233,7 @@ func TestReviewKillSigkillResumesReviewFromStore(t *testing.T) {
 	logs := []string{logDir, reviewKillLog(t, r, resumedDir, resumed)}
 
 	stepReadoptTouch(t, filepath.Join(resumedDir, "fakeclaude.release"))
-	if end := r.awaitEnd(t, resumed).GetEnd(); end != "done" {
+	if end := r.awaitEnd(t, restarted, resumed).GetEnd(); end != "done" {
 		t.Fatalf("reviewer step %s ended %q, want done", resumed, end)
 	}
 	reviewKillPass(t, restarted, restartedAck, func() bool {

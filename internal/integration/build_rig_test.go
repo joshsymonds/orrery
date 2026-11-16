@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -281,16 +282,50 @@ func (r *buildRig) stepRow(t *testing.T, id string) *v1.Step {
 	return resp.Msg.GetStep()
 }
 
-// awaitEnd waits until step id has ended, and returns its row.
-func (r *buildRig) awaitEnd(t *testing.T, id string) *v1.Step {
+// awaitEnd waits until step id, which daemon runs, has ended, and returns its row (see awaitStepEnd).
+func (r *buildRig) awaitEnd(t *testing.T, daemon *orreryProcess, id string) *v1.Step {
 	t.Helper()
-	var step *v1.Step
-	waitUntil(t, func() bool {
-		step = r.stepRow(t, id)
-		return step.GetEnd() != ""
-	})
+	return awaitStepEnd(t, daemon, r.steps(), id)
+}
 
-	return step
+// awaitStepEnd polls steps until step id has ended, and returns its row. daemon is the orreryd that runs the step, the
+// one producer of its end: the wait fails, with daemon's stderr, once daemon has exited with the step still open, and
+// when a read fails. While it waits, each poll logs the lines daemon has written since the last, so a wait that never
+// ends shows what orreryd did in it. It has no deadline of its own.
+func awaitStepEnd(
+	t *testing.T, daemon *orreryProcess, steps enginev1connect.StepsClient, id string,
+) *v1.Step {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	logged := 0
+	for {
+		resp, err := steps.StepStatus(t.Context(), connect.NewRequest(&v1.StepStatusRequest{Id: id}))
+		logged = logStderrSince(t, daemon, logged)
+		if err != nil {
+			t.Fatalf("read step %s: %v; %s stderr:\n%s", id, err, daemon.name, daemon.stderr.String())
+		}
+		if step := resp.Msg.GetStep(); step.GetEnd() != "" {
+			return step
+		}
+		select {
+		case <-daemon.done:
+			t.Fatalf("step %s never ended: %s exited first (%v); stderr:\n%s",
+				id, daemon.name, daemon.waitErr, daemon.stderr.String())
+		case <-ticker.C:
+		}
+		stopIfFailed(t)
+	}
+}
+
+// logStderrSince logs what daemon has written to stderr past its first from bytes, and returns how much it has written.
+func logStderrSince(t *testing.T, daemon *orreryProcess, from int) int {
+	t.Helper()
+	all := daemon.stderr.String()
+	if len(all) > from {
+		t.Logf("%s stderr: %s", daemon.name, strings.TrimRight(all[from:], "\n"))
+	}
+	return len(all)
 }
 
 // pause pauses the epic. A paused epic starts no evidence run, so a task whose build reaches green stays at green.

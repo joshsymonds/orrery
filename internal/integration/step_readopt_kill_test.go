@@ -204,16 +204,10 @@ func (r *stepReadoptRig) step(t *testing.T, id string) *v1.Step {
 	return resp.Msg.GetStep()
 }
 
-// awaitEnd waits until step id has ended, and returns its row.
-func (r *stepReadoptRig) awaitEnd(t *testing.T, id string) *v1.Step {
+// awaitEnd waits until step id, which daemon runs, has ended, and returns its row (see awaitStepEnd).
+func (r *stepReadoptRig) awaitEnd(t *testing.T, daemon *orreryProcess, id string) *v1.Step {
 	t.Helper()
-	var step *v1.Step
-	waitUntil(t, func() bool {
-		step = r.step(t, id)
-		return step.GetEnd() != ""
-	})
-
-	return step
+	return awaitStepEnd(t, daemon, r.steps(), id)
 }
 
 // heldGrant returns the id of the grant that holds the rig's pool member, as Pools.Status reports it, or "" when no
@@ -305,7 +299,7 @@ func TestStepReadoptSigkillDuringTurnEndsDone(t *testing.T) {
 		t.Fatalf("gate runs of step %s = %d, want 1", id, n)
 	}
 	stepReadoptTouch(t, r.gateRelease)
-	r.requireDone(t, r.awaitEnd(t, id))
+	r.requireDone(t, r.awaitEnd(t, restarted, id))
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d after it ended, want 1", id, n)
 	}
@@ -347,7 +341,7 @@ func TestStepReadoptSigkillDuringGateHoldsMemberOnce(t *testing.T) {
 	}
 
 	stepReadoptTouch(t, r.gateRelease)
-	r.requireDone(t, r.awaitEnd(t, id))
+	r.requireDone(t, r.awaitEnd(t, restarted, id))
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d after it ended, want 1", id, n)
 	}

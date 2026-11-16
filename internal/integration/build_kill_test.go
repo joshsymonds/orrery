@@ -44,7 +44,7 @@ func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 	r.pause(t)
 
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
-	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, id))
+	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, restarted, id))
 	r.awaitGreen(t, restarted, restartedAck)
 	if got := r.task(t).GetRevision(); got != commit {
 		t.Fatalf("revision of task 1 at green = %q, want the fake's commit %s", got, commit)
