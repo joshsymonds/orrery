@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,13 +35,28 @@ const (
 	needTell      attentionNeed = "tell"
 )
 
-// epicNotice is the Source data of an epic notice: the id of its cause, the epic, its title and the body the owner
-// reads.
+// The blocks an epic notice opens on, as the desk and push name them.
+const (
+	blockQuestion    = "question"
+	blockReleaseStep = "release_step"
+	blockReport      = "report"
+)
+
+// epicBlock is the block an epic notice opens on: its name, and the ref that names its target, a question id Q<n> or a
+// release step position. Both are empty when the notice opens on none.
+type epicBlock struct {
+	name, ref string
+}
+
+// epicNotice is the Source data of an epic notice: the id of its cause, the epic, its title, the body the owner reads
+// and the block it opens on. A row stored before the block was kept reads no block.
 type epicNotice struct {
-	ID    string `json:"id"`
-	Epic  string `json:"epic"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	ID       string `json:"id"`
+	Epic     string `json:"epic"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Block    string `json:"block,omitempty"`
+	BlockRef string `json:"blockRef,omitempty"`
 }
 
 // AttentionStore is the store an Attention reads what each epic needs through, the notice rows it has stored, and
@@ -180,7 +196,10 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 	if tellsOwner(need, entry) {
 		id := turnNoticeID(entry.Epic, entry.Latest.Seq, need)
 		if !stored[id] {
-			a.notify(ctx, entry, id, bodyOf(need, entry), store.ToldMark{Epic: entry.Epic, Seq: entry.Latest.Seq})
+			a.notify(
+				ctx, entry, id, bodyOf(need, entry), turnBlockOf(need, entry),
+				store.ToldMark{Epic: entry.Epic, Seq: entry.Latest.Seq},
+			)
 		}
 	}
 	if err := a.store.MarkTold(ctx, entry.Epic, entry.Latest.Seq); err != nil {
@@ -195,7 +214,10 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
 	id := tellNoticeID(entry.Epic, tell.Seq)
 	if !stored[id] {
-		a.notify(ctx, entry, id, tellBody(tell), store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true})
+		a.notify(
+			ctx, entry, id, tellBody(tell), tellBlockOf(entry, tell),
+			store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true},
+		)
 	}
 	if err := a.store.MarkTellTold(ctx, entry.Epic, tell.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark tell told", "epic", entry.Epic, "tell", tell.Seq, "err", err)
@@ -213,9 +235,14 @@ func tellNoticeID(epic string, seq int64) string {
 	return fmt.Sprintf("%s:tell:%d", epic, seq)
 }
 
-// notify routes a notice of body for entry, keyed by its epic, with id in its source data. Its rows mark told.
-func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, id, body string, told store.ToldMark) {
-	stored := epicNotice{ID: id, Epic: entry.Epic, Title: entry.Title, Body: body}
+// notify routes a notice of body for entry that opens on block, keyed by its epic, with id in its source data. Its rows
+// mark told.
+func (a *Attention) notify(
+	ctx context.Context, entry store.EpicAttention, id, body string, block epicBlock, told store.ToldMark,
+) {
+	stored := epicNotice{
+		ID: id, Epic: entry.Epic, Title: entry.Title, Body: body, Block: block.name, BlockRef: block.ref,
+	}
 	incoming := attentionNotice(stored)
 	incoming.Told = &told
 	data, err := json.Marshal(stored)
@@ -238,17 +265,23 @@ func RestoreNotice(_ context.Context, data []byte, _ int64) (route.Notice, error
 	return attentionNotice(stored), nil
 }
 
-// attentionNotice is the waiting notice of stored, keyed by its epic, with the desk notice and push that show its body.
-// Notify and RestoreNotice both build it.
+// attentionNotice is the waiting notice of stored, keyed by its epic, with the desk notice and push that show its body
+// and the block it opens on. Notify and RestoreNotice both build it.
 func attentionNotice(stored epicNotice) route.Notice {
 	return route.Notice{
 		Key:   notice.Key{Epic: stored.Epic},
 		State: string(protocol.StateWaiting),
 		Desk: func(context.Context) (deskstream.Notice, error) {
-			return deskstream.Notice{State: string(protocol.StateWaiting), Title: stored.Epic, Body: stored.Body}, nil
+			return deskstream.Notice{
+				State: string(protocol.StateWaiting), Title: stored.Epic, Body: stored.Body,
+				Block: stored.Block, BlockRef: stored.BlockRef,
+			}, nil
 		},
 		Push: func(context.Context) (push.Notification, error) {
-			return push.Notification{Project: stored.Title, State: protocol.StateWaiting, Summary: stored.Body}, nil
+			return push.Notification{
+				Project: stored.Title, State: protocol.StateWaiting, Summary: stored.Body,
+				Block: stored.Block, BlockRef: stored.BlockRef,
+			}, nil
 		},
 	}
 }
@@ -335,6 +368,54 @@ func tellBody(tell store.EpicTell) string {
 	lines := make([]string, 0, len(advice)+2)
 	lines = append(lines, tell.Text, adviceHead(*tell.Question))
 	return strings.Join(append(lines, advice...), "\n")
+}
+
+// turnBlockOf returns the block the notice of need for the latest turn of entry opens on: the first open question for
+// open questions, the park question for a park when it has one, and none for a limit.
+func turnBlockOf(need attentionNeed, entry store.EpicAttention) epicBlock {
+	switch need {
+	case needQuestions:
+		return questionBlock(entry.Open[0].Seq)
+	case needPark:
+		if question := openParkQuestion(entry); question != nil {
+			return questionBlock(question.Seq)
+		}
+		return epicBlock{}
+	case needNone, needLimit, needTell:
+		return epicBlock{}
+	}
+	return epicBlock{}
+}
+
+// tellBlockOf returns the block the notice of tell of entry opens on. A tell with a question opens on the lowest failed
+// release step when entry is stopped with one, and on its question otherwise. A tell with no question opens on the
+// report of an epic in a phase that ends with one.
+func tellBlockOf(entry store.EpicAttention, tell store.EpicTell) epicBlock {
+	if tell.Question != nil {
+		if entry.Phase == store.PhaseStopped && entry.FailedStep > 0 {
+			return epicBlock{name: blockReleaseStep, ref: strconv.FormatInt(entry.FailedStep, 10)}
+		}
+		return questionBlock(tell.Question.Seq)
+	}
+	if reportedPhase(entry.Phase) {
+		return epicBlock{name: blockReport}
+	}
+	return epicBlock{}
+}
+
+// questionBlock returns the block that opens on the question of seq.
+func questionBlock(seq int64) epicBlock {
+	return epicBlock{name: blockQuestion, ref: fmt.Sprintf("Q%d", seq)}
+}
+
+// reportedPhase reports whether an epic in phase ends with a report: released, done, ended_with_gaps or stopped.
+func reportedPhase(phase string) bool {
+	switch phase {
+	case "released", "done", "ended_with_gaps", store.PhaseStopped:
+		return true
+	default:
+		return false
+	}
 }
 
 // noticeHead returns question as `Qseq label: text`, or as `Qseq: text` when it has no label.

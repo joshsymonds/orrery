@@ -134,9 +134,12 @@ func TestAttentionSendsOneNoticeForTheQuestionsOfATurn(t *testing.T) {
 	want := shown{
 		key:   notice.Key{Epic: runnerEpicID},
 		state: "waiting",
-		desk:  deskstream.Notice{State: "waiting", Title: runnerEpicID, Body: askingBody},
+		desk: deskstream.Notice{
+			State: "waiting", Title: runnerEpicID, Body: askingBody, Block: "question", BlockRef: "Q1",
+		},
 		push: push.Notification{
 			Project: "Plan the runner", State: protocol.StateWaiting, Summary: askingBody,
+			Block: "question", BlockRef: "Q1",
 		},
 	}
 	if len(router.notices) != 1 {

@@ -42,9 +42,9 @@ func TestAttentionEndingRoutesOneNoticeKeyedToItsEpic(t *testing.T) {
 			want := shown{
 				key:   notice.Key{Epic: runnerEpicID},
 				state: "waiting",
-				desk:  deskstream.Notice{State: "waiting", Title: runnerEpicID, Body: body},
+				desk:  deskstream.Notice{State: "waiting", Title: runnerEpicID, Body: body, Block: "report"},
 				push: push.Notification{
-					Project: "Plan the runner", State: protocol.StateWaiting, Summary: body,
+					Project: "Plan the runner", State: protocol.StateWaiting, Summary: body, Block: "report",
 				},
 			}
 			if len(router.notices) != 1 {
