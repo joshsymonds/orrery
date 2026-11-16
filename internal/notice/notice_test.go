@@ -111,7 +111,7 @@ func TestNotifyReportsPublish(t *testing.T) {
 			entered := make(chan struct{}, 1)
 			hold := make(chan struct{})
 			sender := &fakeSender{err: tc.publishErr, published: entered, hold: hold}
-			n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+			n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 			sentRan := make(chan struct{}, 2)
 
 			n.Notify(
@@ -136,7 +136,7 @@ func TestNotifyReportsPublish(t *testing.T) {
 	t.Run("build fails", func(t *testing.T) {
 		clk := &clock{at: time.Unix(at, 0)}
 		sender := &fakeSender{}
-		n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+		n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 		hold := make(chan struct{})
 		sentRan := make(chan struct{}, 2)
 
@@ -158,7 +158,7 @@ func TestNotifyReportsPublish(t *testing.T) {
 	t.Run("nil sent", func(t *testing.T) {
 		clk := &clock{at: time.Unix(at, 0)}
 		sender := &fakeSender{}
-		n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+		n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 
 		n.Notify(context.Background(), key, build(push.Notification{Summary: "done"}), nil)
 		n.Wait()
@@ -170,7 +170,7 @@ func TestNotifyReportsPublish(t *testing.T) {
 func TestNotifyThenSeenAtNoticeTimeClears(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 
@@ -187,7 +187,7 @@ func TestNotifyThenSeenAtNoticeTimeClears(t *testing.T) {
 func TestSeenBeforeNoticeTimeWaitsForLaterSeen(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 
@@ -209,7 +209,7 @@ func TestSeenBeforeNoticeTimeWaitsForLaterSeen(t *testing.T) {
 func TestSecondSeenSendsNothing(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 
@@ -227,7 +227,7 @@ func TestSecondSeenSendsNothing(t *testing.T) {
 func TestClearNeverPrecedesNoticeWhenBuildBlocks(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	key := notice.Key{Session: "s1"}
 	at := clk.at.Unix()
 	release := make(chan struct{})
@@ -259,7 +259,7 @@ func TestClearNeverPrecedesNoticeWhenBuildBlocks(t *testing.T) {
 func TestSessionKeysClearBySession(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	at := clk.at.Unix()
 
 	n.Notify(context.Background(), notice.Key{Session: "s1"}, build(push.Notification{}), nil)
@@ -275,7 +275,7 @@ func TestSessionKeysClearBySession(t *testing.T) {
 func TestKeysDoNotWaitOnEachOther(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{published: make(chan struct{}, 2)}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	release := make(chan struct{})
 
 	n.Notify(context.Background(), notice.Key{Pane: "%1"}, func(context.Context) (push.Notification, error) {
@@ -295,7 +295,7 @@ func TestKeysDoNotWaitOnEachOther(t *testing.T) {
 func TestSendsIgnoreContextCancellation(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -321,7 +321,7 @@ func TestSendErrorsAreLoggedWithRedactedEndpoint(t *testing.T) {
 	const endpoint = "https://push.example.test/subscription/secret"
 	sender := &fakeSender{err: &url.Error{Op: "Post", URL: endpoint, Err: errors.New("connection refused")}}
 	var logs bytes.Buffer
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.NewTextHandler(&logs, nil)))
+	n := newTestNotices(sender, clk.now, slog.New(slog.NewTextHandler(&logs, nil)))
 
 	n.Notify(context.Background(), notice.Key{Pane: "%3"}, build(push.Notification{}), nil)
 	n.Wait()
@@ -339,7 +339,7 @@ func TestDaemonSeenReportClearsRecordedPaneNotice(t *testing.T) {
 	const seenAt = 1700000000
 	clk := &clock{at: time.Unix(seenAt, 0)}
 	sender := &fakeSender{}
-	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	n := newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

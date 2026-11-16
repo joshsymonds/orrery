@@ -39,8 +39,7 @@ func storeWithPush(ctx context.Context, t *testing.T, key notice.Key) string {
 	if err != nil {
 		t.Fatalf("Open(%s): %v", path, err)
 	}
-	earlier := notice.New(
-		"host-a",
+	earlier := newTestNotices(
 		&fakeSender{},
 		(&clock{at: time.Unix(attachAt, 0)}).now,
 		slog.New(slog.DiscardHandler),
@@ -56,7 +55,7 @@ func storeWithPush(ctx context.Context, t *testing.T, key notice.Key) string {
 
 // newNotices returns a Notices for the restarted daemon, publishing to sender and reading the time from clk.
 func newNotices(sender *fakeSender, clk *clock) *notice.Notices {
-	return notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+	return newTestNotices(sender, clk.now, slog.New(slog.DiscardHandler))
 }
 
 // wantRows fails the test unless the store holds exactly want.

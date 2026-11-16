@@ -28,6 +28,9 @@ const (
 	attachResentAt  = int64(1_700_000_600)
 	// phaseSending is the phase of a row whose push was handed to the phone, spelled as the router writes it.
 	phaseSending = "sending"
+	// testStoreDeadline bounds the store calls of a test's Notices over a real store: longer than any test runs, so a
+	// store call that is only slow, as one on a loaded machine is, never reads as late and leaves its row unstored.
+	testStoreDeadline = time.Hour
 )
 
 // recordSender is the fake sender a real Notices posts through. It records each push and clear it is given.
@@ -92,7 +95,7 @@ func TestAttachStore(t *testing.T) {
 
 		sender := &recordSender{}
 		sinks := newPaneSinks(attachResentAt, false)
-		notices := notice.New(attachHost, sender, sinks.Now, logger)
+		notices := notice.New(attachHost, sender, sinks.Now, logger, notice.WithStoreDeadline(testStoreDeadline))
 		attachStore(ctx, s, daemon.NewPendingMirror(time.Now, logger), notices, attachRouter(notices, sinks))
 		// Wait orders every send before the reads below.
 		notices.Wait()
