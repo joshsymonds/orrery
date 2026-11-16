@@ -65,8 +65,12 @@ const (
 	serveShutdownTimeout = 5 * time.Second
 )
 
-// serveListeningPrefix starts the stderr line serve writes once its API listener is bound, before the address.
-const serveListeningPrefix = "orrery serve: listening on "
+// The stderr lines serve writes once its listeners are bound start with these, before the bound address: the metrics
+// line, when --metrics-listen is set, comes first, and the API line last.
+const (
+	serveListeningPrefix        = "orrery serve: listening on "
+	serveMetricsListeningPrefix = "orrery serve: metrics listening on "
+)
 
 const usageText = `usage: orrery [-L NAME | -S PATH] [--socket PATH] SUBCOMMAND [ARGS]
 
@@ -237,7 +241,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	case "help":
 		return helpCommand(ctx, opts.server, args, stdout, getenv)
 	case "serve":
-		return runServe(ctx, opts, args, getenv)
+		return runServe(ctx, opts, args, getenv, stderr)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
 	case "notices":
@@ -471,7 +475,7 @@ func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
 // --listen until SIGINT or SIGTERM, then shuts down and returns nil. With --metrics-listen it also serves /metrics on
 // that loopback address.
-func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string) error {
+func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string, stderr io.Writer) error {
 	flags := flag.NewFlagSet("orrery serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", "", "loopback address to serve on")
@@ -569,7 +573,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return fmt.Errorf("serve: %w", err)
 	}
 
-	return serveListening(ctx, *listen, *metricsListen, handler, shutdown, metrics)
+	return serveListening(ctx, *listen, *metricsListen, handler, shutdown, metrics, stderr)
 }
 
 // serveMetrics returns the metrics provider and the handler options that record to it when metricsListen is set.
@@ -589,16 +593,19 @@ func serveMetrics(metricsListen string) (*telemetry.Provider, []connect.HandlerO
 // serveListening binds listen and, when metricsListen is set, the metrics address, then serves handler until SIGINT
 // or SIGTERM. With metricsListen it also serves metrics from provider on that address.
 func serveListening(ctx context.Context, listen, metricsListen string, handler http.Handler, shutdown chan struct{},
-	metrics *telemetry.Provider) error {
+	metrics *telemetry.Provider, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	ln, metricsLn, err := serveListeners(ctx, listen, metricsListen)
 	if err != nil {
 		return err
 	}
-	// The bound address, which a port of 0 leaves to the kernel, is written once the listener is bound, so a caller that
-	// started serve knows the address is serve's own.
-	fmt.Fprintf(os.Stderr, "%s%s\n", serveListeningPrefix, ln.Addr())
+	// The bound addresses, which a port of 0 leaves to the kernel, are written once the listeners are bound, so a caller
+	// that started serve knows each address is serve's own.
+	if metricsLn != nil {
+		fmt.Fprintf(stderr, "%s%s\n", serveMetricsListeningPrefix, metricsLn.Addr())
+	}
+	fmt.Fprintf(stderr, "%s%s\n", serveListeningPrefix, ln.Addr())
 	if metricsLn == nil {
 		return serveUntilDone(ctx, ln, handler, shutdown)
 	}
@@ -997,7 +1004,7 @@ func attachWithTree(ctx context.Context, client *tmuxctl.Client, argv []string, 
 			}
 		}
 	}
-	if treeErr := openTree(attachCtx, client, tty); treeErr != nil {
+	if treeErr := openAttachedTree(attachCtx, client, tty, os.Stderr); treeErr != nil {
 		return treeErr
 	}
 	if attachErr := <-done; attachErr != nil {
@@ -1044,6 +1051,28 @@ func openTree(ctx context.Context, client *tmuxctl.Client, tty string) error {
 	}
 	return nil
 }
+
+// openAttachedTree shows the tree in a popup on the client at tty that this open has attached, and returns at once.
+// The open runs until the attach ends, so it runs display-popup itself, on a goroutine, and writes any error the popup
+// command returns to stderr, the attached terminal. A popup that never came would otherwise show nothing at all. The
+// popup's command is one shell word, its "#" doubled because display-popup format-expands it.
+func openAttachedTree(ctx context.Context, client *tmuxctl.Client, tty string, stderr io.Writer) error {
+	orrery, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("open tree: locate orrery binary: %w", err)
+	}
+	command := strings.ReplaceAll(quoteShell(orrery)+" tree --client "+quoteShell(tty), "#", "##")
+	popupCtx := context.WithoutCancel(ctx)
+	go func() {
+		if _, popupErr := client.Run(popupCtx, "display-popup", "-c", tty, "-E", command); popupErr != nil {
+			fmt.Fprintf(stderr, "%s%v\n", openTreeErrorPrefix, popupErr)
+		}
+	}()
+	return nil
+}
+
+// openTreeErrorPrefix starts the line an attached open writes when its tree's popup command fails.
+const openTreeErrorPrefix = "orrery open: tree: "
 
 // quoteShell returns value as one single-quoted shell word.
 func quoteShell(value string) string {

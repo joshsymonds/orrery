@@ -427,7 +427,7 @@ orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-logi
 - `--allow-login LOGIN` admits one Tailscale login. Repeat the flag for each login. At least one is required.
 - `--push-host HOST` names a push relay host, as `orreryd` does. Repeat the flag for each host. The default is `ntfy.sh`.
 - `--host-status-cmd PATH` sets the command that `Host.Status` runs (section 12). `PATH` must be absolute; a relative `PATH` exits 2 before anything is bound. Without the flag, `Host.Status` answers `not_found`. The command runs at `PATH` with no arguments and no shell. Its stdout is read up to 64 KiB, and its stderr is discarded. A run is limited to 2 seconds, and a child that outlives it and holds stdout open is cut off 500 ms later. Each run's outcome is cached for 5 seconds (section 12).
-- `--metrics-listen ADDR` serves `/metrics` on a second loopback address, ADDR, in the form `--listen` takes. Without the flag, `serve` records and serves no metrics. [Metrics](#metrics) gives the listener, the series and the alert rules.
+- `--metrics-listen ADDR` serves `/metrics` on a second loopback address, ADDR, in the form `--listen` takes, and port 0 there too lets the kernel choose. Once it is bound, `serve` writes `orrery serve: metrics listening on ADDR` to stderr, before the `--listen` line. Without the flag, `serve` records and serves no metrics. [Metrics](#metrics) gives the listener, the series and the alert rules.
 
 Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
 

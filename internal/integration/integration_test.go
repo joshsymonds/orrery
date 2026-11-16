@@ -67,6 +67,8 @@ const (
 	// judgeDelay is the --judge-delay test seam the daemons of the notice tests run with, so a plain done is judged at
 	// once and not after route.JudgeDelay of real time. route's own tests check that wait on fake timers.
 	judgeDelay = "0s"
+	// openTreeErrorLog starts the line an attached orrery open writes when its tree's popup command fails.
+	openTreeErrorLog = "orrery open: tree: "
 	// serveListeningLog starts the stderr line orrery serve writes once its API listener is bound, before the address.
 	serveListeningLog = "orrery serve: listening on "
 	// writeTick is the --write-tick test seam every orreryd a test starts runs with, so a wait for a stored engine op
@@ -3163,7 +3165,8 @@ func treePopupError(t *testing.T, client *tmuxctl.Client, tty string) error {
 
 // waitForTreePopup waits until the tree shows in a popup on the client at tty, in a terminal smaller than the client's
 // (see treePopupError). sc is the run the client is, or nil when the test did not start it. It has no deadline of its
-// own, and fails at once when the tree it saw start has exited, or when sc exits first.
+// own, and fails at once when the tree it saw start has exited, when sc exits first, or when sc's open wrote that the
+// tree's popup command failed.
 func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string, sc *scriptClient) {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
@@ -3173,6 +3176,9 @@ func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string, sc *scri
 		err := treePopupError(t, client, tty)
 		if err == nil {
 			return
+		}
+		if sc != nil && strings.Contains(sc.output.String(), openTreeErrorLog) {
+			t.Fatalf("the tree's popup for client %s failed; output %q", tty, sc.output.String())
 		}
 		pids, pidErr := treePIDs(tty)
 		if pidErr != nil {
