@@ -3336,6 +3336,8 @@ type pushEndpoint struct {
 	key      *ecdh.PrivateKey
 	auth     []byte
 	requests chan pushRequest
+	// drop makes the endpoint close each push's connection without a reply, as an endpoint that is gone fails a post.
+	drop atomic.Bool
 }
 
 // pushRequest is one POST a fake endpoint received.
@@ -3357,6 +3359,15 @@ func newPushEndpoint(t *testing.T) *pushEndpoint {
 	}
 	ep := &pushEndpoint{key: key, auth: auth, requests: make(chan pushRequest, 8)}
 	ep.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if ep.drop.Load() {
+			conn, _, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				t.Errorf("hijack push: %v", err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			t.Errorf("read push body: %v", err)
@@ -3565,9 +3576,10 @@ func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
 	dir := t.TempDir()
 	stateHome := filepath.Join(dir, "state")
 	live := newPushEndpoint(t)
+	// The gone endpoint stays held and drops each push, so no other test's endpoint can answer at its address.
 	closed := newPushEndpoint(t)
+	closed.drop.Store(true)
 	registerPush(t, stateHome, live, closed)
-	closed.server.Close()
 	daemon, socket := startPushDaemon(t, name, dir, stateHome, live)
 
 	sendHook(t, socket, pane, dir, map[string]any{

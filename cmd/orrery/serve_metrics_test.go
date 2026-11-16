@@ -106,19 +106,21 @@ func serveScrape(ctx context.Context, t *testing.T, addr string) map[string]*dto
 }
 
 // TestServeMetricsListenRefusesNonLoopback runs serve through runServe with a --metrics-listen that is not a loopback
-// IP literal. runServe returns a failure, which exits 1, and binds neither its API address nor the metrics address.
+// IP literal. runServe returns the loopback refusal, which exits 1, and binds neither its API address nor the metrics
+// address. The test holds a listener on each port for the whole test, so a bind of either address would fail with
+// address in use, not the refusal, and no other test can take the ports.
 func TestServeMetricsListenRefusesNonLoopback(t *testing.T) {
 	t.Parallel()
 
 	state := t.TempDir()
 	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
 	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}}
-	_, port, err := net.SplitHostPort(serveFreeLoopbackAddr(t))
+	_, port, err := net.SplitHostPort(serveHeldLoopbackAddr(t))
 	if err != nil {
 		t.Fatalf("SplitHostPort: %v", err)
 	}
 	for _, metricsAddr := range []string{"0.0.0.0:" + port, "localhost:" + port} {
-		apiAddr := serveFreeLoopbackAddr(t)
+		apiAddr := serveHeldLoopbackAddr(t)
 		err := runServe(t.Context(), opts, []string{
 			"--listen", apiAddr, "--allow-login", serveTestLogin, "--metrics-listen", metricsAddr,
 		}, getenv, io.Discard)
@@ -132,15 +134,21 @@ func TestServeMetricsListenRefusesNonLoopback(t *testing.T) {
 		if code := report(&stderr, err); code != exitFailure {
 			t.Errorf("runServe --metrics-listen %s exit code = %d, want %d", metricsAddr, code, exitFailure)
 		}
-		for _, addr := range []string{apiAddr, metricsAddr} {
-			ln, listenErr := net.Listen("tcp", addr)
-			if listenErr != nil {
-				t.Errorf("%s is bound after the refusal: %v", addr, listenErr)
-				continue
-			}
-			if closeErr := ln.Close(); closeErr != nil {
-				t.Errorf("close probe listener on %s: %v", addr, closeErr)
-			}
-		}
 	}
+}
+
+// serveHeldLoopbackAddr returns the address of a loopback listener the test holds until it ends, for a test of an
+// address serve must not bind: a bind of it fails with address in use.
+func serveHeldLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close held listener: %v", err)
+		}
+	})
+	return ln.Addr().String()
 }
