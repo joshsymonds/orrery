@@ -38,8 +38,10 @@ private val MINI_SIZE: Dp = 40.dp
  * it is empty. Under the line, up to [MAX_STEP_ROWS] of its running and held steps (a held one marked), and a
  * "more" line for the rest; its ended steps show as one count. Live epics waiting to start fold into one line,
  * "n accepted, waiting to start", that opens to list them. Folded epics fold into one line that opens to list
- * them. Tapping an epic, a step or a "more" line opens the epic. Nothing here answers a step: the group only
- * opens epics. No epics draws nothing.
+ * them. An ended epic (an orreryd epic that is not live) that is unseen draws under "Just ended" after the folded line,
+ * newest ending first, with its outcome and the time since it ended; the seen ones fold into one "n ended earlier ›"
+ * line that opens them in place. Tapping an epic, a step or a "more" line opens the epic. Nothing here answers a step:
+ * the group only opens epics. No epics draws nothing.
  */
 @Composable
 fun EpicsGroup(
@@ -51,10 +53,13 @@ fun EpicsGroup(
 ) {
     var waitingOpen by remember { mutableStateOf(false) }
     var foldedOpen by remember { mutableStateOf(false) }
+    var endedOpen by remember { mutableStateOf(false) }
     if (epics.isEmpty()) return
     val live = epics.filter { it.live && !it.waiting }
     val waiting = epics.filter { it.live && it.waiting }
-    val folded = epics.filterNot { it.live }
+    val folded = epics.filter { !it.live && !it.isEnded() }
+    val justEnded = epics.filter { it.isEnded() && it.seen < it.phaseAt }.sortedByDescending { it.phaseAt }
+    val endedEarlier = epics.filter { it.isEnded() && it.seen >= it.phaseAt }.sortedByDescending { it.phaseAt }
     Column(modifier = modifier.fillMaxWidth().testTag("epics-group").padding(vertical = 4.dp)) {
         Text(
             "Epics",
@@ -80,8 +85,34 @@ fun EpicsGroup(
                 }
             }
         }
+        if (justEnded.isNotEmpty() || endedEarlier.isNotEmpty()) {
+            Text(
+                "Just ended",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            for (epic in justEnded) {
+                EpicLine(epic, onOpenEpic, start = 16.dp, words = endedWordsOf(epic, now))
+            }
+            if (endedEarlier.isNotEmpty()) {
+                FoldLine("${endedEarlier.size} ended earlier ›", "epics-ended-earlier") { endedOpen = !endedOpen }
+                if (endedOpen) {
+                    for (epic in endedEarlier) {
+                        EpicLine(epic, onOpenEpic, start = 24.dp, words = endedWordsOf(epic, now))
+                    }
+                }
+            }
+        }
     }
 }
+
+// An orreryd epic that is not live has ended. A record epic that went quiet is not ended: it stays folded.
+private fun EpicRow.isEnded(): Boolean = source == "orreryd" && !live
+
+// An ended epic's words: its outcome, then the time since it ended, never below zero when the clock is behind its stamp.
+// At phaseAt 0 there is no time to read, so the outcome stands alone.
+private fun endedWordsOf(epic: EpicRow, now: Long): String =
+    if (epic.phaseAt > 0L) "${epic.outcome} · ${durationText((now - epic.phaseAt).coerceAtLeast(0L))} ago" else epic.outcome
 
 @Composable
 private fun FoldLine(text: String, tag: String, onToggle: () -> Unit) {
@@ -166,7 +197,7 @@ private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEp
 }
 
 @Composable
-private fun EpicLine(epic: EpicRow, onOpenEpic: (String) -> Unit, start: Dp) {
+private fun EpicLine(epic: EpicRow, onOpenEpic: (String) -> Unit, start: Dp, words: String = "") {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -178,6 +209,9 @@ private fun EpicLine(epic: EpicRow, onOpenEpic: (String) -> Unit, start: Dp) {
     ) {
         Text(epic.slug, style = MaterialTheme.typography.bodyLarge)
         Text(epic.repository, style = MaterialTheme.typography.labelSmall)
+        if (words.isNotEmpty()) {
+            Text(words, style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 

@@ -18,6 +18,7 @@ import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +41,11 @@ class EpicsGroupTest {
         const val WAITING_TWO_SLUG = "waiting-epic-two"
         const val WAITING_ID = "other-repo/$WAITING_SLUG"
         const val WAITING_TWO_ID = "other-repo/$WAITING_TWO_SLUG"
+        const val ENDED_ID = "other-repo/ended-epic"
+        const val SEEN_ID = "other-repo/seen-epic"
+        const val UNTIMED_ID = "other-repo/untimed-epic"
+        const val OLDER_ID = "other-repo/older-epic"
+        const val NEWER_ID = "other-repo/newer-epic"
     }
 
     @get:Rule
@@ -76,19 +82,27 @@ class EpicsGroupTest {
         ended: Int = 0,
         waiting: Boolean = false,
         phaseAt: Long = 0L,
+        outcome: String = "",
+        source: String = "",
+        seen: Long = 0L,
     ): EpicRow = EpicRow(
         id = id,
         repository = repository,
         slug = slug,
-        outcome = "",
+        outcome = outcome,
         changed = NOW,
         live = live,
         waiting = waiting,
         runningSteps = running,
         endedSteps = ended,
         problem = "",
+        source = source,
         phaseAt = phaseAt,
+        seen = seen,
     )
+
+    private fun endedEpic(id: String, repository: String, slug: String, phaseAt: Long, seen: Long = 0L): EpicRow =
+        epic(id, repository, slug, live = false, outcome = "released", source = "orreryd", phaseAt = phaseAt, seen = seen)
 
     private fun evidenceRun(phase: String, passed: Boolean) = EvidenceRunRow(
         id = "run-$phase",
@@ -376,5 +390,73 @@ class EpicsGroupTest {
 
         composeRule.onNodeWithText("0 of 0 tasks done").assertIsDisplayed()
         assertEquals(0, countNodes(hasTestTag("blocker:$LIVE_ID")))
+    }
+
+    @Test
+    fun anUnseenEndedEpicShowsUnderJustEndedWithItsOutcomeAndTimeSinceItEnded() {
+        setGroup(
+            listOf(
+                epic(LIVE_ID, REPO, SLUG, live = true),
+                endedEpic(ENDED_ID, "other-repo", "ended-epic", phaseAt = NOW - 720L),
+            ),
+        )
+
+        composeRule.onNodeWithText("Just ended").assertIsDisplayed()
+        composeRule.onNodeWithText("ended-epic").assertIsDisplayed()
+        composeRule.onNodeWithText("released · 12 min ago").assertIsDisplayed()
+        assertEquals(0, countNodes(hasTestTag("epics-folded")))
+        assertEquals(0, countNodes(hasTestTag("epics-ended-earlier")))
+
+        composeRule.onNodeWithTag("epic:$ENDED_ID").performClick()
+        assertEquals(listOf(ENDED_ID), opened)
+    }
+
+    @Test
+    fun aSeenEndedEpicFoldsIntoOneEndedEarlierLineThatOpensItInPlace() {
+        setGroup(listOf(endedEpic(SEEN_ID, "other-repo", "seen-epic", phaseAt = NOW - 720L, seen = NOW - 60L)))
+
+        composeRule.onNodeWithText("1 ended earlier ›").assertIsDisplayed()
+        assertEquals(0, countNodes(hasTestTag("epic:$SEEN_ID")))
+
+        composeRule.onNodeWithText("1 ended earlier ›").performClick()
+
+        composeRule.onNodeWithTag("epic:$SEEN_ID").assertIsDisplayed()
+        composeRule.onNodeWithText("released · 12 min ago").assertIsDisplayed()
+    }
+
+    @Test
+    fun anEndedEpicWithNoEndingTimeShowsItsOutcomeAlone() {
+        setGroup(listOf(endedEpic(UNTIMED_ID, "other-repo", "untimed-epic", phaseAt = 0L)))
+
+        composeRule.onNodeWithText("1 ended earlier ›").performClick()
+
+        composeRule.onNodeWithText("released").assertIsDisplayed()
+    }
+
+    @Test
+    fun unseenEndedEpicsListNewestEndingFirst() {
+        setGroup(
+            listOf(
+                endedEpic(OLDER_ID, "other-repo", "older-epic", phaseAt = NOW - 720L),
+                endedEpic(NEWER_ID, "other-repo", "newer-epic", phaseAt = NOW - 60L),
+            ),
+        )
+
+        val newer = composeRule.onNodeWithTag("epic:$NEWER_ID").fetchSemanticsNode().positionInRoot.y
+        val older = composeRule.onNodeWithTag("epic:$OLDER_ID").fetchSemanticsNode().positionInRoot.y
+        assertTrue(newer < older)
+    }
+
+    @Test
+    fun aRecordEpicThatWentQuietStaysFoldedAndIsNotJustEnded() {
+        setGroup(
+            listOf(
+                epic(FOLDED_ID, "other-repo", "folded-epic", live = false, outcome = "released", phaseAt = NOW - 720L),
+            ),
+        )
+
+        composeRule.onNodeWithText("1 folded").assertIsDisplayed()
+        assertEquals(0, countNodes(hasText("Just ended")))
+        assertEquals(0, countNodes(hasTestTag("epics-ended-earlier")))
     }
 }
