@@ -312,6 +312,7 @@ class OrreryClientEpicsTest {
                             reason = "example reason",
                         ),
                     ),
+                    handover = EpicHandoverRow(phase = epicRow.outcome),
                 ),
                 detail,
             )

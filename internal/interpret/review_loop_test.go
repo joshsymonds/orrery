@@ -347,6 +347,15 @@ func reviewLoopWantEnd(t *testing.T, got reviewLoopOutcome, phase, body string) 
 	}
 }
 
+// reviewLoopWantClean fails the test unless the epic of got is clean. A clean ending adds no tell (store.Store.EndEpic),
+// so there is no body to look for.
+func reviewLoopWantClean(t *testing.T, got reviewLoopOutcome) {
+	t.Helper()
+	if got.phase != "clean" {
+		t.Errorf("epic phase = %q, want clean", got.phase)
+	}
+}
+
 // reviewLoopWantCauses fails the test unless the planner turns claimed the triggers with causes, in turn order.
 func reviewLoopWantCauses(t *testing.T, got reviewLoopOutcome, causes []string) {
 	t.Helper()
@@ -393,7 +402,7 @@ func TestReviewLoopAllHoldsEndsCleanAfterOneRound(t *testing.T) {
 	}
 	reviewLoopWantStarts(t, got, []string{"security", "tests"})
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
-	reviewLoopWantEnd(t, got, "clean", runnerConcludeBody)
+	reviewLoopWantClean(t, got)
 }
 
 // TestReviewLoopClosedFindingEndsCleanInRoundOne: a finding the security reviewer raises and its verifier confirms is
@@ -441,7 +450,7 @@ func TestReviewLoopClosedFindingEndsCleanInRoundOne(t *testing.T) {
 		t.Errorf("clean revision = %q, want %q", got.review.Clean, runBase)
 	}
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopRoundOneCause})
-	reviewLoopWantEnd(t, got, "clean", runnerConcludeBody)
+	reviewLoopWantClean(t, got)
 }
 
 // TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps: a confirmed finding that its closure leaves open in both rounds
@@ -468,7 +477,8 @@ func TestReviewLoopFindingOpenAfterTwoRoundsEndsWithGaps(t *testing.T) {
 		t.Errorf("clean revision = %q, want none", got.review.Clean)
 	}
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopRoundOneCause, reviewLoopRoundTwoCause})
-	reviewLoopWantEnd(t, got, "ended_with_gaps", "epic "+runEpic+" ended with gaps: security-1: open after 2 rounds")
+	reviewLoopWantEnd(t, got, "ended_with_gaps",
+		kinds.EndingBody("ended_with_gaps", []string{"security-1: open after 2 rounds"}))
 }
 
 // TestReviewLoopCostlyReviewerEndsWithGap: a reviewer whose two tries both end costly gives a gap, which the review keeps
@@ -491,7 +501,8 @@ func TestReviewLoopCostlyReviewerEndsWithGap(t *testing.T) {
 	}
 	reviewLoopWantStarts(t, got, []string{"security", "security", "tests"})
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
-	reviewLoopWantEnd(t, got, "ended_with_gaps", "epic "+runEpic+" ended with gaps: reviewer security: "+reason)
+	reviewLoopWantEnd(t, got, "ended_with_gaps",
+		kinds.EndingBody("ended_with_gaps", []string{"reviewer security: " + reason}))
 }
 
 // TestReviewLoopRestartedReviewerRerunsFreeAndEndsClean: a reviewer step the engine restarts reruns without a cost. Two
@@ -515,5 +526,5 @@ func TestReviewLoopRestartedReviewerRerunsFreeAndEndsClean(t *testing.T) {
 		t.Errorf("clean revision = %q, want %q", got.review.Clean, runBase)
 	}
 	reviewLoopWantCauses(t, got, []string{reviewLoopCreatedCause, reviewLoopEmptyCause})
-	reviewLoopWantEnd(t, got, "clean", runnerConcludeBody)
+	reviewLoopWantClean(t, got)
 }

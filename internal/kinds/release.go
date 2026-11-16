@@ -65,11 +65,16 @@ func releaseEnded(rows Rows) Action {
 	return Action{Kind: ActEnd, Outcome: outcomePassed}
 }
 
+// endingAction ends the epic in the phase outcome names, with the body that names the gaps its review holds.
+func endingAction(outcome string, rows Rows) Action {
+	return Action{Kind: ActEnding, Outcome: outcome, Output: EndingBody(outcome, concludeGaps(rows.Review))}
+}
+
 // releaseClean ends a clean epic with no release steps done, gives none while another epic holds the release slot, and
 // takes the slot otherwise.
 func releaseClean(rows Rows) Action {
 	if len(rows.Epic.ReleaseSteps) == 0 {
-		return Action{Kind: ActEnding, Outcome: outcomeDone}
+		return endingAction(outcomeDone, rows)
 	}
 	if rows.Slot != "" && !holdsSlot(rows) {
 		return Action{Kind: ActNone}
@@ -244,7 +249,7 @@ func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
 	})
 	if ok {
 		if judged.Passed {
-			return Action{Kind: ActEnding, Outcome: outcomeReleased}
+			return endingAction(outcomeReleased, rows)
 		}
 		return Action{Kind: ActStop, Output: judged.Reason}
 	}

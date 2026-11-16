@@ -84,8 +84,9 @@ type EpicsClient interface {
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
 	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
 	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
-	// ReleaseEpic resumes the stopped release of a stored epic at its first unfinished step, running again the undo-none
-	// release steps it names, and returns the stored epic.
+	// ReleaseEpic releases a stored epic. It resumes the stopped release at its first unfinished step, running again the
+	// undo-none release steps it names. An epic that ended with gaps is released on the owner's word, logged as the
+	// owner's decision, and names no undo-none step. It returns the stored epic.
 	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
 }
 
@@ -247,8 +248,9 @@ type EpicsHandler interface {
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
 	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
 	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
-	// ReleaseEpic resumes the stopped release of a stored epic at its first unfinished step, running again the undo-none
-	// release steps it names, and returns the stored epic.
+	// ReleaseEpic releases a stored epic. It resumes the stopped release at its first unfinished step, running again the
+	// undo-none release steps it names. An epic that ended with gaps is released on the owner's word, logged as the
+	// owner's decision, and names no undo-none step. It returns the stored epic.
 	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
 }
 

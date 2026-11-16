@@ -5,6 +5,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
@@ -25,6 +26,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAlternative
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
@@ -148,19 +150,34 @@ class MainActivityEpicsTest {
         .setProblem("")
         .build()
 
-    /** Serves the epic, with its contract, its one requirement and [summary] when [contracted]. */
-    private fun serveEpic(contracted: Boolean = false, summary: String = "") {
+    /** Serves the epic, with its contract, its one requirement and [summary] when [contracted], and its [ledger]. */
+    private fun serveEpic(
+        contracted: Boolean = false,
+        summary: String = "",
+        ledger: List<EpicLedgerFinding> = emptyList(),
+    ) {
         server.respond(EPICS_LIST_PATH, EpicsListResponse.newBuilder().addEpics(liveEpic()).build())
         val detail = EpicsGetResponse.newBuilder()
             .setEpic(liveEpic())
             .addSteps(epicStep())
             .setSummary(summary)
+            .addAllLedger(ledger)
         if (contracted) {
             detail.setContract(contractProto()).addRequirements(requirement)
         }
         server.respond(EPICS_GET_PATH, detail.build())
         server.respond(EPICS_HISTORY_PATH, EpicsHistoryResponse.getDefaultInstance())
     }
+
+    /** One confirmed finding of the epic's review ledger. */
+    private fun ledgerFinding(): EpicLedgerFinding = EpicLedgerFinding.newBuilder()
+        .setId("synthetic-reviewer-1")
+        .setPosition(1L)
+        .setReviewer("synthetic-reviewer")
+        .setClaim("Synthetic ledger claim.")
+        .setResult("confirmed")
+        .setReason("Synthetic ledger reason.")
+        .build()
 
     private val requirement: EpicRequirement = EpicRequirement.newBuilder()
         .setId("R1")
@@ -390,6 +407,17 @@ class MainActivityEpicsTest {
 
         awaitNode(hasTestTag("pane-row:%1"))
         awaitNone(hasTestTag("title-back"))
+    }
+
+    @Test
+    fun anEpicWithALedgerShowsItsFindingUnderTheHandover() {
+        serveEpic(contracted = true, ledger = listOf(ledgerFinding()))
+        openEpicFromHome()
+
+        composeRule.onNode(hasScrollAction() and hasAnyDescendant(hasTestTag("epic-section:now")))
+            .performScrollToNode(hasTestTag("epic-section:handover"))
+
+        awaitNode(hasText("Synthetic ledger claim.") and hasAnyAncestor(hasTestTag("epic-section:handover")))
     }
 
     @Test

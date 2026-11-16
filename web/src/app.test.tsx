@@ -10,6 +10,8 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import {
   type Epic,
+  EpicLedgerFindingSchema,
+  EpicReviewVerdictSchema,
   EpicSchema,
   EpicSliceSchema,
   type EpicStep,
@@ -41,6 +43,7 @@ const nudgePath = "/orrery.v1.Steps/Nudge";
 const holdPath = "/orrery.v1.Steps/Hold";
 const stopStepPath = "/orrery.v1.Steps/Stop";
 const refusedNudgeText = "step is not running";
+const getEpicPath = "/orrery.v1.Epics/Get";
 const historyPath = "/orrery.v1.Epics/History";
 const pauseEpicPath = "/orrery.v1.Epics/Pause";
 const resumeEpicPath = "/orrery.v1.Epics/Resume";
@@ -2575,6 +2578,88 @@ test("an epic shows four running steps with the held one marked, then its more, 
   });
 });
 
+test("a folded epic opens from its line, and its page draws the handover its one Epics.Get answers", () => {
+  const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
+  const released = makeEpic(gadgetsRepo, "shipped", { live: false, outcome: "released" });
+  // The poll loaded the live epic's detail, so only the released epic is asked for.
+  const epics = epicsView([busy, released], new Map([[busy.id, detailOf(busy, [])]]));
+  return withApp({ rows: [], epics }, async (container, fake) => {
+    fake.replies.set(getEpicPath, [
+      {
+        epic: { id: released.id, repository: gadgetsRepo, slug: "shipped", outcome: "released" },
+        ledger: [{ id: "reviewer-one-1", reviewer: "reviewer-one", claim: "the ledger claim", result: "holds" }],
+      },
+    ]);
+    const foldedLine = () =>
+      [...sectionOf(container, "Epics").querySelectorAll<HTMLElement>(".b-more")].find(
+        (line) => line.textContent === "1 folded",
+      );
+    const handoverText = () =>
+      container.querySelector('section.page[aria-label="epic"] section.handover')?.textContent ?? "";
+    assert.ok(foldedLine(), "the Epics group folds the released epic into a line");
+    assert.equal(container.querySelector(`[data-key="${epicKey(released)}"]`), null, "the line starts closed");
+
+    await act(() => {
+      foldedLine()?.dispatchEvent(clickEvent());
+    });
+    assert.equal(
+      rowElement(container, epicKey(released)).querySelector(".label")?.textContent,
+      "shipped",
+      "opened, the line shows the released epic",
+    );
+
+    await act(() => {
+      rowElement(container, epicKey(released)).dispatchEvent(clickEvent());
+    });
+    await until(() => handoverText().includes("the ledger claim"), "the handover the answer holds");
+    assert.equal(fake.callsTo(getEpicPath).length, 1, "the epic is asked for once");
+    assert.equal(fake.callsTo(getEpicPath)[0].body.id, released.id);
+
+    await act(() => {
+      rowElement(container, epicKey(busy)).dispatchEvent(clickEvent());
+    });
+    await act(() => {
+      rowElement(container, epicKey(released)).dispatchEvent(clickEvent());
+    });
+    assert.equal(fake.callsTo(getEpicPath).length, 1, "opening the epic again asks for it no more");
+  });
+});
+
+test("the folded epics draw in list order after the rows, and keys reach them while the line is open", () => {
+  const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
+  const older = makeEpic(gadgetsRepo, "older", { live: false });
+  const newer = makeEpic(gadgetsRepo, "newer", { live: false });
+  const epics = epicsView([busy, older, newer], new Map());
+  return withApp({ rows: [], epics }, async (container) => {
+    const foldedLine = () =>
+      [...sectionOf(container, "Epics").querySelectorAll<HTMLElement>(".b-more")].find(
+        (line) => line.textContent === "2 folded",
+      );
+    assert.deepEqual(rowKeys(container), [epicKey(busy), "step:s1"], "closed, the folded epics are not drawn");
+
+    await act(() => {
+      foldedLine()?.dispatchEvent(clickEvent());
+    });
+    assert.deepEqual(
+      rowKeys(container),
+      [epicKey(busy), "step:s1", epicKey(older), epicKey(newer)],
+      "opened, the folded epics draw in list order",
+    );
+    assert.equal(cursorKey(container), epicKey(busy));
+    await pressEach(["j", "j"]);
+    assert.equal(cursorKey(container), epicKey(older), "the cursor reaches the first folded epic by keys");
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(newer), "the cursor reaches the last folded epic by keys");
+  });
+});
+
+test("an epic the poll loaded draws its page from the poll, and Epics.Get is not asked", () =>
+  withApp({ epics: pageEpic() }, async (container, fake) => {
+    await press("j");
+    assert.equal(epicPageDrawn(container), true, "the page draws from the poll's detail");
+    assert.equal(fake.callsTo(getEpicPath).length, 0, "no Epics.Get is asked for an epic the poll loaded");
+  }));
+
 test("an epic with no outcome reads its count alone, and tasks unavailable alone", () => {
   const known = makeEpic(widgetsRepo, "first");
   const unknown = makeEpic(gadgetsRepo, "second");
@@ -2759,7 +2844,11 @@ test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothin
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
     await pressEach(["x", "Enter", "e", "i", "1", "2", "3", "|"]);
     await settle();
-    assert.equal(fake.calls.length, before, "no call reaches the server");
+    assert.deepEqual(
+      fake.calls.slice(before).map((call) => call.path),
+      [getEpicPath],
+      "the only call is the Epics.Get the page asks for, and no key reaches the server",
+    );
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), false, "| pinned nothing");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
   });
@@ -2902,6 +2991,44 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     assert.equal(pageSlug(container), "first", "the page names the epic");
   }));
 
+test("an epic page shows the handover of its verdicts and ledger findings, with their texts", () =>
+  withApp(
+    {
+      epics: pageEpic({
+        reviews: [
+          create(EpicReviewVerdictSchema, { reviewer: "reviewer-one", verdict: "holds", reason: "the verdict reason" }),
+        ],
+        ledger: [
+          create(EpicLedgerFindingSchema, {
+            id: "reviewer-one-1",
+            reviewer: "reviewer-one",
+            claim: "the ledger claim",
+            result: "holds",
+          }),
+        ],
+      }),
+    },
+    async (container) => {
+      await press("j");
+      const handover = container.querySelector('section.page[aria-label="epic"] section.handover');
+      assert.ok(handover, "the epic page shows the handover section");
+      const text = handover.textContent ?? "";
+      assert.equal(text.includes("the verdict reason"), true, "the handover shows the verdict's reason");
+      assert.equal(text.includes("the ledger claim"), true, "the handover shows the ledger's claim");
+    },
+  ));
+
+test("an epic page with no reviews, ledger findings or releases shows no handover section", () =>
+  withApp({ epics: pageEpic() }, async (container) => {
+    await press("j");
+    assert.equal(epicPageDrawn(container), true, "the page draws the epic page");
+    assert.equal(
+      container.querySelector('section.page[aria-label="epic"] section.handover') === null,
+      true,
+      "no handover section is drawn",
+    );
+  }));
+
 test("a step entry shows its reader alone, and no epic page", () =>
   withApp({ epics: pageEpic() }, async (container) => {
     await press("j");
@@ -2952,7 +3079,8 @@ test("a session row hides the epic page", () =>
   }));
 
 test("an epic with no detail shows epic unavailable in its page, and a step of it shows no page", () =>
-  withApp({ epics: oneEpic() }, async (container) => {
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    fake.failNext.add(getEpicPath);
     await press("j");
     assert.equal(epicPageShown(container), true);
     assert.equal(epicPageDrawn(container), false, "no epic page is drawn without detail");

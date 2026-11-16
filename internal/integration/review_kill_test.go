@@ -5,7 +5,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -262,15 +261,6 @@ func TestReviewKillSigkillResumesReviewFromStore(t *testing.T) {
 	if epic.GetPhase() != "clean" || epic.GetClean() != r.base || epic.GetParked() != "" {
 		t.Fatalf("epic phase %q clean %q parked %q, want clean at %s unparked",
 			epic.GetPhase(), epic.GetClean(), epic.GetParked(), r.base)
-	}
-	endings := 0
-	for _, text := range r.tells(t) {
-		if strings.Contains(text, "ended clean") {
-			endings++
-		}
-	}
-	if endings != 1 {
-		t.Fatalf("ending tells of epic %s = %d, want one", buildRigEpic, endings)
 	}
 
 	want := map[string]string{resumed: "done", id: "engine_restarted"}

@@ -2,6 +2,7 @@ package interpret
 
 import (
 	"bytes"
+	"database/sql"
 	"log/slog"
 	"path/filepath"
 	"reflect"
@@ -73,8 +74,9 @@ func newReleaseWorldIn(t *testing.T, ending Ending, repo string) *releaseWorld {
 	}
 }
 
-// createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps. The epics of a
-// world are all in its repository, so they share its release slot.
+// createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps, and a frozen
+// review at its base, as an epic that ended clean has. The epics of a world are all in its repository, so they share
+// its release slot.
 func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseStep) {
 	w.t.Helper()
 	pinned, err := workflow.Load("release", func(string) ([]byte, bool, error) {
@@ -92,6 +94,41 @@ func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseSt
 		},
 	}); err != nil {
 		w.t.Fatalf("CreateEpic %s: %v", id, err)
+	}
+	freezeReviewRow(w.t, w.path, id, runBase)
+}
+
+// freezeReviewRow stores the review of epic id as frozen at revision, the row a review leaves on an epic that ended
+// clean. It writes the row directly: a review run's freeze also sets the epic's phase to reviewing, which the release
+// tests' epics are not in.
+func freezeReviewRow(t *testing.T, path, id, revision string) {
+	t.Helper()
+	execStoreFile(t, path, "INSERT INTO epic_reviews (epic, frozen) VALUES (?, ?)", id, revision)
+}
+
+// seedVerdict stores verdict as a verdict of the review of epic id, the row a review's end leaves for each reviewer. It
+// writes the row directly, as freezeReviewRow does.
+func seedVerdict(t *testing.T, path, id string, verdict store.ReviewVerdict) {
+	t.Helper()
+	execStoreFile(t, path,
+		"INSERT INTO epic_review_verdicts (epic, position, reviewer, step, verdict, reason) VALUES (?, ?, ?, ?, ?, ?)",
+		id, verdict.Position, verdict.Reviewer, verdict.Step, verdict.Verdict, verdict.Reason)
+}
+
+// execStoreFile runs query with args against the store file at path.
+func execStoreFile(t *testing.T, path, query string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open store file: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store file: %v", err)
+		}
+	}()
+	if _, err = db.ExecContext(t.Context(), query, args...); err != nil {
+		t.Fatalf("write store file: %v", err)
 	}
 }
 
@@ -119,9 +156,9 @@ func (w *releaseWorld) endGate(exit int) {
 	nodeEndCheck(w.t, w.s, workID(w.t, w.s, releaseNodePath, "done 1"), exit, "")
 }
 
-// TestReleaseCleanEpicWithoutStepsEndsDone: a clean epic with no release steps ends done through its Ending, with a
-// body that names the epic. The recording Ending leaves the phase where it was, so the pass may ask for the same ending
-// again, and every call is that ending.
+// TestReleaseCleanEpicWithoutStepsEndsDone: a clean epic with no release steps ends done through its Ending, with the
+// body its kind gives, which names no gap for its clean review. The recording Ending leaves the phase where it was, so
+// the pass may ask for the same ending again, and every call is that ending.
 func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	t.Parallel()
 	ending := &recordingEnding{}
@@ -129,7 +166,7 @@ func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	w.createEpic(runEpic, store.PhaseClean)
 	w.pass()
 
-	want := endedEpic{epic: runEpic, phase: "done", body: "Epic " + runEpic + " ended done.", at: runClock()}
+	want := endedEpic{epic: runEpic, phase: "done", body: kinds.EndingBody("done", nil), at: runClock()}
 	if len(ending.calls) == 0 {
 		t.Fatalf("EndEpic calls = none, want %+v", want)
 	}
@@ -313,5 +350,48 @@ func TestReleaseNilEndingReportsNoEndingConfigured(t *testing.T) {
 	}
 	if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseClean {
 		t.Errorf("epic phase = %q, want clean after the refused ending", phase)
+	}
+}
+
+// TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps: an epic that ended with gaps and has no release steps is not
+// released by a pass on its own. Once the owner releases it, the next pass ends it done with the body that names its
+// gap, and the review's verdicts, the gap among them, are still in its flow. The recording Ending leaves the phase
+// where it was, so the pass may ask for the same ending again, and every call is that ending.
+func TestReleaseEndedWithGapsReleasesOnOwnersWordAndNamesGaps(t *testing.T) {
+	t.Parallel()
+	ending := &recordingEnding{}
+	w := newReleaseWorldIn(t, ending, filepath.Join(t.TempDir(), "no-repository"))
+	w.createEpic(runEpic, "ended_with_gaps")
+	gap := store.ReviewVerdict{
+		Position: 1, Reviewer: "security", Step: "review security 1", Verdict: "gap", Reason: "the tag is not signed",
+	}
+	seedVerdict(t, w.path, runEpic, gap)
+
+	w.pass()
+	if len(ending.calls) != 0 {
+		t.Fatalf("EndEpic calls = %+v before the owner releases, want none", ending.calls)
+	}
+
+	if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, runClock()); err != nil {
+		t.Fatalf("ReleaseEpic: %v", err)
+	}
+	w.pass()
+
+	want := endedEpic{
+		epic: runEpic, phase: "done",
+		body: kinds.EndingBody("done", []string{"reviewer security: the tag is not signed"}), at: runClock(),
+	}
+	if len(ending.calls) == 0 {
+		t.Fatalf("EndEpic calls = none, want %+v", want)
+	}
+	for _, call := range ending.calls {
+		if !reflect.DeepEqual(call, want) {
+			t.Errorf("EndEpic call = %+v, want %+v", call, want)
+		}
+	}
+
+	flow := w.flowOf(runEpic)
+	if !reflect.DeepEqual(flow.Review.Verdicts, []store.ReviewVerdict{gap}) {
+		t.Errorf("review verdicts = %+v, want the gap %+v", flow.Review.Verdicts, gap)
 	}
 }

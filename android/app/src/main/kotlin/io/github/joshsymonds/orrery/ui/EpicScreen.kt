@@ -69,7 +69,7 @@ fun EpicScreen(
     listState: LazyListState = rememberLazyListState(),
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    handover: (@Composable () -> Unit)? = null,
+    handover: (@Composable (EpicDetail) -> Unit)? = null,
     now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
@@ -217,7 +217,7 @@ private fun EpicBody(
     onAnswer: (questionId: String, text: String) -> String,
     onRetry: () -> Unit,
     onStop: () -> Unit,
-    handover: (@Composable () -> Unit)?,
+    handover: (@Composable (EpicDetail) -> Unit)?,
     modifier: Modifier,
 ) {
     val detail = loaded.detail
@@ -294,7 +294,7 @@ private fun EpicBody(
             )
         }
         if (handover != null) {
-            section("handover") { handover() }
+            section("handover") { handover(detail) }
         }
         section("release") {
             ReleaseProof(contract = contract, released = detail.epic.outcome == RELEASED)

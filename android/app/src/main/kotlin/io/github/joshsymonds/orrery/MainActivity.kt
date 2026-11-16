@@ -47,6 +47,7 @@ import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
 import io.github.joshsymonds.orrery.ui.Crumb
+import io.github.joshsymonds.orrery.ui.EpicHandover
 import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
@@ -141,6 +142,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
+                                            handover = { detail -> EpicHandover(detail.handover) },
                                         )
                                     }
                                     is Screen.Contract -> {

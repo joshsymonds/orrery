@@ -18,9 +18,10 @@ import {
   withEpicsGroup,
 } from "./epics";
 import { type Followed, follow } from "./follow";
-import type { EpicHistoryEntry } from "./gen/orrery/v1/epics_pb";
+import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
+import { Handover } from "./handover";
 import { Mark } from "./mark";
 import { MetersButton, MetersPanel } from "./meters";
 import { NoticeBanner } from "./notices";
@@ -178,6 +179,12 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // Whether the accepted, waiting epics are open under their line. They start closed.
   const [waitingOpen, setWaitingOpen] = useState(false);
+  // Whether the folded epics are open under their line. They start closed.
+  const [foldedOpen, setFoldedOpen] = useState(false);
+  // The detail each epic the poll did not load answers with when its page opens. An epic is asked for once, so the
+  // answers are kept here and the asked ids in a ref.
+  const [askedDetails, setAskedDetails] = useState<Map<string, EpicsGetResponse>>(() => new Map());
+  const askedEpics = useRef(new Set<string>());
   // The fixed line an epic page's command leaves when it fails. A command that lands clears it.
   const [commandError, setCommandError] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
@@ -217,7 +224,7 @@ export function App({
     view === "attention"
       ? withEpicsGroup(byAttention(matching), epics)
       : placeEpics(byProject(matching), epics.blocks);
-  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen));
+  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, foldedOpen));
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -234,7 +241,8 @@ export function App({
   // alone.
   const epicEntry = cursorItem?.kind === "epic" ? cursorItem : null;
   const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
-  const epicDetail = epicEntry === null ? undefined : epics.details.get(epicEntry.id);
+  const epicDetail =
+    epicEntry === null ? undefined : (epics.details.get(epicEntry.id) ?? askedDetails.get(epicEntry.id));
   // The history is read for the epic entry the cursor rests on, once its detail is held. It is read again when the
   // epic's last write moves.
   const historyId = epicEntry !== null && epicDetail !== undefined ? epicEntry.id : "";
@@ -243,6 +251,10 @@ export function App({
   // The dock shows only on the epic it opened on.
   const docked = talkDock !== null && epicEntry !== null && talkDock.epic === epicEntry.id ? talkDock : null;
   const epicId = epicEntry?.id ?? "";
+  // The epic entry the cursor rests on, when the poll did not load its detail, is asked for once with Epics.Get. A
+  // failed answer leaves the page at its unavailable line.
+  const askedId = epicEntry?.id ?? "";
+  const polledDetail = askedId !== "" && epics.details.has(askedId);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
   useEffect(() => {
@@ -326,6 +338,18 @@ export function App({
       current = false;
     };
   }, [historyId, epicChanged, clients]);
+
+  // An epic the poll did not load is asked for once, when the cursor rests on it, and its answer draws the page.
+  useEffect(() => {
+    if (askedId === "" || polledDetail || askedEpics.current.has(askedId)) {
+      return;
+    }
+    askedEpics.current.add(askedId);
+    void clients.epics.get({ id: askedId }).then(
+      (answer) => setAskedDetails((previous) => new Map(previous).set(askedId, answer)),
+      () => undefined,
+    );
+  }, [askedId, polledDetail, clients]);
 
   // A move of the cursor opens the epic page afresh, so a page a back closed or a contract opened does not outlast it.
   useLayoutEffect(() => {
@@ -743,7 +767,21 @@ export function App({
                     </div>
                   </div>
                 ))}
-                {section.folded > 0 && <div class="b-more">{`${section.folded} folded`}</div>}
+                {section.folded.length > 0 && (
+                  <div class="b-more" onClick={() => setFoldedOpen((value) => !value)}>
+                    {`${section.folded.length} folded`}
+                  </div>
+                )}
+                {foldedOpen &&
+                  section.folded.map((epic) => (
+                    <EpicEntry
+                      key={epic.key}
+                      epic={epic}
+                      full={false}
+                      current={epic.key === cursorKey}
+                      onSelect={selectItem}
+                    />
+                  ))}
               </div>
             ))}
           </div>
@@ -898,6 +936,7 @@ export function App({
                 commands={epicCommands(clients, epicEntry.id, setCommandError)}
                 onOpenContract={openContract}
                 onBack={closeEpicPage}
+                handover={Handover({ detail: epicDetail })}
                 actions={
                   <Talk
                     key={epicEntry.id}
@@ -1112,12 +1151,13 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
 }
 
 // entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the waiting epics
-// while their line is open, then the rows.
-function entriesOf(section: EpicSection, waitingOpen: boolean): Item[] {
+// while their line is open, then the rows, then the folded epics while their line is open.
+function entriesOf(section: EpicSection, waitingOpen: boolean, foldedOpen: boolean): Item[] {
   return [
     ...section.epics.flatMap((block) => [block.epic, ...block.steps]),
     ...(waitingOpen ? section.waiting : []),
     ...section.rows,
+    ...(foldedOpen ? section.folded : []),
   ];
 }
 

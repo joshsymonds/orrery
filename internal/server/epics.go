@@ -106,10 +106,11 @@ func (e epicsServer) List(
 
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
-// the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its open
-// questions, its contract with its acceptance time, its summary, whether it is paused and why it is parked, its
-// repository, its sessions newest call first, and the tasks of its record when one exists. An id that neither the
-// database nor the record root lists answers not_found, and the id is never joined into a path.
+// the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its ledger
+// findings with their closures, its review verdicts in ledger order, its release runs in the order the stored epic
+// lists them, its open questions, its contract with its acceptance time, its summary, whether it is paused and why it
+// is parked, its repository, its sessions newest call first, and the tasks of its record when one exists. An id that
+// neither the database nor the record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -165,6 +166,9 @@ func (e epicsServer) Get(
 		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
+		resp.Ledger = epicLedgerFindingMessages(stored.GetLedger().GetFindings())
+		resp.Reviews = epicReviewVerdictMessages(stored.GetLedger().GetVerdicts())
+		resp.Releases = epicReleaseRunMessages(stored.GetReleases())
 		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns())
 		resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
 		resp.Summary = stored.GetSummary()
@@ -336,8 +340,9 @@ func epicMessage(
 }
 
 // storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its changed time is
-// the database's, and it is live unless the phase is released. Its problem joins problems, which are the record's when a
-// record of the id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
+// the database's, and it is live unless the phase is released or done, which end an epic; ended_with_gaps and stopped
+// stay live. Its problem joins problems, which are the record's when a record of the id exists and none otherwise. Its
+// steps are the labeled steps, as epicMessage's are.
 func storedEpicMessage(id, phase string, changed int64, problems []string, labeled []*enginev1.Step) *orreryv1.Epic {
 	running, ended := epicSteps(labeled)
 	repository, slug, _ := strings.Cut(id, "/")
@@ -347,7 +352,7 @@ func storedEpicMessage(id, phase string, changed int64, problems []string, label
 		Slug:         slug,
 		Outcome:      phase,
 		Changed:      changed,
-		Live:         phase != "released",
+		Live:         phase != "released" && phase != "done",
 		RunningSteps: running,
 		EndedSteps:   ended,
 		Problem:      strings.Join(problems, "; "),
