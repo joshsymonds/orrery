@@ -563,7 +563,8 @@ func planOf(ret Return) store.EpicPlan {
 	for _, task := range ret.Tasks {
 		tasks = append(tasks, store.EpicTaskInput{
 			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
-			Requirements: task.Requirements, Contributes: task.Contributes, Gate: task.Gate, Evidence: task.Evidence,
+			Requirements: task.Requirements, Contributes: task.Contributes, TestChanges: task.TestChanges,
+			Gate: task.Gate, Evidence: task.Evidence,
 		})
 	}
 	return store.EpicPlan{
