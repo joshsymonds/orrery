@@ -17,6 +17,7 @@ const queueLen = 64
 type Notice struct {
 	Key                notice.Key
 	State, Title, Body string
+	Block, BlockRef    string
 }
 
 // Change is one change to the notices showing: a notice now showing, or the end of one. An ended change carries only
@@ -45,7 +46,7 @@ func NewHub() *Hub {
 func (h *Hub) Show(key notice.Key, n deskstream.Notice) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	shown := Notice{Key: key, State: n.State, Title: n.Title, Body: n.Body}
+	shown := Notice{Key: key, State: n.State, Title: n.Title, Body: n.Body, Block: n.Block, BlockRef: n.BlockRef}
 	if _, ok := h.notices[key]; !ok {
 		h.order = append(h.order, key)
 	}

@@ -88,6 +88,32 @@ func TestShowReplacesTheNoticeUnderItsKey(t *testing.T) {
 	}
 }
 
+func TestShowCarriesTheBlock(t *testing.T) {
+	t.Parallel()
+	hub := NewHub()
+	_, changes, stop := hub.Watch()
+	t.Cleanup(stop)
+
+	blocked := deskstream.Notice{State: "waiting", Title: "blocked", Body: "body", Block: "release_step", BlockRef: "2"}
+	hub.Show(paneKey("a"), blocked)
+	hub.Show(paneKey("b"), deskNotice("plain"))
+
+	carried := Notice{
+		Key: paneKey("a"), State: "waiting", Title: "blocked", Body: "body", Block: "release_step", BlockRef: "2",
+	}
+	expectChanges(t, changes,
+		Change{Notice: carried},
+		Change{Notice: shownNotice(paneKey("b"), "plain")},
+	)
+
+	shown, _, stopAgain := hub.Watch()
+	t.Cleanup(stopAgain)
+	want := []Notice{carried, shownNotice(paneKey("b"), "plain")}
+	if !slices.Equal(shown, want) {
+		t.Fatalf("snapshot = %+v, want %+v", shown, want)
+	}
+}
+
 func TestEndOfShownAndUnshownKeys(t *testing.T) {
 	t.Parallel()
 	hub := NewHub()

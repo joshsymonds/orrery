@@ -32,10 +32,12 @@ const (
 	socketName = "notices.sock"
 )
 
-// Notice is one notice to show on the desk. A quiet notice shows without a sound.
+// Notice is one notice to show on the desk. A quiet notice shows without a sound. Block names what the notice opens on:
+// question, release_step, contract or report. BlockRef names that block: a question id Q<n>, or a release step position.
 type Notice struct {
 	State, Title, Body string
 	Quiet              bool
+	Block, BlockRef    string
 }
 
 // Line is one line of the stream. State, Title, Body and Quiet are omitted when empty or false.
