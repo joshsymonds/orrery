@@ -271,21 +271,21 @@ func TestStoreMirrorsHooksIntoRowsAndEvents(t *testing.T) {
 	daemon.waitForStoreOpen(t)
 
 	f.hook(t, f.userPromptHook())
-	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWorking))
-	waitForOption(t, f.client, f.pane, protocol.OptionSummary, exampleSummary)
+	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWorking))
+	waitForOption(t, daemon, f.client, f.pane, protocol.OptionSummary, exampleSummary)
 	db := openStoreForInspection(t, f.dbPath)
 
 	// The summary is written by the summarizer, not a hook, so the row is checked after the next hook syncs the pane.
 	f.hook(t, f.permissionHook())
-	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
+	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
 	f.waitForRow(t, db, f.pane)
 
 	f.hook(t, f.stopHook())
-	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
 	f.waitForRow(t, db, f.pane)
 
 	f.hook(t, f.sessionEndHook())
-	waitForOption(t, f.client, f.pane, protocol.OptionState, "")
+	requireOption(t, f.client, f.pane, protocol.OptionState, "")
 	f.waitForRow(t, db, f.pane)
 
 	wantExit(t, daemon.stop(t), 0)

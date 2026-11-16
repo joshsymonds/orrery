@@ -83,7 +83,7 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 		// The frame goes straight to orreryd's socket: the subject is the pane syncs under the sessions' load, not
 		// the hook command, so no orrery process is spawned per pulse.
 		paceStreams(t, dirs, i+2)
-		sendHookFrame(t, f.socket, pane, pulseDir, hook)
+		sendHook(t, f.socket, pane, pulseDir, hook)
 		rowID = waitForPaneState(t, q, client, pane, rowID, state)
 		want = append(want, string(state))
 	}

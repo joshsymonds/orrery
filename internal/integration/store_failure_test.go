@@ -30,7 +30,7 @@ const corruptStoreBytes = "this is not a sqlite database, it is plain text kept 
 func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 	t.Helper()
 	f.hook(t, f.permissionHook())
-	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
+	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
 	waiting := noticeOf(t, f.notices.receive(t))
 	question := readOption(t, f.client, f.pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
@@ -39,7 +39,7 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 	}
 
 	f.hook(t, f.stopHook())
-	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
+	requireOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateDone))
 }
 
 // prepareStore creates a migrated store at path and closes it.
