@@ -1,10 +1,14 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,14 +20,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+
+/** Back's width: a touch target for its one glyph, not a button's 58 dp minimum. */
+private val BACK_WIDTH = 48.dp
+
+/** A tappable crumb's padding: a button's height, with little beside the text so the crumbs keep the row's width. */
+private val CRUMB_PADDING = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
 
 /** One crumb of a title row: its [label], and the [onGo] that tapping it calls. */
 data class Crumb(val label: String, val onGo: (() -> Unit)? = null)
 
 /**
- * The title row every epic page shares: back, the crumbs, the state, the blocker, then [actions]. Back and every crumb
- * but the last are tappable; the last crumb is the page itself. The state and the blocker show only when given.
+ * The title row every epic page shares, sized for a phone. Back leads the first line, and the crumbs follow it, each
+ * on one line with the separator before it. A crumb that does not fit beside the ones before it starts the next line
+ * whole, and only a crumb wider than the row on its own ends in an ellipsis. Under them, the state, the blocker, then
+ * [actions] wrap onto as many lines as they need. Back and every crumb but the last are tappable; the last crumb is
+ * the page itself. The state and the blocker show only when given.
+ *
+ * One row for all of it measured the state and the actions at their full width first and left the crumbs about one
+ * character on a phone, so a slug stood one letter to a line.
  */
 @Composable
 fun TitleRow(
@@ -34,38 +51,53 @@ fun TitleRow(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val last = crumbs.lastIndex
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        TextButton(onClick = onBack, modifier = Modifier.testTag("title-back")) {
-            Text("‹")
-        }
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            crumbs.forEachIndexed { index, crumb ->
-                if (index > 0) {
-                    Text("›", modifier = Modifier.padding(horizontal = 4.dp))
-                }
-                if (index == last) {
-                    Text(crumb.label, modifier = Modifier.testTag("crumb:$index"))
-                } else {
-                    TextButton(onClick = { crumb.onGo?.invoke() }, modifier = Modifier.testTag("crumb:$index")) {
-                        Text(crumb.label)
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(
+                onClick = onBack,
+                contentPadding = CRUMB_PADDING,
+                modifier = Modifier.width(BACK_WIDTH).testTag("title-back"),
+            ) {
+                Text("‹")
+            }
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                crumbs.forEachIndexed { index, crumb ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (index > 0) {
+                            Text("›", modifier = Modifier.padding(end = 4.dp))
+                        }
+                        // The separator keeps its width; a crumb wider than the row gives way and ends in an ellipsis.
+                        val room = Modifier.weight(1f, fill = false).testTag("crumb:$index")
+                        if (index == last) {
+                            Text(crumb.label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = room)
+                        } else {
+                            TextButton(
+                                onClick = { crumb.onGo?.invoke() },
+                                contentPadding = CRUMB_PADDING,
+                                modifier = room,
+                            ) {
+                                Text(crumb.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                 }
             }
         }
-        if (state.isNotEmpty()) {
-            Text(state, modifier = Modifier.testTag("title-state"))
-        }
-        if (blocker.isNotEmpty()) {
-            Text(blocker, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("title-blocker"))
-        }
-        Row(
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
+            if (state.isNotEmpty()) {
+                Text(state, modifier = Modifier.testTag("title-state"))
+            }
+            if (blocker.isNotEmpty()) {
+                Text(blocker, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("title-blocker"))
+            }
             actions()
         }
     }
