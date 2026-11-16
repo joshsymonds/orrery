@@ -185,6 +185,12 @@ test("the head sets the label at 17px bold and the where line at 12px in overlay
   assert.match(declarationsFor(css, ".head .where"), /color:\s*var\(--overlay1\);/);
 });
 
+test("a row's conversation title row takes the head's padding from 760px, and the mono family", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  assert.match(declarationsFor(wide, ".read > .title-row"), /padding:\s*12px 28px 11px;/);
+  assert.match(declarationsFor(css, ".read > .title-row"), /font-family:\s*var\(--mono\);/);
+});
+
 test("the pill is a tone's 10% tint with a 30% ring, the glyph is 11px, and each tone sets its colour", () => {
   const pill = declarationsFor(css, ".pill");
   assert.match(pill, /border-radius:\s*99px;/);

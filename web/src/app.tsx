@@ -33,7 +33,7 @@ import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
@@ -653,6 +653,17 @@ export function App({
     }
   };
 
+  // closePin closes the pinned reader, as | does on a pin.
+  const closePin = () => {
+    setPinned(null);
+    setPinStream(null);
+  };
+
+  // focusCursorRow moves focus to the list's current row, the row the cursor rests on.
+  const focusCursorRow = () => {
+    document.querySelector<HTMLElement>(".b-row.cur")?.focus();
+  };
+
   const handleKey = (event: KeyboardEvent) => {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
@@ -757,8 +768,7 @@ export function App({
           break;
         }
         if (pinned !== null) {
-          setPinned(null);
-          setPinStream(null);
+          closePin();
         } else if (cursorRow !== null) {
           setPinned(cursorRow);
           setPinStream(null);
@@ -1000,6 +1010,7 @@ export function App({
                   <div
                     key={item.key}
                     class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
+                    tabIndex={-1}
                     data-row=""
                     data-key={item.key}
                     data-unseen={item.unseen ? "" : undefined}
@@ -1087,9 +1098,14 @@ export function App({
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
-            <ReaderHead label={cursorRow.label} where={rowWhere(cursorRow)}>
+            <ConversationHead
+              label={cursorRow.label}
+              state={headState(cursorRow, cursorConversation?.state?.pane)}
+              onBack={focusCursorRow}
+              onGoList={focusCursorRow}
+            >
               <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
-            </ReaderHead>
+            </ConversationHead>
           )}
           {cursorStep !== null && (
             <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
@@ -1160,9 +1176,14 @@ export function App({
         </section>
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && (
-            <ReaderHead label={pinned.label} where={rowWhere(pinned)}>
+            <ConversationHead
+              label={pinned.label}
+              state={headState(pinned, pinnedConversation?.state?.pane)}
+              onBack={closePin}
+              onGoList={focusCursorRow}
+            >
               <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
-            </ReaderHead>
+            </ConversationHead>
           )}
           {pinned !== null && (
             <Reader
@@ -1523,11 +1544,6 @@ function sectionClass(title: string): string {
     return "b-sec fresh";
   }
   return "b-sec";
-}
-
-// rowWhere is a row's where line: its project's last path element and its host, joined, with an empty part left out.
-function rowWhere(row: Row): string {
-  return [lastPathElement(row.project), row.host].filter((part) => part !== "").join(" · ");
 }
 
 // stepWhere is a step's where line: its epic, its agent, and its round.

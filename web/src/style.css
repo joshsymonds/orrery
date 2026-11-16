@@ -134,7 +134,7 @@ button, input, textarea, select { font-family: var(--mono); }
   .read { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
   .read.pinned { border-left: 1px solid var(--rule); }
   .read > .reader { min-height: 0; overflow-y: auto; padding: 18px 28px 10px; }
-  .head { padding: 12px 28px 11px; }
+  .head, .read > .title-row { padding: 12px 28px 11px; }
   .send { min-width: 0; padding: 0 28px 14px; }
   section.page { overflow-y: auto; padding: 18px 28px 10px; border-left: 1px solid var(--rule); }
   /* A docked conversation takes a track beside the epic page, and the dock scrolls on its own. Narrower than this frame,
@@ -318,6 +318,9 @@ button, input, textarea, select { font-family: var(--mono); }
 .head { display: flex; align-items: center; gap: 14px; min-width: 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .head h1 { margin: 0; font: 700 17px/24px var(--mono); }
 .head .where { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 12px/24px var(--mono); color: var(--overlay1); }
+/* A row's conversation opens on the shared title row in the head's place: its back, crumbs and state are mono throughout,
+   and its padding comes from the wide block with the head's. */
+.read > .title-row { font-family: var(--mono); }
 /* The pill names the reader's state. Its tone sets the text, the 10% tint and the 30% ring; idle is overlay1 on surface0. */
 .pill {
   display: inline-flex; flex: none; align-items: center; gap: 7px; padding: 1px 10px 1px 8px; border-radius: 99px;

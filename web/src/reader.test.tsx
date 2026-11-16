@@ -17,7 +17,7 @@ import {
 import type { Conversation } from "./conversation";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
@@ -1314,6 +1314,22 @@ function headOf(container: HTMLElement): HTMLElement {
   return head;
 }
 
+// withConversationHead renders a row's conversation head the way withHead renders a head, and removes it the same way.
+async function withConversationHead(
+  props: Parameters<typeof ConversationHead>[0],
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    render(<ConversationHead {...props} />, container);
+    await check(container);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
 test("a pane's head names its label as the heading and its where line as a span after it", () =>
   withHead({ label: "Synthetic pane", where: "synthetic-project · synthetic-host" }, (container) => {
     const head = headOf(container);
@@ -1352,6 +1368,38 @@ test("a child passed to the head draws after the where line as the head's last c
       assert.equal(head.lastElementChild?.previousElementSibling?.getAttribute("class"), "where");
     },
   ));
+
+test("a session's conversation head draws the title row: a back button, the crumbs orrery then the session's label, and its state, and back calls its handler", () => {
+  let backs = 0;
+  return withConversationHead(
+    {
+      label: "Synthetic session",
+      state: "waiting",
+      onBack: () => {
+        backs += 1;
+      },
+      onGoList: () => {},
+      children: <span class="pill">synthetic pill</span>,
+    },
+    async (container) => {
+      const row = container.querySelector<HTMLElement>("header.title-row");
+      assert.ok(row !== null, "the title row is drawn");
+      const back = row.querySelector<HTMLButtonElement>("button.back");
+      assert.equal(back?.getAttribute("aria-label"), "back");
+      const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
+      assert.deepEqual(
+        crumbs.map((crumb) => crumb.textContent),
+        ["orrery", "Synthetic session"],
+        "the crumbs read orrery, then the session's label",
+      );
+      assert.equal(crumbs[1]?.getAttribute("aria-current"), "page", "the label is the page itself");
+      assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
+      assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
+      back?.click();
+      assert.equal(backs, 1, "back calls its handler once");
+    },
+  );
+});
 
 test("a label or where holding markup draws as text with no element", () =>
   withHead(

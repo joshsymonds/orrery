@@ -420,14 +420,20 @@ function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
 
-// readerHead is the head the cursor's reader opens with, or null when that reader draws none.
+// readerHead is the head the cursor's reader opens with: the title row of a row's conversation, or a step's head. It is
+// null when that reader draws neither.
 function readerHead(container: HTMLElement): Element | null {
-  return container.querySelector('section[aria-label="reader"] > .head');
+  return container.querySelector('section[aria-label="reader"] > .head, section[aria-label="reader"] > .title-row');
 }
 
-// pinnedHead is the head the pinned reader opens with, or null when no row is pinned.
+// pinnedHead is the title row the pinned reader opens with, or null when no row is pinned.
 function pinnedHead(container: HTMLElement): Element | null {
-  return container.querySelector('section[aria-label="pinned reader"] > .head');
+  return container.querySelector('section[aria-label="pinned reader"] > .title-row');
+}
+
+// crumbTexts are the crumbs of a title row, in order: the orrery, then the page's label.
+function crumbTexts(head: Element | null): string[] {
+  return Array.from(head?.querySelectorAll(".crumbs .crumb") ?? [], (crumb) => crumb.textContent ?? "");
 }
 
 // readerNote is the working note under the cursor's reader, or null when that column draws none.
@@ -1184,19 +1190,23 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
     await until(t.signal, () => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("the cursor's reader opens on its head: the label, the project and host, and the state's pill", (t) =>
+test("the cursor's reader opens on the title row: a back button, the crumbs orrery and the label, the state, and its pill", (t) =>
   withApp(t.signal, { rows: [paneRow] }, (container) => {
     assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
-    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "api");
-    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "app · box");
+    assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
+    assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
+    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "api"]);
+    assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "waiting");
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "waiting");
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a session's head has no where line and a pill of its state, with no tool or clock", (t) =>
+test("a session's conversation draws the title row: a back button, the crumbs orrery and the session's label, its state, and a pill of its state with no tool or clock", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, (container) => {
-    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "notes");
-    assert.equal(readerHead(container)?.querySelector(".where") === null, true);
+    assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
+    assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
+    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "notes"]);
+    assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "working");
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
@@ -1319,11 +1329,11 @@ test("a click on the send button sends the cursor's text once with Panes.SendTex
     await until(t.signal, () => box.value === "", "the sent draft cleared");
   }));
 
-test("the cursor's reader is its head, its conversation and its foot, and nothing else", (t) =>
+test("the cursor's reader is its title row, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
-      "header.head",
+      "header.title-row",
       "div.reader",
       "div.send",
     ]);
@@ -1389,13 +1399,13 @@ test("a pane row's reader draws its prompts as YOU, whatever their sender and ro
     assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
   }));
 
-test("the pinned reader is its head, its conversation and its foot, and nothing else", (t) =>
+test("the pinned reader is its title row, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
-      "header.head",
+      "header.title-row",
       "div.reader",
       "div.send",
     ]);
@@ -2040,18 +2050,42 @@ function pinnedNote(container: HTMLElement): Element | null {
   return pinnedColumn(container)?.querySelector(".work-note") ?? null;
 }
 
-test("the pinned head names the pinned row while the cursor rests on another, and no .pin-head is drawn", (t) =>
+test("the pinned title row names the pinned row while the cursor rests on another, and no .pin-head is drawn", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.equal(pinnedHead(container)?.querySelector("h1")?.textContent, "api");
-    assert.equal(pinnedHead(container)?.querySelector(".where")?.textContent, "api · box");
-    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "docs");
-    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "docs · laptop");
+    assert.deepEqual(crumbTexts(pinnedHead(container)), ["orrery", "api"]);
+    assert.equal(pinnedHead(container)?.querySelector(".state")?.textContent, "waiting");
+    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "docs"]);
+    assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "done");
     assert.equal(container.querySelector(".pin-head") === null, true);
+  }));
+
+test("‹ and the orrery crumb on the cursor's title row move focus to the list's current row", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    const current = () => container.querySelector(".b-row.cur");
+    assert.ok(current() !== null, "the list has a current row");
+    await press("i");
+    assert.equal(document.activeElement === composer(container), true, "the reply box has focus");
+    await clickButton(container, 'section[aria-label="reader"] .title-row', "‹");
+    assert.equal(document.activeElement, current(), "‹ moves focus to the current row");
+    await press("i");
+    assert.equal(document.activeElement === composer(container), true, "the reply box has focus again");
+    await clickButton(container, 'section[aria-label="reader"] .title-row', "orrery");
+    assert.equal(document.activeElement, current(), "the orrery crumb moves focus to the current row");
+  }));
+
+test("‹ on the pinned title row closes the pin, as | does", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    assert.ok(pinnedColumn(container) !== null, "the pin is open");
+    await clickButton(container, 'section[aria-label="pinned reader"] .title-row', "‹");
+    assert.equal(pinnedColumn(container), null, "the pin is closed");
+    assert.equal(container.querySelector(".read.pinned")?.hasAttribute("hidden"), true, "the pinned reader is hidden");
   }));
 
 test("the pinned column draws the pill of its own stream and no note while the cursor rests on another pane", (t) =>
