@@ -663,10 +663,13 @@ func notifyReady(ctx context.Context, logger *slog.Logger, opts options) {
 	observeFlight(ctx, logger, opts.flight, "start", took)
 }
 
+// metricsListeningMessage is the message of the log line that names the address the metrics listener bound.
+const metricsListeningMessage = "metrics listening"
+
 // startMetrics serves /metrics and POST /alerts for a --metrics-listen orreryd until ctx ends or serve stops it. It
-// binds the address, records start as the start time, and sets opts.metrics and opts.metricsHandlers, which the push
-// publisher, the writer, the manager and the session services take, and opts.webhook, which serve's relay attaches to
-// the notice router. Without the flag it sets nothing.
+// binds the address and logs the address it bound, so a port 0 address can be found, records start as the start time,
+// and sets opts.metrics and opts.metricsHandlers, which the push publisher, the writer, the manager and the session
+// services take, and opts.webhook, which serve's relay attaches to the notice router. Without the flag it sets nothing.
 func startMetrics(ctx context.Context, opts *options, start time.Time, logger *slog.Logger) error {
 	if opts.metricsListen == "" {
 		return nil
@@ -675,6 +678,7 @@ func startMetrics(ctx context.Context, opts *options, start time.Time, logger *s
 	if err != nil {
 		return fmt.Errorf("metrics listener: %w", err)
 	}
+	logger.InfoContext(ctx, metricsListeningMessage, "addr", ln.Addr().String())
 	provider, err := telemetry.New()
 	if err != nil {
 		return errors.Join(fmt.Errorf("metrics provider: %w", err), ln.Close())
