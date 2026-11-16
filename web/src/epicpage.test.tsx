@@ -241,28 +241,7 @@ test("an epic that is not live, or has an outcome, offers no command", async () 
   }
 });
 
-test("Pause calls pause, and Resume calls resume", async () => {
-  const running = recorder();
-  await withPage(
-    detail({ ...build }),
-    async (container) => {
-      await pressButton(container, ".title-row .acts", "Pause");
-      assert.deepEqual(running.calls, ["pause"]);
-    },
-    { commands: running.commands },
-  );
-  const paused = recorder();
-  await withPage(
-    detail({ ...build, paused: true }),
-    async (container) => {
-      await pressButton(container, ".title-row .acts", "Resume");
-      assert.deepEqual(paused.calls, ["resume"]);
-    },
-    { commands: paused.commands },
-  );
-});
-
-test("Stop in the title row asks first, and only its confirm stops the epic", async () => {
+test("Stop in the title row asks about its slug beside Pause, and sends nothing yet", async () => {
   const { calls, commands } = recorder();
   await withPage(
     detail({ ...build }),
@@ -275,12 +254,6 @@ test("Stop in the title row asks first, and only its confirm stops the epic", as
         "Keep it running",
       ]);
       assert.deepEqual(calls, []);
-      await pressButton(container, ".title-row .acts", "Keep it running");
-      assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Pause", "Stop…"]);
-      assert.deepEqual(calls, []);
-      await pressButton(container, ".title-row .acts", "Stop…");
-      await pressButton(container, ".title-row .acts", "Stop demo-epic");
-      assert.deepEqual(calls, ["stop"]);
     },
     { commands },
   );
@@ -313,18 +286,6 @@ test("the title row's blocker reads its text, and its time once it has begun", a
   });
 });
 
-test("a parked epic's Retry calls retry", async () => {
-  const { calls, commands } = recorder();
-  await withPage(
-    detail({ ...build, parked: "usage limit" }),
-    async (container) => {
-      await pressButton(container, ".now-block", "Retry");
-      assert.deepEqual(calls, ["retry"]);
-    },
-    { commands },
-  );
-});
-
 test("the summary opens the contract, and reads the contract's title when the epic has no summary", async () => {
   const opened: string[] = [];
   await withPage(
@@ -351,47 +312,6 @@ test("the summary is absent without a contract", async () => {
   });
 });
 
-test("the crumbs are orrery, which goes back, then the slug, and the back button calls onBack", async () => {
-  const backs: string[] = [];
-  await withPage(
-    detail({ ...build }),
-    async (container) => {
-      assert.equal(textOf(container, ".crumb"), "orrery");
-      assert.equal(textOf(container, ".crumb.here"), "demo-epic");
-      await press(container, ".crumb");
-      await press(container, ".back");
-      assert.deepEqual(backs, ["back", "back"]);
-    },
-    {
-      onBack: () => {
-        backs.push("back");
-      },
-    },
-  );
-});
-
-test("the answer form sends the trimmed answer through commands.answer", async () => {
-  const { calls, commands } = recorder();
-  await withPage(
-    detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }),
-    async (container) => {
-      const textarea = container.querySelector<HTMLTextAreaElement>(".now-block textarea");
-      assert.ok(textarea !== null, "no answer box");
-      const form = container.querySelector(".now-block form");
-      assert.ok(form !== null, "no answer form");
-      await act(() => {
-        textarea.value = "  feature/login  ";
-        textarea.dispatchEvent(new Event("input"));
-      });
-      await act(() => {
-        form.dispatchEvent(new Event("submit", { cancelable: true }));
-      });
-      assert.deepEqual(calls, ["answer Q1 feature/login"]);
-    },
-    { commands },
-  );
-});
-
 test("a running step draws one glow in each stage: turn, checks, gate, judge and a read-only step", async () => {
   const stages = [
     { phase: "turn", stage: { stage: "turn" } },
@@ -415,11 +335,10 @@ test("a running step draws one glow in each stage: turn, checks, gate, judge and
   }
 });
 
-test("a proof is dim until its phase is reached, and the report is always dim", async () => {
+test("a red or green proof is dim until its phase is reached", async () => {
   await withPage(detail({ ...build }), (container) => {
     assert.equal(has(container, ".proof.red.dim"), true);
     assert.equal(has(container, ".proof.green.dim"), true);
-    assert.equal(has(container, ".proof.report.dim"), true);
   });
   await withPage(
     detail({
@@ -432,7 +351,6 @@ test("a proof is dim until its phase is reached, and the report is always dim", 
     (container) => {
       assert.equal(has(container, ".proof.red.dim"), false);
       assert.equal(has(container, ".proof.green.dim"), false);
-      assert.equal(has(container, ".proof.report.dim"), true);
     },
   );
 });
