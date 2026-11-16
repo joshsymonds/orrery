@@ -2,6 +2,7 @@ package interpret
 
 import (
 	"bytes"
+	"database/sql"
 	"log/slog"
 	"path/filepath"
 	"reflect"
@@ -73,8 +74,9 @@ func newReleaseWorldIn(t *testing.T, ending Ending, repo string) *releaseWorld {
 	}
 }
 
-// createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps. The epics of a
-// world are all in its repository, so they share its release slot.
+// createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps, and a frozen
+// review at its base, as an epic that ended clean has. The epics of a world are all in its repository, so they share
+// its release slot.
 func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseStep) {
 	w.t.Helper()
 	pinned, err := workflow.Load("release", func(string) ([]byte, bool, error) {
@@ -92,6 +94,27 @@ func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseSt
 		},
 	}); err != nil {
 		w.t.Fatalf("CreateEpic %s: %v", id, err)
+	}
+	freezeReviewRow(w.t, w.path, id, runBase)
+}
+
+// freezeReviewRow stores the review of epic id as frozen at revision, the row a review leaves on an epic that ended
+// clean. It writes the row directly: a review run's freeze also sets the epic's phase to reviewing, which the release
+// tests' epics are not in.
+func freezeReviewRow(t *testing.T, path, id, revision string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open store file: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store file: %v", err)
+		}
+	}()
+	_, err = db.ExecContext(t.Context(), "INSERT INTO epic_reviews (epic, frozen) VALUES (?, ?)", id, revision)
+	if err != nil {
+		t.Fatalf("insert review of epic %s: %v", id, err)
 	}
 }
 
@@ -119,9 +142,9 @@ func (w *releaseWorld) endGate(exit int) {
 	nodeEndCheck(w.t, w.s, workID(w.t, w.s, releaseNodePath, "done 1"), exit, "")
 }
 
-// TestReleaseCleanEpicWithoutStepsEndsDone: a clean epic with no release steps ends done through its Ending, with a
-// body that names the epic. The recording Ending leaves the phase where it was, so the pass may ask for the same ending
-// again, and every call is that ending.
+// TestReleaseCleanEpicWithoutStepsEndsDone: a clean epic with no release steps ends done through its Ending, with the
+// body its kind gives, which names no gap for its clean review. The recording Ending leaves the phase where it was, so
+// the pass may ask for the same ending again, and every call is that ending.
 func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	t.Parallel()
 	ending := &recordingEnding{}
@@ -129,7 +152,7 @@ func TestReleaseCleanEpicWithoutStepsEndsDone(t *testing.T) {
 	w.createEpic(runEpic, store.PhaseClean)
 	w.pass()
 
-	want := endedEpic{epic: runEpic, phase: "done", body: "Epic " + runEpic + " ended done.", at: runClock()}
+	want := endedEpic{epic: runEpic, phase: "done", body: "Done. No gaps.", at: runClock()}
 	if len(ending.calls) == 0 {
 		t.Fatalf("EndEpic calls = none, want %+v", want)
 	}

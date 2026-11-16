@@ -564,7 +564,7 @@ func TestReleaseJudgeDecidesFromItsReturn(t *testing.T) {
 				want := endedEpic{
 					epic:  runEpic,
 					phase: "released",
-					body:  "Epic " + runEpic + " ended released.",
+					body:  "Released. No gaps.",
 					at:    runClock(),
 				}
 				if len(ending.calls) == 0 {

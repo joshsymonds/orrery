@@ -78,14 +78,13 @@ func (r *Runner) stopRelease(ctx context.Context, epic store.EpicRow, act Action
 	return nil
 }
 
-// endEpic ends epic through the Ending, to the phase act names, with a body that names the epic and its ending. An epic
+// endEpic ends epic through the Ending, to the phase act names, with the body act's output gives as its tell. An epic
 // with no Ending configured is an error.
 func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if r.ending == nil {
 		return errors.New("no Ending configured")
 	}
-	body := fmt.Sprintf("Epic %s ended %s.", epic.ID, act.Outcome)
-	if err := r.ending.EndEpic(ctx, epic.ID, act.Outcome, body, at); err != nil {
+	if err := r.ending.EndEpic(ctx, epic.ID, act.Outcome, act.Output, at); err != nil {
 		return fmt.Errorf("end epic %s: %w", epic.ID, err)
 	}
 	return nil
