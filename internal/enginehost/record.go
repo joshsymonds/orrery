@@ -87,6 +87,12 @@ func (r *recorder) followedTurnEnd(ended session.TurnEnded) []store.EngineOp {
 	return r.turnEnd(ended, protocol.StateWorking)
 }
 
+// turnOpened returns the store op that records a turn claude started by itself as running: the session goes working.
+func (r *recorder) turnOpened() []store.EngineOp {
+	working := string(protocol.StateWorking)
+	return []store.EngineOp{store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &working}}}
+}
+
 // turnEnd returns the store ops that record ended with the session left in state and its question cleared.
 func (r *recorder) turnEnd(ended session.TurnEnded, state protocol.State) []store.EngineOp {
 	clear(r.texts)
