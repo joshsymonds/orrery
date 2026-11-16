@@ -50,21 +50,15 @@ const resumedBody = "orreryd restarted during the turn; resumed it"
 // write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	defer m.calls.enter()()
-	rows, err := m.store.EngineSessions(ctx)
-	// A failed read leaves no row, so every holder is then cleared.
-	byID := make(map[string]store.EngineRow, len(rows))
-	for _, row := range rows {
-		byID[row.ID] = row
-	}
-	settled := m.reconcileHolders(ctx, byID)
+	settled, err := m.reconcileHolders(ctx)
 	if err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
-	// The sessions with a pump are taken before the rows are read again: a pump that ends after this has stored its
-	// state before the read, and one that runs at the read is left to record its own.
+	// The sessions with a pump are taken before the rows are read: a pump that ends after this has stored its state
+	// before the read, and one that runs at the read is left to record its own.
 	pumped := m.pumpingIDs()
-	// A drain that failed after it recorded lines has changed the rows, so they are read again after the holder pass.
-	rows, err = m.store.EngineSessions(ctx)
+	// The rows are read once, after the holder pass, since a drain that failed after it recorded lines has changed them.
+	rows, err := m.store.EngineSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
@@ -127,16 +121,18 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 }
 
 // reconcileHolders goes through the holder directories under the state directory. The holder of each session with no pump
-// in this manager is re-adopted when its row, in rows by id, allows it (see readoptable), and drained when it has
-// ended, or stopped and drained when it is live but cannot be attached. A step's holder is never drained or stopped. Every
-// other holder is cleared, as is one that fails to re-adopt, to stop or to drain. A drained holder is cleared by its drain's
-// settle (see reconcileRow), since a resume there starts a new holder in the same directory. It returns the ids of the
-// sessions whose holder was drained, and whose row the drain settled. A missing holders directory, or an empty state
-// directory, has nothing to go through.
-func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.EngineRow) map[string]bool {
+// in this manager is re-adopted when its row allows it (see readoptable), and drained when it has ended, or stopped and
+// drained when it is live but cannot be attached. Each holder's row is read on its own, so the pass reads only the rows
+// of the holders it finds, however many rows the store holds. A step's holder is never drained or stopped. Every other
+// holder is cleared, as is one that fails to re-adopt, to stop or to drain, and one whose row cannot be read. A drained
+// holder is cleared by its drain's settle (see reconcileRow), since a resume there starts a new holder in the same
+// directory. It returns the ids of the sessions whose holder was drained, and whose row the drain settled, and the first
+// error reading a row other than its absence. A missing holders directory, or an empty state directory, has nothing to
+// go through.
+func (m *Manager) reconcileHolders(ctx context.Context) (map[string]bool, error) {
 	settled := map[string]bool{}
 	if m.stateDir == "" {
-		return settled
+		return settled, nil
 	}
 	holders := filepath.Join(m.stateDir, holdersSubdir)
 	entries, err := os.ReadDir(holders)
@@ -144,15 +140,20 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 		if !errors.Is(err, fs.ErrNotExist) {
 			m.logger.WarnContext(ctx, "read holders dir", "dir", holders, "err", err)
 		}
-		return settled
+		return settled, nil
 	}
+	var readErr error
 	for _, entry := range entries {
 		id := entry.Name()
 		if m.pumping(id) {
 			continue
 		}
 		dir := m.holderDirOf(id)
-		if row, ok := rows[id]; ok && m.readoptable(row) {
+		row, rowErr := m.store.EngineSession(ctx, id)
+		if rowErr != nil && !errors.Is(rowErr, store.ErrNoEngineSession) && readErr == nil {
+			readErr = rowErr
+		}
+		if rowErr == nil && m.readoptable(row) {
 			readopted, drained := m.readoptHolder(ctx, row, dir)
 			if readopted {
 				continue
@@ -164,7 +165,7 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 		}
 		m.clearHolder(ctx, id, dir)
 	}
-	return settled
+	return settled, readErr
 }
 
 // holderDirOf returns the holder directory of session id under the state directory.
