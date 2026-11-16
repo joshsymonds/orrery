@@ -16,8 +16,8 @@ import (
 // summaryReleaseFile is the file beside gatedFakeClaudeScript whose creation lets its summary run reply.
 const summaryReleaseFile = "release"
 
-// gatedFakeClaudeScript is slowFakeClaudeScript with its pause replaced by a wait for summaryReleaseFile, so the test
-// decides when the summary run writes its options and the summarizer syncs the pane.
+// gatedFakeClaudeScript is labelFakeClaudeScript held until summaryReleaseFile exists, so the test decides when the
+// summary run replies, and so when it writes its options or finds its pane forgotten.
 const gatedFakeClaudeScript = `#!/bin/sh
 D=$(dirname "$0")
 mkdir -p "$D/calls"
