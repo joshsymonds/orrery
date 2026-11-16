@@ -48,6 +48,7 @@ import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.ContractScreen
 import io.github.joshsymonds.orrery.ui.Crumb
 import io.github.joshsymonds.orrery.ui.EpicHandover
+import io.github.joshsymonds.orrery.ui.EpicOpening
 import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
@@ -147,6 +148,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
+                                            openAt = current.open,
                                             handover = { detail -> EpicHandover(detail.handover) },
                                         )
                                     }
@@ -274,11 +276,24 @@ class MainActivity : ComponentActivity() {
         openExtra(intent)?.let { screen = it }
     }
 
-    /** The screen a notice's intent opens: its pane, its headless session, or its epic. */
+    /** The screen a notice's intent opens: its pane, its headless session, or its epic at the block it is about. */
     private fun openExtra(intent: Intent): Screen? =
         intent.getStringExtra(PushNotifier.EXTRA_PANE)?.let { Screen.Pane(it) }
             ?: intent.getStringExtra(PushNotifier.EXTRA_SESSION)?.let { Screen.Session(it) }
-            ?: intent.getStringExtra(PushNotifier.EXTRA_EPIC)?.let { Screen.Epic(it) }
+            ?: intent.getStringExtra(PushNotifier.EXTRA_EPIC)?.let {
+                epicScreenOf(it, intent.getStringExtra(PushNotifier.EXTRA_BLOCK))
+            }
+
+    /**
+     * The screen a notice opens its epic at: the contract for a contract block, the epic's now section for a question
+     * or a release step, its report for a report, and its top when there is no block.
+     */
+    private fun epicScreenOf(epicId: String, block: String?): Screen = when (block) {
+        "contract" -> Screen.Contract(epicId)
+        "question", "release_step" -> Screen.Epic(epicId, EpicOpening("now"))
+        "report" -> Screen.Epic(epicId, EpicOpening("report"))
+        else -> Screen.Epic(epicId)
+    }
 
     /**
      * The move between two screens. A deeper screen enters from the right and the one it covers leaves to the left, on
@@ -311,9 +326,13 @@ class MainActivity : ComponentActivity() {
         data object Pools : Screen
         data class Pane(val id: String) : Screen
         data class Session(val id: String) : Screen
-        data class Epic(val id: String) : Screen
+        /** An epic, at its top or, when [open] is set, at that section. */
+        data class Epic(val id: String, val open: EpicOpening? = null) : Screen
 
-        /** An epic's accepted contract, reached from the epic's summary: back returns to the epic. */
+        /**
+         * An epic's accepted contract, reached from the epic's summary or from a notice's contract block: back returns
+         * to the epic.
+         */
         data class Contract(val epicId: String) : Screen
 
         /** A task's phase output, reached from its epic: back returns to the epic, and [phase] is open. */

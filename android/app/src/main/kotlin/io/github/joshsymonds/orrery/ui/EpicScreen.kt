@@ -63,12 +63,19 @@ private const val SEEN_DWELL_MILLIS = 1_000L
 private const val TAG = "EpicScreen"
 
 /**
+ * A section an epic's list opens at, by its name: "now" or "report". Equality is identity, so each open is distinct,
+ * and an open of the section the list is already at opens it again.
+ */
+class EpicOpening(val section: String)
+
+/**
  * One epic as one scrolling list, in the epic page's order: its summary when it has a contract, what is happening now
  * (the problem and the blocker), the red proof, the implementation (the orrery, the now and next rows, what just
  * happened, the workflow's nodes), the green proof, [handover] when it is given, the release and the report. Each
  * section is one item, tagged "epic-section:[name]". A tap on a step calls [onOpenStep] with it, a tap on the summary
  * calls [onOpenContract], and a tap on the orrery, a proof card or a row calls [onOpenPhase]. [actions] render first in
- * the title row. [listState] is the list's state, so the caller keeps its scroll. Back and the first crumb call [onBack].
+ * the title row. [listState] is the list's state, so the caller keeps its scroll; [openAt] scrolls it to its section
+ * when the list is composed. Back and the first crumb call [onBack].
  * A command runs off the main thread, then the epic is read again; a command that did not land shows as a notice. An
  * ended orreryd epic the owner has not seen is marked seen once the screen has rested on it for a second while resumed.
  */
@@ -81,6 +88,7 @@ fun EpicScreen(
     modifier: Modifier = Modifier,
     onOpenContract: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    openAt: EpicOpening? = null,
     onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     handover: (@Composable (EpicDetail) -> Unit)? = null,
@@ -197,6 +205,7 @@ fun EpicScreen(
                 now = nowAt,
                 notice = notice,
                 listState = listState,
+                openAt = openAt,
                 loadArtifact = loadArtifact,
                 onOpenStep = onOpenStep,
                 onOpenContract = onOpenContract,
@@ -274,6 +283,7 @@ private fun EpicBody(
     now: Long,
     notice: String,
     listState: LazyListState,
+    openAt: EpicOpening?,
     loadArtifact: ArtifactLoader,
     onOpenStep: (StepRow) -> Unit,
     onOpenContract: () -> Unit,
@@ -288,6 +298,9 @@ private fun EpicBody(
     val wedges = remember(detail) { wedgesOf(detail) }
     val arcs = remember(detail) { requirementArcs(wedges, detail.requirements) }
     val contract = detail.contract
+    LaunchedEffect(openAt) {
+        openAt?.let { listState.scrollToItem(sectionIndex(it.section, contract != null, handover != null)) }
+    }
     LazyColumn(modifier = modifier.fillMaxWidth(), state = listState) {
         if (contract != null) {
             section("summary") {
@@ -368,6 +381,19 @@ private fun EpicBody(
         }
     }
 }
+
+// sectionIndex is the position of the named section among the list's items, in the order EpicBody lays them out: the
+// summary comes first when there is a contract, and the handover sits between the green proof and the release.
+private fun sectionIndex(name: String, hasSummary: Boolean, hasHandover: Boolean): Int = listOfNotNull(
+    "summary".takeIf { hasSummary },
+    "now",
+    "red",
+    "implementation",
+    "green",
+    "handover".takeIf { hasHandover },
+    "release",
+    "report",
+).indexOf(name)
 
 // section is one item of the list: the section's content in a column tagged "epic-section:[name]", keyed "section:[name]".
 private fun LazyListScope.section(name: String, content: @Composable ColumnScope.() -> Unit) {
