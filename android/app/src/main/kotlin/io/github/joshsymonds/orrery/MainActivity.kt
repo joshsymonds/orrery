@@ -43,6 +43,8 @@ import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
+import io.github.joshsymonds.orrery.ui.Phase as TaskPhase
+import io.github.joshsymonds.orrery.ui.PhaseOutputScreen
 import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
@@ -113,10 +115,31 @@ class MainActivity : ComponentActivity() {
                                             epicId = current.id,
                                             onBack = { screen = Screen.Panes },
                                             onOpenStep = {
-                                                screen = Screen.Step(it.id, epicId = current.id, held = it.held)
+                                                screen = Screen.Step(it.id, held = it.held, back = current)
                                             },
                                             onOpenContract = { screen = Screen.Contract(current.id) },
+                                            onOpenPhase = { task, phase ->
+                                                screen = Screen.Phase(current.id, task, phase)
+                                            },
                                             listState = epicListStates.getOrPut(current.id) { LazyListState() },
+                                        )
+                                    }
+                                    is Screen.Phase -> {
+                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        PhaseOutputScreen(
+                                            client = client,
+                                            epicId = current.epicId,
+                                            epic = current.epicId.substringAfterLast('/'),
+                                            task = current.task,
+                                            phase = current.phase,
+                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            onGoHome = { screen = Screen.Panes },
+                                            onOpenPhase = { task, phase ->
+                                                screen = Screen.Phase(current.epicId, task, phase)
+                                            },
+                                            onOpenSession = {
+                                                screen = Screen.Step(it.id, held = it.held, back = current)
+                                            },
                                         )
                                     }
                                     is Screen.Contract -> {
@@ -129,11 +152,11 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     is Screen.Step -> {
-                                        BackHandler { screen = Screen.Epic(current.epicId) }
+                                        BackHandler { screen = current.back }
                                         SessionScreen(
                                             sessionId = current.id,
                                             client = client,
-                                            onBack = { screen = Screen.Epic(current.epicId) },
+                                            onBack = { screen = current.back },
                                             step = StepMode(held = current.held),
                                         )
                                     }
@@ -224,13 +247,14 @@ class MainActivity : ComponentActivity() {
 
     /**
      * How deep a screen sits: the home list is 0; a pane, a session, the pools, the settings or an epic is 1; an epic's
-     * contract or step is 2.
+     * contract or a task's phase output is 2; a step's session is one deeper than the screen it opened from.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
             Screen.Pools, Screen.Settings, is Screen.Pane, is Screen.Session, is Screen.Epic -> 1
-            is Screen.Contract, is Screen.Step -> 2
+            is Screen.Contract, is Screen.Phase -> 2
+            is Screen.Step -> back.depth + 1
         }
 
     private sealed interface Screen {
@@ -244,10 +268,13 @@ class MainActivity : ComponentActivity() {
         /** An epic's accepted contract, reached from the epic's summary: back returns to the epic. */
         data class Contract(val epicId: String) : Screen
 
+        /** A task's phase output, reached from its epic: back returns to the epic, and [phase] is open. */
+        data class Phase(val epicId: String, val task: String, val phase: TaskPhase) : Screen
+
         /**
-         * A step's session, reached through its epic: back returns to [epicId]. [held] is the step's
-         * held state when it was opened.
+         * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
+         * step's held state when it was opened.
          */
-        data class Step(val id: String, val epicId: String, val held: Boolean) : Screen
+        data class Step(val id: String, val held: Boolean, val back: Screen) : Screen
     }
 }
