@@ -14,8 +14,10 @@ import {
   type EpicStep,
 } from "./gen/orrery/v1/epics_pb";
 import {
+  endedWords,
   epicLine,
   epicsView,
+  keepUnderCursor,
   noEpics,
   placeEpics,
   repositoryName,
@@ -33,6 +35,7 @@ function makeEpic(init: MessageInitShape<typeof EpicSchema>): Epic {
     slug: "first",
     outcome: "",
     live: true,
+    source: "record",
     ...init,
   });
 }
@@ -333,7 +336,7 @@ test("live epics become blocks in input order and every other epic is folded", (
   assert.equal(view.live, 2);
 });
 
-test("folded lists every epic neither drawn nor waiting, live or not, in list order", () => {
+test("folded lists every epic neither drawn, waiting nor ended, live or not, in list order", () => {
   const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic({ id: `widgets-5d0c1a7/${slug}`, slug }));
   const released = makeEpic({
     id: "gadgets-0e1f2a3/old",
@@ -374,6 +377,126 @@ test("waiting epics leave the blocks for their own list, in input order, and are
   );
   assert.equal(view.live, 3);
   assert.deepEqual(foldedIds(view.folded), ["gadgets-0e1f2a3/old"]);
+});
+
+// An orreryd epic that is not live, ended at phaseAt and last seen at seen, unix seconds.
+function endedOf(slug: string, phaseAt: bigint, seen: bigint): Epic {
+  return makeEpic({
+    id: `widgets-5d0c1a7/${slug}`,
+    slug,
+    source: "orreryd",
+    live: false,
+    outcome: "released",
+    phaseAt,
+    seen,
+  });
+}
+
+test("an orreryd epic that ended unseen is in justEnded, neither folded nor endedEarlier", () => {
+  const view = epicsView([endedOf("first", 1000n, 999n)], new Map());
+
+  assert.deepEqual(foldedIds(view.justEnded), ["widgets-5d0c1a7/first"]);
+  assert.deepEqual(view.endedEarlier, []);
+  assert.deepEqual(view.folded, []);
+});
+
+test("an orreryd epic seen at or after it ended is in endedEarlier, and one with no phaseAt reads seen", () => {
+  const view = epicsView(
+    [endedOf("at-end", 1000n, 1000n), endedOf("later", 1000n, 1500n), endedOf("no-phase", 0n, 0n)],
+    new Map(),
+  );
+
+  assert.deepEqual(view.justEnded, []);
+  assert.deepEqual(
+    view.endedEarlier.map((item) => item.slug),
+    ["at-end", "later", "no-phase"],
+  );
+  assert.deepEqual(view.folded, []);
+});
+
+test("a record epic that went quiet stays folded, in neither Just ended list", () => {
+  const quiet = makeEpic({
+    id: "gadgets-0e1f2a3/quiet",
+    repository: "gadgets-0e1f2a3",
+    slug: "quiet",
+    source: "record",
+    live: false,
+    outcome: "released",
+    phaseAt: 1000n,
+  });
+
+  const view = epicsView([quiet], new Map());
+
+  assert.deepEqual(foldedIds(view.folded), ["gadgets-0e1f2a3/quiet"]);
+  assert.deepEqual(view.justEnded, []);
+  assert.deepEqual(view.endedEarlier, []);
+});
+
+test("justEnded and endedEarlier each list the newest ending first", () => {
+  const view = epicsView(
+    [
+      endedOf("older", 1000n, 0n),
+      endedOf("newest", 3000n, 0n),
+      endedOf("middle", 2000n, 0n),
+      endedOf("seen-old", 500n, 600n),
+      endedOf("seen-new", 900n, 900n),
+    ],
+    new Map(),
+  );
+
+  assert.deepEqual(
+    view.justEnded.map((item) => item.slug),
+    ["newest", "middle", "older"],
+  );
+  assert.deepEqual(
+    view.endedEarlier.map((item) => item.slug),
+    ["seen-new", "seen-old"],
+  );
+});
+
+test("keepUnderCursor moves a seen epic from endedEarlier into justEnded, at its newest-first place", () => {
+  const view = epicsView(
+    [endedOf("newer", 3000n, 3000n), endedOf("unseen", 2000n, 0n), endedOf("older", 2500n, 2500n)],
+    new Map(),
+  );
+  assert.deepEqual(
+    view.endedEarlier.map((item) => item.slug),
+    ["newer", "older"],
+  );
+  assert.deepEqual(
+    view.justEnded.map((item) => item.slug),
+    ["unseen"],
+  );
+
+  const kept = keepUnderCursor(view, "widgets-5d0c1a7/older");
+
+  assert.deepEqual(
+    kept.justEnded.map((item) => item.slug),
+    ["older", "unseen"],
+  );
+  assert.deepEqual(
+    kept.endedEarlier.map((item) => item.slug),
+    ["newer"],
+  );
+});
+
+test("keepUnderCursor leaves the view as it is for an epic not in endedEarlier, and for an unknown one", () => {
+  const view = epicsView([endedOf("unseen", 2000n, 0n), endedOf("seen", 1000n, 1000n)], new Map());
+
+  for (const id of ["widgets-5d0c1a7/unseen", "widgets-5d0c1a7/nowhere"]) {
+    const kept = keepUnderCursor(view, id);
+
+    assert.deepEqual(
+      kept.justEnded.map((item) => item.slug),
+      ["unseen"],
+      id,
+    );
+    assert.deepEqual(
+      kept.endedEarlier.map((item) => item.slug),
+      ["seen"],
+      id,
+    );
+  }
 });
 
 test("seven of eight live epics with running or held work draw full in input order, and the quiet one folds", () => {
@@ -514,6 +637,47 @@ test("a folded epic alone makes the Epics group, with no blocks and its count", 
   assert.deepEqual(titlesOf(result), ["Epics", "Working"]);
   assert.deepEqual(result[0].epics, []);
   assert.deepEqual(foldedIds(result[0].folded), ["widgets-5d0c1a7/first"]);
+});
+
+test("the Just ended section follows Epics, carries both lists, and counts the unseen", () => {
+  const view = epicsView(
+    [
+      makeEpic({ id: "widgets-5d0c1a7/first" }),
+      endedOf("unseen", 2000n, 0n),
+      endedOf("seen", 1000n, 1000n),
+    ],
+    new Map(),
+  );
+  const sections: Section[] = [
+    { title: "Needs you", rows: [makeRow("a", "/work/app")] },
+    { title: "Working", rows: [] },
+  ];
+
+  const result = withEpicsGroup(sections, view);
+
+  assert.deepEqual(titlesOf(result), ["Needs you", "Epics", "Just ended", "Working"]);
+  assert.equal(result[1].count, 1, "the Epics group counts the live epic alone");
+  assert.equal(result[2].count, 1, "the Just ended count is the unseen epics");
+  assert.deepEqual(
+    result[2].justEnded.map((item) => item.slug),
+    ["unseen"],
+  );
+  assert.deepEqual(
+    result[2].endedEarlier.map((item) => item.slug),
+    ["seen"],
+  );
+  assert.deepEqual(result[2].epics, []);
+});
+
+test("ended epics alone make the Just ended section, and no Epics group", () => {
+  const view = epicsView([endedOf("unseen", 2000n, 0n)], new Map());
+  const sections: Section[] = [{ title: "Working", rows: [] }];
+
+  const result = withEpicsGroup(sections, view);
+
+  assert.deepEqual(titlesOf(result), ["Just ended", "Working"]);
+  assert.equal(result[0].count, 1);
+  assert.deepEqual(result[1].rows, []);
 });
 
 test("with no epics and nothing folded there is no Epics group, and each section is kept", () => {
@@ -691,4 +855,22 @@ test("an epic with an open question never has an empty blocker, even when paused
 
 test("an epic with no detail reads epic unavailable, and its state and blocker are empty", () => {
   assert.deepEqual(lineOf(makeEpic({}), undefined), { count: "epic unavailable", state: "", blocker: "" });
+});
+
+test("endedWords reads the outcome, then the time since the epic ended", () => {
+  const [item] = epicsView([endedOf("first", 99280n, 0n)], new Map()).justEnded;
+
+  assert.equal(endedWords(item, lineNow), "released · 12 min ago");
+});
+
+test("endedWords reads the outcome alone when the epic has no phaseAt", () => {
+  const [item] = epicsView([endedOf("first", 0n, 0n)], new Map()).endedEarlier;
+
+  assert.equal(endedWords(item, lineNow), "released");
+});
+
+test("endedWords reads zero seconds when the clock is behind the epic's end", () => {
+  const [item] = epicsView([endedOf("first", 100500n, 0n)], new Map()).justEnded;
+
+  assert.equal(endedWords(item, lineNow), "released · 0 s ago");
 });

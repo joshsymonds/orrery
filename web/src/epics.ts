@@ -1,7 +1,7 @@
 import { blockerLine, stateLine } from "./epicpage";
 import type { Epic, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { type CellKind, cellKind, RINGS, type StatusTone, taskReadout } from "./orbitcells";
-import { provenOf, wedgesOf } from "./phases";
+import { durationText, provenOf, wedgesOf } from "./phases";
 import type { Row, Section } from "./rows";
 import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
@@ -16,6 +16,7 @@ export interface EpicItem {
   slug: string;
   repository: string;
   outcome: string;
+  phaseAt: number;
   known: boolean;
   done: number;
   total: number;
@@ -60,6 +61,8 @@ export interface EpicsView {
   waiting: EpicItem[];
   live: number;
   folded: EpicItem[];
+  justEnded: EpicItem[];
+  endedEarlier: EpicItem[];
   details: Map<string, EpicsGetResponse>;
 }
 
@@ -69,6 +72,8 @@ export interface EpicSection {
   waiting: EpicItem[];
   rows: Row[];
   folded: EpicItem[];
+  justEnded: EpicItem[];
+  endedEarlier: EpicItem[];
   count: number;
 }
 
@@ -83,23 +88,43 @@ export const denseStrip = 60;
 
 const needsYouTitle = "Needs you";
 const epicsTitle = "Epics";
+const justEndedTitle = "Just ended";
 
 // A repository's record name ends in a dash and seven lowercase hex digits; the folder it is named for does not.
 const hexSuffix = /-[0-9a-f]{7}$/;
 
-export const noEpics: EpicsView = { blocks: [], waiting: [], live: 0, folded: [], details: new Map() };
+export const noEpics: EpicsView = {
+  blocks: [],
+  waiting: [],
+  live: 0,
+  folded: [],
+  justEnded: [],
+  endedEarlier: [],
+  details: new Map(),
+};
 
-// Blocks the live epics that draw, collects the live epics waiting to start in input order, and lists every other epic
-// as folded, in input order, live or not. Epics with a running or held step draw first, in input order; quiet live
-// epics follow in input order while fewer than shownBlocks are drawn. An epic with no detail reads as unknown, with a
-// gauge of zero.
+// Blocks the live epics that draw, collects the live epics waiting to start in input order, and sorts each ended epic
+// into justEnded while it is unseen, else into endedEarlier, both newest ending first. Every other epic is folded, in
+// input order: a live epic not drawn, and a record epic that went quiet. Epics with a running or held step draw first,
+// in input order; quiet live epics follow in input order while fewer than shownBlocks are drawn. An epic with no detail
+// reads as unknown, with a gauge of zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
   const waiting: EpicItem[] = [];
+  const justEnded: EpicItem[] = [];
+  const endedEarlier: EpicItem[] = [];
   let live = 0;
   for (const epic of epics) {
     if (!epic.live) {
+      if (isEnded(epic)) {
+        const item = itemOf(epic, details.get(epic.id));
+        if (epic.seen < epic.phaseAt) {
+          justEnded.push(item);
+        } else {
+          endedEarlier.push(item);
+        }
+      }
       continue;
     }
     live++;
@@ -114,8 +139,48 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
   }
   const blocks = [...busy, ...quiet.slice(0, Math.max(0, shownBlocks - busy.length))];
   const placed = new Set([...blocks.map((block) => block.epic.id), ...waiting.map((item) => item.id)]);
-  const folded = epics.filter((epic) => !placed.has(epic.id)).map((epic) => itemOf(epic, details.get(epic.id)));
-  return { blocks, waiting, live, folded, details };
+  const folded = epics
+    .filter((epic) => !placed.has(epic.id) && !isEnded(epic))
+    .map((epic) => itemOf(epic, details.get(epic.id)));
+  return {
+    blocks,
+    waiting,
+    live,
+    folded,
+    justEnded: newestFirst(justEnded),
+    endedEarlier: newestFirst(endedEarlier),
+    details,
+  };
+}
+
+// An orreryd epic that is not live has ended. A record epic that went quiet is not ended: it stays folded.
+function isEnded(epic: Epic): boolean {
+  return epic.source === "orreryd" && !epic.live;
+}
+
+// Orders ended epics newest ending first. Equal endings keep their order, so an epic moved in goes after those it ties.
+function newestFirst(items: EpicItem[]): EpicItem[] {
+  return items.sort((a, b) => b.phaseAt - a.phaseAt);
+}
+
+// Keeps the ended epic under the cursor in Just ended: it moves from endedEarlier into justEnded, newest ending first.
+// An epic that is not in endedEarlier leaves the view as it is.
+export function keepUnderCursor(view: EpicsView, epicId: string): EpicsView {
+  const item = view.endedEarlier.find((candidate) => candidate.id === epicId);
+  if (item === undefined) {
+    return view;
+  }
+  return {
+    ...view,
+    justEnded: newestFirst([...view.justEnded, item]),
+    endedEarlier: view.endedEarlier.filter((candidate) => candidate.id !== epicId),
+  };
+}
+
+// An ended epic's words: its outcome, then the time since it ended, never below zero when the browser's clock is behind
+// the server's stamp. At phaseAt 0 there is no time to read, so the outcome stands alone.
+export function endedWords(item: EpicItem, now: number): string {
+  return item.phaseAt > 0 ? `${item.outcome} · ${durationText(Math.max(0, now - item.phaseAt))} ago` : item.outcome;
 }
 
 function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
@@ -141,6 +206,7 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     slug: epic.slug,
     repository: epic.repository,
     outcome: epic.outcome,
+    phaseAt: Number(epic.phaseAt),
     known: detail !== undefined,
     done: doneOf(tasks),
     total: tasks.length,
@@ -245,25 +311,51 @@ export function repositoryName(repository: string): string {
 
 // A row section, counting its rows.
 function rowSection(section: Section): EpicSection {
-  return { title: section.title, epics: [], waiting: [], rows: section.rows, folded: [], count: section.rows.length };
+  return {
+    title: section.title,
+    epics: [],
+    waiting: [],
+    rows: section.rows,
+    folded: [],
+    justEnded: [],
+    endedEarlier: [],
+    count: section.rows.length,
+  };
 }
 
-// Wraps each section, then places the Epics group after the Needs you section, or first when there is none. The group
-// counts every live epic and is left out when no epic is drawn, waiting or folded.
+// Wraps each section, then places the Epics group after the Needs you section, or first when there is none, and the
+// Just ended section right after it. The Epics group counts every live epic and is left out when no epic is drawn,
+// waiting or folded. The Just ended section carries both ended lists and counts the unseen ones; it is left out when
+// neither list holds an epic.
 export function withEpicsGroup(sections: Section[], view: EpicsView): EpicSection[] {
   const result = sections.map(rowSection);
-  if (view.blocks.length === 0 && view.waiting.length === 0 && view.folded.length === 0) {
-    return result;
+  const groups: EpicSection[] = [];
+  if (view.blocks.length > 0 || view.waiting.length > 0 || view.folded.length > 0) {
+    groups.push({
+      title: epicsTitle,
+      epics: view.blocks,
+      waiting: view.waiting,
+      rows: [],
+      folded: view.folded,
+      justEnded: [],
+      endedEarlier: [],
+      count: view.live,
+    });
+  }
+  if (view.justEnded.length > 0 || view.endedEarlier.length > 0) {
+    groups.push({
+      title: justEndedTitle,
+      epics: [],
+      waiting: [],
+      rows: [],
+      folded: [],
+      justEnded: view.justEnded,
+      endedEarlier: view.endedEarlier,
+      count: view.justEnded.length,
+    });
   }
   const after = sections.findIndex((section) => section.title === needsYouTitle) + 1;
-  result.splice(after, 0, {
-    title: epicsTitle,
-    epics: view.blocks,
-    waiting: view.waiting,
-    rows: [],
-    folded: view.folded,
-    count: view.live,
-  });
+  result.splice(after, 0, ...groups);
   return result;
 }
 
@@ -288,7 +380,16 @@ export function placeEpics(sections: Section[], blocks: EpicBlock[]): EpicSectio
     }
   }
   for (const [repository, epics] of unmatched) {
-    result.push({ title: repository, epics, waiting: [], rows: [], folded: [], count: epics.length });
+    result.push({
+      title: repository,
+      epics,
+      waiting: [],
+      rows: [],
+      folded: [],
+      justEnded: [],
+      endedEarlier: [],
+      count: epics.length,
+    });
   }
   return result;
 }
