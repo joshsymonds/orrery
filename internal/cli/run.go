@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -16,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/childproc"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 )
@@ -419,11 +419,11 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 		Stdin:       cfg.Stdin,
 		Stdout:      cfg.Stdout,
 		Stderr:      cfg.Stderr,
-		SysProcAttr: &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL},
+		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	})
 	if err != nil {
 		held.end()
-		fmt.Fprintf(cfg.Stderr, "orrery run: start %s: %v\n", cfg.Argv[0], err)
+		fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", err)
 		return exitCannotRun, nil
 	}
 	limit := runLimit(cfg)
@@ -588,31 +588,24 @@ func (end commandEnd) report(stderr io.Writer, limit time.Duration) int {
 	return end.status
 }
 
-// startCommand starts cmd on a thread that stays locked until cmd exits, because Pdeathsig fires when the thread that
-// started a process exits. It returns cmd's process group, which is its process id, and the channel its end arrives on.
+// startCommand starts cmd through childproc.Start, so CMD dies with orrery run however it dies. It returns cmd's
+// process group, which is its process id, and the channel its end arrives on.
 func startCommand(cmd *exec.Cmd) (int, <-chan commandEnd, error) {
-	started := make(chan error, 1)
+	waited, err := childproc.Start(cmd)
+	if err != nil {
+		return 0, nil, fmt.Errorf("start %s: %w", cmd.Args[0], err)
+	}
 	exited := make(chan commandEnd, 1)
 	go func() {
-		runtime.LockOSThread()
-		if err := cmd.Start(); err != nil {
-			started <- err
-			return
-		}
-		started <- nil
-		status, err := waitCommand(cmd)
-		exited <- commandEnd{status: status, err: err}
+		status, waitErr := commandResult(cmd, <-waited)
+		exited <- commandEnd{status: status, err: waitErr}
 	}()
-	if err := <-started; err != nil {
-		return 0, nil, err
-	}
 	return cmd.Process.Pid, exited, nil
 }
 
-// waitCommand waits for the started cmd. It returns the exit status, and an error from waiting besides the exit itself,
-// such as a copy of the command's output that failed.
-func waitCommand(cmd *exec.Cmd) (int, error) {
-	err := cmd.Wait()
+// commandResult returns the exit status of cmd, whose Wait returned err, and an error from waiting besides the exit
+// itself, such as a copy of the command's output that failed.
+func commandResult(cmd *exec.Cmd, err error) (int, error) {
 	if cmd.ProcessState == nil {
 		return exitFailure, fmt.Errorf("wait for CMD: %w", err)
 	}

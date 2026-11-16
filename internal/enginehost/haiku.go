@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
 )
@@ -138,23 +139,20 @@ func (h *Haiku) run(ctx context.Context, settings, baseURL, model, schema, input
 		WaitDelay:   haikuKillGrace,
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
-	if err = cmd.Start(); err != nil {
+	// The run dies with orreryd however orreryd dies, so a killed orreryd leaves no Haiku run behind.
+	waited, err := childproc.Start(cmd)
+	if err != nil {
 		return nil, fmt.Errorf("haiku: start claude: %w", err)
 	}
 	pid := cmd.Process.Pid
 	var waitErr error
-	waited := make(chan struct{})
-	go func() {
-		waitErr = cmd.Wait()
-		close(waited)
-	}()
 
 	select {
-	case <-waited:
+	case waitErr = <-waited:
 	case <-ctx.Done():
 		killErr := gateKillGroup(pid)
-		<-waited
-		return nil, errors.Join(fmt.Errorf("haiku: claude run: %w", ctx.Err()), killErr)
+		waitErr = <-waited
+		return nil, errors.Join(fmt.Errorf("haiku: claude run: %w", ctx.Err()), killErr, waitErr)
 	}
 	if waitErr != nil {
 		return nil, fmt.Errorf("haiku: claude run: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
