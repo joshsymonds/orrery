@@ -63,6 +63,7 @@ import java.util.concurrent.atomic.AtomicReference
 class EpicScreenTest {
     private companion object {
         const val EPIC_ID = "example-repo/example-epic"
+        const val NOW = 1_800_000_000L
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val EPICS_PAUSE = "/orrery.v1.Epics/Pause"
@@ -80,8 +81,6 @@ class EpicScreenTest {
     private val openedStep = AtomicReference<StepRow?>(null)
     private val contractOpened = AtomicInteger()
     private val backed = AtomicInteger()
-
-    private fun nowSeconds(): Long = System.currentTimeMillis() / 1000
 
     private fun step(id: String, task: String, agent: String): EpicStep =
         EpicStep.newBuilder()
@@ -213,6 +212,7 @@ class EpicScreenTest {
                 onOpenPhase = onOpenPhase,
                 actions = actions,
                 handover = handover,
+                now = { NOW },
             )
         }
     }
@@ -476,7 +476,7 @@ class EpicScreenTest {
         FakeOrreryServer().use { server ->
             serve(
                 server,
-                body(questions = listOf(question("example-question-1", "Example question?", nowSeconds() - 120))),
+                body(questions = listOf(question("example-question-1", "Example question?", NOW - 120))),
             )
             server.respond(EPICS_ANSWER, EpicsAnswerResponse.getDefaultInstance())
             setScreen(server)
@@ -499,7 +499,7 @@ class EpicScreenTest {
         FakeOrreryServer().use { server ->
             serve(
                 server,
-                body(questions = listOf(question("example-question-1", "Example question?", nowSeconds() - 120))),
+                body(questions = listOf(question("example-question-1", "Example question?", NOW - 120))),
             )
             server.fail(EPICS_ANSWER, Code.FAILED_PRECONDITION, "question is closed")
             setScreen(server)
@@ -530,7 +530,7 @@ class EpicScreenTest {
         FakeOrreryServer().use { server ->
             serve(
                 server,
-                body(questions = listOf(question("example-question-1", "Example question?", nowSeconds() - 120))),
+                body(questions = listOf(question("example-question-1", "Example question?", NOW - 120))),
             )
             setScreen(server)
             awaitLoaded()
@@ -587,7 +587,7 @@ class EpicScreenTest {
             serve(
                 server,
                 body(steps = listOf(step)),
-                historyOf(historyEntry(nowSeconds() - 60, "example-cursor-1", step)),
+                historyOf(historyEntry(NOW - 60, "example-cursor-1", step)),
             )
             setScreen(server)
             awaitLoaded()
@@ -603,7 +603,7 @@ class EpicScreenTest {
     fun justHappenedShowsTheNewestThreeAndOpensTheRestInPlace() {
         val entries = (1..5).map { index ->
             historyEntry(
-                nowSeconds() - 60,
+                NOW - 60,
                 "example-cursor-$index",
                 step("example-step-$index", "example-task-$index", "example-agent"),
             )
@@ -630,12 +630,12 @@ class EpicScreenTest {
                 val page = EpicsHistoryRequest.parseFrom(request.body)
                 val response = if (page.after.isEmpty()) {
                     EpicsHistoryResponse.newBuilder()
-                        .addEntries(historyEntry(nowSeconds() - 120, "example-cursor-1", step("example-step-1", "example-task-1", "example-agent")))
+                        .addEntries(historyEntry(NOW - 120, "example-cursor-1", step("example-step-1", "example-task-1", "example-agent")))
                         .setNext("example-cursor-1")
                         .build()
                 } else {
                     EpicsHistoryResponse.newBuilder()
-                        .addEntries(historyEntry(nowSeconds() - 60, "example-cursor-2", step("example-step-2", "example-task-2", "example-agent")))
+                        .addEntries(historyEntry(NOW - 60, "example-cursor-2", step("example-step-2", "example-task-2", "example-agent")))
                         .setNext("")
                         .build()
                 }
