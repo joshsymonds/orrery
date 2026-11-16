@@ -6,10 +6,18 @@
   --crust: #11111b; --mantle: #181825; --base: #1e1e2e;
   --surface0: #313244; --surface1: #45475a; --rule: #2a2b3c;
   --overlay0: #6c7086; --overlay1: #7f849c; --subtext0: #a6adc8; --subtext1: #bac2de; --text: #cdd6f4;
-  --lavender: #b4befe; --blue: #89b4fa; --green: #a6e3a1;
+  --lavender: #b4befe; --blue: #89b4fa; --teal: #94e2d5; --green: #a6e3a1;
   --yellow: #f9e2af; --peach: #fab387; --maroon: #eba0ac; --red: #f38ba8; --mauve: #cba6f7;
   --mono: "Orrery Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --move-press: 120ms cubic-bezier(0.2, 0, 0, 1); --move-state: 200ms cubic-bezier(0.2, 0, 0, 1);
+  --move-layout: 280ms cubic-bezier(0.2, 0, 0, 1); --move-drill: 320ms cubic-bezier(0.2, 0, 0, 1);
+  --move-leave: 200ms cubic-bezier(0.4, 0, 1, 1);
 }
+/* The page's moves: a drill in for a page moving deeper, a leave in for a page coming back, and a fade. The reduced-motion
+   block at the end of the sheet sets every move to one 100 ms step. */
+@keyframes move-drill { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes move-leave { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+@keyframes move-fade { from { opacity: 0; } to { opacity: 1; } }
 * { box-sizing: border-box; }
 html { background: var(--crust); color-scheme: dark; font-family: var(--mono); }
 body { margin: 0; font: 13px/20px var(--mono); color: var(--text); background: var(--crust); }
@@ -52,19 +60,21 @@ button, input, textarea, select { font-family: var(--mono); }
 }
 
 /* The list and its columns stack on a phone, between the phone's side gutters. From 760px they sit abreast in the frame
-   below. A hidden column takes no place, so the epic column takes the reader's track when the reader is hidden. */
+   below. A hidden column takes no place, so the epic page takes the reader's track when the reader is hidden. */
 .panes {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.list, .read, .side { min-width: 0; }
+.list, .read, section.page { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: 8px; }
-.read[hidden], .side[hidden] { display: none; }
+.read[hidden], section.page[hidden] { display: none; }
+/* The line the epic page shows when its epic's detail did not load. */
+.side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }
 .reply { min-width: 0; }
 .pin-reply { min-width: 0; }
 @media (min-width: 760px) {
   /* The page is the window and does not scroll as a whole. The list's rows, the conversation's scroll box (.read > .reader,
-     which the pinned reader shares) and the epic column each scroll on their own. The rows keep room for the current-row
+     which the pinned reader shares) and the epic page each scroll on their own. The rows keep room for the current-row
      mark, which sits just outside them. */
   body { background: var(--base); height: 100vh; height: 100dvh; overflow: hidden; }
   #app { height: 100%; }
@@ -73,20 +83,18 @@ button, input, textarea, select { font-family: var(--mono); }
     flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0;
     grid-template-columns: 440px minmax(0, 1fr) 380px;
   }
-  /* Each column keeps its own track, so a hidden reader leaves its track empty and the epic column stays 380px. Every
-     column sits in the one row, so a column placed in an earlier track than the one before it never opens a second row. */
-  .panes > .list, .panes > .read, .panes > .side { grid-row: 1; }
+  /* Each column keeps its own track, and the epic page takes the reader's. Every column sits in the one row, so a column
+     placed in an earlier track than the one before it never opens a second row. */
+  .panes > .list, .panes > .read, .panes > section.page { grid-row: 1; }
   .panes > .list { grid-column: 1; }
   .panes > .read { grid-column: 2; }
-  /* With no epic column shown and no pin, the reader takes every track right of the list: no track is left empty. */
-  .panes:not(.split):has(> .side[hidden]) > .read { grid-column: 2 / -1; }
+  /* With no pin the reader and the epic page take every track right of the list: no track is left empty. */
+  .panes:not(.split) > .read, .panes > section.page { grid-column: 2 / -1; }
   .panes > .read.pinned { grid-column: 3; }
-  .panes > .side { grid-column: 3; }
   .panes.split { grid-template-columns: 440px minmax(0, 1fr) minmax(0, 1fr); }
-  /* With a pin the epic column takes the reader's track, and a step hides it. */
-  .panes.split .side { grid-column: 2; }
-  .panes.split.with-step .side { display: none; }
-  .list, .read, .side { min-height: 0; }
+  /* With a pin the epic page keeps the reader's track, and the pinned reader the third. */
+  .panes.split > section.page { grid-column: 2; }
+  .list, .read, section.page { min-height: 0; }
   .list {
     position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--crust);
     border-right: 1px solid var(--surface0);
@@ -101,7 +109,7 @@ button, input, textarea, select { font-family: var(--mono); }
   .read > .reader { min-height: 0; overflow-y: auto; padding: 18px 28px 10px; }
   .head { padding: 12px 28px 11px; }
   .send { min-width: 0; padding: 0 28px 14px; }
-  .side { overflow-y: auto; padding: 16px 20px 24px; border-left: 1px solid var(--rule); }
+  section.page { overflow-y: auto; padding: 18px 28px 10px; border-left: 1px solid var(--rule); }
 }
 
 @media (min-width: 760px) and (max-width: 1500px) {
@@ -109,20 +117,10 @@ button, input, textarea, select { font-family: var(--mono); }
   .panes.split { grid-template-columns: 400px minmax(0, 1fr) minmax(0, 1fr); }
 }
 
-/* From 760px to 1100px the list narrows to 380px, the epic column takes the reader's track on an epic, and a step hides
-   the epic column so the reader keeps the room. */
+/* From 760px to 1100px the list narrows to 380px, and the epic page takes the reader's track beside it. */
 @media (min-width: 760px) and (max-width: 1100px) {
   .panes { grid-template-columns: 380px minmax(0, 1fr); }
-  .panes > .side { grid-column: 2; }
   .panes.split { grid-template-columns: 380px minmax(0, 1fr) minmax(0, 1fr); }
-  .panes.with-step .side { display: none; }
-}
-
-/* From 1700px a pin adds a fourth track, and the epic column moves into it. The :not([hidden]) leaves a hidden column
-   hidden, so display: block does not undo the hidden attribute. */
-@media (min-width: 1700px) {
-  .panes.split { grid-template-columns: 440px minmax(0, 1fr) minmax(0, 1fr) 380px; }
-  .panes.split .side:not([hidden]) { grid-column: 4; display: block; }
 }
 
 .rows { min-width: 0; }
@@ -292,9 +290,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .pill .g { flex: none; width: 11px; height: 11px; margin: 0; border-radius: 50%; }
 .pill .tool { font-weight: 400; color: var(--blue); }
 .pill .g-working { animation: rot 1.1s linear infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .pill .g-working, .b-row .g-working, .strip i.k-now, .pips i.k-now { animation: none; }
-}
 .pill.tone-working { --tone: var(--yellow); }
 .pill.tone-waiting, .pill.tone-held { --tone: var(--peach); }
 .pill.tone-done { --tone: var(--green); }
@@ -461,131 +456,150 @@ button, input, textarea, select { font-family: var(--mono); }
 .caret { display: inline-block; width: .6em; height: 1.05em; margin-left: 1px; vertical-align: -0.18em; background: var(--text); animation: blink 1.1s steps(1) infinite; }
 .caret.soft { width: 2px; background: var(--mauve); }
 
-/* The epic column: its head, the requirements, the chart, the task rows, the now card and the step list under its fold. */
-.epic-view { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.epic-head { min-width: 0; }
-.epic-head .problem { margin: 0; color: var(--red); overflow-wrap: anywhere; }
-.epic-view ul, .epic-view ol { margin: 0; padding: 0; list-style: none; }
-.epic-view ol.requirements { display: grid; gap: 1px; }
-.epic-view .requirement { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; font: 12px/18px var(--mono); }
-.requirement .rid { font-weight: 700; color: var(--subtext1); }
-.requirement .text { color: var(--text); overflow-wrap: anywhere; }
-.requirement .kind { color: var(--overlay0); }
-.epic-view .requirement .conclusion { grid-column: 2 / -1; margin: 0; font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
-.epic-view .requirement .runs { grid-column: 1 / -1; display: grid; gap: 4px; }
-.epic-view .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
-.epic-view .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
-.epic-view .run .phase { font-weight: 700; color: var(--subtext1); }
-.epic-view .run .pass.ok { color: var(--green); }
-.epic-view .run .log-toggle {
+/* ============ the epic page, in the reader's track: its title row, now block, orrery, happenings, proof and release ============ */
+.epic-page { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* A page moving deeper drills in over the drill move, and a page coming back leaves in over the leave move. */
+section.page.drill { animation: move-drill var(--move-drill); }
+section.page.leave { animation: move-leave var(--move-leave); }
+.epic-page p { margin: 0; }
+.epic-page ul, .epic-page ol { margin: 0; padding: 0; list-style: none; }
+.epic-page h3 { margin: 0; font: 700 10.5px/14px var(--mono); letter-spacing: .13em; color: var(--overlay1); }
+.epic-page h3 .sub { margin-left: 6px; font-weight: 400; letter-spacing: 0; color: var(--overlay0); }
+.epic-page .sure { font: 12px/20px var(--mono); color: var(--peach); }
+/* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
+.title-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.title-row .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 12px/22px var(--mono); color: var(--overlay1); }
+.title-row .sep { color: var(--overlay0); }
+.title-row .crumb.here { font-weight: 700; color: var(--text); }
+.title-row .state { flex: none; font: 700 11.5px/22px var(--mono); color: var(--subtext0); transition: color var(--move-state); }
+.title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11.5px/22px var(--mono); color: var(--peach); transition: color var(--move-state); }
+.title-row .acts { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; }
+/* The buttons press in the press move: a pressed button shrinks a little and darkens to surface1. */
+button.act, .back, .crumb { transition: transform var(--move-press), background-color var(--move-press); }
+button.act {
+  padding: 2px 10px; border: 0; border-radius: 6px; cursor: pointer;
+  background: var(--surface0); color: var(--text); font: 12px/20px var(--mono);
+  appearance: none; -webkit-appearance: none;
+}
+button.act.primary { background: var(--mauve); color: var(--crust); font-weight: 700; }
+.back {
+  flex: none; width: 26px; height: 22px; padding: 0; border: 0; border-radius: 6px; cursor: pointer;
+  background: none; color: var(--subtext0); font: 16px/22px var(--mono);
+  appearance: none; -webkit-appearance: none;
+}
+.crumb {
+  padding: 0; border: 0; background: none; cursor: pointer; color: var(--subtext0); font: inherit;
+  appearance: none; -webkit-appearance: none;
+}
+button.act:active, .back:active, .crumb:active { transform: scale(.97); background-color: var(--surface1); }
+/* The now block: the sentence the epic is on, over its blocker. A question draws as a form, a park as its line and Retry,
+   and Stop asks first. */
+.now-block { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.now-block .now { font: 13px/19px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.now-block .blocked { color: var(--peach); overflow-wrap: anywhere; }
+.now-block .answer { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; min-width: 0; }
+.now-block .answer .question { color: var(--peach); white-space: pre-wrap; overflow-wrap: anywhere; }
+.now-block .answer textarea {
+  width: 100%; min-height: 56px; padding: 6px 8px; border: 0; border-radius: 6px; resize: vertical; outline: 0;
+  background: var(--mantle); box-shadow: inset 0 0 0 1px var(--surface1); color: var(--text); font: 12.5px/1.45 var(--mono);
+}
+.now-block .answer textarea:focus-visible { box-shadow: inset 0 0 0 1px var(--mauve); }
+.epic-page .summary {
+  display: block; width: 100%; padding: 5px 10px; border: 0; border-radius: 7px; cursor: pointer;
+  background: var(--mantle); color: var(--subtext0); text-align: left; font: 12px/20px var(--mono); overflow-wrap: anywhere;
+  appearance: none; -webkit-appearance: none;
+}
+.epic-page .implementation { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* The orrery: the wedges as rings of phase cells, the planned rim outside them, the requirement arcs and the centre count.
+   A cell and an arc change colour over the state move. */
+.orrery { display: block; width: 100%; max-width: 404px; height: auto; margin-inline: auto; }
+.orrery text { font-family: var(--mono); }
+.orrery .cell, .orrery .req { transition: fill var(--move-state); }
+.orrery .cell.passed { fill: var(--green); }
+.orrery .cell.ahead, .orrery .cell.planned { fill: color-mix(in srgb, var(--surface0) 60%, var(--crust)); }
+.orrery .cell.now { fill: var(--tone); }
+.orrery .cell.open { cursor: pointer; }
+.orrery .req.proven { fill: var(--green); }
+.orrery .req.open { fill: color-mix(in srgb, var(--overlay0) 45%, transparent); }
+.orrery .req-id { font-size: 9px; font-weight: 700; fill: var(--subtext0); }
+.orrery .phase-name { font-size: 8.5px; fill: var(--overlay0); }
+.orrery .count { font-size: 34px; font-weight: 700; fill: var(--text); }
+.orrery .count-of { font-size: 10.5px; fill: var(--overlay1); }
+/* A running wedge's now cell glows and pulses; under reduced motion the glow holds still at half strength. */
+.orrery .glow {
+  fill: var(--yellow); stroke: var(--yellow); stroke-width: 4; stroke-linejoin: round; pointer-events: none;
+  animation: orbit-glow 1.8s ease-in-out infinite;
+}
+@keyframes orbit-glow { 0%, 100% { opacity: .8; } 50% { opacity: .2; } }
+/* A tone names one colour: a running wedge's now cell and its Now row take it. */
+.t-run { --tone: var(--yellow); }
+.t-mine { --tone: var(--peach); }
+.t-bad { --tone: var(--red); }
+.t-acc { --tone: var(--teal); }
+.t-ok { --tone: var(--green); }
+.epic-page .slice-card { padding: 8px 10px; border-radius: 8px; background: var(--mantle); box-shadow: inset 0 0 0 1px var(--surface0); font: 12px/18px var(--mono); }
+.epic-page .card-task { font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+.epic-page .card-phase, .epic-page .card-time { color: var(--overlay1); }
+.epic-page .card-summary { color: var(--subtext0); overflow-wrap: anywhere; }
+/* Now, Next and Just happened: a line per task, a line that opens its task is a pointer, and the lines of Just happened
+   enter faded over the layout move. */
+.epic-page .happen ul { display: grid; gap: 2px; }
+.epic-page .happen li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/20px var(--mono); color: var(--subtext0); }
+.epic-page .happen.now li { color: var(--tone); }
+.epic-page .happen li.open { cursor: pointer; }
+.epic-page .happen.just li { transition: opacity var(--move-layout), transform var(--move-layout); }
+@starting-style { .epic-page .happen.just li { opacity: 0; transform: translateY(-4px); } }
+.epic-page .happen .more { padding: 0; border: 0; background: none; cursor: pointer; font: 11.5px/20px var(--mono); color: var(--overlay0); appearance: none; -webkit-appearance: none; }
+/* The proof sections: a card per requirement in contract order. A section its phase has not reached dims. */
+.epic-page .proof { display: flex; flex-direction: column; gap: 6px; min-width: 0; transition: opacity var(--move-state); }
+.epic-page .proof.dim { opacity: .45; }
+.epic-page .proof-card { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 7px; font: 12px/18px var(--mono); }
+.epic-page .proof-card.open { cursor: pointer; }
+.epic-page .proof-card .rid { font-weight: 700; color: var(--subtext1); }
+.epic-page .proof-card .text { min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.epic-page .proof-card .kind { color: var(--overlay0); }
+.epic-page .proof-card .conclusion { grid-column: 2 / -1; font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
+.epic-page .proof-card .runs { grid-column: 1 / -1; }
+.epic-page .release-step { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto); gap: 7px; font: 12px/18px var(--mono); }
+.epic-page .release-step .step { font-weight: 700; color: var(--subtext1); }
+.epic-page .release-step .target { min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.epic-page .release-step .undo { min-width: 0; color: var(--overlay1); overflow-wrap: anywhere; }
+.epic-page .release .then { font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
+/* Evidence runs, in a proof card and in a workflow node alike: each run a card of its head line, its log toggles and its
+   artifacts. */
+.epic-page .runs { display: grid; gap: 4px; }
+.epic-page .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
+.epic-page .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-page .run .phase { font-weight: 700; color: var(--subtext1); }
+.epic-page .run .pass.ok { color: var(--green); }
+.epic-page .run .log-toggle {
   justify-self: start; padding: 0; border: 0; background: none; cursor: pointer;
   font: 11px/17px var(--mono); color: var(--overlay1); appearance: none; -webkit-appearance: none;
 }
-.epic-view .run .log {
+.epic-page .run .pending { color: var(--overlay0); }
+.epic-page .run .unavailable { color: var(--red); }
+.epic-page .run .artifacts { display: grid; gap: 4px; }
+.epic-page .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-page .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
+.epic-page .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.epic-page .log {
   margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
   font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.epic-view .run .pending { margin: 0; color: var(--overlay0); }
-.epic-view .run .unavailable { margin: 0; color: var(--red); }
-.epic-view .run .artifacts { display: grid; gap: 4px; }
-.epic-view .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
-.epic-view .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
-.epic-view .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
-.epic-view .chart { display: block; width: 100%; max-width: 404px; height: auto; margin-inline: auto; }
-.epic-view .chart text { font-family: var(--mono); }
-.epic-view .cell.passed { fill: var(--green); }
-.epic-view .cell.now { fill: var(--yellow); }
-.epic-view .cell.held { fill: var(--peach); }
-.epic-view .cell.errored { fill: var(--red); }
-.epic-view .cell.track { fill: color-mix(in srgb, var(--surface0) 60%, var(--crust)); }
-.epic-view .glow {
-  fill: var(--yellow); stroke: var(--yellow); stroke-width: 4; stroke-linejoin: round; pointer-events: none;
-  filter: url(#orbit-glow); animation: orbit-glow 1.8s ease-in-out infinite;
-}
-@keyframes orbit-glow { 0%, 100% { opacity: .8; } 50% { opacity: .2; } }
-@media (prefers-reduced-motion: reduce) { .epic-view .glow { animation: none; opacity: .5; } }
-.epic-view .ring-letter { fill: var(--overlay0); font-size: 8.5px; font-weight: 700; }
-.epic-view .tick { stroke: var(--surface1); stroke-width: 1; }
-.epic-view .tick.major { stroke: var(--overlay0); }
-.epic-view .tick-number { fill: var(--overlay0); font-size: 8.5px; }
-.epic-view .wash { fill: color-mix(in srgb, var(--mauve) 16%, var(--crust)); }
-.epic-view .outline { fill: none; stroke: var(--mauve); stroke-width: 1.5; stroke-linejoin: round; }
-.epic-view .outline.hover { fill: color-mix(in srgb, var(--text) 6%, transparent); stroke: color-mix(in srgb, var(--text) 55%, transparent); stroke-width: 1; }
-.epic-view .hand { fill: var(--mauve); }
-.epic-view .readout text { fill: var(--overlay1); }
-.epic-view .readout .count { font-size: 34px; font-weight: 700; fill: var(--text); }
-.epic-view .readout .total { font-weight: 400; }
-.epic-view .readout .caption { font-size: 11px; }
-.epic-view .readout .tallies { font-size: 10.5px; }
-.epic-view .readout .dim { fill: var(--overlay1); }
-.epic-view .readout .ordinal { font-size: 9px; fill: var(--overlay0); }
-.epic-view .readout .label { font-weight: 700; fill: var(--text); }
-.epic-view .readout .status { font-size: 10.5px; }
-.epic-view .readout .letter { font-size: 11px; font-weight: 700; }
-.epic-view .readout .passed { fill: var(--green); }
-.epic-view .readout .now { fill: var(--yellow); }
-.epic-view .readout .held { fill: var(--peach); }
-.epic-view .readout .errored { fill: var(--red); }
-.epic-view .readout .track { fill: var(--surface1); }
-.epic-view .chart-key { margin: 2px 0 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0 12px; font-size: 11px; line-height: 18px; color: var(--overlay0); }
-.epic-view .chart-key .letter { font-weight: 700; color: var(--overlay1); }
-.epic-view .swatch { display: inline-block; width: 9px; height: 5px; margin-right: 6px; border-radius: 1px; vertical-align: 1px; }
-.epic-view .swatch.passed { background: var(--green); }
-.epic-view .swatch.now { background: var(--yellow); }
-.epic-view .swatch.held { background: var(--peach); }
-.epic-view .swatch.errored { background: var(--red); }
-.epic-view .no-steps { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.epic-view .empty-orbits { width: 132px; height: 132px; }
-.epic-view .orbit { fill: none; stroke: var(--surface0); stroke-width: 1.5px; stroke-dasharray: 2 5; }
-.epic-view .eyebrow { margin: 0; font: 700 10.5px/14px var(--mono); letter-spacing: .13em; color: var(--overlay1); }
-.epic-view .eyebrow .sub { font-weight: 400; letter-spacing: 0; color: var(--overlay0); margin-left: 6px; }
-.epic-view .head-line { display: flex; align-items: baseline; gap: 9px; min-width: 0; white-space: nowrap; }
-.epic-view .head-line .slug { flex: none; margin: 0; font: 700 14px/20px var(--mono); }
-.epic-view .head-line .repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11.5px/20px var(--mono); color: var(--overlay1); }
-.epic-view .head-line .rt { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--subtext0); }
-.epic-view .strip { height: 4px; margin: 9px 0 0; }
-.epic-view .tasks { display: grid; gap: 1px; margin: 0 -8px; }
-.epic-view .task {
-  display: grid; grid-template-columns: 14px minmax(0, auto) minmax(0, 1fr) auto; gap: 1px 7px; align-items: center;
-  padding: 4px 8px 5px; border-radius: 8px; font: 12px/18px var(--mono);
-}
-.epic-view .task .um { text-align: center; font-weight: 700; color: var(--k, var(--overlay0)); }
-.epic-view .task .um.g-working { width: 10px; height: 10px; justify-self: center; border-radius: 50%; animation: rot 1.1s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .epic-view .task .um.g-working { animation: none; } }
-.epic-view .task .slug, .epic-view .task .agent, .epic-view .task .line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.epic-view .task .slug { color: var(--subtext1); }
-.epic-view .task .agent { color: var(--overlay0); }
-.epic-view .task .line { grid-column: 2 / -1; font: 11px/15px var(--mono); color: var(--overlay1); }
-.epic-view .task.cur { background: var(--surface0); box-shadow: inset 0 0 0 1px var(--mauve); }
-.epic-view .task.cur .slug { font-weight: 700; color: var(--text); }
-.epic-view .task.held .um, .epic-view .task.held .line { color: var(--peach); }
-.epic-view .task.out .slug, .epic-view .task.out .line { color: var(--overlay0); }
-.epic-view .now-card { padding: 10px 12px 11px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--surface0); }
-.epic-view .now-card .cap { font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--overlay1); }
-.epic-view .now-card p { margin: 4px 0 0; }
-.epic-view .now-card .doing { font: 13px/19px var(--mono); }
-.epic-view .now-card .m { margin-top: 7px; font: 11.5px/17px var(--mono); color: var(--overlay1); }
-.epic-view .steps-fold { display: block; width: 100%; padding: 5px 10px; border: 0; border-radius: 7px; background: var(--mantle); text-align: left; font: 12px/20px var(--mono); color: var(--subtext0); }
-.epic-view .steps-fold::before { content: "▸"; margin-right: 10px; font-size: 10px; color: var(--overlay0); }
-.epic-view .steps-fold[aria-expanded="true"]::before { content: "▾"; }
-.epic-view .step {
-  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px; border-radius: 6px;
-}
-.epic-view .step.cur { background: var(--surface0); box-shadow: 0 0 0 1px var(--mauve); }
-.epic-view .step .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.epic-view .step .pips { display: flex; flex: none; gap: 4px; align-items: center; }
-.epic-view .pip { width: 8px; height: 8px; border-radius: 50%; }
-.epic-view .pip.ok { background: var(--green); }
-.epic-view .pip.bad { background: var(--red); }
-.epic-view .end { flex: none; color: var(--overlay1); }
-.epic-view .step:has(> .tails) { flex-wrap: wrap; }
-.epic-view .step .tails { flex-basis: 100%; min-width: 0; }
-.epic-view .step .tails .log {
-  margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
-  font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.epic-view .step .tail-label { color: var(--overlay1); }
-.side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }
+.epic-page .tail-label { color: var(--overlay1); }
+.epic-page .end { flex: none; color: var(--overlay1); }
+/* The contract page's checks keep their line breaks, as the machines wrote them. */
+.contract .checks { white-space: pre-wrap; }
 
 /* A control that carries .flash shows a mauve ring for a moment after a use; flash.ts adds and removes the class. */
 .flash { outline: 2px solid var(--mauve); outline-offset: 2px; }
+
+/* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
+   leaves by a fade, and the loops hold still. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --move-press: 100ms linear; --move-state: 100ms linear; --move-layout: 100ms linear; --move-drill: 100ms linear; --move-leave: 100ms linear; }
+  section.page.drill { animation: move-fade var(--move-drill); }
+  section.page.leave { animation: move-fade var(--move-leave); }
+  .pill .g-working, .b-row .g-working, .strip i.k-now, .pips i.k-now { animation: none; }
+  .orrery .glow { animation: none; opacity: .5; }
+}
