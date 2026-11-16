@@ -376,15 +376,13 @@ func (r *Runner) carryReview(ctx context.Context, epic string, act Action, at ti
 	return nil
 }
 
-// conclude ends epic at the phase act names, with act's output as its ending body, and then ends the conclusion run at
-// act's path passed. Each write is a no-op on a repeat, so a crash between the two ends nothing twice.
+// conclude ends epic at the phase act names, with act's output as its ending body, and ends the conclusion run at act's
+// path passed, in one write. Split in two, a kill after the ending and before the run's end, with a release moving the
+// phase on in between, left the run running: the next pass decided the ending again and ended the epic a second time.
 func (r *Runner) conclude(ctx context.Context, epic string, act Action, at time.Time) error {
-	if err := r.ending.EndEpic(ctx, epic, act.Phase, act.Output, at); err != nil {
-		return fmt.Errorf("end epic %s: %w", epic, err)
-	}
 	ends := []store.NodeEnd{{Path: act.Path, Outcome: outcomePassed, Output: act.Output}}
-	if err := r.store.EndNodes(ctx, epic, ends, at); err != nil {
-		return fmt.Errorf("end conclusion run %s: %w", act.Path, err)
+	if err := r.ending.EndEpic(ctx, epic, act.Phase, act.Output, ends, at); err != nil {
+		return fmt.Errorf("end epic %s and its conclusion run %s: %w", epic, act.Path, err)
 	}
 	return nil
 }

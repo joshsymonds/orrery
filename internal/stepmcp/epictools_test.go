@@ -251,6 +251,7 @@ func fullContract() *v1.EpicContract {
 			Owner:        "T1",
 			Contributors: []string{"T2"},
 			State:        "pending",
+			Disagreement: "Red was judged fails, but its reproduction exited 0.",
 		}},
 		Premises: []*v1.EpicPremise{{
 			Id:      "P1",

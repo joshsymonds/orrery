@@ -63,18 +63,24 @@ class PoolsScreenTest {
     }
 
     @Test
-    fun aClientBuiltInsideTheContentReloadsTheScreenOnItsOwn() {
-        // The old setup built the client inside the content. The content recomposes once after the screen first
-        // composes, which gave the screen a new client, a new key for its load effect, and a second load nobody asked
-        // for: its Loading and its result could replace what a test had just asserted, and on the unconfined rule its
-        // writes ran on the IO thread beside the main thread's layout.
+    fun aClientBuiltInsideTheContentReloadsTheScreenWhenTheContentRecomposes() {
+        // The old setup built the client inside the content: any recomposition of the content gave the screen a new
+        // client, a new key for its load effect, and a load nobody asked for, whose Loading and result could replace
+        // what a test had just asserted (on the unconfined rule its writes also ran on the IO thread beside the main
+        // thread's layout). The content recomposed on its own in some runs and not others, so this forces one.
+        val recompose = mutableIntStateOf(0)
         FakeOrreryServer().use { server ->
             server.respond(POOLS_STATUS, status(listOf(freeMember(FREE))))
             composeRule.setContent {
+                recompose.intValue
                 PoolsScreen(client = OrreryClient(server.baseUrl), onBack = {}, now = { NOW })
             }
+            awaitTag("member:$FREE")
+            val loadsBefore = statusCalls(server)
 
-            composeRule.awaitUntil("a second load nobody asked for") { statusCalls(server) == 2 }
+            composeRule.runOnIdle { recompose.intValue++ }
+
+            composeRule.awaitUntil("a load nobody asked for") { statusCalls(server) > loadsBefore }
             awaitTag("member:$FREE")
         }
     }
@@ -84,16 +90,21 @@ class PoolsScreenTest {
         // As setScreen does now: one client for the screen's life, so neither the content's own recomposition nor a
         // forced one reloads.
         val recompose = mutableIntStateOf(0)
+        val contentRuns = AtomicInteger()
         FakeOrreryServer().use { server ->
             server.respond(POOLS_STATUS, status(listOf(freeMember(FREE))))
             val client = OrreryClient(server.baseUrl)
             composeRule.setContent {
+                contentRuns.incrementAndGet()
                 recompose.intValue
                 PoolsScreen(client = client, onBack = {}, now = { NOW })
             }
             awaitTag("member:$FREE")
+            val runsBefore = contentRuns.get()
 
             composeRule.runOnIdle { recompose.intValue++ }
+            // The content must really recompose, or "no reload" proves nothing.
+            composeRule.awaitUntil("the content to recompose") { contentRuns.get() > runsBefore }
             composeRule.waitForIdle()
 
             assertEquals("nothing is in flight", null, Quiescence.inFlight())

@@ -333,11 +333,7 @@ func sendPieces(line string) []string {
 			}
 			end += size
 		}
-		piece := line[start:end]
-		if strings.HasSuffix(piece, ";") {
-			piece = piece[:len(piece)-1] + `\;`
-		}
-		pieces = append(pieces, piece)
+		pieces = append(pieces, tmuxctl.Literal(line[start:end]))
 		start = end
 	}
 	return pieces

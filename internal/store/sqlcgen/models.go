@@ -328,6 +328,7 @@ type EpicTask struct {
 	GatePos     int64
 	FindingPos  int64
 	Batch       string
+	Guard       string
 }
 
 type EpicTaskContribute struct {
@@ -377,6 +378,13 @@ type EpicTaskReview struct {
 	Gate     string
 	Step     string
 	Verdict  string
+}
+
+type EpicTaskTestChange struct {
+	Epic     string
+	Task     int64
+	Position int64
+	Path     string
 }
 
 type EpicTell struct {

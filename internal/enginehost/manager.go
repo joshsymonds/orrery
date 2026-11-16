@@ -189,13 +189,16 @@ type Manager struct {
 	// store refuses every write by the close, as a crash leaves it, sets it: a pump blocked on a refused write ends only
 	// when Close cancels it.
 	closeWait time.Duration
-	limit     int
-	writer    *Writer
-	now       func() time.Time
-	notifier  NoticeSink
-	store     Store
-	logger    *slog.Logger
-	metrics   *telemetry.Daemon
+	// promptWritten, when set, is called once a send has written its prompt, before the send ends. Tests set it to hold
+	// a send open while the turn its prompt opened ends.
+	promptWritten func(id string)
+	limit         int
+	writer        *Writer
+	now           func() time.Time
+	notifier      NoticeSink
+	store         Store
+	logger        *slog.Logger
+	metrics       *telemetry.Daemon
 
 	pumps sync.WaitGroup
 	// calls counts the calls under way that can start or end work (see callsInFlight).
@@ -398,7 +401,9 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 	if err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
+	live.sess.ExpectPrompt(writeID)
 	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: req.Prompt, WriteID: writeID}); err != nil {
+		live.sess.DropPrompt(writeID)
 		return id, m.abandon(ctx, live, err)
 	}
 	m.setTurning(live, true)
@@ -577,7 +582,11 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 	writeID, err := newWriteID()
 	if err == nil {
 		prompt.WriteID = writeID
+		live.sess.ExpectPrompt(writeID)
 		err = m.writer.Commit(ctx, id, prompt, store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}})
+		if err != nil {
+			live.sess.DropPrompt(writeID)
+		}
 	}
 	if err != nil {
 		m.setTurning(live, false)
@@ -585,6 +594,9 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 	}
 	if !live.step {
 		m.changed(ctx, id)
+	}
+	if m.promptWritten != nil {
+		defer m.promptWritten(id)
 	}
 	if err = live.sess.Prompt(writeID, text); err != nil {
 		m.setTurning(live, false)
@@ -1638,8 +1650,10 @@ func opensTurn(event session.Event) bool {
 // which clears the mark for the next turn, and whether the turn is handed to the step's observer: a step's turn that ends
 // with no background task live, or whose structured return is the step's done value while one is live (see
 // StepObserver.Done). The hand-off makes the step busy in the same lock hold. A pumped turn's end is followed by another
-// turn when a prompt the session sent is still unanswered after it, as its reader counted at that end or as the session
-// counts now, or when a send is under way: claude runs a prompt sent during a turn as the turn after it. A followed
+// turn when a prompt the session counts as sent is still unanswered after it, as its reader counted at that end or as the
+// session counts now: claude runs a prompt sent during a turn as the turn after it. A prompt counts from before its
+// record is stored (see session.Session.ExpectPrompt), so the send under way of the prompt this very turn answers
+// follows nothing, and a send whose prompt the turn does not answer is still counted. A followed
 // turn end keeps the turn running, hands nothing to the observer and retires nothing. A pumped event that opens a turn
 // (see opensTurn) while no turn runs opens one claude started by itself, as a background task's end starts: the turn is
 // marked running, and noteEvent reports it opened. A draining session whose turn ends
@@ -1685,7 +1699,7 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 	clear(live.requests)
 	interrupted := live.interrupting
 	live.interrupting = false
-	if pumping && (ended.Unanswered > 0 || live.sending > 0 || live.sess.UnansweredPrompts() > 0) {
+	if pumping && (ended.Unanswered > 0 || live.sess.UnansweredPrompts() > 0) {
 		return noted{record: true, interrupted: interrupted, followed: true}
 	}
 	live.turning = false

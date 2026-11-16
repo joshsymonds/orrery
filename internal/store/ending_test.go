@@ -32,7 +32,7 @@ func TestEndEpicCleanStoresStoredBaseAsCleanRevision(t *testing.T) {
 	s := openIntegrateStore(t)
 	endingFreezeReview(t, s)
 
-	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", endingEndedAt()); err != nil {
+	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", nil, endingEndedAt()); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
 	if row := integrateEpicRow(t, s); row.Phase != "clean" {
@@ -52,7 +52,14 @@ func TestEndEpicGapsSetsPhaseAndTellAndLeavesCleanEmpty(t *testing.T) {
 	s := openIntegrateStore(t)
 	endingFreezeReview(t, s)
 
-	if err := s.EndEpic(ctx, integrateEpic, "ended_with_gaps", "Epic ended with 1 gap.", endingEndedAt()); err != nil {
+	if err := s.EndEpic(
+		ctx,
+		integrateEpic,
+		"ended_with_gaps",
+		"Epic ended with 1 gap.",
+		nil,
+		endingEndedAt(),
+	); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
 	if row := integrateEpicRow(t, s); row.Phase != "ended_with_gaps" {
@@ -71,7 +78,7 @@ func TestEndEpicInSamePhaseChangesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	endingFreezeReview(t, s)
-	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", endingEndedAt()); err != nil {
+	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", nil, endingEndedAt()); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
 	if err := sqlcgen.New(s.db).MoveEpicStoredBase(ctx, sqlcgen.MoveEpicStoredBaseParams{
@@ -80,7 +87,7 @@ func TestEndEpicInSamePhaseChangesNothing(t *testing.T) {
 		t.Fatalf("MoveEpicStoredBase: %v", err)
 	}
 
-	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean again.", endingEndedAt()); err != nil {
+	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean again.", nil, endingEndedAt()); err != nil {
 		t.Fatalf("repeat EndEpic: %v", err)
 	}
 	if row := integrateEpicRow(t, s); row.Phase != "clean" {
@@ -90,4 +97,40 @@ func TestEndEpicInSamePhaseChangesNothing(t *testing.T) {
 		t.Errorf("tells of epic %s after a repeat = %q, want one tell %q", integrateEpic, got, "Epic ended clean.")
 	}
 	requireReview(t, s, Review{Frozen: "rev-7", Clean: integrationBase})
+}
+
+// TestEndEpicEndsTheRunsItNamesInTheSameWrite checks that EndEpic ends each running node run it names, passed with its
+// output, in the write that ends the epic, and that a repeat in the phase the epic is already in still ends a run it
+// names that is running.
+func TestEndEpicEndsTheRunsItNamesInTheSameWrite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	endingFreezeReview(t, s)
+	startIntegrateRuns(t, s,
+		NodeRun{Path: "conclude", ID: "id-conclude", Node: "conclude", Kind: "conclude", Attempt: 1},
+		NodeRun{Path: "conclude-again", ID: "id-conclude-again", Node: "conclude-again", Kind: "conclude", Attempt: 1})
+
+	ends := []NodeEnd{{Path: "conclude", Outcome: "passed", Output: "Epic ended clean."}}
+	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", ends, endingEndedAt()); err != nil {
+		t.Fatalf("EndEpic: %v", err)
+	}
+	if run := integrateRun(t, s, "conclude"); run.State != NodeEnded || run.Outcome != "passed" ||
+		run.Output != "Epic ended clean." {
+		t.Errorf("conclude run after EndEpic = %+v, want ended passed with the ending body", run)
+	}
+	if run := integrateRun(t, s, "conclude-again"); run.State != NodeRunning {
+		t.Errorf("conclude-again run after EndEpic = %+v, want running: EndEpic named only conclude", run)
+	}
+
+	again := []NodeEnd{{Path: "conclude-again", Outcome: "passed", Output: "Epic ended clean."}}
+	if err := s.EndEpic(ctx, integrateEpic, "clean", "Epic ended clean.", again, endingEndedAt()); err != nil {
+		t.Fatalf("repeat EndEpic: %v", err)
+	}
+	if run := integrateRun(t, s, "conclude-again"); run.State != NodeEnded || run.Outcome != "passed" {
+		t.Errorf("conclude-again run after a repeat in the same phase = %+v, want ended passed", run)
+	}
+	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{"Epic ended clean."}) {
+		t.Errorf("tells after a repeat = %q, want one tell", got)
+	}
 }

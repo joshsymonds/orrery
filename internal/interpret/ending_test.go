@@ -5,22 +5,28 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // endedEpic is one call a recordingEnding received.
 type endedEpic struct {
 	epic, phase, body string
+	ends              []store.NodeEnd
 	at                time.Time
 }
 
-// recordingEnding is a test Ending: it records each call in order and ends every epic it is asked to.
+// recordingEnding is a test Ending: it records each call in order and ends every epic it is asked to. It ends no node
+// run: a test that needs the runs in ends ended gives the runner the store as its Ending.
 type recordingEnding struct {
 	calls []endedEpic
 }
 
 // EndEpic records the call.
-func (r *recordingEnding) EndEpic(_ context.Context, epic, phase, body string, at time.Time) error {
-	r.calls = append(r.calls, endedEpic{epic: epic, phase: phase, body: body, at: at})
+func (r *recordingEnding) EndEpic(
+	_ context.Context, epic, phase, body string, ends []store.NodeEnd, at time.Time,
+) error {
+	r.calls = append(r.calls, endedEpic{epic: epic, phase: phase, body: body, ends: ends, at: at})
 	return nil
 }
 
@@ -31,10 +37,10 @@ func TestRecordingEndingRecordsThroughTheInterface(t *testing.T) {
 	var ending Ending = fake
 	at := time.Unix(1_700_000_000, 0)
 	ctx := t.Context()
-	if err := ending.EndEpic(ctx, decideEpic, "ended_with_gaps", "Epic ended with 1 gap.", at); err != nil {
+	if err := ending.EndEpic(ctx, decideEpic, "ended_with_gaps", "Epic ended with 1 gap.", nil, at); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
-	if err := ending.EndEpic(ctx, decideEpic, "released", "Epic released.", at.Add(time.Minute)); err != nil {
+	if err := ending.EndEpic(ctx, decideEpic, "released", "Epic released.", nil, at.Add(time.Minute)); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
 	got := make([]string, 0, len(fake.calls))
