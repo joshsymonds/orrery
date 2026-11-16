@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/cli"
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -426,19 +428,44 @@ func TestControlUnavailableWithoutEngine(t *testing.T) {
 	}
 }
 
+// TestControlUnavailableWhenOrreryClosed calls Control while orreryd is away, reached over its unix socket as serve
+// reaches it (cli.SessionHTTPClient): stopped, with its socket file removed, or crashed, with its socket file left and
+// nothing listening. The socket is under the test's own temp dir, so no other test's fake orreryd can answer at its
+// address, as one could at a closed httptest server's TCP port once the kernel hands the port out again.
 func TestControlUnavailableWhenOrreryClosed(t *testing.T) {
 	t.Parallel()
-	_, handler := enginev1connect.NewEngineHandler(&fakeEngine{})
-	srv := httptest.NewServer(handler)
-	engine := enginev1connect.NewEngineClient(http.DefaultClient, srv.URL)
-	srv.Close()
-	home := t.TempDir()
-	dir, resolved := sessionUnder(t, home)
-	control := controlClient(t, newHomedControlHandler(t, home, engine, 0))
+	for _, tc := range []struct {
+		name   string
+		unlink bool
+	}{
+		{name: "socket_removed", unlink: true},
+		{name: "socket_stale", unlink: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			socket := filepath.Join(t.TempDir(), "orreryd.sock")
+			ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+			if err != nil {
+				t.Fatalf("listen %s: %v", socket, err)
+			}
+			ln.SetUnlinkOnClose(tc.unlink)
+			if err = ln.Close(); err != nil {
+				t.Fatalf("close orreryd's listener: %v", err)
+			}
+			_, statErr := os.Stat(socket)
+			if removed := errors.Is(statErr, os.ErrNotExist); removed != tc.unlink {
+				t.Fatalf("socket file after close: stat err = %v, want removed = %v", statErr, tc.unlink)
+			}
+			engine := enginev1connect.NewEngineClient(cli.SessionHTTPClient(socket), cli.SessionBaseURL)
+			home := t.TempDir()
+			dir, resolved := sessionUnder(t, home)
+			control := controlClient(t, newHomedControlHandler(t, home, engine, 0))
 
-	for _, tc := range controlCalls(dir, resolved) {
-		_, err := tc.call(t.Context(), control)
-		assertConnectError(t, err, connect.CodeUnavailable, "session service unavailable")
+			for _, call := range controlCalls(dir, resolved) {
+				_, err := call.call(t.Context(), control)
+				assertConnectError(t, err, connect.CodeUnavailable, "session service unavailable")
+			}
+		})
 	}
 }
 
