@@ -463,16 +463,11 @@ export function App({
       }
       return;
     }
-    // Keys typed in the reply box are text: only Escape leaves it.
-    const composerBoxes = [
-      ...composerInputs.current.values(),
-      ...pinnedInputs.current.values(),
-      ...stepInputs.current.values(),
-    ];
-    const focusedComposer = composerBoxes.find((box) => box === document.activeElement);
-    if (focusedComposer !== undefined) {
+    // Keys typed in a text box are text: only Escape leaves it. That covers the reply boxes and the answer box.
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
       if (event.key === "Escape") {
-        focusedComposer.blur();
+        focused.blur();
       }
       return;
     }
