@@ -16,9 +16,9 @@ import (
 
 // newStepIdleManager returns a step manager whose clock is set by hand, so a test can stop an idle step with checkIdle.
 // Its store is at the returned path.
-func newStepIdleManager(t *testing.T, stepCap int, sink NoticeSink) (*Manager, string, *idleClock) {
+func newStepIdleManager(t *testing.T, sink NoticeSink) (*Manager, string, *idleClock) {
 	t.Helper()
-	m, path := newStepManager(t, stepCap, fakeClaudePath(t), sink)
+	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
 	clock := newIdleClock()
 	m.now = clock.now
 	return m, path, clock
@@ -39,10 +39,144 @@ func stepDone(t *testing.T, h store.EngineHistory, reply string) bool {
 	return hasBlock(t, h, reply) && lastState(t, h) == string(protocol.StateDone)
 }
 
+// inlineAgentName is the agent that inlineAgentsJSON defines. No file on a step's HOME defines it.
+const inlineAgentName = "inline-check"
+
+// inlineAgentsJSON is the JSON object of agent definitions that defines inlineAgentName. It has no spaces, so it stays one
+// field of the fake claude's argument line.
+const inlineAgentsJSON = `{"inline-check":{"description":"checks","prompt":"check"}}`
+
+func TestInlineAgentStepStartsAndRespawnsWithAgentsFlags(t *testing.T) {
+	t.Parallel()
+	m, path, clock := newStepIdleManager(t, &fakeSink{})
+	dir := t.TempDir()
+	err := m.StartStep(t.Context(), StepSession{
+		ID: stepA, Dir: dir, Prompt: "hi", Agent: inlineAgentName, Agents: inlineAgentsJSON, Schema: stepSchema,
+		Ops: []store.EngineOp{store.StepAdd{
+			ID: stepA, Agent: inlineAgentName, Agents: inlineAgentsJSON, Prompt: "hi", Schema: stepSchema,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+		return stepDone(t, h, "fake reply 1")
+	})
+	pid := fakePID(t, dir)
+
+	clock.advance(10 * time.Minute)
+	m.checkIdle(t.Context())
+	requireGone(t, pid)
+
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
+		t.Fatalf("Continue of an idle-stopped inline-agent step: %v", err)
+	}
+	waitHistory(t, engineOf(m), path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
+		return stepDone(t, h, "fake reply 2")
+	})
+	if err := m.Stop(t.Context(), stepA); err != nil {
+		t.Fatalf("Stop of the respawned step: %v", err)
+	}
+
+	args := fakeArgs(t, dir)
+	if len(args) != 2 {
+		t.Fatalf("fake claude starts = %q, want two", args)
+	}
+	for i, line := range args {
+		if !hasFlagValue(line, "--agents", inlineAgentsJSON) {
+			t.Fatalf("start %d args = %q, want --agents %s", i+1, line, inlineAgentsJSON)
+		}
+		if !hasFlagValue(line, "--agent", inlineAgentName) {
+			t.Fatalf("start %d args = %q, want --agent %s", i+1, line, inlineAgentName)
+		}
+	}
+	if !hasFlagValue(args[1], "--resume", "session_1") {
+		t.Fatalf("respawn args = %q, want --resume session_1", args[1])
+	}
+}
+
+func TestStepWithMalformedAgentsIsRefusedWithNothingStored(t *testing.T) {
+	t.Parallel()
+	m, _ := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	// Each Agents value is refused although the step's agent, reviewer, resolves from its file, so only the refusal of
+	// the JSON keeps the start from running.
+	for _, agents := range []string{`not json`, `["reviewer"]`, `{"reviewer":"not an object"}`, `null`} {
+		dir := t.TempDir()
+		err := m.StartStep(t.Context(), StepSession{
+			ID: stepA, Dir: dir, Prompt: "hi", Agent: "reviewer", Agents: agents, Schema: stepSchema,
+			Ops: []store.EngineOp{store.StepAdd{
+				ID: stepA, Agent: "reviewer", Agents: agents, Prompt: "hi", Schema: stepSchema,
+			}},
+		})
+		if !errors.Is(err, ErrBadAgents) {
+			t.Fatalf("StartStep with agents %s: err = %v, want ErrBadAgents", agents, err)
+		}
+		if _, err := m.store.Step(t.Context(), stepA); !errors.Is(err, store.ErrNoStep) {
+			t.Fatalf("steps row after agents %s: err = %v, want ErrNoStep", agents, err)
+		}
+		if _, err := m.store.EngineSession(t.Context(), stepA); !errors.Is(err, store.ErrNoEngineSession) {
+			t.Fatalf("engine row after agents %s: err = %v, want ErrNoEngineSession", agents, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "fakeclaude.args")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("claude started after agents %s: stat err = %v, want it absent", agents, err)
+		}
+	}
+}
+
+func TestStepsStartCarriesInlineAgentsToSessionAndRow(t *testing.T) {
+	t.Parallel()
+	f := newStepStartFixture(t)
+	start := stepStartReadOnly(stepGitTestRepo(t), "HEAD")
+	start.Agent = inlineAgentName
+	start.Agents = inlineAgentsJSON
+	id, err := f.steps.Start(t.Context(), start)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got := f.sessions.first(t).Agents; got != inlineAgentsJSON {
+		t.Fatalf("session agents = %q, want %q", got, inlineAgentsJSON)
+	}
+	row, err := f.store.Step(t.Context(), id)
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if row.Agents != inlineAgentsJSON {
+		t.Fatalf("steps row agents = %q, want %q", row.Agents, inlineAgentsJSON)
+	}
+}
+
+func TestAgentGateStartMayCarryInlineAgents(t *testing.T) {
+	t.Parallel()
+	f := newStepStartFixture(t)
+	gate := stepAgentGate(inlineAgentName)
+	start := stepStartReadOnly(stepGitTestRepo(t), "HEAD")
+	start.Agent = ""
+	start.Schema = ""
+	start.Prompt = "review the change"
+	start.AgentGate = &gate
+	start.Agents = inlineAgentsJSON
+	id, err := f.steps.Start(t.Context(), start)
+	if err != nil {
+		t.Fatalf("Start of an agent gate with inline agents: %v", err)
+	}
+	session := f.sessions.first(t)
+	if session.Agent != inlineAgentName || session.Agents != inlineAgentsJSON {
+		t.Fatalf("session agent = %q agents = %q, want %q and %q", session.Agent, session.Agents,
+			inlineAgentName, inlineAgentsJSON)
+	}
+	row, err := f.store.Step(t.Context(), id)
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if row.Agents != inlineAgentsJSON {
+		t.Fatalf("steps row agents = %q, want %q", row.Agents, inlineAgentsJSON)
+	}
+}
+
 func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path, clock := newStepIdleManager(t, 1, sink)
+	m, path, clock := newStepIdleManager(t, sink)
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -131,7 +265,7 @@ func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
 
 func TestSayToIdleStoppedStepStillRefuses(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newStepIdleManager(t, 1, &fakeSink{})
+	m, path, clock := newStepIdleManager(t, &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -232,7 +366,7 @@ func TestRespawnOfStepWhoseDirIsGoneRecordsFailedWithoutNotice(t *testing.T) {
 
 func TestRespawnOfStepWhoseAgentNoLongerResolvesFailsBeforeClaude(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newStepIdleManager(t, 1, &fakeSink{})
+	m, path, clock := newStepIdleManager(t, &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)

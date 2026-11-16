@@ -7,8 +7,42 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
 )
+
+// Subject is what a verifier step checks a finding of: the epic, its task at task stage and nil at epic stage, and the
+// base and revision the change spans.
+type Subject struct {
+	Epic           store.EpicRow
+	Task           *store.EpicTask
+	Base, Revision string
+}
+
+// VerifierStart returns the start of the verifier step id that checks finding of subject, under agent: a read-only step
+// at the subject's revision in the epic's repository, with the verifier schema and its return check. The step carries
+// the epic's label, and its task's label when the subject is a task.
+func VerifierStart(subject Subject, finding store.TaskFinding, id, agent string) enginehost.StepStart {
+	epic := subject.Epic
+	start := enginehost.StepStart{
+		ID:          id,
+		Agent:       agent,
+		ReadOnly:    true,
+		Workspace:   epic.Repository,
+		Revision:    subject.Revision,
+		Schema:      VerifierSchema,
+		ReturnCheck: VerifierCheck,
+		DoneValue:   "done",
+		Epic:        epic.ID,
+	}
+	if subject.Task == nil {
+		start.Prompt = epicVerifierPrompt(epic, subject.Base, subject.Revision, finding)
+	} else {
+		start.Prompt = VerifierPrompt(epic, *subject.Task, subject.Base, subject.Revision, finding)
+		start.Task = taskLabel(subject.Task.Seq)
+	}
+	return start
+}
 
 // VerifierRole is the role text of a verifier step: the read-only role that confirms or drops one finding a review
 // raised.
@@ -56,19 +90,41 @@ func VerifierPrompt(
 			requirementsHeading,
 		},
 		requirementLines(epic.Requirements, task.Requirements),
-		[]string{
-			fmt.Sprintf(
-				"The change is %s..%s; this worktree is checked out at %s.", base, revision, revision,
-			),
-			"Finding " + finding.ID + ": " + finding.Claim,
-			"Citation: " + finding.Citation,
-			"Location: " + finding.Location,
-			"Evidence: " + finding.Evidence,
-			"Verify by: " + finding.VerifyBy,
-			"Return exactly one result, for " + finding.ID + ".",
-		},
+		findingLines(base, revision, finding),
 	)
 	return VerifierRole + "\n" + strings.Join(body, "\n")
+}
+
+// epicVerifierPrompt renders the prompt of a verifier step for one finding of epic: the role, the epic and every
+// Requirement it declares, the range the change spans from base to revision, and the finding.
+func epicVerifierPrompt(epic store.EpicRow, base, revision string, finding store.TaskFinding) string {
+	ids := make([]string, len(epic.Requirements))
+	for i, requirement := range epic.Requirements {
+		ids[i] = requirement.ID
+	}
+	body := slices.Concat(
+		[]string{
+			fmt.Sprintf("Epic %s (%s)", epic.ID, epic.Title),
+			requirementsHeading,
+		},
+		requirementLines(epic.Requirements, ids),
+		findingLines(base, revision, finding),
+	)
+	return VerifierRole + "\n" + strings.Join(body, "\n")
+}
+
+// findingLines renders the range the change spans from base to revision, the finding with its citation, location,
+// evidence and verify-by step, and the closing instruction to return one result for it.
+func findingLines(base, revision string, finding store.TaskFinding) []string {
+	return []string{
+		fmt.Sprintf("The change is %s..%s; this worktree is checked out at %s.", base, revision, revision),
+		"Finding " + finding.ID + ": " + finding.Claim,
+		"Citation: " + finding.Citation,
+		"Location: " + finding.Location,
+		"Evidence: " + finding.Evidence,
+		"Verify by: " + finding.VerifyBy,
+		"Return exactly one result, for " + finding.ID + ".",
+	}
 }
 
 // VerifierCheck is the return check of a verifier step. It refuses a return that does not hold exactly one result,

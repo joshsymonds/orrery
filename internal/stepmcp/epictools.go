@@ -16,7 +16,7 @@ import (
 // epicCreateArgs is the arguments of epic_create, described for its input schema. The handler decodes the arguments
 // with protojson, which refuses an unknown key, so the struct is never decoded into.
 type epicCreateArgs struct {
-	Contract  json.RawMessage    `json:"contract"            jsonschema:"the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion and judge."`
+	Contract  json.RawMessage    `json:"contract"            jsonschema:"the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewers. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion and judge. Each entry of reviewers carries name, enabled, stage, must, mustNot, prompt, agent, model, tools, effort, limit and verify."`
 	Decisions []epicDecisionArgs `json:"decisions,omitempty"`
 	Workflow  string             `json:"workflow,omitempty"  jsonschema:"the workflow the epic pins, read at the contract's base: a repository file .orrery/workflows/<name>.yaml, else the built-in of that name; omit it to pin epic"`
 }

@@ -58,9 +58,11 @@ type StepNeed struct {
 // StepAdd inserts a step row, started now. The row is never pruned. Epic and Task are optional labels; a step with
 // an empty Epic is never listed by LabelledSteps. Gate and GateLimit are the resolved argv and limit of the gate the
 // step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
+// Agents is the JSON object of the inline agent definitions the step is started with, empty when it has none.
 type StepAdd struct {
 	ID           string
 	Agent        string
+	Agents       string
 	Prompt       string
 	Schema       string
 	Workspace    string
@@ -156,6 +158,7 @@ type StepTurnEnd struct {
 type StepRow struct {
 	ID              string
 	Agent           string
+	Agents          string
 	Prompt          string
 	Schema          string
 	Workspace       string
@@ -217,32 +220,13 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		return fmt.Errorf("encode gate needs of step %s: %w", op.ID, err)
 	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
-		ID:           op.ID,
-		Agent:        op.Agent,
-		Prompt:       op.Prompt,
-		OutputSchema: op.Schema,
-		Workspace:    op.Workspace,
-		Revision:     op.Revision,
-		Worktree:     op.Worktree,
-		CheckoutHead: op.CheckoutHead,
-		CheckoutHash: op.CheckoutHash,
-		DoneValue:    op.DoneValue,
-		ReadOnly:     op.ReadOnly,
-		Owned: string(
-			owned,
-		),
-		Unowned:       boolInt(op.Unowned),
-		Gate:          string(gate),
-		GateName:      op.GateName,
-		GateSource:    op.GateSource,
-		GateNeeds:     string(gateNeeds),
-		GateLimit:     int64(op.GateLimit),
-		ModelLimit:    int64(op.ModelLimit),
-		Started:       now.Unix(),
-		Epic:          op.Epic,
-		Task:          op.Task,
-		LoopStage:     StepStageTurn,
-		LoopStageFrom: now.Unix(),
+		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
+		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
+		DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
+		Owned: string(owned), Unowned: boolInt(op.Unowned), Gate: string(gate), GateName: op.GateName,
+		GateSource: op.GateSource, GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
+		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
+		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -478,6 +462,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	return StepRow{
 		ID:              row.ID,
 		Agent:           row.Agent,
+		Agents:          row.Agents,
 		Prompt:          row.Prompt,
 		Schema:          row.OutputSchema,
 		Workspace:       row.Workspace,

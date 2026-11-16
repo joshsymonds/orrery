@@ -58,6 +58,8 @@ const (
 	sectionGates = "gates"
 	// sectionPools is the top-level table of a project file that internal/pools reads.
 	sectionPools = "pools"
+	// sectionReviewers is the top-level array of tables of a project file that internal/reviewers reads.
+	sectionReviewers = "reviewers"
 	// keyAgent is the gate key that names the agent an agent gate runs.
 	keyAgent = "agent"
 	// keyNeeds is the gate key that names the pool members a gate takes.
@@ -110,7 +112,8 @@ func ParseProject(path string, data []byte) ([]Gate, error) {
 	return toGates(path, md, doc)
 }
 
-// decode reads the file and refuses any key it does not define. project admits the pools table of a project file.
+// decode reads the file and refuses any key it does not define. project admits the pools and reviewers tables of a
+// project file.
 func decode(path string, data []byte, project bool) (toml.MetaData, gateDocument, error) {
 	var doc gateDocument
 	md, err := toml.Decode(string(data), &doc)
@@ -135,7 +138,7 @@ func checkKeys(md toml.MetaData, project bool) error {
 			}
 		case len(key) == 3 && key[0] == sectionGates && slices.Contains(definedKeys(), key[2]):
 		case len(key) == 4 && key[0] == sectionGates && key[2] == keyNeeds:
-		case project && key[0] == sectionPools:
+		case project && slices.Contains([]string{sectionPools, sectionReviewers}, key[0]):
 		default:
 			return fmt.Errorf("unknown key %s", key)
 		}

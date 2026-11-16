@@ -239,6 +239,32 @@ func TestParseLeavesGatesTablesToGates(t *testing.T) {
 	}
 }
 
+// reviewerEntry is one [[reviewers]] entry, which a project file declares beside its gates and pools.
+func reviewerEntry() string {
+	return `[[reviewers]]
+name = "money_rail_check"
+stage = ["task"]
+model = "sonnet"
+prompt = "Check the money rail."
+must = ["the rail holds"]
+`
+}
+
+func TestParseLeavesReviewersTablesToReviewers(t *testing.T) {
+	pools := table("pools.alpha", poolKeys()...)
+	want, err := Parse(testPath, []byte(pools))
+	if err != nil {
+		t.Fatalf("Parse without reviewers: %v", err)
+	}
+	got, err := Parse(testPath, []byte(pools+reviewerEntry()))
+	if err != nil {
+		t.Fatalf("Parse with reviewers: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Parse with reviewers = %+v, want %+v", got, want)
+	}
+}
+
 func TestParseReadsGatesOnlyFileAsNoPools(t *testing.T) {
 	gate := table("gates.unit", `argv = ["/bin/true"]`, `limit = 5`, `needs = { alpha = 1 }`)
 	for _, text := range []string{gateTables(), gate} {

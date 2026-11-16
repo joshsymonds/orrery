@@ -49,13 +49,16 @@ func fakeStdinUserLines(t *testing.T, dir string) int {
 	return n
 }
 
+// TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID starts a session whose fake claude holds its turn, writing
+// nothing, until the test opens it. The row Start wrote is read before any output can move it, so it must be tracked
+// at offset 0, and the prompt stored with its write id. Then the turn runs and its prompt reaches the fake once.
 func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	s := openTestStore(t, path)
 	dir := t.TempDir()
 
-	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); err != nil {
+	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "WAITOPEN"}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	row, err := s.EngineSession(t.Context(), chosenID)
@@ -69,8 +72,11 @@ func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HolderPrompts: %v", err)
 	}
-	if len(prompts) != 1 || prompts[0].Text != "hi" || prompts[0].WriteID == "" {
-		t.Fatalf("holder prompts = %+v, want one prompt \"hi\" with a write id", prompts)
+	if len(prompts) != 1 || prompts[0].Text != "WAITOPEN" || prompts[0].WriteID == "" {
+		t.Fatalf("holder prompts = %+v, want one prompt \"WAITOPEN\" with a write id", prompts)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
+		t.Fatalf("open the fake's turn: %v", err)
 	}
 	history := waitHistory(t, engineOf(m), path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
