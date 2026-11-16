@@ -289,7 +289,7 @@
   },
   {
     "name": "epic_release",
-    "description": "Resume the stopped release of an epic by id, at its first unfinished step. undoNone names the 1-based positions of undo-none release steps to run again. Returns the stored epic. Refused unless the release is stopped and each position is undo-none.",
+    "description": "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. Returns the stored epic. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
     "inputSchema": {
       "type": "object",
       "properties": {

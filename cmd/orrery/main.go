@@ -118,8 +118,10 @@ subcommands:
                                                 holding its repository's release slot frees the slot and stops
                                                 its open release step instead, and is not paused
   epic retry ID [NODE]                          end an epic's park, or rerun its parked NODE
-  epic release ID [--undo-none N]...            resume an epic's stopped release at its first unfinished step;
-                                                each N runs that undo-none release step (1-based) again
+  epic release ID [--undo-none N]...            resume a stopped release at its first unfinished step, or
+                                                release an epic that ended with gaps on your word, logged as your
+                                                decision (no --undo-none); each N runs that undo-none release step
+                                                (1-based) again
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
