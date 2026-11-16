@@ -63,7 +63,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val CLOCK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+internal val CLOCK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
 
 // Entry keys always start with their kind ("reply:", "tool:", ...), so these never equal one.
