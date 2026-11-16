@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/summary"
 )
@@ -305,7 +306,8 @@ func runClaude(ctx context.Context, claude, stdin string, timeout time.Duration)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	// The run dies with its orrery however orrery dies, as a picker does with its popup, so no intent run outlives it.
+	if err := childproc.Run(cmd); err != nil {
 		return "", fmt.Errorf("intent: claude run: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
