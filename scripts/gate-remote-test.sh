@@ -2,8 +2,9 @@
 #
 # Tests scripts/gate-remote.sh without AWS or a network: the "box" is a directory standing in for the orrery user's home,
 # reached through a fake ssh that runs each remote command there. A fixture repository carries a copy of the script and
-# a scripts/in-devenv that runs bash directly. Covers the push, the sync, the run, exit codes, the local fallback, a box
-# lost mid-run, and `wake` against a fake ec2.
+# a scripts/in-devenv that runs bash directly. Covers the push, the sync, the run, exit codes, waiting for a box when
+# the known one is gone, the local fallback when none can come up, a box lost mid-run, and `wake` against a fake ec2,
+# including two runs that share one launch.
 #
 # Usage: scripts/gate-remote-test.sh   (exits 0 when every case passes)
 
@@ -26,9 +27,11 @@ mkdir -p "$root/bin" "$root/box" "$root/run"
 
 # The fake ssh drops options, then runs the command in the box directory with HOME set to it. Switches:
 #   $root/box-down    every connection fails with 255, as ssh does when the box is gone;
+#   $root/down-<dest> connections to that destination fail with 255;
 #   $root/drop-run    the run's connection prints a line and fails with 255; with "box-gone" in the file the box is gone
 #                     afterwards too, otherwise it still answers;
-#   $root/no-push     git's connection fails.
+#   $root/no-push     git's connection fails; with "and-down" in the file its destination is gone afterwards too, and
+#                     the switch is used up.
 cat >"$root/bin/ssh" <<'EOF'
 #!/usr/bin/env bash
 while [ "$#" -gt 0 ]; do
@@ -43,7 +46,12 @@ shift
 cmd="$*"
 echo "$host $cmd" >>"$FAKE_ROOT/ssh.log"
 [ ! -e "$FAKE_ROOT/box-down" ] || exit 255
+[ ! -e "$FAKE_ROOT/down-$host" ] || exit 255
 if [ -e "$FAKE_ROOT/no-push" ] && [[ $cmd == git-receive-pack* ]]; then
+    if grep -q and-down "$FAKE_ROOT/no-push"; then
+        touch "$FAKE_ROOT/down-$host"
+        rm -f "$FAKE_ROOT/no-push"
+    fi
     exit 128
 fi
 if [ -e "$FAKE_ROOT/drop-run" ] && [[ $cmd == *orrery-gate-run* ]]; then
@@ -56,9 +64,18 @@ fi
 unset $(git rev-parse --local-env-vars)
 cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" exec bash -c "$cmd"
 EOF
+# The fake wake: with a destination in $root/wake-brings it writes it to the host file, as a wake that found or launched
+# a box does; otherwise it fails as a refused launch does.
 cat >"$root/bin/wake" <<'EOF'
 #!/bin/sh
 touch "$FAKE_ROOT/woke"
+if [ -s "$FAKE_ROOT/wake-brings" ]; then
+    cp "$FAKE_ROOT/wake-brings" "$ORRERY_GATE_HOST_FILE"
+    echo "2026-01-01T00:00:00+00:00 gate-remote: the gate box is $(cat "$FAKE_ROOT/wake-brings")"
+    exit 0
+fi
+echo "2026-01-01T00:00:00+00:00 gate-remote: orrery-gate launch refused: fake capacity"
+exit 1
 EOF
 cat >"$root/bin/local" <<'EOF'
 #!/bin/sh
@@ -66,7 +83,8 @@ touch "$FAKE_ROOT/ran-here"
 exec "$@"
 EOF
 # The fake ec2: `ls` prints a header and $root/ec2-ls, `up` records the call and prints $root/ec2-up, exiting with the
-# status in $root/ec2-up-status.
+# status in $root/ec2-up-status. When $root/ec2-up-fifo exists, `up` prints what is written to it instead, so a test
+# holds the launch open until it writes there (for 20 s at most, so a test that never writes fails instead of hanging).
 cat >"$root/bin/ec2" <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -76,7 +94,11 @@ case "$1" in
         ;;
     up)
         echo "$*" >>"$FAKE_ROOT/ec2-up-calls"
-        cat "$FAKE_ROOT/ec2-up"
+        if [ -p "$FAKE_ROOT/ec2-up-fifo" ]; then
+            timeout 20 cat "$FAKE_ROOT/ec2-up-fifo"
+        else
+            cat "$FAKE_ROOT/ec2-up"
+        fi
         exit "$(cat "$FAKE_ROOT/ec2-up-status" 2>/dev/null || echo 0)"
         ;;
 esac
@@ -124,14 +146,20 @@ gate() {
     (cd "$work" && scripts/gate-remote.sh "$@") >"$out" 2>"$err" || rc=$?
 }
 
-# woke: true once the detached wake has run; it is started in the background, so wait for it a little.
-woke() {
+# appears <file> [pattern]: true once the file exists (and holds a line matching the pattern); what writes it runs in
+# the background, so wait for it a little.
+appears() {
     local i
-    for ((i = 0; i < 50; i++)); do
-        [ -e "$root/woke" ] && return 0
+    for ((i = 0; i < 100; i++)); do
+        if [ -e "$1" ] && { [ -z "${2:-}" ] || grep -qE -- "$2" "$1"; }; then
+            return 0
+        fi
         sleep 0.1
     done
     return 1
+}
+woke() {
+    appears "$root/woke"
 }
 
 expect_status() {
@@ -169,6 +197,7 @@ EOF
 )
 gate "$root/out" "$root/err" bash -c "$look" _ "two words"
 expect_status 3 "remote run returns the command's status"
+expect_line "$root/err" '^gate-remote: bash .*exited 3 after [0-9]+s on orrery@fake-box$' "remote run reports its exit and time"
 expect_line "$root/err" '^gate-remote: running bash .* on orrery@fake-box \(load [0-9.]+ [0-9.]+ [0-9.]+, nproc [0-9]+\)$' "remote run names the box with its load and nproc"
 expect_line "$root/out" '^a2$' "uncommitted edit is synced"
 expect_line "$root/out" '^u1$' "untracked file is synced"
@@ -199,23 +228,47 @@ expect_status 0 "sync removes deleted files and keeps the box's ignored output"
 gate "$root/out" "$root/err" bash -c 'exit 255'
 expect_status 255 "a command's own 255 comes back as 255"
 
-# The box does not answer: wake starts and the command runs here through the local runner.
-touch "$root/box-down"
+# The box does not answer: the run waits for the wake, which brings another box, and runs there, never here.
+touch "$root/down-orrery@fake-box"
+echo "orrery@fake-box2" >"$root/wake-brings"
+gate "$root/out" "$root/err" bash -c 'echo there-ran; exit 4'
+expect_status 4 "a run that waited for a box returns the command's status"
+expect_line "$root/err" '^gate-remote: orrery@fake-box did not answer; waiting for an orrery-gate box' "a gone box says the run waits for one"
+expect_line "$root/err" '^gate-remote: running bash .* on orrery@fake-box2 \(load' "the run goes to the box the wake brought"
+expect_line "$root/out" '^there-ran$' "the command runs on the new box"
+expect "a run that waited for a box runs nothing here" test ! -e "$root/ran-here"
+expect "a gone box runs the wake" test -e "$root/woke"
+expect_line "$root/run/orrery-gate-wake.log" 'the gate box is orrery@fake-box2' "the wake's output goes to the wake log"
+echo "orrery@fake-box" >"$root/gate-host"
+
+# No box can come up (the launch is refused): only then the command runs here, with the wake's reason.
+: >"$root/wake-brings"
 gate "$root/out" "$root/err" bash -c 'echo here-ran; exit 4'
 expect_status 4 "fallback returns the local command's status"
-expect_line "$root/err" '^gate-remote: running bash .* here \(orrery@fake-box did not answer; load [0-9.]+ [0-9.]+ [0-9.]+, nproc [0-9]+\)$' "fallback says it ran here, with load and nproc"
+expect_line "$root/err" '^gate-remote: running bash .* here \(no orrery-gate box could come up: orrery-gate launch refused: fake capacity; load [0-9.]+ [0-9.]+ [0-9.]+, nproc [0-9]+\)$' "fallback names the wake's reason, with load and nproc"
+expect_line "$root/err" '^gate-remote: bash .*exited 4 after [0-9]+s here$' "fallback reports its exit and time"
 expect_line "$root/out" '^here-ran$' "fallback runs the command"
 expect "fallback goes through ORRERY_GATE_LOCAL" test -e "$root/ran-here"
-expect "an unanswering box starts the wake" woke
-rm "$root/box-down"
 
-# No box known yet: wake and run here.
+# The wake ends with a box that does not answer either: the command runs here.
+echo "orrery@fake-box" >"$root/wake-brings"
+gate "$root/out" "$root/err" true
+expect_line "$root/err" 'here \(no orrery-gate box could come up: orrery@fake-box did not answer after the wake' "a woken box that does not answer runs here"
+rm "$root/down-orrery@fake-box"
+
+# No box known yet: the run waits for the wake and runs on the box it brings.
 rm "$root/gate-host"
 gate "$root/out" "$root/err" true
-expect_status 0 "no host file runs here"
-expect_line "$root/err" 'here \(no gate box is known yet' "no host file says so"
-expect "no host file starts the wake" woke
-echo "orrery@fake-box" >"$root/gate-host"
+expect_status 0 "no host file waits for the wake"
+expect_line "$root/err" '^gate-remote: no gate box is known yet; waiting for an orrery-gate box' "no host file says so"
+expect_line "$root/err" 'running true on orrery@fake-box \(' "no host file runs on the woken box"
+: >"$root/wake-brings"
+
+# An ORRERY_GATE_DEST that does not answer runs here without a wake: the wake could not change it.
+touch "$root/down-orrery@fake-down"
+ORRERY_GATE_DEST=orrery@fake-down gate "$root/out" "$root/err" true
+expect_line "$root/err" 'here \(ORRERY_GATE_DEST orrery@fake-down did not answer' "an unanswering ORRERY_GATE_DEST runs here"
+expect "an unanswering ORRERY_GATE_DEST runs no wake" test ! -e "$root/woke"
 
 # ORRERY_GATE_REMOTE=0 skips the box.
 ORRERY_GATE_REMOTE=0 gate "$root/out" "$root/err" true
@@ -226,7 +279,19 @@ touch "$root/no-push"
 gate "$root/out" "$root/err" bash -c 'exit 5'
 expect_status 5 "a box that cannot be prepared runs the command here"
 expect_line "$root/err" 'here \(orrery@fake-box could not be prepared' "an unprepared box says so"
-rm "$root/no-push"
+expect "a box that answers but cannot be prepared runs no wake" test ! -e "$root/woke"
+
+# The box stops answering while it is prepared: the run finds another box and runs there.
+echo and-down >"$root/no-push"
+echo "orrery@fake-box2" >"$root/wake-brings"
+gate "$root/out" "$root/err" bash -c 'exit 5'
+expect_status 5 "a box lost while it is prepared is replaced"
+expect_line "$root/err" 'orrery@fake-box stopped answering while it was prepared' "a box lost while it is prepared says so"
+expect_line "$root/err" 'running bash .* on orrery@fake-box2 \(' "the run moves to the replacement box"
+expect "a box lost while it is prepared runs nothing here" test ! -e "$root/ran-here"
+rm "$root/down-orrery@fake-box"
+: >"$root/wake-brings"
+echo "orrery@fake-box" >"$root/gate-host"
 
 # The box cannot set up its checkout (here, a stale index lock): nothing ran there, so the command runs here.
 touch "$root/box/gate/$sub/.git/index.lock"
@@ -259,9 +324,17 @@ rc=0
 expect_status 0 "wake launches a box"
 expect "wake writes the launched box" test "$(cat "$root/gate-host" 2>/dev/null)" = "orrery@orrery-gate-x1y"
 expect "wake launches spot-only" grep -qx 'up orrery-gate --spot-only' "$root/ec2-up-calls"
+expect_line "$root/out" '^orrery-gate-x1y ready$' "wake passes ec2's output on"
+
+# wake: the box the host file names still answers, so nothing is listed or launched.
+rm -f "$root/ec2-up-calls"
+rc=0
+"$script" wake >"$root/out" 2>"$root/err" || rc=$?
+expect_status 0 "wake keeps an answering known box"
+expect "keeping the known box launches nothing" test ! -e "$root/ec2-up-calls"
 
 # wake: adopts a listed box that answers, without launching.
-rm -f "$root/ec2-up-calls"
+touch "$root/down-orrery@orrery-gate-x1y"
 echo "orrery-gate-abc  orrery-gate  c8a.8xlarge  yes  1h  1.0  0.5" >"$root/ec2-ls"
 echo "commonframe-gate-zzz  commonframe-gate  c8a.4xlarge  yes  1h  1.0  0.5" >>"$root/ec2-ls"
 rc=0
@@ -270,22 +343,73 @@ expect_status 0 "wake adopts a running box"
 expect "wake writes the adopted box" test "$(cat "$root/gate-host")" = "orrery@orrery-gate-abc"
 expect "adopting launches nothing" test ! -e "$root/ec2-up-calls"
 
-# wake: a listed box that does not answer stops a launch.
-touch "$root/box-down"
+# wake: a listed box that does not answer is passed over and a box is launched.
+touch "$root/down-orrery@orrery-gate-abc"
+echo "orrery-gate-x2z ready" >"$root/ec2-up"
 rc=0
 "$script" wake >"$root/out" 2>"$root/err" || rc=$?
-expect_status 1 "wake with only an unanswering box listed"
-expect "an unanswering listed box launches nothing" test ! -e "$root/ec2-up-calls"
-rm "$root/box-down" "$root/ec2-ls"
+expect_status 0 "wake past an unanswering listed box"
+expect "an unanswering listed box is replaced by a launch" test "$(cat "$root/gate-host")" = "orrery@orrery-gate-x2z"
+rm "$root/ec2-ls"
 
 # wake: a refused launch says what ec2 said and leaves the host file alone.
+touch "$root/down-orrery@orrery-gate-x2z"
 printf 'trying spot us-west-2a\nec2: InsufficientInstanceCapacity in every zone\n' >"$root/ec2-up"
 echo 1 >"$root/ec2-up-status"
 rc=0
 "$script" wake >"$root/out" 2>"$root/err" || rc=$?
 expect_status 1 "wake with a refused launch"
 expect_line "$root/err" 'orrery-gate launch refused: ec2: InsufficientInstanceCapacity in every zone$' "a refused launch quotes ec2's last line"
-expect "a refused launch keeps the host file" test "$(cat "$root/gate-host")" = "orrery@orrery-gate-abc"
+expect "a refused launch keeps the host file" test "$(cat "$root/gate-host")" = "orrery@orrery-gate-x2z"
+rm "$root/ec2-up-status"
+
+# Two runs from two work trees find the box gone at once, through the real wake: one launch serves both. The second
+# run's wake waits for the first's launch instead of launching its own or running here.
+git -C "$work" worktree add -q "$root/work2"
+rm -f "$root/ec2-up-calls"
+mkfifo "$root/ec2-up-fifo"
+both() {
+    local tree
+    : >"$root/run/orrery-gate-wake.log"
+    for tree in work work2; do
+        (cd "$root/$tree" && ORRERY_GATE_WAKE='' scripts/gate-remote.sh bash -c 'exit 7') \
+            >"$root/$tree.out" 2>"$root/$tree.err" &
+        if [ "$tree" = work ]; then
+            appears "$root/ec2-up-calls" || fail "the first run's wake never reached ec2 up"
+        fi
+    done
+    appears "$root/run/orrery-gate-wake.log" 'waiting for the orrery-gate launch in progress' \
+        || fail "the second run's wake never waited for the launch in progress"
+}
+both
+echo "orrery-gate-new ready" >"$root/ec2-up-fifo"
+rc1=0 rc2=0
+wait %1 || rc1=$?
+wait %2 || rc2=$?
+expect "the run whose wake launched gets the command's status" test "$rc1" -eq 7
+expect "the run whose wake waited gets the command's status" test "$rc2" -eq 7
+expect_line "$root/work.err" 'running bash .* on orrery@orrery-gate-new \(' "the launching run runs on the new box"
+expect_line "$root/work2.err" 'running bash .* on orrery@orrery-gate-new \(' "the waiting run runs on the same new box"
+expect "two runs make one launch" test "$(wc -l <"$root/ec2-up-calls")" -eq 1
+expect "neither run ran here" test ! -e "$root/ran-here"
+
+# The same, but the launch fails: it ends both waits, the second wake takes its failure without launching again, and
+# both runs run here with ec2's reason.
+touch "$root/down-orrery@orrery-gate-new"
+rm -f "$root/ec2-up-calls"
+both
+printf 'ec2: InsufficientInstanceCapacity in every zone\n' >"$root/ec2-up-fifo-text"
+echo 1 >"$root/ec2-up-status"
+cat "$root/ec2-up-fifo-text" >"$root/ec2-up-fifo"
+rc1=0 rc2=0
+wait %1 || rc1=$?
+wait %2 || rc2=$?
+expect "a failed launch ends the launching run here" test "$rc1" -eq 7
+expect "a failed launch ends the waiting run here" test "$rc2" -eq 7
+expect_line "$root/work.err" 'here \(no orrery-gate box could come up: orrery-gate launch refused: ec2: InsufficientInstanceCapacity' "the launching run names the refusal"
+expect_line "$root/work2.err" 'here \(no orrery-gate box could come up: the launch in progress failed: orrery-gate launch refused: ec2: InsufficientInstanceCapacity' "the waiting run names the same refusal"
+expect "a failed launch is not retried by the waiting wake" test "$(wc -l <"$root/ec2-up-calls")" -eq 1
+rm -f "$root/ec2-up-fifo" "$root/ec2-up-status"
 
 if [ "$failures" -ne 0 ]; then
     echo "gate-remote-test: $failures failed" >&2
