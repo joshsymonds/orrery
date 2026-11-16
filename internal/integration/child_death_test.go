@@ -37,7 +37,7 @@ func TestOrrerydKilledTakesItsSummaryRun(t *testing.T) {
 		"hook_event_name": "UserPromptSubmit",
 		"transcript_path": transcript,
 	})
-	run := waitForHeldRun(t, daemon, filepath.Join(dir, "held.pid"))
+	run := waitForPID(t, daemon, filepath.Join(dir, "held.pid"))
 	t.Cleanup(func() { _ = syscall.Kill(run, syscall.SIGKILL) })
 
 	daemon.asked.Store(true)
@@ -50,9 +50,9 @@ func TestOrrerydKilledTakesItsSummaryRun(t *testing.T) {
 	}
 }
 
-// waitForHeldRun waits until the held summary run has written its pid to path, and returns the pid. It has no deadline
-// of its own, and fails at once when daemon exits first.
-func waitForHeldRun(t *testing.T, daemon *orreryProcess, path string) int {
+// waitForPID waits until a fake claude run of daemon has written its pid file at path, and returns the pid it holds.
+// It has no deadline of its own, and fails at once when daemon exits first.
+func waitForPID(t *testing.T, daemon *orreryProcess, path string) int {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
@@ -61,7 +61,7 @@ func waitForHeldRun(t *testing.T, daemon *orreryProcess, path string) int {
 		if err == nil {
 			pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw)))
 			if convErr != nil {
-				t.Fatalf("held run pid %q: %v", raw, convErr)
+				t.Fatalf("pid file %s holds %q: %v", path, raw, convErr)
 			}
 			return pid
 		}
@@ -70,7 +70,7 @@ func waitForHeldRun(t *testing.T, daemon *orreryProcess, path string) int {
 		}
 		select {
 		case <-daemon.done:
-			t.Fatalf("%s exited before its summary run started; stderr %q", daemon.name, daemon.stderr.String())
+			t.Fatalf("%s exited before its run wrote %s; stderr %q", daemon.name, path, daemon.stderr.String())
 		case <-ticker.C:
 			stopIfFailed(t)
 		}
