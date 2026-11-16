@@ -8,7 +8,8 @@ import { requirementArcs, wedgesOf } from "./phases";
 
 // EpicLine draws an epic's line: its small orrery, then its slug, repository and count, then its state and blocker. An
 // ended epic's line draws its ended words as its state, in place of the count, state and blocker. A full epic also
-// draws its strip of one segment per record task. An epic with no detail draws no orrery.
+// draws its strip of one segment per record task. An epic with no detail draws no orrery. Each state and blocker span is
+// keyed by its text, so a changed phrase mounts anew and its move plays.
 export function EpicLine({
   epic,
   full,
@@ -27,7 +28,7 @@ export function EpicLine({
   const line = ended === undefined ? epicLine(epic, now) : { count: "", state: ended, blocker: "" };
   return (
     <div
-      class={current ? "b-row epic cur" : "b-row epic"}
+      class={`b-row epic${current ? " cur" : ""}${ended === undefined ? "" : " ended"}`}
       data-row=""
       data-key={epic.key}
       aria-current={current ? "true" : undefined}
@@ -41,8 +42,8 @@ export function EpicLine({
           <span class="rt">{line.count}</span>
         </div>
         <div class="words">
-          {line.state !== "" && <span class="state">{line.state}</span>}
-          {line.blocker !== "" && <span class="blocker">{line.blocker}</span>}
+          {line.state !== "" && <span class="state" key={line.state}>{line.state}</span>}
+          {line.blocker !== "" && <span class="blocker" key={line.blocker}>{line.blocker}</span>}
         </div>
         {full && epic.strip.length > 0 && (
           <div class={epic.strip.length > denseStrip ? "strip dense" : "strip"}>

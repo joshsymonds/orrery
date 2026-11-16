@@ -204,6 +204,10 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row.epic .orrery { flex: none; width: 28px; height: 28px; max-width: none; margin: 0; }
 .b-row.epic .words { display: flex; gap: 8px; min-width: 0; white-space: nowrap; font: 11.5px/20px var(--mono); color: var(--subtext0); }
 .b-row.epic .words .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--peach); }
+/* Each phrase span is keyed by its text, so a changed phrase mounts anew and fades in over the state move. A row entering
+   Just ended fades in over the layout move. */
+.b-row.epic .words .state, .b-row.epic .words .blocker { animation: move-fade var(--move-state); }
+.b-row.epic.ended { animation: move-fade var(--move-layout); }
 .strip { display: flex; gap: 2px; height: 3px; margin: 6px 0 1px; }
 .strip i { flex: 1 1 0; min-width: 0; border-radius: 1.5px; background: var(--surface0); }
 .strip.dense { gap: 0; }
@@ -238,6 +242,8 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row.step .held { overflow: hidden; text-overflow: ellipsis; font: 12px/20px var(--mono); color: var(--peach); }
 .b-row.step.held .um, .b-row.step.held .label, .b-row.step.held .held { color: var(--peach); }
 .b-more { padding: 2px 10px; font: 11.5px/20px var(--mono); color: var(--overlay0); }
+/* A Needs you item fades in over the layout move as it enters the list. */
+.need-entry { animation: move-fade var(--move-layout); }
 
 /* The list's footer: the hosts its rows come from at the left, and the keys hint at the right. A host that does not fit
    is cut short, so the hint stays in view. */

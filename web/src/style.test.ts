@@ -647,6 +647,29 @@ test("the Just happened lines transition over the layout move, and a line that e
   assert.match(css, /@starting-style\s*\{\s*\.epic-page \.happen\.just li\s*\{\s*opacity:\s*0;/);
 });
 
+test("an epic line's state and blocker phrases enter with move-fade over the state move, so a changed phrase fades in", () => {
+  assert.match(declarationsFor(css, ".b-row.epic .words .state"), /animation:\s*move-fade var\(--move-state\);/);
+  assert.match(declarationsFor(css, ".b-row.epic .words .blocker"), /animation:\s*move-fade var\(--move-state\);/);
+});
+
+test("a row entering Just ended and a new Needs you item enter with move-fade over the layout move", () => {
+  assert.match(declarationsFor(css, ".b-row.epic.ended"), /animation:\s*move-fade var\(--move-layout\);/);
+  assert.match(declarationsFor(css, ".need-entry"), /animation:\s*move-fade var\(--move-layout\);/);
+});
+
+test("the new list entries name their duration only through a --move-* variable", () => {
+  for (const selector of [
+    ".b-row.epic .words .state",
+    ".b-row.epic .words .blocker",
+    ".b-row.epic.ended",
+    ".need-entry",
+  ]) {
+    const rule = declarationsFor(css, selector);
+    assert.match(rule, /animation:/, `${selector} has an animation`);
+    assert.doesNotMatch(rule.replace(/var\(--move-[a-z]+\)/g, ""), /\d(\.\d+)?m?s\b/, selector);
+  }
+});
+
 test("a running wedge's now cell glows and pulses on 1.8s, and under reduced motion the glow holds still at half strength", () => {
   assert.match(declarationsFor(css, ".orrery .glow"), /animation:\s*orbit-glow 1\.8s ease-in-out infinite;/);
   // The orrery draws no SVG filter, so a glow may name none: a url(#...) here points at nothing.
