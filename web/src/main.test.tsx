@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { createClients, createTransport } from "./client";
-import { start } from "./main";
+import { start as startPage } from "./main";
 import { until } from "./testwait";
-import { installTestDom, removeTestDom } from "./testdom";
+import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 const panesPath = "/orrery.v1.Panes/List";
 const sessionsPath = "/orrery.v1.Sessions/List";
@@ -328,14 +330,38 @@ function errorText(root: HTMLElement): string {
   return root.querySelector(".error")?.textContent ?? "";
 }
 
-// withPage runs check with a fresh DOM, a root element for start, and the test's own cleanup.
-async function withPage(check: (root: HTMLElement) => Promise<void>): Promise<void> {
+// withPage runs check with a fresh DOM, a root element, and a start that starts a page and returns its stop. Every page
+// that start started is stopped, and the DOM removed, when the test ends, or as soon as signal aborts if the test times
+// out first, so a page never runs on into the next test (see teardownOnce). A stop is the page's only once.
+async function withPage(
+  signal: AbortSignal,
+  check: (root: HTMLElement, start: typeof startPage) => Promise<void>,
+): Promise<void> {
   const window = installTestDom();
   const root = document.createElement("div");
-  try {
-    await check(root);
-  } finally {
+  const stops: (() => void)[] = [];
+  const start: typeof startPage = (...args) => {
+    const stop = startPage(...args);
+    let stopped = false;
+    const once = () => {
+      if (!stopped) {
+        stopped = true;
+        stop();
+      }
+    };
+    stops.push(once);
+    return once;
+  };
+  const teardown = teardownOnce(signal, async () => {
+    for (const stop of stops) {
+      stop();
+    }
     await removeTestDom(window);
+  });
+  try {
+    await check(root, start);
+  } finally {
+    await teardown();
   }
 }
 
@@ -387,7 +413,7 @@ function envelope(flag: number, message: object): Uint8Array {
 }
 
 test("loaded rows render into the root", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     try {
@@ -399,7 +425,7 @@ test("loaded rows render into the root", (t) =>
   }));
 
 test("before the first load lands the root holds no rows", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     let release: () => void = () => {};
     server.gate = new Promise<void>((resolve) => {
@@ -416,7 +442,7 @@ test("before the first load lands the root holds no rows", (t) =>
   }));
 
 test("a reload shows the changed pane", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     try {
@@ -429,7 +455,7 @@ test("a reload shows the changed pane", (t) =>
   }));
 
 test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const failing: typeof globalThis.fetch = async (input, init) => {
       const path = new URL(new Request(input, init).url).pathname;
       if (path === panesPath) {
@@ -452,7 +478,7 @@ test("a failed Panes.List shows the fixed error and keeps the sessions", (t) =>
   }));
 
 test("a reload never starts while the last one is in flight", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     try {
@@ -464,7 +490,7 @@ test("a reload never starts while the last one is in flight", (t) =>
   }));
 
 test("a headless session from Sessions.ListHeadless is a row on the first load", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.headless = [headlessSession("170bf619aa00bb11cc22dd33ee44ff55", "gatehouse")];
     const stop = start(root, clientsFor(server), longPollMs);
@@ -478,7 +504,7 @@ test("a headless session from Sessions.ListHeadless is a row on the first load",
   }));
 
 test("an engine_added on the open stream adds the new headless session's row without a poll", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.headless = [headlessSession("170bf619aa00bb11cc22dd33ee44ff55", "gatehouse")];
     const stop = start(root, clientsFor(server), longPollMs);
@@ -500,8 +526,66 @@ test("an engine_added on the open stream adds the new headless session's row wit
     }
   }));
 
+// childEnv marks the run of this file that holds a page open past its test's timeout. Only that run defines the two
+// tests named with childPrefix, and it runs only those.
+const childEnv = "ORRERY_MAIN_TEST_CHILD";
+const childPrefix = "child run: ";
+// childTimeoutMs is the child run's --test-timeout: its first test can only end by timing out, and its second, a page's
+// first load, ends long before it.
+const childTimeoutMs = 3000;
+
+if (process.env[childEnv] === "1") {
+  test(`${childPrefix}a page whose wait never ends`, (t) =>
+    withPage(t.signal, async (root, start) => {
+      start(root, clientsFor(fakeServer("api")), longPollMs);
+      await until(t.signal, () => false, "a state that never comes");
+    }));
+
+  test(`${childPrefix}a page that loads after it`, (t) =>
+    withPage(t.signal, async (root, start) => {
+      start(root, clientsFor(fakeServer("api")), longPollMs);
+      await until(t.signal, () => labels(root).includes("api"), "the first load");
+    }));
+}
+
+test("a page whose test times out stops before the next test, which fails only on its own", async () => {
+  // The forced order: in a child run, the first test's page is up when its test times out, and node:test starts the
+  // second test at once. A page that ran on past its test would render into the second test's DOM, or remove it, and
+  // fail the second test in the first one's place. The child must report the first test alone as failed.
+  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const child = spawn(
+    process.execPath,
+    [
+      "--test",
+      "--test-reporter=spec",
+      `--test-timeout=${childTimeoutMs}`,
+      `--test-name-pattern=^${childPrefix}`,
+      fileURLToPath(import.meta.url),
+    ],
+    { env: { ...env, [childEnv]: "1" }, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
+  assert.notEqual(code, 0, `the child run passed:\n${output}`);
+  assert.ok(output.includes(`✖ ${childPrefix}a page whose wait never ends`), `the first test did not fail:\n${output}`);
+  assert.ok(output.includes(`✔ ${childPrefix}a page that loads after it`), `the second test did not pass:\n${output}`);
+  // node:test counts a test its timeout ends as cancelled, not failed: the first test is the run's one test that did not
+  // pass, and the only one its failing list names.
+  for (const count of ["ℹ pass 1\n", "ℹ fail 0\n", "ℹ cancelled 1\n"]) {
+    assert.ok(output.includes(count), `the child's counts lack ${count.trim()}:\n${output}`);
+  }
+  const failing = output.slice(output.indexOf("failing tests:"));
+  assert.ok(!failing.includes(`${childPrefix}a page that loads after it`), `the second test is listed as failing:\n${output}`);
+});
+
 test("stop unmounts the root and stops reloading", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), intervalMs);
     await until(t.signal, () => labels(root).includes("api"), "the first load");
@@ -514,7 +598,7 @@ test("stop unmounts the root and stops reloading", (t) =>
   }));
 
 test("an event on the open stream reloads without waiting for the poll", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
     try {
@@ -531,7 +615,7 @@ test("an event on the open stream reloads without waiting for the poll", (t) =>
   }));
 
 test("a burst of events gives one reload", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
     try {
@@ -549,7 +633,7 @@ test("a burst of events gives one reload", (t) =>
   }));
 
 test("while the stream is open, poll ticks reload nothing", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
@@ -564,7 +648,7 @@ test("while the stream is open, poll ticks reload nothing", (t) =>
   }));
 
 test("while the stream is open, poll ticks advance the age labels without reloading", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     // The clock starts 120 s after the fixture's changed (40 s), so the label reads minutes and not days.
     const realNow = Date.now;
     let offsetMs = 160_000 - realNow();
@@ -588,7 +672,7 @@ test("while the stream is open, poll ticks advance the age labels without reload
 // pollTakesOver ends the first stream with finish, then checks that the poll reloads and the stream reopens from the
 // newest seq the next load reports.
 async function pollTakesOver(signal: AbortSignal, finish: (watch: Watch) => void): Promise<void> {
-  await withPage(async (root) => {
+  await withPage(signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
@@ -613,7 +697,7 @@ test("after the stream fails with another code, the poll reloads and the stream 
   pollTakesOver(t.signal, (watch) => failStream(watch, "internal")));
 
 test("after the stream fails unavailable, it reopens from the last seq it delivered, not from the poll", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     // longPollMs keeps the poll from running, so only the retry can reopen the stream.
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs, retryMs);
@@ -629,7 +713,7 @@ test("after the stream fails unavailable, it reopens from the last seq it delive
   }));
 
 test("a load that reports seq 0 opens no stream, and the poll reloads until a load reports a seq", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.storeSeq = 0n;
     const stop = start(root, clientsFor(server), intervalMs);
@@ -645,7 +729,7 @@ test("a load that reports seq 0 opens no stream, and the poll reloads until a lo
   }));
 
 test("stop aborts the open stream", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), longPollMs);
     try {
@@ -658,7 +742,7 @@ test("stop aborts the open stream", (t) =>
   }));
 
 test("a live epic from Epics.List and Get shows in the list with its count", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
@@ -675,7 +759,7 @@ test("a live epic from Epics.List and Get shows in the list with its count", (t)
   }));
 
 test("the page calls only the list, get and watch paths it reads", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
@@ -701,7 +785,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
   }));
 
 test("with the event stream open, a poll tick reloads the epics and shows a changed step", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.epics = [liveEpic("draft")];
     const stop = start(root, clientsFor(server), intervalMs);
@@ -718,7 +802,7 @@ test("with the event stream open, a poll tick reloads the epics and shows a chan
   }));
 
 test("a failed Epics.List shows the fixed epics error and no epics, beside the rows", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.epics = [liveEpic("draft")];
     const clients = createClients(
@@ -740,7 +824,7 @@ test("a failed Epics.List shows the fixed epics error and no epics, beside the r
   }));
 
 test("a failed Panes.List and a failed Epics.List join their fixed errors in that order", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const clients = createClients(
       createTransport({ baseUrl: "https://orrery.test", fetch: failing(server, [panesPath, epicsListPath]) }),
@@ -757,7 +841,7 @@ test("a failed Panes.List and a failed Epics.List join their fixed errors in tha
   }));
 
 test("a second tick during a slow epics load starts no second load", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.epics = [liveEpic("draft")];
     let release: () => void = () => {};
@@ -780,7 +864,7 @@ test("a second tick during a slow epics load starts no second load", (t) =>
   }));
 
 test("a keydown reports the input age to Presence.Report with the client header", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), longPollMs);
     try {
@@ -796,7 +880,7 @@ test("a keydown reports the input age to Presence.Report with the client header"
 
 // No report has gone out before stop, so a live watch would send this keydown at once.
 test("a keydown after stop reports nothing", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     const stop = start(root, clientsFor(server), longPollMs);
     try {
@@ -811,7 +895,7 @@ test("a keydown after stop reports nothing", (t) =>
   }));
 
 test("a failed Presence.Report leaves the page without an error line and keeps the rows", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     server.presenceFails = true;
     const stop = start(root, clientsFor(server), longPollMs);
@@ -828,7 +912,7 @@ test("a failed Presence.Report leaves the page without an error line and keeps t
   }));
 
 test("the start read shows the host in the footer's meters button, before any poll tick", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     // longPollMs means no tick runs, so only the read at start can show the button.
     const stop = start(root, clientsFor(server), longPollMs);
@@ -840,7 +924,7 @@ test("the start read shows the host in the footer's meters button, before any po
   }));
 
 test("a refused Host.Status shows no meters button and no error, while the rows, epics and stream load", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.hostFails = true;
     server.epics = [liveEpic("draft")];
@@ -862,7 +946,7 @@ test("a refused Host.Status shows no meters button and no error, while the rows,
   }));
 
 test("a Host.Status that starts failing takes the meters button away", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
@@ -875,7 +959,7 @@ test("a Host.Status that starts failing takes the meters button away", (t) =>
   }));
 
 test("each poll tick reads Host.Status while the stream is down", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.storeSeq = 0n;
     const stop = start(root, clientsFor(server), intervalMs);
@@ -887,7 +971,7 @@ test("each poll tick reads Host.Status while the stream is down", (t) =>
   }));
 
 test("a tick during a slow Host.Status starts no second read", (t) =>
-  withPage(async (root) => {
+  withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     let release: () => void = () => {};
     server.hostGate = new Promise<void>((resolve) => {
