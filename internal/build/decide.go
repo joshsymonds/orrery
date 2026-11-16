@@ -87,7 +87,8 @@ func decideFresh(view View) Action {
 }
 
 // decideRed returns the action for the red unit: its evidence run at the base, once it has ended. A red run that
-// fails at the base passes into implement with the run kept. One whose conclusion holds at the base fails the task.
+// exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. A red run that fails at the base
+// passes into implement with the run kept. One whose conclusion holds at the base fails the task.
 func decideRed(view View) Action {
 	build := view.Task.Build
 	run := view.Run
@@ -102,6 +103,9 @@ func decideRed(view View) Action {
 	}
 	if run.Ended.IsZero() {
 		return Action{Kind: ActNone}
+	}
+	if run.NotCaptured == store.NotCapturedEnvironment {
+		return environmentRerun(view, StageRed+" capture")
 	}
 	if run.NotCaptured != "" {
 		return Action{Kind: ActFail, Reason: "red not captured: " + run.NotCaptured}

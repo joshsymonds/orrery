@@ -14,6 +14,19 @@ import (
 // ErrNoNodeCheck is matched by the error NodeCheck returns for an id no check has.
 var ErrNoNodeCheck = errors.New("no node check")
 
+// EnvironmentExit is the exit status that says a gate, command or evidence capture failed in its environment, not on its
+// judgement, as cli.ExitNoGrant gives it when the command it wraps never got its grant. Such a run runs again, up to
+// EnvironmentReruns times, and a run whose last rerun exits it too is parked, or fails its step.
+const EnvironmentExit = 75
+
+// EnvironmentReruns is how many times a run that exited EnvironmentExit runs again after its first run.
+const EnvironmentReruns = 2
+
+// EnvironmentExited reports whether a run that ended with exit, and timedOut, exited EnvironmentExit without timing out.
+func EnvironmentExited(exit int, timedOut bool) bool {
+	return exit == EnvironmentExit && !timedOut
+}
+
 // NodeCheck is one holder run of a gate or command node: a check that runs under a holder, under the grant of its
 // needs. ID is the id NodeWorkID derives for the check, Epic and Path the epic and node run it belongs to, and Revision
 // the revision it runs at. Argv and Limit are its command and its limit in seconds, and Needs the pools it draws slots

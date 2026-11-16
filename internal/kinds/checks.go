@@ -36,33 +36,141 @@ type Agent struct{}
 
 // Decide decides a gate run as checkRun does.
 func (Gate) Decide(node Node, rows Rows) Action {
-	return checkRun(node.Run, rows)
+	return checkRun(node, rows)
 }
 
 // Decide decides a command run as checkRun does.
 func (Command) Decide(node Node, rows Rows) Action {
-	return checkRun(node.Run, rows)
+	return checkRun(node, rows)
 }
 
-// checkRun decides a gate or command run: it prepares the run's revision, starts its check, waits while the check
-// runs, checks the run's refs, and ends passed or failed on the check.
-func checkRun(run store.NodeRun, rows Rows) Action {
+// checkRun decides a gate or command run: it prepares the run's revision, starts its check, waits while the check runs,
+// and starts the check's rerun when it exited store.EnvironmentExit. A check whose last rerun exits so parks the run.
+// Otherwise it checks the run's refs, and ends passed or failed on the check.
+func checkRun(node Node, rows Rows) Action {
+	run := node.Run
 	if run.Revision == "" {
 		return prepare(rows)
 	}
-	id := store.NodeWorkID(run.ID, run.Attempt, checkPart)
-	i := slices.IndexFunc(rows.Checks, func(check store.NodeCheck) bool { return check.ID == id })
-	if i < 0 {
+	check, id, outcome := checkChain(run, rows.Checks, checkPart, false)
+	switch {
+	case outcome == chainNone:
 		return Action{Kind: ActStart, IDs: []string{id}}
-	}
-	check := rows.Checks[i]
-	if check.State == store.NodeRunning {
+	case outcome == chainRunning:
 		return Action{Kind: ActNone}
-	}
-	if !run.RefsChecked {
+	case outcome == chainEnvironment:
+		return Action{Kind: ActPark, Output: environmentPark(node.Def.Kind + " " + run.Path)}
+	case !run.RefsChecked:
 		return Action{Kind: ActRefs}
 	}
 	return checkEnd(check)
+}
+
+// chainOutcome is how a run of a part ended, as the walk over the reruns of the part reads it.
+type chainOutcome int
+
+const (
+	// chainNone is a run that has not started.
+	chainNone chainOutcome = iota
+	// chainRunning is a run that has started and has not ended.
+	chainRunning
+	// chainLost is a run lost at a restart, which a kind that reruns lost runs reruns once.
+	chainLost
+	// chainEnvironment is a run that exited store.EnvironmentExit without timing out.
+	chainEnvironment
+	// chainEnded is a run that ended any other way, which is decided as it always was.
+	chainEnded
+)
+
+// chainWalk walks the runs of part at run's attempt, the first run and then each rerun of it in turn, and returns the work
+// id of the run that decides part with how that run ended. outcome gives how the run with a work id ended. A run that ends
+// where rerunsAfter says the next run of the part follows is passed over, so the walk stops at the first run that decides.
+func chainWalk(run store.NodeRun, part string, outcome func(id string) chainOutcome) (string, chainOutcome) {
+	for k := 0; ; k++ {
+		id := store.NodeWorkID(run.ID, run.Attempt, runWork(part, k))
+		ended := outcome(id)
+		if !rerunsAfter(k, ended) {
+			return id, ended
+		}
+	}
+}
+
+// rerunsAfter reports whether the run at position k of a part, which ended with outcome, is followed by a rerun. A run lost
+// at a restart is rerun once, when it is the first run. A run that exited store.EnvironmentExit is rerun until the part has
+// store.EnvironmentReruns reruns, so the last one that exits so decides the part.
+func rerunsAfter(k int, outcome chainOutcome) bool {
+	switch outcome {
+	case chainLost:
+		return k == 0
+	case chainEnvironment:
+		return k < store.EnvironmentReruns
+	case chainNone, chainRunning, chainEnded:
+		return false
+	}
+	return false
+}
+
+// checkOutcome returns how the check with id ended, as a walk over the reruns of a part reads it. A check lost at a restart
+// is chainLost only when lostReruns is set, and is chainEnded otherwise.
+func checkOutcome(checks []store.NodeCheck, id string, lostReruns bool) chainOutcome {
+	check, ok := checkByID(checks, id)
+	switch {
+	case !ok:
+		return chainNone
+	case check.State == store.NodeRunning:
+		return chainRunning
+	case lostReruns && check.NotRun == store.LostAtRestart:
+		return chainLost
+	case check.NotRun == "" && store.EnvironmentExited(check.Exit, check.TimedOut):
+		return chainEnvironment
+	}
+	return chainEnded
+}
+
+// evidenceOutcome returns how the evidence run with id ended, as a walk over the reruns of a part reads it. A run lost at a
+// restart is chainLost only when lostReruns is set, and is chainEnded otherwise.
+func evidenceOutcome(runs []store.EvidenceRun, id string, lostReruns bool) chainOutcome {
+	run, ok := evidenceByID(runs, id)
+	switch {
+	case !ok:
+		return chainNone
+	case run.State != runEnded:
+		return chainRunning
+	case lostReruns && run.NotCaptured == store.LostAtRestart:
+		return chainLost
+	case store.EnvironmentExited(run.Exit, run.TimedOut):
+		return chainEnvironment
+	}
+	return chainEnded
+}
+
+// checkChain returns the check that decides part of run, with its work id and how it ended. See chainWalk.
+func checkChain(
+	run store.NodeRun, checks []store.NodeCheck, part string, lostReruns bool,
+) (store.NodeCheck, string, chainOutcome) {
+	id, outcome := chainWalk(run, part, func(id string) chainOutcome {
+		return checkOutcome(checks, id, lostReruns)
+	})
+	check, _ := checkByID(checks, id)
+	return check, id, outcome
+}
+
+// evidenceChain returns the evidence run that decides part of run, with its work id and how it ended. See chainWalk.
+func evidenceChain(
+	run store.NodeRun, runs []store.EvidenceRun, part string, lostReruns bool,
+) (store.EvidenceRun, string, chainOutcome) {
+	id, outcome := chainWalk(run, part, func(id string) chainOutcome {
+		return evidenceOutcome(runs, id, lostReruns)
+	})
+	evidence, _ := evidenceByID(runs, id)
+	return evidence, id, outcome
+}
+
+// environmentPark returns the reason a run parks with when its last run exited store.EnvironmentExit: what ran, and that the
+// exit is an environment result, not a verdict.
+func environmentPark(what string) string {
+	const verdict = "an environment result, not a verdict"
+	return fmt.Sprintf("%s exited %d on its last run: %s", what, store.EnvironmentExit, verdict)
 }
 
 // checkEnd ends a check's run failed when the check did not run, with why. Otherwise it ends passed when the check
@@ -97,8 +205,9 @@ func prepare(rows Rows) Action {
 
 // Decide decides an evidence run. It ends passed with a note when no Requirement names an evidence item, and when every
 // such Requirement was dropped as already met at the base. Otherwise it prepares the run's revision, starts a run for
-// each Requirement that has none and was not dropped, waits until every run has ended, checks the run's refs, and ends
-// passed when every run passed.
+// each Requirement that has none and was not dropped, and starts the rerun of a capture that exited
+// store.EnvironmentExit, parking the run when a capture's last rerun exits so. Otherwise it waits until every run has
+// ended, checks the run's refs, and ends passed when every run passed.
 func (Evidence) Decide(node Node, rows Rows) Action {
 	named := itemRequirements(rows.Epic.Requirements)
 	if len(named) == 0 {
@@ -117,14 +226,16 @@ func (Evidence) Decide(node Node, rows Rows) Action {
 	var ids, missing []string
 	runs := make([]store.EvidenceRun, 0, len(items))
 	for _, item := range items {
-		id := store.NodeWorkID(node.Run.ID, node.Run.Attempt, item.ID)
-		i := slices.IndexFunc(rows.Evidence, func(run store.EvidenceRun) bool { return run.ID == id })
-		if i < 0 {
+		run, id, outcome := evidenceChain(node.Run, rows.Evidence, item.ID, false)
+		switch outcome {
+		case chainNone:
 			ids = append(ids, id)
 			missing = append(missing, item.ID)
-			continue
+		case chainEnvironment:
+			return Action{Kind: ActPark, Output: environmentPark("capture " + item.ID)}
+		case chainRunning, chainLost, chainEnded:
+			runs = append(runs, run)
 		}
-		runs = append(runs, rows.Evidence[i])
 	}
 	if len(ids) > 0 {
 		return Action{Kind: ActStart, IDs: ids, Items: missing}

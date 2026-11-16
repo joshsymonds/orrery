@@ -118,35 +118,30 @@ func doneGates(run store.NodeRun, rows Rows) (string, Action, bool) {
 	return "", Action{}, true
 }
 
-// gateCheck returns the check that decides Done gate i of the run: its check, or the rerun of a check lost at a restart.
-// It returns decided false, with the action the gate asks for, while that check is not decided.
+// gateCheck returns the check that decides Done gate i of the run: its check, or the last rerun of it the walk over its
+// reruns reaches. It returns decided false, with the action the gate asks for, while that check is not decided, and
+// with a park when the gate's last rerun was lost at a restart or exited store.EnvironmentExit.
 func gateCheck(run store.NodeRun, i int, gate string, checks []store.NodeCheck) (store.NodeCheck, Action, bool) {
 	part := fmt.Sprintf("done %d", i+1)
-	id := store.NodeWorkID(run.ID, run.Attempt, part)
-	check, ok := checkByID(checks, id)
-	if !ok {
+	check, id, outcome := checkChain(run, checks, part, true)
+	switch outcome {
+	case chainNone:
 		return store.NodeCheck{}, Action{Kind: ActStart, IDs: []string{id}, Items: []string{gate}}, false
-	}
-	if check.State == store.NodeRunning {
+	case chainRunning:
 		return store.NodeCheck{}, Action{Kind: ActNone}, false
-	}
-	if check.NotRun != store.LostAtRestart {
-		return check, Action{}, true
-	}
-	rerunID := store.NodeWorkID(run.ID, run.Attempt, rerunWork(part))
-	rerun, ok := checkByID(checks, rerunID)
-	switch {
-	case !ok:
-		return store.NodeCheck{}, Action{Kind: ActStart, IDs: []string{rerunID}, Items: []string{gate}}, false
-	case rerun.State == store.NodeRunning:
-		return store.NodeCheck{}, Action{Kind: ActNone}, false
-	case rerun.NotRun == store.LostAtRestart:
+	case chainLost:
 		return store.NodeCheck{}, Action{
 			Kind:   ActPark,
 			Output: fmt.Sprintf("integrate %s: Done gate %s lost at a restart twice", run.Path, gate),
 		}, false
+	case chainEnvironment:
+		return store.NodeCheck{}, Action{
+			Kind: ActPark, Output: fmt.Sprintf("integrate %s: %s", run.Path, environmentPark("Done gate "+gate)),
+		}, false
+	case chainEnded:
+		return check, Action{}, true
 	}
-	return rerun, Action{}, true
+	return check, Action{}, true
 }
 
 // checkPassed reports whether a check ran, exited 0 and did not time out.
@@ -155,23 +150,26 @@ func checkPassed(check store.NodeCheck) bool {
 }
 
 // captures decides the captures of the Requirements that name an evidence item. A capture with no run starts, and one
-// lost at a restart is started again as its rerun. A capture still running makes it wait, and a rerun lost at a restart
-// parks the run. Once every capture has ended, it returns the capture each Requirement ended with.
+// lost at a restart or that exited store.EnvironmentExit is started again as its rerun. A capture still running makes it
+// wait. A rerun lost at a restart parks the run, and so does a capture whose last rerun exits store.EnvironmentExit. Once
+// every capture has ended, it returns the capture each Requirement ended with.
 func captures(run store.NodeRun, rows Rows) (map[string]store.EvidenceRun, Action, bool) {
 	captured := make(map[string]store.EvidenceRun)
-	var ids, items, lost []string
+	var ids, items, lost, environment []string
 	running := false
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
-		capture, work, ok := captureFor(rows.Evidence, run, requirement.ID)
-		switch {
-		case !ok:
+		capture, work, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
+		switch outcome {
+		case chainNone:
 			ids = append(ids, work)
 			items = append(items, requirement.ID)
-		case capture.State != runEnded:
+		case chainRunning:
 			running = true
-		case capture.NotCaptured == store.LostAtRestart:
+		case chainLost:
 			lost = append(lost, requirement.ID)
-		default:
+		case chainEnvironment:
+			environment = append(environment, requirement.ID)
+		case chainEnded:
 			captured[requirement.ID] = capture
 		}
 	}
@@ -185,20 +183,13 @@ func captures(run store.NodeRun, rows Rows) (map[string]store.EvidenceRun, Actio
 			Kind:   ActPark,
 			Output: fmt.Sprintf("integrate %s: capture %s lost at a restart twice", run.Path, lost[0]),
 		}, false
+	case len(environment) > 0:
+		return nil, Action{
+			Kind:   ActPark,
+			Output: fmt.Sprintf("integrate %s: %s", run.Path, environmentPark("capture "+environment[0])),
+		}, false
 	}
 	return captured, Action{}, true
-}
-
-// captureFor returns the capture of Requirement id that the integrate run decides on, and its work id. That is the
-// capture, or its rerun once the capture was lost at a restart. ok is false when the run has not started it.
-func captureFor(runs []store.EvidenceRun, run store.NodeRun, id string) (store.EvidenceRun, string, bool) {
-	work := store.NodeWorkID(run.ID, run.Attempt, captureWork(id))
-	capture, ok := evidenceByID(runs, work)
-	if ok && capture.NotCaptured == store.LostAtRestart {
-		work = store.NodeWorkID(run.ID, run.Attempt, rerunWork(captureWork(id)))
-		capture, ok = evidenceByID(runs, work)
-	}
-	return capture, work, ok
 }
 
 // reproductions decides the reproductions of the Requirements that name a test item, once the captures have settled. A
@@ -305,7 +296,8 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 			continue
 		}
 		for _, requirement := range itemRequirements(rows.Epic.Requirements) {
-			if capture, _, ok := captureFor(rows.Evidence, run, requirement.ID); ok && capture.Passed {
+			capture, _, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
+			if outcome != chainNone && capture.Passed {
 				green[requirement.ID] = true
 			}
 		}
@@ -478,6 +470,15 @@ func reproWork(id string) string {
 
 func rerunWork(part string) string {
 	return part + " rerun"
+}
+
+// runWork returns the work of the k-th run of part: part itself for the first run, and each rerun adds a rerun to the work
+// before it.
+func runWork(part string, k int) string {
+	for range k {
+		part = rerunWork(part)
+	}
+	return part
 }
 
 // checkByID returns the check with id among checks.
