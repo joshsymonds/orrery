@@ -127,7 +127,8 @@ fun Orrery(
         translate(left = size.width / 2 - CENTRE.x * unit, top = size.height / 2 - CENTRE.y * unit) {
             drawCells(wedges, unit)
             drawGlow(glowPath(wedges, unit), unit, glow.value)
-            drawArcs(measurer, arcs, wedges.size, unit)
+            drawArcStrokes(arcs, wedges.size, unit)
+            drawArcIds(measurer, arcs, wedges.size, unit)
             drawRingNames(measurer, unit)
             paintCentred(measurer, readout, COUNT_SIZE, CENTRE.x, CENTRE.y, unit, Mocha.Text, bold = true)
             paintCentred(measurer, "integrated", COUNT_OF_SIZE, CENTRE.x, CENTRE.y + COUNT_OF_DROP, unit, Mocha.Overlay0)
@@ -149,6 +150,21 @@ private fun toneWord(tone: WedgeTone): String = when (tone) {
     WedgeTone.BAD -> "ended short"
     WedgeTone.ACC -> "accepted"
     WedgeTone.OK -> "integrated"
+}
+
+/**
+ * An epic's line-sized orrery: the cells and requirement arcs of [Orrery], with no text and no taps. It draws on no
+ * background, so the line's ground shows through the track.
+ */
+@Composable
+fun MiniOrrery(wedges: List<Wedge>, arcs: List<RequirementArc>, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val unit = min(size.width, size.height) / BOX
+        translate(left = size.width / 2 - CENTRE.x * unit, top = size.height / 2 - CENTRE.y * unit) {
+            drawCells(wedges, unit)
+            drawArcStrokes(arcs, wedges.size, unit)
+        }
+    }
 }
 
 // The glowing slices, each as its wedge's index and the phase of its now slice. Only a running wedge glows.
@@ -215,15 +231,12 @@ private fun glowPath(wedges: List<Wedge>, unit: Float): Path = Path().apply {
     glowsOf(wedges).forEach { (index, phase) -> addPath(cellPath(wedges.size, index, ringOf(phase), unit)) }
 }
 
-// Each requirement arc, from its start to its end in wedge units, with its id beside it. Compose's arcs run from 3 o'clock,
-// so an angle clockwise from 12 o'clock is 90 degrees less.
-private fun DrawScope.drawArcs(measurer: TextMeasurer, arcs: List<RequirementArc>, count: Int, unit: Float) {
-    val origin = sliceStart(0, count)
-    val span = sliceSpan(count)
+// Each requirement arc's stroke, from its start to its end in wedge units. Compose's arcs run from 3 o'clock, so an
+// angle clockwise from 12 o'clock is 90 degrees less.
+private fun DrawScope.drawArcStrokes(arcs: List<RequirementArc>, count: Int, unit: Float) {
     val radius = ARC_MID * unit
     arcs.forEach { arc ->
-        val from = origin + arc.start.toFloat() * span
-        val to = origin + arc.end.toFloat() * span
+        val (from, to) = arcAnglesOf(arc, count)
         drawArc(
             color = if (arc.proven) Mocha.Green else Mocha.Overlay0,
             startAngle = from - 90f,
@@ -233,9 +246,23 @@ private fun DrawScope.drawArcs(measurer: TextMeasurer, arcs: List<RequirementArc
             size = Size(2 * radius, 2 * radius),
             style = Stroke(width = (ARC_OUTER - ARC_INNER) * unit),
         )
+    }
+}
+
+// Each requirement arc's id, beside the middle of its stroke.
+private fun DrawScope.drawArcIds(measurer: TextMeasurer, arcs: List<RequirementArc>, count: Int, unit: Float) {
+    arcs.forEach { arc ->
+        val (from, to) = arcAnglesOf(arc, count)
         val at = point(ID_RADIUS, radiansOf((from + to) / 2))
         paintCentred(measurer, arc.id, ARC_ID_SIZE, at.x, at.y, unit, Mocha.Overlay1)
     }
+}
+
+// The angles, in the orrery's degrees, at which an arc starts and ends.
+private fun arcAnglesOf(arc: RequirementArc, count: Int): Pair<Float, Float> {
+    val origin = sliceStart(0, count)
+    val span = sliceSpan(count)
+    return Pair(origin + arc.start.toFloat() * span, origin + arc.end.toFloat() * span)
 }
 
 // The phase names in the start gap, each on its ring's radius at 12 o'clock.

@@ -8,9 +8,15 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
+import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicQuestionRow
+import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import io.github.joshsymonds.orrery.ui.theme.Mocha
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -69,6 +75,7 @@ class EpicsGroupTest {
         running: List<StepRow> = emptyList(),
         ended: Int = 0,
         waiting: Boolean = false,
+        phaseAt: Long = 0L,
     ): EpicRow = EpicRow(
         id = id,
         repository = repository,
@@ -80,11 +87,65 @@ class EpicsGroupTest {
         runningSteps = running,
         endedSteps = ended,
         problem = "",
+        phaseAt = phaseAt,
     )
 
-    private fun setGroup(epics: List<EpicRow>) {
+    private fun evidenceRun(phase: String, passed: Boolean) = EvidenceRunRow(
+        id = "run-$phase",
+        phase = phase,
+        source = "captured",
+        state = "ended",
+        exit = 0,
+        timedOut = false,
+        notCaptured = "",
+        verdict = "",
+        judgeReason = "",
+        passed = passed,
+        revision = "",
+        created = 0L,
+        ended = 0L,
+        logBytes = 0L,
+        stderrBytes = 0L,
+        artifacts = emptyList(),
+    )
+
+    private fun requirement(id: String, vararg runs: EvidenceRunRow) = EpicRequirementRow(
+        id = id,
+        text = "",
+        evidence = "",
+        kind = "check",
+        runs = runs.toList(),
+    )
+
+    private fun buildTask(id: String) = EpicBuildTaskRow(
+        id = id,
+        title = "",
+        status = "open",
+        stage = "",
+        red = null,
+        green = null,
+    )
+
+    private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
+
+    private fun detail(
+        epic: EpicRow,
+        requirements: List<EpicRequirementRow> = emptyList(),
+        buildTasks: List<EpicBuildTaskRow> = emptyList(),
+        questions: List<EpicQuestionRow> = emptyList(),
+    ): EpicDetail = EpicDetail(
+        epic = epic,
+        tasks = emptyList(),
+        slices = emptyList(),
+        steps = emptyList(),
+        requirements = requirements,
+        buildTasks = buildTasks,
+        questions = questions,
+    )
+
+    private fun setGroup(epics: List<EpicRow>, details: Map<String, EpicDetail> = emptyMap()) {
         composeRule.setContent {
-            EpicsGroup(epics = epics, onOpenEpic = { opened.add(it) })
+            EpicsGroup(epics = epics, details = details, now = NOW, onOpenEpic = { opened.add(it) })
         }
     }
 
@@ -241,5 +302,79 @@ class EpicsGroupTest {
         setGroup(emptyList())
 
         assertEquals(0, countNodes(hasTestTag("epics-group")))
+    }
+
+    @Test
+    fun liveEpicWithDetailShowsItsCountStateBlockerAndSmallOrrery() {
+        val live = epic(LIVE_ID, REPO, SLUG, live = true, phaseAt = NOW - 2_940L)
+        setGroup(
+            listOf(live),
+            details = mapOf(
+                LIVE_ID to detail(
+                    live,
+                    requirements = listOf(
+                        requirement("R1", evidenceRun("green", true)),
+                        requirement("R2", evidenceRun("green", true)),
+                        requirement("R3", evidenceRun("red", true)),
+                    ),
+                    buildTasks = listOf(buildTask("T1")),
+                    questions = listOf(question(asked = NOW - 120L)),
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithText(SLUG).assertIsDisplayed()
+        composeRule.onNodeWithText("2 of 3 proven").assertIsDisplayed()
+        composeRule.onNodeWithText("building · 49 min · 0 of 1 units integrated").assertIsDisplayed()
+        composeRule.onNodeWithText("waits on your answer · 2 min").assertIsDisplayed()
+        assertEquals(1, countNodes(hasTestTag("mini-orrery:$LIVE_ID")))
+    }
+
+    @Test
+    fun anOpenQuestionShowsItsBlockerWhateverElseTheLineShows() {
+        val first = epic(LIVE_ID, REPO, SLUG, live = true, running = (1..6).map { step("s$it") })
+        val second = epic(LIVE_TWO_ID, REPO, SLUG_TWO, live = true)
+        setGroup(
+            listOf(first, second),
+            details = mapOf(
+                LIVE_ID to detail(first, questions = listOf(question(asked = NOW - 120L))),
+                LIVE_TWO_ID to detail(second, questions = listOf(question(asked = 0L))),
+            ),
+        )
+
+        composeRule.onNodeWithText("2 more").assertIsDisplayed()
+        composeRule.onNodeWithText("waits on your answer · 2 min").assertIsDisplayed()
+        composeRule.onNodeWithText("waits on your answer").assertIsDisplayed()
+    }
+
+    @Test
+    fun aLiveEpicWithoutDetailShowsEpicUnavailableAndNoOrrery() {
+        setGroup(listOf(epic(LIVE_ID, REPO, SLUG, live = true)))
+
+        composeRule.onNodeWithText(SLUG).assertIsDisplayed()
+        composeRule.onNodeWithText("epic unavailable").assertIsDisplayed()
+        assertEquals(0, countNodes(hasTagPrefix("mini-orrery:")))
+    }
+
+    @Test
+    fun aBlockerIsDrawnInPeach() {
+        val live = epic(LIVE_ID, REPO, SLUG, live = true)
+        setGroup(
+            listOf(live),
+            details = mapOf(LIVE_ID to detail(live, questions = listOf(question(asked = NOW - 120L)))),
+        )
+
+        val colours = composeRule.onNodeWithTag("blocker:$LIVE_ID", useUnmergedTree = true)
+            .fetchSemanticsNode().config[SemanticsProperties.Text].single().spanStyles.map { it.item.color }
+        assertEquals(listOf(Mocha.Peach), colours)
+    }
+
+    @Test
+    fun anEpicWithNothingToWaitOnShowsNoBlockerLine() {
+        val live = epic(LIVE_ID, REPO, SLUG, live = true)
+        setGroup(listOf(live), details = mapOf(LIVE_ID to detail(live)))
+
+        composeRule.onNodeWithText("0 of 0 tasks done").assertIsDisplayed()
+        assertEquals(0, countNodes(hasTestTag("blocker:$LIVE_ID")))
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,24 +17,38 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.ui.theme.Mocha
 
 /** Most running step rows one epic shows; the rest fold into one "more" line. */
 private const val MAX_STEP_ROWS = 4
 
+/** The side of a live epic's small orrery on its line. */
+private val MINI_SIZE: Dp = 40.dp
+
 /**
- * Home's Epics group. Each live epic shows its slug, its repository, up to [MAX_STEP_ROWS] of its
- * running and held steps (a held one marked), and a "more" line for the rest; its ended steps show
- * as one count. Live epics waiting to start fold into one line, "n accepted, waiting to start", that opens
- * to list them. Folded epics fold into one line that opens to list them. Tapping an epic, a step or
- * a "more" line opens the epic. Nothing here answers a step: the group only opens epics. No epics
- * draws nothing.
+ * Home's Epics group. Each live epic's line shows its small orrery when it has [details], its slug, its
+ * repository, and its count, state and blocker from [epicLineOf] at [now]; the blocker is peach and left out when
+ * it is empty. Under the line, up to [MAX_STEP_ROWS] of its running and held steps (a held one marked), and a
+ * "more" line for the rest; its ended steps show as one count. Live epics waiting to start fold into one line,
+ * "n accepted, waiting to start", that opens to list them. Folded epics fold into one line that opens to list
+ * them. Tapping an epic, a step or a "more" line opens the epic. Nothing here answers a step: the group only
+ * opens epics. No epics draws nothing.
  */
 @Composable
-fun EpicsGroup(epics: List<EpicRow>, onOpenEpic: (String) -> Unit, modifier: Modifier = Modifier) {
+fun EpicsGroup(
+    epics: List<EpicRow>,
+    onOpenEpic: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    details: Map<String, EpicDetail> = emptyMap(),
+    now: Long = 0L,
+) {
     var waitingOpen by remember { mutableStateOf(false) }
     var foldedOpen by remember { mutableStateOf(false) }
     if (epics.isEmpty()) return
@@ -47,7 +62,7 @@ fun EpicsGroup(epics: List<EpicRow>, onOpenEpic: (String) -> Unit, modifier: Mod
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         for (epic in live) {
-            LiveEpic(epic, onOpenEpic)
+            LiveEpic(epic, details[epic.id], now, onOpenEpic)
         }
         if (waiting.isNotEmpty()) {
             FoldLine("${waiting.size} accepted, waiting to start", "epics-waiting") { waitingOpen = !waitingOpen }
@@ -82,11 +97,11 @@ private fun FoldLine(text: String, tag: String, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun LiveEpic(epic: EpicRow, onOpenEpic: (String) -> Unit) {
+private fun LiveEpic(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEpic: (String) -> Unit) {
     val shown = epic.runningSteps.take(MAX_STEP_ROWS)
     val more = epic.runningSteps.size - shown.size
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        EpicLine(epic, onOpenEpic, start = 0.dp)
+        LiveEpicLine(epic, detail, now, onOpenEpic)
         for (step in shown) {
             StepLine(epic.id, step, onOpenEpic)
         }
@@ -107,6 +122,45 @@ private fun LiveEpic(epic: EpicRow, onOpenEpic: (String) -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 24.dp, top = 4.dp),
             )
+        }
+    }
+}
+
+// A live epic's line: its small orrery when it has detail, then its slug, repository and count, then its state and its
+// blocker. Without detail the count reads "epic unavailable" and there is no orrery.
+@Composable
+private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEpic: (String) -> Unit) {
+    val words = epicLineOf(detail, now)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("epic:${epic.id}")
+            .clickable { onOpenEpic(epic.id) }
+            .padding(top = 4.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (detail != null) {
+            val wedges = remember(detail) { wedgesOf(detail) }
+            val arcs = remember(detail) { requirementArcs(wedges, detail.requirements) }
+            MiniOrrery(wedges, arcs, Modifier.size(MINI_SIZE).testTag("mini-orrery:${epic.id}"))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(epic.slug, style = MaterialTheme.typography.bodyLarge)
+                Text(epic.repository, style = MaterialTheme.typography.labelSmall)
+                Text(words.count, style = MaterialTheme.typography.labelSmall)
+            }
+            if (words.state.isNotEmpty()) {
+                Text(words.state, style = MaterialTheme.typography.labelSmall)
+            }
+            if (words.blocker.isNotEmpty()) {
+                Text(
+                    AnnotatedString(words.blocker, SpanStyle(color = Mocha.Peach)),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.testTag("blocker:${epic.id}"),
+                )
+            }
         }
     }
 }
