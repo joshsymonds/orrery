@@ -20,6 +20,7 @@ import {
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
 import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
+import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
@@ -67,6 +68,7 @@ interface Props {
   seen: Seen;
   epics?: EpicsView;
   host?: HostStatusResponse | null;
+  onViewing?: (viewing: Viewing) => void;
 }
 
 // One request the fake server received. A unary call has no controller; a stream call has one until it ends.
@@ -331,6 +333,7 @@ async function mount(container: HTMLElement, props: Props): Promise<void> {
         seenWindow={props.seen.window}
         epics={props.epics}
         host={props.host}
+        onViewing={props.onViewing}
       />,
       container,
     );
@@ -4377,3 +4380,34 @@ test("showing another epic closes the docked conversation, and the first epic's 
   });
 });
 
+test("App reports the cursor's pane, epic, step and session to onViewing as the cursor moves", (t) => {
+  const reported: Viewing[] = [];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("step-1")] });
+  const session = row({
+    key: "sess",
+    id: "sess-9",
+    kind: "session",
+    label: "notes",
+    project: "",
+    host: "",
+    state: "working",
+    changed: 30,
+    seen: 30,
+  });
+  const epics = epicsView([epic], new Map());
+  return withApp(t.signal, { rows: [paneRow, session], epics, onViewing: (viewing) => reported.push(viewing) }, async (container) => {
+    assert.equal(cursorKey(container), "a");
+    assert.deepEqual(reported.at(-1), { case: "viewingPane", value: "a" }, "the cursor's pane is reported at mount");
+    const atMount = reported.length;
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(epic));
+    assert.deepEqual(reported.at(-1), { case: "viewingEpic", value: epic.id }, "an epic entry reports its epic");
+    await press("j");
+    assert.equal(cursorKey(container), "step:step-1");
+    assert.deepEqual(reported.at(-1), { case: "viewingSession", value: "step-1" }, "a step reports its session");
+    await press("j");
+    assert.equal(cursorKey(container), "sess");
+    assert.deepEqual(reported.at(-1), { case: "viewingSession", value: "sess-9" }, "a session row reports its session");
+    assert.equal(reported.length, atMount + 3, "each move reports once");
+  });
+});

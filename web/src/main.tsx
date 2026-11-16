@@ -9,7 +9,7 @@ import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { loadEpics } from "./loadepics";
 import { loadRows } from "./load";
 import { watchNotices } from "./notices";
-import { watchPresence } from "./presence";
+import { type Viewing, watchPresence } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock } from "./seen";
 
@@ -61,10 +61,10 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 // in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
 // its own guard: a tick or event that lands while it is in flight is left to the next tick. The host's status is read
 // at start and on each tick, under its own guard, and a refused read hands App null. The page also reports its input:
-// watchPresence sends the age of the newest input through Presence.Report, and a failed report is dropped. The
-// returned function stops reloading, aborts the stream, stops the presence watch, aborts the notices watch and unmounts
-// App. The page also watches the in-app notices its banner shows until each ends; a notices stream that fails reopens
-// after retryMs.
+// watchPresence sends each Presence.Report request, its input age and the view App shows, and a failed report is
+// dropped. The returned function stops reloading, aborts the stream, stops the presence watch, aborts the notices watch
+// and unmounts App. The page also watches the in-app notices its banner shows until each ends; a notices stream that
+// fails reopens after retryMs.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
@@ -94,6 +94,7 @@ export function start(
         clients={clients}
         notices={notices}
         host={host}
+        onViewing={onViewing}
       />,
       root,
     );
@@ -213,6 +214,23 @@ export function start(
     }
   };
 
+  // The view App shows is kept for the presence watch, which reads it at each report. A change of it sends at once
+  // while the page is visible and focused. The watch is made before the first draw, so onViewing never meets no watch.
+  let viewing: Viewing = { case: undefined };
+  const presence = watchPresence(
+    window,
+    (request) => {
+      // A failed report is dropped without a page error; the next input sends again.
+      void clients.presence.report(request).catch(() => undefined);
+    },
+    realClock,
+    () => viewing,
+  );
+  const onViewing = (next: Viewing) => {
+    viewing = next;
+    presence.viewChanged();
+  };
+
   draw();
   void reload();
   void loadHostStatus();
@@ -226,15 +244,6 @@ export function start(
     now = Math.floor(Date.now() / 1000);
     draw();
   }, intervalMs);
-
-  // A failed report is dropped without a page error; the next input sends again.
-  const presence = watchPresence(
-    window,
-    (ageMs) => {
-      void clients.presence.report({ inputAgeMs: BigInt(ageMs) }).catch(() => undefined);
-    },
-    realClock,
-  );
 
   const noticesWatch = new AbortController();
   void watchNotices(

@@ -31,6 +31,7 @@ import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
+import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
@@ -167,6 +168,7 @@ export function App({
   epics = noEpics,
   notices = [],
   host = null,
+  onViewing,
 }: {
   rows: Row[];
   error: string;
@@ -177,6 +179,7 @@ export function App({
   epics?: EpicsView;
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
+  onViewing?: (viewing: Viewing) => void;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -418,6 +421,12 @@ export function App({
   useLayoutEffect(() => {
     setEpicPage(openEpicPage);
   }, [cursorKey]);
+
+  // onViewing reports the viewing key of the cursor's entry each time that entry's kind or id changes, so the page's
+  // presence reports name what it shows.
+  useEffect(() => {
+    onViewing?.(viewingOf(cursorItem));
+  }, [cursorItem?.kind, cursorItem?.id]);
 
   // Showing another epic closes the dock. A row or step shows no epic, so the dock is kept across it.
   useLayoutEffect(() => {
