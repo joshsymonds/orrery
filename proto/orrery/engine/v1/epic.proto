@@ -100,7 +100,7 @@ message EpicContract {
   // The names of the command gates that show the epic is done.
   repeated string done_gates = 19;
 
-  // The names of the agent gates that review the epic.
+  // Refused when set: the epic's reviewers fill its per-task review list. Kept so old requests still decode.
   repeated string review_gates = 20;
 
   // The reviewers the epic declares. Each merges by name over orrery's defaults and the project file.
@@ -550,6 +550,39 @@ message EpicQuestion {
   string state = 4;
 }
 
+// EpicTrigger is one trigger of an epic, which starts or wakes its planner.
+message EpicTrigger {
+  // The trigger's id.
+  string id = 1;
+
+  // What the trigger is for, in words.
+  string cause = 2;
+
+  // The trigger's state: pending, claimed or consumed.
+  string state = 3;
+
+  // The position of the turn that claimed the trigger, counted from 1; 0 while the trigger is pending.
+  int64 turn = 4;
+
+  // When the trigger was created, in unix seconds.
+  int64 created = 5;
+}
+
+// EpicTell is one tell an epic holds for its owner.
+message EpicTell {
+  // The tell's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The tell's text.
+  string text = 2;
+
+  // When the tell was written, in unix seconds.
+  int64 at = 3;
+
+  // Whether the owner has been told it.
+  bool told = 4;
+}
+
 // EpicWorkflow is the workflow an epic pins: its name, its canonical text and the sha256 of that text.
 message EpicWorkflow {
   // The workflow's name.
@@ -676,6 +709,15 @@ message StoredEpic {
   // The epic's reviewers, merged from orrery's defaults, the project file and the contract, in the order their names
   // first appear.
   repeated EpicReviewer reviewers = 14;
+
+  // The epic's summary, written once from its contract. Empty until it is written.
+  string summary = 20;
+
+  // The epic's triggers, oldest first. Only a GetEpic that asks for history fills them.
+  repeated EpicTrigger triggers = 21;
+
+  // The epic's tells in seq order. Only a GetEpic that asks for history fills them.
+  repeated EpicTell tells = 22;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
@@ -721,6 +763,9 @@ message CreateEpicResponse {
 message GetEpicRequest {
   // The epic's id.
   string id = 1;
+
+  // Whether the reply carries the epic's triggers and tells. Without it, the reply has neither.
+  bool history = 2;
 }
 
 // GetEpicResponse carries one stored epic.

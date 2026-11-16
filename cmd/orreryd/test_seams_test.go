@@ -80,6 +80,35 @@ func TestDueAtFlag(t *testing.T) {
 	}
 }
 
+// TestWriteTickFlag checks the --write-tick test seam: without it the tick is zero, which the engine writer reads as
+// its own; a duration replaces it; a negative value is a usage error; and the usage text does not list the seam.
+func TestWriteTickFlag(t *testing.T) {
+	opts, err := parseFlags(nil, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if opts.writeTick != 0 {
+		t.Errorf("writeTick without the flag = %v, want 0", opts.writeTick)
+	}
+
+	opts, err = parseFlags([]string{"--write-tick", "5ms"}, holderScopeGetenv)
+	if err != nil {
+		t.Fatalf("parseFlags(--write-tick 5ms): %v", err)
+	}
+	if opts.writeTick != 5*time.Millisecond {
+		t.Errorf("writeTick for 5ms = %v, want 5ms", opts.writeTick)
+	}
+
+	_, err = parseFlags([]string{"--write-tick", "-1ms"}, holderScopeGetenv)
+	var usage usageError
+	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "--write-tick must not be negative") {
+		t.Errorf("parseFlags(--write-tick -1ms) error = %v, want the negative-value usage error", err)
+	}
+	if strings.Contains(usageText, "write-tick") {
+		t.Errorf("usage text lists the --write-tick test seam:\n%s", usageText)
+	}
+}
+
 // TestHostFlag checks the --host test seam: without it the host name is the machine's, with it the name it gives, and
 // the usage text does not list the seam.
 func TestHostFlag(t *testing.T) {

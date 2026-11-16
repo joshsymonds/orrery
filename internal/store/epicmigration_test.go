@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -17,14 +18,14 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030 and 00034 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029,
-// 00033 and 00034 add to epic tables.
+// 00019, 00028, 00030 and 00035 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029,
+// 00033, 00034 and 00035 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
 			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "workflow",
-			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate",
+			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -182,7 +183,7 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 }
 
 // TestReviewersMigrationDownAndUp removes the agents column of steps, the unverified column of epic_task_findings and
-// the epic_reviewers table with the Down of 00034_reviewers.sql, and Up restores them.
+// the epic_reviewers table with the Down of 00035_reviewers.sql, and Up restores them.
 func TestReviewersMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -197,8 +198,8 @@ func TestReviewersMigrationDownAndUp(t *testing.T) {
 		t.Fatalf("create goose provider: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 33); err != nil {
-		t.Fatalf("DownTo 33: %v", err)
+	if _, err := provider.DownTo(ctx, 34); err != nil {
+		t.Fatalf("DownTo 34: %v", err)
 	}
 	if hasAny(tableColumns(t, s, "steps"), "agents") {
 		t.Fatalf("steps columns after Down = %v, want no agents column", tableColumns(t, s, "steps"))
@@ -266,7 +267,10 @@ func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
 func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -293,7 +297,10 @@ func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
 func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -333,7 +340,10 @@ func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -366,7 +376,10 @@ func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
 func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"), noSync())
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	// The constraint under test is in the migrated schema, so the store starts from the migrated image.
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -395,29 +408,27 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 }
 
 // openStoreAtVersion creates the store file at path with the embedded migrations applied only up to version,
-// the schema a binary from before the epic migration left behind, and returns the open database.
+// the schema a binary from before the epic migration left behind, and returns the open database. The file is a copy
+// of the version's image (see storeImages), so the fixture costs its copy, not a migration.
 func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 	t.Helper()
-	// The fixture is a throwaway file, so its migrations skip the fsyncs, as noSync's stores do.
+	images, err := storeImages.versions()
+	if err != nil {
+		t.Fatalf("make store version images: %v", err)
+	}
+	image, ok := images[version]
+	if !ok {
+		t.Fatalf("no store image at version %d", version)
+	}
+	if err = os.WriteFile(path, image, 0o600); err != nil {
+		t.Fatalf("write store at version %d: %v", version, err)
+	}
+	// The fixture is a throwaway file, so it skips the fsyncs, as noSync's stores do.
 	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
 	db.SetMaxOpenConns(1)
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		db.Close()
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationsFS)
-	if err != nil {
-		db.Close()
-		t.Fatalf("create fixture provider: %v", err)
-	}
-	if _, err = provider.UpTo(context.Background(), version); err != nil {
-		db.Close()
-		t.Fatalf("migrate fixture to %d: %v", version, err)
-	}
 	return db
 }
 
@@ -479,9 +490,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00034_reviewers.sql is the newest.
-	if version != 34 {
-		t.Fatalf("store version after Open = %d, want 34", version)
+	// Open applies 00014_epics.sql and every migration after it: 00035_reviewers.sql is the newest.
+	if version != 35 {
+		t.Fatalf("store version after Open = %d, want 35", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -900,7 +911,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	// Each stored row keeps its values and gains what later migrations give it at the end of its table: the epic
 	// stored at version 16 pins the built-in epic workflow.
 	added := map[string][]any{
-		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText), "", "", ""},
+		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText), "", "", "", ""},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
 		"pending_notices": {"", ""},

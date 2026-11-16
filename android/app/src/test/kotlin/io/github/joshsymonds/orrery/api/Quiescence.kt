@@ -40,70 +40,112 @@ object Quiescence {
         if (BackgroundWork.start !== countingStart) BackgroundWork.start = countingStart
     }
 
-    /**
-     * BackgroundWork asked for in the current test and not yet returned, started or still waiting for its thread.
-     * Work an earlier test left running (a push registration retrying a server that test already closed) is not
-     * this test's: counting it would hold every later wait in the JVM, and stopped the test task at 20 minutes.
-     */
-    private var backgroundWork = 0
-
-    /** Which test the count belongs to; [newTest] moves it on, and work from an earlier test no longer counts. */
-    private var generation = 0
-    private val workLock = Any()
-
-    /** A new test begins: work started before now is an earlier test's and no longer counts as in flight. */
-    internal fun newTest() {
-        synchronized(workLock) {
-            generation++
-            backgroundWork = 0
-        }
+    /** One BackgroundWork job: its name, the test that asked for it, and the thread running it once one does. */
+    private class Work(val name: String, val generation: Int) {
+        @Volatile var thread: Thread? = null
     }
 
     /**
-     * Threads running BackgroundWork. The thread scan skips them: the current test's work is counted above, and an
-     * earlier test's (parked in a retry sleep, say) is not this test's.
+     * BackgroundWork asked for and not yet returned, started or still waiting for its thread. Only the current test's
+     * count as in flight: work an earlier test left running (a push registration retrying a server that test already
+     * closed) is not this test's, and counting it held every later wait in the JVM until the 20-minute test timeout.
+     * [endTest] fails the test that leaves work running instead.
      */
-    private val workThreads: MutableSet<Thread> = Collections.newSetFromMap(ConcurrentHashMap())
+    private val work: MutableSet<Work> = Collections.newSetFromMap(ConcurrentHashMap())
+
+    /** Which test is running; [newTest] moves it on. */
+    @Volatile private var generation = 0
+
+    /** A new test begins: work asked for before now is an earlier test's and no longer counts as in flight. */
+    internal fun newTest() {
+        generation++
+    }
+
+    private fun currentWork(): List<Work> = generation.let { now -> work.filter { it.generation == now } }
 
     /** The current test's BackgroundWork still running. */
-    internal fun backgroundWorkRunning(): Int = synchronized(workLock) { backgroundWork }
+    internal fun backgroundWorkRunning(): Int = currentWork().size
 
-    private val countingStart: (Runnable) -> Unit = { work -> countedStart(work) }
+    private val countingStart: (String, Runnable) -> Unit = { name, job -> countedStart(name, job) }
 
     /**
-     * Counts [work] as in flight from now until it returns, then hands it to [launch] to run on a thread. The count
-     * starts before any thread exists, so work whose thread has not run yet is still in flight.
+     * Counts [job], called [name], as in flight from now until it returns, then hands it to [launch] to run on a
+     * thread. The count starts before any thread exists, so work whose thread has not run yet is still in flight.
      */
-    internal fun countedStart(work: Runnable, launch: (Runnable) -> Unit = { Thread(it).start() }) {
-        val startedIn = synchronized(workLock) {
-            backgroundWork++
-            generation
-        }
-        // Only the test that started the work takes it off the count; a later test's count was reset by newTest.
-        val done = { synchronized(workLock) { if (generation == startedIn) backgroundWork-- } }
+    internal fun countedStart(
+        name: String,
+        job: Runnable,
+        launch: (Runnable) -> Unit = {
+            // A daemon, so work a test leaked can never keep the test JVM from exiting.
+            Thread(it, name).apply { isDaemon = true }.start()
+        },
+    ) {
+        val entry = Work(name, generation)
+        work += entry
         try {
             launch(
                 Runnable {
-                    val thread = Thread.currentThread()
-                    workThreads += thread
+                    entry.thread = Thread.currentThread()
                     try {
-                        work.run()
+                        job.run()
                     } finally {
-                        workThreads -= thread
-                        done()
+                        work -= entry
                     }
                 },
             )
         } catch (e: Throwable) {
-            done()
+            work -= entry
             throw e
         }
+    }
+
+    /**
+     * The test ends: wait for its BackgroundWork to finish, and fail, naming it, once only time could. Work still
+     * finishes while its thread has not run yet, runs, or waits on anything but the clock (an answer in flight, a lock
+     * or latch another thread can release). Work sleeping (Thread.sleep, a retry's backoff) with nothing else in flight
+     * is waiting for time alone, so the test ended and left it running. A parked thread cannot be told from one just
+     * released, so only a sleep counts as stuck. Never reads a clock: a loaded machine makes this slower, never failed.
+     */
+    internal fun endTest() {
+        while (true) {
+            val left = currentWork()
+            if (left.isEmpty()) return
+            if (left.any { !it.isSleeping() } || inFlightBesidesWork() != null) {
+                Thread.sleep(PAUSE_MILLIS)
+                continue
+            }
+            if (currentWork().isEmpty()) return
+            throw AssertionError(
+                "the test ended with BackgroundWork still running and nothing in flight that could finish it: " +
+                    left.joinToString("; ") { it.describe() } + "; wait for it before the test ends",
+            )
+        }
+    }
+
+    /** Whether the job's thread is in Thread.sleep: waiting for the clock and nothing else. */
+    private fun Work.isSleeping(): Boolean {
+        val running = thread ?: return false
+        if (running.state != Thread.State.TIMED_WAITING && running.state != Thread.State.WAITING) return false
+        return running.stackTrace.take(SLEEP_FRAMES).any { it.className == "java.lang.Thread" && it.methodName.startsWith("sleep") }
+    }
+
+    private fun Work.describe(): String {
+        val frames = thread?.stackTrace.orEmpty()
+        val at = frames.firstOrNull { it.className.startsWith(APP_PACKAGE) } ?: frames.firstOrNull()
+        return "\"$name\" (${thread?.state ?: "not started"}${at?.let { ", at $it" }.orEmpty()})"
     }
 
     /** What is still in flight, in a phrase, or null when nothing is: then only the test's thread can change anything. */
     fun inFlight(): String? {
         install()
-        backgroundWorkRunning().takeIf { it > 0 }?.let { return "$it background work item(s) not finished" }
+        currentWork().takeIf { it.isNotEmpty() }?.let { left ->
+            return "BackgroundWork not finished: ${left.joinToString { "\"${it.name}\"" }}"
+        }
+        return inFlightBesidesWork()
+    }
+
+    /** What is in flight other than BackgroundWork itself, or null. */
+    private fun inFlightBesidesWork(): String? {
         FakeOrreryServer.busyHandlers().takeIf { it > 0 }?.let { return "$it fake-server handler(s) still answering" }
         pendingCalls.size.takeIf { it > 0 }?.let { return "$it call(s) not yet answered with headers" }
         coroutineTasks()?.let { return it }
@@ -174,7 +216,7 @@ object Quiescence {
         val self = Thread.currentThread()
         for ((thread, frames) in Thread.getAllStackTraces()) {
             if (thread == self || !thread.isAlive || FakeOrreryServer.isServerThread(thread) || frames.isEmpty()) continue
-            if (thread in workThreads) continue
+            if (work.any { it.thread == thread }) continue
             if (frames.any(::isSocketRead)) continue
             val app = frames.any { it.className.startsWith(APP_PACKAGE) }
             val task = frames.any { it.className == DISPATCHED_TASK && it.methodName == "run" }
@@ -196,6 +238,7 @@ object Quiescence {
             (frame.className == "java.net.Socket\$SocketInputStream" && frame.methodName == "read")
 
     private const val PAUSE_MILLIS = 10L
+    private const val SLEEP_FRAMES = 4
     private const val APP_PACKAGE = "io.github.joshsymonds.orrery."
     private const val DISPATCHED_TASK = "kotlinx.coroutines.DispatchedTask"
     private val CLIENT_PACKAGES = listOf("com.connectrpc.", "okhttp3.", "okio.", "com.google.protobuf.")

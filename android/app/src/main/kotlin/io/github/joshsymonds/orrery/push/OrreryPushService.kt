@@ -23,7 +23,7 @@ class OrreryPushService : PushService() {
             return
         }
         val registration = PushRegistration(OrreryClient(ServerSettings(this).serverUrl))
-        BackgroundWork.run {
+        BackgroundWork.run("push registration") {
             registration.register(endpoint.url, keys.pubKey, keys.auth)
         }
     }
