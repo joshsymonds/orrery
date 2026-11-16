@@ -6,6 +6,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -19,13 +20,15 @@ const (
 	requirementPending = "pending"
 )
 
-// requirementClaims sets the owner, contributors and state of each Requirement of epic's contract from flow.
-// flow.Epic.Tasks is in seq order, and flow.Evidence holds only the current runs. A task is live when its status is not
-// failed.
+// requirementClaims sets the owner, contributors, state and disagreement of each Requirement of epic's contract from
+// flow. flow.Epic.Tasks is in seq order, and flow.Evidence holds only the current runs. A task is live when its status
+// is not failed. The disagreement is the line kinds.Disagreement gives at the epic's base, "" when there is none.
 func requirementClaims(epic *v1.StoredEpic, flow store.EpicFlow) {
+	rows := kinds.Rows{Epic: flow.Epic, Runs: flow.Runs, Checks: flow.Checks, Evidence: flow.Evidence}
 	for _, requirement := range epic.GetContract().GetRequirements() {
 		requirement.Owner, requirement.Contributors = requirementOwnership(requirement.GetId(), flow.Epic.Tasks)
 		requirement.State = requirementState(requirement.GetId(), flow.Evidence)
+		requirement.Disagreement = kinds.Disagreement(rows, requirement.GetId())
 	}
 }
 
