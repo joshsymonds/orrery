@@ -71,10 +71,23 @@ ALTER TABLE steps ADD COLUMN loop_gate_from INTEGER NOT NULL DEFAULT 0;
 
 -- +goose Down
 ALTER TABLE steps DROP COLUMN loop_gate_from;
-ALTER TABLE epic_tasks ADD COLUMN task_check TEXT NOT NULL DEFAULT '';
-UPDATE epic_tasks SET task_check = COALESCE(json_extract(NULLIF(evidence, ''), '$.conclusion'), '');
-ALTER TABLE epic_tasks DROP COLUMN evidence;
-ALTER TABLE epic_tasks DROP COLUMN gate;
+-- SQLite adds a NOT NULL column only with a default, and task_check had none at version 19, so epic_tasks is rebuilt
+-- as version 19 made it, its task_check the conclusion of each task's evidence.
+ALTER TABLE epic_tasks RENAME TO epic_tasks_evidence;
+CREATE TABLE epic_tasks (
+    epic TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    turn INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    deliverable TEXT NOT NULL,
+    task_check TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    PRIMARY KEY (epic, seq)
+);
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, task_check, status)
+SELECT epic, seq, turn, title, deliverable, COALESCE(json_extract(NULLIF(evidence, ''), '$.conclusion'), ''), status
+FROM epic_tasks_evidence;
+DROP TABLE epic_tasks_evidence;
 DROP TABLE evidence_artifacts;
 DROP TABLE evidence_runs;
 ALTER TABLE epic_requirements DROP COLUMN item;
