@@ -77,11 +77,15 @@ func TestEndEpicInSamePhaseChangesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	endingFreezeReview(t, s)
-	if err := s.EndEpic(ctx, integrateEpic, "ended_with_gaps", "Epic ended with 1 gap.", nil, endingEndedAt()); err != nil {
+	if err := s.EndEpic(
+		ctx, integrateEpic, "ended_with_gaps", "Epic ended with 1 gap.", nil, endingEndedAt(),
+	); err != nil {
 		t.Fatalf("EndEpic: %v", err)
 	}
 
-	if err := s.EndEpic(ctx, integrateEpic, "ended_with_gaps", "Epic ended with 2 gaps.", nil, endingEndedAt()); err != nil {
+	if err := s.EndEpic(
+		ctx, integrateEpic, "ended_with_gaps", "Epic ended with 2 gaps.", nil, endingEndedAt(),
+	); err != nil {
 		t.Fatalf("repeat EndEpic: %v", err)
 	}
 	if row := integrateEpicRow(t, s); row.Phase != "ended_with_gaps" {
