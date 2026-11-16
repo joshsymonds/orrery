@@ -10,14 +10,13 @@ import (
 	"testing"
 )
 
-// schemaLines returns the schema of db, one line for each table, index, view and trigger in name order: its kind, name
-// and table, and for a table each of its columns with their type, NOT NULL flag, default and key position. goose's
-// version table and SQLite's own tables are left out. A column whose table and name appear in noDefault is listed with
-// no default.
-func schemaLines(t *testing.T, db *sql.DB, noDefault map[string]bool) []string {
+// schemaLines returns the schema of db, one line for each table, index, view and trigger in name order: its kind, name,
+// table and the SQL that made it, with its spacing normalized, and for a table each of its columns with their type, NOT
+// NULL flag, default and key position. goose's version table and SQLite's own tables are left out.
+func schemaLines(t *testing.T, db *sql.DB) []string {
 	t.Helper()
 	ctx := context.Background()
-	objects, err := db.QueryContext(ctx, `SELECT type, name, tbl_name FROM sqlite_master
+	objects, err := db.QueryContext(ctx, `SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master
 		WHERE name NOT LIKE 'sqlite_%' AND name != 'goose_db_version' ORDER BY type, name`)
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
@@ -25,11 +24,11 @@ func schemaLines(t *testing.T, db *sql.DB, noDefault map[string]bool) []string {
 	var lines []string
 	var tables []string
 	for objects.Next() {
-		var kind, name, table string
-		if err = objects.Scan(&kind, &name, &table); err != nil {
+		var kind, name, table, text string
+		if err = objects.Scan(&kind, &name, &table, &text); err != nil {
 			t.Fatalf("scan schema: %v", err)
 		}
-		lines = append(lines, kind+" "+name+" on "+table)
+		lines = append(lines, kind+" "+name+" on "+table+": "+normalizedSQL(text))
 		if kind == "table" {
 			tables = append(tables, name)
 		}
@@ -38,9 +37,16 @@ func schemaLines(t *testing.T, db *sql.DB, noDefault map[string]bool) []string {
 		t.Fatalf("read schema: %v", err)
 	}
 	for _, table := range tables {
-		lines = append(lines, columnLines(t, db, table, noDefault)...)
+		lines = append(lines, columnLines(t, db, table)...)
 	}
 	return lines
+}
+
+// normalizedSQL returns text with its runs of white space made one space, and a space on each side of each parenthesis
+// and comma, so SQL that differs only in its spacing reads the same.
+func normalizedSQL(text string) string {
+	spaced := strings.NewReplacer("(", " ( ", ")", " ) ", ",", " , ").Replace(text)
+	return strings.Join(strings.Fields(spaced), " ")
 }
 
 // rowsDone closes rows and returns the error that ended them, or the error of the close.
@@ -52,7 +58,7 @@ func rowsDone(rows *sql.Rows) error {
 }
 
 // columnLines returns one line for each column of table in db, as schemaLines lists them.
-func columnLines(t *testing.T, db *sql.DB, table string, noDefault map[string]bool) []string {
+func columnLines(t *testing.T, db *sql.DB, table string) []string {
 	t.Helper()
 	rows, err := db.QueryContext(context.Background(),
 		`SELECT name, type, "notnull", COALESCE(dflt_value, ''), pk FROM pragma_table_info(?)`, table)
@@ -66,9 +72,6 @@ func columnLines(t *testing.T, db *sql.DB, table string, noDefault map[string]bo
 		if err = rows.Scan(&name, &typ, &notNull, &dflt, &pk); err != nil {
 			t.Fatalf("scan columns of %s: %v", table, err)
 		}
-		if noDefault[table+"."+name] {
-			dflt = ""
-		}
 		lines = append(lines, fmt.Sprintf("column %s.%s %s notnull=%d default=%q pk=%d", table, name, typ, notNull,
 			dflt, pk))
 	}
@@ -78,13 +81,6 @@ func columnLines(t *testing.T, db *sql.DB, table string, noDefault map[string]bo
 	slices.Sort(lines)
 	return lines
 }
-
-// downDefaults are the columns whose default a migration's Down cannot take back, by the version of that migration.
-// SQLite adds a NOT NULL column only with a default, so the Down of 00020_evidence.sql gives task_check back with
-// the empty string as its default, which the column did not have at version 19.
-//
-//nolint:gochecknoglobals // a fixed table of the migrations' known differences, read by one test
-var downDefaults = map[int64]map[string]bool{20: {"epic_tasks.task_check": true}}
 
 // TestEachMigrationDownRestoresThePreviousSchema runs each migration's Down on the store at its version, as the walk of
 // the migrations from the first leaves it, and requires the schema of the version before; then its Up, and requires the
@@ -99,28 +95,27 @@ func TestEachMigrationDownRestoresThePreviousSchema(t *testing.T) {
 	for version := int64(1); version <= int64(len(images)); version++ {
 		t.Run(fmt.Sprintf("version %d", version), func(t *testing.T) {
 			t.Parallel()
-			noDefault := downDefaults[version]
 			var previous []string
 			if version > 1 {
 				before := openStoreAtVersion(t, filepath.Join(t.TempDir(), "before.db"), version-1)
-				previous = schemaLines(t, before, noDefault)
+				previous = schemaLines(t, before)
 				closeDB(t, before)
 			}
 			s, provider := storeAtVersion(t, version)
-			at := schemaLines(t, s.db.DB, noDefault)
+			at := schemaLines(t, s.db.DB)
 			ctx := context.Background()
 
 			if _, err := provider.Down(ctx); err != nil {
 				t.Fatalf("Down of %d: %v", version, err)
 			}
-			if got := schemaLines(t, s.db.DB, noDefault); !slices.Equal(got, previous) {
+			if got := schemaLines(t, s.db.DB); !slices.Equal(got, previous) {
 				t.Fatalf("schema after the Down of %d differs from version %d:\n%s", version, version-1,
 					lineDiff(got, previous))
 			}
 			if _, err := provider.UpByOne(ctx); err != nil {
 				t.Fatalf("Up of %d: %v", version, err)
 			}
-			if got := schemaLines(t, s.db.DB, noDefault); !slices.Equal(got, at) {
+			if got := schemaLines(t, s.db.DB); !slices.Equal(got, at) {
 				t.Fatalf("schema after the Down and Up of %d differs from version %d:\n%s", version, version,
 					lineDiff(got, at))
 			}
