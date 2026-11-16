@@ -218,6 +218,10 @@ expect() {
     shift
     if "$@"; then pass "$what"; else fail "$what"; fi
 }
+# expect_no_line <file> <pattern> <what>: no line of the file matches the pattern.
+expect_no_line() {
+    if grep -qE -- "$2" "$1"; then fail "$3: a line matches '$2' in:"; sed 's/^/    /' "$1" >&2; else pass "$3"; fi
+}
 expect_line() {
     if grep -qE -- "$2" "$1"; then pass "$3"; else fail "$3: no line matching '$2' in:"; sed 's/^/    /' "$1" >&2; fi
 }
@@ -587,7 +591,8 @@ expect "a queued full check has not started" test ! -e "$root/started-work2"
 rc=0
 (cd "$root/work3" && scripts/gate-remote.sh bash -c 'exit 0') >"$root/work3.out" 2>"$root/work3.err" || rc=$?
 expect_status 0 "a light check runs while every full-check slot is held"
-expect_line "$root/work3.err" '^gate-remote: took light-check slot 1 of [0-9]+ on .* after 0s$' "a light check takes a light-check slot at once"
+expect_line "$root/work3.err" '^gate-remote: took light-check slot 1 of [0-9]+ on .* after [0-9]+s$' "a light check takes a light-check slot"
+expect_no_line "$root/work3.err" 'queued until one is let go' "a light check is not queued behind the full-check slot"
 expect "the queued full check is still waiting" test ! -e "$root/started-work2"
 
 # The holder's run ends: the queued run takes the slot.
@@ -597,7 +602,8 @@ wait "$pid_a" || rc=$?
 expect "the first full check ends with its status" test "$rc" -eq 0
 expect "the queued full check starts once the slot is let go" appears "$root/started-work2"
 expect_line "$root/work2.err" '^gate-remote: took full-check slot 1 of 1 on .* after [0-9]+s$' "a queued full check says when it took its slot"
-expect_line "$root/work.err" '^gate-remote: took full-check slot 1 of 1 on .* after 0s$' "a full check with a free slot takes it at once"
+expect_line "$root/work.err" '^gate-remote: took full-check slot 1 of 1 on .* after [0-9]+s$' "a full check with a free slot takes it"
+expect_no_line "$root/work.err" 'queued until one is let go' "a full check with a free slot is not queued"
 
 # The holder dies (SIGKILL, no cleanup): the queued run takes the slot all the same.
 check_in work
