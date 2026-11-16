@@ -601,7 +601,7 @@ A session is in one of these states. `working`, `waiting` and `done` are also pa
 |---|---|
 | `working` | the session starts, a prompt is sent, an answer is accepted, or the session withdraws its open request |
 | `waiting` | the session sends a request the host must answer. A refused request leaves the state as it was |
-| `done` | a turn ends. A turn that was interrupted with `Interrupt` also ends `done` |
+| `done` | a turn ends with every prompt the session sent answered and no send under way. A turn that was interrupted with `Interrupt` also ends `done`. A turn end after which a prompt is still unanswered, as one sent during the turn is, or while a send is under way, keeps the session `working`: claude runs that prompt as the next turn. Its `engine_turn_ended` is stored, but no notice is sent for it and a step's observer is not handed it (`enginehost.Manager.noteEvent`, `enginehost.recorder.followedTurnEnd`; `session.TurnEnded.Unanswered`) |
 | `stopped` | the `Stop` call ends the process, or the process exits without an error |
 | `failed` | the process exits with an error, its directory is unusable, its process cannot start, or its prompt cannot be sent. The row's `reason` says why |
 | `interrupted` | `orreryd` shuts down during a turn without `--holder-scope`, or reconcile settles a `working` or `waiting` row at start whose session is not re-adopted. A `working` row that reconcile resumes is `working` again (see [Reconcile at start](#lifecycle-rules)). The row's `reason` says which |

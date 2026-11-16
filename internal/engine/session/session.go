@@ -272,9 +272,10 @@ func (u *unansweredPrompts) sent(uuid string) {
 	u.open[uuid] = true
 }
 
-// answer records that a turn answered the user messages uuids. A message that was not recorded as sent is one of the
-// owed prompts while owed is above 0, which it lowers. Otherwise it is kept in early.
-func (u *unansweredPrompts) answer(uuids []string) {
+// answer records that a turn answered the user messages uuids, and returns how many prompts are unanswered after it, as
+// count does. A message that was not recorded as sent is one of the owed prompts while owed is above 0, which it
+// lowers. Otherwise it is kept in early.
+func (u *unansweredPrompts) answer(uuids []string) int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	for _, uuid := range uuids {
@@ -287,6 +288,7 @@ func (u *unansweredPrompts) answer(uuids []string) {
 			u.early[uuid] = true
 		}
 	}
+	return len(u.open) + u.owed
 }
 
 // count returns how many sent user messages no turn has answered, plus the owed prompts no turn has answered.
@@ -387,12 +389,14 @@ func (s *Session) run(offset int64) {
 	s.exit(offset)
 }
 
-// answerPrompts records the user messages each turn end in events lists as answered. Only run calls it: a replayed
-// turn answers prompts the previous holder was sent, never one this session sent.
+// answerPrompts records the user messages each turn end in events lists as answered, and gives each turn end the count
+// of prompts still unanswered after it (TurnEnded.Unanswered). Only run calls it: a replayed turn answers prompts the
+// previous holder was sent, never one this session sent.
 func (s *Session) answerPrompts(events []Event) {
-	for _, event := range events {
+	for i, event := range events {
 		if ended, ok := event.(TurnEnded); ok {
-			s.unanswered.answer(ended.Answered)
+			ended.Unanswered = s.unanswered.answer(ended.Answered)
+			events[i] = ended
 		}
 	}
 }

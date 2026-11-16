@@ -36,7 +36,7 @@ func TestDrainOwesSaySentBeforeStoredTurnEndWhileOldHolderHolds(t *testing.T) {
 		id,
 		"the first turn's stored end",
 		func(h store.EngineHistory) bool {
-			return h.State == "done"
+			return turnEndCount(h) == 1
 		},
 	)
 

@@ -71,19 +71,31 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 			store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &working, Question: new("")}},
 		}
 	case session.TurnEnded:
-		clear(r.texts)
-		done := string(protocol.StateDone)
-		return []store.EngineOp{
-			store.EngineTurnEnded{ID: r.id, Subtype: ev.Subtype, IsError: ev.IsError, TerminalReason: ev.TerminalReason,
-				Result: ev.Result, Origin: ev.Origin, Answered: ev.Answered},
-			store.EngineTextClear{ID: r.id},
-			store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &done, Question: new("")}},
-		}
+		return r.turnEnd(ev, protocol.StateDone)
 	case session.Exited:
 		clear(r.texts)
 		return []store.EngineOp{store.EngineTextClear{ID: r.id}, store.EngineSet{ID: r.id, Changes: exitChanges(ev)}}
 	default:
 		return nil
+	}
+}
+
+// followedTurnEnd returns the store ops that record ended, a turn's end that another turn follows: its turn end and the
+// removal of its unfinished text, as for any turn's end, with the session left working, since claude runs the next
+// turn at once.
+func (r *recorder) followedTurnEnd(ended session.TurnEnded) []store.EngineOp {
+	return r.turnEnd(ended, protocol.StateWorking)
+}
+
+// turnEnd returns the store ops that record ended with the session left in state and its question cleared.
+func (r *recorder) turnEnd(ended session.TurnEnded, state protocol.State) []store.EngineOp {
+	clear(r.texts)
+	after := string(state)
+	return []store.EngineOp{
+		store.EngineTurnEnded{ID: r.id, Subtype: ended.Subtype, IsError: ended.IsError,
+			TerminalReason: ended.TerminalReason, Result: ended.Result, Origin: ended.Origin, Answered: ended.Answered},
+		store.EngineTextClear{ID: r.id},
+		store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &after, Question: new("")}},
 	}
 }
 
