@@ -18,6 +18,7 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.animationsOn
 
 /**
  * Home's Needs you: a "Needs you" heading, then each waiting pane's sentence with its summary as the why under it, then
@@ -43,6 +44,7 @@ fun NeedsYou(
     val epicNeeds = remember(epics, details) {
         epics.flatMap { epic -> epicNeedsOf(listOf(epic), details).map { need -> epic to need } }
     }
+    val animated = animationsOn()
     if (paneNeeds.isEmpty() && epicNeeds.isEmpty()) return
     Column(modifier = modifier.fillMaxWidth().testTag("needs-you").padding(vertical = 4.dp)) {
         Text(
@@ -52,32 +54,38 @@ fun NeedsYou(
         )
         for ((pane, need) in paneNeeds) {
             key(pane.id) {
-                Text(
-                    need.text,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .testTag("need-sentence")
-                        .clickable { onOpenPane(pane) },
-                )
-                if (need.summary.isNotEmpty()) {
-                    Text(
-                        need.summary,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("need-why"),
-                    )
+                EnteringRow(animated) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            need.text,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .testTag("need-sentence")
+                                .clickable { onOpenPane(pane) },
+                        )
+                        if (need.summary.isNotEmpty()) {
+                            Text(
+                                need.summary,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("need-why"),
+                            )
+                        }
+                    }
                 }
             }
         }
         for ((epic, need) in epicNeeds) {
             key(epic.id, need.kind, need.question) {
-                EpicNeedEntry(
-                    epic = epic,
-                    need = need,
-                    onOpenEpic = onOpenEpic,
-                    onAnswer = onAnswer,
-                    onRetry = onRetry,
-                    onStop = onStop,
-                )
+                EnteringRow(animated) {
+                    EpicNeedEntry(
+                        epic = epic,
+                        need = need,
+                        onOpenEpic = onOpenEpic,
+                        onAnswer = onAnswer,
+                        onRetry = onRetry,
+                        onStop = onStop,
+                    )
+                }
             }
         }
     }

@@ -1,5 +1,10 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,12 +16,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.Dp
@@ -25,6 +33,9 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.Mocha
+import io.github.joshsymonds.orrery.ui.theme.Move
+import io.github.joshsymonds.orrery.ui.theme.animationsOn
+import io.github.joshsymonds.orrery.ui.theme.spec
 
 /** Most running step rows one epic shows; the rest fold into one "more" line. */
 private const val MAX_STEP_ROWS = 4
@@ -54,6 +65,7 @@ fun EpicsGroup(
     var waitingOpen by remember { mutableStateOf(false) }
     var foldedOpen by remember { mutableStateOf(false) }
     var endedOpen by remember { mutableStateOf(false) }
+    val animated = animationsOn()
     if (epics.isEmpty()) return
     val live = epics.filter { it.live && !it.waiting }
     val waiting = epics.filter { it.live && it.waiting }
@@ -92,7 +104,11 @@ fun EpicsGroup(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             for (epic in justEnded) {
-                EpicLine(epic, onOpenEpic, start = 16.dp, words = endedWordsOf(epic, now))
+                key(epic.id) {
+                    EnteringRow(animated) {
+                        EpicLine(epic, onOpenEpic, start = 16.dp, words = endedWordsOf(epic, now))
+                    }
+                }
             }
             if (endedEarlier.isNotEmpty()) {
                 FoldLine("${endedEarlier.size} ended earlier ›", "epics-ended-earlier") { endedOpen = !endedOpen }
@@ -162,6 +178,7 @@ private fun LiveEpic(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEpic: 
 @Composable
 private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEpic: (String) -> Unit) {
     val words = epicLineOf(detail, now)
+    val animated = animationsOn()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -182,18 +199,53 @@ private fun LiveEpicLine(epic: EpicRow, detail: EpicDetail?, now: Long, onOpenEp
                 Text(epic.repository, style = MaterialTheme.typography.labelSmall)
                 Text(words.count, style = MaterialTheme.typography.labelSmall)
             }
-            if (words.state.isNotEmpty()) {
-                Text(words.state, style = MaterialTheme.typography.labelSmall)
+            ChangingPhrase(words.state, animated) { shown ->
+                if (shown.isNotEmpty()) {
+                    Text(shown, style = MaterialTheme.typography.labelSmall)
+                }
             }
-            if (words.blocker.isNotEmpty()) {
-                Text(
-                    AnnotatedString(words.blocker, SpanStyle(color = Mocha.Peach)),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.testTag("blocker:${epic.id}"),
-                )
+            ChangingPhrase(words.blocker, animated) { shown ->
+                if (shown.isNotEmpty()) {
+                    Text(
+                        AnnotatedString(shown, SpanStyle(color = Mocha.Peach)),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.testTag("blocker:${epic.id}"),
+                    )
+                }
             }
         }
     }
+}
+
+// A phrase that changes crossfades at Move.STATE. With animations off it changes at once: a snap still waits for a
+// frame to finish, so the phrase is drawn directly, as PhaseOutputScreen draws its body.
+@Composable
+private fun ChangingPhrase(phrase: String, animated: Boolean, content: @Composable (String) -> Unit) {
+    if (animated) {
+        Crossfade(targetState = phrase, animationSpec = Move.STATE.spec(animated = true)) { shown -> content(shown) }
+    } else {
+        content(phrase)
+    }
+}
+
+// A row entering a list fades in at Move.LAYOUT, as the web's entering rows do on mount. Its spec is gated by
+// animationsOn(), so animator scale 0 snaps it.
+private fun layoutEnterOf(animated: Boolean): EnterTransition = fadeIn(Move.LAYOUT.spec(animated))
+
+// The enter transition an entering row runs, on the row's wrapper, so a test reads which transition the row uses.
+internal val EnterSemantics = SemanticsPropertyKey<EnterTransition>("EnterTransition")
+
+// A row composed for the first time enters: it starts hidden and its enter runs on the first frame, through
+// [layoutEnterOf]. Callers key the row by its epic or need, so a row that moves within a list keeps its own transition.
+@Composable
+internal fun EnteringRow(animated: Boolean, content: @Composable () -> Unit) {
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    val enter = layoutEnterOf(animated)
+    AnimatedVisibility(
+        visibleState = visibleState,
+        modifier = Modifier.semantics { set(EnterSemantics, enter) },
+        enter = enter,
+    ) { content() }
 }
 
 @Composable
