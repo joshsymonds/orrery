@@ -3,6 +3,7 @@ package enginehost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -826,4 +827,46 @@ func runningStep(id string) *v1.Step {
 	step.Reason = ""
 	step.Ended = 0
 	return step
+}
+
+// heldWaitSteps is a fakeStepCommands whose Wait holds until its context ends, as a Steps wait on a step that never
+// ends does, after closing entered. It returns the context's error then, as Steps.Wait does.
+type heldWaitSteps struct {
+	fakeStepCommands
+	entered chan struct{}
+}
+
+func (h *heldWaitSteps) Wait(
+	ctx context.Context, _ []string, _ time.Duration,
+) (*store.StepRow, []store.StepRow, error) {
+	close(h.entered)
+	<-ctx.Done()
+	return nil, nil, fmt.Errorf("wait for steps: %w", ctx.Err())
+}
+
+// TestWaitStepsFailsUnavailableWhenServeStops holds a WaitSteps in its wait, then stops Serve. The wait must end at
+// once with Unavailable, which its caller retries on the next orreryd, so it holds no part of the shutdown: without the
+// stop ending it, the shutdown would wait for it until Close dropped its connection.
+func TestWaitStepsFailsUnavailableWhenServeStops(t *testing.T) {
+	t.Parallel()
+	steps := &heldWaitSteps{entered: make(chan struct{})}
+	path, stop := startServerWithSteps(t, nil, steps)
+	client := newStepClient(t, path)
+
+	waited := make(chan error, 1)
+	go func() {
+		_, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
+			Ids:            []string{"s1"},
+			TimeoutSeconds: 3600,
+		}))
+		waited <- err
+	}()
+	<-steps.entered
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	err := <-waited
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), stoppingMessage) {
+		t.Fatalf("WaitSteps across the stop = %v, want Unavailable naming %q", err, stoppingMessage)
+	}
 }

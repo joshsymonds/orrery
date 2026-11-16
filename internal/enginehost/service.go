@@ -49,7 +49,8 @@ func Listen(socketPath string) (net.Listener, error) {
 
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics, the
 // pools service with pools, the evidence service with evidence and the notices service with notices until ctx ends. It
-// then shuts down within shutdownWait and returns nil. A nil commands refuses every engine RPC as unavailable, a nil steps
+// then shuts down within shutdownWait and returns nil. A WaitSteps still waiting when ctx ends fails at once as
+// unavailable, so no wait holds the shutdown. A nil commands refuses every engine RPC as unavailable, a nil steps
 // refuses every step RPC as unavailable, a nil epics refuses every epic RPC as unavailable, a nil pools refuses every
 // Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, and a nil notices refuses every notices
 // RPC as unavailable. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, since
@@ -66,7 +67,9 @@ func Serve(
 	opts ...connect.HandlerOption,
 ) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
-	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps}, opts...)
+	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
+		&stepService{steps: steps, stopping: ctx.Done()},
+		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence}, opts...)
