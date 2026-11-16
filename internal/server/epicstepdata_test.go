@@ -22,7 +22,7 @@ func stepDataServe(
 	evidence EvidenceClient,
 ) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, steps, store, nil, evidence, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(root, steps, store, nil, evidence, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

@@ -31,6 +31,8 @@ public  final class EpicsGetResponse extends
     ledger_ = emptyProtobufList();
     releases_ = emptyProtobufList();
     reviews_ = emptyProtobufList();
+    sessions_ = emptyProtobufList();
+    repository_ = "";
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -1755,6 +1757,216 @@ public  final class EpicsGetResponse extends
   private void removeReviews(int index) {
     ensureReviewsIsMutable();
     reviews_.remove(index);
+  }
+
+  public static final int SESSIONS_FIELD_NUMBER = 16;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> sessions_;
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> getSessionsList() {
+    return sessions_;
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSessionOrBuilder> 
+      getSessionsOrBuilderList() {
+    return sessions_;
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  @java.lang.Override
+  public int getSessionsCount() {
+    return sessions_.size();
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession getSessions(int index) {
+    return sessions_.get(index);
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSessionOrBuilder getSessionsOrBuilder(
+      int index) {
+    return sessions_.get(index);
+  }
+  private void ensureSessionsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> tmp = sessions_;
+    if (!tmp.isModifiable()) {
+      sessions_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  private void setSessions(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession value) {
+    java.util.Objects.requireNonNull(value);
+    ensureSessionsIsMutable();
+    sessions_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  private void addSessions(io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession value) {
+    java.util.Objects.requireNonNull(value);
+    ensureSessionsIsMutable();
+    sessions_.add(value);
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  private void addSessions(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession value) {
+    java.util.Objects.requireNonNull(value);
+    ensureSessionsIsMutable();
+    sessions_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  private void addAllSessions(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> values) {
+    ensureSessionsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, sessions_);
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  private void clearSessions() {
+    sessions_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The sessions that work on the epic, each with its newest epic call.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+   */
+  private void removeSessions(int index) {
+    ensureSessionsIsMutable();
+    sessions_.remove(index);
+  }
+
+  public static final int REPOSITORY_FIELD_NUMBER = 17;
+  private java.lang.String repository_;
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   * @return The repository.
+   */
+  @java.lang.Override
+  public java.lang.String getRepository() {
+    return repository_;
+  }
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   * @return The bytes for repository.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getRepositoryBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(repository_);
+  }
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   * @param value The repository to set.
+   */
+  private void setRepository(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    repository_ = value;
+  }
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   */
+  private void clearRepository() {
+
+    repository_ = getDefaultInstance().getRepository();
+  }
+  /**
+   * <pre>
+   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+   * head's workspace. Empty when neither names one.
+   * </pre>
+   *
+   * <code>string repository = 17 [json_name = "repository"];</code>
+   * @param value The bytes for repository to set.
+   */
+  private void setRepositoryBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    repository_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -3719,6 +3931,230 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> getSessionsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getSessionsList());
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    @java.lang.Override
+    public int getSessionsCount() {
+      return instance.getSessionsCount();
+    }/**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession getSessions(int index) {
+      return instance.getSessions(index);
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder setSessions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession value) {
+      copyOnWrite();
+      instance.setSessions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder setSessions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession.Builder builderForValue) {
+      copyOnWrite();
+      instance.setSessions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder addSessions(io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession value) {
+      copyOnWrite();
+      instance.addSessions(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder addSessions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession value) {
+      copyOnWrite();
+      instance.addSessions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder addSessions(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession.Builder builderForValue) {
+      copyOnWrite();
+      instance.addSessions(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder addSessions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession.Builder builderForValue) {
+      copyOnWrite();
+      instance.addSessions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder addAllSessions(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession> values) {
+      copyOnWrite();
+      instance.addAllSessions(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder clearSessions() {
+      copyOnWrite();
+      instance.clearSessions();
+      return this;
+    }
+    /**
+     * <pre>
+     * The sessions that work on the epic, each with its newest epic call.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicSession sessions = 16 [json_name = "sessions"];</code>
+     */
+    public Builder removeSessions(int index) {
+      copyOnWrite();
+      instance.removeSessions(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+     * head's workspace. Empty when neither names one.
+     * </pre>
+     *
+     * <code>string repository = 17 [json_name = "repository"];</code>
+     * @return The repository.
+     */
+    @java.lang.Override
+    public java.lang.String getRepository() {
+      return instance.getRepository();
+    }
+    /**
+     * <pre>
+     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+     * head's workspace. Empty when neither names one.
+     * </pre>
+     *
+     * <code>string repository = 17 [json_name = "repository"];</code>
+     * @return The bytes for repository.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getRepositoryBytes() {
+      return instance.getRepositoryBytes();
+    }
+    /**
+     * <pre>
+     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+     * head's workspace. Empty when neither names one.
+     * </pre>
+     *
+     * <code>string repository = 17 [json_name = "repository"];</code>
+     * @param value The repository to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRepository(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setRepository(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+     * head's workspace. Empty when neither names one.
+     * </pre>
+     *
+     * <code>string repository = 17 [json_name = "repository"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRepository() {
+      copyOnWrite();
+      instance.clearRepository();
+      return this;
+    }
+    /**
+     * <pre>
+     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+     * head's workspace. Empty when neither names one.
+     * </pre>
+     *
+     * <code>string repository = 17 [json_name = "repository"];</code>
+     * @param value The bytes for repository to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRepositoryBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setRepositoryBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -3761,11 +4197,15 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun.class,
             "reviews_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict.class,
+            "sessions_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession.class,
+            "repository_",
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0001\u0001\u000f\u000f\u0000\n\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u000b\u0000\u0001\u1009\u0000\u0002" +
               "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
-              "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b";
+              "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -455,7 +455,8 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	}
 	sessionSocket := protocol.SessionSocketPath(socket)
 	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
 	server, err := stepmcp.NewServer(steps, epics, evidence)
 	if err != nil {
@@ -476,7 +477,8 @@ func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, 
 		return fmt.Errorf("epic: %w", err)
 	}
 	sessionSocket := protocol.SessionSocketPath(socket)
-	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	return epicCommand(ctx, epics, args, stdin, stdout, stderr)
 }
 

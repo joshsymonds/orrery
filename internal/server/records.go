@@ -25,6 +25,7 @@ type epicRecord struct {
 	Dir                  string    // absolute record directory
 	Outcome              string    // recordText of the head's "outcome"
 	OutcomeDetail        string    // recordText of the head's "outcome_detail"
+	Workspace            string    // recordText of the head's "workspace"
 	Changed              time.Time // head state.json mtime
 	Problem              string    // empty when the head parsed
 }
@@ -188,6 +189,7 @@ func readHead(root string, fsys fs.FS, repo, slug string, heads *headCache) (epi
 	}
 	rec.Outcome = entry.outcome
 	rec.OutcomeDetail = entry.outcomeDetail
+	rec.Workspace = entry.workspace
 	return rec, true, nil
 }
 
@@ -209,14 +211,15 @@ type headCache struct {
 }
 
 // headEntry is the decode of one state.json, parse failures included, with the size and mtime the file had when it was
-// decoded. A head fills outcome and outcomeDetail; an effort state fills tasks. parsed is false when the content did
-// not parse.
+// decoded. A head fills outcome, outcomeDetail and workspace; an effort state fills tasks. parsed is false when the
+// content did not parse.
 type headEntry struct {
 	size          int64
 	modTime       time.Time
 	parsed        bool
 	outcome       string
 	outcomeDetail string
+	workspace     string
 	tasks         []taskRecord
 }
 
@@ -254,5 +257,6 @@ func decodeHead(raw []byte) headEntry {
 		parsed:        ok,
 		outcome:       recordText(fields["outcome"]),
 		outcomeDetail: recordText(fields["outcome_detail"]),
+		workspace:     recordText(fields["workspace"]),
 	}
 }

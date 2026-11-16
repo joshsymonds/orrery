@@ -112,6 +112,31 @@ message EpicsGetResponse {
 
   // The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
   repeated EpicReviewVerdict reviews = 15;
+
+  // The sessions that work on the epic, each with its newest epic call.
+  repeated EpicSession sessions = 16;
+
+  // The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
+  // head's workspace. Empty when neither names one.
+  string repository = 17;
+}
+
+// EpicSession is one session that works on an epic, with its newest epic call.
+message EpicSession {
+  // The session's id in the sessions table.
+  string id = 1;
+
+  // The session's tmux pane id; empty for a headless session.
+  string pane = 2;
+
+  // The session's label.
+  string label = 3;
+
+  // The tool name of the session's newest epic call, such as epic_get.
+  string call = 4;
+
+  // When the session's newest epic call was made, in unix seconds.
+  int64 at = 5;
 }
 
 // EpicQuestion is one open question a planner turn of an orreryd epic asked.

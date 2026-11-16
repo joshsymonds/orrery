@@ -1010,6 +1010,22 @@ func (q *Queries) GetNoticeIDFloor(ctx context.Context) (int64, error) {
 	return high, err
 }
 
+const getPaneSession = `-- name: GetPaneSession :one
+SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? ORDER BY id LIMIT 1
+`
+
+type GetPaneSessionParams struct {
+	Server string
+	Pane   string
+}
+
+func (q *Queries) GetPaneSession(ctx context.Context, arg GetPaneSessionParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getPaneSession, arg.Server, arg.Pane)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getRunningEpicTurn = `-- name: GetRunningEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state = 'running'
 `
@@ -3548,6 +3564,58 @@ func (q *Queries) ListEpicReviewers(ctx context.Context, epic string) ([]EpicRev
 			&i.Effort,
 			&i.LimitSeconds,
 			&i.Verify,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicSessions = `-- name: ListEpicSessions :many
+SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
+       epic_sessions.call, epic_sessions.at
+FROM epic_sessions
+JOIN sessions ON sessions.id = epic_sessions.session
+WHERE epic_sessions.epic = ?
+ORDER BY epic_sessions.at DESC, epic_sessions.session
+`
+
+type ListEpicSessionsRow struct {
+	Session string
+	Kind    string
+	Server  string
+	Pane    string
+	Label   string
+	Dir     string
+	Call    string
+	At      int64
+}
+
+func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpicSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicSessions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicSessionsRow
+	for rows.Next() {
+		var i ListEpicSessionsRow
+		if err := rows.Scan(
+			&i.Session,
+			&i.Kind,
+			&i.Server,
+			&i.Pane,
+			&i.Label,
+			&i.Dir,
+			&i.Call,
+			&i.At,
 		); err != nil {
 			return nil, err
 		}
@@ -6473,6 +6541,28 @@ func (q *Queries) UpsertEngineText(ctx context.Context, arg UpsertEngineTextPara
 		arg.ParentToolUseID,
 		arg.Kind,
 		arg.Text,
+	)
+	return err
+}
+
+const upsertEpicSession = `-- name: UpsertEpicSession :exec
+INSERT INTO epic_sessions (epic, session, call, at) VALUES (?, ?, ?, ?)
+ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at
+`
+
+type UpsertEpicSessionParams struct {
+	Epic    string
+	Session string
+	Call    string
+	At      int64
+}
+
+func (q *Queries) UpsertEpicSession(ctx context.Context, arg UpsertEpicSessionParams) error {
+	_, err := q.db.ExecContext(ctx, upsertEpicSession,
+		arg.Epic,
+		arg.Session,
+		arg.Call,
+		arg.At,
 	)
 	return err
 }
