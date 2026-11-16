@@ -65,6 +65,8 @@ func TestAgents(t *testing.T) {
 	bare.Effort = nil
 	emptyTools := modelEntry()
 	emptyTools.Tools = []string{}
+	namesOutput := modelEntry()
+	namesOutput.Tools = []string{"read", "StructuredOutput"}
 	tests := []struct {
 		name  string
 		entry Entry
@@ -72,13 +74,13 @@ func TestAgents(t *testing.T) {
 		want map[string]any
 	}{
 		{
-			name:  "a model reviewer carries its prompt, model, tools and effort",
+			name:  "a model reviewer carries its prompt, model, tools with StructuredOutput, and effort",
 			entry: modelEntry(),
 			want: map[string]any{"orrery-reviewer-alpha": map[string]any{
 				"description": "orrery reviewer alpha",
 				"prompt":      "review it",
 				"model":       "m-1",
-				"tools":       []any{"read", "grep"},
+				"tools":       []any{"read", "grep", "StructuredOutput"},
 				"effort":      "high",
 			}},
 		},
@@ -92,13 +94,24 @@ func TestAgents(t *testing.T) {
 			}},
 		},
 		{
-			name:  "an empty tools list that is set stays in the definition",
+			name:  "an empty tools list that is set stays in the definition, holding StructuredOutput",
 			entry: emptyTools,
 			want: map[string]any{"orrery-reviewer-alpha": map[string]any{
 				"description": "orrery reviewer alpha",
 				"prompt":      "review it",
 				"model":       "m-1",
-				"tools":       []any{},
+				"tools":       []any{"StructuredOutput"},
+				"effort":      "high",
+			}},
+		},
+		{
+			name:  "a tools list that names StructuredOutput keeps it once",
+			entry: namesOutput,
+			want: map[string]any{"orrery-reviewer-alpha": map[string]any{
+				"description": "orrery reviewer alpha",
+				"prompt":      "review it",
+				"model":       "m-1",
+				"tools":       []any{"read", "StructuredOutput"},
 				"effort":      "high",
 			}},
 		},
@@ -135,7 +148,7 @@ func TestAgentsEncodingIsDeterministic(t *testing.T) {
 		t.Fatalf("Agents: %v", err)
 	}
 	const want = `{"orrery-reviewer-alpha":{"description":"orrery reviewer alpha","effort":"high",` +
-		`"model":"m-1","prompt":"review it","tools":["read","grep"]}}`
+		`"model":"m-1","prompt":"review it","tools":["read","grep","StructuredOutput"]}}`
 	if got != want {
 		t.Errorf("Agents() = %s, want %s", got, want)
 	}
