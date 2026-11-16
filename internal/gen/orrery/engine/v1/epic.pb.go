@@ -558,7 +558,10 @@ type EpicRequirement struct {
 	// The ids of the tasks not failed that contribute to the requirement, T<seq>, in seq order.
 	Contributors []string `protobuf:"bytes,7,rep,name=contributors,proto3" json:"contributors,omitempty"`
 	// How far the requirement is shown: pending, red or green, from the runs of its current item.
-	State         string `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
+	State string `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
+	// The judge and exit disagreement at built: red was judged fails at the epic's base, but its reproduction with the
+	// candidate's tests exited 0; empty when they agree.
+	Disagreement  string `protobuf:"bytes,9,opt,name=disagreement,proto3" json:"disagreement,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -645,6 +648,13 @@ func (x *EpicRequirement) GetContributors() []string {
 func (x *EpicRequirement) GetState() string {
 	if x != nil {
 		return x.State
+	}
+	return ""
+}
+
+func (x *EpicRequirement) GetDisagreement() string {
+	if x != nil {
+		return x.Disagreement
 	}
 	return ""
 }
@@ -1708,7 +1718,13 @@ type EpicTask struct {
 	// The reviews of the task's build, in attempt then position order.
 	Reviews []*EpicTaskReview `protobuf:"bytes,21,rep,name=reviews,proto3" json:"reviews,omitempty"`
 	// The Requirement ids the task contributes to without claiming them, R<n>.
-	Contributes   []string `protobuf:"bytes,22,rep,name=contributes,proto3" json:"contributes,omitempty"`
+	Contributes []string `protobuf:"bytes,22,rep,name=contributes,proto3" json:"contributes,omitempty"`
+	// The task's own test files it may change, each also one of its files; the guard lifts its rules for them, except a
+	// skip in the task's own evidence test.
+	TestChanges []string `protobuf:"bytes,23,rep,name=test_changes,json=testChanges,proto3" json:"test_changes,omitempty"`
+	// The guard's last refusal of the task's build, each refused file, test and rule; empty when the guard refused
+	// nothing.
+	Guard         string `protobuf:"bytes,24,opt,name=guard,proto3" json:"guard,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1895,6 +1911,20 @@ func (x *EpicTask) GetContributes() []string {
 		return x.Contributes
 	}
 	return nil
+}
+
+func (x *EpicTask) GetTestChanges() []string {
+	if x != nil {
+		return x.TestChanges
+	}
+	return nil
+}
+
+func (x *EpicTask) GetGuard() string {
+	if x != nil {
+		return x.Guard
+	}
+	return ""
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.
@@ -5211,7 +5241,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06_modelB\t\n" +
 	"\a_effortB\b\n" +
 	"\x06_limitB\t\n" +
-	"\a_verify\"\xe9\x01\n" +
+	"\a_verify\"\x8d\x02\n" +
 	"\x0fEpicRequirement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
@@ -5220,7 +5250,8 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x04item\x18\x05 \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\x04item\x12\x14\n" +
 	"\x05owner\x18\x06 \x01(\tR\x05owner\x12\"\n" +
 	"\fcontributors\x18\a \x03(\tR\fcontributors\x12\x14\n" +
-	"\x05state\x18\b \x01(\tR\x05state\"8\n" +
+	"\x05state\x18\b \x01(\tR\x05state\x12\"\n" +
+	"\fdisagreement\x18\t \x01(\tR\fdisagreement\"8\n" +
 	"\fEpicGateNeed\x12\x12\n" +
 	"\x04pool\x18\x01 \x01(\tR\x04pool\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\"\xc3\x01\n" +
@@ -5305,7 +5336,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\x06 \x01(\tR\aoutcome\x12\x1c\n" +
 	"\tdecisions\x18\a \x03(\tR\tdecisions\x12\x18\n" +
 	"\astarted\x18\b \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\t \x01(\x03R\x05ended\"\x9c\x05\n" +
+	"\x05ended\x18\t \x01(\x03R\x05ended\"\xd5\x05\n" +
 	"\bEpicTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x14\n" +
@@ -5329,7 +5360,9 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x03red\x18\x13 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x03red\x123\n" +
 	"\x05green\x18\x14 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x05green\x12:\n" +
 	"\areviews\x18\x15 \x03(\v2 .orrery.engine.v1.EpicTaskReviewR\areviews\x12 \n" +
-	"\vcontributes\x18\x16 \x03(\tR\vcontributes\"\xab\x01\n" +
+	"\vcontributes\x18\x16 \x03(\tR\vcontributes\x12!\n" +
+	"\ftest_changes\x18\x17 \x03(\tR\vtestChanges\x12\x14\n" +
+	"\x05guard\x18\x18 \x01(\tR\x05guard\"\xab\x01\n" +
 	"\x0eEpicTaskReview\x12\x18\n" +
 	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
 	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +

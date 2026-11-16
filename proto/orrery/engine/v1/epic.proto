@@ -210,6 +210,10 @@ message EpicRequirement {
 
   // How far the requirement is shown: pending, red or green, from the runs of its current item.
   string state = 8;
+
+  // The judge and exit disagreement at built: red was judged fails at the epic's base, but its reproduction with the
+  // candidate's tests exited 0; empty when they agree.
+  string disagreement = 9;
 }
 
 // EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
@@ -516,6 +520,14 @@ message EpicTask {
 
   // The Requirement ids the task contributes to without claiming them, R<n>.
   repeated string contributes = 22;
+
+  // The task's own test files it may change, each also one of its files; the guard lifts its rules for them, except a
+  // skip in the task's own evidence test.
+  repeated string test_changes = 23;
+
+  // The guard's last refusal of the task's build, each refused file, test and rule; empty when the guard refused
+  // nothing.
+  string guard = 24;
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.

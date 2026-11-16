@@ -35,8 +35,8 @@ const (
 // store reads the step under the same part.
 const stepPart = "step"
 
-// work carries out one work action of a check node run: the prepare, start, capture, refs check or advance its kind asks
-// for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or closure run's
+// work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
+// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or closure run's
 // prepare and start are its own. The work of a release run is carried out by release.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if act.NodeKind == kindRelease {
@@ -57,6 +57,8 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 		return r.start(ctx, epic, act)
 	case kinds.ActCapture:
 		return r.capture(ctx, epic, act)
+	case kinds.ActRepro:
+		return r.repro(ctx, epic, act)
 	case kinds.ActRefs:
 		return r.checkRefs(ctx, epic, act, at)
 	case kinds.ActAdvance:

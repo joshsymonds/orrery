@@ -109,3 +109,14 @@ func TestRoleSaysALedgerTriggerCorrectsItsFindingsAndNothingElse(t *testing.T) {
 		}
 	}
 }
+
+// TestRoleNamesTestChangesAndNoTaskSkipsItsEvidence asserts that the role text names test_changes, says each of its files
+// must be one of the task's files, and says a task never skips its own evidence test.
+func TestRoleNamesTestChangesAndNoTaskSkipsItsEvidence(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{"test_changes", "one of the task's files", "a task never skips its own evidence test"} {
+		if !strings.Contains(role, want) {
+			t.Errorf("role text lacks %q", want)
+		}
+	}
+}

@@ -18,8 +18,8 @@ const (
 )
 
 // Integrate is the integrate kind. Its run composes a batch of accepted tasks on the stored base into a candidate, runs
-// the epic's Done gates and captures each Requirement at the candidate, and then ends red or advances the epic to the
-// candidate.
+// the epic's Done gates, captures each Requirement at the candidate and reproduces each test item's red at the epic's
+// base, and then ends red or advances the epic to the candidate.
 type Integrate struct{}
 
 // integrateResult is the Result an integrate run records when it claims its batch: the tasks compose made into commits
@@ -33,7 +33,7 @@ type integrateResult struct {
 
 // Decide decides an integrate run. Without a revision it prepares the batch, or ends passed when the batch is empty.
 // With one it reads what compose made of the batch, and ends failed when nothing was composed. Otherwise it walks the
-// Done gates and then the captures, and settles the run on what they found.
+// Done gates, then the captures and then the reproductions of the test items, and settles the run on what they found.
 func (Integrate) Decide(node Node, rows Rows) Action {
 	run := node.Run
 	if run.Revision == "" {
@@ -62,6 +62,9 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 	}
 	captured, act, settled := captures(run, rows)
 	if !settled {
+		return act
+	}
+	if act, settled = reproductions(run, rows); !settled {
 		return act
 	}
 	return settle(run, captureCauses(rows, captured), requirementLines(rows, captured), leftOut)
@@ -198,6 +201,51 @@ func captureFor(runs []store.EvidenceRun, run store.NodeRun, id string) (store.E
 	return capture, work, ok
 }
 
+// reproductions decides the reproductions of the Requirements that name a test item, once the captures have settled. A
+// reproduction with no check starts, and one lost at a restart is started again as its rerun. A reproduction still
+// running makes the run wait, and a rerun lost at a restart parks it. A reproduction's result adds no cause, so it
+// returns settled once every reproduction has ended.
+func reproductions(run store.NodeRun, rows Rows) (Action, bool) {
+	var ids, items, lost []string
+	running := false
+	for _, requirement := range testRequirements(rows.Epic.Requirements) {
+		check, work, ok := reproCheck(rows.Checks, run, requirement.ID)
+		switch {
+		case !ok:
+			ids = append(ids, work)
+			items = append(items, requirement.ID)
+		case check.State == store.NodeRunning:
+			running = true
+		case check.NotRun == store.LostAtRestart:
+			lost = append(lost, requirement.ID)
+		}
+	}
+	switch {
+	case len(ids) > 0:
+		return Action{Kind: ActRepro, IDs: ids, Items: items}, false
+	case running:
+		return Action{Kind: ActNone}, false
+	case len(lost) > 0:
+		return Action{
+			Kind:   ActPark,
+			Output: fmt.Sprintf("integrate %s: reproduction %s lost at a restart twice", run.Path, lost[0]),
+		}, false
+	}
+	return Action{}, true
+}
+
+// reproCheck returns the reproduction of Requirement id that the integrate run decides on, and its work id. That is the
+// check, or its rerun once the check was lost at a restart. ok is false when the run has not started it.
+func reproCheck(checks []store.NodeCheck, run store.NodeRun, id string) (store.NodeCheck, string, bool) {
+	work := store.NodeWorkID(run.ID, run.Attempt, reproWork(id))
+	check, ok := checkByID(checks, work)
+	if ok && check.NotRun == store.LostAtRestart {
+		work = store.NodeWorkID(run.ID, run.Attempt, rerunWork(reproWork(id)))
+		check, ok = checkByID(checks, work)
+	}
+	return check, work, ok
+}
+
 // captureCauses returns a line for each capture that did not run or was not judged, and for each Requirement that was
 // green at the stored base and whose capture does not pass now.
 func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
@@ -266,8 +314,9 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 }
 
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
-// evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. It returns nil when
-// every Requirement has its proof.
+// evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. A test item that is
+// green at the stored base also lacks it when its reproduction at the epic's base disagrees with its red, or did not run.
+// It returns nil when every Requirement has its proof.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
@@ -281,9 +330,79 @@ func Unbuilt(rows Rows) []string {
 			lines = append(lines, fmt.Sprintf(
 				"%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
 			))
+		case isTestItem(requirement):
+			line := Disagreement(rows, requirement.ID)
+			if line == "" {
+				line = noReproduction(rows, requirement.ID)
+			}
+			if line != "" {
+				lines = append(lines, line)
+			}
 		}
 	}
 	return lines
+}
+
+// Disagreement returns the line that names test-item Requirement id when its judged red disagrees with its reproduction
+// at the epic's base: the judge found red fails, yet the reproduction with the candidate's tests exited 0 and did not
+// time out. It reads the reproductions of the integrate runs that ended passed at the stored base. It returns "" for any
+// other Requirement, and when one of those reproductions shows red's exit holds: timed out or exited non-zero.
+func Disagreement(rows Rows, id string) string {
+	if !slices.ContainsFunc(rows.Epic.Requirements, func(requirement store.EpicRequirement) bool {
+		return requirement.ID == id && isTestItem(requirement)
+	}) {
+		return ""
+	}
+	disagreed := false
+	for _, check := range baseReproductions(rows, id) {
+		if check.NotRun != "" {
+			continue
+		}
+		if check.TimedOut || check.Exit != 0 {
+			return ""
+		}
+		disagreed = true
+	}
+	if !disagreed {
+		return ""
+	}
+	return fmt.Sprintf(
+		"%s judge and exit disagree at the epic's base %s: red was judged fails, but its reproduction with the candidate's tests exited 0",
+		id,
+		rows.Epic.Base,
+	)
+}
+
+// noReproduction returns the line that names test-item Requirement id when no reproduction of it at the stored base ran.
+// It names the reason the first reproduction did not run, when there is one. It returns "" when a reproduction ran.
+func noReproduction(rows Rows, id string) string {
+	checks := baseReproductions(rows, id)
+	line := fmt.Sprintf("%s has no reproduction at the epic's base %s", id, rows.Epic.Base)
+	if len(checks) == 0 {
+		return line
+	}
+	for _, check := range checks {
+		if check.NotRun == "" {
+			return ""
+		}
+	}
+	return line + ": " + checks[0].NotRun
+}
+
+// baseReproductions returns, in run order, the reproduction of Requirement id that each integrate run which ended passed
+// at the stored base decides on. A run with no reproduction of id contributes none, and a rerun stands for the
+// reproduction it reran.
+func baseReproductions(rows Rows, id string) []store.NodeCheck {
+	var checks []store.NodeCheck
+	for _, run := range rows.Runs {
+		if run.Kind != kindIntegrate || run.Outcome != outcomePassed || run.Revision != rows.Epic.StoredBase {
+			continue
+		}
+		if check, _, ok := reproCheck(rows.Checks, run, id); ok {
+			checks = append(checks, check)
+		}
+	}
+	return checks
 }
 
 // hasRedAtBase reports whether an evidence node run that ended passed has a passed red run of Requirement id at the
@@ -319,9 +438,30 @@ func hasItem(requirement store.EpicRequirement) bool {
 	return !reflect.ValueOf(requirement.Item).IsZero()
 }
 
-// captureWork names the work of the capture of Requirement id, and rerunWork the work of a rerun of part.
+// isTestItem reports whether a Requirement names a test item.
+func isTestItem(requirement store.EpicRequirement) bool {
+	return requirement.Item.Kind == evidence.KindTest
+}
+
+// testRequirements returns the Requirements that name a test item, in contract order.
+func testRequirements(requirements []store.EpicRequirement) []store.EpicRequirement {
+	var tests []store.EpicRequirement
+	for _, requirement := range requirements {
+		if isTestItem(requirement) {
+			tests = append(tests, requirement)
+		}
+	}
+	return tests
+}
+
+// captureWork names the work of the capture of Requirement id, reproWork the work of its reproduction, and rerunWork the
+// work of a rerun of part.
 func captureWork(id string) string {
 	return "capture " + id
+}
+
+func reproWork(id string) string {
+	return "repro " + id
 }
 
 func rerunWork(part string) string {

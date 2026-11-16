@@ -17,6 +17,8 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 		return false
 	case ActMove:
 		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
+	case ActGuard:
+		return r.guardCommit(ctx, epic, view, action)
 	case ActSnapshot:
 		return r.snapshotRefs(ctx, epic, view)
 	case ActRefs:
@@ -25,6 +27,8 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 		return r.startRun(ctx, epic, view, action)
 	case ActStartStep:
 		return r.startUnit(ctx, epic, view, action)
+	case ActRepro:
+		return r.reproduce(ctx, epic, view, action)
 	case ActFail:
 		return r.fail(ctx, epic, view, action.Reason)
 	case ActAccept:
