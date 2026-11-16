@@ -1,0 +1,255 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { render } from "preact";
+import { act } from "preact/test-utils";
+
+import { createClients, createTransport } from "./client";
+import { TalkDock } from "./talkdock";
+import { installTestDom, removeTestDom } from "./testdom";
+
+type Props = Parameters<typeof TalkDock>[0];
+type DomWindow = ReturnType<typeof installTestDom>;
+
+const resumePath = "/orrery.v1.Control/Resume";
+const sessionTarget = { kind: "session" as const, id: "s1", label: "api" };
+
+interface Stream {
+  body: Record<string, unknown>;
+  controller: ReadableStreamDefaultController<Uint8Array>;
+}
+
+// Gauge counts the events a fake server sees. A test waits for a count with reached, and the wait resolves on the event
+// that reaches it, so the test waits on events, never on a clock.
+class Gauge {
+  private count = 0;
+  private waits: { least: number; resolve: () => void }[] = [];
+
+  bump(): void {
+    this.count += 1;
+    const ready = this.waits.filter((wait) => wait.least <= this.count);
+    this.waits = this.waits.filter((wait) => wait.least > this.count);
+    for (const wait of ready) {
+      wait.resolve();
+    }
+  }
+
+  reached(least: number): Promise<void> {
+    if (this.count >= least) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.waits.push({ least, resolve });
+    });
+  }
+}
+
+// FakeServer answers the calls the dock makes through TransportOptions.fetch. Each Sessions.WatchConversation call is a
+// stream the test feeds. Control.Resume answers with an empty reply, or with resumeError when the test sets one.
+class FakeServer {
+  readonly streams: Stream[] = [];
+  readonly resumes: Record<string, unknown>[] = [];
+  // opened counts the conversation streams the client has opened; resumed counts the Resume calls it has received.
+  readonly opened = new Gauge();
+  readonly resumed = new Gauge();
+  resumeError: { code: string; message: string } | null = null;
+
+  readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    const path = new URL(request.url).pathname;
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    const json = { "content-type": "application/json" };
+    if (path === resumePath) {
+      this.resumes.push(JSON.parse(new TextDecoder().decode(bytes)));
+      this.resumed.bump();
+      if (this.resumeError === null) {
+        return new Response("{}", { status: 200, headers: json });
+      }
+      return new Response(JSON.stringify(this.resumeError), { status: 400, headers: json });
+    }
+    const body = decodeRequest(bytes);
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.streams.push({ body, controller });
+        this.opened.bump();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "application/connect+json" } });
+  };
+
+  // clients is the one set of clients every dock in a test uses, so a change of target is the only change the dock
+  // sees.
+  readonly clients: Props["clients"] = createClients(
+    createTransport({ baseUrl: "https://orrery.test", fetch: this.fetch }),
+  );
+
+  emit(index: number, message: object): void {
+    this.streams[index].controller.enqueue(envelope(0, message));
+  }
+}
+
+function decodeRequest(bytes: Uint8Array): Record<string, unknown> {
+  const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1);
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(5, 5 + length)));
+}
+
+// envelope frames one Connect message: a flag byte, a 4-byte big-endian length, and the JSON payload.
+function envelope(flag: number, message: object): Uint8Array {
+  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const bytes = new Uint8Array(5 + payload.byteLength);
+  bytes[0] = flag;
+  new DataView(bytes.buffer).setUint32(1, payload.byteLength);
+  bytes.set(payload, 5);
+  return bytes;
+}
+
+// shown resolves once check holds for the dock's DOM. The wait ends on a mutation the dock itself makes, so it resolves
+// on the render the assertion reads, not on a clock.
+function shown(window: DomWindow, container: HTMLElement, check: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const observer = new window.MutationObserver(() => {
+      if (check()) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    // happy-dom types its nodes apart from the DOM library the tests compile against; the container is the same object.
+    const target = container as unknown as Parameters<typeof observer.observe>[0];
+    observer.observe(target, { attributes: true, characterData: true, childList: true, subtree: true });
+    if (check()) {
+      observer.disconnect();
+      resolve();
+    }
+  });
+}
+
+function baseProps(server: FakeServer, init: Partial<Props>): Props {
+  return {
+    clients: server.clients,
+    target: sessionTarget,
+    onClose: () => {},
+    ...init,
+  };
+}
+
+async function withDock(
+  server: FakeServer,
+  init: Partial<Props>,
+  check: (container: HTMLElement, window: DomWindow) => Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  try {
+    await act(() => {
+      render(<TalkDock {...baseProps(server, init)} />, container);
+    });
+    await server.opened.reached(1);
+    await check(container, window);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    container.remove();
+    await removeTestDom(window);
+  }
+}
+
+async function click(element: HTMLElement): Promise<void> {
+  await act(() => {
+    element.dispatchEvent(new Event("click", { bubbles: true }));
+  });
+}
+
+function textOf(container: HTMLElement, selector: string): string {
+  return container.querySelector(selector)?.textContent ?? "";
+}
+
+function hasButton(container: HTMLElement, name: string): boolean {
+  return [...container.querySelectorAll("button")].some((button) => button.textContent === name);
+}
+
+function buttonNamed(container: HTMLElement, name: string): HTMLButtonElement {
+  const found = [...container.querySelectorAll("button")].find((button) => button.textContent === name);
+  if (found === undefined) {
+    throw new Error(`the dock has a ${name} button`);
+  }
+  return found;
+}
+
+function closeButton(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>('button[aria-label="close"]');
+  if (found === null) {
+    throw new Error("the dock has a close button");
+  }
+  return found;
+}
+
+// interruptedState is the state a headless session's stream carries once its turn is interrupted.
+const interruptedState = { session: { state: "interrupted" } };
+
+test("the dock names its conversation by label, and its close button calls onClose", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  let closes = 0;
+  await withDock(server, { onClose: () => { closes += 1; } }, async (container) => {
+    assert.equal(container.querySelector('aside.dock[aria-label="talk"]') !== null, true);
+    assert.equal(textOf(container, "h1"), "api");
+    assert.equal(container.querySelector('button.close[aria-label="close"]') !== null, true);
+
+    await click(closeButton(container));
+    assert.equal(closes, 1);
+  });
+});
+
+test("an interrupted session shows Resume, and a press sends it with the target id", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container, window) => {
+    server.emit(0, { transcript: "t1", seq: "5", reset: true, items: [], state: interruptedState });
+    await shown(window, container, () => hasButton(container, "Resume"));
+
+    await click(buttonNamed(container, "Resume"));
+    await server.resumed.reached(1);
+    assert.deepEqual(server.resumes, [{ id: "s1" }]);
+    assert.equal(textOf(container, "p.error"), "");
+  });
+});
+
+test("a working session shows no Resume", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container, window) => {
+    server.emit(0, {
+      transcript: "t1",
+      seq: "5",
+      reset: true,
+      items: [{ kind: "assistant", text: "still going" }],
+      state: { session: { state: "working" } },
+    });
+    await shown(window, container, () => textOf(container, ".reader").includes("still going"));
+    assert.equal(hasButton(container, "Resume"), false);
+  });
+});
+
+test("a refused Resume shows its message in the dock", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  server.resumeError = { code: "failed_precondition", message: "session is not interrupted" };
+  await withDock(server, {}, async (container, window) => {
+    server.emit(0, { transcript: "t1", seq: "5", reset: true, items: [], state: interruptedState });
+    await shown(window, container, () => hasButton(container, "Resume"));
+
+    await click(buttonNamed(container, "Resume"));
+    await shown(window, container, () => textOf(container, "p.error") !== "");
+    assert.equal(textOf(container, "p.error"), "resume refused: session is not interrupted");
+  });
+});
+
+test("a new target restarts the conversation stream with its id", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container) => {
+    await act(() => {
+      render(<TalkDock {...baseProps(server, { target: { kind: "session", id: "s2", label: "web" } })} />, container);
+    });
+    await server.opened.reached(2);
+    assert.equal(server.streams[1].body.id, "s2");
+    assert.equal(textOf(container, "h1"), "web");
+  });
+});
