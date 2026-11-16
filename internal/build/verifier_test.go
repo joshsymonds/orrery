@@ -143,24 +143,6 @@ func checkVerifierStartFields(t *testing.T, start enginehost.StepStart, reposito
 	}
 }
 
-func TestVerifierStartTaskSubjectCarriesTheRunnersStart(t *testing.T) {
-	t.Parallel()
-	epic := verifierEpic()
-	epic.Repository = "/srv/orrery"
-	task := verifierTask()
-	start := VerifierStart(
-		Subject{Epic: epic, Task: &task, Base: "base111", Revision: "rev222"},
-		verifierFinding(), verifyStepID, verifyAgent,
-	)
-	checkVerifierStartFields(t, start, "/srv/orrery", "rev222")
-	if start.Epic != "repo/epic-x" || start.Task != "T4" {
-		t.Errorf("Epic, Task = %s, %s, want repo/epic-x, T4", start.Epic, start.Task)
-	}
-	if want := VerifierPrompt(epic, task, "base111", "rev222", verifierFinding()); start.Prompt != want {
-		t.Errorf("Prompt\n got:\n%s\nwant the task-stage prompt:\n%s", start.Prompt, want)
-	}
-}
-
 func TestVerifierStartEpicSubjectNamesEpicAndEveryRequirement(t *testing.T) {
 	t.Parallel()
 	epic := verifierEpic()

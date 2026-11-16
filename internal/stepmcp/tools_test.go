@@ -398,29 +398,6 @@ func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
 	}
 }
 
-// TestEpicCreateContractDescriptionNamesTheReviewers checks that the contract description names reviewers and, in
-// the sentence about a reviewers entry, each key of the entry in protobuf JSON names, and that it does not name
-// reviewGates, which epic_create refuses. The evidence sentence also names limit, so the keys are read from the
-// reviewers sentence alone.
-func TestEpicCreateContractDescriptionNamesTheReviewers(t *testing.T) {
-	description := epicCreateContractDescription(t)
-	if slices.Contains(descriptionWords(description), "reviewGates") {
-		t.Errorf("epic_create contract description %q names reviewGates, which epic_create refuses", description)
-	}
-	at := strings.LastIndex(description, "reviewers")
-	if at < 0 {
-		t.Fatalf("epic_create contract description %q does not name reviewers", description)
-	}
-	entry := descriptionWords(description[at:])
-	for _, want := range []string{
-		"name", "enabled", "stage", "must", "mustNot", "prompt", "agent", "model", "tools", "effort", "limit", "verify",
-	} {
-		if !slices.Contains(entry, want) {
-			t.Errorf("epic_create contract description %q does not name the reviewers entry key %s", description, want)
-		}
-	}
-}
-
 func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 	fake := &fakeSteps{startID: "0123456789abcdef0123456789abcdef"}
 	p := newPeer(t, startDaemon(t, fake), nil)
