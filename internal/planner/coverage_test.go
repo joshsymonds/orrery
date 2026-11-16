@@ -160,7 +160,7 @@ func TestReturnCheckAppendsCoverageLines(t *testing.T) {
 	const plan = `{"status":"done","decisions":[],"tasks":[{"title":"Touch a","deliverable":"d",` +
 		`"files":["internal/a.go"],"requirements":["R1","R9"],"gate":"check",` +
 		`"evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],"supplied":[],"conclusion":"c",` +
-		`"judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"judge":"a judge","kind":"capture"}}],"outline":"o","questions":[],"outcome":"work"}`
 
 	want := []string{
 		`tasks[0] "Touch a" requirements[1]: not a Requirement of the epic`,
@@ -177,11 +177,12 @@ const contributingPlan = `{"status":"done","decisions":[],"tasks":[` +
 	`{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R1"],"contributes":["R2"],"gate":"check",` +
 	`"evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],"supplied":[],` +
-	`"conclusion":"the runner runs","judge":"a judge"}},` +
+	`"conclusion":"the runner runs","judge":"a judge","kind":"capture"}},` +
 	`{"title":"Test it","deliverable":"the runner tests","files":["internal/planner/runner_test.go"],` +
 	`"requirements":["R2"],"contributes":[],"gate":"check",` +
 	`"evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],"supplied":[],` +
-	`"conclusion":"the runner is tested","judge":"a judge"}}],"outline":"two tasks","questions":[],"outcome":"work"}`
+	`"conclusion":"the runner is tested","judge":"a judge","kind":"capture"}}],"outline":"two tasks",` +
+	`"questions":[],"outcome":"work"}`
 
 func TestRunnerDoneReturnStoresContributes(t *testing.T) {
 	t.Parallel()

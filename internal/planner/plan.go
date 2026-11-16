@@ -33,9 +33,11 @@ const Schema = `{
 							"artifacts": {"type": "array", "items": {"type": "string"}},
 							"supplied": {"type": "array", "items": {"type": "string"}},
 							"conclusion": {"type": "string"},
-							"judge": {"type": "string"}
+							"judge": {"type": "string"},
+							"kind": {"type": "string"},
+							"tests": {"type": "array", "items": {"type": "string"}}
 						},
-						"required": ["capture", "limit", "artifacts", "supplied", "conclusion", "judge"],
+						"required": ["capture", "limit", "artifacts", "supplied", "conclusion", "judge", "kind", "tests"],
 						"additionalProperties": false
 					}
 				},

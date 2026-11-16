@@ -12,7 +12,7 @@ import (
 )
 
 // Kind is how an item shows its evidence: a test, a capture or supplied files. An item stored before kinds is
-// kindless, the empty Kind. Reserved: filled by O3d5a.
+// kindless, the empty Kind.
 type Kind string
 
 // The kinds an item may state. A test runs a capture beside the test files it lists in Tests, a capture runs a capture
@@ -25,8 +25,8 @@ const (
 
 // Item is the evidence a Requirement or task names: the capture a run executes, the limit it runs under in seconds,
 // the artifacts it leaves, the files a person supplies in place of a capture, the conclusion the evidence supports,
-// and the judge that reads it. Kind and Tests are reserved for O3d5a: the item's kind, and a test item's test files.
-// Both are left out of the stored form when empty, so an item stored without them reads and writes back unchanged.
+// and the judge that reads it. Kind is the item's kind, and Tests a test item's test files. Both are left out of the
+// stored form when empty, so an item stored without them reads and writes back unchanged.
 type Item struct {
 	Capture    []string `json:"capture"`
 	Limit      int64    `json:"limit"`
@@ -57,8 +57,8 @@ func Current(spec, item Item) bool {
 const maxLimitSeconds = math.MaxInt64 / int64(time.Second)
 
 // Check returns one line per refusal of item, in field order capture, limit, artifacts, supplied, conclusion, judge,
-// and nil when item is well formed. A line is `<field>: <reason>`, or `<field>[<j>]: <reason>` for one element of a
-// list.
+// kind, tests, and nil when item is well formed. A line is `<field>: <reason>`, or `<field>[<j>]: <reason>` for one
+// element of a list.
 func Check(item Item) []string {
 	var lines []string
 	lines = append(lines, captureLines(item)...)
@@ -71,7 +71,46 @@ func Check(item Item) []string {
 	if strings.TrimSpace(item.Judge) == "" {
 		lines = append(lines, "judge: empty or blank")
 	}
+	lines = append(lines, kindLines(item)...)
+	lines = append(lines, testsLines(item)...)
 	return lines
+}
+
+// kindLines returns the refusal of the kind field: no kind, a kind that is none of the three, or a kind whose field
+// the item lacks.
+func kindLines(item Item) []string {
+	switch item.Kind {
+	case "":
+		return []string{"kind: none, name test, capture or supplied"}
+	case KindTest:
+		if len(item.Capture) == 0 {
+			return []string{"kind: test without a capture"}
+		}
+	case KindCapture:
+		if len(item.Capture) == 0 {
+			return []string{"kind: capture without a capture"}
+		}
+	case KindSupplied:
+		if len(item.Supplied) == 0 {
+			return []string{"kind: supplied without supplied files"}
+		}
+	default:
+		return []string{fmt.Sprintf("kind: %q is not test, capture or supplied", item.Kind)}
+	}
+	return nil
+}
+
+// testsLines returns the refusals of the tests field: a test item without test files, test files beside a capture or
+// supplied kind, and each bad path.
+func testsLines(item Item) []string {
+	var lines []string
+	switch {
+	case item.Kind == KindTest && len(item.Tests) == 0:
+		lines = append(lines, "tests: none, a test item lists its test files")
+	case (item.Kind == KindCapture || item.Kind == KindSupplied) && len(item.Tests) > 0:
+		lines = append(lines, fmt.Sprintf("tests: set on a %s item", item.Kind))
+	}
+	return append(lines, pathLines("tests", item.Tests)...)
 }
 
 // captureLines returns the refusals of the capture field: neither a capture nor supplied files, an empty element, and

@@ -16,7 +16,7 @@ import (
 func filesTaskJSON(title, file string) string {
 	return fmt.Sprintf(`{"title":%q,"deliverable":"d","files":[%q],"requirements":[],`+
 		`"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],`+
-		`"supplied":[],"conclusion":"c","judge":"a judge"}}`, title, file)
+		`"supplied":[],"conclusion":"c","judge":"a judge","kind":"capture"}}`, title, file)
 }
 
 func TestReturnCheckOwnsFilesOfOpenTasksOnly(t *testing.T) {

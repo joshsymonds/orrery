@@ -70,6 +70,7 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 	req.Contract.DoneGates = []string{"check", "unit"}
 	req.Contract.ReviewGates = []string{"audit", "review"}
 	req.Contract.Requirements[0].Item = &v1.EvidenceItem{
+		Kind:       "capture",
 		Capture:    []string{"scripts/unit"},
 		Limit:      120,
 		Artifacts:  []string{"out/unit.json"},
@@ -77,6 +78,7 @@ func TestEpicCreateStoresGatesListsAndItems(t *testing.T) {
 		Judge:      "reviewer",
 	}
 	req.Contract.Requirements[1].Item = &v1.EvidenceItem{
+		Kind:       "supplied",
 		Supplied:   []string{"docs/report.md"},
 		Conclusion: "Synthetic conclusion.",
 		Judge:      "reviewer",

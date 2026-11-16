@@ -157,6 +157,7 @@ func (r *evidenceKillRig) createEpic(t *testing.T) {
 				Id:   "R1",
 				Text: "The capture runs once and its judge holds once.",
 				Item: &v1.EvidenceItem{
+					Kind:       "capture",
 					Capture:    r.capture,
 					Limit:      300,
 					Conclusion: evidenceKillConclusion,
