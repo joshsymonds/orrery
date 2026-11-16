@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -214,9 +215,11 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 	return nil
 }
 
-// view returns the View of task, which is open in epic, with the epic's branch at tip and the epic's candidate. It reads
-// the evidence run or step of the task's current unit by its derived id. For an ended implementer step it reads the
-// HEAD of the step's worktree, and when the step's refs snapshot is set, the ref moves since it.
+// view returns the View of task, which is open in epic, with the epic's branch at tip and the epic's candidate. It
+// reads the evidence run or step of the task's current unit by its derived id. The run is kept only while its spec is
+// current with the task's evidence item, as the store reads a task's runs, so a run whose item has changed reads
+// missing. For an ended implementer step it reads the HEAD of the step's worktree, and when the step's refs snapshot
+// is set, the ref moves since it.
 func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTask, tip string) (View, error) {
 	view := View{
 		Epic: epic.ID, Paused: epic.Paused, Parked: epic.Parked != "", ReviewGates: epic.ReviewGates,
@@ -228,7 +231,7 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 		if err != nil {
 			return View{}, err
 		}
-		if ok {
+		if ok && evidence.Current(run.Spec, task.Evidence) {
 			view.Run = &run
 		}
 	}
