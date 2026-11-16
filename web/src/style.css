@@ -568,6 +568,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page .release-step .step { font-weight: 700; color: var(--subtext1); }
 .epic-page .release-step .target { min-width: 0; color: var(--text); overflow-wrap: anywhere; }
 .epic-page .release-step .undo { min-width: 0; color: var(--overlay1); overflow-wrap: anywhere; }
+.epic-page .release-step .state { min-width: 0; font-weight: 700; color: var(--subtext1); }
+.epic-page .release-step .evidence, .epic-page .release-step .reason { grid-column: 2 / -1; min-width: 0; color: var(--subtext0); overflow-wrap: anywhere; }
 .epic-page .release .then { font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
 /* Evidence runs, in a proof card and in a workflow node alike: each run a card of its head line, its log toggles and its
    artifacts. */
