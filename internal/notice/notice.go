@@ -61,7 +61,7 @@ type Notices struct {
 	// retry is queued.
 	unstored map[Key]rowWrite
 	retrying map[Key]bool
-	// deadline bounds each store call, storeDeadline unless a test sets another.
+	// deadline bounds each store call: storeDeadline, unless WithStoreDeadline set another.
 	deadline time.Duration
 }
 
@@ -71,9 +71,19 @@ type rowWrite struct {
 	at  int64
 }
 
-// New returns a Notices for host that posts through sender, reads the time from now, and logs with logger.
-func New(host string, sender Sender, now func() time.Time, logger *slog.Logger) *Notices {
-	return &Notices{
+// Option sets one optional field of a Notices that New returns.
+type Option func(*Notices)
+
+// WithStoreDeadline bounds each of the Notices' store calls by d in place of storeDeadline. A test whose store calls
+// must not read as late on a loaded machine passes a bound longer than it runs; production passes none.
+func WithStoreDeadline(d time.Duration) Option {
+	return func(n *Notices) { n.deadline = d }
+}
+
+// New returns a Notices for host that posts through sender, reads the time from now, and logs with logger, with opts
+// applied.
+func New(host string, sender Sender, now func() time.Time, logger *slog.Logger, opts ...Option) *Notices {
+	notices := &Notices{
 		host:               host,
 		sender:             sender,
 		now:                now,
@@ -86,6 +96,10 @@ func New(host string, sender Sender, now func() time.Time, logger *slog.Logger) 
 		retrying:           make(map[Key]bool),
 		deadline:           storeDeadline,
 	}
+	for _, opt := range opts {
+		opt(notices)
+	}
+	return notices
 }
 
 // Notify records the notice time for key and returns. It then sends build's notification in the background. With a

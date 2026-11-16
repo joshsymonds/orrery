@@ -182,9 +182,7 @@ const testStoreDeadline = time.Hour
 
 // newTestNotices returns notice.New's Notices for host-a with testStoreDeadline as its store bound.
 func newTestNotices(sender notice.Sender, now func() time.Time, logger *slog.Logger) *notice.Notices {
-	n := notice.New("host-a", sender, now, logger)
-	n.SetStoreDeadline(testStoreDeadline)
-	return n
+	return notice.New("host-a", sender, now, logger, notice.WithStoreDeadline(testStoreDeadline))
 }
 
 // lateRows stores through inner, but answers the first lates PutPushed calls for the pane late names as a call that
