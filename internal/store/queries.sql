@@ -546,6 +546,10 @@ UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = ''
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
 
+-- name: RetryFailedEpicIntegrateRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', refs_checked = 0, ended = 0
+WHERE epic = ? AND path = ? AND kind = 'integrate' AND state = 'ended' AND outcome = 'failed';
+
 -- name: MoveEpicLoopRound :exec
 UPDATE epic_node_runs SET loop_round = loop_round + 1
 WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?;

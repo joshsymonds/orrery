@@ -5918,6 +5918,24 @@ func (q *Queries) RetryEpicNode(ctx context.Context, arg RetryEpicNodeParams) (i
 	return result.RowsAffected()
 }
 
+const retryFailedEpicIntegrateRun = `-- name: RetryFailedEpicIntegrateRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', refs_checked = 0, ended = 0
+WHERE epic = ? AND path = ? AND kind = 'integrate' AND state = 'ended' AND outcome = 'failed'
+`
+
+type RetryFailedEpicIntegrateRunParams struct {
+	Epic string
+	Path string
+}
+
+func (q *Queries) RetryFailedEpicIntegrateRun(ctx context.Context, arg RetryFailedEpicIntegrateRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retryFailedEpicIntegrateRun, arg.Epic, arg.Path)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const sessionEventsAfter = `-- name: SessionEventsAfter :many
 SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?

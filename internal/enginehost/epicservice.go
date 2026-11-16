@@ -457,7 +457,8 @@ func (s *epicService) StopEpic(
 }
 
 // RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused. When the
-// request names a node, the node's parked run reruns under its next attempt instead, and the epic is unparked with it.
+// request names a node, the node reruns under its next attempt instead, and the epic is unparked with it: its parked
+// runs, or its latest integrate run when that run ended failed (store.Store.RetryNode).
 func (s *epicService) RetryEpic(
 	ctx context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -532,8 +533,9 @@ func (s *epicService) SeeEpic(
 	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
 }
 
-// retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
-// of an unknown epic as it refuses an unparked node, so the epic is read first to make an unknown epic ErrNoEpic.
+// retryPark ends the park of epic when node is empty, and otherwise reruns node: its parked runs, or its latest integrate
+// run when that run ended failed. The store refuses a node with nothing to rerun, which a node of an unknown epic also
+// is, so the epic is read first to make an unknown epic ErrNoEpic.
 func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
 	if node == "" {
 		if err := s.epics.RetryEpic(ctx, epic); err != nil {

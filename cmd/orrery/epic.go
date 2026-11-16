@@ -101,8 +101,9 @@ func epicCommand(
 	}
 }
 
-// epicRetry implements `retry ID [NODE]`. With NODE, the parked run of that node reruns; without it, the epic's park
-// ends. An empty NODE is a usage error, since sending it would silently end the park.
+// epicRetry implements `retry ID [NODE]`. With NODE, that node reruns: its parked runs, or its latest integrate run when
+// that run ended failed. Without NODE the epic's park ends. An empty NODE is a usage error, since sending it would
+// silently end the park.
 func epicRetry(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
 	switch {
 	case len(rest) == 1:

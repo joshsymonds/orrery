@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -142,11 +143,21 @@ func (s *Store) EndNodesWaking(
 	})
 }
 
-// RetryNode turns the parked run of node in epic running at its next attempt, with its outcome, output, revision, refs,
-// refs checked, result and end cleared, and unparks epic, in one write. The park ends as RetryEpic ends it, and each
-// open park question of epic is answered retry. A node with no parked run is a RefusalError, and so is an epic parked
-// for good, which changes nothing. So is the release node, which only ReleaseEpic resumes: retried here, it would run
-// while the phase stays stopped and wait for good.
+// integrateKind is the kind of an integrate node, whose node runs batch accepted tasks onto the candidate, and
+// nodeFailedOutcome is the outcome of a node run that ended failed.
+const (
+	integrateKind     = "integrate"
+	nodeFailedOutcome = "failed"
+)
+
+// RetryNode reruns node of epic under its next attempt and unparks epic, in one write. Each parked run of node turns
+// running with its outcome, output, revision, refs, refs checked, result and end cleared. When node has no parked run
+// and its latest integrate run ended failed, that run turns running with its outcome, output, refs checked and end
+// cleared, keeping its revision and result, so its work decides again on the same candidate. The latest integrate run
+// is the one in the newest settle walk of the plan (latestIntegrateRun). The park ends as RetryEpic ends it, and each
+// open park question of epic is answered retry. A node with nothing to rerun is a RefusalError, and so is an epic
+// parked for good, which changes nothing. So is the release node, which only ReleaseEpic resumes: retried here, it would
+// run while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		runs, err := readNodeRuns(ctx, queries, epic)
@@ -159,20 +170,99 @@ func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 					"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
 			}
 		}
-		return retryNode(ctx, queries, epic, node)
+		parked, err := retryParkedNode(ctx, queries, epic, node)
+		if err != nil || parked {
+			return err
+		}
+		return retryFailedIntegrate(ctx, queries, epic, node, runs)
 	})
 }
 
 // retryNode turns the parked run of node in epic running at its next attempt, answers each open park question of epic
-// retry and unparks epic, in the caller's write, as RetryNode does. A node with no parked run is a RefusalError, and so is an epic parked for good.
+// retry and unparks epic, in the caller's write, as RetryNode does. A node with no parked run is a RefusalError, and so
+// is an epic parked for good.
 func retryNode(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
+	parked, err := retryParkedNode(ctx, queries, epic, node)
+	if err != nil {
+		return err
+	}
+	if !parked {
+		return notParkedRefusal(epic, node)
+	}
+	return nil
+}
+
+// retryParkedNode turns each parked run of node in epic running at its next attempt and unparks epic, in the caller's
+// write. It reports false, and changes nothing, when no run of node is parked.
+func retryParkedNode(ctx context.Context, queries *sqlcgen.Queries, epic, node string) (bool, error) {
 	retried, err := queries.RetryEpicNode(ctx, sqlcgen.RetryEpicNodeParams{Epic: epic, Node: node})
 	if err != nil {
-		return fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
+		return false, fmt.Errorf("retry node %s of epic %s: %w", node, epic, err)
 	}
 	if retried == 0 {
-		return RefusalError(fmt.Sprintf("node %s of epic %s is not parked", node, epic))
+		return false, nil
 	}
+	return true, unparkRetried(ctx, queries, epic)
+}
+
+// retryFailedIntegrate reruns the latest integrate run of node in epic when it ended failed, and unparks epic, in the
+// caller's write. Any other run of node is a RefusalError, so an integrate run that is running or passed, or an earlier
+// failed run that a later run of node superseded, changes nothing.
+func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, node string, runs []NodeRun) error {
+	run, ok := latestIntegrateRun(runs, node)
+	if !ok || run.State != NodeEnded || run.Outcome != nodeFailedOutcome {
+		return notParkedRefusal(epic, node)
+	}
+	rerun, err := queries.RetryFailedEpicIntegrateRun(ctx, sqlcgen.RetryFailedEpicIntegrateRunParams{
+		Epic: epic, Path: run.Path,
+	})
+	if err != nil {
+		return fmt.Errorf("retry integrate run %s of epic %s: %w", run.Path, epic, err)
+	}
+	if rerun == 0 {
+		return notParkedRefusal(epic, node)
+	}
+	return unparkRetried(ctx, queries, epic)
+}
+
+// latestIntegrateRun returns the integrate run of node that sits in the newest settle walk, and whether there is one.
+// A settle walk is numbered by the seq of the task it settles, and a later task has a higher seq, so the run with the
+// highest seq is the latest.
+func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
+	var latest NodeRun
+	var newest uint64
+	found := false
+	for _, run := range runs {
+		if run.Kind != integrateKind || run.Node != node {
+			continue
+		}
+		seq, ok := settleSeq(run.Path)
+		if ok && (!found || seq > newest) {
+			latest, newest, found = run, seq, true
+		}
+	}
+	return latest, found
+}
+
+// settleSeq returns the seq of the settle walk that holds the node run at path: the N of the S<N> segment just above the
+// run's own node. It returns false when path sits in no settle walk.
+func settleSeq(path string) (uint64, bool) {
+	i := strings.LastIndex(path, "/")
+	if i < 0 {
+		return 0, false
+	}
+	parent := path[:i]
+	walk, found := strings.CutPrefix(parent[strings.LastIndex(parent, "/")+1:], "S")
+	if !found {
+		return 0, false
+	}
+	seq, err := strconv.ParseUint(walk, 10, 64)
+	return seq, err == nil
+}
+
+// unparkRetried answers each open park question of epic retry and unparks epic, in the caller's write. An epic in phase
+// met_at_base is parked for good, so it is a RefusalError and the write changes nothing.
+func unparkRetried(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return err
@@ -192,6 +282,11 @@ func retryNode(ctx context.Context, queries *sqlcgen.Queries, epic, node string)
 		return fmt.Errorf("unpark epic %s: %w", epic, err)
 	}
 	return nil
+}
+
+// notParkedRefusal is the refusal of a retry of node in epic that has no run to rerun.
+func notParkedRefusal(epic, node string) RefusalError {
+	return RefusalError(fmt.Sprintf("node %s of epic %s is not parked", node, epic))
 }
 
 // capNodeOutput returns output cut to NodeOutputMax bytes at a UTF-8 rune start.
