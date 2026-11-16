@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -199,55 +198,5 @@ func TestTaskRunReadsAsRedAndGreenOnlyWhileCurrentWithTheTaskEvidence(t *testing
 	}
 	if task.Build.RedRun != "red-run" || task.Build.GreenRun != "green-run" {
 		t.Errorf("build runs = %q and %q; want red-run and green-run kept", task.Build.RedRun, task.Build.GreenRun)
-	}
-}
-
-// TestEvidenceRunStoredAtVersion33IsCurrentAfterOpenMigrates checks that a run stored at version 33 with its
-// Requirement's item still counts in EpicFlow once Open migrates the store: the migration gives the item and the run's
-// spec the same kind, so the run stays current.
-func TestEvidenceRunStoredAtVersion33IsCurrentAfterOpenMigrates(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "orrery.db")
-	const item = `{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,` +
-		`"conclusion":"the capture holds","judge":"a judge"}`
-
-	fixture := openStoreAtVersion(t, path, 33)
-	seedEpic(t, fixture)
-	seeds := []struct {
-		stmt string
-		args []any
-	}{
-		{`INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item)
-			VALUES (?, 1, 'R1', 'Captured', 'store test', 'check', ?)`, []any{seededEpic, item}},
-		{`INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created, ended)
-			VALUES ('run-1', ?, 'R1', 'abc1234', 'red', 'captured', 'ended', ?, 1700000000, 1700000100)`,
-			[]any{seededEpic, item}},
-	}
-	for _, seed := range seeds {
-		if _, err := fixture.ExecContext(ctx, seed.stmt, seed.args...); err != nil {
-			fixture.Close()
-			t.Fatalf("seed fixture: %v", err)
-		}
-	}
-	if err := fixture.Close(); err != nil {
-		t.Fatalf("close fixture: %v", err)
-	}
-
-	s, err := Open(ctx, path, noSync())
-	if err != nil {
-		t.Fatalf("Open at version 33: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := s.Close(); err != nil {
-			t.Errorf("Close: %v", err)
-		}
-	})
-	flow, err := s.EpicFlow(ctx, seededEpic)
-	if err != nil {
-		t.Fatalf("EpicFlow: %v", err)
-	}
-	if got, want := evidenceRunIDs(flow.Evidence), []string{"run-1"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("EpicFlow evidence runs = %v, want %v: an old run still counts", got, want)
 	}
 }

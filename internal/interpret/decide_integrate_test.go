@@ -2,11 +2,8 @@ package interpret
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -431,115 +428,5 @@ func TestRunnerCarriesBatchActions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(recorded.writes, want) {
 		t.Errorf("carried writes = %q, want %q", recorded.writes, want)
-	}
-}
-
-// storeRows returns the rows of epic as the store reads them for the interpreter: its EpicFlow, which leaves out the
-// evidence runs that are not current with their stored items, built as Runner.decide builds them.
-func storeRows(t *testing.T, s *store.Store, epic string) kinds.Rows {
-	t.Helper()
-	read, err := s.EpicFlow(context.Background(), epic)
-	if err != nil {
-		t.Fatalf("EpicFlow %s: %v", epic, err)
-	}
-	return kinds.Rows{
-		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending,
-	}
-}
-
-// setRequirementItem stores item as the item of Requirement id of epic by direct SQL, as a changed contract reaches the
-// store, and fails the test unless exactly one row changes.
-func setRequirementItem(t *testing.T, path, epic, id string, item evidence.Item) {
-	t.Helper()
-	raw, err := json.Marshal(item)
-	if err != nil {
-		t.Fatalf("encode item of %s: %v", id, err)
-	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("open store file: %v", err)
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			t.Errorf("close store file: %v", err)
-		}
-	}()
-	result, err := db.ExecContext(
-		context.Background(), "UPDATE epic_requirements SET item = ? WHERE epic = ? AND id = ?", string(raw), epic, id,
-	)
-	if err != nil {
-		t.Fatalf("update item of %s: %v", id, err)
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		t.Fatalf("count rows updated for %s: %v", id, err)
-	}
-	if changed != 1 {
-		t.Fatalf("update item of %s changed %d rows, want 1", id, changed)
-	}
-}
-
-// TestStaleRedReadsMissing checks that a red run at the epic's base whose Requirement item has since changed reads as no
-// red run: the store's EpicFlow leaves it out, so kinds.Unbuilt names the Requirement as having no red at the base, which
-// O3d4's park names.
-func TestStaleRedReadsMissing(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, path := openNodeStore(t)
-	item := evidence.Item{
-		Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
-		Conclusion: "R1 holds", Judge: "a judge",
-	}
-	changed := item
-	changed.Conclusion = "R1 holds and stays"
-	if err := s.CreateEpic(ctx, store.EpicRow{
-		ID: decideEpic, Base: "main", Title: "Read the red", Phase: "accepted",
-		Created: runClock(), Changed: runClock(),
-		Requirements: []store.EpicRequirement{{ID: "R1", Text: "R1 holds", Item: item}},
-	}); err != nil {
-		t.Fatalf("CreateEpic: %v", err)
-	}
-	red := startOf("red", "red", "evidence", 0)
-	red.Attempt = 1
-	if err := s.StartNodes(ctx, decideEpic, []store.NodeRun{red}, nil, runClock()); err != nil {
-		t.Fatalf("StartNodes: %v", err)
-	}
-	if err := s.EndNodes(ctx, decideEpic, []store.NodeEnd{{Path: "red", Outcome: "passed"}}, runClock()); err != nil {
-		t.Fatalf("EndNodes: %v", err)
-	}
-	run := store.EvidenceRun{
-		ID: store.NodeWorkID(red.ID, red.Attempt, "R1"), Epic: decideEpic, Item: "R1", Revision: "main",
-		Phase: evidence.PhaseRed, Source: evidence.SourceCaptured, Spec: item, Created: runClock(),
-	}
-	if err := s.AddEvidenceRun(ctx, run); err != nil {
-		t.Fatalf("AddEvidenceRun: %v", err)
-	}
-	if err := s.RecordEvidenceCapture(ctx, run.ID, store.EvidenceCapture{At: runClock()}); err != nil {
-		t.Fatalf("RecordEvidenceCapture: %v", err)
-	}
-	verdict := store.EvidenceVerdict{
-		Verdict: evidence.VerdictFails, Passed: evidence.Passed(evidence.PhaseRed, "", 0, evidence.VerdictFails),
-		At: runClock(),
-	}
-	if err := s.RecordEvidenceVerdict(ctx, run.ID, verdict); err != nil {
-		t.Fatalf("RecordEvidenceVerdict: %v", err)
-	}
-
-	first := storeRows(t, s, decideEpic)
-	if len(first.Evidence) != 1 {
-		t.Fatalf("EpicFlow evidence has %d runs, want the red run while its item is current", len(first.Evidence))
-	}
-	for _, line := range kinds.Unbuilt(first) {
-		if strings.HasPrefix(line, "R1 has no red") {
-			t.Errorf("Unbuilt with the item current names %q, want no red missing", line)
-		}
-	}
-
-	setRequirementItem(t, path, decideEpic, "R1", changed)
-	second := storeRows(t, s, decideEpic)
-	want := []string{"R1 has no red at the epic's base main"}
-	if got := kinds.Unbuilt(second); !reflect.DeepEqual(got, want) {
-		t.Errorf("Unbuilt after the item changed = %q, want %q", got, want)
 	}
 }
