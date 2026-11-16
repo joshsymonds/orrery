@@ -36,6 +36,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact
@@ -94,6 +96,7 @@ class OrreryClientEpicsTest {
         .addRunningSteps(runningStepProto)
         .setEndedSteps(3)
         .setProblem("efforts/1/state.json: does not parse")
+        .setSeen(1700000500L)
         .build()
 
     private val epicRow = EpicRow(
@@ -106,6 +109,7 @@ class OrreryClientEpicsTest {
         runningSteps = listOf(runningStepRow),
         endedSteps = 3,
         problem = "efforts/1/state.json: does not parse",
+        seen = 1700000500L,
     )
 
     private val exampleContractProto = EpicContract.newBuilder()
@@ -1208,6 +1212,19 @@ class OrreryClientEpicsTest {
     }
 
     @Test
+    fun seeEpicPostsTheEpicIdAndLands() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+
+            assertEquals(StepCallResult.Landed, OrreryClient(server.baseUrl).seeEpic("example-repo/example-epic"))
+
+            val request = server.requests.single()
+            assertConnectRequest(EPICS_SEEN, request)
+            assertEquals("example-repo/example-epic", EpicsSeenRequest.parseFrom(request.body).id)
+        }
+    }
+
+    @Test
     fun retryPostsTheEpicIdWithItsNodeOrWithoutOneAndLands() {
         FakeOrreryServer().use { server ->
             server.respond(EPICS_RETRY, EpicsRetryResponse.getDefaultInstance())
@@ -1267,6 +1284,7 @@ class OrreryClientEpicsTest {
             server.fail(EPICS_STOP, Code.FAILED_PRECONDITION, "example stop refusal")
             server.fail(EPICS_RETRY, Code.FAILED_PRECONDITION, "example retry refusal")
             server.fail(EPICS_ANSWER, Code.FAILED_PRECONDITION, "question: Q1 is closed")
+            server.fail(EPICS_SEEN, Code.FAILED_PRECONDITION, "example seen refusal")
             val client = OrreryClient(server.baseUrl)
 
             assertEquals(StepCallResult.Refused("example pause refusal"), client.pauseEpic("example-repo/example-epic"))
@@ -1282,6 +1300,10 @@ class OrreryClientEpicsTest {
             assertEquals(
                 StepCallResult.Refused("question: Q1 is closed"),
                 client.answerEpic("example-repo/example-epic", "Q1", "example answer"),
+            )
+            assertEquals(
+                StepCallResult.Refused("example seen refusal"),
+                client.seeEpic("example-repo/example-epic"),
             )
         }
     }
@@ -1371,6 +1393,7 @@ class OrreryClientEpicsTest {
         const val EPICS_STOP = "/orrery.v1.Epics/Stop"
         const val EPICS_RETRY = "/orrery.v1.Epics/Retry"
         const val EPICS_ANSWER = "/orrery.v1.Epics/Answer"
+        const val EPICS_SEEN = "/orrery.v1.Epics/Seen"
         const val STEPS_HOLD = "/orrery.v1.Steps/Hold"
         const val STEPS_NUDGE = "/orrery.v1.Steps/Nudge"
         const val STEPS_STOP = "/orrery.v1.Steps/Stop"

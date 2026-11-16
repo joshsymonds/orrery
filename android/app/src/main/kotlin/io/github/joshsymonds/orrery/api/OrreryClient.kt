@@ -51,6 +51,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact as EvidenceArtifactProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
@@ -321,7 +322,8 @@ data class StepRow(
  * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
  * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
  * orreryd's database holds, "record" for an epic read from records only. [phaseAt] is when the epic's phase was last set,
- * in unix seconds; 0 when unknown and for a record epic.
+ * in unix seconds; 0 when unknown and for a record epic. [seen] is when the owner last saw the epic, in unix seconds, from
+ * its latest seen call; 0 when the owner has not seen it.
  */
 data class EpicRow(
     val id: String,
@@ -336,6 +338,7 @@ data class EpicRow(
     val problem: String,
     val source: String = "",
     val phaseAt: Long = 0L,
+    val seen: Long = 0L,
 )
 
 /**
@@ -1110,6 +1113,15 @@ class OrreryClient(
         return stepCall { call(write = true) { standard.epics.answer(request, CLIENT_HEADERS) } }
     }
 
+    /**
+     * Records that the owner saw the orreryd epic [id], so its seen mark is the time of this call. A refused seen
+     * answers [StepCallResult.Refused].
+     */
+    fun seeEpic(id: String): StepCallResult {
+        val request = EpicsSeenRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.epics.seen(request, CLIENT_HEADERS) } }
+    }
+
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
         val request = RegisterRequest.newBuilder().setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()
         call(write = true) { standard.push.register(request, CLIENT_HEADERS) }
@@ -1137,6 +1149,7 @@ class OrreryClient(
             problem = problem,
             source = source,
             phaseAt = phaseAt,
+            seen = seen,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
