@@ -31,6 +31,14 @@ var image = sync.OnceValues(func() ([]byte, error) {
 	return raw, err
 })
 
+// Prepare makes the migrated store image now, so the first Seed copies it in place of making it. A TestMain calls it
+// beside its other setup, so the tests that start at once do not all wait for the image's migrations. It returns the
+// error of making the image, which Seed would otherwise report.
+func Prepare() error {
+	_, err := image()
+	return err
+}
+
 // migrated opens a new store at path, which store.Open migrates, closes it and returns the file's bytes.
 func migrated(path string) ([]byte, error) {
 	s, err := store.Open(context.Background(), path, NoSync())

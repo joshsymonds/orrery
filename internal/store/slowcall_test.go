@@ -67,7 +67,9 @@ func newSlowCallFixture(t *testing.T) slowCallFixture {
 		logs:    &syncBuffer{},
 		counted: &atomic.Int32{},
 	}
-	s, err := Open(t.Context(), filepath.Join(t.TempDir(), "orrery.db"),
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
+	s, err := Open(t.Context(), path,
 		WithSynchronous(SynchronousOff),
 		withCallClock(f.clock.Now),
 		WithLogger(slog.New(slog.NewTextHandler(f.logs, nil))),

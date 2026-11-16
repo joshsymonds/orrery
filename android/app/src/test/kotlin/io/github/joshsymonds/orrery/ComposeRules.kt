@@ -53,15 +53,22 @@ private class MainThreadDrain(private val scheduler: TestCoroutineScheduler) : I
 
     override fun registerIdleTransitionCallback(callback: IdlingResource.ResourceCallback?) = Unit
 
-    /** [base] with this drain registered while it runs. */
+    /**
+     * [base] with this drain registered while it runs, then the test's end: a test that leaves BackgroundWork
+     * running fails, naming it (Quiescence.endTest). A failure of the test itself stays the failure reported.
+     */
     fun around(base: Statement): Statement = object : Statement() {
         override fun evaluate() {
             IdlingRegistry.getInstance().register(this@MainThreadDrain)
             try {
                 base.evaluate()
+            } catch (failure: Throwable) {
+                runCatching { Quiescence.endTest() }.exceptionOrNull()?.let(failure::addSuppressed)
+                throw failure
             } finally {
                 IdlingRegistry.getInstance().unregister(this@MainThreadDrain)
             }
+            Quiescence.endTest()
         }
     }
 }

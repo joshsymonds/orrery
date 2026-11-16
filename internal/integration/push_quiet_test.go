@@ -78,11 +78,11 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 		}
 	}
 
-	// A pane reads done once orreryd has applied its Stop. A Stop that notifies is judged after its judge delay, so
-	// each notifying push is awaited before orreryd stops. orreryd awaits every notification before it exits, so once
-	// it has exited, a push still queued is one a quiet Stop sent.
+	// A pane reads done once sendHook has returned, since orreryd has applied its Stop by then. A Stop that notifies is
+	// judged after its judge delay, so each notifying push is awaited before orreryd stops. orreryd awaits every
+	// notification before it exits, so once it has exited, a push still queued is one a quiet Stop sent.
 	for _, pane := range panes {
-		waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+		requireOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
 	}
 	pushed := make(map[string][]string)
 	for range notifying {

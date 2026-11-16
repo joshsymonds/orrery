@@ -192,7 +192,7 @@ func TestEngineKilledSessionFailsWhileOthersReply(t *testing.T) {
 		"transcript_path": transcript,
 	}
 	sendHook(t, f.socket, pane, pulseDir, hook)
-	waitForPaneState(t, q, client, pane, protocol.StateWorking)
+	waitForPaneState(t, q, client, pane, "", protocol.StateWorking)
 
 	f.stopSession(t, idB, dirB)
 	wantExit(t, daemon.stop(t), 0)

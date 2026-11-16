@@ -265,4 +265,26 @@ public interface EvidenceRunOrBuilder extends
    * @return The stderrBytes.
    */
   long getStderrBytes();
+
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   * @return The item.
+   */
+  java.lang.String getItem();
+  /**
+   * <pre>
+   * The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+   * sits under its requirement, node or task.
+   * </pre>
+   *
+   * <code>string item = 17 [json_name = "item"];</code>
+   * @return The bytes for item.
+   */
+  com.google.protobuf.ByteString
+      getItemBytes();
 }

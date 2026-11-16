@@ -31,6 +31,7 @@ type EpicCommands interface {
 	CreateEpic(ctx context.Context, row store.EpicRow) error
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
+	EpicHistory(ctx context.Context, id string) (store.EpicHistory, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
@@ -102,7 +103,8 @@ func (s *epicService) CreateEpic(
 	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
 }
 
-// GetEpic returns the stored epic with its workflow node runs.
+// GetEpic returns the stored epic with its workflow node runs. When req asks for history, it also returns the epic's
+// triggers and tells.
 func (s *epicService) GetEpic(
 	ctx context.Context,
 	req *connect.Request[v1.GetEpicRequest],
@@ -110,14 +112,30 @@ func (s *epicService) GetEpic(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	message, err := s.storedEpic(ctx, req.Msg.GetId())
+	id := req.Msg.GetId()
+	message, err := s.storedEpic(ctx, id)
+	if err == nil && req.Msg.GetHistory() {
+		err = s.fillHistory(ctx, id, message)
+	}
 	if errors.Is(err, store.ErrNoEpic) {
-		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", req.Msg.GetId()))
+		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", id))
 	}
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
+}
+
+// fillHistory sets the triggers and tells of message to the history the store reads for the epic with id. It returns an
+// error matching store.ErrNoEpic when no epic has that id.
+func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.StoredEpic) error {
+	history, err := s.epics.EpicHistory(ctx, id)
+	if err != nil {
+		return fmt.Errorf("read history of epic %s: %w", id, err)
+	}
+	message.Triggers = epicMap(history.Triggers, triggerMessage)
+	message.Tells = epicMap(history.Tells, tellMessage)
+	return nil
 }
 
 // storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its release runs and the
@@ -553,9 +571,9 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 	}
 }
 
-// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, its paused
-// and parked state with its turns, tasks and questions in order, its branch state, and its pinned workflow. It fails
-// when a task's messages fail.
+// storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
+// paused and parked state with its turns, tasks and questions in order, its branch state, and its pinned workflow. It
+// fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
@@ -563,6 +581,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	}
 	return &v1.StoredEpic{
 		Contract:  contractMessage(row),
+		Summary:   row.Summary,
 		Phase:     row.Phase,
 		Created:   row.Created.Unix(),
 		Changed:   row.Changed.Unix(),
@@ -580,6 +599,18 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 // workflowMessage returns the EpicWorkflow message of w: its name, its canonical text and its sha256.
 func workflowMessage(w store.EpicWorkflow) *v1.EpicWorkflow {
 	return &v1.EpicWorkflow{Name: w.Name, Text: w.Text, Sha256: w.SHA256}
+}
+
+// triggerMessage returns the EpicTrigger message of trigger: its id, cause, state, claiming turn and creation time.
+func triggerMessage(trigger store.EpicTrigger) *v1.EpicTrigger {
+	return &v1.EpicTrigger{
+		Id: trigger.ID, Cause: trigger.Cause, State: trigger.State, Turn: trigger.Turn, Created: trigger.Created.Unix(),
+	}
+}
+
+// tellMessage returns the EpicTell message of tell: its seq, text, when it was written, and whether it was told.
+func tellMessage(tell store.EpicTell) *v1.EpicTell {
+	return &v1.EpicTell{Seq: tell.Seq, Text: tell.Text, At: tell.At.Unix(), Told: tell.Told}
 }
 
 // The kinds whose node runs the nodes view reads rows beneath, and the parts a node run's work ids are derived from.

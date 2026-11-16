@@ -32,6 +32,8 @@ type StepCheck struct {
 	Detail string `json:"detail"`
 	Stdout string `json:"stdout,omitempty"`
 	Stderr string `json:"stderr,omitempty"`
+	// Log is the file a failed gate check's output was kept in, under the gate state directory. Any other check has none.
+	Log string `json:"log,omitempty"`
 }
 
 // StepVerdict is one Haiku verdict on a step: a monitor call on a trip, or a judge call on a done return. Verdict is

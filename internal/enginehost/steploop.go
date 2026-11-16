@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/gates"
@@ -55,6 +59,25 @@ const (
 	stepLoopGateName       = "gate"
 	stepLoopAssertionsName = "assertions"
 	stepLoopReturnName     = "return"
+)
+
+// stepGateLogTail is the number of newest bytes of each of its stdout and stderr a step's gate keeps: a failed gate's log
+// keeps them all.
+const stepGateLogTail = 1 << 20
+
+// stepGateCheckTail is the number of newest bytes of each of the gate's streams its check keeps as its stdout and stderr
+// tails, which step status shows and the judge and a send-back carry.
+const stepGateCheckTail = 8 << 10
+
+// gateLogsName is the directory under the gate state directory that keeps the logs of failed step gates, one directory
+// per step.
+const gateLogsName = "logs"
+
+// gateLogDirMode and gateLogFileMode are the modes of the gate log directories and files: the owner's alone, as the
+// output may hold what the redaction does not catch.
+const (
+	gateLogDirMode  fs.FileMode = 0o700
+	gateLogFileMode fs.FileMode = 0o600
 )
 
 // stepLoopMaxContinues is how many failing returns the session is sent back to fix. The next failure ends checks_failed.
@@ -757,7 +780,52 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 		return checks, result.Holder, fmt.Errorf("record gate of step %s: %w", r.id, err)
 	}
 	check.Detail = record + check.Detail
+	if !check.OK {
+		// The gate's holder directory is cleared once its result is read, so a failed gate's output is kept apart.
+		if check.Log, err = r.keepGateLog(round, result); err != nil {
+			check.Detail += "; gate output not kept: " + err.Error()
+		}
+	}
 	return append(checks, check), result.Holder, nil
+}
+
+// keepGateLog writes the output a failed gate of round kept, its stdout and then its stderr under their labels, each
+// already redacted, to round-<round>.log in the step's directory under the logs directory of the gate state directory.
+// That directory outlives the gate's holder. The step's directory and the file are made through an os.Root of the logs
+// directory, so the step id cannot lead them outside it. It returns the file's path.
+func (r *stepRun) keepGateLog(round int, result gateResult) (string, error) {
+	stateDir, err := gateStateDir(r.stateDir)
+	if err != nil {
+		return "", err
+	}
+	logs := filepath.Join(stateDir, gateLogsName)
+	if err = os.MkdirAll(logs, gateLogDirMode); err != nil {
+		return "", fmt.Errorf("make gate log directory: %w", err)
+	}
+	root, err := os.OpenRoot(logs)
+	if err != nil {
+		return "", fmt.Errorf("open gate log directory: %w", err)
+	}
+	defer func() {
+		if closeErr := root.Close(); closeErr != nil {
+			r.logger.Warn("close gate log directory", "step", r.id, "err", closeErr)
+		}
+	}()
+	if err = root.MkdirAll(r.id, gateLogDirMode); err != nil {
+		return "", fmt.Errorf("make gate log directory of step %s: %w", r.id, err)
+	}
+	var log strings.Builder
+	for _, stream := range []struct{ label, text string }{{"stdout", result.Stdout}, {"stderr", result.Stderr}} {
+		log.WriteString("== " + stream.label + " ==\n" + stream.text)
+		if stream.text != "" && !strings.HasSuffix(stream.text, "\n") {
+			log.WriteString("\n")
+		}
+	}
+	name := filepath.Join(r.id, fmt.Sprintf("round-%d.log", round))
+	if err = root.WriteFile(name, []byte(log.String()), gateLogFileMode); err != nil {
+		return "", fmt.Errorf("write gate log: %w", err)
+	}
+	return filepath.Join(logs, name), nil
 }
 
 // writingChecks runs the done checks of a writing step's return with doneChecks. A failed run ends the step: errGateLost
@@ -787,10 +855,13 @@ func (r *stepRun) writingChecks(ctx context.Context, round int, commit string,
 func (r *stepRun) runDoneGate(ctx context.Context, round int) (gateResult, error) {
 	run := gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: r.id + "-gate", StateDir: r.stateDir, Scope: r.scope,
+		Name: r.id + "-gate", StateDir: r.stateDir, Scope: r.scope, Tail: stepGateLogTail,
 	}
 	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {
 		r.resumeGate = store.StepGate{}
+		// A holder an older orreryd launched keeps the default tail, and its exit record does not say which it kept, so
+		// a re-adopted gate's tails are redacted as cut from the default size: at worst a long tail loses its first line.
+		run.Tail = gateTailDefault
 		return readoptGrantedGate(ctx, r.pools, r.grant, run, restored.Grant)
 	}
 	run.Started = func(ctx context.Context, grantID, dir string) error {
@@ -836,15 +907,15 @@ func stepLoopRecord(round int, c stepCheck) store.StepCheck {
 }
 
 // stepLoopGateCheck returns the gate check of round for result. It passes when the gate exits 0 without passing limit.
-// Its detail gives the exit status, or the limit when the gate was killed for it. Its Stdout and Stderr keep the tails of
-// the gate's two streams apart.
+// Its detail gives the exit status, or the limit when the gate was killed for it. Its Stdout and Stderr keep the newest
+// stepGateCheckTail bytes of the gate's two streams apart (see stepCheckTail).
 func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.StepCheck {
 	check := store.StepCheck{
 		Round:  round,
 		Name:   stepLoopGateName,
 		OK:     !result.TimedOut && result.Exit == 0,
-		Stdout: result.Stdout,
-		Stderr: result.Stderr,
+		Stdout: stepCheckTail(result.Stdout),
+		Stderr: stepCheckTail(result.Stderr),
 	}
 	if result.TimedOut {
 		check.Detail = fmt.Sprintf("gate ran past its limit of %s and was killed", limit)
@@ -852,6 +923,23 @@ func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.
 		check.Detail = fmt.Sprintf("gate exited %d", result.Exit)
 	}
 	return check
+}
+
+// stepCheckTail returns the newest stepGateCheckTail bytes of tail, a gate stream already redacted, from the start of a
+// line: a longer tail loses its oldest bytes and the line they cut, so the check keeps whole lines. A tail with no line
+// break in its newest bytes keeps them from the start of a character.
+func stepCheckTail(tail string) string {
+	if len(tail) <= stepGateCheckTail {
+		return tail
+	}
+	newest := tail[len(tail)-stepGateCheckTail:]
+	if i := strings.IndexByte(newest, '\n'); i >= 0 && i+1 < len(newest) {
+		return newest[i+1:]
+	}
+	for newest != "" && !utf8.RuneStart(newest[0]) {
+		newest = newest[1:]
+	}
+	return newest
 }
 
 // retry sends the failed checks of round back to the session while it has continues left, and otherwise ends

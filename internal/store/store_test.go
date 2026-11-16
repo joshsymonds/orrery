@@ -142,21 +142,16 @@ func TestOpenAlreadyMigratedStoreChangesNothing(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	first, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("first Open: %v", err)
-	}
-	if err := first.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
+	// The migrated image is a store Open created and fully migrated, closed, so it is already migrated.
+	seedMigrated(t, path)
 	before := goodRows(t, path)
 
-	second, err := Open(ctx, path)
+	reopened, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("second Open: %v", err)
+		t.Fatalf("Open of the migrated store: %v", err)
 	}
-	if err := second.Close(); err != nil {
-		t.Fatalf("second Close: %v", err)
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 	if after := goodRows(t, path); after != before {
 		t.Fatalf("goose_db_version changed on reopen:\nbefore:\n%safter:\n%s", before, after)

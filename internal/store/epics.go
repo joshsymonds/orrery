@@ -49,6 +49,7 @@ type EpicRow struct {
 	Changed     time.Time
 	Paused      bool
 	Parked      string
+	Summary     string
 	Workflow    EpicWorkflow
 
 	Failures     []EpicFailure
@@ -377,12 +378,17 @@ func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow
 	if err != nil {
 		return EpicRow{}, fmt.Errorf("get epic %s: %w", id, err)
 	}
+	return readEpicOf(ctx, queries, head)
+}
+
+// readEpicOf returns the stored epic whose head is head, every section in order and its pinned workflow's nodes.
+func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicRow, error) {
 	row := epicHeadOf(head)
-	if err = loadEpicSections(ctx, queries, &row); err != nil {
-		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", id, err)
+	if err := loadEpicSections(ctx, queries, &row); err != nil {
+		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", row.ID, err)
 	}
-	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
-		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", id, err)
+	if err := loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
+		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", row.ID, err)
 	}
 	return row, nil
 }
@@ -512,6 +518,39 @@ func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
 		}
 	}
 	return rows, nil
+}
+
+// UnsummarizedEpics returns every stored epic whose summary is empty, ordered by id, each read as Epic reads it. A
+// stored epic with a summary is not returned.
+func (s *Store) UnsummarizedEpics(ctx context.Context) ([]EpicRow, error) {
+	queries := sqlcgen.New(s.db)
+	heads, err := queries.ListUnsummarizedEpics(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list unsummarized epics: %w", err)
+	}
+	var rows []EpicRow
+	for _, head := range heads {
+		var row EpicRow
+		if row, err = readEpicOf(ctx, queries, head); err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// SetEpicSummary stores summary as the summary of epic when the stored summary is empty, and leaves a stored summary
+// as it is, so a summary is written once. It does not move the epic's changed. An unknown epic is ErrNoEpic.
+func (s *Store) SetEpicSummary(ctx context.Context, id, summary string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireEpic(ctx, queries, id); err != nil {
+			return err
+		}
+		if err := queries.SetEpicSummary(ctx, sqlcgen.SetEpicSummaryParams{Summary: summary, ID: id}); err != nil {
+			return fmt.Errorf("set summary of epic %s: %w", id, err)
+		}
+		return nil
+	})
 }
 
 // AnswerEpic records text as decision id on epic in one write, as a note that answers no question. A stored id with
@@ -709,6 +748,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Changed:     time.Unix(head.Changed, 0),
 		Paused:      head.Paused != 0,
 		Parked:      head.Parked,
+		Summary:     head.Summary,
 		Workflow: EpicWorkflow{
 			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
 		},

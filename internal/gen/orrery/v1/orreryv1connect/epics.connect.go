@@ -41,6 +41,18 @@ const (
 	EpicsListProcedure = "/orrery.v1.Epics/List"
 	// EpicsGetProcedure is the fully-qualified name of the Epics's Get RPC.
 	EpicsGetProcedure = "/orrery.v1.Epics/Get"
+	// EpicsHistoryProcedure is the fully-qualified name of the Epics's History RPC.
+	EpicsHistoryProcedure = "/orrery.v1.Epics/History"
+	// EpicsPauseProcedure is the fully-qualified name of the Epics's Pause RPC.
+	EpicsPauseProcedure = "/orrery.v1.Epics/Pause"
+	// EpicsResumeProcedure is the fully-qualified name of the Epics's Resume RPC.
+	EpicsResumeProcedure = "/orrery.v1.Epics/Resume"
+	// EpicsStopProcedure is the fully-qualified name of the Epics's Stop RPC.
+	EpicsStopProcedure = "/orrery.v1.Epics/Stop"
+	// EpicsRetryProcedure is the fully-qualified name of the Epics's Retry RPC.
+	EpicsRetryProcedure = "/orrery.v1.Epics/Retry"
+	// EpicsAnswerProcedure is the fully-qualified name of the Epics's Answer RPC.
+	EpicsAnswerProcedure = "/orrery.v1.Epics/Answer"
 	// StepsHoldProcedure is the fully-qualified name of the Steps's Hold RPC.
 	StepsHoldProcedure = "/orrery.v1.Steps/Hold"
 	// StepsNudgeProcedure is the fully-qualified name of the Steps's Nudge RPC.
@@ -57,6 +69,18 @@ type EpicsClient interface {
 	List(context.Context, *connect.Request[v1.EpicsListRequest]) (*connect.Response[v1.EpicsListResponse], error)
 	// Get returns one epic by the id List gave it.
 	Get(context.Context, *connect.Request[v1.EpicsGetRequest]) (*connect.Response[v1.EpicsGetResponse], error)
+	// History returns one page of an epic's turns, triggers, steps, evidence runs, decisions and tells, oldest first.
+	History(context.Context, *connect.Request[v1.EpicsHistoryRequest]) (*connect.Response[v1.EpicsHistoryResponse], error)
+	// Pause pauses the named orreryd epic, so its planner starts no turn.
+	Pause(context.Context, *connect.Request[v1.EpicsPauseRequest]) (*connect.Response[v1.EpicsPauseResponse], error)
+	// Resume clears the named orreryd epic's pause and resumes its limited task steps.
+	Resume(context.Context, *connect.Request[v1.EpicsResumeRequest]) (*connect.Response[v1.EpicsResumeResponse], error)
+	// Stop pauses the named orreryd epic and stops the step of its running turn.
+	Stop(context.Context, *connect.Request[v1.EpicsStopRequest]) (*connect.Response[v1.EpicsStopResponse], error)
+	// Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
+	Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error)
+	// Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
+	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.v1.Epics service. By default, it uses the
@@ -82,13 +106,55 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("Get")),
 			connect.WithClientOptions(opts...),
 		),
+		history: connect.NewClient[v1.EpicsHistoryRequest, v1.EpicsHistoryResponse](
+			httpClient,
+			baseURL+EpicsHistoryProcedure,
+			connect.WithSchema(epicsMethods.ByName("History")),
+			connect.WithClientOptions(opts...),
+		),
+		pause: connect.NewClient[v1.EpicsPauseRequest, v1.EpicsPauseResponse](
+			httpClient,
+			baseURL+EpicsPauseProcedure,
+			connect.WithSchema(epicsMethods.ByName("Pause")),
+			connect.WithClientOptions(opts...),
+		),
+		resume: connect.NewClient[v1.EpicsResumeRequest, v1.EpicsResumeResponse](
+			httpClient,
+			baseURL+EpicsResumeProcedure,
+			connect.WithSchema(epicsMethods.ByName("Resume")),
+			connect.WithClientOptions(opts...),
+		),
+		stop: connect.NewClient[v1.EpicsStopRequest, v1.EpicsStopResponse](
+			httpClient,
+			baseURL+EpicsStopProcedure,
+			connect.WithSchema(epicsMethods.ByName("Stop")),
+			connect.WithClientOptions(opts...),
+		),
+		retry: connect.NewClient[v1.EpicsRetryRequest, v1.EpicsRetryResponse](
+			httpClient,
+			baseURL+EpicsRetryProcedure,
+			connect.WithSchema(epicsMethods.ByName("Retry")),
+			connect.WithClientOptions(opts...),
+		),
+		answer: connect.NewClient[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse](
+			httpClient,
+			baseURL+EpicsAnswerProcedure,
+			connect.WithSchema(epicsMethods.ByName("Answer")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // epicsClient implements EpicsClient.
 type epicsClient struct {
-	list *connect.Client[v1.EpicsListRequest, v1.EpicsListResponse]
-	get  *connect.Client[v1.EpicsGetRequest, v1.EpicsGetResponse]
+	list    *connect.Client[v1.EpicsListRequest, v1.EpicsListResponse]
+	get     *connect.Client[v1.EpicsGetRequest, v1.EpicsGetResponse]
+	history *connect.Client[v1.EpicsHistoryRequest, v1.EpicsHistoryResponse]
+	pause   *connect.Client[v1.EpicsPauseRequest, v1.EpicsPauseResponse]
+	resume  *connect.Client[v1.EpicsResumeRequest, v1.EpicsResumeResponse]
+	stop    *connect.Client[v1.EpicsStopRequest, v1.EpicsStopResponse]
+	retry   *connect.Client[v1.EpicsRetryRequest, v1.EpicsRetryResponse]
+	answer  *connect.Client[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse]
 }
 
 // List calls orrery.v1.Epics.List.
@@ -101,12 +167,54 @@ func (c *epicsClient) Get(ctx context.Context, req *connect.Request[v1.EpicsGetR
 	return c.get.CallUnary(ctx, req)
 }
 
+// History calls orrery.v1.Epics.History.
+func (c *epicsClient) History(ctx context.Context, req *connect.Request[v1.EpicsHistoryRequest]) (*connect.Response[v1.EpicsHistoryResponse], error) {
+	return c.history.CallUnary(ctx, req)
+}
+
+// Pause calls orrery.v1.Epics.Pause.
+func (c *epicsClient) Pause(ctx context.Context, req *connect.Request[v1.EpicsPauseRequest]) (*connect.Response[v1.EpicsPauseResponse], error) {
+	return c.pause.CallUnary(ctx, req)
+}
+
+// Resume calls orrery.v1.Epics.Resume.
+func (c *epicsClient) Resume(ctx context.Context, req *connect.Request[v1.EpicsResumeRequest]) (*connect.Response[v1.EpicsResumeResponse], error) {
+	return c.resume.CallUnary(ctx, req)
+}
+
+// Stop calls orrery.v1.Epics.Stop.
+func (c *epicsClient) Stop(ctx context.Context, req *connect.Request[v1.EpicsStopRequest]) (*connect.Response[v1.EpicsStopResponse], error) {
+	return c.stop.CallUnary(ctx, req)
+}
+
+// Retry calls orrery.v1.Epics.Retry.
+func (c *epicsClient) Retry(ctx context.Context, req *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error) {
+	return c.retry.CallUnary(ctx, req)
+}
+
+// Answer calls orrery.v1.Epics.Answer.
+func (c *epicsClient) Answer(ctx context.Context, req *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error) {
+	return c.answer.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.v1.Epics service.
 type EpicsHandler interface {
 	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
 	List(context.Context, *connect.Request[v1.EpicsListRequest]) (*connect.Response[v1.EpicsListResponse], error)
 	// Get returns one epic by the id List gave it.
 	Get(context.Context, *connect.Request[v1.EpicsGetRequest]) (*connect.Response[v1.EpicsGetResponse], error)
+	// History returns one page of an epic's turns, triggers, steps, evidence runs, decisions and tells, oldest first.
+	History(context.Context, *connect.Request[v1.EpicsHistoryRequest]) (*connect.Response[v1.EpicsHistoryResponse], error)
+	// Pause pauses the named orreryd epic, so its planner starts no turn.
+	Pause(context.Context, *connect.Request[v1.EpicsPauseRequest]) (*connect.Response[v1.EpicsPauseResponse], error)
+	// Resume clears the named orreryd epic's pause and resumes its limited task steps.
+	Resume(context.Context, *connect.Request[v1.EpicsResumeRequest]) (*connect.Response[v1.EpicsResumeResponse], error)
+	// Stop pauses the named orreryd epic and stops the step of its running turn.
+	Stop(context.Context, *connect.Request[v1.EpicsStopRequest]) (*connect.Response[v1.EpicsStopResponse], error)
+	// Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
+	Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error)
+	// Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
+	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -128,12 +236,60 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("Get")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsHistoryHandler := connect.NewUnaryHandler(
+		EpicsHistoryProcedure,
+		svc.History,
+		connect.WithSchema(epicsMethods.ByName("History")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsPauseHandler := connect.NewUnaryHandler(
+		EpicsPauseProcedure,
+		svc.Pause,
+		connect.WithSchema(epicsMethods.ByName("Pause")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsResumeHandler := connect.NewUnaryHandler(
+		EpicsResumeProcedure,
+		svc.Resume,
+		connect.WithSchema(epicsMethods.ByName("Resume")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsStopHandler := connect.NewUnaryHandler(
+		EpicsStopProcedure,
+		svc.Stop,
+		connect.WithSchema(epicsMethods.ByName("Stop")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsRetryHandler := connect.NewUnaryHandler(
+		EpicsRetryProcedure,
+		svc.Retry,
+		connect.WithSchema(epicsMethods.ByName("Retry")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsAnswerHandler := connect.NewUnaryHandler(
+		EpicsAnswerProcedure,
+		svc.Answer,
+		connect.WithSchema(epicsMethods.ByName("Answer")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsListProcedure:
 			epicsListHandler.ServeHTTP(w, r)
 		case EpicsGetProcedure:
 			epicsGetHandler.ServeHTTP(w, r)
+		case EpicsHistoryProcedure:
+			epicsHistoryHandler.ServeHTTP(w, r)
+		case EpicsPauseProcedure:
+			epicsPauseHandler.ServeHTTP(w, r)
+		case EpicsResumeProcedure:
+			epicsResumeHandler.ServeHTTP(w, r)
+		case EpicsStopProcedure:
+			epicsStopHandler.ServeHTTP(w, r)
+		case EpicsRetryProcedure:
+			epicsRetryHandler.ServeHTTP(w, r)
+		case EpicsAnswerProcedure:
+			epicsAnswerHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -149,6 +305,30 @@ func (UnimplementedEpicsHandler) List(context.Context, *connect.Request[v1.Epics
 
 func (UnimplementedEpicsHandler) Get(context.Context, *connect.Request[v1.EpicsGetRequest]) (*connect.Response[v1.EpicsGetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Get is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) History(context.Context, *connect.Request[v1.EpicsHistoryRequest]) (*connect.Response[v1.EpicsHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.History is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Pause(context.Context, *connect.Request[v1.EpicsPauseRequest]) (*connect.Response[v1.EpicsPauseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Pause is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Resume(context.Context, *connect.Request[v1.EpicsResumeRequest]) (*connect.Response[v1.EpicsResumeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Resume is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Stop(context.Context, *connect.Request[v1.EpicsStopRequest]) (*connect.Response[v1.EpicsStopResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Stop is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Retry is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Answer is not implemented"))
 }
 
 // StepsClient is a client for the orrery.v1.Steps service.

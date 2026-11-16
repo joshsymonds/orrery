@@ -266,7 +266,8 @@ data class StepRow(
 
 /**
  * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
- * included. [source] is "orreryd" for an epic orreryd's database holds, "record" for an epic read from records only.
+ * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
+ * orreryd's database holds, "record" for an epic read from records only.
  */
 data class EpicRow(
     val id: String,
@@ -275,6 +276,7 @@ data class EpicRow(
     val outcome: String,
     val changed: Long,
     val live: Boolean,
+    val waiting: Boolean = false,
     val runningSteps: List<StepRow>,
     val endedSteps: Int,
     val problem: String,
@@ -840,6 +842,7 @@ class OrreryClient(
             outcome = outcome,
             changed = changed,
             live = live,
+            waiting = waiting,
             runningSteps = runningStepsList.map { it.toStepRow() },
             endedSteps = endedSteps,
             problem = problem,
