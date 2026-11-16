@@ -320,7 +320,8 @@ data class StepRow(
 /**
  * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
  * included. [waiting] is true for a live epic accepted and waiting to start. [source] is "orreryd" for an epic
- * orreryd's database holds, "record" for an epic read from records only.
+ * orreryd's database holds, "record" for an epic read from records only. [phaseAt] is when the epic's phase was last set,
+ * in unix seconds; 0 when unknown and for a record epic.
  */
 data class EpicRow(
     val id: String,
@@ -334,6 +335,7 @@ data class EpicRow(
     val endedSteps: Int,
     val problem: String,
     val source: String = "",
+    val phaseAt: Long = 0L,
 )
 
 /**
@@ -589,7 +591,9 @@ data class EpicContractRow(
  * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
  * when it is not. [sessions] are the sessions that work on the epic, each with its newest epic call, in the order the
  * server lists them. [repository] is the absolute path of the git repository the epic belongs to, empty when none is
- * named. [handover] is the epic's handover rows, empty for a record epic.
+ * named. [handover] is the epic's handover rows, empty for a record epic. [releaseProof] is the contract's release steps
+ * with the state their release runs gave them, in contract order, empty for a record epic. [report] is the epic's
+ * report, null until the epic ends and for a record epic.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -607,6 +611,8 @@ data class EpicDetail(
     val handover: EpicHandoverRow = EpicHandoverRow(),
     val sessions: List<EpicSessionRow> = emptyList(),
     val repository: String = "",
+    val releaseProof: List<EpicReleaseProofRow> = emptyList(),
+    val report: EpicReportRow? = null,
 )
 
 /**
@@ -884,6 +890,8 @@ class OrreryClient(
             handover = response.toEpicHandoverRow(),
             sessions = response.sessionsList.map { it.toEpicSessionRow() },
             repository = response.repository,
+            releaseProof = response.releaseStepsList.map { it.toEpicReleaseProofRow() },
+            report = if (response.hasReport()) response.report.toEpicReportRow() else null,
         )
     }
 
@@ -1128,6 +1136,7 @@ class OrreryClient(
             endedSteps = endedSteps,
             problem = problem,
             source = source,
+            phaseAt = phaseAt,
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =

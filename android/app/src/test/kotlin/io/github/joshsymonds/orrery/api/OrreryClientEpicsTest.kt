@@ -11,7 +11,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
@@ -775,6 +777,130 @@ class OrreryClientEpicsTest {
                     ),
                 ),
                 detail?.sessions,
+            )
+        }
+    }
+
+    @Test
+    fun epicMapsThePhaseTimeEveryReleaseProofFieldInContractOrderAndEveryReportField() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setPhaseAt(4102444700L))
+                    .addReleaseSteps(
+                        EpicReleaseProof.newBuilder()
+                            .setPosition(1L)
+                            .setStep("Example release step one.")
+                            .setTarget("example target one")
+                            .setUndo("Example undo one.")
+                            .setState("passed")
+                            .setEvidence("example evidence one")
+                            .setReason("example reason one")
+                            .setAttempt(2L)
+                            .setAt(4102444800L),
+                    )
+                    .addReleaseSteps(
+                        EpicReleaseProof.newBuilder()
+                            .setPosition(2L)
+                            .setStep("Example release step two.")
+                            .setTarget("example target two")
+                            .setUndo("Example undo two.")
+                            .setState("failed")
+                            .setEvidence("example evidence two")
+                            .setReason("example reason two")
+                            .setAttempt(1L)
+                            .setAt(4102444900L),
+                    )
+                    .setReport(
+                        EpicReport.newBuilder()
+                            .setOutcome("shipped")
+                            .addShipped("example-requirement-1")
+                            .addShipped("example-requirement-2")
+                            .addNotShipped("example-requirement-3")
+                            .setWhy("Example why."),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(4102444700L, detail?.epic?.phaseAt)
+            assertEquals(
+                listOf(
+                    EpicReleaseProofRow(
+                        position = 1L,
+                        step = "Example release step one.",
+                        target = "example target one",
+                        undo = "Example undo one.",
+                        state = "passed",
+                        evidence = "example evidence one",
+                        reason = "example reason one",
+                        attempt = 2L,
+                        at = 4102444800L,
+                    ),
+                    EpicReleaseProofRow(
+                        position = 2L,
+                        step = "Example release step two.",
+                        target = "example target two",
+                        undo = "Example undo two.",
+                        state = "failed",
+                        evidence = "example evidence two",
+                        reason = "example reason two",
+                        attempt = 1L,
+                        at = 4102444900L,
+                    ),
+                ),
+                detail?.releaseProof,
+            )
+            assertEquals(
+                EpicReportRow(
+                    outcome = "shipped",
+                    shipped = listOf("example-requirement-1", "example-requirement-2"),
+                    notShipped = listOf("example-requirement-3"),
+                    why = "Example why.",
+                ),
+                detail?.report,
+            )
+        }
+    }
+
+    @Test
+    fun aGetAnswerWithoutAReportMapsANullReportAndNoReleaseProof() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertNull(detail?.report)
+            assertEquals(emptyList<EpicReleaseProofRow>(), detail?.releaseProof)
+        }
+    }
+
+    @Test
+    fun epicsMapsThePhaseTimeOfEachEpic() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_LIST,
+                EpicsListResponse.newBuilder()
+                    .addEpics(epicProto.toBuilder().setPhaseAt(4102444700L))
+                    .addEpics(
+                        epicProto.toBuilder()
+                            .setId("example-repo/example-other")
+                            .setSlug("example-other")
+                            .setPhaseAt(4102444650L),
+                    )
+                    .build(),
+            )
+
+            assertEquals(
+                listOf(4102444700L, 4102444650L),
+                OrreryClient(server.baseUrl).epics().map { it.phaseAt },
             )
         }
     }
