@@ -19,9 +19,16 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition as EpicAdditionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAlternative as EpicAlternativeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask as EpicBuildTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract as EpicContractProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure as EpicFailureProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise as EpicPremiseProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion as EpicQuestionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep as EpicReleaseStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
@@ -249,7 +256,12 @@ data class PickRow(
 /** One gate check of a step. [stdout] and [stderr] are the redacted tails of a failed gate check, empty otherwise. */
 data class StepCheckRow(val round: Int, val name: String, val ok: Boolean, val stdout: String, val stderr: String)
 
-/** One labelled step as the epics view shows it. [end] is "" while the step runs. */
+/**
+ * One labelled step as the epics view shows it. [end] is "" while the step runs. [stage] is the stage the step is in,
+ * empty when it has none, and [stageStarted] is when that stage started, 0 when unknown. [limited] is whether a usage
+ * limit of [limitKind] holds the step. [readOnly] is whether the step is read-only, [role] is the role it plays, and
+ * [summary] is its redacted summary.
+ */
 data class StepRow(
     val id: String,
     val task: String,
@@ -262,6 +274,13 @@ data class StepRow(
     val doing: String,
     val checks: List<StepCheckRow>,
     val reason: String,
+    val stage: String = "",
+    val stageStarted: Long = 0L,
+    val limited: Boolean = false,
+    val limitKind: String = "",
+    val readOnly: Boolean = false,
+    val role: String = "",
+    val summary: String = "",
 )
 
 /**
@@ -326,7 +345,14 @@ data class EvidenceArtifactRow(val path: String, val state: String, val size: Lo
 /** The bytes of one artifact or log an evidence run kept, with their [mediaType]. */
 data class EvidenceArtifactFile(val data: ByteArray, val mediaType: String)
 
-data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
+/** One task from an effort's state.json. [requirements] are the requirement ids the task names, in order. */
+data class EpicTaskRow(
+    val effort: Int,
+    val slug: String,
+    val subject: String,
+    val status: String,
+    val requirements: List<String> = emptyList(),
+)
 
 /**
  * One task's slice of the epic chart as serve sends it: rings outermost first. [at] is the ring a running or held task
@@ -386,7 +412,8 @@ data class EpicNodeCheckRow(
 
 /**
  * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
- * unit. [red] and [green] are the evidence runs the build names, null until it names one.
+ * unit. [red] and [green] are the evidence runs the build names, null until it names one. [requirements] are the
+ * requirement ids the task covers, in order.
  */
 data class EpicBuildTaskRow(
     val id: String,
@@ -395,13 +422,57 @@ data class EpicBuildTaskRow(
     val stage: String,
     val red: EvidenceRunRow?,
     val green: EvidenceRunRow?,
+    val requirements: List<String> = emptyList(),
+)
+
+/** One open question an orreryd epic's planner asked, in the order they were asked. */
+data class EpicQuestionRow(val id: String, val text: String, val turn: Long, val asked: Long)
+
+/** One failure an orreryd epic's contract guards against, with its [rating] and what the epic does about it. */
+data class EpicFailureRow(val id: String, val text: String, val rating: String, val response: String)
+
+/** One thing an orreryd epic's contract adds that the owner did not ask for. */
+data class EpicAdditionRow(val location: String, val what: String, val why: String, val cost: String)
+
+/** One assumption an orreryd epic's contract makes, with what changes if it is wrong. */
+data class EpicPremiseRow(val id: String, val text: String, val ifWrong: String)
+
+/** One approach an orreryd epic's contract considered and did not choose. */
+data class EpicAlternativeRow(val alternative: String, val whyNot: String, val reconsider: String)
+
+/** One step of an orreryd epic's contract that leaves the machine on release, with how it is [undo]ne. */
+data class EpicReleaseStepRow(val step: String, val target: String, val undo: String)
+
+/**
+ * An orreryd epic's accepted contract, its sections in the contract's order, without its requirements. [accepted] is
+ * when orreryd stored the epic, in unix seconds.
+ */
+data class EpicContractRow(
+    val title: String,
+    val approved: String,
+    val intent: String,
+    val failures: List<EpicFailureRow>,
+    val care: String,
+    val additions: List<EpicAdditionRow>,
+    val premises: List<EpicPremiseRow>,
+    val exclusions: List<String>,
+    val approach: String,
+    val alternatives: List<EpicAlternativeRow>,
+    val releaseSteps: List<EpicReleaseStepRow>,
+    val releaseThen: String,
+    val checks: String,
+    val base: String,
+    val accepted: Long,
 )
 
 /**
  * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [nodes] are its
  * workflow node runs in the order the server lists them. [buildTasks] are an orreryd epic's planned tasks in the order
- * they were planned, empty for a record epic.
+ * they were planned, empty for a record epic. [summary] is the epic's summary paragraph, empty until it is written.
+ * [contract] is the accepted contract, null for a record epic. [questions] are the open questions in the order they
+ * were asked. [paused] is whether the epic's planner starts no turn, and [parked] is why the epic is parked, empty
+ * when it is not.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -411,6 +482,11 @@ data class EpicDetail(
     val requirements: List<EpicRequirementRow> = emptyList(),
     val nodes: List<EpicNodeRow> = emptyList(),
     val buildTasks: List<EpicBuildTaskRow> = emptyList(),
+    val summary: String = "",
+    val contract: EpicContractRow? = null,
+    val questions: List<EpicQuestionRow> = emptyList(),
+    val paused: Boolean = false,
+    val parked: String = "",
 )
 
 /** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
@@ -663,6 +739,11 @@ class OrreryClient(
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             nodes = response.nodesList.map { it.toEpicNodeRow() },
             buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
+            summary = response.summary,
+            contract = if (response.hasContract()) response.contract.toEpicContractRow() else null,
+            questions = response.questionsList.map { it.toEpicQuestionRow() },
+            paused = response.paused,
+            parked = response.parked,
         )
     }
 
@@ -924,6 +1005,13 @@ class OrreryClient(
             doing = doing,
             checks = checksList.map { it.toStepCheckRow() },
             reason = reason,
+            stage = stage,
+            stageStarted = stageStarted,
+            limited = limited,
+            limitKind = limitKind,
+            readOnly = readOnly,
+            role = role,
+            summary = summary,
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
@@ -937,10 +1025,54 @@ class OrreryClient(
             stage = stage,
             red = if (hasRed()) red.toEvidenceRunRow() else null,
             green = if (hasGreen()) green.toEvidenceRunRow() else null,
+            requirements = requirementsList.toList(),
         )
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
-        EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)
+        EpicTaskRow(
+            effort = effort,
+            slug = slug,
+            subject = subject,
+            status = status,
+            requirements = requirementsList.toList(),
+        )
+
+    private fun EpicQuestionProto.toEpicQuestionRow(): EpicQuestionRow =
+        EpicQuestionRow(id = id, text = text, turn = turn, asked = asked)
+
+    private fun EpicContractProto.toEpicContractRow(): EpicContractRow =
+        EpicContractRow(
+            title = title,
+            approved = approved,
+            intent = intent,
+            failures = failuresList.map { it.toEpicFailureRow() },
+            care = care,
+            additions = additionsList.map { it.toEpicAdditionRow() },
+            premises = premisesList.map { it.toEpicPremiseRow() },
+            exclusions = exclusionsList.toList(),
+            approach = approach,
+            alternatives = alternativesList.map { it.toEpicAlternativeRow() },
+            releaseSteps = releaseStepsList.map { it.toEpicReleaseStepRow() },
+            releaseThen = releaseThen,
+            checks = checks,
+            base = base,
+            accepted = accepted,
+        )
+
+    private fun EpicFailureProto.toEpicFailureRow(): EpicFailureRow =
+        EpicFailureRow(id = id, text = text, rating = rating, response = response)
+
+    private fun EpicAdditionProto.toEpicAdditionRow(): EpicAdditionRow =
+        EpicAdditionRow(location = location, what = what, why = why, cost = cost)
+
+    private fun EpicPremiseProto.toEpicPremiseRow(): EpicPremiseRow =
+        EpicPremiseRow(id = id, text = text, ifWrong = ifWrong)
+
+    private fun EpicAlternativeProto.toEpicAlternativeRow(): EpicAlternativeRow =
+        EpicAlternativeRow(alternative = alternative, whyNot = whyNot, reconsider = reconsider)
+
+    private fun EpicReleaseStepProto.toEpicReleaseStepRow(): EpicReleaseStepRow =
+        EpicReleaseStepRow(step = step, target = target, undo = undo)
 
     private fun EpicSliceProto.toEpicSliceRow(): EpicSliceRow =
         EpicSliceRow(

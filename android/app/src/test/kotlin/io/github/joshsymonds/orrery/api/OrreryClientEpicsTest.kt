@@ -2,7 +2,14 @@ package io.github.joshsymonds.orrery.api
 
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAddition
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicAlternative
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicFailure
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicPremise
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
@@ -78,6 +85,120 @@ class OrreryClientEpicsTest {
         runningSteps = listOf(runningStepRow),
         endedSteps = 3,
         problem = "efforts/1/state.json: does not parse",
+    )
+
+    private val exampleContractProto = EpicContract.newBuilder()
+        .setTitle("Example epic title")
+        .setApproved("Example approval sentence.")
+        .setIntent("Example intent.")
+        .addFailures(
+            EpicFailure.newBuilder()
+                .setId("F1")
+                .setText("Example failure one.")
+                .setRating("serious")
+                .setResponse("Example response one."),
+        )
+        .addFailures(
+            EpicFailure.newBuilder()
+                .setId("F2")
+                .setText("Example failure two.")
+                .setRating("limited")
+                .setResponse("Example response two."),
+        )
+        .setCare("serious")
+        .addAdditions(
+            EpicAddition.newBuilder()
+                .setLocation("example location")
+                .setWhat("Example addition.")
+                .setWhy("Example why.")
+                .setCost("Example cost."),
+        )
+        .addPremises(
+            EpicPremise.newBuilder()
+                .setId("P1")
+                .setText("Example premise.")
+                .setIfWrong("Example consequence."),
+        )
+        .addExclusions("Example exclusion one.")
+        .addExclusions("Example exclusion two.")
+        .setApproach("Example approach.")
+        .addAlternatives(
+            EpicAlternative.newBuilder()
+                .setAlternative("Example alternative.")
+                .setWhyNot("Example reason not.")
+                .setReconsider("Example reconsider."),
+        )
+        .addReleaseSteps(
+            EpicReleaseStep.newBuilder()
+                .setStep("Example release step one.")
+                .setTarget("example target one")
+                .setUndo("Example undo one."),
+        )
+        .addReleaseSteps(
+            EpicReleaseStep.newBuilder()
+                .setStep("Example release step two.")
+                .setTarget("example target two")
+                .setUndo("Example undo two."),
+        )
+        .setReleaseThen("Example then line.")
+        .setChecks("example checks")
+        .setBase(BUILD_REVISION)
+        .setAccepted(4102444600L)
+        .build()
+
+    private val exampleContractRow = EpicContractRow(
+        title = "Example epic title",
+        approved = "Example approval sentence.",
+        intent = "Example intent.",
+        failures = listOf(
+            EpicFailureRow(
+                id = "F1",
+                text = "Example failure one.",
+                rating = "serious",
+                response = "Example response one.",
+            ),
+            EpicFailureRow(
+                id = "F2",
+                text = "Example failure two.",
+                rating = "limited",
+                response = "Example response two.",
+            ),
+        ),
+        care = "serious",
+        additions = listOf(
+            EpicAdditionRow(
+                location = "example location",
+                what = "Example addition.",
+                why = "Example why.",
+                cost = "Example cost.",
+            ),
+        ),
+        premises = listOf(EpicPremiseRow(id = "P1", text = "Example premise.", ifWrong = "Example consequence.")),
+        exclusions = listOf("Example exclusion one.", "Example exclusion two."),
+        approach = "Example approach.",
+        alternatives = listOf(
+            EpicAlternativeRow(
+                alternative = "Example alternative.",
+                whyNot = "Example reason not.",
+                reconsider = "Example reconsider.",
+            ),
+        ),
+        releaseSteps = listOf(
+            EpicReleaseStepRow(
+                step = "Example release step one.",
+                target = "example target one",
+                undo = "Example undo one.",
+            ),
+            EpicReleaseStepRow(
+                step = "Example release step two.",
+                target = "example target two",
+                undo = "Example undo two.",
+            ),
+        ),
+        releaseThen = "Example then line.",
+        checks = "example checks",
+        base = BUILD_REVISION,
+        accepted = 4102444600L,
     )
 
     @Test
@@ -421,6 +542,7 @@ class OrreryClientEpicsTest {
 
             assertEquals(emptyList<EpicRequirementRow>(), detail?.requirements)
             assertEquals("record", detail?.epic?.source)
+            assertNull(detail?.contract)
         }
     }
 
@@ -452,6 +574,136 @@ class OrreryClientEpicsTest {
                 client.epics().map { it.source },
             )
             assertEquals("orreryd", client.epic("example-repo/example-epic")?.epic?.source)
+        }
+    }
+
+    @Test
+    fun epicMapsSummaryContractQuestionsPauseAndParkWithEveryContractSectionInOrder() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .setSummary("Example summary paragraph.")
+                    .addQuestions(
+                        EpicQuestion.newBuilder()
+                            .setId("Q1")
+                            .setText("Example question one?")
+                            .setTurn(2L)
+                            .setAsked(4102444700L),
+                    )
+                    .addQuestions(
+                        EpicQuestion.newBuilder()
+                            .setId("Q2")
+                            .setText("Example question two?")
+                            .setTurn(3L)
+                            .setAsked(4102444800L),
+                    )
+                    .setPaused(true)
+                    .setParked("example park reason")
+                    .setContract(exampleContractProto)
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals("Example summary paragraph.", detail?.summary)
+            assertEquals(
+                listOf(
+                    EpicQuestionRow(id = "Q1", text = "Example question one?", turn = 2L, asked = 4102444700L),
+                    EpicQuestionRow(id = "Q2", text = "Example question two?", turn = 3L, asked = 4102444800L),
+                ),
+                detail?.questions,
+            )
+            assertEquals(true, detail?.paused)
+            assertEquals("example park reason", detail?.parked)
+            assertEquals(exampleContractRow, detail?.contract)
+        }
+    }
+
+    @Test
+    fun epicMapsEveryStepStageLimitReadOnlyRoleAndSummary() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto)
+                    .addSteps(
+                        EpicStep.newBuilder()
+                            .setId("example-step-3")
+                            .setEnd("")
+                            .setStatus("working")
+                            .setStarted(4102444700L)
+                            .setStage("gate")
+                            .setStageStarted(4102444750L)
+                            .setLimited(true)
+                            .setLimitKind("weekly")
+                            .setReadOnly(true)
+                            .setRole("reviewer")
+                            .setSummary("Example step summary."),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(
+                StepRow(
+                    id = "example-step-3",
+                    task = "",
+                    agent = "",
+                    end = "",
+                    status = "working",
+                    held = false,
+                    started = 4102444700L,
+                    ended = 0L,
+                    doing = "",
+                    checks = emptyList(),
+                    reason = "",
+                    stage = "gate",
+                    stageStarted = 4102444750L,
+                    limited = true,
+                    limitKind = "weekly",
+                    readOnly = true,
+                    role = "reviewer",
+                    summary = "Example step summary.",
+                ),
+                detail?.steps?.single(),
+            )
+        }
+    }
+
+    @Test
+    fun epicMapsEveryTaskAndBuildTaskRequirementInOrder() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .addTasks(
+                        EpicTask.newBuilder()
+                            .setEffort(1)
+                            .setSlug("example-task")
+                            .setSubject("Example subject")
+                            .setStatus("DONE")
+                            .addRequirements("R1")
+                            .addRequirements("R3"),
+                    )
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("T1")
+                            .setTitle("Example build task one.")
+                            .setStatus("open")
+                            .addRequirements("R2")
+                            .addRequirements("R4"),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(listOf("R1", "R3"), detail?.tasks?.single()?.requirements)
+            assertEquals(listOf("R2", "R4"), detail?.buildTasks?.single()?.requirements)
         }
     }
 
