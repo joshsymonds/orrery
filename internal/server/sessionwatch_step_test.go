@@ -135,7 +135,7 @@ func TestSessionWatchStreamsLabeledStepFirstDelta(t *testing.T) {
 		State: &orreryv1.ConversationState{
 			Origin: "fix the bug",
 			Session: &orreryv1.HeadlessSession{
-				Id: stepSessionName, Dir: "/a", Label: "a · " + stepSessionName, State: "idle", Changed: eventAt,
+				Id: stepSessionName, Dir: "/a", Label: "a · fix the bug", State: "idle", Changed: eventAt,
 			},
 		},
 	})
@@ -230,7 +230,7 @@ func TestSessionWatchEngineSessionNeverAsksStepStatus(t *testing.T) {
 		Items:      []*orreryv1.ConversationItem{stepPromptItem(), reply(1)},
 		State: &orreryv1.ConversationState{
 			Origin:  "fix the bug",
-			Session: engineSession("idle"),
+			Session: promptedEngineSession("idle"),
 		},
 	})
 	if got := steps.calls(); got != 0 {

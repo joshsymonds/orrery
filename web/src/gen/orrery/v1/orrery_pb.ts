@@ -218,7 +218,8 @@ export type HeadlessSession = Message<"orrery.v1.HeadlessSession"> & {
   dir: string;
 
   /**
-   * The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+   * The row's label: the session's title once one is stored. Until then, the base name of dir, then " · " and the
+   * first words of the first prompt, or the base name of dir alone when there is no prompt. The id is never the label.
    *
    * @generated from field: string label = 3;
    */

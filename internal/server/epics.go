@@ -248,7 +248,8 @@ func (e epicsServer) listSessions(ctx context.Context, epic string) []*orreryv1.
 }
 
 // epicSessionMessage converts a row of epic calls to its EpicSession. A pane row, whose kind is empty, carries its pane
-// and its label. Any other row is headless: it names no pane and its label is headlessLabel of its id and dir.
+// and its label. Any other row is headless: it names no pane and its label is sessionLabel of its dir, title and first
+// prompt.
 func epicSessionMessage(row store.EpicSessionRow) *orreryv1.EpicSession {
 	session := &orreryv1.EpicSession{Id: row.Session, Call: row.Call, At: row.At}
 	if row.Kind == "" {
@@ -256,7 +257,7 @@ func epicSessionMessage(row store.EpicSessionRow) *orreryv1.EpicSession {
 		session.Label = row.Label
 		return session
 	}
-	session.Label = headlessLabel(row.Session, row.Dir)
+	session.Label = sessionLabel(row.Dir, row.Title, row.FirstPrompt)
 	return session
 }
 

@@ -190,11 +190,20 @@ func reply(n int) *orreryv1.ConversationItem {
 	return &orreryv1.ConversationItem{Kind: "reply", Time: eventAt, Text: fmt.Sprintf("reply %d", n)}
 }
 
-// engineSession is the headless session of eventEngine as addEngine writes it, in the given state.
+// engineSession is the headless session of eventEngine as addEngine writes it, in the given state, with no prompt. Its
+// label is its dir alone.
 func engineSession(state string) *orreryv1.HeadlessSession {
 	return &orreryv1.HeadlessSession{
-		Id: eventEngine, Dir: "/a", Label: "a · " + eventEngine, State: state, Changed: eventAt,
+		Id: eventEngine, Dir: "/a", Label: "a", State: state, Changed: eventAt,
 	}
+}
+
+// promptedEngineSession is engineSession of a session whose first prompt is "fix the bug", as seedSessionReplies writes
+// it. Its label is its dir and the first words of that prompt.
+func promptedEngineSession(state string) *orreryv1.HeadlessSession {
+	session := engineSession(state)
+	session.Label = "a · fix the bug"
+	return session
 }
 
 // seedSessionReplies writes eventEngine with a prompt "fix the bug" and then replies 1 through count. The store then
@@ -228,7 +237,7 @@ func TestSessionWatchFirstDeltaResetsWithNewestItems(t *testing.T) {
 		Items:      []*orreryv1.ConversationItem{reply(2), reply(3)},
 		State: &orreryv1.ConversationState{
 			Origin:  "fix the bug",
-			Session: engineSession("idle"),
+			Session: promptedEngineSession("idle"),
 		},
 	})
 }
@@ -250,7 +259,7 @@ func TestSessionWatchResumeSendsItemsAfterSeq(t *testing.T) {
 		Items:      []*orreryv1.ConversationItem{reply(2), reply(3)},
 		State: &orreryv1.ConversationState{
 			Origin:  "fix the bug",
-			Session: engineSession("idle"),
+			Session: promptedEngineSession("idle"),
 		},
 	})
 }

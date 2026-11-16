@@ -3,7 +3,14 @@ import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
-import { PaneSchema, SessionSchema, type Pane, type Session } from "./gen/orrery/v1/orrery_pb";
+import {
+  HeadlessSessionSchema,
+  PaneSchema,
+  SessionSchema,
+  type HeadlessSession,
+  type Pane,
+  type Session,
+} from "./gen/orrery/v1/orrery_pb";
 import { byAttention, byProject, rowsFrom, type Row, type Section } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
@@ -12,6 +19,10 @@ function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
 
 function makeSession(init: MessageInitShape<typeof SessionSchema>): Session {
   return create(SessionSchema, init);
+}
+
+function makeHeadless(init: MessageInitShape<typeof HeadlessSessionSchema>): HeadlessSession {
+  return create(HeadlessSessionSchema, init);
 }
 
 function keysOf(sections: Section[]): [string, string[]][] {
@@ -119,6 +130,39 @@ test("a session row reads a label when one is set and treats non-numeric times a
   assert.equal(row?.changed, 7);
   assert.equal(row?.seen, 0);
   assert.equal(row?.unseen, true);
+});
+
+test("a headless row is labeled by the server's label, and an empty label stays empty rather than naming the id", () => {
+  const rows = rowsFrom(
+    [],
+    [],
+    [
+      makeHeadless({
+        id: "0123456789abcdef",
+        dir: "/work/app",
+        label: "",
+        state: "idle",
+        changed: 42n,
+        seen: 42n,
+      }),
+      makeHeadless({
+        id: "fedcba9876543210",
+        dir: "/work/app",
+        label: "Billing rounding",
+        state: "working",
+        changed: 7n,
+        seen: 0n,
+      }),
+    ],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.label, row.project]),
+    [
+      ["0123456789abcdef", "", "/work/app"],
+      ["fedcba9876543210", "Billing rounding", "/work/app"],
+    ],
+  );
 });
 
 test("panes in shell sessions are dropped", () => {

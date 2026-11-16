@@ -358,7 +358,8 @@ type HeadlessSession struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The directory the session runs in.
 	Dir string `protobuf:"bytes,2,opt,name=dir,proto3" json:"dir,omitempty"`
-	// The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+	// The row's label: the session's title once one is stored. Until then, the base name of dir, then " · " and the
+	// first words of the first prompt, or the base name of dir alone when there is no prompt. The id is never the label.
 	Label string `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
 	// The session's state.
 	State string `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`

@@ -97,7 +97,7 @@ const (
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
 	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
-	// epic summaries and the epic reports run.
+	// epic summaries, the session titles and the epic reports run.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -791,6 +791,8 @@ type sessionHost struct {
 	dueDone       chan struct{}
 	stopSummaries context.CancelFunc
 	summariesDone chan struct{}
+	stopTitles    context.CancelFunc
+	titlesDone    chan struct{}
 	stopReports   context.CancelFunc
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
@@ -825,7 +827,8 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
 // router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
 // passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
-// limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure
+// limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
+// until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure
 // is logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
 // want of pools. The Notices service on it answers from notices, and refuses as
 // unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic records its
@@ -903,8 +906,7 @@ func startSessions(
 		}
 		host.steps = steps
 		st.SetEngineLive(host.manager.Live)
-		commands = host.manager
-		stepCommands = host.steps
+		commands, stepCommands = host.manager, host.steps
 		epics = st
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
@@ -914,6 +916,7 @@ func startSessions(
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startSummaries(ctx, st, haiku, logger)
+		host.startTitles(ctx, st, haiku, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
@@ -1363,6 +1366,31 @@ func (h *sessionHost) startSummaries(
 	}()
 }
 
+// startTitles writes the title of each headless session that has none, from its first prompt through haiku, checking st
+// every limitTick until stop. The first check runs at start.
+func (h *sessionHost) startTitles(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	titles := enginehost.NewSessionTitles(enginehost.SessionTitlesConfig{
+		Store:  st,
+		Haiku:  haiku,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var titlesCtx context.Context
+	titlesCtx, h.stopTitles = context.WithCancel(ctx)
+	h.titlesDone = make(chan struct{})
+	go func() {
+		defer close(h.titlesDone)
+		defer ticker.Stop()
+		titles.Run(titlesCtx)
+	}()
+}
+
 // startReports writes the report of each ended epic that has none, through haiku, checking st every limitTick until
 // stop. The first check runs at start.
 func (h *sessionHost) startReports(
@@ -1389,10 +1417,9 @@ func (h *sessionHost) startReports(
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries and the epic reports to return, closes the node checks and the evidence runner and waits for their drives,
-// ends every step
-// loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are waited
-// on in serve. Without a broker, manager and writer it does nothing.
+// summaries, the session titles and the epic reports to return, closes the node checks and the evidence runner and
+// waits for their drives, ends every step loop, stops every live session, and ends the writer after its last flush. The
+// notices the sessions started are waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -1420,6 +1447,10 @@ func (h *sessionHost) shutdown() {
 		h.phase("epic summaries", func() {
 			h.stopSummaries()
 			<-h.summariesDone
+		})
+		h.phase("session titles", func() {
+			h.stopTitles()
+			<-h.titlesDone
 		})
 		h.phase("epic reports", func() {
 			h.stopReports()

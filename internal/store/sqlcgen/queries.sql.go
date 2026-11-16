@@ -702,6 +702,22 @@ func (q *Queries) GetDueResume(ctx context.Context, id string) (DueResume, error
 	return i, err
 }
 
+const getEngineFirstPrompt = `-- name: GetEngineFirstPrompt :one
+SELECT CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions WHERE sessions.id = ?
+`
+
+func (q *Queries) GetEngineFirstPrompt(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEngineFirstPrompt, id)
+	var first_prompt string
+	err := row.Scan(&first_prompt)
+	return first_prompt, err
+}
+
 const getEnginePromptFailure = `-- name: GetEnginePromptFailure :one
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?
 `
@@ -736,7 +752,7 @@ func (q *Queries) GetEngineRateLimit(ctx context.Context, sessionID string) (Eng
 }
 
 const getEngineSession = `-- name: GetEngineSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
@@ -764,6 +780,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 		&i.Background,
 		&i.TurnOutput,
 		&i.PromptsFrom,
+		&i.Title,
 	)
 	return i, err
 }
@@ -1124,7 +1141,7 @@ func (q *Queries) GetRunningEpicTurn(ctx context.Context, epic string) (EpicTurn
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE id = ?
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -1152,6 +1169,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Background,
 		&i.TurnOutput,
 		&i.PromptsFrom,
+		&i.Title,
 	)
 	return i, err
 }
@@ -2758,7 +2776,7 @@ func (q *Queries) ListDueResumes(ctx context.Context) ([]DueResume, error) {
 }
 
 const listEngineSessions = `-- name: ListEngineSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
 
 func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
@@ -2792,6 +2810,7 @@ func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
 			&i.Background,
 			&i.TurnOutput,
 			&i.PromptsFrom,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -3678,6 +3697,11 @@ func (q *Queries) ListEpicReviewers(ctx context.Context, epic string) ([]EpicRev
 
 const listEpicSessions = `-- name: ListEpicSessions :many
 SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
+       sessions.title, CAST(COALESCE((
+           SELECT json_extract(events.payload, '$.text') FROM events
+           WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+           ORDER BY events.seq LIMIT 1
+       ), '') AS TEXT) AS first_prompt,
        epic_sessions.call, epic_sessions.at
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
@@ -3686,14 +3710,16 @@ ORDER BY epic_sessions.at DESC, epic_sessions.session
 `
 
 type ListEpicSessionsRow struct {
-	Session string
-	Kind    string
-	Server  string
-	Pane    string
-	Label   string
-	Dir     string
-	Call    string
-	At      int64
+	Session     string
+	Kind        string
+	Server      string
+	Pane        string
+	Label       string
+	Dir         string
+	Title       string
+	FirstPrompt string
+	Call        string
+	At          int64
 }
 
 func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpicSessionsRow, error) {
@@ -3712,6 +3738,8 @@ func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpic
 			&i.Pane,
 			&i.Label,
 			&i.Dir,
+			&i.Title,
+			&i.FirstPrompt,
 			&i.Call,
 			&i.At,
 		); err != nil {
@@ -4515,6 +4543,7 @@ func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
 const listHeadlessSessions = `-- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
+    sessions.title,
     CAST(COALESCE((
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
@@ -4531,7 +4560,12 @@ SELECT
              AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
             OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
         )
-    ), 0) AS INTEGER) AS newest_reply
+    ), 0) AS INTEGER) AS newest_reply,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.text') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+        ORDER BY events.seq LIMIT 1
+    ), '') AS TEXT) AS first_prompt
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
@@ -4546,8 +4580,10 @@ type ListHeadlessSessionsRow struct {
 	Seen        string
 	Question    string
 	Reason      string
+	Title       string
 	Reply       string
 	NewestReply int64
+	FirstPrompt string
 }
 
 func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]ListHeadlessSessionsRow, error) {
@@ -4567,8 +4603,10 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 			&i.Seen,
 			&i.Question,
 			&i.Reason,
+			&i.Title,
 			&i.Reply,
 			&i.NewestReply,
+			&i.FirstPrompt,
 		); err != nil {
 			return nil, err
 		}
@@ -5317,7 +5355,7 @@ func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) 
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE server = ? AND kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
 
 func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
@@ -5351,6 +5389,7 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.Background,
 			&i.TurnOutput,
 			&i.PromptsFrom,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -5366,7 +5405,7 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from, title FROM sessions WHERE kind = '' ORDER BY id
 `
 
 func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
@@ -5400,6 +5439,7 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Background,
 			&i.TurnOutput,
 			&i.PromptsFrom,
+			&i.Title,
 		); err != nil {
 			return nil, err
 		}
@@ -5579,6 +5619,47 @@ func (q *Queries) ListUnsummarizedEpics(ctx context.Context) ([]Epic, error) {
 			&i.ReportNotShipped,
 			&i.ReportWhy,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUntitledEngineSessions = `-- name: ListUntitledEngineSessions :many
+SELECT sessions.id, sessions.dir, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine' AND sessions.title = ''
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
+ORDER BY sessions.id
+`
+
+type ListUntitledEngineSessionsRow struct {
+	ID          string
+	Dir         string
+	FirstPrompt string
+}
+
+func (q *Queries) ListUntitledEngineSessions(ctx context.Context) ([]ListUntitledEngineSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUntitledEngineSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUntitledEngineSessionsRow
+	for rows.Next() {
+		var i ListUntitledEngineSessionsRow
+		if err := rows.Scan(&i.ID, &i.Dir, &i.FirstPrompt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -6497,6 +6578,20 @@ type SetEvidenceRunJudgeParams struct {
 
 func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJudgeParams) error {
 	_, err := q.db.ExecContext(ctx, setEvidenceRunJudge, arg.JudgeStep, arg.ID)
+	return err
+}
+
+const setSessionTitle = `-- name: SetSessionTitle :exec
+UPDATE sessions SET title = ? WHERE id = ? AND kind = 'engine' AND title = ''
+`
+
+type SetSessionTitleParams struct {
+	Title string
+	ID    string
+}
+
+func (q *Queries) SetSessionTitle(ctx context.Context, arg SetSessionTitleParams) error {
+	_, err := q.db.ExecContext(ctx, setSessionTitle, arg.Title, arg.ID)
 	return err
 }
 

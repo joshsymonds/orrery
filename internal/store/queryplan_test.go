@@ -31,7 +31,7 @@ func TestReaderQueryPlans(t *testing.T) {
 	readerQueries := map[string][]string{
 		"Events":             {"EventPageAfter", "OldestEventSeq", "NewestEventSeq", "ListUnfinishedEngineText"},
 		"Snapshot":           {"ListSessions", "NewestEventSeq"},
-		"EngineHistory":      {"GetEngineSession", "SessionEventsAfter", "ListEngineText"},
+		"EngineHistory":      {"GetEngineSession", "GetEngineFirstPrompt", "SessionEventsAfter", "ListEngineText"},
 		"EngineEventsBefore": {"GetEngineSession", "SessionEventsBefore"},
 		"HeadlessSessions":   {"ListHeadlessSessions"},
 		"LastTurnEnds":       {"LastTurnEnds"},

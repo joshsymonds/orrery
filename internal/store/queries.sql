@@ -67,6 +67,28 @@ INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, ''
 -- name: GetEngineSession :one
 SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
 
+-- name: GetEngineFirstPrompt :one
+SELECT CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions WHERE sessions.id = ?;
+
+-- name: SetSessionTitle :exec
+UPDATE sessions SET title = ? WHERE id = ? AND kind = 'engine' AND title = '';
+
+-- name: ListUntitledEngineSessions :many
+SELECT sessions.id, sessions.dir, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine' AND sessions.title = ''
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
+ORDER BY sessions.id;
+
 -- name: ListEngineSessions :many
 SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
@@ -84,6 +106,7 @@ ORDER BY MAX(known.at) DESC, known.dir;
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
+    sessions.title,
     CAST(COALESCE((
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
@@ -100,7 +123,12 @@ SELECT
              AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
             OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
         )
-    ), 0) AS INTEGER) AS newest_reply
+    ), 0) AS INTEGER) AS newest_reply,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.text') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+        ORDER BY events.seq LIMIT 1
+    ), '') AS TEXT) AS first_prompt
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
@@ -994,6 +1022,11 @@ ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at
 
 -- name: ListEpicSessions :many
 SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
+       sessions.title, CAST(COALESCE((
+           SELECT json_extract(events.payload, '$.text') FROM events
+           WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+           ORDER BY events.seq LIMIT 1
+       ), '') AS TEXT) AS first_prompt,
        epic_sessions.call, epic_sessions.at
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session

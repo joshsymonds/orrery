@@ -598,6 +598,7 @@ type Session struct {
 	Background    bool
 	TurnOutput    string
 	PromptsFrom   int64
+	Title         string
 }
 
 type Step struct {

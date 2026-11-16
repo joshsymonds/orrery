@@ -305,7 +305,7 @@ func (w *sessionWatch) state(history store.EngineHistory) (*orreryv1.Conversatio
 		Session: &orreryv1.HeadlessSession{
 			Id:       w.id,
 			Dir:      history.Dir,
-			Label:    headlessLabel(w.id, history.Dir),
+			Label:    sessionLabel(history.Dir, history.Title, history.FirstPrompt),
 			State:    history.State,
 			Changed:  changed,
 			Seen:     seen,

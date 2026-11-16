@@ -125,7 +125,7 @@ func TestListHeadlessAnswersRecentEngineRows(t *testing.T) {
 			{
 				Id:          headlessAlphaID,
 				Dir:         "/work/alpha",
-				Label:       "alpha · 01234567",
+				Label:       "alpha",
 				State:       "waiting",
 				Changed:     now.Add(-time.Hour).Unix(),
 				Seen:        now.Add(-30 * time.Minute).Unix(),
@@ -136,7 +136,7 @@ func TestListHeadlessAnswersRecentEngineRows(t *testing.T) {
 			{
 				Id:          headlessBetaID,
 				Dir:         "/work/beta",
-				Label:       "beta · fedcba98",
+				Label:       "beta",
 				State:       "working",
 				Changed:     now.Add(-4 * time.Hour).Unix(),
 				Seen:        0,
@@ -291,5 +291,78 @@ func TestListHeadlessReturnsInternalWithoutStoreDetail(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "database") {
 		t.Fatalf("ListHeadless echoed store detail: %v", err)
+	}
+}
+
+// labelPrompt is a first prompt whose words run over a line break and whose label cut falls inside a word.
+const labelPrompt = "Refactor the billing module so\n every invoice lines up with the ledger, then add tests for the rounding edge cases"
+
+// listedLabels lists the headless sessions of the store at path and returns each session's label by id.
+func listedLabels(t *testing.T, path string) map[string]string {
+	t.Helper()
+	got, err := listHeadlessClient(t, path).ListHeadless(
+		t.Context(),
+		connect.NewRequest(&orreryv1.ListHeadlessRequest{}),
+	)
+	if err != nil {
+		t.Fatalf("ListHeadless: %v", err)
+	}
+	labels := make(map[string]string, len(got.Msg.GetSessions()))
+	for _, session := range got.Msg.GetSessions() {
+		labels[session.GetId()] = session.GetLabel()
+	}
+	return labels
+}
+
+// TestSessionTitleLabelIsTheStoredTitle covers R3: once a title is stored, the listed label is that title, and a second
+// write leaves the first title in place.
+func TestSessionTitleLabelIsTheStoredTitle(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openHeadlessStore(t, path)
+	now := time.Now()
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessAlphaID, Dir: "/work/gamma", State: "idle"})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: headlessAlphaID, Text: labelPrompt})
+	if err := s.SetSessionTitle(t.Context(), headlessAlphaID, "Billing rounding"); err != nil {
+		t.Fatalf("SetSessionTitle: %v", err)
+	}
+	if err := s.SetSessionTitle(t.Context(), headlessAlphaID, "Something else"); err != nil {
+		t.Fatalf("SetSessionTitle again: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close store: %v", err)
+	}
+
+	if got := listedLabels(t, path)[headlessAlphaID]; got != "Billing rounding" {
+		t.Fatalf("label with a stored title = %q, want the title", got)
+	}
+}
+
+// TestSessionTitleLabelBeforeATitleIsDirAndFirstWords covers R3: until a title is stored, the label is the base name of
+// the directory, then the first words of the first prompt cut to labelPromptRunes runes, and a session with no prompt is
+// labeled by its directory alone. No label holds the session id.
+func TestSessionTitleLabelBeforeATitleIsDirAndFirstWords(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openHeadlessStore(t, path)
+	now := time.Now()
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessAlphaID, Dir: "/work/gamma", State: "idle"})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: headlessAlphaID, Text: labelPrompt})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessBetaID, Dir: "/work/delta", State: "idle"})
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close store: %v", err)
+	}
+
+	labels := listedLabels(t, path)
+	if want := "gamma · Refactor the billing module so every inv"; labels[headlessAlphaID] != want {
+		t.Fatalf("label with a prompt = %q, want %q", labels[headlessAlphaID], want)
+	}
+	if want := "delta"; labels[headlessBetaID] != want {
+		t.Fatalf("label with no prompt = %q, want %q", labels[headlessBetaID], want)
+	}
+	for id, label := range labels {
+		if strings.Contains(label, id) || strings.Contains(label, id[:8]) {
+			t.Fatalf("label %q of session %s holds its id", label, id)
+		}
 	}
 }

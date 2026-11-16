@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -21,8 +22,8 @@ const (
 	stateInterrupted = "interrupted"
 )
 
-// headlessIDLen is how many leading characters of a session id name its row, as a session notice does.
-const headlessIDLen = 8
+// labelPromptRunes is the most runes of a session's first prompt its label keeps.
+const labelPromptRunes = 40
 
 // summaryRunes is the most runes a row's summary keeps.
 const summaryRunes = 300
@@ -68,7 +69,7 @@ func headlessMessage(row store.HeadlessRow) (*orreryv1.HeadlessSession, error) {
 	return &orreryv1.HeadlessSession{
 		Id:          row.ID,
 		Dir:         row.Dir,
-		Label:       headlessLabel(row.ID, row.Dir),
+		Label:       sessionLabel(row.Dir, row.Title, row.FirstPrompt),
 		State:       row.State,
 		Changed:     changed,
 		Seen:        seen,
@@ -90,13 +91,19 @@ func parseStamp(value string) (int64, error) {
 	return unix, nil
 }
 
-// headlessLabel names a row: the base name of dir, " · ", then the first characters of the id.
-func headlessLabel(id, dir string) string {
-	short := id
-	if len(short) > headlessIDLen {
-		short = short[:headlessIDLen]
+// sessionLabel names a headless session. A non-blank title is the label. Otherwise the label is the base name of dir,
+// then " · " and the first words of firstPrompt cut to labelPromptRunes runes, or the base name of dir alone when the
+// prompt has no words. The session id is never part of a label.
+func sessionLabel(dir, title, firstPrompt string) string {
+	if trimmed := strings.TrimSpace(title); trimmed != "" {
+		return trimmed
 	}
-	return filepath.Base(dir) + " · " + short
+	base := filepath.Base(dir)
+	words := strings.Join(strings.Fields(firstPrompt), " ")
+	if words == "" {
+		return base
+	}
+	return base + " · " + cutRunes(words, labelPromptRunes)
 }
 
 // headlessSummary is the question while the session waits on one, else the reason of a failed or interrupted
