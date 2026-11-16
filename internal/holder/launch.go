@@ -54,7 +54,8 @@ type LaunchConfig struct {
 
 // Launch starts the session's child under orrery holder and returns the child as a Process. When cfg.Scope is set, the
 // holder runs in its own user scope, and a scope that fails fails the launch with its reason, with no plain start in
-// its place. Launch returns once the holder serves its socket and the attach at offset 0 succeeds. A holder that ends
+// its place. A scope left loaded under the session's name is stopped before the holder starts, and the Process stops
+// the holder's scope once the holder has ended, so nothing the child started outlives its holder. Launch returns once the holder serves its socket and the attach at offset 0 succeeds. A holder that ends
 // before it serves fails the launch with its status and stderr.
 func Launch(ctx context.Context, cfg LaunchConfig) (*Process, error) {
 	if cfg.GateLimit > 0 && cfg.StateDir == "" {
@@ -96,6 +97,13 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 	if clearErr := Clear(ctx, dir); clearErr != nil {
 		return nil, clearErr
 	}
+	// Clear has stopped any holder of the session, so a scope still loaded under the session's name holds only what an
+	// ended holder's child left running, such as a daemon it forked. systemd-run refuses a scope name that is loaded, so
+	// that scope is stopped first.
+	scope := newScopeStopper(cfg.Scope, cfg.Session)
+	if stopErr := scope.stop(ctx); stopErr != nil {
+		return nil, stopErr
+	}
 	path, args := holderCommand(cfg, orrery, stateDir)
 	held, err := proc.Start(proc.Config{
 		Path:        path,
@@ -126,7 +134,8 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 			remove = stateDir
 		}
 	}
-	return newProcess(held, conn, sock, remove), nil
+	// The scope is stopped once the holder ends, long after the launch, so its stop does not end with ctx.
+	return newAttachedProcess(context.WithoutCancel(ctx), held, conn, sock, remove, 0, Frame{}, scope), nil
 }
 
 // holderCommand returns the program and argument vector that start the holder: orrery holder, with the session, the
@@ -147,7 +156,7 @@ func holderCommand(cfg LaunchConfig, orrery, stateDir string) (string, []string)
 		return orrery, argv
 	}
 	scoped := append([]string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", "orrery-hold-" + cfg.Session, orrery,
+		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", scopeName(cfg.Session), orrery,
 	}, argv...)
 	return cfg.Scope, scoped
 }

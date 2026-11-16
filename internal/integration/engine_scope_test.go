@@ -11,22 +11,17 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/holdertest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// engineFakeSystemdRun is the fake systemd-run the holder tests share. It records its arguments to $FAKE_SYSTEMD_RUN_ARGS
-// and execs the holder once it drops the seven scope arguments.
-const engineFakeSystemdRun = "../holder/testdata/fakesystemdrun.sh"
-
-// scopedFixture returns the fixture of a test whose sessions run their holders under the fake systemd-run, the absolute
-// path of that fake for --holder-scope, and the file the fake records its arguments in.
+// scopedFixture returns the fixture of a test whose sessions run their holders under the test's fake systemd-run
+// (holdertest.FakeScope), the absolute path of that fake for --holder-scope, and the file the fake records its arguments
+// in.
 func scopedFixture(t *testing.T) (*engineFixture, string, string) {
 	t.Helper()
 	f := newEngineFixture(t)
-	scope, err := filepath.Abs(engineFakeSystemdRun)
-	if err != nil {
-		t.Fatalf("resolve fake systemd-run: %v", err)
-	}
+	scope := holdertest.FakeScope(t)
 	argsFile := filepath.Join(f.root, "systemd-run.args")
 	f.env = append(f.env, "FAKE_SYSTEMD_RUN_ARGS="+argsFile)
 	return f, scope, argsFile

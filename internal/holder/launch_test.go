@@ -81,14 +81,10 @@ func orreryPath(t *testing.T) string {
 	return path
 }
 
-// fakeSystemdRunPath returns the absolute path of the fake systemd-run in testdata.
+// fakeSystemdRunPath returns the absolute path of the test's fake systemd-run, with a fake systemctl beside it.
 func fakeSystemdRunPath(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join("testdata", "fakesystemdrun.sh"))
-	if err != nil {
-		t.Fatalf("resolve fakesystemdrun.sh: %v", err)
-	}
-	return path
+	return holdertest.FakeScope(t)
 }
 
 // scopeArgs returns the arguments that put a holder of testSession in its own user scope, before the holder's argv.

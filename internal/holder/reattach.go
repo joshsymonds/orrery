@@ -22,12 +22,22 @@ type ReattachOption func(*reattachOptions)
 type reattachOptions struct {
 	// attachTimeout bounds the dial, the hello and the attach.
 	attachTimeout time.Duration
+	// scope is the systemd-run path the holder was launched under, or empty when it was started plainly.
+	scope string
 }
 
 // WithAttachTimeout bounds the hello and the attach by d in place of AttachTimeout.
 func WithAttachTimeout(d time.Duration) ReattachOption {
 	return func(o *reattachOptions) {
 		o.attachTimeout = d
+	}
+}
+
+// WithScope names scope, the systemd-run path the holder was launched under, as LaunchConfig.Scope does. The Process
+// then stops the holder's user scope once the holder has ended, as a launched holder's Process does.
+func WithScope(scope string) ReattachOption {
+	return func(o *reattachOptions) {
+		o.scope = scope
 	}
 }
 
@@ -116,7 +126,10 @@ func reattach(
 		return nil, nil, failedAttach(lock, err)
 	}
 	held := watchHolder(dir, lock)
-	return newAttachedProcess(held, conn, sock, remove, replayFrom, attached), attached.Written, nil
+	scope := newScopeStopper(settings.scope, filepath.Base(dir))
+	// The scope is stopped once the holder ends, long after the attach, so its stop does not end with ctx.
+	process := newAttachedProcess(context.WithoutCancel(ctx), held, conn, sock, remove, replayFrom, attached, scope)
+	return process, attached.Written, nil
 }
 
 // unattachable wraps cause in ErrUnattachable.
