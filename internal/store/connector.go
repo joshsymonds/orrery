@@ -136,10 +136,66 @@ func (c *trackedConn) QueryContext(ctx context.Context, query string, args []dri
 	if err != nil {
 		return nil, fmt.Errorf("%w", err)
 	}
-	if timer != nil && timer.end == endAtRowsClose && timerOf(ctx) == timer {
-		return &timedRows{Rows: rows, timer: timer}, nil
+	return timedRowsOf(ctx, timer, rows), nil
+}
+
+// PrepareContext prepares query as a statement that records each run on its call's timer, as ExecContext and
+// QueryContext record theirs. Its error is the driver's, text unchanged.
+func (c *trackedConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	stmt, err := c.sqliteConn.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
 	}
-	return rows, nil
+	inner, ok := stmt.(sqliteStmt)
+	if !ok {
+		return nil, errors.Join(fmt.Errorf("store: statement %T runs no context calls", stmt), stmt.Close())
+	}
+	return &trackedStmt{sqliteStmt: inner, conn: c, query: query}, nil
+}
+
+// timedRowsOf returns rows, which end the call of timer when they close if the pool times the query that ctx carries
+// to its rows' close.
+func timedRowsOf(ctx context.Context, timer *callTimer, rows driver.Rows) driver.Rows {
+	if timer != nil && timer.end == endAtRowsClose && timerOf(ctx) == timer {
+		return &timedRows{Rows: rows, timer: timer}
+	}
+	return rows
+}
+
+// sqliteStmt is the part of the sqlite driver's prepared statement that database/sql uses: the context forms of its
+// runs.
+type sqliteStmt interface {
+	driver.Stmt
+	driver.StmtExecContext
+	driver.StmtQueryContext
+}
+
+// trackedStmt is a statement prepared on conn that records each of its runs on the timer of the store call it serves.
+type trackedStmt struct {
+	sqliteStmt
+	conn  *trackedConn
+	query string
+}
+
+// ExecContext runs the statement, recorded on its call's timer. Its error is the driver's, text unchanged.
+func (s *trackedStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	s.conn.ran(ctx, s.query)
+	result, err := s.sqliteStmt.ExecContext(ctx, args)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return result, nil
+}
+
+// QueryContext runs the statement, recorded on its call's timer, as trackedConn.QueryContext runs a query. Its error is
+// the driver's, text unchanged.
+func (s *trackedStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	timer := s.conn.ran(ctx, s.query)
+	rows, err := s.sqliteStmt.QueryContext(ctx, args)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return timedRowsOf(ctx, timer, rows), nil
 }
 
 // BeginTx begins a transaction, recorded on its call's timer. A transaction the pool times ends its call when it
