@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
 import { until } from "./testwait";
-import { follow, type Followed } from "./follow";
+import { follow, type Followed, type Schedule } from "./follow";
 
 const panesPath = "/orrery.v1.Panes/WatchConversation";
 const sessionsPath = "/orrery.v1.Sessions/WatchConversation";
@@ -13,10 +13,6 @@ const retryMs = 40;
 interface Served {
   path: string;
   body: Record<string, unknown>;
-  // When the call reached the fake server.
-  at: number;
-  // When the test ended the call's stream, or 0 while it is open.
-  endedAt: number;
   // The response body of the call, or null once the test has ended it.
   controller: ReadableStreamDefaultController<Uint8Array> | null;
 }
@@ -32,8 +28,6 @@ class FakeConnect {
     const entry: Served = {
       path: new URL(request.url).pathname,
       body: decodeRequest(new Uint8Array(await request.arrayBuffer())),
-      at: Date.now(),
-      endedAt: 0,
       controller: null,
     };
     this.served.push(entry);
@@ -70,7 +64,6 @@ class FakeConnect {
     controller.enqueue(last);
     controller.close();
     this.served[index].controller = null;
-    this.served[index].endedAt = Date.now();
   }
 }
 
@@ -127,21 +120,48 @@ test("a pane row streams its conversation, and onChange receives each delta fold
   }
 });
 
+// HeldSchedule is a Schedule the test drives: each wait it is asked for is kept, with its length, until the test runs it.
+class HeldSchedule {
+  readonly waits: { ms: number; run: () => void; cancelled: boolean }[] = [];
+
+  readonly schedule: Schedule = (run, ms) => {
+    const wait = { ms, run, cancelled: false };
+    this.waits.push(wait);
+    return () => {
+      wait.cancelled = true;
+    };
+  };
+
+  // end runs wait index, as its timer firing would.
+  end(index: number): void {
+    this.waits[index].run();
+  }
+}
+
 test("a stream that ends or fails reconnects after retryMs with the held transcript and seq", async () => {
+  // The forced order: each end of the stream must arm one wait of retryMs, and no request may go out until the test
+  // ends that wait.
   const fake = new FakeConnect();
+  const held = new HeldSchedule();
   const seen: Conversation[] = [];
-  const stop = follow(clientsFor(fake), { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
+  const stop = follow(
+    clientsFor(fake),
+    { kind: "pane", id: "%1" },
+    (conversation) => seen.push(conversation),
+    retryMs,
+    held.schedule,
+  );
   try {
     await until(() => fake.served.length === 1, "the first request");
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
     await until(() => seen.length === 1, "the reset delta");
     fake.end(0);
 
+    await until(() => held.waits.length === 1, "the retry wait after a clean end");
+    assert.equal(held.waits[0].ms, retryMs, "the retry after a clean end did not wait retryMs");
+    assert.equal(fake.served.length, 1, "a request went out before the retry wait ended");
+    held.end(0);
     await until(() => fake.served.length === 2, "the reconnect after a clean end");
-    assert.ok(
-      fake.served[1].at - fake.served[0].endedAt >= retryMs - 5,
-      `reconnected after ${fake.served[1].at - fake.served[0].endedAt}ms, want at least ${retryMs}ms`,
-    );
     assert.equal(fake.served[1].path, panesPath);
     assert.equal(fake.served[1].body.pane, "%1");
     assert.equal(fake.served[1].body.transcript, "t1");
@@ -151,6 +171,10 @@ test("a stream that ends or fails reconnects after retryMs with the held transcr
     await until(() => seen.length === 2, "the delta after the reconnect");
     fake.fail(1);
 
+    await until(() => held.waits.length === 2, "the retry wait after a failure");
+    assert.equal(held.waits[1].ms, retryMs, "the retry after a failure did not wait retryMs");
+    assert.equal(fake.served.length, 2, "a request went out before the retry wait after the failure ended");
+    held.end(1);
     await until(() => fake.served.length === 3, "the reconnect after a failure");
     assert.equal(fake.served[2].body.transcript, "t1");
     assert.equal(Number(fake.served[2].body.after), 4);

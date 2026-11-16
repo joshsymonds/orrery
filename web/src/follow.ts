@@ -7,25 +7,36 @@ export interface Followed {
   id: string;
 }
 
+// Schedule runs run after ms and returns the function that cancels it. follow's retry wait goes through one, so a test
+// can see the wait armed and end it when it chooses.
+export type Schedule = (run: () => void, ms: number) => () => void;
+
+// timerSchedule is the Schedule of a page: setTimeout, cancelled by clearTimeout.
+const timerSchedule: Schedule = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+};
+
 // follow streams one row's conversation into onChange and keeps it current. A stream that ends or fails is retried
-// after retryMs, resuming from the held transcript and seq, so the server answers with only what came after. The
-// returned stop aborts the stream and any pending retry, and nothing reaches onChange after it.
+// after retryMs, waited through schedule, resuming from the held transcript and seq, so the server answers with only
+// what came after. The returned stop aborts the stream and any pending retry, and nothing reaches onChange after it.
 export function follow(
   clients: ReturnType<typeof createClients>,
   row: Followed,
   onChange: (conversation: Conversation) => void,
   retryMs: number = 1000,
+  schedule: Schedule = timerSchedule,
 ): () => void {
   const controller = new AbortController();
   let held: Conversation | null = null;
   let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancel: () => void = () => {};
   let wake: () => void = () => {};
 
   const pause = () =>
     new Promise<void>((resolve) => {
       wake = resolve;
-      timer = setTimeout(resolve, retryMs);
+      cancel = schedule(resolve, retryMs);
     });
 
   const streams = (): AsyncIterable<WatchConversationResponse | SessionsWatchConversationResponse> => {
@@ -62,7 +73,7 @@ export function follow(
 
   return () => {
     stopped = true;
-    clearTimeout(timer);
+    cancel();
     wake();
     controller.abort();
   };
