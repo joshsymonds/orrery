@@ -229,10 +229,6 @@ shows the pane list and each pane, headless sessions with their conversations,
 epics, pools and settings. The server address is a setting the app keeps, and push
 uses UnifiedPush.
 
-![Android app home list of panes](docs/img/phone-list.png)
-
-![Android app showing a headless session's conversation](docs/img/phone-session.png)
-
 Only debug builds are produced. The tree has no release variant and no signing key
 or keystore.
 
