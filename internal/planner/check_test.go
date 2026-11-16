@@ -344,23 +344,9 @@ func secondQuestion(bad Question) Return {
 
 func TestCheckRefusesQuestionLabel(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name  string
-		label string
-		want  string
-	}{
-		{"empty", "", "label: empty"},
-		{"not kebab-case", "Which_Epic", "label: not kebab-case"},
-		{"park", "park", "label: park is reserved for orrery"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			bad := validQuestion("second")
-			bad.Label = tc.label
-			checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "`+tc.label+`" `+tc.want)
-		})
-	}
+	bad := validQuestion("second")
+	bad.Label = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "" label: empty`)
 }
 
 func TestCheckRefusesQuestionText(t *testing.T) {
@@ -372,73 +358,18 @@ func TestCheckRefusesQuestionText(t *testing.T) {
 
 func TestCheckRefusesQuestionChoices(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name        string
-		choices     []Choice
-		recommended string
-		want        string
-	}{
-		{
-			name:        "one choice",
-			choices:     []Choice{{ID: "first", Does: "a first choice"}},
-			recommended: "first",
-			want:        "choices: fewer than two choices",
-		},
-		{
-			name:        "empty id",
-			choices:     []Choice{{ID: "", Does: "a first choice"}, {ID: "second", Does: "a second choice"}},
-			recommended: "second",
-			want:        "choices[0].id: empty",
-		},
-		{
-			name:        "other as an id",
-			choices:     []Choice{{ID: "first", Does: "a first choice"}, {ID: "other", Does: "a second choice"}},
-			recommended: "first",
-			want:        "choices[1].id: other is offered by orrery",
-		},
-		{
-			name:        "id named twice",
-			choices:     []Choice{{ID: "first", Does: "a first choice"}, {ID: "first", Does: "a second choice"}},
-			recommended: "first",
-			want:        "choices[1].id: named twice",
-		},
-		{
-			name:        "empty does",
-			choices:     []Choice{{ID: "first", Does: ""}, {ID: "second", Does: "a second choice"}},
-			recommended: "first",
-			want:        "choices[0].does: empty",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			bad := validQuestion("second")
-			bad.Choices = tc.choices
-			bad.Recommended = tc.recommended
-			checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" `+tc.want)
-		})
-	}
+	bad := validQuestion("second")
+	bad.Choices = []Choice{{ID: "first", Does: "a first choice"}}
+	bad.Recommended = "first"
+	checkLines(t, checkPlan(secondQuestion(bad), nil), `questions[1] "second" choices: fewer than two choices`)
 }
 
 func TestCheckRefusesQuestionRecommendation(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name        string
-		recommended string
-	}{
-		{"none", ""},
-		{"an undeclared choice", "third"},
-		{"other", "other"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			bad := validQuestion("second")
-			bad.Recommended = tc.recommended
-			checkLines(t, checkPlan(secondQuestion(bad), nil),
-				`questions[1] "second" recommended: names no declared choice`)
-		})
-	}
+	bad := validQuestion("second")
+	bad.Recommended = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil),
+		`questions[1] "second" recommended: names no declared choice`)
 }
 
 func TestCheckRefusesQuestionWhy(t *testing.T) {
@@ -450,45 +381,18 @@ func TestCheckRefusesQuestionWhy(t *testing.T) {
 
 func TestCheckRefusesQuestionConfidence(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name       string
-		confidence string
-	}{
-		{"none", ""},
-		{"unlisted word", "certain"},
-		{"capitalized", "High"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			bad := validQuestion("second")
-			bad.Confidence = tc.confidence
-			checkLines(t, checkPlan(secondQuestion(bad), nil),
-				`questions[1] "second" confidence: not low, medium or high`)
-		})
-	}
+	bad := validQuestion("second")
+	bad.Confidence = ""
+	checkLines(t, checkPlan(secondQuestion(bad), nil),
+		`questions[1] "second" confidence: not low, medium or high`)
 }
 
 func TestCheckRefusesQuestionReplaces(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name     string
-		replaces string
-	}{
-		{"zero", "Q0"},
-		{"bare number", "1"},
-		{"leading zero", "Q01"},
-		{"lower case", "q1"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			bad := validQuestion("second")
-			bad.Replaces = tc.replaces
-			checkLines(t, checkPlan(secondQuestion(bad), nil),
-				`questions[1] "second" replaces: not empty or Q<n> with n >= 1`)
-		})
-	}
+	bad := validQuestion("second")
+	bad.Replaces = "Q0"
+	checkLines(t, checkPlan(secondQuestion(bad), nil),
+		`questions[1] "second" replaces: not empty or Q<n> with n >= 1`)
 }
 
 func TestCheckNamesEachBadQuestionByPositionInRuleOrder(t *testing.T) {

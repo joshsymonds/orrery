@@ -52,6 +52,7 @@ func refusalRules() []refusalRule {
 		{"label empty", func(q *EpicQuestionInput) { q.Label = "" }, "label: empty"},
 		{"label not kebab-case", func(q *EpicQuestionInput) { q.Label = "Which Store" }, "label: not kebab-case"},
 		{"label park", func(q *EpicQuestionInput) { q.Label = ParkLabel }, "label: park is reserved for orrery"},
+		{"label with underscores", func(q *EpicQuestionInput) { q.Label = "Which_Epic" }, "label: not kebab-case"},
 		{"text empty", func(q *EpicQuestionInput) { q.Text = "" }, "text: empty"},
 		{"one choice", func(q *EpicQuestionInput) { q.Choices = q.Choices[:1] }, "choices: fewer than two choices"},
 		{"choice id empty", func(q *EpicQuestionInput) {
@@ -70,15 +71,30 @@ func refusalRules() []refusalRule {
 		{"recommended empty", func(q *EpicQuestionInput) {
 			q.Recommended = ""
 		}, "recommended: names no declared choice"},
+		{"recommended other", func(q *EpicQuestionInput) {
+			q.Recommended = ChoiceOther
+		}, "recommended: names no declared choice"},
 		{"why empty", func(q *EpicQuestionInput) { q.Why = "" }, "why: empty"},
 		{"confidence not low, medium or high", func(q *EpicQuestionInput) {
 			q.Confidence = "certain"
+		}, "confidence: not low, medium or high"},
+		{"confidence empty", func(q *EpicQuestionInput) {
+			q.Confidence = ""
+		}, "confidence: not low, medium or high"},
+		{"confidence capitalized", func(q *EpicQuestionInput) {
+			q.Confidence = "High"
 		}, "confidence: not low, medium or high"},
 		{"replaces not Q<n>", func(q *EpicQuestionInput) {
 			q.Replaces = "1"
 		}, "replaces: not empty or Q<n> with n >= 1"},
 		{"replaces Q0", func(q *EpicQuestionInput) {
 			q.Replaces = "Q0"
+		}, "replaces: not empty or Q<n> with n >= 1"},
+		{"replaces leading zero", func(q *EpicQuestionInput) {
+			q.Replaces = "Q01"
+		}, "replaces: not empty or Q<n> with n >= 1"},
+		{"replaces lower case", func(q *EpicQuestionInput) {
+			q.Replaces = "q1"
 		}, "replaces: not empty or Q<n> with n >= 1"},
 	}
 }
