@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { createClients } from "./client";
 import type { InAppNotice, NoticeKey, NoticesWatchResponse } from "./gen/orrery/v1/notice_pb";
@@ -77,22 +78,101 @@ export async function watchNotices(
   }
 }
 
+// noticeLifetimeMillis is how long a row stays on the stack after it first shows. The row then leaves without a seen
+// mark, so the notice stays unseen where the page lists what needs the owner.
+export const noticeLifetimeMillis = 8000;
+
+// noticeRowLimit is how many rows the stack draws. The notices past it are counted in its "+n more" line.
+const noticeRowLimit = 3;
+
 interface NoticeBannerProps {
   notices: InAppNotice[];
   onOpen: (notice: InAppNotice) => void;
+  onDismiss: (notice: InAppNotice) => void;
 }
 
-// NoticeBanner shows each notice as one button with its title and body. A click calls onOpen with that notice. The
-// banner makes no sound.
-export function NoticeBanner({ notices, onOpen }: NoticeBannerProps): JSX.Element {
+// NoticeBanner shows the notices as a stack of one-line rows: the first three that are still on it, then a "+n more"
+// line for the rest. A row's title and body are one button, and a click calls onOpen with its notice. Its × calls
+// onDismiss and drops the row at once. A row also leaves the stack noticeLifetimeMillis after it first shows, and
+// nothing is told of that. Each row's clock starts when it is drawn, and a row that leaves the stack is forgotten, so a
+// notice that is shown again under its key shows again. The banner makes no sound.
+export function NoticeBanner({ notices, onOpen, onDismiss }: NoticeBannerProps): JSX.Element {
+  // gone holds the keys of the notices this page has taken off the stack, by a × or by the lifetime.
+  const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
+  // lives holds the timer of each drawn row, by key, from the render that first draws it until the row leaves.
+  const lives = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const keys = new Set(notices.map((notice) => noticeKey(notice.key)));
+  const shown = notices.filter((notice) => !gone.has(noticeKey(notice.key)));
+  const rows = shown.slice(0, noticeRowLimit);
+
+  // The timers run in the commit itself, not in an effect that waits for a paint, so a row's clock starts when it
+  // draws.
+  useLayoutEffect(() => {
+    for (const [key, timer] of lives.current) {
+      if (!keys.has(key)) {
+        clearTimeout(timer);
+        lives.current.delete(key);
+      }
+    }
+    for (const notice of rows) {
+      const key = noticeKey(notice.key);
+      if (!lives.current.has(key)) {
+        lives.current.set(
+          key,
+          setTimeout(() => {
+            lives.current.delete(key);
+            setGone((before) => new Set(before).add(key));
+          }, noticeLifetimeMillis),
+        );
+      }
+    }
+    if ([...gone].some((key) => !keys.has(key))) {
+      setGone((before) => new Set([...before].filter((key) => keys.has(key))));
+    }
+  });
+
+  useLayoutEffect(
+    () => () => {
+      for (const timer of lives.current.values()) {
+        clearTimeout(timer);
+      }
+      lives.current.clear();
+    },
+    [],
+  );
+
+  const dismiss = (notice: InAppNotice) => {
+    const key = noticeKey(notice.key);
+    clearTimeout(lives.current.get(key));
+    lives.current.delete(key);
+    setGone((before) => new Set(before).add(key));
+    onDismiss(notice);
+  };
+
+  const more = shown.length - rows.length;
   return (
     <div class="notices">
-      {notices.map((notice) => (
-        <button key={noticeKey(notice.key)} type="button" class="notice" onClick={() => onOpen(notice)}>
-          <span class="notice-title">{notice.title}</span>
-          <span class="notice-body">{notice.body}</span>
-        </button>
+      {rows.map((notice) => (
+        <div key={noticeKey(notice.key)} class="notice-row">
+          <button type="button" class="notice" onClick={() => onOpen(notice)}>
+            <span class="notice-title">{notice.title}</span>
+            <span class="notice-separator" aria-hidden="true">
+              {" · "}
+            </span>
+            <span class="notice-body">{notice.body}</span>
+          </button>
+          <button
+            type="button"
+            class="notice-dismiss"
+            aria-label={`Dismiss ${notice.title}`}
+            onClick={() => dismiss(notice)}
+          >
+            ×
+          </button>
+        </div>
       ))}
+      {more > 0 && <p class="notices-more">{`+${more} more`}</p>}
     </div>
   );
 }

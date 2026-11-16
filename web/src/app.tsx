@@ -609,11 +609,16 @@ export function App({
     setCursor({ key: `epic:${id}`, index: shownIndex });
   };
 
+  // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
+  const markNoticeSeen = (notice: InAppNotice) => {
+    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+  };
+
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
   // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
   const openNotice = (notice: InAppNotice) => {
-    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+    markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
       if (listsEpic(kept, epic)) {
@@ -862,8 +867,8 @@ export function App({
 
   return (
     <main class="app">
-      {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} />}
       <div class={pinned !== null ? "panes split" : "panes"}>
+        {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
         <div class="list">
           <header class="top">
             <div class="brand">
