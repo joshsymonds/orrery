@@ -422,6 +422,9 @@ INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item) V
 -- name: ListEpicRequirements :many
 SELECT * FROM epic_requirements WHERE epic = ? ORDER BY position;
 
+-- name: DropEpicRequirement :exec
+UPDATE epic_requirements SET dropped_by = sqlc.arg(decision) WHERE epic = sqlc.arg(epic) AND id = sqlc.arg(id);
+
 -- name: InsertEpicPremise :exec
 INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?);
 
@@ -778,6 +781,12 @@ SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq;
 
 -- name: GetEpicQuestion :one
 SELECT * FROM epic_questions WHERE epic = ? AND seq = ?;
+
+-- name: InsertEpicMetAtBase :exec
+INSERT INTO epic_met_at_base (epic, question, path, attempt, requirements) VALUES (?, ?, ?, ?, ?);
+
+-- name: GetEpicMetAtBase :one
+SELECT * FROM epic_met_at_base WHERE epic = ? AND question = ?;
 
 -- name: SetEpicQuestionAnswered :exec
 UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;

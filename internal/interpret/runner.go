@@ -31,8 +31,9 @@ type Store interface {
 	ParkNode(
 		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
 	) error
-	ParkNodeFinal(
-		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+	ParkNodeMetAtBase(
+		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string,
+		at time.Time,
 	) error
 	ClaimBatch(
 		ctx context.Context, epic, path string, attempt int64, revision, refs, result string, tasks []int64,
@@ -334,8 +335,10 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	case ActPark:
 		err = r.store.ParkLoop(ctx, epic.ID, act.Path, act.Round, act.Reason, at)
 	case ActParkNode:
-		if act.Final {
-			err = r.store.ParkNodeFinal(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+		if len(act.Met) > 0 {
+			err = r.store.ParkNodeMetAtBase(
+				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, act.Met, at,
+			)
 		} else {
 			err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
 		}

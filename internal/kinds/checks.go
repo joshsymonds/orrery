@@ -95,13 +95,21 @@ func prepare(rows Rows) Action {
 	return Action{Kind: ActPrepare}
 }
 
-// Decide decides an evidence run. It ends passed with a note when no Requirement names an evidence item. Otherwise it
-// prepares the run's revision, starts a run for each Requirement that has none, waits until every run has ended, checks
-// the run's refs, and ends passed when every run passed.
+// Decide decides an evidence run. It ends passed with a note when no Requirement names an evidence item, and when every
+// such Requirement was dropped as already met at the base. Otherwise it prepares the run's revision, starts a run for
+// each Requirement that has none and was not dropped, waits until every run has ended, checks the run's refs, and ends
+// passed when every run passed.
 func (Evidence) Decide(node Node, rows Rows) Action {
-	items := itemRequirements(rows.Epic.Requirements)
-	if len(items) == 0 {
+	named := itemRequirements(rows.Epic.Requirements)
+	if len(named) == 0 {
 		return Action{Kind: ActEnd, Outcome: outcomePassed, Output: "no Requirement names an evidence item"}
+	}
+	items := slices.DeleteFunc(named, droppedAsMet)
+	if len(items) == 0 {
+		return Action{
+			Kind: ActEnd, Outcome: outcomePassed,
+			Output: "every Requirement that names an evidence item was dropped as already met",
+		}
 	}
 	if node.Run.Revision == "" {
 		return prepare(rows)

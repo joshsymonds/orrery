@@ -552,64 +552,69 @@ func TestEndPlanBuiltInCorrectingKeepsPhase(t *testing.T) {
 		Started: integrateStartedAt(), Ended: integrateEndedAt()})
 }
 
-// TestParkNodeFinalParksRunEpicAndPhaseOnce checks that ParkNodeFinal parks the running run at its attempt, parks the
-// epic with its reason as one tell and sets the phase to met_at_base. A run at another attempt changes nothing, and a
-// repeat changes nothing.
-func TestParkNodeFinalParksRunEpicAndPhaseOnce(t *testing.T) {
+// TestParkNodeMetAtBaseParksRunEpicAndTellOnce checks that ParkNodeMetAtBase parks the running run at its attempt and
+// parks the epic with its reason as one tell. R4: the park used to set the phase to met_at_base and park for good. It now
+// opens a question the owner answers, so the phase stays until the owner ends the epic. A run at another attempt changes
+// nothing, and a repeat changes nothing.
+func TestParkNodeMetAtBaseParksRunEpicAndTellOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	startIntegrateRuns(t, s, NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1})
 
-	const reason = "workflow node red: R1 met at the base; parked for good, and a corrected contract is a new epic"
-	if err := s.ParkNodeFinal(ctx, integrateEpic, "red", 2, "failed", "wrong attempt", reason,
+	const reason = "workflow node red: R1 met at the base; you can retry, drop or end"
+	if err := s.ParkNodeMetAtBase(ctx, integrateEpic, "red", 2, "failed", "wrong attempt", reason, []string{"R1"},
 		integrateParkedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal at another attempt: %v", err)
+		t.Fatalf("ParkNodeMetAtBase at another attempt: %v", err)
 	}
 	requireIntegrateRun(t, s, "red", NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence",
 		Attempt: 1, State: NodeRunning, Started: integrateStartedAt()})
 	if row := integrateEpicRow(t, s); row.Phase != "accepted" || row.Parked != "" {
-		t.Errorf("phase and parked after ParkNodeFinal at another attempt = %q and %q, want accepted and empty",
+		t.Errorf("phase and parked after ParkNodeMetAtBase at another attempt = %q and %q, want accepted and empty",
 			row.Phase, row.Parked)
 	}
 
-	if err := s.ParkNodeFinal(ctx, integrateEpic, "red", 1, "failed", "R1 met", reason,
+	if err := s.ParkNodeMetAtBase(ctx, integrateEpic, "red", 1, "failed", "R1 met", reason, []string{"R1"},
 		integrateParkedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal: %v", err)
+		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
 	parked := NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1, Outcome: "failed",
 		Output: "R1 met", State: NodeParked, Started: integrateStartedAt()}
 	requireIntegrateRun(t, s, "red", parked)
-	if row := integrateEpicRow(t, s); row.Parked != reason || row.Phase != "met_at_base" {
-		t.Errorf("parked and phase after ParkNodeFinal = %q and %q, want %q and met_at_base", row.Parked, row.Phase,
+	if row := integrateEpicRow(t, s); row.Parked != reason || row.Phase != "accepted" {
+		t.Errorf("parked and phase after ParkNodeMetAtBase = %q and %q, want %q and accepted", row.Parked, row.Phase,
 			reason)
 	}
 	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells of epic %s after ParkNodeFinal = %q, want one tell %q", integrateEpic, got, reason)
+		t.Errorf("tells of epic %s after ParkNodeMetAtBase = %q, want one tell %q", integrateEpic, got, reason)
 	}
 
-	if err := s.ParkNodeFinal(ctx, integrateEpic, "red", 1, "passed", "again", "second reason",
+	if err := s.ParkNodeMetAtBase(ctx, integrateEpic, "red", 1, "passed", "again", "second reason", []string{"R1"},
 		integrateEndedAt()); err != nil {
-		t.Fatalf("repeat ParkNodeFinal: %v", err)
+		t.Fatalf("repeat ParkNodeMetAtBase: %v", err)
 	}
 	requireIntegrateRun(t, s, "red", parked)
 	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells of epic %s after a repeat ParkNodeFinal = %q, want one tell %q", integrateEpic, got, reason)
+		t.Errorf("tells of epic %s after a repeat ParkNodeMetAtBase = %q, want one tell %q", integrateEpic, got, reason)
 	}
 }
 
-// TestRetryRefusedForEpicParkedForGood checks that RetryEpic and RetryNode on an epic in phase met_at_base are
-// RefusalErrors that name the park reason, and leave the epic and the parked run as ParkNodeFinal left them.
-func TestRetryRefusedForEpicParkedForGood(t *testing.T) {
+// TestRetryRefusedForEpicEndedAtBase checks that RetryEpic and RetryNode on an epic in phase met_at_base are
+// RefusalErrors that name the park reason, and leave the epic and the parked run as the owner's end left them. R4: the
+// phase is set by the owner's end answer to the park question, which the park no longer does.
+func TestRetryRefusedForEpicEndedAtBase(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	startIntegrateRuns(t, s, NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1})
 
-	const reason = "workflow node red: R1 met at the base; parked for good, and a corrected contract is a new epic"
-	if err := s.ParkNodeFinal(ctx, integrateEpic, "red", 1, "failed", "R1 met", reason,
+	const reason = "workflow node red: R1 met at the base; you can retry, drop or end"
+	if err := s.ParkNodeMetAtBase(ctx, integrateEpic, "red", 1, "failed", "R1 met", reason, []string{"R1"},
 		integrateParkedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal: %v", err)
+		t.Fatalf("ParkNodeMetAtBase: %v", err)
+	}
+	if _, err := s.AnswerQuestion(ctx, integrateEpic, "D3", "", 1, ChoiceEnd, integrateParkedAt()); err != nil {
+		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 
 	want := "epic " + integrateEpic + " is parked for good: " + reason

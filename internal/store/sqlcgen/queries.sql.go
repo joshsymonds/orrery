@@ -490,6 +490,21 @@ func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
 	return err
 }
 
+const dropEpicRequirement = `-- name: DropEpicRequirement :exec
+UPDATE epic_requirements SET dropped_by = ?1 WHERE epic = ?2 AND id = ?3
+`
+
+type DropEpicRequirementParams struct {
+	Decision int64
+	Epic     string
+	ID       string
+}
+
+func (q *Queries) DropEpicRequirement(ctx context.Context, arg DropEpicRequirementParams) error {
+	_, err := q.db.ExecContext(ctx, dropEpicRequirement, arg.Decision, arg.Epic, arg.ID)
+	return err
+}
+
 const endEpicNodeCheck = `-- name: EndEpicNodeCheck :exec
 UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
 WHERE id = ? AND state = 'running'
@@ -813,6 +828,28 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 		&i.Text,
 		&i.Time,
 		&i.Question,
+	)
+	return i, err
+}
+
+const getEpicMetAtBase = `-- name: GetEpicMetAtBase :one
+SELECT epic, question, path, attempt, requirements FROM epic_met_at_base WHERE epic = ? AND question = ?
+`
+
+type GetEpicMetAtBaseParams struct {
+	Epic     string
+	Question int64
+}
+
+func (q *Queries) GetEpicMetAtBase(ctx context.Context, arg GetEpicMetAtBaseParams) (EpicMetAtBase, error) {
+	row := q.db.QueryRowContext(ctx, getEpicMetAtBase, arg.Epic, arg.Question)
+	var i EpicMetAtBase
+	err := row.Scan(
+		&i.Epic,
+		&i.Question,
+		&i.Path,
+		&i.Attempt,
+		&i.Requirements,
 	)
 	return i, err
 }
@@ -1640,6 +1677,29 @@ func (q *Queries) InsertEpicLedgerFinding(ctx context.Context, arg InsertEpicLed
 		arg.Result,
 		arg.Unverified,
 		arg.Reason,
+	)
+	return err
+}
+
+const insertEpicMetAtBase = `-- name: InsertEpicMetAtBase :exec
+INSERT INTO epic_met_at_base (epic, question, path, attempt, requirements) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicMetAtBaseParams struct {
+	Epic         string
+	Question     int64
+	Path         string
+	Attempt      int64
+	Requirements string
+}
+
+func (q *Queries) InsertEpicMetAtBase(ctx context.Context, arg InsertEpicMetAtBaseParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicMetAtBase,
+		arg.Epic,
+		arg.Question,
+		arg.Path,
+		arg.Attempt,
+		arg.Requirements,
 	)
 	return err
 }
@@ -3413,7 +3473,7 @@ func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicRequirements = `-- name: ListEpicRequirements :many
-SELECT epic, position, id, text, evidence, kind, item FROM epic_requirements WHERE epic = ? ORDER BY position
+SELECT epic, position, id, text, evidence, kind, item, dropped_by FROM epic_requirements WHERE epic = ? ORDER BY position
 `
 
 func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]EpicRequirement, error) {
@@ -3433,6 +3493,7 @@ func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]Epic
 			&i.Evidence,
 			&i.Kind,
 			&i.Item,
+			&i.DroppedBy,
 		); err != nil {
 			return nil, err
 		}

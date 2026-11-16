@@ -18,8 +18,9 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041 and 00043 create, and of the columns those migrations
-// and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040 and 00042 add to epic tables.
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043 and 00044 create, and of the columns those
+// migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042 and 00044 add to epic
+// tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -28,9 +29,10 @@ func epicTableColumns() map[string][]string {
 			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary", "phase_at",
 			"report_phase", "report_shipped", "report_not_shipped", "report_why",
 		},
-		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
-		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
-		"epic_requirements":  {"epic", "position", "id", "text", "evidence", "kind", "item"},
+		"epic_failures":  {"epic", "position", "id", "text", "rating", "response"},
+		"epic_additions": {"epic", "position", "location", "what", "why", "cost"},
+		// R4: dropped_by, the decision that dropped a Requirement as met at base, is 00044_met_at_base_question.sql.
+		"epic_requirements":  {"epic", "position", "id", "text", "evidence", "kind", "item", "dropped_by"},
 		"epic_premises":      {"epic", "position", "id", "text", "if_wrong"},
 		"epic_exclusions":    {"epic", "position", "text"},
 		"epic_alternatives":  {"epic", "position", "alternative", "why_not", "reconsider"},
@@ -94,6 +96,8 @@ func epicTableColumns() map[string][]string {
 		"epic_review_holds":  {"epic", "step"},
 		"epic_sessions":      {"epic", "session", "call", "at"},
 		"epic_seen":          {"epic", "at"},
+		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
+		"epic_met_at_base":   {"epic", "question", "path", "attempt", "requirements"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -505,9 +509,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00043_epic_seen.sql is the newest.
-	if version != 43 {
-		t.Fatalf("store version after Open = %d, want 43", version)
+	// Open applies 00014_epics.sql and every migration after it: 00044_met_at_base_question.sql is the newest. R4: the
+	// migration was 00043_epic_seen.sql before the met-at-base park question added 00044.
+	if version != 44 {
+		t.Fatalf("store version after Open = %d, want 44", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

@@ -137,9 +137,10 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 
 // RetryEpic ends the park of epic in one write and leaves its triggers pending. The failed turns up to the epic's
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
-// granted round, and each open park question of epic is answered retry, in the same write. An unknown epic is
-// ErrNoEpic, an epic that is not parked is a RefusalError, and an epic parked for good by ParkNodeFinal is a
-// RefusalError that changes nothing.
+// granted round. Each parked evidence run that an open park question for a red run judged holding at base names turns
+// running at its next attempt, and each open park question of epic is answered retry, in the same write. An unknown
+// epic is ErrNoEpic, an epic that is not parked is a RefusalError, and an epic in phase met_at_base, which the owner
+// ended, is a RefusalError that changes nothing.
 func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -152,12 +153,40 @@ func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 		if head.Parked == "" {
 			return RefusalError(fmt.Sprintf("epic %s is not parked", epic))
 		}
+		err = rerunMetAtBaseRuns(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
 		err = closeParkQuestions(ctx, queries, epic)
 		if err != nil {
 			return err
 		}
 		return endPark(ctx, queries, epic)
 	})
+}
+
+// rerunMetAtBaseRuns turns each parked evidence run that an open park question of epic names running at its next
+// attempt, in the caller's write. A park question that names no run, such as a planner's, changes nothing.
+func rerunMetAtBaseRuns(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	open, err := queries.ListOpenEpicParkQuestions(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read open park questions of epic %s: %w", epic, err)
+	}
+	for _, question := range open {
+		var met sqlcgen.EpicMetAtBase
+		met, err = queries.GetEpicMetAtBase(ctx, sqlcgen.GetEpicMetAtBaseParams{Epic: epic, Question: question.Seq})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			continue
+		case err != nil:
+			return fmt.Errorf("read park question %d of epic %s: %w", question.Seq, epic, err)
+		}
+		err = rerunParkedRun(ctx, queries, epic, met.Path)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // endPark ends the park of epic in the caller's write: the failed turns up to the epic's highest turn seq stop counting

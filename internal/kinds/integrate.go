@@ -316,21 +316,23 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
 // evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. A test item that is
 // green at the stored base also lacks it when its reproduction at the epic's base disagrees with its red, or did not run.
-// It returns nil when every Requirement has its proof.
+// A Requirement dropped as already met at the base has no red run or reproduction at the base to name, so it lacks the
+// proof only when it is not green at the stored base. It returns nil when every Requirement has its proof.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range rows.Epic.Requirements {
+		dropped := droppedAsMet(requirement)
 		switch {
 		case !hasItem(requirement):
 			lines = append(lines, requirement.ID+" names no evidence item")
-		case !hasRedAtBase(rows, requirement.ID):
+		case !dropped && !hasRedAtBase(rows, requirement.ID):
 			lines = append(lines, fmt.Sprintf("%s has no red at the epic's base %s", requirement.ID, rows.Epic.Base))
 		case !green[requirement.ID]:
 			lines = append(lines, fmt.Sprintf(
 				"%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
 			))
-		case isTestItem(requirement):
+		case !dropped && isTestItem(requirement):
 			line := Disagreement(rows, requirement.ID)
 			if line == "" {
 				line = noReproduction(rows, requirement.ID)
@@ -421,10 +423,14 @@ func hasRedAtBase(rows Rows, id string) bool {
 }
 
 // MetAtBase returns the Requirements whose red run at the attempt of the node run was judged met, so their conclusion
-// already holds at the base. They are in contract order.
+// already holds at the base. They are in contract order. A Requirement dropped as already met has no red run to judge,
+// so it is never named.
 func MetAtBase(node Node, rows Rows) []string {
 	var met []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
+		if droppedAsMet(requirement) {
+			continue
+		}
 		red, ok := evidenceByID(rows.Evidence, store.NodeWorkID(node.Run.ID, node.Run.Attempt, requirement.ID))
 		if ok && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
 			met = append(met, requirement.ID)
@@ -436,6 +442,12 @@ func MetAtBase(node Node, rows Rows) []string {
 // hasItem reports whether a Requirement names an evidence item.
 func hasItem(requirement store.EpicRequirement) bool {
 	return !reflect.ValueOf(requirement.Item).IsZero()
+}
+
+// droppedAsMet reports whether the owner dropped a Requirement as already met at the epic's base: its DroppedBy is the
+// seq of that decision.
+func droppedAsMet(requirement store.EpicRequirement) bool {
+	return requirement.DroppedBy != 0
 }
 
 // isTestItem reports whether a Requirement names a test item.

@@ -114,16 +114,35 @@ func parkNodeRun(
 	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output, reason string,
 	at time.Time,
 ) error {
+	parked, err := parkRunningRun(ctx, queries, epic, path, attempt, outcome, output)
+	if err != nil || !parked {
+		return err
+	}
+	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+}
+
+// parkRunningRun parks the running run at path of epic at attempt with outcome and output, in the caller's write, and
+// reports whether it parked one. A run at another attempt and a run that is not running are not parked.
+func parkRunningRun(
+	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output string,
+) (bool, error) {
 	parked, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
 		Outcome: outcome, Output: capNodeOutput(output), Epic: epic, Path: path, Attempt: attempt,
 	})
 	if err != nil {
-		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
+		return false, fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 	}
-	if parked == 0 {
-		return nil
+	return parked != 0, nil
+}
+
+// rerunParkedRun turns the parked run at path of epic running at its next attempt, in the caller's write, with its work
+// cleared as retryParkedNode clears it. A top-level node's path is its node id, which RetryEpicNode names. A run that is
+// not parked changes nothing.
+func rerunParkedRun(ctx context.Context, queries *sqlcgen.Queries, epic, path string) error {
+	if _, err := queries.RetryEpicNode(ctx, sqlcgen.RetryEpicNodeParams{Epic: epic, Node: path}); err != nil {
+		return fmt.Errorf("rerun node run %s of epic %s: %w", path, epic, err)
 	}
-	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+	return nil
 }
 
 // EndNodesWaking ends each running node run of epic at the path of ends with its outcome and output, and adds trigger

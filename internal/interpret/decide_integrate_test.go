@@ -275,7 +275,10 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 	})
 }
 
-func TestDecideEvidenceParksForGood(t *testing.T) {
+// TestDecideEvidenceParksWithMetAtBaseQuestion checks the park of an evidence node at base whose red runs judged
+// Requirements holding at base. R4: the park used to be final, with the phase set to met_at_base. It is now an ordinary
+// node park that carries the Requirements as Met, so the park opens the question the owner answers.
+func TestDecideEvidenceParksWithMetAtBaseQuestion(t *testing.T) {
 	t.Parallel()
 	node := baseEvidence("red")
 	run := attempted(running(startOf("red", "red", "evidence", 0)), 1)
@@ -286,22 +289,21 @@ func TestDecideEvidenceParksForGood(t *testing.T) {
 	two := []store.EpicRequirement{itemRequirement("R1"), itemRequirement("R2")}
 	decideCases(t, []decideCase{
 		{
-			name: "top-level evidence at base that fails with a Requirement met parks for good",
+			name: "top-level evidence at base that fails with a Requirement met parks with the question",
 			flow: []workflow.Node{node},
 			rows: withEvidence(rowsOf(nil, nil, run), one, redRun(run, "R1", evidence.VerdictHolds, false)),
 			reg:  reg,
-			want: []Action{
-				{
-					Kind:    ActParkNode,
-					Path:    "red",
-					Attempt: 1,
-					Outcome: "failed",
-					Output:  "R1 red: failed",
-					Reason: "workflow node red: R1 met at the epic's base main; parked for good, and a corrected contract is " +
-						"a new epic",
-					Final: true,
-				},
-			},
+			want: []Action{{
+				Kind:    ActParkNode,
+				Path:    "red",
+				Attempt: 1,
+				Outcome: "failed",
+				Output:  "R1 red: failed",
+				Reason: "workflow node red: R1 met at the epic's base main; you can retry (run the red check of R1 " +
+					"again with a fresh judge), drop (drop R1 as already met, recorded as your decision, and go on " +
+					"without their red) or end (end the epic)",
+				Met: []string{"R1"},
+			}},
 		},
 		{
 			name: "several Requirements met at base are named in contract order",
@@ -313,9 +315,10 @@ func TestDecideEvidenceParksForGood(t *testing.T) {
 			reg: reg,
 			want: []Action{{
 				Kind: ActParkNode, Path: "red", Attempt: 1, Outcome: "failed", Output: "R1 red: failed",
-				Reason: "workflow node red: R1, R2 met at the epic's base main; parked for good, and a corrected " +
-					"contract is a new epic",
-				Final: true,
+				Reason: "workflow node red: R1, R2 met at the epic's base main; you can retry (run the red check of " +
+					"R1, R2 again with a fresh judge), drop (drop R1, R2 as already met, recorded as your decision, " +
+					"and go on without their red) or end (end the epic)",
+				Met: []string{"R1", "R2"},
 			}},
 		},
 		{
@@ -373,12 +376,13 @@ func (c *carryLog) ParkNode(
 	return nil
 }
 
-// ParkNodeFinal logs the park for good of a node run.
-func (c *carryLog) ParkNodeFinal(
-	_ context.Context, epic, path string, attempt int64, outcome, output, reason string, _ time.Time,
+// ParkNodeMetAtBase logs the park of a node run whose red runs judged Requirements holding at base.
+func (c *carryLog) ParkNodeMetAtBase(
+	_ context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string, _ time.Time,
 ) error {
 	c.writes = append(
-		c.writes, fmt.Sprintf("ParkNodeFinal %s %s %d %s %q %q", epic, path, attempt, outcome, output, reason),
+		c.writes,
+		fmt.Sprintf("ParkNodeMetAtBase %s %s %d %s %q %q %v", epic, path, attempt, outcome, output, reason, met),
 	)
 	return nil
 }
@@ -408,7 +412,7 @@ func TestRunnerCarriesBatchActions(t *testing.T) {
 			Outcome: "failed",
 			Output:  "R1 red: failed",
 			Reason:  "met",
-			Final:   true,
+			Met:     []string{"R1"},
 		},
 		{Kind: ActParkNode, Path: "red", Attempt: 2, Outcome: "failed", Output: "R1 red: failed", Reason: "plain"},
 		{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "plan", Outcome: "complete"}}, Built: true},
@@ -422,7 +426,7 @@ func TestRunnerCarriesBatchActions(t *testing.T) {
 		fmt.Sprintf("EndBatch %s %s 1 passed %q %+v", decideEpic, batchPath, "R1 green", passed),
 		fmt.Sprintf("EndBatch %s %s 1 passed %q <nil>", decideEpic, batchPath, "no accepted task to integrate"),
 		fmt.Sprintf("ParkEpicWaking %s %q %+v", decideEpic, unbuilt.Cause, *unbuilt),
-		fmt.Sprintf("ParkNodeFinal %s red 2 failed %q %q", decideEpic, "R1 red: failed", "met"),
+		fmt.Sprintf("ParkNodeMetAtBase %s red 2 failed %q %q [R1]", decideEpic, "R1 red: failed", "met"),
 		fmt.Sprintf("ParkNode %s red 2 failed %q %q", decideEpic, "R1 red: failed", "plain"),
 		fmt.Sprintf("EndPlanBuilt %s %+v", decideEpic, []store.NodeEnd{{Path: "plan", Outcome: "complete"}}),
 	}

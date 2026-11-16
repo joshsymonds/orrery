@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -28,8 +29,15 @@ const (
 const ChoiceOther = "other"
 
 // ChoiceRetry is the choice a park question that is not final declares: ending the park and starting a turn on the
-// waiting triggers.
+// waiting triggers. On a park question that a red run judged holding at base opens, it reruns the red run.
 const ChoiceRetry = "retry"
+
+// ChoiceDrop and ChoiceEnd are the choices a park question for a red run judged holding at base declares beside retry:
+// dropping the Requirements the run found met, and ending the epic.
+const (
+	ChoiceDrop = "drop"
+	ChoiceEnd  = "end"
+)
 
 // ParkLabel is the label of the questions orrery asks when it parks an epic. A planner question never takes it.
 const ParkLabel = "park"
@@ -40,6 +48,14 @@ const (
 	parkRetryDoes  = "end the park and start a turn on the waiting triggers, as orrery epic retry does"
 	parkRetryWhy   = "no model judges a park; retry runs the epic again on its waiting triggers"
 	parkConfidence = "low"
+)
+
+// The advice a park question for a red run judged holding at base gives: why orrery recommends retry, and how confident
+// that recommendation is. A fresh judge is the check on a judgement that may have read the conclusion loosely.
+const (
+	metAtBaseWhy = "the judge read the conclusion as already holding at the base, " +
+		"and a fresh judge checks that reading before anything is dropped"
+	metAtBaseConfidence = "medium"
 )
 
 // EpicChoice is one declared choice of a question: its id and what choosing it does.
@@ -186,6 +202,26 @@ func parkQuestion(reason string, final bool) EpicQuestionInput {
 		question.Recommended, question.Why, question.Confidence = ChoiceRetry, parkRetryWhy, parkConfidence
 	}
 	return question
+}
+
+// metAtBaseQuestion returns the question the park of an evidence run that judged the Requirements in met holding at base
+// asks. It offers retry, which reruns the run, drop, which marks the Requirements dropped as met, and end, which ends the
+// epic, and it recommends retry.
+func metAtBaseQuestion(reason string, met []string) EpicQuestionInput {
+	ids := strings.Join(met, ", ")
+	return EpicQuestionInput{
+		Label: ParkLabel,
+		Text:  reason,
+		Choices: []EpicChoice{
+			{ID: ChoiceRetry, Does: "run the red check of " + ids + " again with a fresh judge"},
+			{ID: ChoiceDrop, Does: "drop " + ids + " as already met, recorded as your decision, " +
+				"and go on without their red"},
+			{ID: ChoiceEnd, Does: "end the epic"},
+		},
+		Recommended: ChoiceRetry,
+		Why:         metAtBaseWhy,
+		Confidence:  metAtBaseConfidence,
+	}
 }
 
 // insertParkQuestion opens question, a park question, for epic in the caller's write, as the next question seq of epic,

@@ -191,19 +191,23 @@ func TestRetryFailedIntegrateLeavesParkedRunsRerunnable(t *testing.T) {
 	requireParkOfIntegrateEpic(t, s, "")
 }
 
-// TestRetryFailedIntegrateRefusedForEpicParkedForGood checks that RetryNode of a failed integrate run in an epic parked
-// for good is refused with the park reason, and changes nothing: the run stays failed and the epic stays parked.
-func TestRetryFailedIntegrateRefusedForEpicParkedForGood(t *testing.T) {
+// TestRetryFailedIntegrateRefusedForEpicEndedAtBase checks that RetryNode of a failed integrate run in an epic the owner
+// ended as met at base is refused with the park reason, and changes nothing: the run stays failed and the epic stays
+// parked. R4: the phase is set by the owner's end answer, which the park question of a red run no longer does itself.
+func TestRetryFailedIntegrateRefusedForEpicEndedAtBase(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	failIntegrateRun(t, s, retryLatestBatch, "id-s2", "rev-1", "lint failed")
 	startIntegrateRuns(t, s, NodeRun{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1})
 
-	const reason = "workflow node red: R1 met at the base; parked for good, and a corrected contract is a new epic"
-	if err := s.ParkNodeFinal(ctx, integrateEpic, "red", 1, "failed", "R1 met", reason,
+	const reason = "workflow node red: R1 met at the base; you can retry, drop or end"
+	if err := s.ParkNodeMetAtBase(ctx, integrateEpic, "red", 1, "failed", "R1 met", reason, []string{"R1"},
 		integrateParkedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal: %v", err)
+		t.Fatalf("ParkNodeMetAtBase: %v", err)
+	}
+	if _, err := s.AnswerQuestion(ctx, integrateEpic, "D3", "", 1, ChoiceEnd, integrateParkedAt()); err != nil {
+		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 
 	requireRefusal(t, s.RetryNode(ctx, integrateEpic, "integrate"),

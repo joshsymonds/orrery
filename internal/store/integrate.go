@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +11,8 @@ import (
 
 // The epic phases the integration writes set or reads. An epic is built once the integrate batches of its plan have
 // passed and every Requirement is green at its stored base. An evidence node at the epic's base that finds a Requirement
-// already met parks the epic met_at_base, which is final. A plan that ends built sets built only on an accepted epic.
+// already met parks the epic with a question, and the owner's end answer sets met_at_base. A plan that ends built sets
+// built only on an accepted epic.
 const (
 	phaseAccepted  = "accepted"
 	phaseBuilt     = "built"
@@ -183,33 +185,45 @@ func endAndBuild(ctx context.Context, queries *sqlcgen.Queries, epic string, end
 	return setEpicPhase(ctx, queries, epic, phaseBuilt, at)
 }
 
-// ParkNodeFinal parks the running run at path of epic at attempt as ParkNode does, and sets the phase of epic to
-// met_at_base before it parks epic, so the park question is final, in one write. A park that changes nothing sets no
-// phase. RetryEpic and RetryNode refuse an epic in that phase.
-func (s *Store) ParkNodeFinal(
-	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+// ParkNodeMetAtBase parks the running run at path of epic at attempt with outcome and output, parks epic with reason,
+// adds reason as a tell and opens the park question for met, the Requirements that run judged holding at the epic's
+// base, in one write. The question offers retry, drop and end. The write also keeps the run's path and attempt and met,
+// which answering the question needs. A run at another attempt and a run that is not running change nothing, so a
+// repeat adds no tell. met is not empty.
+func (s *Store) ParkNodeMetAtBase(
+	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string, at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		parked, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
-			Outcome: outcome, Output: capNodeOutput(output), Epic: epic, Path: path, Attempt: attempt,
-		})
-		if err != nil {
-			return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
+		parked, err := parkRunningRun(ctx, queries, epic, path, attempt, outcome, output)
+		if err != nil || !parked {
+			return err
 		}
-		if parked == 0 {
-			return nil
-		}
-		return parkFinal(ctx, queries, epic, reason, at)
+		return parkMetAtBase(ctx, queries, epic, path, attempt, reason, met, at)
 	})
 }
 
-// parkFinal sets the phase of epic to met_at_base and then parks epic with reason and adds reason as a tell, in the
-// caller's write. The phase comes first, so the park question the park opens is final.
-func parkFinal(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
-	if err := setEpicPhase(ctx, queries, epic, phaseMetAtBase, at); err != nil {
+// parkMetAtBase parks epic with reason and opens its park question for met, as metAtBaseQuestion gives it. It stores
+// the run at path of attempt and met under that question, and adds reason as a tell that carries the question's seq, in
+// the caller's write.
+func parkMetAtBase(
+	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, reason string, met []string,
+	at time.Time,
+) error {
+	park := capTurnText(reason)
+	question, err := openPark(ctx, queries, epic, park, metAtBaseQuestion(park, met))
+	if err != nil {
 		return err
 	}
-	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+	encoded, err := json.Marshal(met)
+	if err != nil {
+		return fmt.Errorf("requirements of the park of epic %s: %w", epic, err)
+	}
+	if err = queries.InsertEpicMetAtBase(ctx, sqlcgen.InsertEpicMetAtBaseParams{
+		Epic: epic, Question: question, Path: path, Attempt: attempt, Requirements: string(encoded),
+	}); err != nil {
+		return fmt.Errorf("record the park question %d of epic %s: %w", question, epic, err)
+	}
+	return insertQuestionTell(ctx, queries, epic, park, question, at)
 }
 
 // setEpicPhase stores phase as the phase of epic in the caller's write, at as the time it was set. A phase that epic
@@ -223,7 +237,8 @@ func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase str
 	return nil
 }
 
-// metAtBaseRefusal is the refusal of a retry of an epic that ParkNodeFinal parked for good with reason.
+// metAtBaseRefusal is the refusal of a retry of an epic in phase met_at_base, which the owner's end answer set, with
+// the park reason it is parked with.
 func metAtBaseRefusal(epic, reason string) RefusalError {
 	return RefusalError(fmt.Sprintf("epic %s is parked for good: %s", epic, reason))
 }

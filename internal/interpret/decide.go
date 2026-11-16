@@ -37,8 +37,9 @@ const (
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
 // the Ends, a failed end in a plan body its Trigger, and an end that builds the epic Built. Round and Park name the loop
 // at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
-// its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
-// when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
+// its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason. When Met names
+// Requirements, the evidence node at base found them holding at the base, and the park's question offers them as met.
+// Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
 // parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
 // prepare, start, capture, repro, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
 // Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance
@@ -71,7 +72,7 @@ type Action struct {
 	ReviewRound store.ReviewRound
 	Closures    []store.Closure
 	Phase       string
-	Final       bool
+	Met         []string
 	Built       bool
 }
 
@@ -388,9 +389,10 @@ func (p pass) end(def workflow.Node, run store.NodeRun, act kinds.Action, at sco
 }
 
 // failed decides a check node run that ended failed with output, by where it sits. At the top level it parks, so the
-// flow holds at it, and an evidence node at base that found a Requirement met parks for good. In a loop body it ends
-// with its output, and the round ends. In a plan body it ends with a trigger that wakes the planner. The trigger's id is
-// derived from the run's path, round and attempt, so a restart records it once.
+// flow holds at it, and an evidence node at base that found a Requirement met parks with the question that offers the
+// Requirements as met. In a loop body it ends with its output, and the round ends. In a plan body it ends with a trigger
+// that wakes the planner. The trigger's id is derived from the run's path, round and attempt, so a restart records it
+// once.
 func (p pass) failed(def workflow.Node, run store.NodeRun, output string, at scope) []Action {
 	reason := fmt.Sprintf("workflow node %s failed: %s", run.Path, output)
 	switch at.where {
@@ -404,12 +406,7 @@ func (p pass) failed(def workflow.Node, run store.NodeRun, output string, at sco
 		if met := p.metAtBase(def, run); len(met) > 0 {
 			return []Action{{
 				Kind: ActParkNode, Path: run.Path, Attempt: run.Attempt, Outcome: outcomeFailed, Output: output,
-				Reason: fmt.Sprintf(
-					"workflow node %s: %s met at the epic's base %s; parked for good, "+
-						"and a corrected contract is a new epic",
-					run.Path, strings.Join(met, ", "), p.rows.Epic.Base,
-				),
-				Final: true,
+				Reason: metAtBaseReason(run.Path, met, p.rows.Epic.Base), Met: met,
 			}}
 		}
 		return []Action{{
@@ -417,6 +414,19 @@ func (p pass) failed(def workflow.Node, run store.NodeRun, output string, at sco
 			Reason: reason,
 		}}
 	}
+}
+
+// metAtBaseReason returns the reason an evidence node at base parks with when its red runs judged the Requirements met
+// holding at base. It names the node, the Requirements and the base, and offers the three choices the park's question
+// declares.
+func metAtBaseReason(path string, met []string, base string) string {
+	ids := strings.Join(met, ", ")
+	return fmt.Sprintf(
+		"workflow node %s: %s met at the epic's base %s; you can retry (run the red check of %s again with a fresh "+
+			"judge), drop (drop %s as already met, recorded as your decision, and go on without their red) or end "+
+			"(end the epic)",
+		path, ids, base, ids, ids,
+	)
 }
 
 // metAtBase returns the Requirements that an evidence node at base found met at the epic's base, in contract order. It
