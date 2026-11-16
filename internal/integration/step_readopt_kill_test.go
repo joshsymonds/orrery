@@ -191,7 +191,7 @@ func (r *stepReadoptRig) startStep(t *testing.T) string {
 
 // steps returns the Steps client of the session socket.
 func (r *stepReadoptRig) steps() enginev1connect.StepsClient {
-	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewStepsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // step returns the row of step id as the Steps service reports it.
@@ -220,7 +220,7 @@ func (r *stepReadoptRig) awaitEnd(t *testing.T, id string) *v1.Step {
 // grant holds it. A pool that no grant uses is not in the status, so it holds nothing.
 func (r *stepReadoptRig) heldGrant(t *testing.T) string {
 	t.Helper()
-	pools := enginev1connect.NewPoolsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	pools := enginev1connect.NewPoolsClient(r.f.client, cli.SessionBaseURL)
 	resp, err := pools.Status(t.Context(), connect.NewRequest(&v1.PoolsStatusRequest{}))
 	if err != nil {
 		t.Fatalf("read pool status: %v", err)

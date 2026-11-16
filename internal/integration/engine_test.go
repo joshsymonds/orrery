@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -37,6 +39,9 @@ type engineFixture struct {
 	shell      string
 	env        []string
 	reader     *store.Reader
+	// client is the one HTTP client every RPC of the test sends on the session socket, so the keep-alive connections it
+	// opens are reused and closed at cleanup rather than left open one per call.
+	client *http.Client
 }
 
 // engineBlock is the payload of an engine_block event.
@@ -101,6 +106,8 @@ func newEngineFixture(t *testing.T) *engineFixture {
 	// A test of the store's own creation uses storeFixture, which starts with none.
 	storetest.Seed(t, f.dbPath)
 	f.reader = store.NewReader(f.dbPath)
+	f.client = cli.SessionHTTPClient(f.sessions)
+	t.Cleanup(f.client.CloseIdleConnections)
 	return f
 }
 

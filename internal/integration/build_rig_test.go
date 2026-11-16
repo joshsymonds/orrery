@@ -196,12 +196,12 @@ func (r *buildRig) stepDir(id string) string {
 
 // epics returns the Epics client of the session socket.
 func (r *buildRig) epics() enginev1connect.EpicsClient {
-	return enginev1connect.NewEpicsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewEpicsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // steps returns the Steps client of the session socket.
 func (r *buildRig) steps() enginev1connect.StepsClient {
-	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewStepsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // epic returns the epic as the Epics service reports it.
