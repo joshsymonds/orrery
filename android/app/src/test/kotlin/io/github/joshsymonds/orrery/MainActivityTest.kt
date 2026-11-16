@@ -34,6 +34,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
 import io.github.joshsymonds.orrery.push.PushNotifier
+import io.github.joshsymonds.orrery.ui.SERVER_ASK_TAG
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -274,6 +275,36 @@ class MainActivityTest {
 
         awaitNode(hasTestTag("pane-row:%2"))
         assertAbsent(hasTestTag("pane-row:%1"))
+    }
+
+    @Test
+    fun launchWithNoServerAsksForOneBeforeAnyCallThenListsItsPanes() {
+        context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
+        launch()
+
+        awaitNode(hasTestTag(SERVER_ASK_TAG))
+        assertAbsent(hasTestTag("pane-row:%1"))
+        assertEquals(0, server.requests.size)
+
+        composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
+        composeRule.onNodeWithText("Save").performClick()
+
+        awaitNode(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag(SERVER_ASK_TAG))
+        assertEquals(server.baseUrl, ServerSettings(context).serverUrl)
+    }
+
+    @Test
+    fun launchWithNoServerAndAPaneExtraOpensThatPaneOnceAnAddressIsSaved() {
+        context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
+        launch(extraPane = "%2")
+
+        awaitNode(hasTestTag(SERVER_ASK_TAG))
+        composeRule.onNodeWithTag("server-address").performTextReplacement(server.baseUrl)
+        composeRule.onNodeWithText("Save").performClick()
+
+        awaitNode(titled("alpha-review"))
+        assertAbsent(hasTestTag(SERVER_ASK_TAG))
     }
 
     @Test
