@@ -4,8 +4,12 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -19,10 +23,14 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.awaitUntil
@@ -48,6 +56,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
@@ -67,6 +77,7 @@ import java.util.concurrent.atomic.AtomicReference
 class EpicScreenTest {
     private companion object {
         const val EPIC_ID = "example-repo/example-epic"
+        const val OTHER_EPIC_ID = "example-repo/other-epic"
         const val NOW = 1_800_000_000L
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EPICS_HISTORY = "/orrery.v1.Epics/History"
@@ -75,6 +86,10 @@ class EpicScreenTest {
         const val EPICS_STOP = "/orrery.v1.Epics/Stop"
         const val EPICS_RETRY = "/orrery.v1.Epics/Retry"
         const val EPICS_ANSWER = "/orrery.v1.Epics/Answer"
+        const val EPICS_SEEN = "/orrery.v1.Epics/Seen"
+        // The web's dwell before an ended epic is marked seen (web/src/seen.ts DWELL_MS). A window that must send advances
+        // by twice it: advanceTimeBy leaves a task due at its very end, and a dwell can begin at the instant it is at.
+        const val DWELL_MILLIS = 1_000L
         const val CHANGED = 4_102_444_800L
         const val REVISION = "0123456789abcdef0123456789abcdef01234567"
     }
@@ -111,6 +126,8 @@ class EpicScreenTest {
         buildTasks: List<EpicBuildTask> = emptyList(),
         releaseProof: List<EpicReleaseProof> = emptyList(),
         report: EpicReport? = null,
+        source: String = "orreryd",
+        seen: Long = 0L,
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
             .setId(EPIC_ID)
@@ -123,6 +140,8 @@ class EpicScreenTest {
             .setEndedSteps(steps.count { it.end.isNotEmpty() })
             .setProblem(problem)
             .setPhaseAt(phaseAt)
+            .setSource(source)
+            .setSeen(seen)
         val response = EpicsGetResponse.newBuilder()
             .setEpic(epic)
             .addAllSteps(steps)
@@ -245,21 +264,28 @@ class EpicScreenTest {
         onOpenPhase: ((task: String, phase: Phase) -> Unit)? = null,
         actions: @Composable RowScope.() -> Unit = {},
         handover: (@Composable (EpicDetail) -> Unit)? = null,
+        owner: LifecycleOwner? = null,
+        shown: MutableState<Boolean> = mutableStateOf(true),
+        openEpic: MutableState<String> = mutableStateOf(EPIC_ID),
     ) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
-            EpicScreen(
-                client = client,
-                epicId = EPIC_ID,
-                onBack = { backed.incrementAndGet() },
-                onOpenStep = { openedStep.set(it) },
-                onOpenContract = { contractOpened.incrementAndGet() },
-                listState = listState,
-                onOpenPhase = onOpenPhase,
-                actions = actions,
-                handover = handover,
-                now = { NOW },
-            )
+            CompositionLocalProvider(LocalLifecycleOwner provides (owner ?: LocalLifecycleOwner.current)) {
+                if (shown.value) {
+                    EpicScreen(
+                        client = client,
+                        epicId = openEpic.value,
+                        onBack = { backed.incrementAndGet() },
+                        onOpenStep = { openedStep.set(it) },
+                        onOpenContract = { contractOpened.incrementAndGet() },
+                        listState = listState,
+                        onOpenPhase = onOpenPhase,
+                        actions = actions,
+                        handover = handover,
+                        now = { NOW },
+                    )
+                }
+            }
         }
     }
 
@@ -308,9 +334,34 @@ class EpicScreenTest {
 
     private fun getCount(server: FakeOrreryServer): Int = requestsTo(server, EPICS_GET).size
 
+    private fun seenRequests(server: FakeOrreryServer) = requestsTo(server, EPICS_SEEN)
+
     /** Waits until the epic has been read again, which a command does once it has been sent. */
     private fun awaitReload(server: FakeOrreryServer, afterReads: Int) {
         composeRule.awaitUntil { getCount(server) > afterReads }
+    }
+
+    /** Lets the main thread and every request it started finish, so a Seen the screen sent is on the server. */
+    private fun settle() {
+        Quiescence.awaitUntil("the screen's work settles", step = { composeRule.waitForIdle() }) {
+            Quiescence.inFlight() == null
+        }
+    }
+
+    /** Shows [epic] well past the dwell on a stopped clock, then asserts the screen sent no Seen. */
+    private fun assertNoSeenFor(epic: EpicsGetResponse) {
+        FakeOrreryServer().use { server ->
+            serve(server, epic)
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+            setScreen(server)
+            awaitLoaded()
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            settle()
+
+            assertEquals(0, seenRequests(server).size)
+        }
     }
 
     @Test
@@ -904,4 +955,164 @@ class EpicScreenTest {
             assertEquals(2, backed.get())
         }
     }
+
+    @Test
+    fun anUnseenEndedEpicShownForTheDwellIsMarkedSeenWithItsIdOnce() {
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "released", live = false, phaseAt = NOW - 120))
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+            setScreen(server)
+            awaitLoaded()
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            composeRule.awaitUntil("the epic is marked seen") { seenRequests(server).isNotEmpty() }
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 5)
+            settle()
+
+            val seen = seenRequests(server)
+            assertEquals(1, seen.size)
+            assertEquals(EPIC_ID, EpicsSeenRequest.parseFrom(seen.single().body).id)
+        }
+    }
+
+    @Test
+    fun anUnseenEndedEpicLeftBeforeTheDwellIsNotMarkedSeen() {
+        val shown = mutableStateOf(true)
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "released", live = false, phaseAt = NOW - 120))
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+            setScreen(server, shown = shown)
+            awaitLoaded()
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS / 2)
+            composeRule.runOnIdle { shown.value = false }
+            // Frames move the clock only a few frames here, well short of the dwell, until the screen has left.
+            composeRule.mainClock.autoAdvance = true
+            composeRule.awaitUntil("the epic has left the composition") { countNodes(hasTestTag("epic-section:now")) == 0 }
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            settle()
+
+            assertEquals(0, seenRequests(server).size)
+        }
+    }
+
+    @Test
+    fun anUnseenEndedEpicIsMarkedSeenOnceAndOnlyAfterAFullDwellWhileResumed() {
+        val owner = ManualLifecycleOwner()
+        owner.lifecycle.currentState = Lifecycle.State.RESUMED
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "released", live = false, phaseAt = NOW - 120))
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+            setScreen(server, owner = owner)
+            awaitLoaded()
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS / 2)
+            composeRule.runOnIdle { owner.lifecycle.currentState = Lifecycle.State.STARTED }
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            settle()
+            assertEquals(0, seenRequests(server).size)
+
+            composeRule.runOnIdle { owner.lifecycle.currentState = Lifecycle.State.RESUMED }
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            composeRule.awaitUntil("the epic is marked seen") { seenRequests(server).isNotEmpty() }
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 5)
+            settle()
+            assertEquals(1, seenRequests(server).size)
+
+            // Once marked, the ending stays marked: a pause and a resume after the mark send nothing more.
+            composeRule.runOnIdle { owner.lifecycle.currentState = Lifecycle.State.STARTED }
+            composeRule.runOnIdle { owner.lifecycle.currentState = Lifecycle.State.RESUMED }
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            settle()
+            assertEquals(1, seenRequests(server).size)
+        }
+    }
+
+    @Test
+    fun aSwitchToAnotherEpicBeforeTheDwellMarksOnlyTheEpicThatStaysOpen() {
+        val openEpic = mutableStateOf(EPIC_ID)
+        FakeOrreryServer().use { server ->
+            serve(server, body(outcome = "released", live = false, phaseAt = NOW - 120))
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+            setScreen(server, openEpic = openEpic)
+            awaitLoaded()
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS / 2)
+            val reads = getCount(server)
+            composeRule.runOnIdle { openEpic.value = OTHER_EPIC_ID }
+            // The screen reads the other epic and draws it again. Its dwell starts only once it is drawn, and the first
+            // epic's dwell ended with the switch.
+            composeRule.mainClock.autoAdvance = true
+            composeRule.awaitUntil("the other epic is drawn") {
+                getCount(server) > reads && countNodes(hasTestTag("epic-section:now")) > 0
+            }
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            composeRule.awaitUntil("the epic that stays open is marked seen") { seenRequests(server).isNotEmpty() }
+            settle()
+
+            val seen = seenRequests(server)
+            assertEquals(1, seen.size)
+            assertEquals(OTHER_EPIC_ID, EpicsSeenRequest.parseFrom(seen.single().body).id)
+        }
+    }
+
+    @Test
+    fun aSeenEndedEpicSendsNoSeen() {
+        assertNoSeenFor(body(outcome = "released", live = false, phaseAt = NOW - 120, seen = NOW - 60))
+    }
+
+    @Test
+    fun aLiveEpicSendsNoSeen() {
+        assertNoSeenFor(body(live = true, phaseAt = NOW - 120))
+    }
+
+    @Test
+    fun aRecordEpicSendsNoSeen() {
+        assertNoSeenFor(body(outcome = "released", live = false, phaseAt = NOW - 120, source = "record"))
+    }
+
+    @Test
+    fun aLiveEpicWhoseNextLoadAnswersReleasedStaysOnScreenAndIsMarkedSeen() {
+        val reads = AtomicInteger()
+        FakeOrreryServer().use { server ->
+            server.route(EPICS_GET) {
+                val live = reads.incrementAndGet() == 1
+                Reply.Message(body(live = live, outcome = if (live) "" else "released", phaseAt = NOW - 60), 0L)
+            }
+            server.respond(EPICS_HISTORY, historyOf())
+            server.respond(EPICS_PAUSE, EpicsPauseResponse.getDefaultInstance())
+            server.respond(EPICS_SEEN, EpicsSeenResponse.getDefaultInstance())
+            setScreen(server)
+            awaitTag("epic-pause")
+
+            val reloads = getCount(server)
+            clickTag("epic-pause")
+            awaitReload(server, reloads)
+            composeRule.awaitUntil("the epic reads as not live") { countNodes(hasTestTag("epic-pause")) == 0 }
+
+            assertEquals(0, countNodes(hasText("epic not found")))
+            assertEquals(1, countNodes(hasTestTag("epic-section:now")))
+
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(DWELL_MILLIS * 2)
+            composeRule.awaitUntil("the epic is marked seen") { seenRequests(server).isNotEmpty() }
+            settle()
+
+            val seen = seenRequests(server)
+            assertEquals(1, seen.size)
+            assertEquals(EPIC_ID, EpicsSeenRequest.parseFrom(seen.single().body).id)
+        }
+    }
+}
+
+/** An owner whose lifecycle the test moves, as the activity's is moved when the app pauses or resumes. */
+private class ManualLifecycleOwner : LifecycleOwner {
+    private val registry = LifecycleRegistry(this)
+    override val lifecycle: LifecycleRegistry get() = registry
 }

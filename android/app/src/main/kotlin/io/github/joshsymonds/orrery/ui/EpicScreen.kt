@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -16,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,14 +26,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
+import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -49,6 +57,11 @@ private const val RELEASED = "released"
 // The notice a command leaves when the epic could not be reached.
 private const val UNREACHABLE = "could not reach the epic"
 
+// How long the screen rests on an ended epic before orreryd is told the owner has seen it: the web's dwell (DWELL_MS).
+private const val SEEN_DWELL_MILLIS = 1_000L
+
+private const val TAG = "EpicScreen"
+
 /**
  * One epic as one scrolling list, in the epic page's order: its summary when it has a contract, what is happening now
  * (the problem and the blocker), the red proof, the implementation (the orrery, the now and next rows, what just
@@ -56,7 +69,8 @@ private const val UNREACHABLE = "could not reach the epic"
  * section is one item, tagged "epic-section:[name]". A tap on a step calls [onOpenStep] with it, a tap on the summary
  * calls [onOpenContract], and a tap on the orrery, a proof card or a row calls [onOpenPhase]. [actions] render first in
  * the title row. [listState] is the list's state, so the caller keeps its scroll. Back and the first crumb call [onBack].
- * A command runs off the main thread, then the epic is read again; a command that did not land shows as a notice.
+ * A command runs off the main thread, then the epic is read again; a command that did not land shows as a notice. An
+ * ended orreryd epic the owner has not seen is marked seen once the screen has rested on it for a second while resumed.
  */
 @Composable
 fun EpicScreen(
@@ -110,6 +124,35 @@ fun EpicScreen(
 
     val current = load
     val detail = (current as? EpicLoad.Loaded)?.detail
+    // The ending this screen marks seen, 0 for none. A reload that still shows the same unseen ending keeps the same key,
+    // so it does not start the dwell again.
+    val unseenEnding = detail?.epic?.unseenEndingAt() ?: 0L
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(client, epicId, unseenEnding, lifecycle) {
+        var dwell: Job? = null
+        // Set when the dwell completes, so a resume after it does not send the mark again.
+        var marked = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    if (unseenEnding != 0L && !marked) {
+                        dwell = scope.launch {
+                            delay(SEEN_DWELL_MILLIS)
+                            marked = true
+                            markSeen(client, epicId)
+                        }
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE -> dwell?.cancel()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            dwell?.cancel()
+        }
+    }
     val nowAt = now()
     Column(modifier = modifier.fillMaxSize()) {
         TitleRow(
@@ -193,6 +236,23 @@ private fun noticeOf(call: () -> StepCallResult, answer: String): String {
         UNREACHABLE
     }
     return if (answer.isEmpty()) "not sent: $reason" else "not sent: $reason. Your answer: $answer"
+}
+
+// unseenEndingAt is the phase an orreryd epic ended at, when the owner has not seen it since: the ending the dwell marks.
+// 0 for a live epic, a record epic, or one seen since it ended.
+private fun EpicRow.unseenEndingAt(): Long = if (source == "orreryd" && !live && seen < phaseAt) phaseAt else 0L
+
+// markSeen tells orreryd the owner saw the epic. A mark that does not land is logged: no control on the screen asked for
+// it, so nothing shows it.
+private suspend fun markSeen(client: OrreryClient, epicId: String) {
+    try {
+        when (val result = withContext(Dispatchers.IO) { client.seeEpic(epicId) }) {
+            StepCallResult.Landed -> Unit
+            is StepCallResult.Refused -> Log.w(TAG, "could not mark $epicId seen: ${result.message}")
+        }
+    } catch (error: IOException) {
+        Log.w(TAG, "could not mark $epicId seen", error)
+    }
 }
 
 // stateLineOf is the epic's state for the title row: its state word, and its time once its phase has begun, never below
