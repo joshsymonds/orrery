@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -262,5 +263,117 @@ func TestEngineHistoryReadsStepKindWithNoUnfinishedText(t *testing.T) {
 	}
 	if len(history.Unfinished) != 0 {
 		t.Fatalf("unfinished: got %+v, want none", history.Unfinished)
+	}
+}
+
+// olderEngineStore writes engine session e1 with replies 1 through replies, and step session s1 with a reply after
+// every third reply of e1, so the events of the two sessions interleave in seq order. It returns the store path.
+func olderEngineStore(t *testing.T, replies int) string {
+	t.Helper()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	ops := []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "idle"},
+		EngineAdd{ID: "s1", Dir: "/b", State: "idle", Kind: KindStep},
+	}
+	for n := 1; n <= replies; n++ {
+		ops = append(ops, EngineBlock{
+			ID:        "e1",
+			Kind:      "text",
+			Role:      "assistant",
+			MessageID: fmt.Sprintf("e1-%d", n),
+			Text:      fmt.Sprintf("reply %d", n),
+		})
+		if n%3 == 0 {
+			ops = append(ops, EngineBlock{
+				ID:        "s1",
+				Kind:      "text",
+				Role:      "assistant",
+				MessageID: fmt.Sprintf("s1-%d", n),
+				Text:      fmt.Sprintf("step %d", n),
+			})
+		}
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	return path
+}
+
+// TestEngineEventsBeforeOlderPagesEveryEventOnce pages back through a session of more than 100 events, and through a
+// step session interleaved with it, seven events at a time from past its newest seq. The pages hold every event of the
+// session once, in seq order, and each page reports the session's kind.
+func TestEngineEventsBeforeOlderPagesEveryEventOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := NewReader(olderEngineStore(t, 150))
+
+	for _, tc := range []struct {
+		id   string
+		kind string
+	}{{"e1", KindEngine}, {"s1", KindStep}} {
+		full, err := r.EngineHistory(ctx, tc.id, 0, 10000)
+		if err != nil {
+			t.Fatalf("EngineHistory(%s): %v", tc.id, err)
+		}
+		if tc.id == "e1" && len(full.Events) <= 100 {
+			t.Fatalf("session %s holds %d events, want more than 100", tc.id, len(full.Events))
+		}
+		var newestFirst []EngineEvent
+		before := full.Events[len(full.Events)-1].Seq + 1
+		for {
+			page, pageErr := r.EngineEventsBefore(ctx, tc.id, before, 7)
+			if pageErr != nil {
+				t.Fatalf("EngineEventsBefore(%s, %d): %v", tc.id, before, pageErr)
+			}
+			if page.Kind != tc.kind {
+				t.Fatalf("EngineEventsBefore(%s) kind = %q, want %q", tc.id, page.Kind, tc.kind)
+			}
+			if len(page.Events) == 0 {
+				break
+			}
+			if len(page.Events) > 7 {
+				t.Fatalf("page of %d events, want at most 7", len(page.Events))
+			}
+			newestFirst = append(newestFirst, page.Events...)
+			before = page.Events[len(page.Events)-1].Seq
+		}
+		got := make([]EngineEvent, 0, len(newestFirst))
+		for i := len(newestFirst) - 1; i >= 0; i-- {
+			got = append(got, newestFirst[i])
+		}
+		if !reflect.DeepEqual(got, full.Events) {
+			t.Fatalf("session %s paged events: got %d, want the %d events of EngineHistory in order",
+				tc.id, len(got), len(full.Events))
+		}
+	}
+}
+
+// TestEngineEventsBeforeOlderErrors checks the errors EngineEventsBefore returns, which are the errors EngineHistory
+// returns: an unknown id and a pane id match ErrNoEngineSession, a missing store matches ErrUnavailable and is not
+// created, and a limit below 1 is an error.
+func TestEngineEventsBeforeOlderErrors(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r := NewReader(engineHistoryStore(t))
+
+	for _, id := range []string{"nope", "orrery-1"} {
+		if _, err := r.EngineEventsBefore(ctx, id, 100, 10); !errors.Is(err, ErrNoEngineSession) {
+			t.Fatalf("EngineEventsBefore(%s): got %v, want ErrNoEngineSession", id, err)
+		}
+	}
+	if _, err := r.EngineEventsBefore(ctx, "e1", 100, 0); err == nil {
+		t.Fatal("EngineEventsBefore with limit 0: got no error")
+	}
+
+	dir := filepath.Join(t.TempDir(), "absent")
+	path := filepath.Join(dir, "orrery.db")
+	_, err := NewReader(path).EngineEventsBefore(ctx, "e1", 100, 10)
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("EngineEventsBefore of missing store: got %v, want ErrUnavailable", err)
+	}
+	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("missing store's directory was created or unreadable: %v", statErr)
 	}
 }

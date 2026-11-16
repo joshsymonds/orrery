@@ -138,4 +138,19 @@ public class PanesClient(
     ),
   )
 
+
+  /**
+   *  Older returns the items of one pane's Claude transcript older than a line start of it, the newest page first.
+   */
+  override suspend fun older(request: OlderRequest, headers: Headers): ResponseMessage<OlderResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Panes/Older",
+      io.github.joshsymonds.orrery.gen.orrery.v1.OlderRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.OlderResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

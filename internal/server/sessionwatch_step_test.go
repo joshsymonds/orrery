@@ -130,6 +130,7 @@ func TestSessionWatchStreamsLabeledStepFirstDelta(t *testing.T) {
 		Transcript: stepSessionName,
 		Seq:        3,
 		Reset_:     true,
+		Oldest:     2,
 		Items:      []*orreryv1.ConversationItem{stepPromptItem(), reply(1)},
 		State: &orreryv1.ConversationState{
 			Origin: "fix the bug",
@@ -225,6 +226,7 @@ func TestSessionWatchEngineSessionNeverAsksStepStatus(t *testing.T) {
 		Transcript: eventEngine,
 		Seq:        3,
 		Reset_:     true,
+		Oldest:     2,
 		Items:      []*orreryv1.ConversationItem{stepPromptItem(), reply(1)},
 		State: &orreryv1.ConversationState{
 			Origin:  "fix the bug",

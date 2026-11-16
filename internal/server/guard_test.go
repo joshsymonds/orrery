@@ -14,6 +14,7 @@ func phoneProcedures() []string {
 	return []string{
 		orreryv1connect.SessionsListHeadlessProcedure,
 		orreryv1connect.SessionsWatchConversationProcedure,
+		orreryv1connect.SessionsOlderProcedure,
 		orreryv1connect.PanesListProcedure,
 		orreryv1connect.PanesScreenProcedure,
 		orreryv1connect.PanesConversationProcedure,
@@ -22,6 +23,7 @@ func phoneProcedures() []string {
 		orreryv1connect.PanesMarkSeenProcedure,
 		orreryv1connect.PanesPullQueuedProcedure,
 		orreryv1connect.PanesWatchConversationProcedure,
+		orreryv1connect.PanesOlderProcedure,
 		orreryv1connect.HostStatusProcedure,
 		orreryv1connect.PresenceReportProcedure,
 		orreryv1connect.PushRegisterProcedure,

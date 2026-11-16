@@ -104,7 +104,8 @@ func applyFollow(state *followState, line []byte) {
 }
 
 // ReadEnd returns what Read returns for the transcript at path, from one size of the file, and the offset just past
-// the last complete line of that size. The offset is 0 when the file has no complete line.
+// the last complete line of that size. The offset is 0 when the file has no complete line. Its Oldest is the line start
+// of the oldest line that yields one of its items, so a read from Oldest reaches every item the read left out.
 func ReadEnd(path string, limit int) (Conversation, int64, error) {
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -117,8 +118,12 @@ func ReadEnd(path string, limit int) (Conversation, int64, error) {
 		return Conversation{}, 0, fmt.Errorf("stat transcript: %w", err)
 	}
 	size := info.Size()
+	end, err := lastLineEnd(file, size)
+	if err != nil {
+		return Conversation{}, 0, err
+	}
 
-	items, tokens, err := newestItems(file, size, limit)
+	page, tokens, err := newestItems(file, size, end, limit, true)
 	if err != nil {
 		return Conversation{}, 0, err
 	}
@@ -126,11 +131,9 @@ func ReadEnd(path string, limit int) (Conversation, int64, error) {
 	if err != nil {
 		return Conversation{}, 0, err
 	}
-	end, err := lastLineEnd(file, size)
-	if err != nil {
-		return Conversation{}, 0, err
-	}
-	return Conversation{Origin: origin, Items: items, Context: Context{Tokens: tokens, Window: contextWindow}}, end, nil
+	conv := Conversation{Origin: origin, Items: page.Items, Context: Context{Tokens: tokens, Window: contextWindow}}
+	conv.Oldest = page.Oldest
+	return conv, end, nil
 }
 
 // lastLineEnd returns the offset just past the last newline of src before size, or 0 when there is none. It reads

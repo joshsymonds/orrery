@@ -27,4 +27,9 @@ public interface SessionsClientInterface {
    *  a reset with the newest items when the client holds none, then the deltas that follow each change.
    */
   public suspend fun watchConversation(headers: Headers = emptyMap()): ServerOnlyStreamInterface<SessionsWatchConversationRequest, SessionsWatchConversationResponse>
+
+  /**
+   *  Older returns the main-thread items of one headless session older than a seq, the newest page first.
+   */
+  public suspend fun older(request: SessionsOlderRequest, headers: Headers = emptyMap()): ResponseMessage<SessionsOlderResponse>
 }

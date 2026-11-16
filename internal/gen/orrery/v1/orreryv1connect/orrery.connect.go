@@ -56,6 +56,8 @@ const (
 	// SessionsWatchConversationProcedure is the fully-qualified name of the Sessions's
 	// WatchConversation RPC.
 	SessionsWatchConversationProcedure = "/orrery.v1.Sessions/WatchConversation"
+	// SessionsOlderProcedure is the fully-qualified name of the Sessions's Older RPC.
+	SessionsOlderProcedure = "/orrery.v1.Sessions/Older"
 	// EventsWatchProcedure is the fully-qualified name of the Events's Watch RPC.
 	EventsWatchProcedure = "/orrery.v1.Events/Watch"
 	// ControlStartProcedure is the fully-qualified name of the Control's Start RPC.
@@ -88,6 +90,8 @@ const (
 	PanesPullQueuedProcedure = "/orrery.v1.Panes/PullQueued"
 	// PanesWatchConversationProcedure is the fully-qualified name of the Panes's WatchConversation RPC.
 	PanesWatchConversationProcedure = "/orrery.v1.Panes/WatchConversation"
+	// PanesOlderProcedure is the fully-qualified name of the Panes's Older RPC.
+	PanesOlderProcedure = "/orrery.v1.Panes/Older"
 	// HostStatusProcedure is the fully-qualified name of the Host's Status RPC.
 	HostStatusProcedure = "/orrery.v1.Host/Status"
 	// PresenceReportProcedure is the fully-qualified name of the Presence's Report RPC.
@@ -117,6 +121,8 @@ type SessionsClient interface {
 	// WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
 	// a reset with the newest items when the client holds none, then the deltas that follow each change.
 	WatchConversation(context.Context, *connect.Request[v1.SessionsWatchConversationRequest]) (*connect.ServerStreamForClient[v1.SessionsWatchConversationResponse], error)
+	// Older returns the main-thread items of one headless session older than a seq, the newest page first.
+	Older(context.Context, *connect.Request[v1.SessionsOlderRequest]) (*connect.Response[v1.SessionsOlderResponse], error)
 }
 
 // NewSessionsClient constructs a client for the orrery.v1.Sessions service. By default, it uses the
@@ -148,6 +154,12 @@ func NewSessionsClient(httpClient connect.HTTPClient, baseURL string, opts ...co
 			connect.WithSchema(sessionsMethods.ByName("WatchConversation")),
 			connect.WithClientOptions(opts...),
 		),
+		older: connect.NewClient[v1.SessionsOlderRequest, v1.SessionsOlderResponse](
+			httpClient,
+			baseURL+SessionsOlderProcedure,
+			connect.WithSchema(sessionsMethods.ByName("Older")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -156,6 +168,7 @@ type sessionsClient struct {
 	list              *connect.Client[v1.ListRequest, v1.ListResponse]
 	listHeadless      *connect.Client[v1.ListHeadlessRequest, v1.ListHeadlessResponse]
 	watchConversation *connect.Client[v1.SessionsWatchConversationRequest, v1.SessionsWatchConversationResponse]
+	older             *connect.Client[v1.SessionsOlderRequest, v1.SessionsOlderResponse]
 }
 
 // List calls orrery.v1.Sessions.List.
@@ -173,6 +186,11 @@ func (c *sessionsClient) WatchConversation(ctx context.Context, req *connect.Req
 	return c.watchConversation.CallServerStream(ctx, req)
 }
 
+// Older calls orrery.v1.Sessions.Older.
+func (c *sessionsClient) Older(ctx context.Context, req *connect.Request[v1.SessionsOlderRequest]) (*connect.Response[v1.SessionsOlderResponse], error) {
+	return c.older.CallUnary(ctx, req)
+}
+
 // SessionsHandler is an implementation of the orrery.v1.Sessions service.
 type SessionsHandler interface {
 	// List returns every tracked session.
@@ -182,6 +200,8 @@ type SessionsHandler interface {
 	// WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
 	// a reset with the newest items when the client holds none, then the deltas that follow each change.
 	WatchConversation(context.Context, *connect.Request[v1.SessionsWatchConversationRequest], *connect.ServerStream[v1.SessionsWatchConversationResponse]) error
+	// Older returns the main-thread items of one headless session older than a seq, the newest page first.
+	Older(context.Context, *connect.Request[v1.SessionsOlderRequest]) (*connect.Response[v1.SessionsOlderResponse], error)
 }
 
 // NewSessionsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -209,6 +229,12 @@ func NewSessionsHandler(svc SessionsHandler, opts ...connect.HandlerOption) (str
 		connect.WithSchema(sessionsMethods.ByName("WatchConversation")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionsOlderHandler := connect.NewUnaryHandler(
+		SessionsOlderProcedure,
+		svc.Older,
+		connect.WithSchema(sessionsMethods.ByName("Older")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Sessions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionsListProcedure:
@@ -217,6 +243,8 @@ func NewSessionsHandler(svc SessionsHandler, opts ...connect.HandlerOption) (str
 			sessionsListHeadlessHandler.ServeHTTP(w, r)
 		case SessionsWatchConversationProcedure:
 			sessionsWatchConversationHandler.ServeHTTP(w, r)
+		case SessionsOlderProcedure:
+			sessionsOlderHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -236,6 +264,10 @@ func (UnimplementedSessionsHandler) ListHeadless(context.Context, *connect.Reque
 
 func (UnimplementedSessionsHandler) WatchConversation(context.Context, *connect.Request[v1.SessionsWatchConversationRequest], *connect.ServerStream[v1.SessionsWatchConversationResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Sessions.WatchConversation is not implemented"))
+}
+
+func (UnimplementedSessionsHandler) Older(context.Context, *connect.Request[v1.SessionsOlderRequest]) (*connect.Response[v1.SessionsOlderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Sessions.Older is not implemented"))
 }
 
 // EventsClient is a client for the orrery.v1.Events service.
@@ -571,6 +603,8 @@ type PanesClient interface {
 	// WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
 	// and the whole state, then the deltas that follow each change.
 	WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest]) (*connect.ServerStreamForClient[v1.WatchConversationResponse], error)
+	// Older returns the items of one pane's Claude transcript older than a line start of it, the newest page first.
+	Older(context.Context, *connect.Request[v1.OlderRequest]) (*connect.Response[v1.OlderResponse], error)
 }
 
 // NewPanesClient constructs a client for the orrery.v1.Panes service. By default, it uses the
@@ -632,6 +666,12 @@ func NewPanesClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(panesMethods.ByName("WatchConversation")),
 			connect.WithClientOptions(opts...),
 		),
+		older: connect.NewClient[v1.OlderRequest, v1.OlderResponse](
+			httpClient,
+			baseURL+PanesOlderProcedure,
+			connect.WithSchema(panesMethods.ByName("Older")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -645,6 +685,7 @@ type panesClient struct {
 	markSeen          *connect.Client[v1.MarkSeenRequest, v1.MarkSeenResponse]
 	pullQueued        *connect.Client[v1.PullQueuedRequest, v1.PullQueuedResponse]
 	watchConversation *connect.Client[v1.WatchConversationRequest, v1.WatchConversationResponse]
+	older             *connect.Client[v1.OlderRequest, v1.OlderResponse]
 }
 
 // List calls orrery.v1.Panes.List.
@@ -687,6 +728,11 @@ func (c *panesClient) WatchConversation(ctx context.Context, req *connect.Reques
 	return c.watchConversation.CallServerStream(ctx, req)
 }
 
+// Older calls orrery.v1.Panes.Older.
+func (c *panesClient) Older(ctx context.Context, req *connect.Request[v1.OlderRequest]) (*connect.Response[v1.OlderResponse], error) {
+	return c.older.CallUnary(ctx, req)
+}
+
 // PanesHandler is an implementation of the orrery.v1.Panes service.
 type PanesHandler interface {
 	// List returns every tracked pane.
@@ -708,6 +754,8 @@ type PanesHandler interface {
 	// WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
 	// and the whole state, then the deltas that follow each change.
 	WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest], *connect.ServerStream[v1.WatchConversationResponse]) error
+	// Older returns the items of one pane's Claude transcript older than a line start of it, the newest page first.
+	Older(context.Context, *connect.Request[v1.OlderRequest]) (*connect.Response[v1.OlderResponse], error)
 }
 
 // NewPanesHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -765,6 +813,12 @@ func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(panesMethods.ByName("WatchConversation")),
 		connect.WithHandlerOptions(opts...),
 	)
+	panesOlderHandler := connect.NewUnaryHandler(
+		PanesOlderProcedure,
+		svc.Older,
+		connect.WithSchema(panesMethods.ByName("Older")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Panes/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PanesListProcedure:
@@ -783,6 +837,8 @@ func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, h
 			panesPullQueuedHandler.ServeHTTP(w, r)
 		case PanesWatchConversationProcedure:
 			panesWatchConversationHandler.ServeHTTP(w, r)
+		case PanesOlderProcedure:
+			panesOlderHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -822,6 +878,10 @@ func (UnimplementedPanesHandler) PullQueued(context.Context, *connect.Request[v1
 
 func (UnimplementedPanesHandler) WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest], *connect.ServerStream[v1.WatchConversationResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.WatchConversation is not implemented"))
+}
+
+func (UnimplementedPanesHandler) Older(context.Context, *connect.Request[v1.OlderRequest]) (*connect.Response[v1.OlderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.Older is not implemented"))
 }
 
 // HostClient is a client for the orrery.v1.Host service.

@@ -133,6 +133,14 @@ func (f *urlFake) WatchConversation(
 	return connect.NewError(connect.CodeUnimplemented, errors.New("not used by session --url"))
 }
 
+// Older is not used by `session --url`; the fake answers it unimplemented.
+func (f *urlFake) Older(
+	context.Context,
+	*connect.Request[orreryv1.SessionsOlderRequest],
+) (*connect.Response[orreryv1.SessionsOlderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("not used by session --url"))
+}
+
 func (f *urlFake) Watch(
 	_ context.Context,
 	req *connect.Request[orreryv1.WatchRequest],

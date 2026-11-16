@@ -150,6 +150,11 @@ SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
 
+-- name: SessionEventsBefore :many
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
+WHERE session_id = ? AND seq < ?
+ORDER BY seq DESC LIMIT ?;
+
 -- name: LastTurnEnds :many
 SELECT events.session_id, CAST(MAX(events.at) AS INTEGER) AS at FROM events
 WHERE events.kind = 'session_changed' AND json_extract(events.payload, '$.fields.state') = 'done'

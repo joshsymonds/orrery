@@ -36,6 +36,13 @@ type EngineHistory struct {
 	Unfinished []UnfinishedText
 }
 
+// EngineEventPage is the events of a headless engine session before a seq, newest first, and the session's kind.
+// Kind is KindEngine or KindStep.
+type EngineEventPage struct {
+	Kind   string
+	Events []EngineEvent
+}
+
 // EngineHistory reads the engine session id: its current state, and at most limit events with seq greater than
 // after, in seq order with their raw payloads. It does both in one read transaction on a connection it opens and
 // closes. It returns an error that matches ErrNoEngineSession when no engine session has the id, an error that
@@ -45,58 +52,102 @@ func (r *Reader) EngineHistory(ctx context.Context, id string, after int64, limi
 	if limit < 1 {
 		return EngineHistory{}, fmt.Errorf("engine history limit %d: must be at least 1", limit)
 	}
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	var history EngineHistory
+	err := r.readEngine(ctx, func(queries *sqlcgen.Queries) error {
+		var err error
+		history, err = readEngineHistory(ctx, queries, id, after, limit)
+		return err
+	})
 	if err != nil {
-		return EngineHistory{}, fmt.Errorf("open store reader: %w", err)
-	}
-	history, err := readEngineHistory(ctx, db, id, after, limit)
-	if closeErr := db.Close(); closeErr != nil {
-		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
-	}
-	if err != nil {
-		if unavailable(err) {
-			return EngineHistory{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
-		}
 		return EngineHistory{}, err
 	}
 	return history, nil
 }
 
-// readEngineHistory runs the row read, the event read and the unfinished text read in one read transaction, so they
-// describe the same moment.
-func readEngineHistory(ctx context.Context, db *sql.DB, id string, after int64, limit int) (EngineHistory, error) {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+// EngineEventsBefore reads the events of the engine or step session id with a seq below before: at most limit of
+// them, newest first, with their raw payloads, and the session's kind. It does both in one read transaction on a
+// connection it opens and closes. It returns the errors EngineHistory returns: one that matches ErrNoEngineSession
+// when no engine session has the id, one that matches ErrUnavailable when the file is missing or the database is
+// busy, and an error when limit is below 1.
+func (r *Reader) EngineEventsBefore(ctx context.Context, id string, before int64, limit int) (EngineEventPage, error) {
+	if limit < 1 {
+		return EngineEventPage{}, fmt.Errorf("engine events limit %d: must be at least 1", limit)
+	}
+	var page EngineEventPage
+	err := r.readEngine(ctx, func(queries *sqlcgen.Queries) error {
+		var err error
+		page, err = readEngineEventsBefore(ctx, queries, id, before, limit)
+		return err
+	})
 	if err != nil {
-		return EngineHistory{}, fmt.Errorf("begin store read: %w", err)
+		return EngineEventPage{}, err
 	}
-	history, err := readEngineHistoryInTx(ctx, tx, id, after, limit)
-	if err != nil {
-		return EngineHistory{}, errors.Join(err, tx.Rollback())
-	}
-	if err = tx.Commit(); err != nil {
-		return EngineHistory{}, fmt.Errorf("end store read: %w", err)
-	}
-	return history, nil
+	return page, nil
 }
 
-func readEngineHistoryInTx(ctx context.Context, tx *sql.Tx, id string, after int64, limit int) (EngineHistory, error) {
-	queries := sqlcgen.New(tx)
+// readEngine opens a read-only connection to the store, runs read in one read transaction on it, and closes the
+// connection. It never creates the file and never writes the database. An error that read returns matches
+// ErrUnavailable when the file is missing or the database is busy.
+func (r *Reader) readEngine(ctx context.Context, read func(queries *sqlcgen.Queries) error) error {
+	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	if err != nil {
+		return fmt.Errorf("open store reader: %w", err)
+	}
+	err = readEngineTx(ctx, db, read)
+	if closeErr := db.Close(); closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
+	}
+	if err != nil && unavailable(err) {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	return err
+}
+
+// readEngineTx runs read in one read transaction on db, so the reads it makes describe the same moment.
+func readEngineTx(ctx context.Context, db *sql.DB, read func(queries *sqlcgen.Queries) error) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("begin store read: %w", err)
+	}
+	if err = read(sqlcgen.New(tx)); err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("end store read: %w", err)
+	}
+	return nil
+}
+
+// engineSession returns the row of the engine or step session id, or an error that matches ErrNoEngineSession when
+// no such session exists.
+func engineSession(ctx context.Context, queries *sqlcgen.Queries, id string) (sqlcgen.Session, error) {
 	session, err := queries.GetEngineSession(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return EngineHistory{}, fmt.Errorf("%w: %s", ErrNoEngineSession, id)
+		return sqlcgen.Session{}, fmt.Errorf("%w: %s", ErrNoEngineSession, id)
 	}
 	if err != nil {
-		return EngineHistory{}, fmt.Errorf("read engine session %s: %w", id, err)
+		return sqlcgen.Session{}, fmt.Errorf("read engine session %s: %w", id, err)
+	}
+	return session, nil
+}
+
+// readEngineHistory reads the row, the events after after, and the unfinished text of the engine session id.
+func readEngineHistory(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	id string,
+	after int64,
+	limit int,
+) (EngineHistory, error) {
+	session, err := engineSession(ctx, queries, id)
+	if err != nil {
+		return EngineHistory{}, err
 	}
 	rows, err := queries.SessionEventsAfter(ctx, sqlcgen.SessionEventsAfterParams{
 		SessionID: id, Seq: after, Limit: int64(limit),
 	})
 	if err != nil {
 		return EngineHistory{}, fmt.Errorf("read events of engine session %s after seq %d: %w", id, after, err)
-	}
-	events := make([]EngineEvent, 0, len(rows))
-	for _, row := range rows {
-		events = append(events, EngineEvent{Seq: row.Seq, Kind: row.Kind, At: row.At, Payload: row.Payload})
 	}
 	texts, err := queries.ListEngineText(ctx, id)
 	if err != nil {
@@ -112,6 +163,37 @@ func readEngineHistoryInTx(ctx context.Context, tx *sql.Tx, id string, after int
 	return EngineHistory{
 		Kind: session.Kind, Dir: session.Dir, State: session.State, Changed: session.Changed,
 		Seen: session.Seen, Question: session.Question, Reason: session.Reason,
-		Events: events, Unfinished: unfinished,
+		Events: engineEvents(rows), Unfinished: unfinished,
 	}, nil
+}
+
+// readEngineEventsBefore reads the kind and the events with a seq below before of the engine session id, newest
+// first, at most limit of them.
+func readEngineEventsBefore(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	id string,
+	before int64,
+	limit int,
+) (EngineEventPage, error) {
+	session, err := engineSession(ctx, queries, id)
+	if err != nil {
+		return EngineEventPage{}, err
+	}
+	rows, err := queries.SessionEventsBefore(ctx, sqlcgen.SessionEventsBeforeParams{
+		SessionID: id, Seq: before, Limit: int64(limit),
+	})
+	if err != nil {
+		return EngineEventPage{}, fmt.Errorf("read events of engine session %s before seq %d: %w", id, before, err)
+	}
+	return EngineEventPage{Kind: session.Kind, Events: engineEvents(rows)}, nil
+}
+
+// engineEvents converts the event rows of an engine session to EngineEvents, in the order of rows.
+func engineEvents(rows []sqlcgen.Event) []EngineEvent {
+	events := make([]EngineEvent, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, EngineEvent{Seq: row.Seq, Kind: row.Kind, At: row.At, Payload: row.Payload})
+	}
+	return events
 }

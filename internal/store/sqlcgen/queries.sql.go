@@ -6041,6 +6041,49 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 	return items, nil
 }
 
+const sessionEventsBefore = `-- name: SessionEventsBefore :many
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
+WHERE session_id = ? AND seq < ?
+ORDER BY seq DESC LIMIT ?
+`
+
+type SessionEventsBeforeParams struct {
+	SessionID string
+	Seq       int64
+	Limit     int64
+}
+
+func (q *Queries) SessionEventsBefore(ctx context.Context, arg SessionEventsBeforeParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, sessionEventsBefore, arg.SessionID, arg.Seq, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.Seq,
+			&i.SessionID,
+			&i.Kind,
+			&i.At,
+			&i.Payload,
+			&i.WriteID,
+			&i.Answered,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setEpicBranch = `-- name: SetEpicBranch :exec
 UPDATE epics SET branch = ? WHERE id = ?
 `

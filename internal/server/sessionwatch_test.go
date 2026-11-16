@@ -209,8 +209,8 @@ func seedSessionReplies(t *testing.T, s *store.Store, count int) {
 }
 
 // TestSessionWatchFirstDeltaResetsWithNewestItems opens the stream at seq 0 with a limit of 2 over a session of
-// three replies. The first delta is a reset with the two newest replies, the whole state, and the seq of the newest
-// event.
+// three replies. The first delta is a reset with the two newest replies, the whole state, the seq of the newest event,
+// and the seq of the oldest reply it carries, which is reply 2 at seq 4.
 func TestSessionWatchFirstDeltaResetsWithNewestItems(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
@@ -224,6 +224,7 @@ func TestSessionWatchFirstDeltaResetsWithNewestItems(t *testing.T) {
 		Transcript: eventEngine,
 		Seq:        5,
 		Reset_:     true,
+		Oldest:     4,
 		Items:      []*orreryv1.ConversationItem{reply(2), reply(3)},
 		State: &orreryv1.ConversationState{
 			Origin:  "fix the bug",
