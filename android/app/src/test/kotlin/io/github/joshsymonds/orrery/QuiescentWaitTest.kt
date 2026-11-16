@@ -87,7 +87,8 @@ class QuiescentWaitTest {
             server.route(STREAM_PATH) {
                 Reply.Stream(emptyList(), StreamEnd.Error(Code.NOT_FOUND, "synthetic pane has no stream"))
             }
-            composeRule.setContent { MaterialTheme { PaneScreen(PANE_ID, OrreryClient(server.baseUrl)) } }
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent { MaterialTheme { PaneScreen(PANE_ID, client) } }
 
             val failure = assertThrows(AssertionError::class.java) {
                 composeRule.awaitExactlyOne(hasTestTag("synthetic-never-shown"))
