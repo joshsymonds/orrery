@@ -34,7 +34,7 @@ type EpicCommands interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
-		ctx context.Context, epic, id, text string, question int64, at time.Time,
+		ctx context.Context, epic, id, text string, question int64, choice string, at time.Time,
 	) (store.EpicDecision, error)
 	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
@@ -168,10 +168,12 @@ func (s *epicService) FollowEpics(
 	return connect.NewResponse(&v1.FollowEpicsResponse{Follows: epicMap(follows, followMessage)}), nil
 }
 
-// AnswerEpic records the answer on the epic, once. It refuses an empty epic_id, id or text first. An answer with no
-// question is a note, and it warns, when questions are open, naming them. An answer with a question is tied to it,
-// which closes it; a question that is not Q<n> with a positive n is refused as unknown. The store then answers an
-// unknown epic, an unknown or closed question, or an id recorded with other text, as the refusals say.
+// AnswerEpic records the answer on the epic, once. It refuses an empty epic_id or id first, then a note that names a
+// choice or has no text, and an answer to a question that names no choice. An answer with no question is a note, and
+// it warns, when questions are open, naming them. An answer with a question is tied to it and to its choice, which
+// closes it; a question that is not Q<n> with a positive n is refused as unknown. The store then answers an unknown
+// epic, an unknown, replaced or closed question, a choice the question does not offer, other with blank text, or an id
+// recorded with other text or another choice, as the refusals say.
 func (s *epicService) AnswerEpic(
 	ctx context.Context,
 	req *connect.Request[v1.AnswerEpicRequest],
@@ -190,7 +192,7 @@ func (s *epicService) AnswerEpic(
 		return nil, questionNotFound(req.Msg)
 	}
 	decision, err := s.epics.AnswerQuestion(
-		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, time.Now(),
+		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, req.Msg.GetChoice(), time.Now(),
 	)
 	if err != nil {
 		return nil, answerError(req.Msg, err)
@@ -219,9 +221,12 @@ func (s *epicService) answerNote(
 }
 
 // answerError maps an error from recording the answer req names to its Connect error: an unknown epic is NotFound on
-// epic_id, an id recorded with other text is AlreadyExists, an unknown question is NotFound on question, a closed
-// question is FailedPrecondition, and any other error goes through epicStoreError.
+// epic_id, an id recorded with other text or another choice is AlreadyExists, an unknown question is NotFound on
+// question, a replaced or closed question is FailedPrecondition, a choice the question does not offer is
+// InvalidArgument on choice, other with blank text is InvalidArgument on text, and any other error goes through
+// epicStoreError.
 func answerError(req *v1.AnswerEpicRequest, err error) error {
+	var replaced *store.QuestionReplacedError
 	switch {
 	case errors.Is(err, store.ErrNoEpic):
 		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("epic_id: no epic %s", req.GetEpicId()))
@@ -229,8 +234,18 @@ func answerError(req *v1.AnswerEpicRequest, err error) error {
 		return refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s was recorded with other text", req.GetId()))
 	case errors.Is(err, store.ErrNoQuestion):
 		return questionNotFound(req)
+	case errors.As(err, &replaced):
+		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+			"question: %s was replaced by %s", questionID(replaced.Seq), questionID(replaced.By),
+		))
 	case errors.Is(err, store.ErrQuestionClosed):
 		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("question: %s is closed", req.GetQuestion()))
+	case errors.Is(err, store.ErrNoChoice):
+		return refuseEpic(connect.CodeInvalidArgument, fmt.Sprintf(
+			"choice: %s offers no choice %s", req.GetQuestion(), req.GetChoice(),
+		))
+	case errors.Is(err, store.ErrOtherNeedsText):
+		return refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	default:
 		return epicStoreError(err)
 	}
@@ -263,16 +278,21 @@ func noteWarning(open []store.EpicQuestion) string {
 	return "recorded as a note: it answers no question, and " + strings.Join(ids, ", ") + " are open"
 }
 
-// checkEpicAnswer returns the refusal of an answer whose epic_id, id or text is empty, naming the first one that is.
-// The text is empty after trimming white space.
+// checkEpicAnswer returns the refusal of an answer whose epic_id or id is empty, or whose choice does not fit its
+// question: a note names no choice and needs text, and an answer to a question names one. The text of a note is empty
+// after trimming white space. The store judges the choice against the question and other's text.
 func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 	switch {
 	case req.GetEpicId() == "":
 		return refuseEpic(connect.CodeInvalidArgument, "epic_id: empty")
 	case req.GetId() == "":
 		return refuseEpic(connect.CodeInvalidArgument, "id: empty")
-	case isBlank(req.GetText()):
+	case req.GetQuestion() == "" && req.GetChoice() != "":
+		return refuseEpic(connect.CodeInvalidArgument, "choice: a note answers no question")
+	case req.GetQuestion() == "" && isBlank(req.GetText()):
 		return refuseEpic(connect.CodeInvalidArgument, "text: empty")
+	case req.GetQuestion() != "" && req.GetChoice() == "":
+		return refuseEpic(connect.CodeInvalidArgument, "choice: empty")
 	}
 	return nil
 }

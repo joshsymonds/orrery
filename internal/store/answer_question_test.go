@@ -44,7 +44,7 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 	questionedEpic(t, s, keepOld, whichStore)
 
 	at := time.Unix(1700000600, 0)
-	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 2, at)
+	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 2, ChoiceOther, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
@@ -79,6 +79,84 @@ func TestAnswerQuestionStoresTiedDecisionClosesQuestionAndAddsOneTrigger(t *test
 	}
 }
 
+func TestAnswerQuestionWithDeclaredChoiceRecordsTheChoiceAndKeepsTheText(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	keepOld := shapedQuestion("keep-old-tasks", "Keep the old tasks?")
+	whichStore := shapedQuestion("which-store", "Which store?")
+	questionedEpic(t, s, keepOld, whichStore)
+
+	at := time.Unix(1700000600, 0)
+	withWords, err := s.AnswerQuestion(ctx, id, "D3", "Keep them, they still run", 1, "second", at)
+	if err != nil {
+		t.Fatalf("AnswerQuestion with a declared choice and words: %v", err)
+	}
+	withWordsWant := EpicDecision{Seq: 3, ID: "D3", Text: "Keep them, they still run", Time: at, Question: 1}
+	if !reflect.DeepEqual(withWords, withWordsWant) {
+		t.Errorf("AnswerQuestion = %+v, want %+v", withWords, withWordsWant)
+	}
+	bare, err := s.AnswerQuestion(ctx, id, "D4", "", 2, "first", at)
+	if err != nil {
+		t.Fatalf("AnswerQuestion with a declared choice and no words: %v", err)
+	}
+	if want := (EpicDecision{Seq: 4, ID: "D4", Text: "", Time: at, Question: 2}); !reflect.DeepEqual(bare, want) {
+		t.Errorf("AnswerQuestion with no words = %+v, want %+v", bare, want)
+	}
+
+	epic, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	firstAnswered := openStored(keepOld, 1, 1)
+	firstAnswered.State, firstAnswered.Choice = "answered", "second"
+	secondAnswered := openStored(whichStore, 2, 1)
+	secondAnswered.State, secondAnswered.Choice = "answered", "first"
+	if want := []EpicQuestion{firstAnswered, secondAnswered}; !reflect.DeepEqual(epic.Questions, want) {
+		t.Errorf("questions = %+v, want %+v", epic.Questions, want)
+	}
+}
+
+func TestAnswerQuestionWithChoiceTheQuestionDoesNotOfferIsErrNoChoiceAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	before := answerRowsOf(t, s)
+
+	for _, choice := range []string{"", "third"} {
+		_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, choice, claimedAt())
+		if !errors.Is(err, ErrNoChoice) {
+			t.Fatalf("AnswerQuestion with choice %q err = %v, want ErrNoChoice", choice, err)
+		}
+		if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
+			t.Errorf("refused AnswerQuestion with choice %q changed the store:\n got %v\nwant %v", choice, got, before)
+		}
+	}
+}
+
+func TestAnswerQuestionWithOtherAndBlankTextIsErrOtherNeedsTextAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	before := answerRowsOf(t, s)
+
+	for _, text := range []string{"", " \t "} {
+		_, err := s.AnswerQuestion(ctx, id, "D3", text, 1, ChoiceOther, claimedAt())
+		if !errors.Is(err, ErrOtherNeedsText) {
+			t.Fatalf("AnswerQuestion of other with text %q err = %v, want ErrOtherNeedsText", text, err)
+		}
+		if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
+			t.Errorf("refused AnswerQuestion of other with text %q changed the store:\n got %v\nwant %v",
+				text, got, before)
+		}
+	}
+}
+
 func TestAnswerQuestionOfUnknownQuestionIsErrNoQuestionAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -87,7 +165,8 @@ func TestAnswerQuestionOfUnknownQuestionIsErrNoQuestionAndWritesNothing(t *testi
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
 	before := answerRowsOf(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer", 5, claimedAt()); !errors.Is(err, ErrNoQuestion) {
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Answer", 5, ChoiceOther, claimedAt())
+	if !errors.Is(err, ErrNoQuestion) {
 		t.Fatalf("AnswerQuestion of unknown question err = %v, want ErrNoQuestion", err)
 	}
 	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
@@ -101,13 +180,40 @@ func TestAnswerQuestionOfClosedQuestionIsErrQuestionClosedAndWritesNothing(t *te
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, ChoiceOther, claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, id, "D4", "Other answer", 1, completedAt()); !errors.Is(err, ErrQuestionClosed) {
+	if _, err := s.AnswerQuestion(ctx, id, "D4", "Other answer", 1, ChoiceOther, completedAt()); !errors.Is(
+		err, ErrQuestionClosed,
+	) {
 		t.Fatalf("AnswerQuestion of closed question err = %v, want ErrQuestionClosed", err)
+	}
+	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
+		t.Errorf("refused AnswerQuestion changed the store:\n got %v\nwant %v", got, before)
+	}
+}
+
+func TestAnswerQuestionOfReplacedQuestionIsQuestionReplacedErrorAndWritesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	claimLaterTurn(t, s, 2)
+	replacing := shapedQuestion("keep-new-tasks", "Keep the new tasks?")
+	replacing.Replaces = "Q1"
+	completeLaterTurn(t, s, 2, replacing)
+	before := answerRowsOf(t, s)
+
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", completedAt())
+	var replaced *QuestionReplacedError
+	if !errors.As(err, &replaced) {
+		t.Fatalf("AnswerQuestion of replaced question err = %v, want a *QuestionReplacedError", err)
+	}
+	if want := (QuestionReplacedError{Seq: 1, By: 2}); *replaced != want {
+		t.Errorf("QuestionReplacedError = %+v, want %+v", *replaced, want)
 	}
 	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("refused AnswerQuestion changed the store:\n got %v\nwant %v", got, before)
@@ -120,13 +226,13 @@ func TestAnswerQuestionWithStoredIDAndTextReturnsStoredRowAfterItsQuestionClosed
 	s := openEpicStore(t)
 	const id = claimEpic
 	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
-	stored, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, claimedAt())
+	stored, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", claimedAt())
 	if err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, completedAt())
+	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", completedAt())
 	if err != nil {
 		t.Fatalf("repeated AnswerQuestion: %v", err)
 	}
@@ -147,23 +253,54 @@ func TestAnswerQuestionWithStoredIDAndOtherTextIsErrDecisionConflict(t *testing.
 		shapedQuestion("keep-old-tasks", "Keep the old tasks?"),
 		shapedQuestion("which-store", "Which store?"),
 	)
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", claimedAt()); err != nil {
 		t.Fatalf("first AnswerQuestion: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	if _, err := s.AnswerQuestion(
-		ctx,
-		id,
-		"D3",
-		"Other answer",
-		2,
-		completedAt(),
-	); !errors.Is(
-		err,
-		ErrDecisionConflict,
-	) {
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Other answer", 2, "first", completedAt())
+	if !errors.Is(err, ErrDecisionConflict) {
 		t.Fatalf("AnswerQuestion with other text err = %v, want ErrDecisionConflict", err)
+	}
+	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
+		t.Errorf("refused AnswerQuestion changed the store:\n got %v\nwant %v", got, before)
+	}
+}
+
+func TestAnswerQuestionWithStoredIDAndOtherChoiceIsErrDecisionConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", claimedAt()); err != nil {
+		t.Fatalf("first AnswerQuestion: %v", err)
+	}
+	before := answerRowsOf(t, s)
+
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "second", completedAt())
+	if !errors.Is(err, ErrDecisionConflict) {
+		t.Fatalf("AnswerQuestion with another choice err = %v, want ErrDecisionConflict", err)
+	}
+	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
+		t.Errorf("refused AnswerQuestion changed the store:\n got %v\nwant %v", got, before)
+	}
+}
+
+func TestAnswerQuestionWithIDOfStoredNoteIsErrDecisionConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	questionedEpic(t, s, shapedQuestion("keep-old-tasks", "Keep the old tasks?"))
+	if _, err := s.AnswerEpic(ctx, id, "D3", "Keep them", claimedAt()); err != nil {
+		t.Fatalf("AnswerEpic note: %v", err)
+	}
+	before := answerRowsOf(t, s)
+
+	_, err := s.AnswerQuestion(ctx, id, "D3", "Keep them", 1, "first", completedAt())
+	if !errors.Is(err, ErrDecisionConflict) {
+		t.Fatalf("AnswerQuestion over a stored note err = %v, want ErrDecisionConflict", err)
 	}
 	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
 		t.Errorf("refused AnswerQuestion changed the store:\n got %v\nwant %v", got, before)
@@ -212,7 +349,7 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 	first := shapedQuestion("first", "First?")
 	third := shapedQuestion("third", "Third?")
 	questionedEpic(t, s, first, shapedQuestion("second", "Second?"), third)
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer two", 2, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Answer two", 2, ChoiceOther, claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 
@@ -229,7 +366,9 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 		id       string
 		question int64
 	}{{"D4", 1}, {"D5", 3}} {
-		if _, err := s.AnswerQuestion(ctx, id, answer.id, "Answer", answer.question, claimedAt()); err != nil {
+		if _, err := s.AnswerQuestion(
+			ctx, id, answer.id, "Answer", answer.question, ChoiceOther, claimedAt(),
+		); err != nil {
 			t.Fatalf("AnswerQuestion %s: %v", answer.id, err)
 		}
 	}
@@ -241,7 +380,9 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 func TestAnswerQuestionOfUnknownEpicIsErrNoEpic(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
-	_, err := s.AnswerQuestion(context.Background(), "orrery-1a2b3c4/missing", "D1", "text", 1, epicCreated())
+	_, err := s.AnswerQuestion(
+		context.Background(), "orrery-1a2b3c4/missing", "D1", "text", 1, ChoiceOther, epicCreated(),
+	)
 	if !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("AnswerQuestion of unknown epic err = %v, want ErrNoEpic", err)
 	}

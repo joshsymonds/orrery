@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -27,6 +29,20 @@ var ErrNoQuestion = errors.New("no question")
 
 // ErrQuestionClosed reports that the question asked for is no longer open.
 var ErrQuestionClosed = errors.New("question closed")
+
+// ErrNoChoice reports that the question does not offer the choice an answer names: neither one of its declared choices
+// nor other.
+var ErrNoChoice = errors.New("question offers no such choice")
+
+// ErrOtherNeedsText reports an answer that names other with text that is blank.
+var ErrOtherNeedsText = errors.New("other answer needs text")
+
+// QuestionReplacedError reports an answer to question Seq, which the question By replaced.
+type QuestionReplacedError struct{ Seq, By int64 }
+
+func (e *QuestionReplacedError) Error() string {
+	return fmt.Sprintf("question %d was replaced by question %d", e.Seq, e.By)
+}
 
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
 // contract gave them. Times are stored at whole seconds.
@@ -515,16 +531,16 @@ func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
 }
 
 // AnswerEpic records text as decision id on epic in one write, as a note that answers no question. A stored id with
-// equal text returns the stored decision and writes nothing; a stored id with other text is ErrDecisionConflict;
-// otherwise the decision is appended as the next seq, dated at, and the epic's changed moves to at. An unknown epic
-// is ErrNoEpic.
+// equal text returns the stored decision and writes nothing; a stored id with other text, or one that answered a
+// question, is ErrDecisionConflict; otherwise the decision is appended as the next seq, dated at, and the epic's
+// changed moves to at. An unknown epic is ErrNoEpic.
 func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (EpicDecision, error) {
 	var answer EpicDecision
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := requireEpic(ctx, queries, epic); err != nil {
 			return err
 		}
-		replay, found, err := replayAnswer(ctx, queries, epic, id, text)
+		replay, found, err := replayAnswer(ctx, queries, epic, id, text, "")
 		if err != nil {
 			return err
 		}
@@ -541,16 +557,20 @@ func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.T
 	return answer, nil
 }
 
-// AnswerQuestion records text as decision id on epic, tied to question seq, in one write. An unknown epic is
-// ErrNoEpic. A stored id with equal text returns the stored decision and writes nothing, even after its question
-// closed; a stored id with other text is ErrDecisionConflict. A question the epic does not have is ErrNoQuestion and
-// one that is not open is ErrQuestionClosed; both write nothing. Otherwise the decision is appended with its
-// question, the question becomes answered, a pending trigger `answer:<id>` is added, and the epic's changed moves to
-// at.
+// AnswerQuestion records text as decision id on epic, answering question seq with choice, in one write. choice is one
+// the question offers: one of its declared choices, or ChoiceOther, which needs text that is not blank; a declared
+// choice keeps text as given, which may be empty. An unknown epic is ErrNoEpic. A stored id with equal text and choice
+// returns the stored decision and writes nothing, even after its question closed; a stored id with other text or
+// another choice is ErrDecisionConflict. A question the epic does not have is ErrNoQuestion, a replaced one is a
+// *QuestionReplacedError and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
+// and other with blank text is ErrOtherNeedsText. Each refusal writes nothing. Otherwise the question becomes answered
+// with choice, a pending trigger `answer:<id>` is added, the decision is appended with its question, and the epic's
+// changed moves to at.
 func (s *Store) AnswerQuestion(
 	ctx context.Context,
 	epic, id, text string,
 	question int64,
+	choice string,
 	at time.Time,
 ) (EpicDecision, error) {
 	var answer EpicDecision
@@ -558,7 +578,7 @@ func (s *Store) AnswerQuestion(
 		if err := requireEpic(ctx, queries, epic); err != nil {
 			return err
 		}
-		replay, found, err := replayAnswer(ctx, queries, epic, id, text)
+		replay, found, err := replayAnswer(ctx, queries, epic, id, text, choice)
 		if err != nil {
 			return err
 		}
@@ -566,7 +586,7 @@ func (s *Store) AnswerQuestion(
 			answer = replay
 			return nil
 		}
-		answer, err = recordQuestionAnswer(ctx, queries, epic, id, text, question, at)
+		answer, err = recordQuestionAnswer(ctx, queries, epic, id, text, question, choice, at)
 		return err
 	})
 	if err != nil {
@@ -575,20 +595,22 @@ func (s *Store) AnswerQuestion(
 	return answer, nil
 }
 
-// recordQuestionAnswer answers the open question with seq question as decision id with text: the question becomes
-// answered, a pending trigger `answer:<id>` is added, and the decision is appended tied to the question.
+// recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
+// becomes answered with choice, a pending trigger `answer:<id>` is added, and the decision is appended tied to the
+// question.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, id, text string,
 	question int64,
+	choice string,
 	at time.Time,
 ) (EpicDecision, error) {
-	if err := requireOpenQuestion(ctx, queries, epic, question); err != nil {
+	if err := requireAnswerable(ctx, queries, epic, text, question, choice); err != nil {
 		return EpicDecision{}, err
 	}
 	if err := queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
-		Choice: ChoiceOther, Epic: epic, Seq: question,
+		Choice: choice, Epic: epic, Seq: question,
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("answer question %d of epic %s: %w", question, epic, err)
 	}
@@ -627,9 +649,13 @@ func requireEpic(ctx context.Context, queries *sqlcgen.Queries, epic string) err
 }
 
 // replayAnswer is the client-id check both answer paths share. found is true when the epic already holds decision id
-// with equal text, and then decision is that stored row; other text under id is ErrDecisionConflict; found is false
-// when id is not stored.
-func replayAnswer(ctx context.Context, queries *sqlcgen.Queries, epic, id, text string) (EpicDecision, bool, error) {
+// with equal text answered with equal choice, and then decision is that stored row; other text or another choice under
+// id is ErrDecisionConflict; found is false when id is not stored. A note answers with choice "".
+func replayAnswer(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic, id, text, choice string,
+) (EpicDecision, bool, error) {
 	previous, err := queries.GetEpicDecisionByClientID(ctx, sqlcgen.GetEpicDecisionByClientIDParams{
 		Epic: epic, ClientID: id,
 	})
@@ -639,15 +665,44 @@ func replayAnswer(ctx context.Context, queries *sqlcgen.Queries, epic, id, text 
 	if err != nil {
 		return EpicDecision{}, false, fmt.Errorf("read decision %s on epic %s: %w", id, epic, err)
 	}
-	if previous.Text != text {
+	stored, err := decisionChoice(ctx, queries, epic, previous)
+	if err != nil {
+		return EpicDecision{}, false, err
+	}
+	if previous.Text != text || stored != choice {
 		return EpicDecision{}, false, fmt.Errorf("decision %s on epic %s: %w", id, epic, ErrDecisionConflict)
 	}
 	return epicDecisionOf(previous), true, nil
 }
 
-// requireOpenQuestion is ErrNoQuestion when epic has no question seq, and ErrQuestionClosed when that question is not
-// open.
-func requireOpenQuestion(ctx context.Context, queries *sqlcgen.Queries, epic string, question int64) error {
+// decisionChoice returns the choice that answered the stored decision previous: "" for a note, and otherwise the choice
+// its question records.
+func decisionChoice(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	previous sqlcgen.EpicDecision,
+) (string, error) {
+	if previous.Question == 0 {
+		return "", nil
+	}
+	question, err := queries.GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: epic, Seq: previous.Question})
+	if err != nil {
+		return "", fmt.Errorf("read question %d on epic %s: %w", previous.Question, epic, err)
+	}
+	return question.Choice, nil
+}
+
+// requireAnswerable is the refusal of an answer naming choice and text to question seq of epic: ErrNoQuestion when epic
+// has no question seq, a *QuestionReplacedError when a later question replaced it, ErrQuestionClosed when it is
+// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice is other with blank text.
+func requireAnswerable(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic, text string,
+	question int64,
+	choice string,
+) error {
 	stored, err := queries.GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: epic, Seq: question})
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoQuestion)
@@ -655,10 +710,35 @@ func requireOpenQuestion(ctx context.Context, queries *sqlcgen.Queries, epic str
 	if err != nil {
 		return fmt.Errorf("read question %d on epic %s: %w", question, epic, err)
 	}
-	if stored.State != "open" {
+	if stored.State == QuestionReplaced {
+		return &QuestionReplacedError{Seq: question, By: stored.ReplacedBy}
+	}
+	if stored.State != QuestionOpen {
 		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrQuestionClosed)
 	}
+	offered, err := offers(stored, choice)
+	if err != nil {
+		return err
+	}
+	if !offered {
+		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoChoice)
+	}
+	if choice == ChoiceOther && strings.TrimSpace(text) == "" {
+		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrOtherNeedsText)
+	}
 	return nil
+}
+
+// offers reports whether question offers choice: other, which every question offers, or one of its declared choices.
+func offers(question sqlcgen.EpicQuestion, choice string) (bool, error) {
+	if choice == ChoiceOther {
+		return true, nil
+	}
+	declared, err := choicesOf(question.Choices)
+	if err != nil {
+		return false, fmt.Errorf("choices of question %d on epic %s: %w", question.Seq, question.Epic, err)
+	}
+	return slices.ContainsFunc(declared, func(offered EpicChoice) bool { return offered.ID == choice }), nil
 }
 
 // appendDecision appends text as decision id on epic, answering question (0 for a note), as the next seq dated at,

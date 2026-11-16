@@ -154,7 +154,9 @@ func TestAttentionClearsTheNoticeOnceATurnEndsAfterTheLatestTell(t *testing.T) {
 	}, claimedAt()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
-	if _, err := s.AnswerQuestion(ctx, runnerEpicID, "answer-1", "use the store", 1, claimedAt()); err != nil {
+	if _, err := s.AnswerQuestion(
+		ctx, runnerEpicID, "answer-1", "use the store", 1, store.ChoiceOther, claimedAt(),
+	); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	// The tell is newer than the earlier turn's end, so only the turn that ends after it clears the notice.

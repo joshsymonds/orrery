@@ -447,13 +447,13 @@ func TestRunnerPromptOfNextTurnShowsTheFollowCountOfAnsweredRecommendation(t *te
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
 
-	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "use sqlite", 1,
+	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", "use sqlite", 1, "sqlite",
 		claimedAt()); err != nil {
 		t.Fatalf("AnswerQuestion: %v", err)
 	}
 	waitFor(t, "a second planner step to start", func() bool { return len(steps.started()) == 2 })
 
-	want := "## Advice followed\n- which-store: 0 of 1 answers took the recommendation\n"
+	want := "## Advice followed\n- which-store: 1 of 1 answers took the recommendation\n"
 	if prompt := steps.started()[1].Prompt; !strings.Contains(prompt, want) {
 		t.Errorf("prompt of turn 2 lacks %q; prompt is:\n%s", want, prompt)
 	}
