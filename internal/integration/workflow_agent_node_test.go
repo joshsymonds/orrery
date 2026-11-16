@@ -135,7 +135,7 @@ func TestWorkflowAgentNodeStepDonePassesNode(t *testing.T) {
 	r.requireAgentStep(t, step, r.nodeRun(t, agentNode))
 	requireAgentClaude(t, step, agentNodeDonePrompt)
 	stepReadoptTouch(t, filepath.Join(step.GetWorktree(), "fakeclaude.release"))
-	if end := r.awaitEnd(t, step.GetId()).GetEnd(); end != "done" {
+	if end := r.awaitEnd(t, daemon, step.GetId()).GetEnd(); end != "done" {
 		t.Fatalf("step %s ended %q, want done", step.GetId(), end)
 	}
 	signalPass(t, daemon, ack)
@@ -158,7 +158,7 @@ func TestWorkflowAgentNodeStepNotDoneFailsAndParks(t *testing.T) {
 	// This step ends at once and its worktree goes with it, so only the stored step is checked here; the done test
 	// checks what the fake claude was started with.
 	r.requireAgentStep(t, step, r.nodeRun(t, agentNode))
-	if end := r.awaitEnd(t, step.GetId()).GetEnd(); end == "done" {
+	if end := r.awaitEnd(t, daemon, step.GetId()).GetEnd(); end == "done" {
 		t.Fatalf("step %s ended done, want a step that does not end done", step.GetId())
 	}
 	signalPass(t, daemon, ack)

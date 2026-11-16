@@ -285,7 +285,7 @@ func TestFlowSigkillRestartStartsEachNodeOnce(t *testing.T) {
 	r.pause(t)
 
 	stepReadoptTouch(t, filepath.Join(dir, "fakeclaude.release"))
-	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, id))
+	commit := requireBuildStepDone(t, dir, r.awaitEnd(t, restarted, id))
 	r.awaitGreen(t, restarted, restartedAck)
 	requireFlowRuns(t, r.nodeRuns(t))
 	if got := r.task(t).GetRevision(); got != commit {

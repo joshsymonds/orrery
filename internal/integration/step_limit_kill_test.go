@@ -74,7 +74,7 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 		t.Fatalf("gate runs of step %s = %d, want 1", id, n)
 	}
 	stepReadoptTouch(t, r.gateRelease)
-	r.requireDone(t, r.awaitEnd(t, id))
+	r.requireDone(t, r.awaitEnd(t, restarted, id))
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
 		t.Fatalf("gate runs of step %s = %d after it ended, want 1", id, n)
 	}

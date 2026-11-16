@@ -160,6 +160,45 @@ func (m *Mirror) SyncPane(ctx context.Context, server tmuxctl.Server, pane strin
 	m.syncLocked(ctx, server, pane)
 }
 
+// TryRead takes the mirror lock for a sync of pane, without waiting, when the store is open and the lock is free, and
+// returns the tmux command that reads the pane for that sync. The caller runs the command in the same tmux invocation
+// as the writes it follows, then passes its output to SyncRead, which releases the lock, or calls ReleaseRead when the
+// command never ran. ok is false when the store is not open, failed to open, or the lock is held; the caller then syncs
+// with SyncPane, which waits for the lock or defers.
+func (m *Mirror) TryRead(pane string) (cmd []string, ok bool) {
+	select {
+	case <-m.opened:
+	default:
+		return nil, false
+	}
+	if m.store == nil {
+		return nil, false
+	}
+	select {
+	case m.lock <- struct{}{}:
+		return mirrorReadCommand(pane), true
+	default:
+		return nil, false
+	}
+}
+
+// SyncRead syncs pane on server into the store from out, the output of the command TryRead returned, as SyncPane
+// syncs it from its own read, then releases the lock TryRead took. A sync that fails is logged and dropped.
+func (m *Mirror) SyncRead(ctx context.Context, server tmuxctl.Server, pane, out string) {
+	defer m.release()
+	if err := m.syncOut(ctx, server, pane, out); err != nil {
+		m.logger.ErrorContext(ctx, "mirror sync dropped", "pane", pane, "error", err)
+	}
+}
+
+// ReleaseRead releases the lock TryRead took, for a read that never ran.
+func (m *Mirror) ReleaseRead() { m.release() }
+
+// mirrorReadCommand returns the display-message command that reads pane's @orrery_id and mirrored options.
+func mirrorReadCommand(pane string) []string {
+	return []string{"display-message", "-p", "-t", pane, mirrorFormat}
+}
+
 // syncLocked runs one pane sync and logs its failure. The caller holds m.lock.
 func (m *Mirror) syncLocked(ctx context.Context, server tmuxctl.Server, pane string) {
 	if err := m.sync(ctx, server, pane); err != nil {
@@ -272,10 +311,17 @@ func (m *Mirror) sync(ctx context.Context, server tmuxctl.Server, pane string) e
 	if err != nil {
 		return fmt.Errorf("resolve tmux server: %w", err)
 	}
-	out, err := client.Run(ctx, "display-message", "-p", "-t", pane, mirrorFormat)
+	out, err := client.Batch(ctx, mirrorReadCommand(pane))
 	if err != nil {
 		return fmt.Errorf("read pane %s options: %w", pane, err)
 	}
+	return m.syncOut(ctx, server, pane, out)
+}
+
+// syncOut syncs pane on server from out, the output of its mirrorReadCommand: it mints and stores an id when the pane
+// has none, writes the snapshot to its row, and sets @orrery_id only after the store write commits. The caller holds
+// m.lock.
+func (m *Mirror) syncOut(ctx context.Context, server tmuxctl.Server, pane, out string) error {
 	values := strings.Split(strings.TrimSuffix(out, "\n"), mirrorSeparator)
 	if len(values) != mirrorFieldCount {
 		return fmt.Errorf("read pane %s options: got %d fields, want %d", pane, len(values), mirrorFieldCount)
@@ -284,16 +330,21 @@ func (m *Mirror) sync(ctx context.Context, server tmuxctl.Server, pane string) e
 	id := values[0]
 	minted := id == ""
 	if minted {
+		var err error
 		if id, err = mintID(); err != nil {
 			return err
 		}
 	}
-	if err = m.store.SyncPane(ctx, serverValue(server), store.Pane{
+	if err := m.store.SyncPane(ctx, serverValue(server), store.Pane{
 		ID: id, Pane: pane, Fields: fieldsOf(values[1:]),
 	}, m.now()); err != nil {
 		return fmt.Errorf("sync pane %s: %w", pane, err)
 	}
 	if minted {
+		client, err := tmuxctl.New(server)
+		if err != nil {
+			return fmt.Errorf("resolve tmux server: %w", err)
+		}
 		if err = client.SetPaneOption(ctx, pane, protocol.OptionID, id); err != nil {
 			return fmt.Errorf("set pane %s id: %w", pane, err)
 		}

@@ -38,7 +38,11 @@ cover:
     # prints, instead of ending without a word when timeout kills go test. A failure at or past that deadline is the
     # budget's.
     deadline=$(($(date +%s) + {{TEST_BUDGET}} - 10))
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./... || rc=$?
+    # Each test's artifact directory, which holds the logs of the processes it starts, is kept under test-artifacts,
+    # so a run that fails or times out leaves them on disk.
+    artifacts="$PWD/test-artifacts"
+    rm -rf "$artifacts" && mkdir "$artifacts"
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
     if [ "$rc" -eq 124 ] || { [ "$rc" -ne 0 ] && [ "$(date +%s)" -ge "$deadline" ]; }; then
         echo "tests exceeded {{TEST_BUDGET}}s budget" >&2
         exit 124

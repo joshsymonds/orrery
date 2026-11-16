@@ -129,17 +129,17 @@ func clearHolders(t *testing.T, stateDir string) {
 
 // evidence returns the Evidence client of the session socket.
 func (r *evidenceKillRig) evidence() enginev1connect.EvidenceClient {
-	return enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewEvidenceClient(r.f.client, cli.SessionBaseURL)
 }
 
 // epics returns the Epics client of the session socket.
 func (r *evidenceKillRig) epics() enginev1connect.EpicsClient {
-	return enginev1connect.NewEpicsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewEpicsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // steps returns the Steps client of the session socket.
 func (r *evidenceKillRig) steps() enginev1connect.StepsClient {
-	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(r.f.sessions), cli.SessionBaseURL)
+	return enginev1connect.NewStepsClient(r.f.client, cli.SessionBaseURL)
 }
 
 // createEpic stores the rig's epic: one Requirement whose evidence is the capture, judged against its conclusion.

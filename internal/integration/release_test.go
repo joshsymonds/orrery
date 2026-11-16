@@ -13,6 +13,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // The tests in this file run a release of a clean epic through the real orreryd, with the fake claude in place of claude
@@ -53,10 +54,6 @@ const (
 
 // releaseNodesText is the workflow the release tests pin: one release node at the top level.
 const releaseNodesText = "name: " + nodesName + "\nnodes:\n  - id: release\n    kind: release\n"
-
-// releaseDeadline bounds each wait of the release tests. A release that never reaches the state a wait names fails its
-// test there, naming that state, in place of a hang until the test binary's timeout.
-const releaseDeadline = 2 * time.Minute
 
 // newReleaseRig returns the nodes rig with the roles file and agents the release names, a bare origin of the repository,
 // and the epic branch at the base. The fake claude writes its files into the worktrees, so the repository's info/exclude
@@ -142,32 +139,16 @@ func releaseRunOf(epic *v1.StoredEpic, part string, position int64) (*v1.EpicRel
 	return nil, false
 }
 
-// awaitRelease waits until ok reports true. It fails the test, naming what it waited for, once releaseDeadline passes.
-func awaitRelease(t *testing.T, what string, ok func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(releaseDeadline)
-	ticker := time.NewTicker(pollEvery)
-	defer ticker.Stop()
-	for !ok() {
-		stopIfFailed(t)
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out after %v waiting for %s", releaseDeadline, what)
-		}
-		<-ticker.C
-	}
-}
-
 // passReleaseUntil signals daemon, which runs with --flow-ticks at ack, to run its flow one pass at a time until done
-// reports true, as passUntil does. It fails the test, naming what it waited for, once releaseDeadline passes.
+// reports true, as passUntil does. what names the state it waits for. It has no deadline of its own: each pass is
+// awaited in ack, and an orreryd that exits fails the test from its watcher, which the next pass's wait ends on.
 func passReleaseUntil(t *testing.T, daemon *orreryProcess, ack, what string, done func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(releaseDeadline)
 	for !done() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out after %v waiting for %s", releaseDeadline, what)
-		}
+		stopIfFailed(t)
 		signalPass(t, daemon, ack)
 	}
+	t.Logf("reached %s", what)
 }
 
 // TestReleaseRunsStepsThroughRealOrreryd proves that orreryd runs a clean epic's release through real steps. Its release
@@ -190,16 +171,14 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 			step, releaseAgent, r.base, wt)
 	}
 	stdin := filepath.Join(wt, "fakeclaude.stdin")
-	awaitRelease(t, "the release step's prompt to reach its fake claude", func() bool {
+	waittest.Until(t, daemon.done, "the release step's prompt reaching its fake claude", func() bool {
 		return fileContains(t, stdin, releaseStepText)
 	})
 	if !fileContains(t, filepath.Join(wt, "fakeclaude.args"), "--agent "+releaseAgent) {
 		t.Fatalf("fake claude was not started with --agent %s", releaseAgent)
 	}
 	stepReadoptTouch(t, filepath.Join(wt, "fakeclaude.release"))
-	awaitRelease(t, "release step "+step.GetId()+" to end", func() bool {
-		return r.stepRow(t, step.GetId()).GetEnd() != ""
-	})
+	r.awaitEnd(t, daemon, step.GetId())
 	if end := r.stepRow(t, step.GetId()).GetEnd(); end != "done" {
 		t.Fatalf("release step %s ended %q, want done", step.GetId(), end)
 	}
@@ -228,9 +207,7 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 		t.Fatalf("judge step %+v, want a read-only step under agent %s at base %s", judge, judgeAgent, r.base)
 	}
 	stepReadoptTouch(t, filepath.Join(judge.GetWorktree(), "fakeclaude.release"))
-	awaitRelease(t, "judge step "+judge.GetId()+" to end", func() bool {
-		return r.stepRow(t, judge.GetId()).GetEnd() != ""
-	})
+	r.awaitEnd(t, daemon, judge.GetId())
 	passReleaseUntil(t, daemon, ack, "the judge's run to be recorded", func() bool {
 		_, recorded := releaseRunOf(r.releaseEpic(t), store.ReleasePartJudge, 0)
 		return recorded
@@ -272,9 +249,7 @@ func TestReleaseStepNotDoneStopsRelease(t *testing.T) {
 
 	passReleaseUntil(t, daemon, ack, "the release step to start", func() bool { return len(r.epicSteps(t)) == 1 })
 	step := r.epicSteps(t)[0]
-	awaitRelease(t, "release step "+step.GetId()+" to end", func() bool {
-		return r.stepRow(t, step.GetId()).GetEnd() != ""
-	})
+	r.awaitEnd(t, daemon, step.GetId())
 	if end := r.stepRow(t, step.GetId()).GetEnd(); end == "done" {
 		t.Fatalf("release step %s ended done, want a step that does not end done", step.GetId())
 	}

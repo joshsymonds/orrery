@@ -551,6 +551,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		mirror:      mirror,
 		webhook:     opts.webhook,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
+		views:       newDoneViews(),
 	})
 	router := hub.router
 	pageNotices := enginehost.NewPageNotices(pages, router, time.Now)
@@ -564,7 +565,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Sessions:      opts.sessions,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane}, seen)
-		})},
+		}, hub.viewer)},
 		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
 		Input:     desk.Input,
 		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
@@ -1476,6 +1477,82 @@ type relay struct {
 	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
 	webhook     *alerts.Webhook  // the POST /alerts intake that routes to router; nil without --metrics-listen
 	summarizers map[tmuxctl.Server]*summary.Summarizer
+	views       *doneViews // each done's viewing check, handed from observe to the autoseen observer
+}
+
+// viewTimeout bounds the viewing check of one done transition, which runs on the hook path.
+const viewTimeout = 2 * time.Second
+
+// doneView is the one viewing check a done transition makes: whether a client of the pane's tmux server shows the pane
+// with recent input, or the error of the check. The notice's first watching check and the autoseen observer both take
+// it, so a done reads its pane's window and clients once.
+type doneView struct {
+	viewing bool
+	err     error
+}
+
+// doneViews hands each pane's done view from the relay's observer to the autoseen observer, which the daemon calls
+// next for the same transition: it calls a transition's observers in order, one transition at a time. A nil doneViews
+// keeps nothing.
+type doneViews struct {
+	mu    sync.Mutex
+	views map[string]doneView
+}
+
+// newDoneViews returns an empty doneViews.
+func newDoneViews() *doneViews {
+	return &doneViews{views: make(map[string]doneView)}
+}
+
+// put keeps view as pane's done view until it is taken.
+func (v *doneViews) put(pane string, view doneView) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.views[pane] = view
+}
+
+// take returns and forgets pane's done view, and reports whether one was kept.
+func (v *doneViews) take(pane string) (doneView, bool) {
+	if v == nil {
+		return doneView{}, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	view, ok := v.views[pane]
+	delete(v.views, pane)
+	return view, ok
+}
+
+// viewer is the autoseen observer's Viewer: the done view the relay's observer kept for pane, or a fresh check when it
+// kept none.
+func (r *relay) viewer(ctx context.Context, client *tmuxctl.Client, pane string, now time.Time) (bool, error) {
+	if view, ok := r.views.take(pane); ok {
+		return view.viewing, view.err
+	}
+	viewing, err := autoseen.Viewing(ctx, client, pane, now)
+	if err != nil {
+		return false, fmt.Errorf("pane viewing: %w", err)
+	}
+	return viewing, nil
+}
+
+// viewDone checks whether a client of the transition's tmux server shows its pane with recent input, under
+// viewTimeout.
+func (r *relay) viewDone(ctx context.Context, transition daemon.Transition) doneView {
+	client, err := tmuxClient(transition.Server)
+	if err != nil {
+		return doneView{err: err}
+	}
+	ctx, cancel := context.WithTimeout(ctx, viewTimeout)
+	defer cancel()
+	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, time.Now())
+	if err != nil {
+		return doneView{err: fmt.Errorf("pane viewing: %w", err)}
+	}
+	return doneView{viewing: viewing}
 }
 
 // readTimes keeps each pane's newest read time. Read reports arrive on connection goroutines and watching checks run
@@ -1543,8 +1620,14 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		summarized = r.summarize(ctx, transition)
 	}
+	var view *doneView
+	if transition.To == protocol.StateDone {
+		checked := r.viewDone(ctx, transition)
+		r.views.put(transition.PaneID, checked)
+		view = &checked
+	}
 	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
-		r.notify(ctx, transition, summarized)
+		r.notify(ctx, transition, summarized, view)
 		return
 	}
 	r.router.Changed(notice.Key{Pane: transition.PaneID})
@@ -1615,37 +1698,34 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 	return summarizer, nil
 }
 
-// paneText is the text a notification carries, as stored on its pane.
+// paneText is the text a notification carries, as stored on its pane, and the pane's session and window index.
 type paneText struct {
 	summary, label, question string
+	session                  string
+	window                   int
 }
 
-// readPaneText returns the summary, label and question options of pane.
+// readPaneText returns the summary, label and question options of pane, and its session name and window index, in one
+// tmux invocation.
 func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (paneText, error) {
-	var text paneText
-	for _, option := range []struct {
-		name string
-		dst  *string
-	}{
-		{protocol.OptionSummary, &text.summary},
-		{protocol.OptionLabel, &text.label},
-		{protocol.OptionQuestion, &text.question},
-	} {
-		value, _, err := client.PaneOption(ctx, pane, option.name)
-		if err != nil {
-			return paneText{}, fmt.Errorf("read %s: %w", option.name, err)
-		}
-		*option.dst = value
+	values, err := client.PaneValues(ctx, pane,
+		protocol.OptionSummary, protocol.OptionLabel, protocol.OptionQuestion, "session_name", "window_index")
+	if err != nil {
+		return paneText{}, fmt.Errorf("read pane %s: %w", pane, err)
 	}
-	return text, nil
+	window, err := strconv.Atoi(values[4])
+	if err != nil {
+		return paneText{}, fmt.Errorf("window index %q: %w", values[4], err)
+	}
+	return paneText{summary: values[0], label: values[1], question: values[2], session: values[3], window: window}, nil
 }
 
-// notify hands the transition's notice to the router. A done notice whose Stop left a subagent or workflow running is
+// notify hands the transition's notice to the router, with view as its first watching check when it is not nil. A done notice whose Stop left a subagent or workflow running is
 // silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
 // logged. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one never
 // pends, so it needs none.
-func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}) {
-	incoming := r.paneNotice(ctx, transition, summarized)
+func (r *relay) notify(ctx context.Context, transition daemon.Transition, summarized <-chan struct{}, view *doneView) {
+	incoming := r.paneNotice(ctx, transition, summarized, view)
 	if incoming.Silent == "" {
 		if data, err := encodePaneSource(transition); err != nil {
 			r.logger.ErrorContext(ctx, "encode pane notice", "pane", transition.PaneID, "error", err)
@@ -1735,10 +1815,6 @@ func (r *relay) deskNotice(ctx context.Context, transition daemon.Transition) (d
 	if err != nil {
 		return deskstream.Notice{}, fmt.Errorf("read notification text: %w", err)
 	}
-	session, window, err := paneLocation(ctx, client, transition.PaneID)
-	if err != nil {
-		return deskstream.Notice{}, fmt.Errorf("read pane location: %w", err)
-	}
 	body, fallback := text.question, waitingBody
 	if transition.To == protocol.StateDone {
 		body, fallback = text.summary, doneBody
@@ -1748,7 +1824,7 @@ func (r *relay) deskNotice(ctx context.Context, transition daemon.Transition) (d
 	}
 	return deskstream.Notice{
 		State: string(transition.To),
-		Title: deskstream.PaneTitle(filepath.Base(transition.Frame.Cwd), session, window),
+		Title: deskstream.PaneTitle(filepath.Base(transition.Frame.Cwd), text.session, text.window),
 		Body:  body,
 	}, nil
 }
@@ -1771,23 +1847,6 @@ func (r *relay) pushNotification(ctx context.Context, transition daemon.Transiti
 		Label:    text.label,
 		Question: text.question,
 	}, nil
-}
-
-// paneLocation returns the session name and window index of pane.
-func paneLocation(ctx context.Context, client *tmuxctl.Client, pane string) (string, int, error) {
-	out, err := client.Run(ctx, "display-message", "-p", "-t", pane, "#{session_name}\n#{window_index}")
-	if err != nil {
-		return "", 0, fmt.Errorf("display-message: %w", err)
-	}
-	session, index, found := strings.Cut(strings.TrimSuffix(out, "\n"), "\n")
-	if !found {
-		return "", 0, fmt.Errorf("display-message output %q has no window index", out)
-	}
-	window, err := strconv.Atoi(index)
-	if err != nil {
-		return "", 0, fmt.Errorf("window index %q: %w", index, err)
-	}
-	return session, window, nil
 }
 
 // wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.

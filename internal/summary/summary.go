@@ -185,9 +185,10 @@ func (s *Summarizer) summarize(ctx context.Context, job Job, epoch int) error {
 	return err
 }
 
-// write sets pane's summary and, when label is not empty, its label, unless pane was forgotten since epoch was read,
-// which it logs as ForgottenRunLog. It reports whether an option was written. writeMu is held throughout, so no write
-// lands after Forget; the onWrite call runs after it is released, so a slow store never holds up Forget.
+// write sets pane's summary and, when label is not empty, its label, in one tmux invocation, unless pane was forgotten
+// since epoch was read, which it logs as ForgottenRunLog. It reports whether the options were written; a failed write
+// reports false with its error. writeMu is held throughout, so no write lands after Forget; the onWrite call runs after
+// it is released, so a slow store never holds up Forget.
 func (s *Summarizer) write(ctx context.Context, pane string, epoch int, summary, label string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -195,14 +196,12 @@ func (s *Summarizer) write(ctx context.Context, pane string, epoch int, summary,
 		s.logger.InfoContext(ctx, ForgottenRunLog, "pane", pane)
 		return false, nil
 	}
-	if err := s.tmux.SetPaneOption(ctx, pane, protocol.OptionSummary, summary); err != nil {
+	writes := []tmuxctl.OptionWrite{tmuxctl.Set(protocol.OptionSummary, summary)}
+	if label != "" {
+		writes = append(writes, tmuxctl.Set(protocol.OptionLabel, label))
+	}
+	if err := s.tmux.WritePaneOptions(ctx, pane, writes); err != nil {
 		return false, fmt.Errorf("write summary: %w", err)
-	}
-	if label == "" {
-		return true, nil
-	}
-	if err := s.tmux.SetPaneOption(ctx, pane, protocol.OptionLabel, label); err != nil {
-		return true, fmt.Errorf("write label: %w", err)
 	}
 	return true, nil
 }
@@ -224,10 +223,10 @@ func (s *Summarizer) Forget(pane string) {
 	delete(s.labeledExchange, pane)
 	s.mu.Unlock()
 
-	for _, name := range []string{protocol.OptionSummary, protocol.OptionLabel} {
-		if err := s.tmux.UnsetPaneOption(ctx, pane, name); err != nil {
-			s.logger.WarnContext(ctx, "unset pane option failed", "pane", pane, "option", name, "error", err)
-		}
+	if err := s.tmux.WritePaneOptions(ctx, pane, []tmuxctl.OptionWrite{
+		tmuxctl.Unset(protocol.OptionSummary), tmuxctl.Unset(protocol.OptionLabel),
+	}); err != nil {
+		s.logger.WarnContext(ctx, "unset pane options failed", "pane", pane, "error", err)
 	}
 }
 

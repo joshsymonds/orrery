@@ -92,16 +92,113 @@ func (c *Client) Run(ctx context.Context, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+// Literal returns value as a tmux argument that tmux reads back as value. tmux ends a command at an argument that ends
+// in ";", dropping that ";", and reads a final "\;" as ";", so a final ";" is written as "\;".
+func Literal(value string) string {
+	if before, ok := strings.CutSuffix(value, ";"); ok {
+		return before + `\;`
+	}
+	return value
+}
+
+// Batch runs cmds, each a tmux command and its arguments, as one tmux invocation, and returns its stdout: each
+// command's output in turn. Every argument is passed through Literal, so tmux reads each as given, and the commands
+// are joined with the ";" arguments that separate them. tmux runs the commands in order and stops at the first that
+// fails, whose error Batch returns. With no commands it runs nothing.
+func (c *Client) Batch(ctx context.Context, cmds ...[]string) (string, error) {
+	if len(cmds) == 0 {
+		return "", nil
+	}
+	var args []string
+	for i, cmd := range cmds {
+		if i > 0 {
+			args = append(args, ";")
+		}
+		for _, arg := range cmd {
+			args = append(args, Literal(arg))
+		}
+	}
+	return c.Run(ctx, args...)
+}
+
+// OptionWrite is one change to a pane-scoped option: Name set to Value, or unset when Unset is true.
+type OptionWrite struct {
+	Name  string
+	Value string
+	Unset bool
+}
+
+// Set returns the write that sets the option name to value.
+func Set(name, value string) OptionWrite {
+	return OptionWrite{Name: name, Value: value}
+}
+
+// Unset returns the write that removes the option name.
+func Unset(name string) OptionWrite {
+	return OptionWrite{Name: name, Unset: true}
+}
+
+// WriteCommands returns the set-option command of each of writes on paneID, in order, for Batch.
+func WriteCommands(paneID string, writes []OptionWrite) [][]string {
+	cmds := make([][]string, 0, len(writes))
+	for _, write := range writes {
+		if write.Unset {
+			cmds = append(cmds, []string{"set-option", "-p", "-u", "-t", paneID, write.Name})
+			continue
+		}
+		cmds = append(cmds, []string{"set-option", "-p", "-t", paneID, write.Name, write.Value})
+	}
+	return cmds
+}
+
+// WritePaneOptions applies writes to paneID in order in one tmux invocation. With no writes it runs nothing.
+func (c *Client) WritePaneOptions(ctx context.Context, paneID string, writes []OptionWrite) error {
+	_, err := c.Batch(ctx, WriteCommands(paneID, writes)...)
+	return err
+}
+
 // SetPaneOption sets the pane-scoped option name to value on paneID.
 func (c *Client) SetPaneOption(ctx context.Context, paneID, name, value string) error {
-	_, err := c.Run(ctx, "set-option", "-p", "-t", paneID, name, value)
-	return err
+	return c.WritePaneOptions(ctx, paneID, []OptionWrite{Set(name, value)})
 }
 
 // UnsetPaneOption removes the pane-scoped option name from paneID.
 func (c *Client) UnsetPaneOption(ctx context.Context, paneID, name string) error {
-	_, err := c.Run(ctx, "set-option", "-p", "-u", "-t", paneID, name)
-	return err
+	return c.WritePaneOptions(ctx, paneID, []OptionWrite{Unset(name)})
+}
+
+// valueSeparator splits the values PaneValues reads. tmux prints it raw, and it cannot appear in a single-line option
+// value.
+const valueSeparator = "\x1f"
+
+// PaneValues reads the options names on paneID in one tmux invocation and returns their values in order. An unset
+// option and one set to "" both read as "".
+func (c *Client) PaneValues(ctx context.Context, paneID string, names ...string) ([]string, error) {
+	out, err := c.Batch(ctx, ValuesCommand(paneID, names...))
+	if err != nil {
+		return nil, err
+	}
+	return ParseValues(out, len(names))
+}
+
+// ValuesCommand returns the display-message command that prints the options names of paneID on one line, for Batch,
+// whose output ParseValues reads.
+func ValuesCommand(paneID string, names ...string) []string {
+	fields := make([]string, len(names))
+	for i, name := range names {
+		fields[i] = "#{" + name + "}"
+	}
+	return []string{"display-message", "-p", "-t", paneID, strings.Join(fields, valueSeparator)}
+}
+
+// ParseValues returns the count values the line of a ValuesCommand's output holds. A line with another count of
+// values is an error.
+func ParseValues(out string, count int) ([]string, error) {
+	values := strings.Split(strings.TrimSuffix(out, "\n"), valueSeparator)
+	if len(values) != count {
+		return nil, fmt.Errorf("tmux: read %d option values, want %d", len(values), count)
+	}
+	return values, nil
 }
 
 // PaneOption returns the pane-scoped option name on paneID; ok is false when it is unset.

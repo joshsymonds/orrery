@@ -67,8 +67,9 @@ func heldShutdownWait(entered chan<- struct{}, release <-chan struct{}) {
 }
 
 // TestWatchShutdownWritesStacksOfHeldWait checks that a shutdown still running when the watch's delay passes writes
-// every goroutine's stack to a file in the directory, and logs its path. A goroutine is held in heldShutdownWait for the
-// whole test, entered before the shutdown starts, so the stacks must name it. The delay is zero, so the write follows the shutdown's start at once.
+// every goroutine's stack to a file in the directory, and logs its path. A shutdown phase is held in heldShutdownWait for
+// the whole test, entered before the shutdown starts, so the stacks must name the wait, and the log must show the
+// phase started and never finished. The delay is zero, so the write follows the shutdown's start at once.
 func TestWatchShutdownWritesStacksOfHeldWait(t *testing.T) {
 	var logs logBuffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
@@ -78,7 +79,7 @@ func TestWatchShutdownWritesStacksOfHeldWait(t *testing.T) {
 	held := make(chan struct{})
 	go func() {
 		defer close(held)
-		heldShutdownWait(entered, release)
+		shutdownPhase(logger, "held phase", func() { heldShutdownWait(entered, release) })
 	}()
 	defer func() {
 		close(release)
@@ -107,6 +108,10 @@ func TestWatchShutdownWritesStacksOfHeldWait(t *testing.T) {
 	}
 	if !strings.Contains(string(stacks), "heldShutdownWait") {
 		t.Errorf("stacks do not name the held wait heldShutdownWait:\n%s", stacks)
+	}
+	if !strings.Contains(logs.String(), `phase="held phase" step=start`) ||
+		strings.Contains(logs.String(), `phase="held phase" step=done`) {
+		t.Errorf("logs = %q, want the held phase started and not done", logs.String())
 	}
 }
 

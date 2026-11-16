@@ -23,13 +23,22 @@ const (
 	clientFields = 2
 )
 
+// Viewer reports whether a client of pane's tmux server shows the pane's window and had input within activeWindow
+// before now, as Viewing does.
+type Viewer func(ctx context.Context, client *tmuxctl.Client, pane string, now time.Time) (bool, error)
+
 // New returns a daemon observer that marks a pane seen when it enters done while a client of its tmux
-// server shows the pane's window and had input within activeWindow. The seen time is now().Unix(). Other
-// transitions change nothing. Tmux failures are logged to logger, which may be nil. After it marks a pane
-// seen, it calls report with the pane and the seen time it wrote.
-func New(now func() time.Time, logger *slog.Logger, report func(pane string, seen int64)) daemon.Observer {
+// server shows the pane's window and had input within activeWindow, as viewer reports it, or Viewing when viewer is
+// nil. The seen time is now().Unix(). Other transitions change nothing. Tmux failures are logged to logger, which may be
+// nil. After it marks a pane seen, it calls report with the pane and the seen time it wrote.
+func New(
+	now func() time.Time, logger *slog.Logger, report func(pane string, seen int64), viewer Viewer,
+) daemon.Observer {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
+	}
+	if viewer == nil {
+		viewer = Viewing
 	}
 	return func(transition daemon.Transition) {
 		if transition.To != protocol.StateDone {
@@ -37,23 +46,24 @@ func New(now func() time.Time, logger *slog.Logger, report func(pane string, see
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), observerTimeout)
 		defer cancel()
-		if err := markSeen(ctx, transition, now, report); err != nil {
+		if err := markSeen(ctx, transition, now, report, viewer); err != nil {
 			logger.ErrorContext(ctx, "mark pane seen", "pane", transition.PaneID, "error", err)
 		}
 	}
 }
 
 // Viewing reports whether a client of pane's tmux server shows the pane's window and had input within
-// activeWindow before now.
+// activeWindow before now. It reads the pane's window and the clients in one tmux invocation: the window's line comes
+// first, then one line per client.
 func Viewing(ctx context.Context, client *tmuxctl.Client, pane string, now time.Time) (bool, error) {
-	window, err := client.Run(ctx, "display", "-p", "-t", pane, "#{window_id}")
+	out, err := client.Batch(ctx,
+		[]string{"display", "-p", "-t", pane, "#{window_id}"},
+		[]string{"list-clients", "-F", "#{client_activity} #{window_id}"},
+	)
 	if err != nil {
-		return false, fmt.Errorf("pane window: %w", err)
+		return false, fmt.Errorf("pane window and clients: %w", err)
 	}
-	clients, err := client.Run(ctx, "list-clients", "-F", "#{client_activity} #{window_id}")
-	if err != nil {
-		return false, fmt.Errorf("list clients: %w", err)
-	}
+	window, clients, _ := strings.Cut(out, "\n")
 	return showsRecentInput(clients, strings.TrimSpace(window), now)
 }
 
@@ -64,13 +74,14 @@ func markSeen(
 	transition daemon.Transition,
 	now func() time.Time,
 	report func(pane string, seen int64),
+	viewer Viewer,
 ) error {
 	client, err := tmuxctl.New(transition.Server)
 	if err != nil {
 		return fmt.Errorf("resolve tmux server: %w", err)
 	}
 	current := now()
-	viewing, err := Viewing(ctx, client, transition.PaneID, current)
+	viewing, err := viewer(ctx, client, transition.PaneID, current)
 	if err != nil || !viewing {
 		return err
 	}
