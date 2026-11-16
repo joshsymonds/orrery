@@ -23,6 +23,7 @@ import io.github.joshsymonds.orrery.ui.PaneScreen
 import java.util.Timer
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.schedule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -242,6 +243,26 @@ class QuiescentWaitTest {
             server.respond(REGISTER_PATH, RegisterResponse.getDefaultInstance())
             Quiescence.awaitUntil("the registration to be accepted") { Quiescence.backgroundWorkRunning() == 0 }
         }
+    }
+
+    @Test
+    fun workThatFinishesJustBeforeAStoppedClockJudgmentIsRunNotJudged() {
+        // The order PaneScreenTest.paneRefreshesEverySecondWhileVisible hit: work on another thread finished after the
+        // wait's last drain and before its judgment, so its continuation sat queued on the main thread with nothing in
+        // flight, and the wait failed ("the clock is stopped and nothing is in flight") with the answer in hand.
+        val answer = CompletableDeferred<String>()
+        val shown = AtomicReference<String?>()
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent { LaunchedEffect(Unit) { shown.set(answer.await()) } }
+        beforeStoppedClockJudgment = {
+            if (!answer.isCompleted) Thread { answer.complete("synthetic answer") }.apply { start() }.join()
+        }
+        try {
+            composeRule.awaitUntilAfterIdle("the answer to be shown") { shown.get() != null }
+        } finally {
+            beforeStoppedClockJudgment = {}
+        }
+        assertEquals("synthetic answer", shown.get())
     }
 
     private fun showFirstPaneLabel(server: FakeOrreryServer) {
