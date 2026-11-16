@@ -23,6 +23,8 @@ type Notification struct {
 	Epic                     string
 	Limit                    string
 	Alert                    string
+	Block                    string
+	BlockRef                 string
 	State                    protocol.State
 	Summary, Label, Question string
 	Time                     int64
@@ -46,6 +48,8 @@ const (
 	keyEpic         = "epic"
 	keyLimit        = "limit"
 	keyAlert        = "alert"
+	keyBlock        = "block"
+	keyBlockRef     = "block_ref"
 	keyState        = "state"
 	keySummary      = "summary"
 	keyLabel        = "label"
@@ -163,8 +167,9 @@ func clearPayload(cleared Clear) ([]byte, error) {
 // boundedPayload returns the JSON payload for note. The question is shortened first, then the summary if
 // the payload still does not fit with an empty question. The question_hash always covers the full question.
 // The time key is always present. The session key is present only when note.Session is set, the epic key only
-// when note.Epic is set, the limit key only when note.Limit is set, the alert key only when note.Alert is set, and the
-// silent key only when note.Silent is set.
+// when note.Epic is set, the limit key only when note.Limit is set, the alert key only when note.Alert is set, the
+// block key only when note.Block is set, the block_ref key only when note.BlockRef is set, and the silent key only
+// when note.Silent is set.
 func boundedPayload(note Notification) ([]byte, error) {
 	hash := protocol.QuestionHash(note.Question)
 	encode := func(summary, question string) ([]byte, error) {
@@ -190,6 +195,12 @@ func boundedPayload(note Notification) ([]byte, error) {
 		}
 		if note.Alert != "" {
 			fields[keyAlert] = note.Alert
+		}
+		if note.Block != "" {
+			fields[keyBlock] = note.Block
+		}
+		if note.BlockRef != "" {
+			fields[keyBlockRef] = note.BlockRef
 		}
 		if note.Silent {
 			fields[keySilent] = "true"

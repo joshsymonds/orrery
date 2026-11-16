@@ -43,12 +43,14 @@ func decodePayload(t *testing.T, body []byte) map[string]string {
 
 func epicNotice() Notification {
 	return Notification{
-		Host:    "synthetic-host",
-		Epic:    "demo-0a1b2c3/epic-login",
-		Project: "Login flow",
-		State:   protocol.StateWaiting,
-		Summary: "Q1: which store?\nQ2: which port?",
-		Time:    1700000200,
+		Host:     "synthetic-host",
+		Epic:     "demo-0a1b2c3/epic-login",
+		Project:  "Login flow",
+		State:    protocol.StateWaiting,
+		Summary:  "Q1: which store?\nQ2: which port?",
+		Block:    "question",
+		BlockRef: "Q1",
+		Time:     1700000200,
 	}
 }
 
@@ -100,5 +102,28 @@ func TestPushEpicKeyOmittedWithoutEpic(t *testing.T) {
 	}
 	if _, ok := decodePayload(t, clearBody)["epic"]; ok {
 		t.Error("clear without Epic carries an epic key")
+	}
+}
+
+func TestPushEpicBlockKeysOmittedWhenUnset(t *testing.T) {
+	t.Parallel()
+	noBlock := epicNotice()
+	noBlock.Block = ""
+	body, err := boundedPayload(noBlock)
+	if err != nil {
+		t.Fatalf("boundedPayload: %v", err)
+	}
+	if _, ok := decodePayload(t, body)["block"]; ok {
+		t.Error("notice without Block carries a block key")
+	}
+
+	noRef := epicNotice()
+	noRef.BlockRef = ""
+	body, err = boundedPayload(noRef)
+	if err != nil {
+		t.Fatalf("boundedPayload: %v", err)
+	}
+	if _, ok := decodePayload(t, body)["block_ref"]; ok {
+		t.Error("notice without BlockRef carries a block_ref key")
 	}
 }
