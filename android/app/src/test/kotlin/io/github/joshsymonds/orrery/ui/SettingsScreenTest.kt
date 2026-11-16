@@ -12,7 +12,9 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.mainThreadComposeRule
+import androidx.compose.ui.test.hasTestTag
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -26,6 +28,7 @@ import org.robolectric.annotation.Config
 class SettingsScreenTest {
     private companion object {
         const val ADDRESS_FIELD_TAG = "server-address"
+        const val BUILT_IN = "https://orrery.example.invalid:8490"
     }
 
     @get:Rule
@@ -43,7 +46,24 @@ class SettingsScreenTest {
     fun prefillsFieldWithDefaultWhenNothingIsSaved() {
         setContent()
 
-        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).assert(hasText(ServerSettings.DEFAULT_SERVER_URL))
+        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).assert(hasText(BUILT_IN))
+        assertFalse(asks())
+    }
+
+    @Test
+    fun asksForTheServerWithAnEmptyFieldWhenThereIsNone() {
+        setContent(defaultUrl = "")
+
+        assertTrue(asks())
+        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).assert(hasText(""))
+    }
+
+    @Test
+    fun doesNotAskWhenAnAddressIsSaved() {
+        ServerSettings(context, defaultUrl = "").saveServerUrl("https://orrery.example.invalid:9000")
+        setContent(defaultUrl = "")
+
+        assertFalse(asks())
     }
 
     @Test
@@ -51,22 +71,22 @@ class SettingsScreenTest {
         var saved = false
         setContent(onSaved = { saved = true })
 
-        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement("https://orrery.example.com:8490")
+        composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement("https://orrery.example.invalid:8491")
         composeRule.onNodeWithText("Save").performClick()
 
-        assertEquals("https://orrery.example.com:8490", ServerSettings(context).serverUrl)
+        assertEquals("https://orrery.example.invalid:8491", ServerSettings(context).serverUrl)
         assertTrue(saved)
     }
 
     @Test
     fun savingBlankFieldRestoresDefault() {
-        ServerSettings(context).saveServerUrl("https://orrery.example.com:9000")
+        ServerSettings(context, defaultUrl = BUILT_IN).saveServerUrl("https://orrery.example.invalid:9000")
         setContent()
 
         composeRule.onNodeWithTag(ADDRESS_FIELD_TAG).performTextReplacement("   ")
         composeRule.onNodeWithText("Save").performClick()
 
-        assertEquals(ServerSettings.DEFAULT_SERVER_URL, ServerSettings(context).serverUrl)
+        assertEquals(BUILT_IN, ServerSettings(context, defaultUrl = BUILT_IN).serverUrl)
     }
 
     @Test
@@ -87,9 +107,12 @@ class SettingsScreenTest {
             .assertIsDisplayed()
     }
 
-    private fun setContent(onSaved: () -> Unit = {}) {
+    private fun asks(): Boolean =
+        composeRule.onAllNodes(hasTestTag(SERVER_ASK_TAG)).fetchSemanticsNodes().isNotEmpty()
+
+    private fun setContent(onSaved: () -> Unit = {}, defaultUrl: String = BUILT_IN) {
         composeRule.setContent {
-            SettingsScreen(settings = ServerSettings(context), onSaved = onSaved)
+            SettingsScreen(settings = ServerSettings(context, defaultUrl = defaultUrl), onSaved = onSaved)
         }
     }
 }

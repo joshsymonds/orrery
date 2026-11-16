@@ -22,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.ServerSettings
 
+/** The line settings shows while there is no server address to talk to. */
+internal const val SERVER_ASK_TAG = "server-ask"
+
 @Composable
 fun SettingsScreen(settings: ServerSettings, onSaved: () -> Unit, modifier: Modifier = Modifier) {
     var address by remember(settings) { mutableStateOf(settings.serverUrl) }
@@ -31,6 +34,9 @@ fun SettingsScreen(settings: ServerSettings, onSaved: () -> Unit, modifier: Modi
     }
 
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        if (!settings.hasServer) {
+            Text("Which orreryd server should Orrery talk to?", modifier = Modifier.testTag(SERVER_ASK_TAG))
+        }
         OutlinedTextField(
             value = address,
             onValueChange = { address = it },

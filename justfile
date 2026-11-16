@@ -251,10 +251,12 @@ test-deadline-test:
 android-test:
     nix develop .#android -c gradle -p android assembleDebug lintDebug test
 
-# Build the debug APK and install it on the connected device.
+# Build the debug APK and install it on the connected device. A fresh install
+# starts with $ORRERY_DEFAULT_SERVER as its server address (an install that
+# saved one in settings keeps it); unset, the app asks for the server.
 android-install:
     nix develop .#android -c bash -ceu '\
-        gradle -p android assembleDebug; \
+        gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}"; \
         adb install -r android/app/build/outputs/apk/debug/app-debug.apk'
 
 # Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF
