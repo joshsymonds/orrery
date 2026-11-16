@@ -599,7 +599,7 @@ A session is in one of these states. `working`, `waiting` and `done` are also pa
 
 | State | Set when |
 |---|---|
-| `working` | the session starts, a prompt is sent, an answer is accepted, or the session withdraws its open request |
+| `working` | the session starts, a prompt is sent, an answer is accepted, the session withdraws its open request, or claude opens a turn by itself while no turn runs, as when a background task's end starts one: the first event that only a running turn gives (its init, its content, a tool call, an assistant error or a request) records `working` in that event's write, and the owner is told the session changed (`enginehost.opensTurn`, `enginehost.Manager.noteEvent`, `enginehost.recorder.turnOpened`) |
 | `waiting` | the session sends a request the host must answer. A refused request leaves the state as it was |
 | `done` | a turn ends with every prompt the session sent answered and no send under way. A turn that was interrupted with `Interrupt` also ends `done`. A turn end after which a prompt is still unanswered, as one sent during the turn is, or while a send is under way, keeps the session `working`: claude runs that prompt as the next turn. Its `engine_turn_ended` is stored, but no notice is sent for it and a step's observer is not handed it (`enginehost.Manager.noteEvent`, `enginehost.recorder.followedTurnEnd`; `session.TurnEnded.Unanswered`) |
 | `stopped` | the `Stop` call ends the process, or the process exits without an error |
