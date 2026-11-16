@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -336,8 +337,11 @@ class PhaseOutputScreenTest {
         composeRule.onNodeWithText("green").assertExists()
         composeRule.onNodeWithText("returned").assertExists()
         composeRule.onNodeWithText("synthetic return reason").assertExists()
-        // The running step's doing also shows as its phase row's summary, so it is on screen more than once.
-        assertTrue(composeRule.onAllNodesWithText("synthetic doing now").fetchSemanticsNodes().isNotEmpty())
+        // The running step's doing also shows as its phase row's summary, so the check looks inside the body alone.
+        val inBody = hasAnyAncestor(hasTestTag("phase-body:implementing"))
+        assertTrue(
+            composeRule.onAllNodes(hasText("synthetic doing now") and inBody).fetchSemanticsNodes().isNotEmpty(),
+        )
     }
 
     @Test
@@ -380,8 +384,11 @@ class PhaseOutputScreenTest {
         composeRule.onNodeWithText("synthetic.kt:7").assertExists()
         composeRule.onNodeWithText("fixed").assertExists()
         composeRule.onNodeWithText("synthetic finding reason").assertExists()
-        // The reviewing row's summary is the same reviewer's summary, so it is on screen more than once.
-        assertTrue(composeRule.onAllNodesWithText("synthetic reviewer summary").fetchSemanticsNodes().isNotEmpty())
+        // The reviewing row's summary is the same reviewer's summary, so the check looks inside the body alone.
+        val inBody = hasAnyAncestor(hasTestTag("phase-body:reviewing"))
+        assertTrue(
+            composeRule.onAllNodes(hasText("synthetic reviewer summary") and inBody).fetchSemanticsNodes().isNotEmpty(),
+        )
     }
 
     @Test
