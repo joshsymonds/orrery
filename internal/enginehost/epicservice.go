@@ -36,14 +36,16 @@ type EpicCommands interface {
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 	AnswerQuestion(
-		ctx context.Context, epic, id, text string, question int64, at time.Time,
+		ctx context.Context, epic, id, text string, question int64, choice string, at time.Time,
 	) (store.EpicDecision, error)
 	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
+	Follows(ctx context.Context) ([]store.LabelFollow, error)
 	PauseEpic(ctx context.Context, epic string) error
 	ResumeEpic(ctx context.Context, epic string) error
 	StopEpic(ctx context.Context, epic string) (string, error)
 	RetryEpic(ctx context.Context, epic string) error
 	RetryNode(ctx context.Context, epic, node string) error
+	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -145,9 +147,9 @@ func (s *epicService) fillHistory(ctx context.Context, id string, message *v1.St
 	return nil
 }
 
-// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs and its review, all read in
-// one read of the store, so every reply that carries the epic shows the same nodes and the same review. It returns an
-// error matching store.ErrNoEpic when no epic has that id.
+// storedEpic returns the StoredEpic message of the epic with id with its workflow node runs, its review, its release
+// runs and the holder of its repository's release slot, all read in one read of the store, so every reply that carries
+// the epic shows the same state. It returns an error matching store.ErrNoEpic when no epic has that id.
 func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic, error) {
 	flow, err := s.epics.EpicFlow(ctx, id)
 	if err != nil {
@@ -165,6 +167,8 @@ func (s *epicService) storedEpic(ctx context.Context, id string) (*v1.StoredEpic
 	message.Ledger = reviewLedgerMessage(flow.Review)
 	message.Frozen = flow.Review.Frozen
 	message.Clean = flow.Review.Clean
+	message.Releases = epicMap(flow.Releases, releaseRunMessage)
+	message.ReleaseSlot = flow.Slot
 	return message, nil
 }
 
@@ -182,10 +186,27 @@ func (s *epicService) ListEpics(
 	return connect.NewResponse(&v1.ListEpicsResponse{Epics: epicMap(rows, summaryMessage)}), nil
 }
 
-// AnswerEpic records the answer on the epic, once. It refuses an empty epic_id, id or text first. An answer with no
-// question is a note, and it warns, when questions are open, naming them. An answer with a question is tied to it,
-// which closes it; a question that is not Q<n> with a positive n is refused as unknown. The store then answers an
-// unknown epic, an unknown or closed question, or an id recorded with other text, as the refusals say.
+// FollowEpics returns the follow count of every label across all epics, in label order.
+func (s *epicService) FollowEpics(
+	ctx context.Context,
+	_ *connect.Request[v1.FollowEpicsRequest],
+) (*connect.Response[v1.FollowEpicsResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	follows, err := s.epics.Follows(ctx)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.FollowEpicsResponse{Follows: epicMap(follows, followMessage)}), nil
+}
+
+// AnswerEpic records the answer on the epic, once. It refuses an empty epic_id or id first, then a note that names a
+// choice or has no text, and an answer to a question that names no choice. An answer with no question is a note, and
+// it warns, when questions are open, naming them. An answer with a question is tied to it and to its choice, which
+// closes it; a question that is not Q<n> with a positive n is refused as unknown. The store then answers an unknown
+// epic, an unknown, replaced or closed question, a choice the question does not offer, other with blank text, or an id
+// recorded with other text or another choice, as the refusals say.
 func (s *epicService) AnswerEpic(
 	ctx context.Context,
 	req *connect.Request[v1.AnswerEpicRequest],
@@ -204,7 +225,7 @@ func (s *epicService) AnswerEpic(
 		return nil, questionNotFound(req.Msg)
 	}
 	decision, err := s.epics.AnswerQuestion(
-		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, time.Now(),
+		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, req.Msg.GetChoice(), time.Now(),
 	)
 	if err != nil {
 		return nil, answerError(req.Msg, err)
@@ -233,9 +254,12 @@ func (s *epicService) answerNote(
 }
 
 // answerError maps an error from recording the answer req names to its Connect error: an unknown epic is NotFound on
-// epic_id, an id recorded with other text is AlreadyExists, an unknown question is NotFound on question, a closed
-// question is FailedPrecondition, and any other error goes through epicStoreError.
+// epic_id, an id recorded with other text or another choice is AlreadyExists, an unknown question is NotFound on
+// question, a replaced or closed question is FailedPrecondition, a choice the question does not offer is
+// InvalidArgument on choice, other with blank text is InvalidArgument on text, and any other error goes through
+// epicStoreError.
 func answerError(req *v1.AnswerEpicRequest, err error) error {
+	var replaced *store.QuestionReplacedError
 	switch {
 	case errors.Is(err, store.ErrNoEpic):
 		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("epic_id: no epic %s", req.GetEpicId()))
@@ -243,8 +267,18 @@ func answerError(req *v1.AnswerEpicRequest, err error) error {
 		return refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s was recorded with other text", req.GetId()))
 	case errors.Is(err, store.ErrNoQuestion):
 		return questionNotFound(req)
+	case errors.As(err, &replaced):
+		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+			"question: %s was replaced by %s", questionID(replaced.Seq), questionID(replaced.By),
+		))
 	case errors.Is(err, store.ErrQuestionClosed):
 		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("question: %s is closed", req.GetQuestion()))
+	case errors.Is(err, store.ErrNoChoice):
+		return refuseEpic(connect.CodeInvalidArgument, fmt.Sprintf(
+			"choice: %s offers no choice %s", req.GetQuestion(), req.GetChoice(),
+		))
+	case errors.Is(err, store.ErrOtherNeedsText):
+		return refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	default:
 		return epicStoreError(err)
 	}
@@ -277,16 +311,21 @@ func noteWarning(open []store.EpicQuestion) string {
 	return "recorded as a note: it answers no question, and " + strings.Join(ids, ", ") + " are open"
 }
 
-// checkEpicAnswer returns the refusal of an answer whose epic_id, id or text is empty, naming the first one that is.
-// The text is empty after trimming white space.
+// checkEpicAnswer returns the refusal of an answer whose epic_id or id is empty, or whose choice does not fit its
+// question: a note names no choice and needs text, and an answer to a question names one. The text of a note is empty
+// after trimming white space. The store judges the choice against the question and other's text.
 func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 	switch {
 	case req.GetEpicId() == "":
 		return refuseEpic(connect.CodeInvalidArgument, "epic_id: empty")
 	case req.GetId() == "":
 		return refuseEpic(connect.CodeInvalidArgument, "id: empty")
-	case isBlank(req.GetText()):
+	case req.GetQuestion() == "" && req.GetChoice() != "":
+		return refuseEpic(connect.CodeInvalidArgument, "choice: a note answers no question")
+	case req.GetQuestion() == "" && isBlank(req.GetText()):
 		return refuseEpic(connect.CodeInvalidArgument, "text: empty")
+	case req.GetQuestion() != "" && req.GetChoice() == "":
+		return refuseEpic(connect.CodeInvalidArgument, "choice: empty")
 	}
 	return nil
 }
@@ -435,6 +474,39 @@ func (s *epicService) RetryEpic(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
+}
+
+// ReleaseEpic resumes the stopped release of the epic at its first unfinished step, running again the undo-none release
+// steps undo_none names, and returns the epic read back. An empty id, and a position in undo_none below 1, are refused
+// before the store is asked.
+func (s *epicService) ReleaseEpic(
+	ctx context.Context,
+	req *connect.Request[v1.ReleaseEpicRequest],
+) (*connect.Response[v1.ReleaseEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	undoNone := make([]int64, 0, len(req.Msg.GetUndoNone()))
+	for _, position := range req.Msg.GetUndoNone() {
+		if position < 1 {
+			return nil, refuseEpic(
+				connect.CodeInvalidArgument, fmt.Sprintf("undo_none: position %d is below 1", position),
+			)
+		}
+		undoNone = append(undoNone, int64(position))
+	}
+	if err := s.epics.ReleaseEpic(ctx, id, undoNone, time.Now()); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	message, err := s.storedEpic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.ReleaseEpicResponse{Epic: message}), nil
 }
 
 // retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
@@ -821,11 +893,7 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 
 // decisionMessage returns the EpicDecision message of d, its question as Q<n> when it answers one, empty for a note.
 func decisionMessage(d store.EpicDecision) *v1.EpicDecision {
-	message := &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix()}
-	if d.Question != 0 {
-		message.Question = questionID(d.Question)
-	}
-	return message
+	return &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix(), Question: questionRef(d.Question)}
 }
 
 // turnMessage returns the EpicTurn message of turn. Ended is 0 while the turn runs.
@@ -840,6 +908,15 @@ func turnMessage(turn store.EpicTurn) *v1.EpicTurn {
 		Decisions: turn.Decisions,
 		Started:   turn.Started.Unix(),
 		Ended:     unixOrZero(turn.Ended),
+	}
+}
+
+// releaseRunMessage returns the EpicReleaseRun message of run, its time in unix seconds.
+func releaseRunMessage(run store.ReleaseRun) *v1.EpicReleaseRun {
+	return &v1.EpicReleaseRun{
+		Part: run.Part, Position: run.Position, Attempt: run.Attempt, Step: run.Step, Start: run.Start, Head: run.Head,
+		End: run.End, Commits: run.Commits, Evidence: run.Evidence, Passed: run.Passed, Reason: run.Reason,
+		At: run.At.Unix(),
 	}
 }
 
@@ -964,14 +1041,49 @@ func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
 	}
 }
 
-// questionMessage returns the EpicQuestion message of question, its id Q<seq>.
+// questionMessage returns the EpicQuestion message of question: its id Q<seq>, its label, its declared choices, its
+// recommendation, which is unset when it recommends none, the questions it replaces and replaced, and its answer.
 func questionMessage(question store.EpicQuestion) *v1.EpicQuestion {
 	return &v1.EpicQuestion{
-		Id:    questionID(question.Seq),
-		Turn:  question.Turn,
-		Text:  question.Text,
-		State: question.State,
+		Id:             questionID(question.Seq),
+		Turn:           question.Turn,
+		Text:           question.Text,
+		State:          question.State,
+		Label:          question.Label,
+		Choices:        epicMap(question.Choices, choiceMessage),
+		Recommendation: recommendationMessage(question),
+		Replaces:       questionRef(question.Replaces),
+		ReplacedBy:     questionRef(question.ReplacedBy),
+		Choice:         question.Choice,
 	}
+}
+
+// choiceMessage returns the EpicQuestionChoice message of choice.
+func choiceMessage(choice store.EpicChoice) *v1.EpicQuestionChoice {
+	return &v1.EpicQuestionChoice{Id: choice.ID, Does: choice.Does}
+}
+
+// recommendationMessage returns the EpicRecommendation message of question, or nil when question recommends none.
+func recommendationMessage(question store.EpicQuestion) *v1.EpicRecommendation {
+	if question.Recommended == "" {
+		return nil
+	}
+	return &v1.EpicRecommendation{
+		Choice: question.Recommended, Why: question.Why, Confidence: question.Confidence,
+	}
+}
+
+// followMessage returns the EpicFollow message of follow.
+func followMessage(follow store.LabelFollow) *v1.EpicFollow {
+	return &v1.EpicFollow{Label: follow.Label, Answered: follow.Answered, Followed: follow.Followed}
+}
+
+// questionRef returns the id Q<seq> of the question with seq, or empty when seq is 0, which names no question.
+func questionRef(seq int64) string {
+	if seq == 0 {
+		return ""
+	}
+	return questionID(seq)
 }
 
 // questionID returns the id of the question with seq, Q<seq>.

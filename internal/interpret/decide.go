@@ -17,7 +17,7 @@ type ActionKind string
 
 // The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch and ActParkEpic change the node
 // runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the review. ActWork hands
-// a check node run's work to the interpreter, and ActRun hands a node run to its kind.
+// a check or release node run's work to the interpreter, and ActRun hands a node run to its kind.
 const (
 	ActStart    ActionKind = "start"
 	ActEnd      ActionKind = "end"
@@ -39,13 +39,13 @@ const (
 // at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
 // its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason, and for good
 // when Final. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
-// parks the epic for Reason, with Trigger. Work carries a check node run's work: Work is the kind's action, prepare,
-// start, capture, repro, refs or advance, and Def, Run, IDs, Items, Tasks and Units are what it is for. An advance
-// carries its Output and the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0],
-// stopped for Reason.
-// Review ends the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure
-// run at Path, whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion
-// run at Path, whose Attempt ended with Phase and Output.
+// parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
+// prepare, start, capture, repro, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
+// Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance
+// the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
+// the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path,
+// whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path,
+// whose Attempt ended with Phase and Output.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
@@ -86,6 +86,7 @@ const (
 	outcomeFailed = "failed"
 	triggerPrefix = "workflow:"
 	kindIntegrate = "integrate"
+	kindRelease   = "release"
 )
 
 // The kinds of the end-of-epic review nodes. Each ends with an action of its own.
@@ -249,7 +250,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	switch act.Kind {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
-	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance:
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
+		kinds.ActTake, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop, kinds.ActEnding, kinds.ActFree:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
@@ -446,16 +448,14 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 	}
 }
 
-// work returns the work action of a check node run: the kind's prepare, start, capture, repro, refs or advance, and
-// the ids, items, tasks and units the work is for. An advance also carries its output and the trigger its passed
-// batch writes.
+// work returns the work action of a check or release node run: the kind's action, and the ids, items, tasks, units,
+// output and outcome the work is for. An advance also carries the trigger its passed batch writes.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
-		Items: act.Items, Tasks: act.Tasks, Units: act.Units,
+		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,
 	}
 	if act.Kind == kinds.ActAdvance {
-		out.Output = act.Output
 		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)
 	}
 	return out

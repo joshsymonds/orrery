@@ -10,7 +10,8 @@
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, BGDONE answers with a
 # success result whose structured output is done with no commit, and leaves any task listed, BGSELF starts two tasks and
 # ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
-# itself, reading no stdin, which ends with a done return while the second task still runs, PAIR answers with one
+# itself, reading no stdin, which ends with a done return while the second task still runs, BGSELFHELD plays BGSELF but
+# holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
 # structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
@@ -25,6 +26,9 @@
 # session id changed. Each turn lists in user_message_uuids the uuids of the prompts it answers: the uuid of the prompt
 # that opened it, and for FOLD the uuid of the folded message too. Every line it reads from stdin, prompts and answers
 # alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
+# RELEASEDONE waits until fakeclaude.release exists in its directory, makes an empty commit there and ends with a success
+# result whose structured output returns that commit as a release step's one commit, with its evidence. JUDGERELEASED
+# waits as JUDGEHOLDS does and ends with a success result that releases the epic, with no uncovered postcondition.
 # When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
@@ -244,6 +248,7 @@ bgdone() {
 # itself. That turn has no user_message_uuids, a result_index of 1 and the origin of a task notification, and ends with a
 # done return while the second task still runs.
 bgself() {
+	held=$1
 	turn_open
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"},{"task_id":"task_fake_2","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
 	text_block 0 "fake bgself $n" "fake bgself $n"
@@ -258,6 +263,11 @@ bgself() {
 	answered='[]'
 	turn_open
 	text_block 0 "fake self $n" "fake self $n"
+	if [ -n "$held" ]; then
+		while [ ! -e fakeclaude.open ]; do
+			sleep 0.05
+		done
+	fi
 	structured='{"status":"done","summary":"fake done"}'
 	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
 	result_index=1
@@ -305,6 +315,31 @@ judgeholds() {
 	done
 	structured='{"status":"done","results":[{"assertion":"JUDGEHOLDS","kind":"must","result":"holds","evidence":"fake"}],'
 	structured="$structured"'"findings":[],"observations":[],"missing_evidence":[],"test_runner_requests":[]}'
+	turn_close
+}
+
+# releasedone starts a turn, waits until fakeclaude.release exists in its directory, makes an empty commit there, and ends
+# the turn with a success result whose structured output returns that commit as the step's one commit, with its evidence.
+releasedone() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	git -c user.name=fake -c user.email=fake@example.invalid -c commit.gpgsign=false commit -q --allow-empty \
+		-m "fake release $n"
+	head=$(git rev-parse HEAD)
+	structured='{"status":"done","commit":"'"$head"'","commits":["'"$head"'"],"evidence":"fake release evidence"}'
+	turn_close
+}
+
+# judgereleased waits until fakeclaude.release exists in its directory, then ends the turn with a success result whose
+# structured output releases the epic with no uncovered postcondition, as a release judge's return does.
+judgereleased() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	structured='{"status":"done","released":true,"uncovered":[]}'
 	turn_close
 }
 
@@ -399,11 +434,14 @@ while next; do
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;
 				*BGDONE*) bgdone ;;
+				*BGSELFHELD*) bgself held ;;
 				*BGSELF*) bgself ;;
 				*PAIR*) pair ;;
 				*READDONE*) readdone ;;
 				*STEPDONE*) stepdone ;;
 				*JUDGEHOLDS*) judgeholds ;;
+				*JUDGERELEASED*) judgereleased ;;
+				*RELEASEDONE*) releasedone ;;
 				*FOLD*) fold ;;
 				*WAITOPEN*) waitopen ;;
 				*LIMITNORESET*) limit noreset ;;

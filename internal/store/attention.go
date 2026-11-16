@@ -77,13 +77,21 @@ func attentionOf(
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("list open questions: %w", err)
 	}
+	questions, err := convertInOrder(open, questionOf)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("open questions: %w", err)
+	}
 	tells, err := queries.ListEpicTells(ctx, id)
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("list tells: %w", err)
 	}
+	untold, err := untoldTellsOf(ctx, queries, id, tells)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("untold tells: %w", err)
+	}
 	entry := EpicAttention{
 		Epic: head.ID, Title: head.Title, Parked: head.Parked, Paused: head.Paused != 0,
-		Open: mapInOrder(open, questionOf), Tells: untoldTellsOf(tells),
+		Open: questions, Tells: untold,
 	}
 	if len(tells) != 0 {
 		entry.LatestTell = time.Unix(tells[len(tells)-1].At, 0)
@@ -106,15 +114,34 @@ func attentionOf(
 	return entry, nil
 }
 
-// untoldTellsOf returns the tells not yet told, in the seq order the rows come in.
-func untoldTellsOf(tells []sqlcgen.EpicTell) []EpicTell {
+// untoldTellsOf returns the tells of epic not yet told, in the seq order the rows come in. A tell that belongs to a
+// question carries that question, read by its seq.
+func untoldTellsOf(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	tells []sqlcgen.EpicTell,
+) ([]EpicTell, error) {
 	var out []EpicTell
 	for _, tell := range tells {
-		if tell.Told == 0 {
-			out = append(out, EpicTell{Seq: tell.Seq, Text: tell.Text, At: time.Unix(tell.At, 0)})
+		if tell.Told != 0 {
+			continue
 		}
+		untold := EpicTell{Seq: tell.Seq, Text: tell.Text, At: time.Unix(tell.At, 0)}
+		if tell.Question != 0 {
+			stored, err := queries.GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: epic, Seq: tell.Question})
+			if err != nil {
+				return nil, fmt.Errorf("read question %d of tell %d: %w", tell.Question, tell.Seq, err)
+			}
+			question, err := questionOf(stored)
+			if err != nil {
+				return nil, fmt.Errorf("question %d of tell %d: %w", tell.Question, tell.Seq, err)
+			}
+			untold.Question = &question
+		}
+		out = append(out, untold)
 	}
-	return out
+	return out, nil
 }
 
 // MarkTellTold sets the told marker of tell seq of epic in one write. A tell that does not exist is an error matching

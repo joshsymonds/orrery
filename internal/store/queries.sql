@@ -192,10 +192,10 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
-                   done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
-                   started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
+                   done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
+                   model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
                    loop_stage, loop_stage_from, agents)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -433,6 +433,34 @@ INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?
 -- name: ListEpicReleaseSteps :many
 SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
 
+-- name: InsertEpicReleaseRun :exec
+INSERT INTO epic_release_runs (epic, part, position, attempt, step, start, head, finish, commits, evidence, passed,
+    reason, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, part, position, attempt) DO NOTHING;
+
+-- name: ListEpicReleaseRuns :many
+SELECT * FROM epic_release_runs WHERE epic = ? ORDER BY attempt, part, position;
+
+-- name: InsertEpicReleaseSlot :exec
+INSERT INTO epic_release_slots (repository, epic) VALUES (?, ?)
+ON CONFLICT (repository) DO NOTHING;
+
+-- name: GetEpicReleaseSlotHolder :one
+SELECT epic FROM epic_release_slots WHERE repository = ?;
+
+-- name: FreeEpicReleaseSlot :exec
+DELETE FROM epic_release_slots WHERE epic = ?;
+
+-- name: StartEpicRelease :exec
+UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'clean';
+
+-- name: ResumeEpicRelease :exec
+UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'stopped';
+
+-- name: StopEpicRelease :exec
+UPDATE epics SET phase = 'stopped' WHERE id = ? AND phase = 'releasing';
+
 -- name: InsertEpicGate :exec
 INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -636,7 +664,8 @@ WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(att
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
 
 -- name: InsertEpicQuestion :exec
-INSERT INTO epic_questions (epic, seq, turn, text, state) VALUES (?, ?, ?, ?, 'open');
+INSERT INTO epic_questions (epic, seq, turn, text, state, label, choices, recommended, why, confidence, replaces)
+VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?);
 
 -- name: ConsumeEpicTriggers :exec
 UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND turn = ? AND state = 'claimed';
@@ -711,6 +740,9 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 -- name: InsertEpicTell :exec
 INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0);
 
+-- name: InsertEpicQuestionTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?);
+
 -- name: ListEpicTells :many
 SELECT * FROM epic_tells WHERE epic = ? ORDER BY seq;
 
@@ -727,7 +759,20 @@ SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq;
 SELECT * FROM epic_questions WHERE epic = ? AND seq = ?;
 
 -- name: SetEpicQuestionAnswered :exec
-UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
+UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;
+
+-- name: SetEpicQuestionReplaced :execrows
+UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open';
+
+-- name: ListOpenEpicParkQuestions :many
+SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' AND turn = 0 AND label = 'park' ORDER BY seq;
+
+-- name: ListEpicQuestionFollows :many
+SELECT label, CAST(COUNT(*) AS INTEGER) AS answered,
+    CAST(SUM(CASE WHEN choice = recommended THEN 1 ELSE 0 END) AS INTEGER) AS followed
+FROM epic_questions
+WHERE label <> '' AND recommended <> '' AND state = 'answered'
+GROUP BY label ORDER BY label;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;

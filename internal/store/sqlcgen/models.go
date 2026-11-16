@@ -204,11 +204,40 @@ type EpicPremise struct {
 }
 
 type EpicQuestion struct {
-	Epic  string
-	Seq   int64
-	Turn  int64
-	Text  string
-	State string
+	Epic        string
+	Seq         int64
+	Turn        int64
+	Text        string
+	State       string
+	Label       string
+	Choices     string
+	Recommended string
+	Why         string
+	Confidence  string
+	Replaces    int64
+	ReplacedBy  int64
+	Choice      string
+}
+
+type EpicReleaseRun struct {
+	Epic     string
+	Part     string
+	Position int64
+	Attempt  int64
+	Step     string
+	Start    string
+	Head     string
+	Finish   string
+	Commits  string
+	Evidence string
+	Passed   bool
+	Reason   string
+	At       int64
+}
+
+type EpicReleaseSlot struct {
+	Repository string
+	Epic       string
 }
 
 type EpicReleaseStep struct {
@@ -359,11 +388,12 @@ type EpicTaskTestChange struct {
 }
 
 type EpicTell struct {
-	Epic string
-	Seq  int64
-	Text string
-	At   int64
-	Told int64
+	Epic     string
+	Seq      int64
+	Text     string
+	At       int64
+	Told     int64
+	Question int64
 }
 
 type EpicTrigger struct {
@@ -591,6 +621,7 @@ type Step struct {
 	LoopStage       string
 	LoopStageFrom   int64
 	Agents          string
+	Unowned         int64
 }
 
 type ToldLimitStep struct {

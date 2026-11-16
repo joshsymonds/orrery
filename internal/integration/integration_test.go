@@ -67,6 +67,10 @@ const (
 	// judgeDelay is the --judge-delay test seam the daemons of the notice tests run with, so a plain done is judged at
 	// once and not after route.JudgeDelay of real time. route's own tests check that wait on fake timers.
 	judgeDelay = "0s"
+	// openTreeErrorLog starts the line an attached orrery open writes when its tree's popup command fails.
+	openTreeErrorLog = "orrery open: tree: "
+	// serveListeningLog starts the stderr line orrery serve writes once its API listener is bound, before the address.
+	serveListeningLog = "orrery serve: listening on "
 	// writeTick is the --write-tick test seam every orreryd a test starts runs with, so a wait for a stored engine op
 	// waits milliseconds for the engine writer's tick, not the production 100 ms. A step round waits for several.
 	writeTick = "5ms"
@@ -281,6 +285,12 @@ func startExitingOrreryd(t *testing.T, env []string, args ...string) *orreryProc
 	return startProcess(t, "orreryd", env, true, args...)
 }
 
+// runsUntilStopped reports whether the built binary name, run with args, serves until its test stops it, so that an exit
+// before then fails the test: orreryd, and orrery serve.
+func runsUntilStopped(name string, args []string) bool {
+	return name == "orreryd" || (name == "orrery" && slices.Contains(args, "serve"))
+}
+
 // startProcess starts the built binary name with args and env. mayExit is whether it may exit before the test asks.
 func startProcess(t *testing.T, name string, env []string, mayExit bool, args ...string) *orreryProcess {
 	t.Helper()
@@ -302,7 +312,7 @@ func startProcess(t *testing.T, name string, env []string, mayExit bool, args ..
 	}
 	go func() {
 		p.waitErr = p.cmd.Wait()
-		if name == "orreryd" && !p.mayExit && !p.asked.Load() {
+		if runsUntilStopped(name, args) && !p.mayExit && !p.asked.Load() {
 			t.Errorf("%s exited while the test still needed it: %v; stderr %q", name, p.waitErr, p.stderr.String())
 		}
 		close(p.done)
@@ -333,14 +343,14 @@ func terminate(p *orreryProcess) {
 	<-p.done
 }
 
-// waitForListener polls address on network until a client connects, failing the test if the process exits first. It
-// has no deadline of its own.
-func (p *orreryProcess) waitForListener(t *testing.T, network, address string) {
+// waitForListener polls the unix socket at address until a client connects, failing the test if the process exits
+// first. It has no deadline of its own.
+func (p *orreryProcess) waitForListener(t *testing.T, address string) {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
-		conn, err := net.Dial(network, address)
+		conn, err := net.Dial("unix", address)
 		if err == nil {
 			if closeErr := conn.Close(); closeErr != nil {
 				t.Fatalf("close probe connection: %v", closeErr)
@@ -1304,7 +1314,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()),
 		"-L", name, "--socket", socket, "--judge-delay", judgeDelay,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
-	daemon.waitForListener(t, "unix", socket)
+	daemon.waitForListener(t, socket)
 	notices := startNoticeReader(t, scrubbedEnv(), socket)
 
 	runHookCommand(t, socket, pane, project, map[string]any{
@@ -1387,7 +1397,7 @@ func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, st
 	socket := filepath.Join(dir, "orreryd.sock")
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+dir), "-L", server, "--socket", socket,
 		"--judge-delay", judgeDelay, "--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
-	daemon.waitForListener(t, "unix", socket)
+	daemon.waitForListener(t, socket)
 	return daemon, socket, dir
 }
 
@@ -1732,8 +1742,9 @@ func clientRows(t *testing.T, client *tmuxctl.Client) []clientRow {
 func attachClient(t *testing.T, client *tmuxctl.Client, name, session string, cols, rows int) string {
 	t.Helper()
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols %d rows %d; env -u TMUX tmux -L %s attach -t %s", cols, rows, name, session))
-	return waitForNewClient(t, client, session, known)
+	sc := startScript(t, fmt.Sprintf("stty cols %d rows %d; env -u TMUX tmux -L %s attach -t %s", cols, rows, name,
+		session))
+	return waitForNewClient(t, client, session, known, sc)
 }
 
 // knownClients returns the ttys of the clients the server behind client lists now.
@@ -1746,31 +1757,49 @@ func knownClients(t *testing.T, client *tmuxctl.Client) map[string]bool {
 	return known
 }
 
-// waitForNewClient waits until the server lists a client that is not in known and shows session, and returns its tty.
-func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, known map[string]bool) string {
+// waitForNewClient waits until the server behind client lists a client attached to session that known does not hold,
+// and returns its tty. sc is the run that attaches it. It has no deadline of its own, and fails at once when sc exits
+// first, or when the new client attached to another session, which it does not leave on its own.
+func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, known map[string]bool,
+	sc *scriptClient) string {
 	t.Helper()
-	var tty string
-	waitUntil(t, func() bool {
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
 		for _, row := range clientRows(t, client) {
-			if !known[row.tty] && row.session == session {
-				tty = row.tty
-				return true
+			if known[row.tty] {
+				continue
 			}
+			if row.session != session {
+				t.Fatalf("new client %s attached to %s, want %s; output %q", row.tty, row.session, session,
+					sc.output.String())
+			}
+			return row.tty
 		}
-		return false
-	})
-
-	return tty
+		select {
+		case <-sc.done:
+			t.Fatalf("the client exited before the server listed it on %s; output %q", session, sc.output.String())
+		case <-ticker.C:
+			stopIfFailed(t)
+		}
+	}
 }
 
-// startScript runs command on a pseudo-terminal through script, with the test's environment minus the tmux
-// variables. The process stays until cleanup, which closes its input and waits for it.
-func startScript(t *testing.T, command string, env ...string) {
+// scriptClient is a command run under script on a terminal of its own, such as a tmux client. done closes once script
+// has exited, and output holds what the terminal printed, the command's errors among it.
+type scriptClient struct {
+	done   chan struct{}
+	output lockedBuffer
+}
+
+// startScript runs command under script with env, its stdin a pipe held open until cleanup, and returns the run.
+func startScript(t *testing.T, command string, env ...string) *scriptClient {
 	t.Helper()
+	sc := &scriptClient{done: make(chan struct{})}
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
 	cmd.Env = scrubbedEnv(append([]string{"TERM=xterm-256color"}, env...)...)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd.Stdout = &sc.output
+	cmd.Stderr = &sc.output
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)
@@ -1778,10 +1807,15 @@ func startScript(t *testing.T, command string, env ...string) {
 	if err = cmd.Start(); err != nil {
 		t.Fatalf("start client: %v", err)
 	}
+	go func() {
+		_ = cmd.Wait()
+		close(sc.done)
+	}()
 	t.Cleanup(func() {
 		_ = stdin.Close()
-		_ = cmd.Wait()
+		<-sc.done
 	})
+	return sc
 }
 
 // popupError returns an error unless the invoking and other clients still show session, and a client shows the
@@ -2682,8 +2716,8 @@ func TestOpenOutsideTmuxAttachesNamedSession(t *testing.T) {
 	env := newOpenEnv(t)
 	client, name := env.startServer(t, "s2", t.TempDir())
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open s2", orreryPath(), name), env.vars()...)
-	waitForNewClient(t, client, "s2", known)
+	sc := startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open s2", orreryPath(), name), env.vars()...)
+	waitForNewClient(t, client, "s2", known, sc)
 }
 
 func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
@@ -2693,9 +2727,9 @@ func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
 	root := t.TempDir()
 	client, name := env.startServer(t, "s1", t.TempDir())
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new --root %s",
+	sc := startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new --root %s",
 		orreryPath(), name, root), env.vars()...)
-	waitForNewClient(t, client, "example-new", known)
+	waitForNewClient(t, client, "example-new", known, sc)
 
 	dir := filepath.Join(root, "example-new")
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -2722,9 +2756,9 @@ func TestOpenNewSessionDefaultsToPersonalUnderHome(t *testing.T) {
 	}
 	client, name := env.startServer(t, "s1", t.TempDir())
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new", orreryPath(), name),
+	sc := startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new", orreryPath(), name),
 		env.vars()...)
-	waitForNewClient(t, client, "example-new", known)
+	waitForNewClient(t, client, "example-new", known, sc)
 
 	dir := filepath.Join(personal, "example-new")
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -3129,12 +3163,44 @@ func treePopupError(t *testing.T, client *tmuxctl.Client, tty string) error {
 	return nil
 }
 
-// waitForTreePopup waits until treePopupError for tty is nil.
-func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string) {
+// waitForTreePopup waits until the tree shows in a popup on the client at tty, in a terminal smaller than the client's
+// (see treePopupError). sc is the run the client is, or nil when the test did not start it. It has no deadline of its
+// own, and fails at once when the tree it saw start has exited, when sc exits first, or when sc's open wrote that the
+// tree's popup command failed.
+func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string, sc *scriptClient) {
 	t.Helper()
-	waitUntil(t, func() bool {
-		return treePopupError(t, client, tty) == nil
-	})
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	started := false
+	for {
+		err := treePopupError(t, client, tty)
+		if err == nil {
+			return
+		}
+		if sc != nil && strings.Contains(sc.output.String(), openTreeErrorLog) {
+			t.Fatalf("the tree's popup for client %s failed; output %q", tty, sc.output.String())
+		}
+		pids, pidErr := treePIDs(tty)
+		if pidErr != nil {
+			t.Fatalf("find tree processes for %s: %v", tty, pidErr)
+		}
+		switch {
+		case len(pids) > 0:
+			started = true
+		case started:
+			t.Fatalf("the tree for client %s exited before it showed: %v", tty, err)
+		}
+		var exited <-chan struct{}
+		if sc != nil {
+			exited = sc.done
+		}
+		select {
+		case <-exited:
+			t.Fatalf("client %s exited before its tree showed: %v; output %q", tty, err, sc.output.String())
+		case <-ticker.C:
+			stopIfFailed(t)
+		}
+	}
 }
 
 func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
@@ -3150,7 +3216,7 @@ func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
 	if got := clientSession(t, w.client, w.other); got != "s3" {
 		t.Fatalf("other client shows session %s, want s3", got)
 	}
-	waitForTreePopup(t, w.client, w.invoking)
+	waitForTreePopup(t, w.client, w.invoking, nil)
 	pids, err := treePIDs(w.other)
 	if err != nil {
 		t.Fatalf("find tree processes for other client: %v", err)
@@ -3166,10 +3232,10 @@ func TestOpenNoArgumentOutsideTmuxAttachesRecentAndShowsTree(t *testing.T) {
 	client, name := env.startServer(t, "s1", t.TempDir())
 	newRecentSession(t, client, "s2")
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open", orreryPath(), name), env.vars()...)
-	tty := waitForNewClient(t, client, "s2", known)
+	sc := startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open", orreryPath(), name), env.vars()...)
+	tty := waitForNewClient(t, client, "s2", known, sc)
 	killTreesAtCleanup(t, tty)
-	waitForTreePopup(t, client, tty)
+	waitForTreePopup(t, client, tty, sc)
 }
 
 func TestOpenNamedSessionStartsNoTree(t *testing.T) {
@@ -3275,7 +3341,7 @@ func startPushDaemon(
 		"--summary-model", exampleContextName + "=" + exampleModel, "--push-host", "127.0.0.1",
 	}, extra)
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), args...)
-	daemon.waitForListener(t, "unix", socket)
+	daemon.waitForListener(t, socket)
 	return daemon, socket
 }
 
@@ -3478,40 +3544,55 @@ const (
 	unusedServer  = "orrery-integration-unused"
 )
 
-// freeLoopbackAddr returns a loopback address whose port was free when it was chosen, on an IP of 127.0.0.0/8 that
-// only this call picks. The port is released before the process under test binds it, and on 127.0.0.1 any listener
-// of a parallel test, in any package, can take it then: the process's bind fails, and the test's probe and requests
-// reach that other listener. Nothing else listens on the picked IP, so the port stays free for the process.
-func freeLoopbackAddr(t *testing.T) string {
+// loopbackListen returns a --listen address on a random loopback IP with port 0, for serve to bind a port of its own
+// choosing. A test that picks a free port and passes it on races any other process that binds that port meanwhile:
+// one on the wildcard address takes connections to every loopback IP, serve's bind then fails, and the test's calls
+// reach the other process.
+func loopbackListen(t *testing.T) string {
 	t.Helper()
 	var octets [3]byte
 	if _, err := rand.Read(octets[:]); err != nil {
 		t.Fatalf("pick a loopback IP: %v", err)
 	}
 	ip := net.IPv4(127, 1+octets[0]%254, 1+octets[1]%254, 1+octets[2]%254)
-	ln, err := net.Listen("tcp", net.JoinHostPort(ip.String(), "0"))
-	if err != nil {
-		t.Fatalf("pick a loopback port: %v", err)
-	}
-	addr := ln.Addr().String()
-	if err = ln.Close(); err != nil {
-		t.Fatalf("release loopback port: %v", err)
-	}
-	return addr
+	return net.JoinHostPort(ip.String(), "0")
 }
 
-// startServe starts the built orrery serving the API on addr for tmux server name, with one --allow-login per login
-// and XDG_STATE_HOME under stateHome. It waits for the listener and returns the process.
-func startServe(t *testing.T, stateHome, name, addr string, logins ...string) *orreryProcess {
+// serveAddr waits until serve has written the address it bound to stderr, and returns it. It has no deadline of its
+// own, and fails at once when serve exits first.
+func (p *orreryProcess) serveAddr(t *testing.T) string {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		for line := range strings.SplitSeq(p.stderr.String(), "\n") {
+			if addr, ok := strings.CutPrefix(line, serveListeningLog); ok {
+				return addr
+			}
+		}
+		select {
+		case <-p.done:
+			t.Fatalf("%s exited before it wrote %q; stderr %q", p.name, serveListeningLog, p.stderr.String())
+		case <-ticker.C:
+			stopIfFailed(t)
+		}
+	}
+}
+
+// startServe starts the built orrery serving the API for tmux server name, with one --allow-login per login and
+// XDG_STATE_HOME under stateHome, on a port of its own choosing (see serveAddr). It returns the process and the
+// address serve bound.
+func startServe(t *testing.T, stateHome, name string, logins ...string) (*orreryProcess, string) {
 	t.Helper()
 	loginFlags := make([]string, 0, 2*len(logins))
 	for _, login := range logins {
 		loginFlags = append(loginFlags, "--allow-login", login)
 	}
-	args := slices.Concat([]string{"-L", name, "serve", "--listen", addr, "--push-host", servePushHost}, loginFlags)
+	args := slices.Concat([]string{"-L", name, "serve", "--listen", loopbackListen(t), "--push-host", servePushHost},
+		loginFlags)
 	p := startBinary(t, "orrery", scrubbedEnv("XDG_STATE_HOME="+stateHome), args...)
-	p.waitForListener(t, "tcp", addr)
-	return p
+	addr := p.serveAddr(t)
+	return p, addr
 }
 
 // apiResponse is the status and body of one answer from the serve API.
@@ -3658,15 +3739,14 @@ func TestServeServesAPIOnLoopback(t *testing.T) {
 	pane := startPane(t, client, "echo example-screen; sleep 300")
 	waitForScreen(t, client, pane, "example-screen")
 	stateHome := t.TempDir()
-	addr := freeLoopbackAddr(t)
-	daemon := startServe(t, stateHome, name, addr, exampleLogin, otherLogin)
+	daemon, addr := startServe(t, stateHome, name, exampleLogin, otherLogin)
 
 	assertServeAPI(t, "http://"+addr, pane)
 	assertServeWrites(t, "http://"+addr, stateHome)
 	out := daemon.stop(t)
 	wantExit(t, out, 0)
-	if out.stderr != "" {
-		t.Fatalf("serve wrote stderr %q on shutdown, want nothing", out.stderr)
+	if want := serveListeningLog + addr + "\n"; out.stderr != want {
+		t.Fatalf("serve wrote stderr %q, want only its listening line %q", out.stderr, want)
 	}
 }
 

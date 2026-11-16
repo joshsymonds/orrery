@@ -204,6 +204,9 @@ object Quiescence {
     }
     private val queueSize = Class.forName("kotlinx.coroutines.internal.LockFreeTaskQueue").getMethod("getSize")
 
+    /** Whether a client connection from local [port] is still open. A fake server's quiet stream waits on this. */
+    internal fun clientConnectionOpen(port: Int): Boolean = sockets.any { it.localPort == port && !it.isClosed }
+
     /** The live fake servers' requests, by path, for a failure message. */
     fun serverState(): String = FakeOrreryServer.describeLive()
 
@@ -237,7 +240,7 @@ object Quiescence {
             (frame.className == "java.net.SocketInputStream" && frame.methodName in SOCKET_READS) ||
             (frame.className == "java.net.Socket\$SocketInputStream" && frame.methodName == "read")
 
-    private const val PAUSE_MILLIS = 10L
+    private const val PAUSE_MILLIS = 1L
     private const val SLEEP_FRAMES = 4
     private const val APP_PACKAGE = "io.github.joshsymonds.orrery."
     private const val DISPATCHED_TASK = "kotlinx.coroutines.DispatchedTask"

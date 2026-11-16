@@ -184,7 +184,9 @@ func TestStepJudgeStagesSurviveRestart(t *testing.T) {
 	requireStepStage(t, rig.steps, id, store.StepStageHeld, 6*time.Minute)
 
 	// The owner resumes the held step at eight minutes. Its resumed turn plays READDONE, so the release from the first
-	// resumed turn is removed for it to wait on.
+	// resumed turn is removed for it to wait on. The nudge resumes the step at once when the held turn has already ended,
+	// and is kept until that turn's end otherwise, so the turn stage is awaited: either way it starts at eight minutes,
+	// since the clock stays there until the resumed turn's end.
 	rig.clock.set(8 * time.Minute)
 	if err := os.Remove(filepath.Join(dir, "fakeclaude.release")); err != nil {
 		t.Fatalf("remove fakeclaude.release: %v", err)
@@ -193,6 +195,7 @@ func TestStepJudgeStagesSurviveRestart(t *testing.T) {
 	if err := rig.steps.Nudge(t.Context(), id, "owner resumes"); err != nil {
 		t.Fatalf("Nudge of the held step: %v", err)
 	}
+	awaitStepStage(t, rig.steps, id, store.StepStageTurn)
 	requireStepStage(t, rig.steps, id, store.StepStageTurn, 8*time.Minute)
 	rig.restartJudgeRig(t)
 	requireStepStage(t, rig.steps, id, store.StepStageTurn, 8*time.Minute)

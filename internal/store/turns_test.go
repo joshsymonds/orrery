@@ -4,15 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pressly/goose/v3"
 )
 
 // turnPane is a pane snapshot for session id in tmux pane "%" + id, carrying only the fields a test sets.
@@ -268,16 +265,7 @@ func TestLastTurnEndsAppliesTurnEndIndexToStoreWithEvents(t *testing.T) {
 func TestLastTurnEndsTurnEndIndexMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
+	s, provider := storeAtVersion(t, 24)
 
 	if _, err := provider.DownTo(ctx, 23); err != nil {
 		t.Fatalf("DownTo 23: %v", err)

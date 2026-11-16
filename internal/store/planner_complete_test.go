@@ -38,11 +38,22 @@ func plannedTurn() EpicPlan {
 				},
 			},
 		},
-		Outline:   "Store, then read",
-		Questions: []string{"Keep the old tasks?"},
-		Outcome:   "work",
+		Outline: "Store, then read",
+		Questions: []EpicQuestionInput{{
+			Label: "keep-old-tasks", Text: "Keep the old tasks?",
+			Choices: []EpicChoice{
+				{ID: "keep", Does: "Keep the open tasks as planned."},
+				{ID: "drop", Does: "Drop the open tasks and plan again."},
+			},
+			Recommended: "keep", Why: "The open tasks match the contract.", Confidence: "high",
+		}},
+		Outcome: "work",
 	}
 }
+
+// keepChoicesJSON is the stored choices of plannedTurn's question.
+const keepChoicesJSON = `[{"id":"keep","does":"Keep the open tasks as planned."},` +
+	`{"id":"drop","does":"Drop the open tasks and plan again."}]`
 
 // planTables returns the tables one planner turn writes.
 func planTables() []string {
@@ -105,7 +116,8 @@ func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
 			{id, int64(2), int64(2), "R8"},
 		},
 		"epic_questions": {
-			{id, int64(1), int64(1), "Keep the old tasks?", "open"},
+			{id, int64(1), int64(1), "Keep the old tasks?", "open", "keep-old-tasks", keepChoicesJSON, "keep",
+				"The open tasks match the contract.", "high", int64(0), int64(0), ""},
 		},
 		"epic_turns": {
 			{id, int64(1), "", "succeeded", "", int64(len(seededDecisions())), "Store, then read", "work",
@@ -153,7 +165,7 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 				Capture: []string{"scripts/check"}, Limit: 1800, Conclusion: "the third task", Judge: "third judge",
 			},
 		}},
-		Questions: []string{"Is the second turn right?"},
+		Questions: []EpicQuestionInput{shapedQuestion("is-second-turn-right", "Is the second turn right?")},
 		Outcome:   "wait",
 	}
 	if err := s.CompleteTurn(ctx, id, 2, later, completedAt().Add(time.Minute)); err != nil {
@@ -194,8 +206,10 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 			{id, int64(3), int64(1), "R9"},
 		},
 		"epic_questions": {
-			{id, int64(1), int64(1), "Keep the old tasks?", "open"},
-			{id, int64(2), int64(2), "Is the second turn right?", "open"},
+			{id, int64(1), int64(1), "Keep the old tasks?", "open", "keep-old-tasks", keepChoicesJSON, "keep",
+				"The open tasks match the contract.", "high", int64(0), int64(0), ""},
+			{id, int64(2), int64(2), "Is the second turn right?", "open", "is-second-turn-right", syntheticChoicesJSON,
+				"first", "Synthetic reason.", "medium", int64(0), int64(0), ""},
 		},
 		"epic_turns": {
 			{id, int64(1), "", "succeeded", "", int64(len(seededDecisions())), "Store, then read", "work",

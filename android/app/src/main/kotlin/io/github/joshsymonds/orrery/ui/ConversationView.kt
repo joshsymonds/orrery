@@ -134,13 +134,26 @@ fun ConversationView(
     val currentNewer by rememberUpdatedState(newerAt)
     val waitingRows = minOf(waiting.size, WAITING_SHOWN) + (if (waiting.size > WAITING_SHOWN) 1 else 0)
     val lastIndex = entries.size + waitingRows + (if (footer == null) 0 else 1) - 1
-    // Following is decided when a scroll ends, not when the first visible item moves: a slid window
-    // moves it without the reader scrolling.
+    // Following is decided from where the list is, whoever moved it: a reader's drag or fling, an
+    // accessibility service's jump to a position, or code. A move is told by the first visible item's key
+    // and offset, compared with the last seen, never by watching a scroll start and end: an instant jump
+    // starts and ends within one step and would go unseen. Only the view's own follow scrolls and changes
+    // of the content (a new reply, the window sliding past older entries) move the list without the
+    // reader, so neither is taken as leaving the end.
+    val ownScroll = remember { OwnScroll() }
+    val contentKeys by rememberUpdatedState(keys)
     LaunchedEffect(listState) {
-        var wasScrolling = false
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (wasScrolling && !scrolling) followBottom = listState.layoutInfo.isAtEnd()
-            wasScrolling = scrolling
+        var seen: ListPlace? = null
+        snapshotFlow { ListPlace(listState.anchor(), contentKeys) }.collect { place ->
+            val previous = seen
+            seen = place
+            // Where the view's own last scroll left the list counts as its own only until the list is seen
+            // anywhere else, so a reader who scrolls back to the end there is still seen arriving.
+            val ownPlace = place.anchor == ownScroll.leftAt
+            if (!ownPlace) ownScroll.leftAt = null
+            val readerMoved = previous != null && place.keys === previous.keys && place.anchor != previous.anchor &&
+                ownScroll.running == 0 && !ownPlace
+            if (readerMoved) followBottom = listState.layoutInfo.isAtEnd()
         }
     }
     LaunchedEffect(entries, lastIndex) {
@@ -149,19 +162,19 @@ fun ConversationView(
         if (!landed && entries.isNotEmpty()) {
             landed = true
             if (currentNewer >= 0) {
-                listState.scrollToItem(currentNewer)
+                ownScroll.around(listState) { listState.scrollToItem(currentNewer) }
                 followBottom = listState.layoutInfo.isAtEnd()
                 return@LaunchedEffect
             }
         }
-        if (followBottom && lastIndex >= 0) listState.followEnd(lastIndex)
+        if (followBottom && lastIndex >= 0) ownScroll.around(listState) { listState.followEnd(lastIndex) }
     }
     val currentLast by rememberUpdatedState(lastIndex)
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.let { it.viewportSize.height to it.beforeContentPadding } }
             .collect { (height, _) ->
                 if (height > 0 && followBottom && currentLast >= 0 && !listState.isScrollInProgress) {
-                    listState.followEnd(currentLast)
+                    ownScroll.around(listState) { listState.followEnd(currentLast) }
                 }
             }
     }
@@ -170,7 +183,7 @@ fun ConversationView(
         if (endRequests != handledEndRequests) {
             handledEndRequests = endRequests
             followBottom = true
-            if (currentLast >= 0) listState.followEnd(currentLast)
+            if (currentLast >= 0) ownScroll.around(listState) { listState.followEnd(currentLast) }
         }
     }
     // Each entry's dwell is kept by its key, so an equal list re-delivered mid-count leaves it standing.
@@ -702,6 +715,32 @@ private fun readingEntries(info: LazyListLayoutInfo, entries: List<ConvoEntry>, 
         if (shown > 0 && shown * 2 >= minOf(item.size, window)) reading[keys[item.index]] = time
     }
     return reading
+}
+
+/** Where the list is: its first visible item's key and how far that item is scrolled, or null before a layout. */
+private fun LazyListState.anchor(): Pair<Any, Int>? =
+    layoutInfo.visibleItemsInfo.firstOrNull()?.let { it.key to firstVisibleItemScrollOffset }
+
+/** The list's place and the content it was laid out from, as the follow decision compares them. */
+private data class ListPlace(val anchor: Pair<Any, Int>?, val keys: Any)
+
+/**
+ * The view's own scrolls: how many are running, and where the last one left the list. The follow decision
+ * skips moves they make, so following the end never reads as the reader leaving it.
+ */
+private class OwnScroll {
+    var running = 0
+    var leftAt: Pair<Any, Int>? = null
+
+    suspend fun around(state: LazyListState, scroll: suspend () -> Unit) {
+        running++
+        try {
+            scroll()
+        } finally {
+            running--
+            leftAt = state.anchor()
+        }
+    }
 }
 
 /** True when the last item's end, with the bottom padding, sits at the viewport's end. */

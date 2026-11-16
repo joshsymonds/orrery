@@ -158,8 +158,9 @@ func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	if got := blockTexts(t, history); !slices.Equal(got, want) {
 		t.Fatalf("finished blocks after the restart = %q, want each of the 60 once in order", got)
 	}
+	// The pump tells the owner once the turn's end is stored, so the notice can still be on its way.
 	want1 := Notice{Session: id, Dir: dir, State: "done", Body: "fake trickle 1.60"}
-	if got := sink.got(); len(got) != 1 || got[0] != want1 {
+	if got := waitNotices(t, engineOf(rig.manager, restarted), sink); len(got) != 1 || got[0] != want1 {
 		t.Fatalf("notices after the restart = %+v, want exactly [%+v]", got, want1)
 	}
 	waitHolderEnded(t, pids)
@@ -233,7 +234,8 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	if len(starts) != 2 || !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", starts)
 	}
-	if got := sink.got(); len(got) != 1 || got[0].State != "done" {
+	// The pump tells the owner once the turn's end is stored, so the notice can still be on its way.
+	if got := waitNotices(t, engineOf(rig.manager, restarted), sink); len(got) != 1 || got[0].State != "done" {
 		t.Fatalf("notices after the next Say = %+v, want only the reply's done notice", got)
 	}
 }

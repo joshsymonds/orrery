@@ -3,7 +3,9 @@ package planner
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -167,6 +169,69 @@ func TestRunnerRetryLetsRunnerStartStepForPendingTriggersOfParkedEpic(t *testing
 		turns := epicOf(t, s).Turns
 		return len(turns) == 2 && turns[1].Step == "step-1"
 	})
+}
+
+// runnerParkedByRole runs a runner over s and steps whose planner role fails while broken is set. It waits until the
+// runner parks the epic with the role error, which opens the park question, and clearing broken makes the role resolve
+// again, so the next pass after the park ends claims a turn.
+func runnerParkedByRole(t *testing.T, s *store.Store, steps Steps, broken *atomic.Bool) {
+	t.Helper()
+	roleErr := errors.New("planner role: no agent")
+	agent := func() (string, error) {
+		if broken.Load() {
+			return "", roleErr
+		}
+		return runnerAgent, nil
+	}
+	runRunner(t, runnerConfig(s, steps, agent))
+	waitFor(t, "the epic to be parked with the role error", func() bool {
+		return epicOf(t, s).Parked == roleErr.Error()
+	})
+}
+
+func TestRunnerAnswerOtherWithWordsToParkQuestionHoldsWordsInNextPrompt(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var broken atomic.Bool
+	broken.Store(true)
+	runnerParkedByRole(t, s, steps, &broken)
+	broken.Store(false)
+
+	const words = "use the files store"
+	if _, err := s.AnswerQuestion(context.Background(), runnerEpicID, "answer-1", words, 1, store.ChoiceOther,
+		claimedAt()); err != nil {
+		t.Fatalf("AnswerQuestion of the park question with other: %v", err)
+	}
+	if got := epicOf(t, s).Parked; got != "" {
+		t.Fatalf("epic Parked after the other answer = %q, want empty", got)
+	}
+	waitFor(t, "a planner step to start after the answer", func() bool { return len(steps.started()) == 1 })
+	want := "- answer-1 (answers Q1 with other): " + words
+	if prompt := steps.started()[0].Prompt; !strings.Contains(prompt, want) {
+		t.Errorf("prompt of turn 2 lacks %q; prompt is:\n%s", want, prompt)
+	}
+}
+
+func TestRunnerRetryEpicClosesParkQuestionAsRetry(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var broken atomic.Bool
+	broken.Store(true)
+	runnerParkedByRole(t, s, steps, &broken)
+	broken.Store(false)
+
+	if err := s.RetryEpic(context.Background(), runnerEpicID); err != nil {
+		t.Fatalf("RetryEpic: %v", err)
+	}
+	questions := epicOf(t, s).Questions
+	if len(questions) != 1 || questions[0].State != store.QuestionAnswered || questions[0].Choice != store.ChoiceRetry {
+		t.Fatalf("questions after RetryEpic = %+v, want the park question answered with retry", questions)
+	}
+	waitFor(t, "a planner step to start after the retry", func() bool { return len(steps.started()) == 1 })
 }
 
 func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {

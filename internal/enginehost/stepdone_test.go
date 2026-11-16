@@ -576,3 +576,48 @@ func TestStepDonePassingGateKeepsNoLog(t *testing.T) {
 		t.Fatalf("gate logs directory after a passing gate: %v, want none", err)
 	}
 }
+
+// stepDoneUnownedWriting returns a configure func that makes the fixture's step an Unowned writing step in dir, starting at
+// start, that runs gate and owns no path. Its done returns skip the owned check and run gate as an owned step's do.
+func stepDoneUnownedWriting(dir, start string, gate []string, pools *fakeGatePools) func(*stepRunConfig) {
+	configure := stepDoneWriting(dir, start, gate, time.Minute, pools)
+	return func(cfg *stepRunConfig) {
+		configure(cfg)
+		cfg.owned = nil
+		cfg.unowned = true
+	}
+}
+
+func TestStepUnownedDoneReturnSkipsOwnedCheckAndRunsGate(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
+	sentinel := filepath.Join(t.TempDir(), "gate-ran")
+	gate := stepDoneScript(t, fmt.Sprintf("touch %q", sentinel))
+	f := newStepDoneFixture(t, stepDoneUnownedWriting(dir, start, []string{gate}, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	// Returns after the run ends are no-ops, so a run that still fails its owned check ends checks_failed here and the
+	// assertions below fail, rather than the run waiting on a return that never comes.
+	for range stepLoopMaxContinues + 1 {
+		f.run.Return(stepDoneReturn(commit))
+	}
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndDone || row.Status != stepLoopDone {
+		t.Fatalf("end = %q status %q, want done %s", row.End, row.Status, stepLoopDone)
+	}
+	wantNames := []string{stepLoopSchemaName, stepGitHeadName, stepGitAncestryName, stepGitCleanName, stepLoopGateName}
+	if got := stepDoneNames(row.Checks); !reflect.DeepEqual(got, wantNames) {
+		t.Fatalf("checks = %v, want %v with no owned check", got, wantNames)
+	}
+	for _, c := range row.Checks {
+		if !c.OK {
+			t.Errorf("check %+v failed, want every check passing for an Unowned done return", c)
+		}
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("gate did not run for an Unowned done return: %v", err)
+	}
+}

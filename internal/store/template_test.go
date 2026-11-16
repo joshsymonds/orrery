@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pressly/goose/v3"
 )
@@ -115,4 +117,35 @@ func seedMigrated(t *testing.T, path string) {
 	if err = os.WriteFile(path, image, 0o600); err != nil {
 		t.Fatalf("write migrated store: %v", err)
 	}
+}
+
+// migrationProvider returns the goose provider over the embedded migrations on db, for the Down and Up of a store's tests.
+func migrationProvider(t *testing.T, db *sql.DB) *goose.Provider {
+	t.Helper()
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+	return provider
+}
+
+// storeAtVersion returns a store over a copy of the store image at version, and the goose provider of the embedded
+// migrations on its database, for a test of the Down and Up of the migration at version. A walk down from the newest
+// version would run every later migration's Down first, which is most of such a test's time;
+// TestEachMigrationDownRestoresThePreviousSchema runs each of those Downs on its own. The store runs no migration of its
+// own: the test moves it with the provider. Its database is closed at the end of the test.
+func storeAtVersion(t *testing.T, version int64) (*Store, *goose.Provider) {
+	t.Helper()
+	db := openStoreAtVersion(t, filepath.Join(t.TempDir(), "orrery.db"), version)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store at version %d: %v", version, err)
+		}
+	})
+	s := &Store{db: &pool{DB: db, slow: &slowCalls{now: time.Now, logger: slog.New(slog.DiscardHandler)}}}
+	return s, migrationProvider(t, db)
 }

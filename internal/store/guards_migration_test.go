@@ -114,7 +114,7 @@ func TestGuardsMigrationGivesVersion37TasksNoGuardOrTestChanges(t *testing.T) {
 		t.Errorf("test changes after Open = %v, want none", changes)
 	}
 
-	provider := assertionsProvider(t, s.db.DB)
+	provider := migrationProvider(t, s.db.DB)
 	if _, err := provider.DownTo(ctx, 37); err != nil {
 		t.Fatalf("DownTo 37: %v", err)
 	}

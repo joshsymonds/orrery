@@ -221,15 +221,35 @@ func (s *Session) Lines() <-chan Line {
 }
 
 // Prompt writes text as one user message under writeID, which is both the message's uuid and its write id. The session
-// counts the message as unanswered until a turn lists its uuid as answered.
+// counts the message as unanswered from before the write until a turn lists its uuid as answered, so a turn end read
+// while the write is under way counts it, unless that turn end answers it. A message ExpectPrompt counted already is not
+// counted again. A message that fails to send is not counted.
 func (s *Session) Prompt(writeID, text string) error {
-	return s.write(writeID, func() error {
+	s.unanswered.sending(writeID)
+	err := s.write(writeID, func() error {
 		if err := s.transport.SendUserMessageWithUUID(writeID, text); err != nil {
 			return fmt.Errorf("session: send prompt: %w", err)
 		}
-		s.unanswered.sent(writeID)
 		return nil
 	})
+	if err != nil {
+		s.unanswered.drop(writeID)
+		return err
+	}
+	s.unanswered.written(writeID)
+	return nil
+}
+
+// ExpectPrompt counts the user message writeID as unanswered from now, before it is recorded or sent, until a turn lists
+// it as answered: a turn end read while the message's record is being stored counts it, unless that turn end answers it.
+// Prompt then sends it without counting it again. DropPrompt takes the count back for a message that is never sent.
+func (s *Session) ExpectPrompt(writeID string) {
+	s.unanswered.expect(writeID)
+}
+
+// DropPrompt takes back the count ExpectPrompt made of writeID, for a message that is never sent.
+func (s *Session) DropPrompt(writeID string) {
+	s.unanswered.drop(writeID)
 }
 
 // UnansweredPrompts returns how many prompts the session sent, or owes as a re-adopted session (see ReadoptOptions.Owed),
@@ -240,18 +260,58 @@ func (s *Session) UnansweredPrompts() int {
 
 // unansweredPrompts is the set of prompts the session sent that no turn has answered, by uuid, plus the owed prompts a
 // re-adopted session was given: the prompts the previous controller wrote to the holder that no turn has answered, which
-// the session did not send and so holds no uuid for. Prompt records each send and the reader records each turn's end, so
-// every access is guarded by mu. A turn can end before Prompt records the send it answers, because the send is recorded
-// once the write returns. The early set holds those answers, so the send is not counted when it is recorded.
+// the session did not send and so holds no uuid for. ExpectPrompt and Prompt record each send, before it is written, and
+// the reader records each turn's end, so every access is guarded by mu. A send is counted before its write, so a turn
+// that answers it is read after it is counted; the early set still holds an answer to a uuid not counted, so a send of
+// that uuid recorded after it is not counted.
 type unansweredPrompts struct {
 	mu    sync.Mutex
 	open  map[string]bool
 	early map[string]bool
-	owed  int
+	// expected holds the messages counted before their send began (see expect), until the send has written them.
+	expected map[string]bool
+	owed     int
 }
 
 func newUnansweredPrompts() *unansweredPrompts {
-	return &unansweredPrompts{open: make(map[string]bool), early: make(map[string]bool)}
+	return &unansweredPrompts{
+		open:     make(map[string]bool),
+		early:    make(map[string]bool),
+		expected: make(map[string]bool),
+	}
+}
+
+// expect counts the user message uuid as sent before its send begins, as sent does, and marks it expected, so sending
+// does not count it again, whether or not a turn has answered it meanwhile.
+func (u *unansweredPrompts) expect(uuid string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.expected[uuid] = true
+	u.sentLocked(uuid)
+}
+
+// sending counts the user message uuid as sent as its send begins, unless expect counted it already.
+func (u *unansweredPrompts) sending(uuid string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if !u.expected[uuid] {
+		u.sentLocked(uuid)
+	}
+}
+
+// written forgets that the user message uuid was expected, once its send has written it.
+func (u *unansweredPrompts) written(uuid string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	delete(u.expected, uuid)
+}
+
+// drop forgets the user message uuid, counted as sent and never sent.
+func (u *unansweredPrompts) drop(uuid string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	delete(u.open, uuid)
+	delete(u.expected, uuid)
 }
 
 // owe sets how many owed prompts the session holds, before its reader runs.
@@ -265,6 +325,11 @@ func (u *unansweredPrompts) owe(n int) {
 func (u *unansweredPrompts) sent(uuid string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	u.sentLocked(uuid)
+}
+
+// sentLocked records the send of uuid, as sent does. The caller holds mu.
+func (u *unansweredPrompts) sentLocked(uuid string) {
 	if u.early[uuid] {
 		delete(u.early, uuid)
 		return
@@ -272,9 +337,10 @@ func (u *unansweredPrompts) sent(uuid string) {
 	u.open[uuid] = true
 }
 
-// answer records that a turn answered the user messages uuids. A message that was not recorded as sent is one of the
-// owed prompts while owed is above 0, which it lowers. Otherwise it is kept in early.
-func (u *unansweredPrompts) answer(uuids []string) {
+// answer records that a turn answered the user messages uuids, and returns how many prompts are unanswered after it, as
+// count does. A message that was not recorded as sent is one of the owed prompts while owed is above 0, which it
+// lowers. Otherwise it is kept in early.
+func (u *unansweredPrompts) answer(uuids []string) int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	for _, uuid := range uuids {
@@ -287,6 +353,7 @@ func (u *unansweredPrompts) answer(uuids []string) {
 			u.early[uuid] = true
 		}
 	}
+	return len(u.open) + u.owed
 }
 
 // count returns how many sent user messages no turn has answered, plus the owed prompts no turn has answered.
@@ -387,12 +454,14 @@ func (s *Session) run(offset int64) {
 	s.exit(offset)
 }
 
-// answerPrompts records the user messages each turn end in events lists as answered. Only run calls it: a replayed
-// turn answers prompts the previous holder was sent, never one this session sent.
+// answerPrompts records the user messages each turn end in events lists as answered, and gives each turn end the count
+// of prompts still unanswered after it (TurnEnded.Unanswered). Only run calls it: a replayed turn answers prompts the
+// previous holder was sent, never one this session sent.
 func (s *Session) answerPrompts(events []Event) {
-	for _, event := range events {
+	for i, event := range events {
 		if ended, ok := event.(TurnEnded); ok {
-			s.unanswered.answer(ended.Answered)
+			ended.Unanswered = s.unanswered.answer(ended.Answered)
+			events[i] = ended
 		}
 	}
 }

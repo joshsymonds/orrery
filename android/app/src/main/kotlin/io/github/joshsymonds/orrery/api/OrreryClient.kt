@@ -457,8 +457,19 @@ class OrreryClient(
     private val composeReadTimeoutMillis: Int = 25_000,
     private val pickerReadTimeoutMillis: Int = 90_000,
     private val streamReadTimeoutMillis: Int = 10_000,
+    private val standardReadTimeoutMillis: Int = TIMEOUT_MS,
 ) {
     private val root = baseUrl.removeSuffix("/")
+
+    /** Each tier's read timeout, by tier, so the tests can check the defaults without waiting them out. */
+    @VisibleForTesting
+    internal val readTimeoutsMillis: Map<String, Int>
+        get() = mapOf(
+            "standard" to standardReadTimeoutMillis,
+            "compose" to composeReadTimeoutMillis,
+            "picker" to pickerReadTimeoutMillis,
+            "stream" to streamReadTimeoutMillis,
+        )
 
     private val http: OkHttpClient = OkHttpClient.Builder()
         .socketFactory(socketFactory)
@@ -506,7 +517,7 @@ class OrreryClient(
      * (an IllegalStateException) for an address it cannot parse, and that must not crash the
      * constructor. Each use of an unusable address raises [MalformedURLException].
      */
-    private val standardTier = lazy { Services(TIMEOUT_MS) }
+    private val standardTier = lazy { Services(standardReadTimeoutMillis) }
     private val composeTier = lazy { Services(composeReadTimeoutMillis) }
     private val pickingTier = lazy { Services(pickerReadTimeoutMillis) }
     private val streamingTier = lazy { Services(streamReadTimeoutMillis) }

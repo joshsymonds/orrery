@@ -15,8 +15,9 @@ type Node struct {
 }
 
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
-// checks, its evidence runs and its agent steps, how many of its triggers are pending, its end-of-epic review, and the
-// epic-stage reviewers enabled for it in merged order.
+// checks, its evidence runs and its agent steps, how many of its triggers are pending, its end-of-epic review, the
+// epic-stage reviewers enabled for it in merged order, its release runs, and the epic that holds the release slot of
+// its repository, which is "" when the slot is free.
 type Rows struct {
 	Epic      store.EpicRow
 	Runs      []store.NodeRun
@@ -26,6 +27,8 @@ type Rows struct {
 	Pending   int
 	Review    store.Review
 	Reviewers []Reviewer
+	Releases  []store.ReleaseRun
+	Slot      string
 }
 
 // Reviewer is an enabled epic-stage reviewer: its name and whether its findings are verified.
