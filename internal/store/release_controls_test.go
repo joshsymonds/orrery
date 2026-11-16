@@ -240,6 +240,16 @@ func TestReleaseEpicRefusesWhatItMustNotResume(t *testing.T) {
 			want: "epic " + resumeEpic + " has no parked release run",
 		},
 		{
+			name: "an ended_with_gaps epic names an undo-none step",
+			setup: func(t *testing.T) (*store.Store, *sql.DB) {
+				t.Helper()
+				return openReleaseStore(t, resumeEpicIn(resumeEpic, "ended_with_gaps"))
+			},
+			epic: resumeEpic,
+			undo: []int64{2},
+			want: "epic " + resumeEpic + " has not started a release; name no undo-none step",
+		},
+		{
 			name: "another epic holds the release slot",
 			setup: func(t *testing.T) (*store.Store, *sql.DB) {
 				t.Helper()
@@ -369,6 +379,32 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 		})
 	}
+}
+
+// TestReleaseEpicReleasesAnEndedWithGapsEpic checks that ReleaseEpic of an epic that ended with gaps records the owner's
+// decision and moves the epic to clean in one write, with no tell, that the clean epic then takes its repository's
+// release slot, and that a second call is refused as not stopped and writes nothing.
+func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, raw := openReleaseStore(t, resumeEpicIn(resumeEpic, "ended_with_gaps"))
+	tells := tellsOf(t, raw, resumeEpic)
+	if err := s.ReleaseEpic(ctx, resumeEpic, nil, resumeAt()); err != nil {
+		t.Fatalf("ReleaseEpic of an ended_with_gaps epic: %v", err)
+	}
+	requirePhase(t, s, resumeEpic, store.PhaseClean)
+	requireDecisions(t, s, resumeEpic, []store.EpicDecision{{
+		Seq: 1, ID: "release-ended-with-gaps", Text: "owner released epic " + resumeEpic + ", which ended with gaps",
+		Time: resumeAt(),
+	}})
+	if got := tellsOf(t, raw, resumeEpic); !reflect.DeepEqual(got, tells) {
+		t.Errorf("tells of epic %s after ReleaseEpic = %q, want %q", resumeEpic, got, tells)
+	}
+	requireRefusedResume(t, s, raw, resumeEpic, nil, "epic "+resumeEpic+" is not stopped")
+	if _, err := s.TakeReleaseSlot(ctx, resumeEpic); err != nil {
+		t.Fatalf("TakeReleaseSlot of %s: %v", resumeEpic, err)
+	}
+	requireSlot(t, s, resumeEpic, resumeEpic)
 }
 
 // TestReleaseEpicTakesAFreeSlot checks that a stopped release whose slot is free takes the slot on resume.
