@@ -377,6 +377,119 @@ func TestOpenQuestionsListsOnlyOpenQuestionsInSeqOrder(t *testing.T) {
 	}
 }
 
+func TestAnswerRetryToParkQuestionEndsThePark(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	keepOld := shapedQuestion("keep-old-tasks", "Keep the old tasks?")
+	questionedEpic(t, s, keepOld)
+	const reason = "credit ran out"
+	if err := s.ParkEpic(ctx, id, reason, completedAt()); err != nil {
+		t.Fatalf("ParkEpic: %v", err)
+	}
+
+	at := time.Unix(1700000600, 0)
+	got, err := s.AnswerQuestion(ctx, id, "D3", "", 2, ChoiceRetry, at)
+	if err != nil {
+		t.Fatalf("AnswerQuestion of the park question with retry: %v", err)
+	}
+	if want := (EpicDecision{Seq: 3, ID: "D3", Text: "", Time: at, Question: 2}); !reflect.DeepEqual(got, want) {
+		t.Errorf("AnswerQuestion = %+v, want %+v", got, want)
+	}
+	if _, parked := epicFlags(t, s); parked != "" {
+		t.Errorf("parked after the retry answer = %q, want empty", parked)
+	}
+	if got := storedRetried(t, s); got != 1 {
+		t.Errorf("retried after the retry answer = %d, want 1, the epic's highest turn seq", got)
+	}
+	answered := parkQuestionOf(2, reason)
+	answered.State, answered.Choice = QuestionAnswered, ChoiceRetry
+	if want := []EpicQuestion{openStored(keepOld, 1, 1), answered}; !reflect.DeepEqual(questionsOf(t, s), want) {
+		t.Errorf("questions = %+v, want %+v", questionsOf(t, s), want)
+	}
+	wantTriggers := [][]any{
+		{id, createdTriggerID, createdTriggerCause, "consumed", int64(1), int64(1700000000)},
+		{id, "answer:D3", "answer D3 to Q2", "pending", int64(0), int64(1700000600)},
+	}
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
+		t.Errorf("epic_triggers after the retry answer = %v, want %v", got, wantTriggers)
+	}
+}
+
+func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	createEpic(t, s, fullEpic(claimEpic))
+	runs := []NodeRun{{Path: "red", ID: "id-red", Node: "red", Kind: "evidence", Attempt: 1}}
+	if err := s.StartNodes(ctx, id, runs, nil, claimedAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	const reason = "parked for good"
+	if err := s.ParkNodeFinal(ctx, id, "red", 1, "failed", "R1 met", reason, completedAt()); err != nil {
+		t.Fatalf("ParkNodeFinal: %v", err)
+	}
+	before := answerRowsOf(t, s)
+
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep the words", 1, ChoiceRetry, claimedAt()); !errors.Is(
+		err, ErrNoChoice,
+	) {
+		t.Fatalf("AnswerQuestion of a final park with retry err = %v, want ErrNoChoice", err)
+	}
+	if got := answerRowsOf(t, s); !reflect.DeepEqual(got, before) {
+		t.Errorf("refused AnswerQuestion of a final park changed the store:\n got %v\nwant %v", got, before)
+	}
+
+	at := time.Unix(1700000600, 0)
+	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep the words", 1, ChoiceOther, at)
+	if err != nil {
+		t.Fatalf("AnswerQuestion of a final park with other: %v", err)
+	}
+	if want := (EpicDecision{Seq: 3, ID: "D3", Text: "Keep the words", Time: at, Question: 1}); !reflect.DeepEqual(
+		got, want,
+	) {
+		t.Errorf("AnswerQuestion = %+v, want %+v", got, want)
+	}
+	if _, parked := epicFlags(t, s); parked != reason {
+		t.Errorf("parked after the other answer = %q, want %q: a final park stays", parked, reason)
+	}
+	answered := finalParkQuestionOf(1, reason)
+	answered.State, answered.Choice = QuestionAnswered, ChoiceOther
+	if want := []EpicQuestion{answered}; !reflect.DeepEqual(questionsOf(t, s), want) {
+		t.Errorf("questions = %+v, want %+v", questionsOf(t, s), want)
+	}
+}
+
+func TestRetryNodeClosesTheParkQuestionAsRetry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	createEpic(t, s, fullEpic(claimEpic))
+	runs := []NodeRun{{Path: "check", ID: "id-check", Node: "check", Kind: "gate", Attempt: 1}}
+	if err := s.StartNodes(ctx, id, runs, nil, claimedAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	const reason = "workflow node check failed: boom"
+	if err := s.ParkNode(ctx, id, "check", 1, "failed", "boom", reason, completedAt()); err != nil {
+		t.Fatalf("ParkNode: %v", err)
+	}
+
+	if err := s.RetryNode(ctx, id, "check"); err != nil {
+		t.Fatalf("RetryNode: %v", err)
+	}
+	if _, parked := epicFlags(t, s); parked != "" {
+		t.Errorf("parked after RetryNode = %q, want empty", parked)
+	}
+	answered := parkQuestionOf(1, reason)
+	answered.State, answered.Choice = QuestionAnswered, ChoiceRetry
+	if want := []EpicQuestion{answered}; !reflect.DeepEqual(questionsOf(t, s), want) {
+		t.Errorf("questions after RetryNode = %+v, want %+v", questionsOf(t, s), want)
+	}
+}
+
 func TestAnswerQuestionOfUnknownEpicIsErrNoEpic(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)

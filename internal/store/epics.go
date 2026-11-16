@@ -565,7 +565,8 @@ func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.T
 // *QuestionReplacedError and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
 // and other with blank text is ErrOtherNeedsText. Each refusal writes nothing. Otherwise the question becomes answered
 // with choice, a pending trigger `answer:<id>` is added, the decision is appended with its question, and the epic's
-// changed moves to at.
+// changed moves to at. An answer to a park question that is not final also ends the park, as RetryEpic does; a final
+// park offers only other and stays parked.
 func (s *Store) AnswerQuestion(
 	ctx context.Context,
 	epic, id, text string,
@@ -597,7 +598,7 @@ func (s *Store) AnswerQuestion(
 
 // recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
 // becomes answered with choice, a pending trigger `answer:<id>` is added, and the decision is appended tied to the
-// question.
+// question. An answered park question that is not final ends the park in the same write.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -606,21 +607,42 @@ func recordQuestionAnswer(
 	choice string,
 	at time.Time,
 ) (EpicDecision, error) {
-	if err := requireAnswerable(ctx, queries, epic, text, question, choice); err != nil {
+	answered, err := requireAnswerable(ctx, queries, epic, text, question, choice)
+	if err != nil {
 		return EpicDecision{}, err
 	}
-	if err := queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+	if err = queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
 		Choice: choice, Epic: epic, Seq: question,
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("answer question %d of epic %s: %w", question, epic, err)
 	}
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 		Epic: epic, ID: "answer:" + id, Cause: fmt.Sprintf("answer %s to Q%d", id, question),
 		State: "pending", Turn: 0, Created: at.Unix(),
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
 	}
+	err = endParkByAnswer(ctx, queries, epic, answered)
+	if err != nil {
+		return EpicDecision{}, err
+	}
 	return appendDecision(ctx, queries, epic, id, text, question, at)
+}
+
+// endParkByAnswer ends the park of epic in the caller's write when answered, the question an answer has just closed, is
+// a park question and epic is not met_at_base. A final park is left as it is.
+func endParkByAnswer(ctx context.Context, queries *sqlcgen.Queries, epic string, answered sqlcgen.EpicQuestion) error {
+	if answered.Turn != 0 || answered.Label != ParkLabel {
+		return nil
+	}
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if head.Phase == phaseMetAtBase {
+		return nil
+	}
+	return endPark(ctx, queries, epic)
 }
 
 // OpenQuestions returns the open questions of epic in seq order, nil when none is open.
@@ -695,38 +717,39 @@ func decisionChoice(
 
 // requireAnswerable is the refusal of an answer naming choice and text to question seq of epic: ErrNoQuestion when epic
 // has no question seq, a *QuestionReplacedError when a later question replaced it, ErrQuestionClosed when it is
-// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice is other with blank text.
+// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice is other with blank text. When
+// the answer is allowed it returns the open question as stored.
 func requireAnswerable(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic, text string,
 	question int64,
 	choice string,
-) error {
+) (sqlcgen.EpicQuestion, error) {
 	stored, err := queries.GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: epic, Seq: question})
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoQuestion)
+		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoQuestion)
 	}
 	if err != nil {
-		return fmt.Errorf("read question %d on epic %s: %w", question, epic, err)
+		return sqlcgen.EpicQuestion{}, fmt.Errorf("read question %d on epic %s: %w", question, epic, err)
 	}
 	if stored.State == QuestionReplaced {
-		return &QuestionReplacedError{Seq: question, By: stored.ReplacedBy}
+		return sqlcgen.EpicQuestion{}, &QuestionReplacedError{Seq: question, By: stored.ReplacedBy}
 	}
 	if stored.State != QuestionOpen {
-		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrQuestionClosed)
+		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrQuestionClosed)
 	}
 	offered, err := offers(stored, choice)
 	if err != nil {
-		return err
+		return sqlcgen.EpicQuestion{}, err
 	}
 	if !offered {
-		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoChoice)
+		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoChoice)
 	}
 	if choice == ChoiceOther && strings.TrimSpace(text) == "" {
-		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrOtherNeedsText)
+		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrOtherNeedsText)
 	}
-	return nil
+	return stored, nil
 }
 
 // offers reports whether question offers choice: other, which every question offers, or one of its declared choices.
