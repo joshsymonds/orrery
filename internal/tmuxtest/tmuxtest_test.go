@@ -128,8 +128,75 @@ func TestStopWaitsForPaneProcesses(t *testing.T) {
 	}
 }
 
-// awaitFile waits until path exists, which the pane's process pid writes. It has no deadline of its own, and fails at
-// once when pid has left the process table first, or when Stop's result arrives on stopped first.
+// heldJobScript is a run-shell job that outlives its server, as a fake orrery a hook ran can still be writing its
+// files when kill-server returns. Its %[1]s is a directory and %[2]s the server's name. It ignores the SIGTERM tmux
+// sends a job's shell as the server exits, writes its pid to ready, and waits on wait-for, which returns once the
+// server is gone. It then writes orphaned and exits only once release exists.
+const heldJobScript = `trap '' TERM
+echo $$ > '%[1]s/ready.tmp' && mv '%[1]s/ready.tmp' '%[1]s/ready'
+tmux -L '%[2]s' wait-for orrery-never
+: > '%[1]s/orphaned'
+until [ -e '%[1]s/release' ]; do sleep 0.05; done`
+
+// TestStopWaitsForServerJobs stops a server whose run-shell job holds its exit past the server's own. Stop has not
+// returned while the job holds it, and once the job is released and Stop returns, the job is gone: nothing a job ran
+// writes after Stop.
+func TestStopWaitsForServerJobs(t *testing.T) {
+	name := newName(t)
+	server := tmuxctl.Server{Name: name}
+	client := startServer(t, server)
+	out, err := client.Run(t.Context(), "display-message", "-p", "#{pid}")
+	if err != nil {
+		t.Fatalf("server pid: %v", err)
+	}
+	serverPID, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		t.Fatalf("server pid %q: %v", out, err)
+	}
+	dir := t.TempDir()
+	release := filepath.Join(dir, "release")
+	jobPID := 0
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		if jobPID > 0 {
+			_ = syscall.Kill(jobPID, syscall.SIGKILL)
+		}
+	})
+	script := fmt.Sprintf(heldJobScript, dir, name)
+	if _, err = client.Run(t.Context(), "run-shell", "-b", strings.ReplaceAll(script, "#", "##")); err != nil {
+		t.Fatalf("run-shell: %v", err)
+	}
+	ready := filepath.Join(dir, "ready")
+	awaitFile(t, ready, serverPID, nil)
+	data, err := os.ReadFile(ready)
+	if err != nil {
+		t.Fatalf("read job pid: %v", err)
+	}
+	if jobPID, err = strconv.Atoi(strings.TrimSpace(string(data))); err != nil {
+		t.Fatalf("job pid %q: %v", data, err)
+	}
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- tmuxtest.Stop(t, server) }()
+	awaitFile(t, filepath.Join(dir, "orphaned"), jobPID, stopped)
+	select {
+	case err = <-stopped:
+		t.Fatalf("Stop returned %v while the server's job held its exit", err)
+	default:
+	}
+	if err = os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatalf("release the server's job: %v", err)
+	}
+	if err = <-stopped; err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if _, err = os.Stat(filepath.Join("/proc", strconv.Itoa(jobPID))); !os.IsNotExist(err) {
+		t.Fatalf("job process %d is still in the process table after Stop: stat err = %v", jobPID, err)
+	}
+}
+
+// awaitFile waits until path exists, which process pid, or one it runs, writes. It has no deadline of its own, and fails
+// at once when pid has left the process table first, or when Stop's result arrives on stopped first.
 func awaitFile(t *testing.T, path string, pid int, stopped <-chan error) {
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -139,11 +206,11 @@ func awaitFile(t *testing.T, path string, pid int, stopped <-chan error) {
 			return
 		}
 		if _, err := os.Stat(filepath.Join("/proc", strconv.Itoa(pid))); os.IsNotExist(err) {
-			t.Fatalf("pane process %d exited before it wrote %s", pid, path)
+			t.Fatalf("process %d exited before %s was written", pid, path)
 		}
 		select {
 		case err := <-stopped:
-			t.Fatalf("Stop returned %v before the pane's process wrote %s", err, path)
+			t.Fatalf("Stop returned %v before %s was written", err, path)
 		case <-ticker.C:
 		}
 	}
