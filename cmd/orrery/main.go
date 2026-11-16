@@ -65,6 +65,9 @@ const (
 	serveShutdownTimeout = 5 * time.Second
 )
 
+// serveListeningPrefix starts the stderr line serve writes once its API listener is bound, before the address.
+const serveListeningPrefix = "orrery serve: listening on "
+
 const usageText = `usage: orrery [-L NAME | -S PATH] [--socket PATH] SUBCOMMAND [ARGS]
 
 global flags, before the subcommand:
@@ -593,6 +596,9 @@ func serveListening(ctx context.Context, listen, metricsListen string, handler h
 	if err != nil {
 		return err
 	}
+	// The bound address, which a port of 0 leaves to the kernel, is written once the listener is bound, so a caller that
+	// started serve knows the address is serve's own.
+	fmt.Fprintf(os.Stderr, "%s%s\n", serveListeningPrefix, ln.Addr())
 	if metricsLn == nil {
 		return serveUntilDone(ctx, ln, handler, shutdown)
 	}

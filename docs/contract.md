@@ -423,7 +423,7 @@ orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-logi
 ```
 
 - `-L NAME` and `-S PATH` select the tmux server, as section 6 defines.
-- `--listen ADDR` sets the address to serve on. ADDR is a loopback IP literal with a port, such as `127.0.0.1:8080` or `[::1]:8080`. Any other ADDR exits 1 before anything is bound.
+- `--listen ADDR` sets the address to serve on. ADDR is a loopback IP literal with a port, such as `127.0.0.1:8080` or `[::1]:8080`; a port of 0 lets the kernel choose one. Any other ADDR exits 1 before anything is bound. Once the address is bound, `serve` writes `orrery serve: listening on ADDR` to stderr, with the address it bound (`cmd/orrery.serveListening`).
 - `--allow-login LOGIN` admits one Tailscale login. Repeat the flag for each login. At least one is required.
 - `--push-host HOST` names a push relay host, as `orreryd` does. Repeat the flag for each host. The default is `ntfy.sh`.
 - `--host-status-cmd PATH` sets the command that `Host.Status` runs (section 12). `PATH` must be absolute; a relative `PATH` exits 2 before anything is bound. Without the flag, `Host.Status` answers `not_found`. The command runs at `PATH` with no arguments and no shell. Its stdout is read up to 64 KiB, and its stderr is discarded. A run is limited to 2 seconds, and a child that outlives it and holds stdout open is cut off 500 ms later. Each run's outcome is cached for 5 seconds (section 12).

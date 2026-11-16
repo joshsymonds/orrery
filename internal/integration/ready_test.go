@@ -116,7 +116,7 @@ func (f *engineFixture) startReady(t *testing.T, env []string, claude string, se
 		args = append(args, "--sessions", "--session-shell", f.shell)
 	}
 	daemon := startBinary(t, "orreryd", env, args...)
-	daemon.waitForListener(t, "unix", f.socket)
+	daemon.waitForListener(t, f.socket)
 	return daemon
 }
 
@@ -197,7 +197,7 @@ func TestOrrerydReadyFailedSendServesAnyway(t *testing.T) {
 		return strings.Contains(daemon.stderr.String(), readyFailedLog)
 	})
 
-	daemon.waitForListener(t, "unix", f.socket)
+	daemon.waitForListener(t, f.socket)
 	wantExit(t, daemon.stop(t), 0)
 }
 
@@ -254,7 +254,7 @@ func TestOrrerydReadyKeepsNotifySocketFromChildren(t *testing.T) {
 	writeFile(t, wrapper, "#!/bin/sh\nenv > '"+recorded+"'\nexec '"+f.fakeClaude+"' \"$@\"\n", 0o700)
 	daemon := f.startReady(t, f.notifyEnv(notify.path), wrapper, true)
 	daemon.waitForStoreOpen(t)
-	daemon.waitForListener(t, "unix", f.sessions)
+	daemon.waitForListener(t, f.sessions)
 
 	id := f.start(t, dir, "hello")
 	// The fake claude's reply comes after the wrapper recorded its environment and exec'd it, and after the fake claude
