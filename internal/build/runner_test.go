@@ -811,7 +811,7 @@ func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
 		t.Fatalf("floor review Agents = %q, want a JSON object of agents: %v", first.Agents, err)
 	}
 	def := inline["orrery-reviewer-floor"]
-	if def.Model != "test-model" || !slices.Equal(def.Tools, []string{"Read", "Grep"}) ||
+	if def.Model != "test-model" || !slices.Equal(def.Tools, []string{"Read", "Grep", "StructuredOutput"}) ||
 		def.Effort != "high" || def.Prompt != "Review the diff." {
 		t.Errorf("floor review inline agent = %+v, want the floor's model, tools, effort and prompt", def)
 	}

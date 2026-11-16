@@ -127,7 +127,7 @@ func TestEpicReviewersStartRunsAModelReviewerReadOnlyAtTheRevisionWithItsGateAge
 		t.Errorf("AgentGate = %+v, want %+v", got.AgentGate, wantGate)
 	}
 	wantAgents := `{"orrery-reviewer-correctness":{"description":"orrery reviewer correctness",` +
-		`"effort":"high","model":"opus","prompt":"Read the diff hard.","tools":["Read","Grep"]}}`
+		`"effort":"high","model":"opus","prompt":"Read the diff hard.","tools":["Read","Grep","StructuredOutput"]}}`
 	if got.Agents != wantAgents {
 		t.Errorf("Agents = %s, want %s", got.Agents, wantAgents)
 	}
