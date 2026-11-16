@@ -146,9 +146,20 @@ func (s *Store) EndNodesWaking(
 
 // RetryNode turns the parked run of node in epic running at its next attempt, with its outcome, output, revision, refs,
 // refs checked, result and end cleared, and unparks epic, in one write. The park ends as RetryEpic ends it. A node with
-// no parked run is a RefusalError, and so is an epic parked for good, which changes nothing.
+// no parked run is a RefusalError, and so is an epic parked for good, which changes nothing. So is the release node,
+// which only ReleaseEpic resumes: retried here, it would run while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		runs, err := readNodeRuns(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if run.Node == node && run.Kind == releaseKind {
+				return RefusalError(fmt.Sprintf(
+					"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
+			}
+		}
 		return retryNode(ctx, queries, epic, node)
 	})
 }

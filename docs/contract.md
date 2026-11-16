@@ -883,6 +883,7 @@ No call updates or deletes a decision. The store has no query that does, and the
 - `RetryEpic` of an epic that is not parked: `epic <id> is not parked`.
 - `RetryEpic` of an epic in phase `met_at_base`, which **Park for good** under [Workflows](#workflows) parked for good, and `RetryNode` of such an epic naming its parked node: `epic <id> is parked for good: <its park reason>`. `RetryNode` naming a node with no parked run is refused as the next refusal says first.
 - `RetryEpic` with a `node` that has no parked run, a loop id included: `node <node> of epic <id> is not parked`.
+- `RetryNode` naming the release node: `node <node> of epic <id> is the release; resume it with orrery epic release <id>`. Only `ReleaseEpic` resumes a stopped release, since it moves the phase back to `releasing`; a plain retry would rerun the node while the phase stays `stopped` (`store.Store.RetryNode`; see [Release](#release)).
 
 The effects are these (`store.Store.PauseEpic`, `store.Store.ResumeEpic`, `store.Store.ResumeDueEpic`, `store.Store.CloseDueResume`, `store.Store.StopEpic`, `store.pauseAsOwner`, `store.resumeEpic`, `store.closeEpicDueResumes`; `internal/store/queries.sql: PauseEpic`, `internal/store/queries.sql: SetEpicPauseSource`, `internal/store/queries.sql: ResumeEpic`):
 

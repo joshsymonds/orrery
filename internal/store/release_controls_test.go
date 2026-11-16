@@ -386,6 +386,23 @@ func TestReleaseEpicTakesAFreeSlot(t *testing.T) {
 	requireSlot(t, s, resumeEpic, resumeEpic)
 }
 
+// TestRetryNodeRefusesTheReleaseNode checks that RetryNode of a stopped release's node is refused, pointing to orrery
+// epic release, and writes nothing, so the release stays one ReleaseEpic can resume.
+func TestRetryNodeRefusesTheReleaseNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, raw := stoppedRelease(t, releasedStep(1, true))
+	before := releaseRowsOf(t, raw)
+	want := "node release of epic " + resumeEpic + " is the release; resume it with orrery epic release " + resumeEpic
+	requireRefusalError(t, s.RetryNode(ctx, resumeEpic, "release"), want)
+	if got := releaseRowsOf(t, raw); got != before {
+		t.Errorf("rows after refused RetryNode of %s = %s, want %s", resumeEpic, got, before)
+	}
+	if err := s.ReleaseEpic(ctx, resumeEpic, nil, resumeAt()); err != nil {
+		t.Errorf("ReleaseEpic after refused RetryNode: %v", err)
+	}
+}
+
 // TestReleaseEpicNamesAnUndoNoneStepWrittenNone checks that a failed step whose undo is written " None " can be named,
 // as the release kind reads that undo as none: the call stores the named run for the next attempt.
 func TestReleaseEpicNamesAnUndoNoneStepWrittenNone(t *testing.T) {
