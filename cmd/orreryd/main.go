@@ -1106,6 +1106,7 @@ func (h *sessionHost) startFlow(
 		Checks:   h.checks,
 		Evidence: h.evidence,
 		Steps:    h.steps,
+		StateDir: stateDir,
 		Getenv:   getenv,
 		Logger:   logger,
 		Ticks:    ticks,
