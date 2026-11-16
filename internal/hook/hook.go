@@ -23,7 +23,7 @@ const forwardDeadline = 20 * time.Millisecond
 const reportDeadline = time.Second
 
 // Run forwards the hook JSON read from stdin, with the pane, tmux, working directory and
-// patchbay base URL, to the daemon listening on socketPath. It writes nothing to stdout or
+// base URL of its Anthropic-format proxy, to the daemon listening on socketPath. It writes nothing to stdout or
 // stderr and returns no error: a missing or slow daemon drops the event silently. The
 // summarizer's own subprocess sends nothing, an orrery-started headless session (one whose
 // protocol.EnvSession marker is non-empty) sends nothing and returns without reading stdin,

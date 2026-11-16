@@ -961,10 +961,10 @@ func TestUsageAndFailureExitCodes(t *testing.T) {
 	}
 }
 
-// Synthetic values for the end-to-end test. The patchbay context is invented.
+// Synthetic values for the end-to-end test. The proxy context is invented.
 const (
 	exampleContextName = "example-context"
-	examplePatchbayURL = "https://patchbay.example.com/ctx/" + exampleContextName
+	exampleProxyURL    = "https://proxy.example.com/ctx/" + exampleContextName
 	exampleModel       = "example-model"
 	exampleProjectName = "example-project"
 	exampleTitle       = exampleProjectName + " · s1:0"
@@ -1285,7 +1285,7 @@ func assertSummaryRun(t *testing.T, run string) {
 	}
 	env := readLines(t, filepath.Join(run, "env"))
 	for _, want := range []string{
-		"ANTHROPIC_BASE_URL=" + examplePatchbayURL,
+		"ANTHROPIC_BASE_URL=" + exampleProxyURL,
 		protocol.EnvSummarizer + "=" + protocol.SummarizerValue,
 	} {
 		if !slices.Contains(env, want) {
@@ -1312,7 +1312,7 @@ func sendHook(t *testing.T, socket, pane, cwd string, hook map[string]any) {
 		t.Fatalf("dial %s: %v", socket, err)
 	}
 	defer conn.Close()
-	frame := protocol.HookFrame{Hook: payload, TmuxPane: pane, Cwd: cwd, AnthropicBaseURL: examplePatchbayURL}
+	frame := protocol.HookFrame{Hook: payload, TmuxPane: pane, Cwd: cwd, AnthropicBaseURL: exampleProxyURL}
 	if err = protocol.WriteFrame(conn, frame); err != nil {
 		t.Fatalf("write hook frame: %v", err)
 	}
@@ -1329,7 +1329,7 @@ func runHookCommand(t *testing.T, socket, pane, project string, hook map[string]
 	if err != nil {
 		t.Fatalf("encode hook: %v", err)
 	}
-	env := scrubbedEnv(append([]string{"TMUX_PANE=" + pane, "ANTHROPIC_BASE_URL=" + examplePatchbayURL}, extra...)...)
+	env := scrubbedEnv(append([]string{"TMUX_PANE=" + pane, "ANTHROPIC_BASE_URL=" + exampleProxyURL}, extra...)...)
 	wantExit(t, runCommand(t, project, "orrery", string(payload), env, "--socket", socket, "hook"), 0)
 }
 

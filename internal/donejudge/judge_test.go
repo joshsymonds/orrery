@@ -15,7 +15,7 @@ import (
 // Synthetic values only; no test reaches the real claude binary.
 const (
 	exampleContext = "example-context"
-	exampleBaseURL = "https://patchbay.example.com/ctx/example-context"
+	exampleBaseURL = "https://proxy.example.com/ctx/example-context"
 	exampleModel   = "example-model"
 	exampleMessage = "example final message"
 	judgeErrPrefix = "done judge: "
@@ -55,7 +55,7 @@ func TestDonePassesPaneBaseURLAndModel(t *testing.T) {
 		wantModel string
 	}{
 		{"mapped context", exampleBaseURL, exampleModel},
-		{"unmapped context", "https://patchbay.example.com/ctx/other-context", protocol.DefaultSummaryModel},
+		{"unmapped context", "https://proxy.example.com/ctx/other-context", protocol.DefaultSummaryModel},
 		{"no context", "https://api.example.com", protocol.DefaultSummaryModel},
 	}
 	for _, tc := range tests {
