@@ -121,7 +121,7 @@ func (f *defaultFixture) startDaemon(t *testing.T) *orreryProcess {
 	env := defaultSocketEnv(f.tmuxTmp, "XDG_STATE_HOME="+f.stateHome)
 	daemon := startBinary(t, "orreryd", env,
 		"--socket", f.daemonSocket, "--claude", claude, "--summary-model", exampleContextName+"="+exampleModel)
-	daemon.waitForListener(t, "unix", f.daemonSocket)
+	daemon.waitForListener(t, f.daemonSocket)
 	return daemon
 }
 

@@ -492,17 +492,23 @@ func closeChildStdin(t *testing.T, run *running, cfg Config) {
 	awaitFile(t, run.done, filepath.Join(cfg.Child.Dir, "ready.flag"))
 }
 
-// awaitPipeUnshared waits until no child of this process holds the pipe whose link is link. The holder in a test runs
-// in the test's process, so a child another test forks while the child's stdin pipe is still open here copies the
-// pipe's read end, and keeps it until it execs; a write then still has a reader. It has no end but the fork's exec.
-func awaitPipeUnshared(t *testing.T, link string) {
+// writeOnceUnshared writes data to p once no child of this process holds the pipe whose link is link, and returns the
+// write's result. The holder in a test runs in the test's process, so a child another test forks while the child's
+// stdin pipe is open here copies the pipe's read end and keeps it until it execs; a write then still has a reader. It
+// holds syscall.ForkLock for writing across the wait and the write, as every fork holds it from before its clone until
+// its child has exec'd, so no fork is copying this process's descriptors and none starts until the write has returned.
+// Then only a child that has not let go of the pipe yet can hold it, and the wait has no end but that child's exec.
+func writeOnceUnshared(t *testing.T, p *Process, link string, data []byte) writeResult {
 	t.Helper()
+	syscall.ForkLock.Lock()
+	defer syscall.ForkLock.Unlock()
 	waittest.Until(t, nil, "no other process holding "+link, func() bool { return !childHasOpen(t, link) })
+	return awaitWrite(t, startWrite(p, data))
 }
 
 // A write to a child that has closed its stdin fails once no process holds the pipe's read end. A process another test
 // forks while the pipe is open here holds it until it execs, so the test waits for every child of this process to let
-// it go before it writes.
+// it go, and writes before any other fork can start (writeOnceUnshared).
 func TestProcessWriteToAChildWhoseStdinIsClosedReturnsAnError(t *testing.T) {
 	t.Parallel()
 
@@ -513,8 +519,7 @@ func TestProcessWriteToAChildWhoseStdinIsClosedReturnsAnError(t *testing.T) {
 
 	link := childStdinLink(t, run, cfg)
 	closeChildStdin(t, run, cfg)
-	awaitPipeUnshared(t, link)
-	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err == nil {
+	if got := writeOnceUnshared(t, p, link, []byte("x")); got.err == nil {
 		t.Fatalf("write to a child with a closed stdin = %d, nil; want an error", got.n)
 	}
 	stopProcess(t, p)
@@ -547,8 +552,7 @@ func TestProcessWriteToAClosedStdinSucceedsWhileAnotherProcessHoldsItsPipe(t *te
 	if err = reader.Close(); err != nil {
 		t.Fatalf("let go of the child's stdin pipe: %v", err)
 	}
-	awaitPipeUnshared(t, link)
-	if got := awaitWrite(t, startWrite(p, []byte("x"))); got.err == nil {
+	if got := writeOnceUnshared(t, p, link, []byte("x")); got.err == nil {
 		t.Fatalf("write once no reader holds the pipe = %d, nil; want an error", got.n)
 	}
 	stopProcess(t, p)
