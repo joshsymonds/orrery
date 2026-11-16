@@ -48,6 +48,7 @@ type Store interface {
 	CheckNodeRefs(
 		ctx context.Context, epic, path string, attempt int64, park string, tells []string, at time.Time,
 	) error
+	FreezeReview(ctx context.Context, epic, path string, attempt int64, revision string) error
 	EndReview(
 		ctx context.Context, epic, path string, attempt int64, output string, verdicts []store.ReviewVerdict,
 		ledger []store.LedgerFinding, at time.Time,
