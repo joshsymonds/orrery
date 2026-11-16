@@ -184,6 +184,9 @@ func parserFor(path string) func(src []byte) ([]Test, error) {
 		strings.HasSuffix(path, ".test.js") {
 		return nodeTests
 	}
+	if strings.HasSuffix(path, ".kt") {
+		return kotlinTests
+	}
 	return nil
 }
 
