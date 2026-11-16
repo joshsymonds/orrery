@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/holder"
 )
 
 // The test in this file SIGKILLs orreryd after a writing step's turn is limited. The LIMIT prompt makes the fake claude
@@ -67,7 +69,7 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 	stepReadoptWrite(t, filepath.Join(r.worktree, "fakeclaude.next"), stepReadoptPrompt)
 	stepReadoptTouch(t, r.turnRelease)
 	if _, err := r.steps().ResumeStep(t.Context(), connect.NewRequest(&v1.ResumeStepRequest{Id: id})); err != nil {
-		t.Fatalf("resume step %s: %v", id, err)
+		t.Fatalf("resume step %s: %v\n%s", id, err, r.resumeEvidence(id))
 	}
 	waitUntil(t, func() bool { return gateRunCount(t, r.gateRuns) > 0 })
 	if n := gateRunCount(t, r.gateRuns); n != 1 {
@@ -110,4 +112,24 @@ func limitKillStarts(t *testing.T, dir string) []string {
 		t.Fatalf("read fake claude args: %v", err)
 	}
 	return strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+}
+
+// resumeEvidence returns what a resume that failed left behind, for its failure message: every start of the fake claude
+// with its argv, the --resume it was given among them, the lines it read, and the exit record of the step's holder,
+// which holds the child's exit and its stderr tail. A file that is missing is named so.
+func (r *stepReadoptRig) resumeEvidence(id string) string {
+	var b strings.Builder
+	for _, path := range []string{
+		filepath.Join(r.worktree, "fakeclaude.args"),
+		filepath.Join(r.worktree, "fakeclaude.stdin"),
+		filepath.Join(r.stateDir, "holders", id, holder.ExitName),
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(&b, "%s: %v\n", path, err)
+			continue
+		}
+		fmt.Fprintf(&b, "%s:\n%s\n", path, raw)
+	}
+	return b.String()
 }

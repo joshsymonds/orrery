@@ -33,19 +33,20 @@ done
 exec %s "$@"
 `
 
-// TestOrrerydStopEndsWithJudgeAndSummaryInFlight stops orreryd as systemd does, with a step's judge run and a pane's
-// summary run both in flight: SIGTERM to orreryd and to every process of its unit, which takes both runs, while the
-// step's session runs on under its holder's scope. The forced order: the step's turn returns done, so its loop calls
-// the judge, which holds; a hook starts the pane's summary run, which holds; only then does the stop come. orreryd must
-// exit 0, having logged every shutdown phase it started done.
-func TestOrrerydStopEndsWithJudgeAndSummaryInFlight(t *testing.T) {
+// TestOrrerydStopEndsWithJudgesAndSummaryInFlight stops orreryd as systemd does, with a step's judge run, a pane's
+// summary run and that pane's done judge all in flight: SIGTERM to orreryd and to every process of its unit, which
+// takes the runs, while the step's session runs on under its holder's scope. The forced order: the step's turn returns
+// done, so its loop calls the judge, which holds; a prompt hook starts the pane's summary run, which holds; the pane's
+// Stop routes a done notice whose judge holds; only then does the stop come. orreryd must exit 0, having logged every
+// shutdown phase it started done.
+func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
 	t.Parallel()
 	r := newStepReadoptRig(t)
 	claude := filepath.Join(r.f.root, "claude-held")
 	writeFile(t, claude, fmt.Sprintf(printHeldScript, shellQuote(r.f.fakeClaude)), 0o700)
 	r.f.fakeClaude = claude
 	pids := filepath.Join(r.f.root, "print.pids")
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope, "--judge-delay", judgeDelay)
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 
 	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
@@ -76,6 +77,15 @@ func TestOrrerydStopEndsWithJudgeAndSummaryInFlight(t *testing.T) {
 		"transcript_path": transcript,
 	})
 	waittest.Until(t, daemon.done, "the pane's summary run", func() bool { return heldRun(t, pids, "--system-prompt") })
+	// The pane's Stop routes a done notice, whose judge runs at once under the test's judge delay and holds too.
+	sendHook(t, r.f.socket, strings.TrimSpace(out), dir, map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        transcript,
+		"last_assistant_message": "the pane's turn ended",
+	})
+	waittest.Until(t, daemon.done, "the pane's done judge run", func() bool {
+		return heldCount(t, pids, "--json-schema") == 2
+	})
 
 	daemon.asked.Store(true)
 	if err = daemon.cmd.Process.Signal(syscall.SIGTERM); err != nil {
@@ -124,14 +134,21 @@ func heldRuns(t *testing.T, path string) []int {
 	return runs
 }
 
+// heldCount returns how many held runs print.pids at path records whose argv holds flag.
+func heldCount(t *testing.T, path, flag string) int {
+	t.Helper()
+	count := 0
+	for _, line := range heldLines(t, path) {
+		if strings.Contains(" "+line+" ", " "+flag+" ") {
+			count++
+		}
+	}
+	return count
+}
+
 // heldRun reports whether print.pids at path records a held run whose argv holds flag: --json-schema for a haiku call,
 // such as a step judge's, and --system-prompt for a summary run.
 func heldRun(t *testing.T, path, flag string) bool {
 	t.Helper()
-	for _, line := range heldLines(t, path) {
-		if strings.Contains(" "+line+" ", " "+flag+" ") {
-			return true
-		}
-	}
-	return false
+	return heldCount(t, path, flag) > 0
 }

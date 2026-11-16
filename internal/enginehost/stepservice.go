@@ -31,8 +31,25 @@ type StepCommands interface {
 }
 
 // stepService implements the Steps RPCs over steps.
+// stoppingMessage is why a WaitSteps still waiting when the session socket shuts down fails.
+const stoppingMessage = "orreryd is stopping"
+
 type stepService struct {
 	steps StepCommands
+	// stopping ends when Serve begins its shutdown. A WaitSteps still waiting then fails at once as unavailable, since
+	// this orreryd's steps, the producers of every end it waits for, are stopping with it; its caller waits again on the
+	// next orreryd, as it does for any unavailable orreryd.
+	stopping <-chan struct{}
+}
+
+// isStopping reports whether Serve has begun its shutdown.
+func (s *stepService) isStopping() bool {
+	select {
+	case <-s.stopping:
+		return true
+	default:
+		return false
+	}
 }
 
 // ready returns the refusal every step RPC gets when there is no step store.
@@ -114,7 +131,19 @@ func (s *stepService) WaitSteps(
 		return nil, err
 	}
 	timeout := time.Duration(req.Msg.GetTimeoutSeconds()) * time.Second
-	ended, rows, err := s.steps.Wait(ctx, req.Msg.GetIds(), timeout)
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-s.stopping:
+			cancel()
+		case <-waitCtx.Done():
+		}
+	}()
+	ended, rows, err := s.steps.Wait(waitCtx, req.Msg.GetIds(), timeout)
+	if err != nil && ctx.Err() == nil && s.isStopping() {
+		return nil, errors.Join(connect.NewError(connect.CodeUnavailable, errors.New(stoppingMessage)))
+	}
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
