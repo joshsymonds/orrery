@@ -1,4 +1,5 @@
 import type { ComponentChildren, JSX } from "preact";
+import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { AskFirst, NowBlock, nowSentence } from "./blocker";
 import type { LoadArtifact } from "./evidence";
@@ -36,10 +37,25 @@ export function stateLine(detail: EpicsGetResponse, now: number): string {
   return state !== "" && phaseAt > 0 ? `${state} · ${durationText(Math.max(0, now - phaseAt))}` : state;
 }
 
+// Landing is the block an opened notice lands the epic page on, by its kind. Each notice makes its own, so the page
+// brings the block into view once for each. The empty kind names no block.
+export interface Landing {
+  kind: string;
+}
+
+// landingTargets names the part of the epic page each block kind brings into view. A kind it does not name, the empty
+// one included, brings the page's top into view.
+const landingTargets: Partial<Record<string, string>> = {
+  question: ".now-block",
+  release_step: ".now-block",
+  report: ".proof.report",
+};
+
 // EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the now sentence
 // and blocker, the red proof, the implementation (the orrery, Now, Next, Just happened and the workflow), the green
 // proof, the handover when given, the release proof and the report. A section the epic has not reached is dim. The
-// commands are live only while the epic is live and has no outcome. Each phase click reaches onOpenPhase.
+// commands are live only while the epic is live and has no outcome. Each phase click reaches onOpenPhase. A landing
+// brings its part of the page into view once the page is drawn.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -51,16 +67,39 @@ export function EpicPage(props: {
   onOpenPhase?: (task: string, phase: Phase) => void;
   actions?: ComponentChildren;
   handover?: ComponentChildren;
+  landing?: Landing;
 }): JSX.Element {
-  const { detail, history, now, loadArtifact, commands, onOpenContract, onBack, onOpenPhase, actions, handover } = props;
+  const {
+    detail,
+    history,
+    now,
+    loadArtifact,
+    commands,
+    onOpenContract,
+    onBack,
+    onOpenPhase,
+    actions,
+    handover,
+    landing,
+  } = props;
   const { epic, contract, requirements, steps, nodes, releaseSteps, report } = detail;
   const wedges = wedgesOf(detail);
   const blocker = blockerOf(detail);
   const slug = epic?.slug ?? "";
   const live = epic?.live === true && epic.outcome === "";
   const released = epic !== undefined && epic.outcome.startsWith("released");
+  const pageRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (landing === undefined || page === null) {
+      return;
+    }
+    const target = landingTargets[landing.kind];
+    const element = target === undefined ? page : page.querySelector<HTMLElement>(target);
+    element?.scrollIntoView();
+  }, [landing]);
   return (
-    <div class="epic-page">
+    <div class="epic-page" ref={pageRef}>
       <TitleRow
         crumbs={[{ label: "orrery", onGo: onBack }, { label: slug }]}
         onBack={onBack}

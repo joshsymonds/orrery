@@ -7,7 +7,7 @@ import { Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
 import { EpicLine } from "./epicline";
-import { type EpicCommands, EpicPage } from "./epicpage";
+import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
   type EpicItem,
   type EpicSection,
@@ -81,12 +81,14 @@ interface PageBelow {
 // The epic page's view: the page on top, and the pages under it, bottom first. The epic page is always the first of
 // them when a deeper page is open. move is the class the page section carries while it moves: drill as a page opens
 // deeper, leave as it comes back. closed is set by back and the orrery crumb, and a move of the cursor opens the page
-// again.
+// again. landing is the block an opened notice landed the epic page on; a page a drill, a back or a move opens holds
+// none.
 interface EpicPageState {
   page: PageView;
   below: PageBelow[];
   move: "" | "drill" | "leave";
   closed: boolean;
+  landing?: Landing;
 }
 
 const epicPageView: PageView = { kind: "epic" };
@@ -111,6 +113,8 @@ type Item = Row | EpicItem | StepItem;
 
 const stateWaiting = "waiting";
 const stateWorking = "working";
+// The block kind a notice names when it opens the contract page.
+const contractBlock = "contract";
 const needsYouTitle = "Needs you";
 const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
@@ -217,6 +221,8 @@ export function App({
   const [commandError, setCommandError] = useState("");
   const [epicHistory, setEpicHistory] = useState<EpicHistory>({ id: "", entries: [] });
   const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
+  // The landing the last opened notice names. Each notice makes its own, so its effect applies it once.
+  const [landing, setLanding] = useState<Landing | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The conversation Talk docked beside the epic page, with the epic it opened on.
@@ -560,6 +566,21 @@ export function App({
   const openContract = () => drill({ kind: "contract" });
   const closeEpicPage = () => setEpicPage(closedEpicPage);
 
+  // A notice's landing opens the epic page on the block it names. Effects run in declaration order, and this one is
+  // declared after the cursor's reset above, so in the commit where a notice moves the cursor the landing is the page
+  // the reset leaves. A contract landing opens the contract page over the epic page, as its summary does.
+  useLayoutEffect(() => {
+    if (landing === null) {
+      return;
+    }
+    if (landing.kind === contractBlock) {
+      setEpicPage(openEpicPage);
+      openContract();
+      return;
+    }
+    setEpicPage({ ...openEpicPage, landing });
+  }, [landing]);
+
   const moveTo = (target: number) => {
     if (flat.length === 0) {
       return;
@@ -573,8 +594,8 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
-  // openEpic moves the cursor to an epic's entry, first opening the accepted or folded line that holds it when that
-  // line is shut. The entry is then in the list, so the cursor rests on it.
+  // openEpic moves the cursor to an epic's entry, first opening the accepted, folded or ended earlier line that holds
+  // it when that line is shut. The entry is then in the list, so the cursor rests on it.
   const openEpic = (id: string) => {
     if (epics.waiting.some((item) => item.id === id)) {
       setWaitingOpen(true);
@@ -582,13 +603,25 @@ export function App({
     if (epics.folded.some((item) => item.id === id)) {
       setFoldedOpen(true);
     }
+    if (kept.endedEarlier.some((item) => item.id === id)) {
+      setEndedOpen(true);
+    }
     setCursor({ key: `epic:${id}`, index: shownIndex });
   };
 
-  // openNotice counts a notice seen and moves the cursor to the entry its key names, when the list shows it. A failed
-  // report is dropped; the notice stays in the banner until it ends.
+  // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
+  // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
+  // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
   const openNotice = (notice: InAppNotice) => {
     void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+    const epic = notice.key?.epic ?? "";
+    if (epic !== "") {
+      if (listsEpic(kept, epic)) {
+        openEpic(epic);
+        setLanding({ kind: notice.block?.kind ?? "" });
+      }
+      return;
+    }
     const entry = noticeEntry(flat, notice.key);
     if (entry !== undefined) {
       selectItem(entry);
@@ -804,6 +837,7 @@ export function App({
     return (
       <EpicPage
         detail={detail}
+        landing={epicPage.landing}
         history={epicHistory.id === entry.id ? epicHistory.entries : []}
         now={now}
         loadArtifact={loadArtifact}
@@ -1321,21 +1355,29 @@ function isRow(item: Item): item is Row {
   return item.kind === "pane" || item.kind === "session";
 }
 
-// noticeEntry finds the entry a notice's key names among the entries the list shows: a pane row by pane id, a session
-// row or a step by session id, or an epic by epic id. A key that names none, such as a limit's, finds nothing.
+// noticeEntry finds the row or step a notice's key names among the entries the list shows: a pane row by pane id, or a
+// session row or a step by session id. A key that names none, such as a limit's or an epic's, finds nothing.
 function noticeEntry(items: Item[], key: NoticeKey | undefined): Item | undefined {
   const pane = key?.pane ?? "";
   const session = key?.session ?? "";
-  const epic = key?.epic ?? "";
   return items.find((item) => {
     if (item.kind === "pane") {
       return pane !== "" && item.id === pane;
     }
-    if (item.kind === "epic") {
-      return epic !== "" && item.id === epic;
-    }
-    return session !== "" && item.id === session;
+    return item.kind !== "epic" && session !== "" && item.id === session;
   });
+}
+
+// listsEpic reports whether the view holds the epic under id in any of its lines, open or shut.
+function listsEpic(view: EpicsView, id: string): boolean {
+  const held = [
+    ...view.blocks.map((block) => block.epic),
+    ...view.waiting,
+    ...view.folded,
+    ...view.justEnded,
+    ...view.endedEarlier,
+  ];
+  return held.some((item) => item.id === id);
 }
 
 // readHistory reads an epic's history from its first entry, page by page, until a page names no next cursor. A failed
