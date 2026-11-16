@@ -44,6 +44,15 @@ function beforeWide(text: string): string {
   return text.slice(0, start);
 }
 
+// phaseSection returns the phase output and worker session rules: from the first of them to the flash rule that follows.
+function phaseSection(): string {
+  const start = css.indexOf(".phase-output {");
+  const end = css.indexOf(".flash {");
+  assert.notEqual(start, -1, "style.css has the phase output rules");
+  assert.ok(end > start, "the phase output rules come before the flash rule");
+  return css.slice(start, end);
+}
+
 test("style.css names no sans-serif, system-ui or --reply face", () => {
   assert.doesNotMatch(source, /sans-serif|system-ui|--reply/);
 });
@@ -808,6 +817,75 @@ test("a release step is a grid of step, target and undo, and the closing line is
 
 test("the contract's checks keep their line breaks", () => {
   assert.match(declarationsFor(css, ".contract .checks"), /white-space:\s*pre-wrap;/);
+});
+
+test("the phase output and the worker session have a rule for each of their classes and each row state", () => {
+  const section = phaseSection();
+  for (const name of [
+    "phase-output",
+    "phases",
+    "phase-row",
+    "phase-head",
+    "phase-name",
+    "phase-summary",
+    "phase-time",
+    "phase-body",
+    "attempts",
+    "rounds",
+    "round",
+    "checks",
+    "gate",
+    "gate-stdout",
+    "gate-stderr",
+    "judge",
+    "reviews",
+    "findings",
+    "reviewers",
+    "integration",
+    "worker-session",
+  ]) {
+    assert.match(section, new RegExp(`\\.${name}(?![\\w-])`), `.${name} has a rule`);
+  }
+  for (const state of ["passed", "now", "ahead", "open"]) {
+    assert.match(section, new RegExp(`\\.phase-row\\.${state}(?![\\w-])`), `.phase-row.${state} has a rule`);
+  }
+});
+
+test("the phase output and the worker session take the mono family and the palette's tokens, never a literal colour", () => {
+  const section = phaseSection();
+  assert.doesNotMatch(section, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+  const fonts = [...section.matchAll(/(?<![\w-])font(?:-family)?:\s*([^;}]+)/g)].map((match) => match[1].trim());
+  assert.ok(fonts.length > 0, "the phase output sets its fonts");
+  for (const value of fonts) {
+    assert.match(value, /^inherit$|var\(--mono\)/, `font declaration "${value}"`);
+  }
+});
+
+test("an opening row's body fades in with move-fade over the layout move", () => {
+  assert.match(declarationsFor(css, ".phase-output .phase-body"), /animation:\s*move-fade var\(--move-layout\);/);
+});
+
+test("a row's state colours transition over the state move", () => {
+  assert.match(
+    declarationsFor(css, ".phase-output .phase-row"),
+    /transition:\s*color var\(--move-state\), background-color var\(--move-state\)/,
+  );
+});
+
+test("no rule in the phase output or the worker session names a duration other than through a --move-* variable", () => {
+  const timed = phaseSection().replace(/var\(--move-[a-z]+\)/g, "");
+  assert.doesNotMatch(timed, /\d(\.\d+)?m?s\b/);
+});
+
+test("the worker session is a column that fills its track, and its reader alone scrolls", () => {
+  const session = declarationsFor(css, ".worker-session");
+  assert.match(session, /display:\s*flex;/);
+  assert.match(session, /flex-direction:\s*column;/);
+  assert.match(session, /height:\s*100%;/);
+  const reader = declarationsFor(css, ".worker-session > .reader");
+  assert.match(reader, /flex:\s*1 1 auto;/);
+  assert.match(reader, /min-height:\s*0(?![\d.])/);
+  assert.match(reader, /overflow-y:\s*auto;/);
 });
 
 test("the evidence runs are a grid of cards, each run a 4px grid on mantle, padded 6px 8px, with 8px corners at 11.5px over 17px mono", () => {
