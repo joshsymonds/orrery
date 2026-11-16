@@ -12,6 +12,8 @@ import {
   type EpicItem,
   type EpicSection,
   type EpicsView,
+  endedWords,
+  keepUnderCursor,
   noEpics,
   placeEpics,
   type StepItem,
@@ -201,6 +203,8 @@ export function App({
   const [waitingOpen, setWaitingOpen] = useState(false);
   // Whether the folded epics are open under their line. They start closed.
   const [foldedOpen, setFoldedOpen] = useState(false);
+  // Whether the seen ended epics are open under their ended earlier line. They start closed.
+  const [endedOpen, setEndedOpen] = useState(false);
   // The detail each epic the poll did not load answers with when its page opens. An epic is asked for once, so the
   // answers are kept here and the asked ids in a ref.
   const [askedDetails, setAskedDetails] = useState<Map<string, EpicsGetResponse>>(() => new Map());
@@ -241,11 +245,16 @@ export function App({
   // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
   const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
+  // The cursor's epic stays in Just ended while the cursor rests on it, even once it is seen. The cursor is held by
+  // key, so its epic is the seen one the endedEarlier list holds under that key. While the ended earlier line is open
+  // the seen epics are drawn in place, so none is kept and the cursor walks them in their drawn order.
+  const cursorEpicId = endedOpen ? "" : (epics.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
+  const kept = keepUnderCursor(epics, cursorEpicId);
   const sections =
     view === "attention"
-      ? withEpicsGroup(byAttention(matching), epics)
-      : placeEpics(byProject(matching), epics.blocks);
-  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, foldedOpen));
+      ? withEpicsGroup(byAttention(matching), kept)
+      : placeEpics(byProject(matching), kept.blocks);
+  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, foldedOpen, endedOpen));
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -845,6 +854,34 @@ export function App({
                     {block.tail !== "" && <div class="b-more">{block.tail}</div>}
                   </Fragment>
                 ))}
+                {section.justEnded.map((epic) => (
+                  <EpicLine
+                    key={epic.key}
+                    epic={epic}
+                    full={false}
+                    current={epic.key === cursorKey}
+                    now={now}
+                    ended={endedWords(epic, now)}
+                    onSelect={selectItem}
+                  />
+                ))}
+                {section.endedEarlier.length > 0 && (
+                  <div class="b-more" onClick={() => setEndedOpen((value) => !value)}>
+                    {`${section.endedEarlier.length} ended earlier ›`}
+                  </div>
+                )}
+                {endedOpen &&
+                  section.endedEarlier.map((epic) => (
+                    <EpicLine
+                      key={epic.key}
+                      epic={epic}
+                      full={false}
+                      current={epic.key === cursorKey}
+                      now={now}
+                      ended={endedWords(epic, now)}
+                      onSelect={selectItem}
+                    />
+                  ))}
                 {section.waiting.length > 0 && (
                   <div class="b-more" onClick={() => setWaitingOpen((value) => !value)}>
                     {`${section.waiting.length} accepted, waiting to start`}
@@ -1262,11 +1299,14 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
   };
 }
 
-// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the waiting epics
-// while their line is open, then the rows, then the folded epics while their line is open.
-function entriesOf(section: EpicSection, waitingOpen: boolean, foldedOpen: boolean): Item[] {
+// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the just-ended epics,
+// then the seen ones while their line is open, then the waiting epics while their line is open, then the rows, then the
+// folded epics while their line is open.
+function entriesOf(section: EpicSection, waitingOpen: boolean, foldedOpen: boolean, endedOpen: boolean): Item[] {
   return [
     ...section.epics.flatMap((block) => [block.epic, ...block.steps]),
+    ...section.justEnded,
+    ...(endedOpen ? section.endedEarlier : []),
     ...(waitingOpen ? section.waiting : []),
     ...section.rows,
     ...(foldedOpen ? section.folded : []),

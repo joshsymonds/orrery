@@ -6,22 +6,25 @@ import { VIEW, cellPath, sector, sliceSpan, sliceStart } from "./orbits";
 import { ARC_INNER, ARC_OUTER } from "./orrery";
 import { requirementArcs, wedgesOf } from "./phases";
 
-// EpicLine draws an epic's line: its small orrery, then its slug, repository and count, then its state and blocker. A
-// full epic also draws its strip of one segment per record task. An epic with no detail draws no orrery.
+// EpicLine draws an epic's line: its small orrery, then its slug, repository and count, then its state and blocker. An
+// ended epic's line draws its ended words as its state, in place of the count, state and blocker. A full epic also
+// draws its strip of one segment per record task. An epic with no detail draws no orrery.
 export function EpicLine({
   epic,
   full,
   current,
   now,
+  ended,
   onSelect,
 }: {
   epic: EpicItem;
   full: boolean;
   current: boolean;
   now: number;
+  ended?: string;
   onSelect: (item: EpicItem) => void;
 }): JSX.Element {
-  const line = epicLine(epic, now);
+  const line = ended === undefined ? epicLine(epic, now) : { count: "", state: ended, blocker: "" };
   return (
     <div
       class={current ? "b-row epic cur" : "b-row epic"}

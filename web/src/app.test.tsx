@@ -2434,6 +2434,27 @@ function epicKey(epic: Epic): string {
   return `epic:${epic.id}`;
 }
 
+// endedAt is when the ended epics released, and endedNow the clock they read at: 12 minutes later, unix seconds.
+const endedAt = 99280n;
+const endedNow = 100000;
+
+// endedEpic is an orreryd epic that is not live, released at endedAt and last seen at seen.
+function endedEpic(slug: string, seen = 0n): Epic {
+  return makeEpic(widgetsRepo, slug, { source: "orreryd", live: false, outcome: "released", phaseAt: endedAt, seen });
+}
+
+// moreLines names the fold and count lines the list draws, in order.
+function moreLines(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".b-more")].map((line) => line.textContent ?? "");
+}
+
+// endedLine finds the line that opens the seen ended epics, when the list draws one.
+function endedLine(container: HTMLElement): HTMLElement | undefined {
+  return [...container.querySelectorAll<HTMLElement>(".b-more")].find((line) =>
+    (line.textContent ?? "").endsWith(" ended earlier ›"),
+  );
+}
+
 // oneEpic is a live epic with two running steps, and no detail.
 function oneEpic(): EpicsView {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1"), makeStep("s2")] });
@@ -2654,6 +2675,115 @@ test("the folded epics draw in list order after the rows, and keys reach them wh
     assert.equal(cursorKey(container), epicKey(older), "the cursor reaches the first folded epic by keys");
     await press("j");
     assert.equal(cursorKey(container), epicKey(newer), "the cursor reaches the last folded epic by keys");
+  });
+});
+
+test("an epic under the cursor that the next view gives released and unseen stays under Just ended", () => {
+  const live = makeEpic(widgetsRepo, "shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([live], new Map()) }, async (container, fake) => {
+    assert.equal(cursorKey(container), epicKey(live), "the cursor rests on the live epic");
+
+    await mount(container, {
+      rows: [],
+      error: "",
+      now: endedNow,
+      clients: fake.clients,
+      seen: fake.seen,
+      epics: epicsView([endedEpic("shipped")], new Map()),
+    });
+    assert.equal(cursorKey(container), epicKey(live), "the cursor stays on the epic as it turns released");
+    assert.deepEqual(sectionTitles(container), ["Just ended"], "the epic sits in Just ended");
+    assert.equal(
+      rowElement(container, epicKey(live)).querySelector(".state")?.textContent,
+      "released · 12 min ago",
+      "the epic's line reads its ended words",
+    );
+  });
+});
+
+test("an epic under the cursor that another client marks seen stays under Just ended until the cursor moves", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const shipped = endedEpic("shipped");
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, shipped], new Map()) }, async (container, fake) => {
+    await act(() => {
+      rowElement(container, epicKey(shipped)).dispatchEvent(clickEvent());
+    });
+    assert.equal(cursorKey(container), epicKey(shipped), "the click rests the cursor on the ended epic");
+
+    await mount(container, {
+      rows: [],
+      error: "",
+      now: endedNow,
+      clients: fake.clients,
+      seen: fake.seen,
+      epics: epicsView([busy, endedEpic("shipped", endedAt + 60n)], new Map()),
+    });
+    assert.equal(cursorKey(container), epicKey(shipped), "the cursor keeps the epic another client marked seen");
+    assert.equal(
+      rowElement(container, epicKey(shipped)).querySelector(".state")?.textContent,
+      "released · 12 min ago",
+      "the kept epic still reads its ended words",
+    );
+    assert.deepEqual(moreLines(container), [], "no ended earlier line while the cursor holds the epic");
+
+    await press("k");
+    assert.equal(cursorKey(container), epicKey(busy), "the cursor moves up to the live epic");
+    assert.deepEqual(rowKeys(container), [epicKey(busy)], "the epic folds out of Just ended");
+    assert.deepEqual(moreLines(container), ["1 ended earlier ›"], "the epic folds into one ended earlier line");
+  });
+});
+
+test("the ended earlier line opens a seen epic in place, and the epic reads its ended words", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const shipped = endedEpic("shipped", endedAt + 60n);
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, shipped], new Map()) }, async (container) => {
+    assert.deepEqual(rowKeys(container), [epicKey(busy)], "closed, the seen epic is not drawn");
+    assert.deepEqual(moreLines(container), ["1 ended earlier ›"]);
+
+    await act(() => {
+      endedLine(container)?.dispatchEvent(clickEvent());
+    });
+    assert.deepEqual(rowKeys(container), [epicKey(busy), epicKey(shipped)], "opened, the seen epic draws in place");
+    assert.equal(
+      rowElement(container, epicKey(shipped)).querySelector(".state")?.textContent,
+      "released · 12 min ago",
+      "the opened epic reads its ended words",
+    );
+  });
+});
+
+test("with the ended earlier line open the cursor walks every seen epic in their drawn order", () => {
+  const busy = makeEpic(widgetsRepo, "busy");
+  const seen = ["first", "second", "third"].map((slug) => endedEpic(slug, endedAt + 60n));
+  return withApp({ rows: [], now: endedNow, epics: epicsView([busy, ...seen], new Map()) }, async (container) => {
+    await act(() => {
+      endedLine(container)?.dispatchEvent(clickEvent());
+    });
+    const drawn = [epicKey(busy), ...seen.map((epic) => epicKey(epic))];
+    assert.deepEqual(rowKeys(container), drawn, "opened, the seen epics draw in place");
+    for (const epic of seen) {
+      await press("j");
+      assert.equal(cursorKey(container), epicKey(epic), "j moves to the next seen epic");
+      assert.deepEqual(rowKeys(container), drawn, "the seen epics keep their drawn order");
+    }
+  });
+});
+
+test("a record epic that goes quiet under the cursor folds into the Epics group, not Just ended", () => {
+  const live = makeEpic(widgetsRepo, "quiet", { source: "record" });
+  return withApp({ rows: [], now: endedNow, epics: epicsView([live], new Map()) }, async (container, fake) => {
+    assert.equal(cursorKey(container), epicKey(live), "the cursor rests on the live record epic");
+
+    await mount(container, {
+      rows: [],
+      error: "",
+      now: endedNow,
+      clients: fake.clients,
+      seen: fake.seen,
+      epics: epicsView([makeEpic(widgetsRepo, "quiet", { source: "record", live: false })], new Map()),
+    });
+    assert.deepEqual(sectionTitles(container), ["Epics"], "the quiet epic stays in the Epics group");
+    assert.deepEqual(moreLines(container), ["1 folded"], "the quiet epic folds into the Epics group's line");
   });
 });
 
