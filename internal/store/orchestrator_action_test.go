@@ -166,7 +166,10 @@ func TestOrchestratorActionRetryEpicEndsThePark(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
-	createParkedEpic(t, s, claimEpic)
+	createEpic(t, s, fullEpic(claimEpic))
+	if err := s.ParkEpic(ctx, claimEpic, ParkClassNode, "credit ran out", completedAt()); err != nil {
+		t.Fatalf("ParkEpic of %s: %v", claimEpic, err)
+	}
 	action := storeActions(t, s, claimEpic, EpicActionInput{Kind: ActionRetryEpic, Reason: "the credit is back"})[0]
 
 	if _, err := s.CarryOutAction(ctx, action, closeAt()); err != nil {
@@ -178,6 +181,86 @@ func TestOrchestratorActionRetryEpicEndsThePark(t *testing.T) {
 	if got, want := decisionNamed(t, s, claimEpic, "action-1-1").Text,
 		"planner retry epic: the credit is back"; got != want {
 		t.Errorf("decision of retry_epic = %q, want %q", got, want)
+	}
+}
+
+// TestOrchestratorActionRetryOnAnOwnerParkIsRefusedAndKeepsThePark checks that a retry_epic or retry_node action on an epic
+// whose park the owner holds is refused and recorded as refused with its trigger, and that the park keeps its reason and
+// its owner class, with its park question still open.
+func TestOrchestratorActionRetryOnAnOwnerParkIsRefusedAndKeepsThePark(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		epic    string
+		setup   func(t *testing.T) *Store
+		action  EpicActionInput
+		park    string
+		summary string
+		refusal string
+	}{
+		{
+			name: "retry_epic on an epic parked as branch",
+			epic: claimEpic,
+			setup: func(t *testing.T) *Store {
+				t.Helper()
+				s := openEpicStore(t)
+				createParkedEpic(t, s, claimEpic)
+				return s
+			},
+			action:  EpicActionInput{Kind: ActionRetryEpic, Reason: "the credit is back"},
+			park:    "credit ran out",
+			summary: "retry epic",
+			refusal: "epic " + claimEpic + " holds the owner's branch park; only the owner retries it",
+		},
+		{
+			name: "retry_node on a node of an epic parked as branch",
+			epic: integrateEpic,
+			setup: func(t *testing.T) *Store {
+				t.Helper()
+				ctx := context.Background()
+				s := openIntegrateStore(t)
+				startIntegrateRuns(t, s,
+					NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1})
+				if err := s.ParkNode(ctx, integrateEpic, retryLatestBatch, 1, nodeFailedOutcome, "lint failed",
+					ParkClassBranch, "integrate is red", integrateParkedAt()); err != nil {
+					t.Fatalf("ParkNode: %v", err)
+				}
+				return s
+			},
+			action: EpicActionInput{
+				Kind: ActionRetryNode, Node: "integrate", Reason: "the lint is fixed on the candidate",
+			},
+			park:    "integrate is red",
+			summary: "retry node integrate",
+			refusal: "epic " + integrateEpic + " holds the owner's branch park; only the owner retries it",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := c.setup(t)
+			action := storeActions(t, s, c.epic, c.action)[0]
+
+			stop, err := s.CarryOutAction(ctx, action, closeAt())
+			if err != nil || stop != nil {
+				t.Fatalf("CarryOutAction = %v, %v; want no steps and no error for a refusal", stop, err)
+			}
+			requireRefusedAction(t, s, action, c.summary, c.refusal)
+
+			row := closeRow(t, s, c.epic)
+			if row.Parked != c.park || row.ParkClass != ParkClassBranch {
+				t.Errorf("park of epic %s = %q %q, want %q %q",
+					c.epic, row.ParkClass, row.Parked, ParkClassBranch, c.park)
+			}
+			open, err := s.OpenQuestions(ctx, c.epic)
+			if err != nil {
+				t.Fatalf("OpenQuestions: %v", err)
+			}
+			if len(open) != 1 || open[0].Label != ParkLabel || open[0].Text != c.park {
+				t.Errorf("open questions of epic %s = %+v, want one park question with text %q", c.epic, open, c.park)
+			}
+		})
 	}
 }
 

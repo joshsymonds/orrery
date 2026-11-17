@@ -125,8 +125,9 @@ func (s *Store) refuse(ctx context.Context, action PlannerAction, refusal Refusa
 
 // takeAction carries out action in the caller's write, as CarryOutAction describes, and returns the steps to stop. The
 // epic head is read before the control runs, so the park the action answers is the one the epic held when it was taken.
-// The action is marked taken in the same write, so an action that is not pending is errActionSettled, and an action on a
-// closed epic is a RefusalError.
+// The action is marked taken in the same write, so an action that is not pending is errActionSettled. An action on a
+// closed epic is a RefusalError. So is a retry_node or retry_epic action on an epic whose park the owner holds: only the
+// owner retries such a park, so the park, its class and its question stay as they are.
 func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) ([]string, error) {
 	head, err := epicHead(ctx, queries, action.Epic)
 	if err != nil {
@@ -142,6 +143,11 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 	}
 	if IsClosedPhase(head.Phase) {
 		return nil, RefusalError(fmt.Sprintf("epic %s is closed", action.Epic))
+	}
+	retries := action.Kind == ActionRetryNode || action.Kind == ActionRetryEpic
+	if retries && head.Parked != "" && ParkClass(head.ParkClass).OwnerHeld() {
+		return nil, RefusalError(fmt.Sprintf(
+			"epic %s holds the owner's %s park; only the owner retries it", action.Epic, head.ParkClass))
 	}
 	stop, err := carryOutAction(ctx, queries, action, at)
 	if err != nil {
