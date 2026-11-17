@@ -12,8 +12,8 @@ import (
 
 // release carries out one work action of a release run: the prepare of its candidate, the release slot taken or freed,
 // a stop, the epic's ending, a Done gate check or a capture at the candidate, the start of a round of the release
-// integrator, of a release step or of the judge, or the record of a candidate, a round of the release integrator, a
-// release step or the judge.
+// integrator, of a release step or of the judge, the record of a candidate, a round of the release integrator, a release
+// step or the judge, or the replan that sends the release back to planning and the resume once that plan has ended.
 func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
 	case kinds.ActPrepare:
@@ -38,6 +38,10 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 		return r.startJudge(ctx, epic, act, at)
 	case kinds.ActRecord:
 		return r.recordRelease(ctx, epic, act, at)
+	case kinds.ActReplan:
+		return r.replanRelease(ctx, epic, act, at)
+	case kinds.ActResume:
+		return r.resumeReplanned(ctx, epic, act, at)
 	default:
 		return releaseRefused(act)
 	}

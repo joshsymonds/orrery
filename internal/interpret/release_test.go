@@ -81,14 +81,22 @@ func newReleaseWorldIn(t *testing.T, ending Ending, repo string) *releaseWorld {
 // repository, so they share its release slot.
 func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseStep) {
 	w.t.Helper()
-	pinned, err := workflow.Load("release", func(string) ([]byte, bool, error) {
-		return []byte(releaseFlow), true, nil
+	w.createEpicOn(releaseFlow, runBase, id, phase, steps...)
+}
+
+// createEpicOn is createEpic with the workflow text flow pinned in place of the release flow, and base as the epic's
+// base.
+func (w *releaseWorld) createEpicOn(flow, base, id, phase string, steps ...store.EpicReleaseStep) {
+	w.t.Helper()
+	name := strings.TrimPrefix(strings.SplitN(flow, "\n", 2)[0], "name: ")
+	pinned, err := workflow.Load(name, func(string) ([]byte, bool, error) {
+		return []byte(flow), true, nil
 	})
 	if err != nil {
-		w.t.Fatalf("Load release: %v", err)
+		w.t.Fatalf("Load %s: %v", name, err)
 	}
 	if err = w.s.CreateEpic(w.t.Context(), store.EpicRow{
-		ID: id, Repository: w.repo, Base: runBase, Title: "Release the epic", Phase: phase, Created: runClock(),
+		ID: id, Repository: w.repo, Base: base, Title: "Release the epic", Phase: phase, Created: runClock(),
 		Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
 		ReleaseThen: releaseThen, Requirements: w.requirements,
 		Workflow: store.EpicWorkflow{
@@ -97,7 +105,7 @@ func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseSt
 	}); err != nil {
 		w.t.Fatalf("CreateEpic %s: %v", id, err)
 	}
-	freezeReviewRow(w.t, w.path, id, runBase)
+	freezeReviewRow(w.t, w.path, id, base)
 }
 
 // freezeReviewRow stores the review of epic id as frozen at revision, the row a review leaves on an epic that ended

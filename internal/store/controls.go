@@ -140,8 +140,10 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
 // granted round. Each parked evidence run that an open park question for a red run judged holding at base names turns
 // running at its next attempt, and each open park question of epic is answered retry, in the same write. An unknown
-// epic is ErrNoEpic, an epic that is not parked is a RefusalError, an epic in phase met_at_base, which the owner
-// ended, is a RefusalError that changes nothing, and so is an epic in phase stopped, whose release park retry does not end.
+// epic is ErrNoEpic, an epic that is not parked is a RefusalError, and an epic in phase met_at_base, which the owner
+// ended, is a RefusalError that changes nothing. An epic in phase stopped is retried only when its release integrator
+// stopped it, which sends its release back to planning (retryStoppedRelease); any other stopped epic is a RefusalError
+// that changes nothing, since retry does not end its release park.
 func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return retryEpicIn(ctx, queries, epic)
@@ -158,7 +160,7 @@ func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string) err
 		return metAtBaseRefusal(epic, head.Parked)
 	}
 	if head.Phase == PhaseStopped {
-		return RefusalError(fmt.Sprintf("epic %s is stopped; retry does not end a stopped release", epic))
+		return retryStoppedRelease(ctx, queries, head)
 	}
 	if head.Parked == "" {
 		return RefusalError(fmt.Sprintf("epic %s is not parked", epic))

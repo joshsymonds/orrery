@@ -448,9 +448,9 @@ func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 	}
 }
 
-// TestReleaseIntegratorBlockedParksWithUnresolved: a blocked return stops the release, and the epic's park carries the
-// integrator's report: each path it stopped on with the decision that would settle it and what each side meant. The
-// integrator's worktree is removed with the stop.
+// TestReleaseIntegratorBlockedParksWithUnresolved: a blocked return on a merge-side decision stops the release, and the
+// epic's park carries the integrator's report: each path it stopped on with its side, the decision that would settle it
+// and what each side meant. The integrator's worktree is removed with the stop, and no replan is recorded.
 func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
@@ -460,7 +460,7 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 		"checks": []map[string]any{},
 		"unresolved": []map[string]any{{
 			"path": "README", "candidate": "the epic greets in English", "origin": "main greets in French",
-			"decision": "which greeting the product ships",
+			"decision": "which greeting the product ships", "side": "merge",
 		}},
 		"evidence": "the two sides decide the greeting differently",
 	})
@@ -471,7 +471,7 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 		t.Fatalf("epic phase = %q, want stopped", flow.Epic.Phase)
 	}
 	want := fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into release tip %s:\n"+
-		"- README: decision: which greeting the product ships; candidate: the epic greets in English; "+
+		"- README: side: merge; decision: which greeting the product ships; candidate: the epic greets in English; "+
 		"origin: main greets in French", w.origin, w.tip)
 	if flow.Epic.Parked != want {
 		t.Errorf("parked = %q, want %q", flow.Epic.Parked, want)
@@ -481,6 +481,9 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	}
 	if _, err := os.Stat(w.integratorDir()); !os.IsNotExist(err) {
 		t.Errorf("integrator directory stat = %v, want it removed with the stop", err)
+	}
+	if slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
+		t.Errorf("release runs = %+v, want no replan for a merge-side decision", flow.Releases)
 	}
 }
 
@@ -492,7 +495,7 @@ func TestBlockedReasonFitsThePark(t *testing.T) {
 	for i := range 12 {
 		ret.Unresolved = append(ret.Unresolved, integratorUnresolved{
 			Path: fmt.Sprintf("internal/pkg%d/file.go", i), Decision: "decide " + strings.Repeat("d", 80),
-			Candidate: strings.Repeat("c", 200), Origin: strings.Repeat("o", 200),
+			Candidate: strings.Repeat("c", 200), Origin: strings.Repeat("o", 200), Side: "merge",
 		})
 	}
 	merge := integratorMerge{tip: strings.Repeat("a", 40), origin: strings.Repeat("b", 40)}
@@ -500,7 +503,7 @@ func TestBlockedReasonFitsThePark(t *testing.T) {
 	if len(got) > store.TurnReasonMax {
 		t.Errorf("reason is %d bytes, want at most %d", len(got), store.TurnReasonMax)
 	}
-	for _, want := range []string{"- internal/pkg0/file.go: decision: decide ddd", "\npaths not shown: "} {
+	for _, want := range []string{"- internal/pkg0/file.go: side: merge; decision: decide ddd", "\npaths not shown: "} {
 		if !strings.Contains(got, want) {
 			t.Errorf("reason = %q, want it to hold %q", got, want)
 		}

@@ -13,8 +13,9 @@ import (
 // with the round it ran and each finding's closure.
 type Closure struct{}
 
-// closureKindPlan is the kind of a plan node run. The fix plan of a correction round is the plan run in the round's prefix.
-const closureKindPlan = "plan"
+// kindPlan is the kind of a plan node run. The fix plan of a correction round is the plan run in the round's prefix, and
+// the plan of a release's replan the plan run under its replan prefix (ReplanPrefix).
+const kindPlan = "plan"
 
 // The results a closure verifier gives a finding that the closure run reads. A finding is open when its closure is open.
 const (
@@ -149,7 +150,7 @@ func closureTasks(rows Rows, path string) []int64 {
 func closureMark(runs []store.NodeRun, path string) (int64, bool) {
 	prefix := path[:strings.LastIndex(path, "/")+1]
 	i := slices.IndexFunc(runs, func(run store.NodeRun) bool {
-		return run.Kind == closureKindPlan && strings.HasPrefix(run.Path, prefix)
+		return run.Kind == kindPlan && strings.HasPrefix(run.Path, prefix)
 	})
 	if i < 0 {
 		return 0, false

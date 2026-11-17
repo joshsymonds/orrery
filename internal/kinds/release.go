@@ -10,9 +10,10 @@ import (
 )
 
 // Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
-// release candidate, has the release integrator finish a merge of origin's commit that conflicts, starts each release
-// step in order, stores each end first, stops on any failure, judges the postconditions, and ends the epic released, or
-// done when it has no release steps.
+// release candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back
+// to planning when the integrator stopped on a change to the candidate and resumes it once that plan has ended, starts
+// each release step in order, stores each end first, stops on any failure, judges the postconditions, and ends the epic
+// released, or done when it has no release steps.
 type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
@@ -25,7 +26,19 @@ const (
 	ActStop       ActionKind = "stop"
 	ActEnding     ActionKind = "ending"
 	ActFree       ActionKind = "free"
+	ActReplan     ActionKind = "replan"
+	ActResume     ActionKind = "resume"
 )
+
+// phaseCorrecting is the phase an epic is in while its review's ledger is corrected, and while its release is planned
+// again for a change to its candidate.
+const phaseCorrecting = "correcting"
+
+// ReplanPrefix returns the prefix of the plan run that plans the change to the candidate a replan of the release run at
+// path, at attempt, asks for: <path>/A<attempt>/. The plan run's path is the prefix and the id of the plan node it runs.
+func ReplanPrefix(path string, attempt int64) string {
+	return fmt.Sprintf("%s/A%d/", path, attempt)
+}
 
 // The outcomes a release run writes beyond those the other kinds name.
 const (
@@ -50,7 +63,9 @@ type ReleaseResult struct {
 
 // Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
 // frees the slot it holds and otherwise ends passed, a clean epic ends done or takes the slot, a releasing epic goes on
-// with its candidate, its release steps and its judge, and any other phase gives none.
+// with its candidate, its release steps and its judge, a stopped epic whose run a retry turned running is sent back to
+// planning (replanAction), a correcting epic resumes its release once its replan has ended (resumeAction), and any other
+// phase gives none.
 func (Release) Decide(node Node, rows Rows) Action {
 	switch rows.Epic.Phase {
 	case phaseReleased, phaseDone:
@@ -59,9 +74,38 @@ func (Release) Decide(node Node, rows Rows) Action {
 		return releaseClean(rows)
 	case store.PhaseReleasing:
 		return releaseRun(node.Run, rows)
+	case store.PhaseStopped:
+		return replanAction(node.Run, rows)
+	case phaseCorrecting:
+		return resumeAction(node.Run, rows)
 	default:
 		return Action{Kind: ActNone}
 	}
+}
+
+// replanAction sends the release of run back to planning when a replan release run of its attempt is stored, with that
+// run's reason, the report of the round of the release integrator that asked for it. Otherwise it gives none.
+func replanAction(run store.NodeRun, rows Rows) Action {
+	replan, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartReplan && r.Attempt == run.Attempt
+	})
+	if !ok {
+		return Action{Kind: ActNone}
+	}
+	return Action{Kind: ActReplan, Output: replan.Reason}
+}
+
+// resumeAction resumes the release of run once the plan run its replan started at run's attempt has ended, and gives
+// none while that plan runs or when the run has none.
+func resumeAction(run store.NodeRun, rows Rows) Action {
+	prefix := ReplanPrefix(run.Path, run.Attempt)
+	plan, ok := firstMatch(rows.Runs, func(r store.NodeRun) bool {
+		return r.Kind == kindPlan && strings.HasPrefix(r.Path, prefix)
+	})
+	if !ok || plan.State != store.NodeEnded {
+		return Action{Kind: ActNone}
+	}
+	return Action{Kind: ActResume}
 }
 
 // releaseEnded frees the release slot an epic that is released or done holds, and ends it passed otherwise.
@@ -104,12 +148,14 @@ func releaseRun(run store.NodeRun, rows Rows) Action {
 }
 
 // currentCandidate returns the head of the candidate the run reuses, and whether it reuses one. That is the latest
-// candidate that passed, at any attempt, unless a verify run of this attempt found origin's main not in it. Before the
-// release's first step starts from a candidate passed at an earlier attempt, the interpreter checks that origin's main is
-// in it, and a candidate that is not is not reused: it is prepared again at this attempt.
+// candidate that passed, at any attempt after the last replan, unless a verify run of this attempt found origin's main not
+// in it. A replan changes the epic's branch, so no candidate from its attempt or before is reused. Before the release's
+// first step starts from a candidate passed at an earlier attempt, the interpreter checks that origin's main is in it, and
+// a candidate that is not is not reused: it is prepared again at this attempt.
 func currentCandidate(run store.NodeRun, rows Rows) (string, bool) {
+	replanned := lastReplan(rows.Releases)
 	for _, candidate := range slices.Backward(rows.Releases) {
-		if candidate.Part != store.ReleasePartCandidate || !candidate.Passed {
+		if candidate.Part != store.ReleasePartCandidate || !candidate.Passed || candidate.Attempt <= replanned {
 			continue
 		}
 		if staleAt(run.Attempt, candidate.Head, rows.Releases) {
@@ -118,6 +164,17 @@ func currentCandidate(run store.NodeRun, rows Rows) (string, bool) {
 		return candidate.Head, true
 	}
 	return "", false
+}
+
+// lastReplan returns the highest attempt among runs' replan release runs, or -1 when there is none.
+func lastReplan(runs []store.ReleaseRun) int64 {
+	last := int64(-1)
+	for _, run := range runs {
+		if run.Part == store.ReleasePartReplan {
+			last = max(last, run.Attempt)
+		}
+	}
+	return last
 }
 
 // staleAt reports whether a verify run of attempt found origin's main not in the candidate head.

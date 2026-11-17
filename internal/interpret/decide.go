@@ -47,10 +47,11 @@ const (
 // as met. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. Sync ends
 // the sync run at Path, whose Attempt ended with Outcome and Output, and tells Reason when it is set. ParkEpic parks
 // the epic for Reason, with Trigger. Work carries a check, sync or release node run's work: Work is the kind's action,
-// prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def,
-// Run, IDs, Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome,
-// an integrator the failure its round mends as its Output, an integrate run's advance the Trigger its passed batch
-// writes, and a sync run's advance as its Reason why the epic is no longer at the quiet point the sync started at. Hold
+// prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending, free, replan or
+// resume, and Def, Run, IDs, Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an
+// ending its Outcome, an integrator the failure its round mends as its Output, an integrate run's advance the Trigger its
+// passed batch writes, a replan the plan run it starts as its Runs, the Trigger that wakes the planner and the tell as
+// its Reason, and a sync run's advance as its Reason why the epic is no longer at the quiet point the sync started at. Hold
 // pauses the epic for the review step IDs[0], stopped for Reason. Review ends the review run at Path, whose Attempt
 // ended with Output, Verdicts and Ledger. Closure ends the closure run at Path, whose Attempt ended with Outcome and
 // Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase and
@@ -157,24 +158,26 @@ const (
 // kinds. The walk takes the top-level nodes in order and stops at the first one that has not ended, so the actions are what
 // that node needs. Once every top-level node has ended, Decide returns none.
 func Decide(flow workflow.Workflow, rows kinds.Rows, reg map[string]kinds.Kind) []Action {
-	acts, _ := newPass(rows, reg).walk(flow.Nodes, scope{where: topLevel})
+	acts, _ := newPass(rows, reg, flow).walk(flow.Nodes, scope{where: topLevel})
 	return acts
 }
 
-// pass is one Decide call: the epic's rows, the registered kinds, and the node runs of the rows by path.
+// pass is one Decide call: the epic's rows, the registered kinds, the node runs of the rows by path, and the workflow
+// being walked, whose plan a release's replan runs (replanPlan).
 type pass struct {
 	rows   kinds.Rows
 	reg    map[string]kinds.Kind
 	byPath map[string]store.NodeRun
+	flow   workflow.Workflow
 }
 
-// newPass returns the pass over rows and reg.
-func newPass(rows kinds.Rows, reg map[string]kinds.Kind) pass {
+// newPass returns the pass over rows and reg, walking flow.
+func newPass(rows kinds.Rows, reg map[string]kinds.Kind, flow workflow.Workflow) pass {
 	byPath := make(map[string]store.NodeRun, len(rows.Runs))
 	for _, run := range rows.Runs {
 		byPath[run.Path] = run
 	}
-	return pass{rows: rows, reg: reg, byPath: byPath}
+	return pass{rows: rows, reg: reg, byPath: byPath, flow: flow}
 }
 
 // scope is where a list of nodes sits: each node's path starts with prefix, its node runs are in round, and the list
@@ -272,9 +275,9 @@ func (p pass) highestTurn() int64 {
 	return highest
 }
 
-// running decides a node run that has not ended. A loop decides its round, and a plan its settle walks and fan-out. Any
-// other node is decided by its registered kind, and a node the kind leaves waiting, or whose kind is not registered,
-// gives no action.
+// running decides a node run that has not ended. A loop decides its round, and a plan its settle walks and fan-out. A
+// release whose replan plan runs decides that plan (replanning). Any other node is decided by its registered kind, and a
+// node the kind leaves waiting, or whose kind is not registered, gives no action.
 func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	if def.Loop != nil {
 		return p.loop(def, run)
@@ -282,6 +285,11 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	kind, ok := p.reg[def.Kind]
 	if !ok {
 		return nil
+	}
+	if def.Kind == kindRelease {
+		if acts, replanning := p.replanning(run); replanning {
+			return acts
+		}
 	}
 	act := kind.Decide(kinds.Node{Def: def, Run: run}, p.rows)
 	if def.Kind == kindPlan {
@@ -292,8 +300,10 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
 		kinds.ActTake, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
-		kinds.ActEnding, kinds.ActFree:
+		kinds.ActEnding, kinds.ActFree, kinds.ActResume:
 		return []Action{p.work(def, run, act)}
+	case kinds.ActReplan:
+		return []Action{p.replan(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
 			Kind: ActParkNode, Path: run.Path, Attempt: run.Attempt, Outcome: outcomeFailed, Output: act.Output,

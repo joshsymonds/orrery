@@ -603,6 +603,12 @@ UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'sto
 -- name: StopEpicRelease :exec
 UPDATE epics SET phase = 'stopped', phase_at = ? WHERE id = ? AND phase = 'releasing';
 
+-- name: ReplanEpicRelease :execrows
+UPDATE epics SET phase = 'correcting', phase_at = ? WHERE id = ? AND phase IN ('releasing', 'stopped');
+
+-- name: CleanReplannedEpic :exec
+UPDATE epics SET phase = 'clean', phase_at = ? WHERE id = ? AND phase = 'correcting';
+
 -- name: InsertEpicGate :exec
 INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -678,6 +684,15 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM epic_node_runs WHERE epic = ? AND path = ?
 UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
+
+-- name: NextEpicNodeRunAttempt :execrows
+UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
+    result = '', ended = 0
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
+
+-- name: UnparkEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'running', outcome = '', output = ''
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'parked';
 
 -- name: RetryFailedEpicIntegrateRun :execrows
 UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', refs_checked = 0, ended = 0

@@ -59,7 +59,13 @@ type Store interface {
 	TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error)
 	FreeReleaseSlot(ctx context.Context, epic string) error
 	StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error
+	ReplanRelease(
+		ctx context.Context, epic, path string, attempt int64, plan store.NodeRun, trigger store.NodeTrigger,
+		tell string, at time.Time,
+	) error
+	ResumeReplannedRelease(ctx context.Context, epic, path string, attempt int64, at time.Time) error
 	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
+	RecordIntegratorRound(ctx context.Context, epic string, round store.ReleaseRun, replan bool) error
 	RecordCandidate(ctx context.Context, epic string, run store.ReleaseRun) error
 	MarkCandidateStale(
 		ctx context.Context, epic, path string, attempt int64, head, reason string, at time.Time,

@@ -138,6 +138,20 @@ func (q *Queries) ClaimEpicTriggers(ctx context.Context, arg ClaimEpicTriggersPa
 	return err
 }
 
+const cleanReplannedEpic = `-- name: CleanReplannedEpic :exec
+UPDATE epics SET phase = 'clean', phase_at = ? WHERE id = ? AND phase = 'correcting'
+`
+
+type CleanReplannedEpicParams struct {
+	PhaseAt int64
+	ID      string
+}
+
+func (q *Queries) CleanReplannedEpic(ctx context.Context, arg CleanReplannedEpicParams) error {
+	_, err := q.db.ExecContext(ctx, cleanReplannedEpic, arg.PhaseAt, arg.ID)
+	return err
+}
+
 const clearEngineText = `-- name: ClearEngineText :exec
 DELETE FROM engine_text WHERE session_id = ?
 `
@@ -7103,6 +7117,26 @@ func (q *Queries) NewestEventSeq(ctx context.Context) (int64, error) {
 	return seq, err
 }
 
+const nextEpicNodeRunAttempt = `-- name: NextEpicNodeRunAttempt :execrows
+UPDATE epic_node_runs SET attempt = attempt + 1, outcome = '', output = '', revision = '', refs = '', refs_checked = 0,
+    result = '', ended = 0
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running'
+`
+
+type NextEpicNodeRunAttemptParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) NextEpicNodeRunAttempt(ctx context.Context, arg NextEpicNodeRunAttemptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, nextEpicNodeRunAttempt, arg.Epic, arg.Path, arg.Attempt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const oldestEventSeq = `-- name: OldestEventSeq :one
 SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events
 `
@@ -7402,6 +7436,23 @@ func (q *Queries) ReplacedEpicTask(ctx context.Context, arg ReplacedEpicTaskPara
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const replanEpicRelease = `-- name: ReplanEpicRelease :execrows
+UPDATE epics SET phase = 'correcting', phase_at = ? WHERE id = ? AND phase IN ('releasing', 'stopped')
+`
+
+type ReplanEpicReleaseParams struct {
+	PhaseAt int64
+	ID      string
+}
+
+func (q *Queries) ReplanEpicRelease(ctx context.Context, arg ReplanEpicReleaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, replanEpicRelease, arg.PhaseAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const resumeEpic = `-- name: ResumeEpic :exec
@@ -8208,6 +8259,25 @@ type SyncEpicStoredBaseParams struct {
 func (q *Queries) SyncEpicStoredBase(ctx context.Context, arg SyncEpicStoredBaseParams) error {
 	_, err := q.db.ExecContext(ctx, syncEpicStoredBase, arg.StoredBase, arg.Synced, arg.ID)
 	return err
+}
+
+const unparkEpicNodeRun = `-- name: UnparkEpicNodeRun :execrows
+UPDATE epic_node_runs SET state = 'running', outcome = '', output = ''
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'parked'
+`
+
+type UnparkEpicNodeRunParams struct {
+	Epic    string
+	Path    string
+	Attempt int64
+}
+
+func (q *Queries) UnparkEpicNodeRun(ctx context.Context, arg UnparkEpicNodeRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, unparkEpicNodeRun, arg.Epic, arg.Path, arg.Attempt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateEngineConsumed = `-- name: UpdateEngineConsumed :execrows
