@@ -129,7 +129,7 @@ func TestPassOnlyCarriesOutTheActionsOfAnEpicItDoesNotDecide(t *testing.T) {
 	var reads atomic.Int64
 	runner := New(runnerConfig(s, immediateSteps{steps}, agentReturning(runnerAgent, nil, &reads)))
 	failTaskPlan := strings.Replace(validPlan, `"outcome":"work"}`,
-		`"actions":[{"kind":"fail_task","node":"","task":1,"close":"","by":"","undo_none":[],`+
+		`"actions":[{"kind":"fail_task","args":"{\"task\":1}",`+
 			`"reason":"the build cannot reach the store"}],"outcome":"work"}`, 1)
 	turn, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt())
 	if err != nil {
