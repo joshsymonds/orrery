@@ -497,6 +497,11 @@ test("a running call's line and a running run's fold draw a yellow rail, and a r
   assert.match(declarationsFor(css, ".reader .fold .dot.running"), /background:\s*var\(--yellow\)/);
 });
 
+test("CallStatus: each dot in a run's trail takes its status's colour: ok green, none grey", () => {
+  assert.match(declarationsFor(css, ".reader .fold .dot.ok"), /background:\s*var\(--green\);/);
+  assert.match(declarationsFor(css, ".reader .fold .dot.none"), /background:\s*var\(--overlay1\);/);
+});
+
 test("a call line is 12px grey on a hairline, its tool's name the only colour, and a run's opened lines touch", () => {
   const line = declarationsFor(css, ".reader .call");
   assert.match(line, /font:\s*12px\/20px var\(--mono\);/);

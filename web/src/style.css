@@ -440,12 +440,14 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .fold b { flex: none; color: var(--subtext1); }
 .reader .fold .names { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .reader .fold.running { box-shadow: inset 2px 0 0 var(--yellow); }
-/* A run's trail is one dot per call in call order, pushed to the right: grey for a call that succeeded, red for one that
-   failed, yellow for one still running. */
+/* A run's trail is one dot per call in call order, pushed to the right: green for a call that succeeded, red for one that
+   failed, yellow for one still running, grey for one with no result that is not running. */
 .reader .fold .trail { display: inline-flex; flex: none; align-items: center; gap: 4px; margin-left: auto; }
-.reader .fold .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--overlay1); }
+.reader .fold .dot { width: 6px; height: 6px; border-radius: 50%; }
+.reader .fold .dot.ok { background: var(--green); }
 .reader .fold .dot.failed { background: var(--red); }
 .reader .fold .dot.running { background: var(--yellow); }
+.reader .fold .dot.none { background: var(--overlay1); }
 .reader .fold-text { margin-top: 6px; padding: 9px 14px; border-radius: 8px; background: var(--mantle); color: var(--subtext0); overflow-wrap: anywhere; }
 .reader .card { padding: 9px 12px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--ink, var(--overlay0)); }
 .reader .card.bad { --ink: var(--red); }

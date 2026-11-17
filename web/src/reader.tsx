@@ -574,9 +574,9 @@ function CallRow({
 type RunCall = { key: string; item: ConversationItem; result: ConversationItem | undefined; running: boolean };
 
 // ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and a trail of
-// one dot per call in call order. A failed call's dot is marked failed, and a running call's dot is marked running; a run
-// holding a running call carries the running class and mark too. A click shows a line per call under it, each folding
-// its own result, and a second click folds them again.
+// one dot per call in call order. Each dot carries its call's status: ok, failed, running, or none for a call with no
+// result that is not running. A run holding a running call carries the running class and mark too. A click shows a
+// line per call under it, each folding its own result, and a second click folds them again.
 function ToolRun({ calls }: { calls: RunCall[] }) {
   const [shown, setShown] = useState(false);
   const running = calls.some((call) => call.running);
@@ -619,13 +619,16 @@ function toolCounts(calls: RunCall[]): string {
   return [...counts].map(([tool, count]) => (count > 1 ? `${tool} ×${count}` : tool)).join(", ");
 }
 
-// dotClass is the class of a call's dot in a run's trail: running while the call has no result, failed when its result
-// failed, and plain when it succeeded.
+// dotClass is the class of a call's dot in a run's trail: running while the call is running, failed when its result
+// failed, ok when it succeeded, and none when it has no result and is not running.
 function dotClass(call: RunCall): string {
   if (call.running) {
     return "dot running";
   }
-  return call.result?.error === true ? "dot failed" : "dot";
+  if (call.result === undefined) {
+    return "dot none";
+  }
+  return call.result.error === true ? "dot failed" : "dot ok";
 }
 
 // LiveRow draws one unfinished block: a text block as it streams, a thinking block as a folded row.
