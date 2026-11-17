@@ -58,6 +58,8 @@ type EpicCommands interface {
 		at time.Time,
 	) (store.EvidenceAmendment, error)
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
+	ArchiveRow(ctx context.Context, kind, id string, at time.Time) error
+	UnarchiveRow(ctx context.Context, kind, id string, at time.Time) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
@@ -653,6 +655,52 @@ func (s *epicService) SeeEpic(
 		return nil, epicControlError(id, err)
 	}
 	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
+}
+
+// ArchiveRow stores the archive mark of the list row of kind and id at the time of this call, and answers an empty
+// reply. A kind other than epic, session or headless, and an empty id, are refused as the store refuses them.
+func (s *epicService) ArchiveRow(
+	ctx context.Context,
+	req *connect.Request[v1.ArchiveRowRequest],
+) (*connect.Response[v1.ArchiveRowResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	kind := req.Msg.GetKind()
+	if err := s.epics.ArchiveRow(ctx, kind, req.Msg.GetId(), time.Now()); err != nil {
+		return nil, rowError(kind, err)
+	}
+	return connect.NewResponse(&v1.ArchiveRowResponse{}), nil
+}
+
+// UnarchiveRow stores the unarchive time of the list row of kind and id at the time of this call, which clears its
+// archive mark, and answers an empty reply. The refusals are those of ArchiveRow.
+func (s *epicService) UnarchiveRow(
+	ctx context.Context,
+	req *connect.Request[v1.UnarchiveRowRequest],
+) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	kind := req.Msg.GetKind()
+	if err := s.epics.UnarchiveRow(ctx, kind, req.Msg.GetId(), time.Now()); err != nil {
+		return nil, rowError(kind, err)
+	}
+	return connect.NewResponse(&v1.UnarchiveRowResponse{}), nil
+}
+
+// rowError maps an error from archiving or unarchiving a list row of kind to its Connect error: a kind the store does
+// not hold is InvalidArgument on kind, an empty id is InvalidArgument on id, and any other error goes through
+// epicStoreError.
+func rowError(kind string, err error) error {
+	switch {
+	case errors.Is(err, store.ErrBadRowKind):
+		return refuseEpic(connect.CodeInvalidArgument, fmt.Sprintf("kind: %q is not epic, session or headless", kind))
+	case errors.Is(err, store.ErrEmptyRowID):
+		return refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	default:
+		return epicStoreError(err)
+	}
 }
 
 // retryPark ends the park of epic when node is empty, and otherwise reruns node: its parked runs, or its latest integrate

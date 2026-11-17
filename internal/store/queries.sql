@@ -1161,6 +1161,17 @@ SELECT id FROM steps WHERE epic = ? AND end_value = '' ORDER BY started, id;
 -- name: ListOpenEpicTaskSteps :many
 SELECT id FROM steps WHERE epic = ? AND task = ? AND end_value = '' ORDER BY started, id;
 
+-- name: UpsertArchivedRow :exec
+INSERT INTO archived_rows (kind, id, archived_at, unarchived_at) VALUES (?, ?, ?, 0)
+ON CONFLICT (kind, id) DO UPDATE SET archived_at = excluded.archived_at, unarchived_at = 0;
+
+-- name: UpsertUnarchivedRow :exec
+INSERT INTO archived_rows (kind, id, archived_at, unarchived_at) VALUES (?, ?, 0, ?)
+ON CONFLICT (kind, id) DO UPDATE SET archived_at = 0, unarchived_at = excluded.unarchived_at;
+
+-- name: ListArchivedRows :many
+SELECT * FROM archived_rows ORDER BY kind, id;
+
 -- name: ListEpicIntegrateRunPaths :many
 SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;
 

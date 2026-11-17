@@ -36,7 +36,8 @@ func (s sessionsServer) ListHeadless(
 	if s.reader == nil {
 		return nil, listError(connect.CodeUnavailable, "store unavailable")
 	}
-	cutoff := s.now().Add(-store.EventRetention).Unix()
+	now := s.now()
+	cutoff := now.Add(-store.EventRetention).Unix()
 	rows, err := s.reader.HeadlessSessions(ctx, cutoff)
 	if errors.Is(err, store.ErrUnavailable) {
 		return nil, listError(connect.CodeUnavailable, "store unavailable")
@@ -44,12 +45,19 @@ func (s sessionsServer) ListHeadless(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, "read headless sessions")
 	}
+	marks, err := readArchiveMarks(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.HeadlessSession, 0, len(rows))
 	for _, row := range rows {
 		session, convErr := headlessMessage(row)
 		if convErr != nil {
 			return nil, listError(connect.CodeInternal, "read headless sessions")
 		}
+		mark := marks[archiveKey{kind: archiveKindHeadless, id: row.ID}]
+		aged := headlessAged(session.GetState(), session.GetChanged(), session.GetSeen(), now)
+		session.Archived = archivedRow(mark, session.GetChanged(), aged)
 		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListHeadlessResponse{Sessions: sessions}), nil

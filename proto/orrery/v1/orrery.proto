@@ -101,6 +101,9 @@ message Session {
 
   // The pane's @orrery_transcript option.
   string transcript = 13;
+
+  // True while the session is archived: the owner archived it and has not unarchived it since.
+  bool archived = 14;
 }
 
 // ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
@@ -144,6 +147,9 @@ message HeadlessSession {
   // The unix seconds of the newest main-conversation reply or unrefused request, or 0 when it has none. Unset in a
   // ConversationState.
   int64 newest_reply = 9;
+
+  // True while the headless session is archived: the owner archived it and has not unarchived it since.
+  bool archived = 10;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows

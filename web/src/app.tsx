@@ -6,13 +6,15 @@ import type { Clients } from "./actions";
 import { Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
-import { EpicLine } from "./epicline";
+import { ArchiveButton, type ArchiveControl, EpicLine } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
+  type EpicBlock,
   type EpicItem,
   type EpicSection,
   type EpicsView,
   endedWords,
+  epicsView,
   keepUnderCursor,
   noEpics,
   placeEpics,
@@ -35,7 +37,7 @@ import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
-import { byAttention, byProject, type Row, type Section } from "./rows";
+import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries } from "./sending";
 import { StepBox } from "./stepbox";
@@ -46,7 +48,7 @@ import { TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
 
-type View = "attention" | "project";
+type View = "attention" | "project" | "archived";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -132,6 +134,8 @@ const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
+const archiveFailedText = "could not change archive";
+const archivedTitle = "Archived";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
 const heldMark = "‖";
@@ -152,6 +156,8 @@ const helpEntries: [string[], string][] = [
   [["G"], "last row"],
   [["a"], "by attention"],
   [["p"], "by project"],
+  [["v"], "archived rows and epics"],
+  [["A"], "archive the cursor's row or epic"],
   [["w"], "first waiting row"],
   [["n"], "next unseen row, wrapping"],
   [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
@@ -230,10 +236,13 @@ export function App({
   const [seenEpics, setSeenEpics] = useState<Set<string>>(() => new Set());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  const [archiveError, setArchiveError] = useState("");
+  // The archive marks the landed Archive and Unarchive calls left, by row key and by epic id. Each shows in place of
+  // the list's own archived field until the next list answer, which carries that field.
+  const [rowMarks, setRowMarks] = useState<Map<string, boolean>>(() => new Map());
+  const [epicMarks, setEpicMarks] = useState<Map<string, boolean>>(() => new Map());
   // Whether the accepted, waiting epics are open under their line. They start closed.
   const [waitingOpen, setWaitingOpen] = useState(false);
-  // Whether the folded epics are open under their line. They start closed.
-  const [foldedOpen, setFoldedOpen] = useState(false);
   // Whether the seen ended epics are open under their ended earlier line. They start closed.
   const [endedOpen, setEndedOpen] = useState(false);
   // The detail each epic the poll did not load answers with when its page opens. An epic is asked for once, so the
@@ -273,7 +282,7 @@ export function App({
     .toLowerCase()
     .split(/\s+/)
     .filter((word) => word !== "");
-  const shownRows = rows.map((row) => readAsSeen(row, seenWritten));
+  const shownRows = rows.map((row) => readAsSeen(withRowMark(row, rowMarks), seenWritten));
   // The brand's counts read every loaded row as the list reads it after seen writes, before the filter.
   const waitingCount = shownRows.filter((row) => row.state === stateWaiting).length;
   const workingCount = shownRows.filter((row) => row.state === stateWorking).length;
@@ -281,21 +290,30 @@ export function App({
   // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
   const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
+  const { rows: defaultRows, archived: archivedRows } = splitArchived(matching);
+  // The epics as the local archive marks leave them, which the views draw in place of the list's.
+  const marked = withEpicMarks(epics, epicMarks);
   // The cursor's epic stays in Just ended while the cursor rests on it, even once it is seen. The cursor is held by
   // key, so its epic is the seen one the endedEarlier list holds under that key. While the ended earlier line is open
   // the seen epics are drawn in place, so none is kept and the cursor walks them in their drawn order.
-  const seenView = readEpicsAsSeen(epics, seenEpics);
+  const seenView = readEpicsAsSeen(marked, seenEpics);
   const cursorEpicId = endedOpen ? "" : (seenView.endedEarlier.find((item) => item.key === cursor.key)?.id ?? "");
   const kept = keepUnderCursor(seenView, cursorEpicId);
   // The needs of the live epics, in list order: a live epic's Get answer carries its Epic, and the details hold exactly
-  // the live epics. Only the attention view has the Needs you section that draws them.
-  const detailEpics = [...epics.details.values()].flatMap((detail) => (detail.epic === undefined ? [] : [detail.epic]));
+  // the live epics. An archived epic's needs are left out. Only the attention view has the Needs you section that draws
+  // them.
+  const archivedIds = new Set(kept.archived.map((item) => item.id));
+  const detailEpics = [...epics.details.values()].flatMap((detail) =>
+    detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
+  );
   const needs = view === "attention" ? epicNeeds(detailEpics, epics.details) : [];
   const sections =
     view === "attention"
-      ? withEpicsGroup(withNeedsSection(byAttention(matching), needs.length > 0), kept)
-      : placeEpics(byProject(matching), kept.blocks);
-  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, foldedOpen, endedOpen));
+      ? withEpicsGroup(withNeedsSection(byAttention(defaultRows), needs.length > 0), kept)
+      : view === "project"
+        ? placeEpics(byProject(defaultRows), kept.blocks)
+        : [archivedSection(kept.archived, archivedRows)];
+  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -392,6 +410,15 @@ export function App({
     });
   }, [rows]);
 
+  // A new list answer carries serve's archived field, so the archive marks held until now give way to it.
+  useEffect(() => {
+    setRowMarks((previous) => (previous.size === 0 ? previous : new Map()));
+  }, [rows]);
+
+  useEffect(() => {
+    setEpicMarks((previous) => (previous.size === 0 ? previous : new Map()));
+  }, [epics]);
+
   // The pinned row is followed while it stays pinned: its close, or an unmount, stops the stream.
   const pinnedKey = pinned?.key ?? "";
   useEffect(() => {
@@ -474,16 +501,8 @@ export function App({
 
   // seenWrite runs one seen write. A failure shows the fixed line and runs no landed; a landed write clears the line
   // and runs landed.
-  const seenWrite = async (write: () => Promise<unknown>, landed: () => void) => {
-    try {
-      await write();
-    } catch {
-      setSeenError(seenFailedText);
-      return;
-    }
-    setSeenError("");
-    landed();
-  };
+  const seenWrite = (write: () => Promise<unknown>, landed: () => void) =>
+    lineWrite(write, seenFailedText, setSeenError, landed);
 
   // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen
   // and shows a fixed line.
@@ -500,6 +519,36 @@ export function App({
       () => clients.epics.seen({ id: epic.id }),
       () => setSeenEpics((previous) => new Set(previous).add(endingKey(epic))),
     );
+
+  // setArchive archives a row or epic, or unarchives it in the Archived view, through Epics.Archive or Epics.Unarchive
+  // with the kind and id the entry names. A pane has no archive kind, so it does nothing. A landed call marks the entry
+  // as the call left it, until the next list answer; a failed call leaves the entry where it was.
+  const setArchive = (entry: Row | EpicItem, archived: boolean) => {
+    const kind = entry.kind === "epic" ? "epic" : entry.archiveKind;
+    if (kind === "none") {
+      return;
+    }
+    const request = { kind, id: entry.id };
+    void lineWrite(
+      () => (archived ? clients.epics.archive(request) : clients.epics.unarchive(request)),
+      archiveFailedText,
+      setArchiveError,
+      () => {
+        if (entry.kind === "epic") {
+          setEpicMarks((previous) => new Map(previous).set(entry.id, archived));
+        } else {
+          setRowMarks((previous) => new Map(previous).set(entry.key, archived));
+        }
+      },
+    );
+  };
+
+  // archiveControl is the archive button an entry's line draws: Archive in a default view, Unarchive in the Archived
+  // one.
+  const archiveControl = (entry: Row | EpicItem): ArchiveControl => ({
+    archived: view === "archived",
+    run: () => setArchive(entry, view !== "archived"),
+  });
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
   // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. A landed
@@ -678,14 +727,11 @@ export function App({
     }
   }, [pending, rows, flat]);
 
-  // openEpic moves the cursor to an epic's entry, first opening the accepted, folded or ended earlier line that holds
-  // it when that line is shut. The entry is then in the list, so the cursor rests on it.
+  // openEpic moves the cursor to an epic's entry, first opening the accepted or ended earlier line that holds it when
+  // that line is shut. The entry is then in the list, so the cursor rests on it.
   const openEpic = (id: string) => {
-    if (epics.waiting.some((item) => item.id === id)) {
+    if (marked.waiting.some((item) => item.id === id)) {
       setWaitingOpen(true);
-    }
-    if (epics.folded.some((item) => item.id === id)) {
-      setFoldedOpen(true);
     }
     if (kept.endedEarlier.some((item) => item.id === id)) {
       setEndedOpen(true);
@@ -811,6 +857,15 @@ export function App({
         break;
       case "p":
         setView("project");
+        break;
+      case "v":
+        setView("archived");
+        break;
+      case "A":
+        // A pane has no archive kind, and a step is never archived, so the key does nothing on either.
+        if (cursorItem !== null && cursorItem.kind !== "step") {
+          setArchive(cursorItem, true);
+        }
         break;
       case "w": {
         const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
@@ -1018,6 +1073,9 @@ export function App({
               <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
                 <kbd>p</kbd>By project
               </span>
+              <span class={view === "archived" ? "view on" : "view"} onClick={() => setView("archived")}>
+                <kbd>v</kbd>Archived
+              </span>
             </div>
             {error !== "" && (
               <p class="error" role="alert">
@@ -1032,6 +1090,11 @@ export function App({
             {answerError !== "" && (
               <p class="error" role="alert">
                 {answerError}
+              </p>
+            )}
+            {archiveError !== "" && (
+              <p class="error" role="alert">
+                {archiveError}
               </p>
             )}
             {commandError !== "" && (
@@ -1054,6 +1117,8 @@ export function App({
                       full={block.full}
                       current={block.epic.key === cursorKey}
                       now={now}
+                      ended={view === "archived" ? archivedEnded(block.epic, now) : undefined}
+                      archive={archiveControl(block.epic)}
                       onSelect={selectItem}
                     />
                     {block.steps.map((step) => (
@@ -1071,6 +1136,7 @@ export function App({
                     current={epic.key === cursorKey}
                     now={now}
                     ended={endedWords(epic, now)}
+                    archive={archiveControl(epic)}
                     onSelect={selectItem}
                   />
                 ))}
@@ -1088,6 +1154,7 @@ export function App({
                       current={epic.key === cursorKey}
                       now={now}
                       ended={endedWords(epic, now)}
+                      archive={archiveControl(epic)}
                       onSelect={selectItem}
                     />
                   ))}
@@ -1104,6 +1171,7 @@ export function App({
                       full={false}
                       current={epic.key === cursorKey}
                       now={now}
+                      archive={archiveControl(epic)}
                       onSelect={selectItem}
                     />
                   ))}
@@ -1138,6 +1206,7 @@ export function App({
                         <span class="label">{item.label}</span>
                         <span class="proj">{lastPathElement(item.project)}</span>
                         <span class="age">{ageText(item.changed, now)}</span>
+                        {item.archiveKind !== "none" && <ArchiveButton control={archiveControl(item)} />}
                       </div>
                       <div class={item.unseen ? "l2" : "l2 one"}>
                         <ReplyText text={item.state === stateWaiting ? rowNeed(item).text : item.summary} />
@@ -1163,22 +1232,6 @@ export function App({
                       slug={epics.details.get(need.epic)?.epic?.slug ?? ""}
                       commands={epicCommands(clients, need.epic, setCommandError)}
                       onOpen={() => openEpic(need.epic)}
-                    />
-                  ))}
-                {section.folded.length > 0 && (
-                  <div class="b-more" onClick={() => setFoldedOpen((value) => !value)}>
-                    {`${section.folded.length} folded`}
-                  </div>
-                )}
-                {foldedOpen &&
-                  section.folded.map((epic) => (
-                    <EpicLine
-                      key={epic.key}
-                      epic={epic}
-                      full={false}
-                      current={epic.key === cursorKey}
-                      now={now}
-                      onSelect={selectItem}
                     />
                   ))}
               </div>
@@ -1454,8 +1507,103 @@ function readEpicsAsSeen(view: EpicsView, written: Set<string>): EpicsView {
   return {
     ...view,
     justEnded: view.justEnded.filter((epic) => !isWritten(epic)),
-    endedEarlier: [...view.endedEarlier, ...view.justEnded.filter(isWritten)].sort((a, b) => b.phaseAt - a.phaseAt),
+    endedEarlier: [...view.endedEarlier, ...view.justEnded.filter(isWritten)].sort(newestEnding),
   };
+}
+
+// newestEnding orders ended epics newest ending first.
+function newestEnding(a: EpicItem, b: EpicItem): number {
+  return b.phaseAt - a.phaseAt;
+}
+
+// withRowMark applies the archive mark a landed call left to a row. A row with no mark is returned as it is.
+function withRowMark(row: Row, marks: Map<string, boolean>): Row {
+  const mark = marks.get(row.key);
+  return mark === undefined ? row : { ...row, archived: mark };
+}
+
+// withEpicMarks applies the archive marks the landed calls left to an epics view. A marked epic moves into archived,
+// out of the list that held it. An epic marked unarchived moves out of archived into the list its record places it in,
+// as epicsView places a live or ended epic whose detail is held, and into Ended earlier when no detail is. The next
+// list answer places it exactly. A view with no marks is returned as it is.
+function withEpicMarks(view: EpicsView, marks: Map<string, boolean>): EpicsView {
+  if (marks.size === 0) {
+    return view;
+  }
+  const archivedNow = (item: EpicItem) => marks.get(item.id) ?? item.archived;
+  const archive = (item: EpicItem): EpicItem => ({ ...item, archived: true });
+  const blocks = view.blocks.filter((block) => !archivedNow(block.epic));
+  const waiting = view.waiting.filter((item) => !archivedNow(item));
+  const justEnded = view.justEnded.filter((item) => !archivedNow(item));
+  const endedEarlier = view.endedEarlier.filter((item) => !archivedNow(item));
+  const archived = [
+    ...view.blocks.filter((block) => archivedNow(block.epic)).map((block) => archive(block.epic)),
+    ...view.waiting.filter(archivedNow).map(archive),
+    ...view.justEnded.filter(archivedNow).map(archive),
+    ...view.endedEarlier.filter(archivedNow).map(archive),
+    ...view.archived.filter(archivedNow),
+  ];
+  for (const item of view.archived) {
+    if (archivedNow(item)) {
+      continue;
+    }
+    const detail = item.detail;
+    if (detail?.epic === undefined) {
+      endedEarlier.push({ ...item, archived: false });
+      continue;
+    }
+    const placed = epicsView([{ ...detail.epic, archived: false }], new Map([[detail.epic.id, detail]]));
+    blocks.push(...placed.blocks);
+    waiting.push(...placed.waiting);
+    justEnded.push(...placed.justEnded);
+    endedEarlier.push(...placed.endedEarlier);
+  }
+  return {
+    blocks: [...blocks.filter((block) => block.full), ...blocks.filter((block) => !block.full)],
+    waiting,
+    live: blocks.length + waiting.length,
+    justEnded: justEnded.sort(newestEnding),
+    endedEarlier: endedEarlier.sort(newestEnding),
+    archived,
+    details: view.details,
+  };
+}
+
+// archivedSection is the Archived view's one section: each archived epic as a line, then each archived row.
+function archivedSection(epics: EpicItem[], rows: Row[]): EpicSection {
+  return {
+    title: archivedTitle,
+    epics: epics.map((item): EpicBlock => ({ epic: item, full: false, steps: [], more: 0, tail: "" })),
+    waiting: [],
+    rows,
+    justEnded: [],
+    endedEarlier: [],
+    count: epics.length + rows.length,
+  };
+}
+
+// archivedEnded is the ended words an archived epic's line draws when its detail does not say it is live: its outcome
+// and the time since it ended. A live epic's line draws its state from its detail, so it draws none.
+function archivedEnded(item: EpicItem, now: number): string | undefined {
+  return item.detail?.epic?.live === true ? undefined : endedWords(item, now);
+}
+
+// lineWrite runs one write whose failure shows a fixed line. A failure sets the line to failed and runs no landed; a
+// write that lands clears the line and runs landed.
+async function lineWrite(
+  write: () => Promise<unknown>,
+  failed: string,
+  setLine: (text: string) => void,
+  landed: () => void,
+): Promise<void> {
+  try {
+    await write();
+  } catch {
+    setLine(failed);
+    return;
+  }
+  setLine("");
+  landed();
 }
 
 // keepEntries adds the entry to the entries that keep a box and refreshes each kept entry from the latest list. An
@@ -1560,7 +1708,6 @@ function listsEpic(view: EpicsView, id: string): boolean {
   const held = [
     ...view.blocks.map((block) => block.epic),
     ...view.waiting,
-    ...view.folded,
     ...view.justEnded,
     ...view.endedEarlier,
   ];
@@ -1603,16 +1750,14 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
 }
 
 // entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the just-ended epics,
-// then the seen ones while their line is open, then the waiting epics while their line is open, then the rows, then the
-// folded epics while their line is open.
-function entriesOf(section: EpicSection, waitingOpen: boolean, foldedOpen: boolean, endedOpen: boolean): Item[] {
+// then the seen ones while their line is open, then the waiting epics while their line is open, then the rows.
+function entriesOf(section: EpicSection, waitingOpen: boolean, endedOpen: boolean): Item[] {
   return [
     ...section.epics.flatMap((block) => [block.epic, ...block.steps]),
     ...section.justEnded,
     ...(endedOpen ? section.endedEarlier : []),
     ...(waitingOpen ? section.waiting : []),
     ...section.rows,
-    ...(foldedOpen ? section.folded : []),
   ];
 }
 

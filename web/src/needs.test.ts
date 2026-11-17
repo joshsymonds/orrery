@@ -22,6 +22,8 @@ function makeRow(init: Partial<Row>): Row {
     changed: 0,
     seen: 0,
     unseen: false,
+    archived: false,
+    archiveKind: "none",
     ...init,
   };
 }

@@ -24,6 +24,8 @@ const paneRow: Row = {
   changed: 40,
   seen: 10,
   unseen: true,
+  archived: false,
+  archiveKind: "none",
 };
 
 const sessionRow: Row = {
@@ -40,6 +42,8 @@ const sessionRow: Row = {
   changed: 30,
   seen: 30,
   unseen: true,
+  archived: false,
+  archiveKind: "session",
 };
 
 const openConversation: Conversation = {

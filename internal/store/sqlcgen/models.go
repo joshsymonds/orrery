@@ -8,6 +8,13 @@ import (
 	"database/sql"
 )
 
+type ArchivedRow struct {
+	Kind         string
+	ID           string
+	ArchivedAt   int64
+	UnarchivedAt int64
+}
+
 type DueResume struct {
 	ID     string
 	Kind   string

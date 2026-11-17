@@ -144,6 +144,39 @@ func (e epicsServer) Seen(
 	return connect.NewResponse(&orreryv1.EpicsSeenResponse{}), nil
 }
 
+// Archive forwards the archive mark of the named list row to orreryd, which stores it at the time of the call.
+func (e epicsServer) Archive(
+	ctx context.Context,
+	req *connect.Request[orreryv1.EpicsArchiveRequest],
+) (*connect.Response[orreryv1.EpicsArchiveResponse], error) {
+	kind, id := req.Msg.GetKind(), req.Msg.GetId()
+	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
+		_, err := commands.ArchiveRow(ctx, connect.NewRequest(&enginev1.ArchiveRowRequest{Kind: kind, Id: id}))
+		return wrapEngine("archive", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.EpicsArchiveResponse{}), nil
+}
+
+// Unarchive forwards the unarchive of the named list row to orreryd, which stores the time of the call as the row's
+// unarchive time and so clears its archive mark.
+func (e epicsServer) Unarchive(
+	ctx context.Context,
+	req *connect.Request[orreryv1.EpicsUnarchiveRequest],
+) (*connect.Response[orreryv1.EpicsUnarchiveResponse], error) {
+	kind, id := req.Msg.GetKind(), req.Msg.GetId()
+	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
+		_, err := commands.UnarchiveRow(ctx, connect.NewRequest(&enginev1.UnarchiveRowRequest{Kind: kind, Id: id}))
+		return wrapEngine("unarchive", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.EpicsUnarchiveResponse{}), nil
+}
+
 // forwardCommand runs call against the epic command client. A nil client answers unavailable. A call whose connection
 // was never made is retried while rpcretry.NeverConnected accepts its error: a call cut after it connected may already
 // have been taken, so it is answered and not sent again. Any other error answers as translateError does.

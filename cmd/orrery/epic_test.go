@@ -144,6 +144,20 @@ func (f *recordingEpics) SeeEpic(
 	return respond(f, req.Msg, &v1.SeeEpicResponse{})
 }
 
+func (f *recordingEpics) ArchiveRow(
+	_ context.Context,
+	req *connect.Request[v1.ArchiveRowRequest],
+) (*connect.Response[v1.ArchiveRowResponse], error) {
+	return respond(f, req.Msg, &v1.ArchiveRowResponse{})
+}
+
+func (f *recordingEpics) UnarchiveRow(
+	_ context.Context,
+	req *connect.Request[v1.UnarchiveRowRequest],
+) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	return respond(f, req.Msg, &v1.UnarchiveRowResponse{})
+}
+
 func (f *recordingEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],

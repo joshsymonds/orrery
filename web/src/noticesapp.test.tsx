@@ -455,7 +455,7 @@ const shipped = makeEpic("third", {
   phaseAt: endedAt,
   seen: endedAt,
 });
-// retired is a record epic that went quiet, so the folded line holds it.
+// retired is a record epic that went quiet, so the ended earlier line holds it.
 const retired = makeEpic("fourth", { source: "record", live: false });
 
 const landingFixtures: Fixtures = {
@@ -528,7 +528,7 @@ test("a release-step notice opens its epic at the now block, where Retry and Sto
     landingFixtures,
   ));
 
-test("a report notice for an epic folded under ended earlier opens the line and brings the report into view", (t) =>
+test("a report notice for an epic under ended earlier opens the line and brings the report into view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -548,7 +548,7 @@ test("a contract notice opens the contract page of its epic, without a scroll in
     assert.deepEqual(scrolled, []);
   }, landingFixtures));
 
-test("a notice with no block opens its folded epic at the top of the epic view", (t) =>
+test("a notice with no block opens its ended earlier epic at the top of the epic view", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
