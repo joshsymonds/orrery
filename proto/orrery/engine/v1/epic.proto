@@ -36,6 +36,11 @@ service Epics {
   // owner's decision, and names no undo-none step. It returns the stored epic.
   rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
 
+  // CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
+  // its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
+  // planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+  rpc CloseEpic(CloseEpicRequest) returns (CloseEpicResponse);
+
   // SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
   rpc SeeEpic(SeeEpicRequest) returns (SeeEpicResponse);
 }
@@ -1210,6 +1215,24 @@ message ReleaseEpicRequest {
 
 // ReleaseEpicResponse carries the epic read back after its release resumed or started.
 message ReleaseEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// CloseEpicRequest names the epic to close, the kind it closes as and, for superseded, the epic that replaces it.
+message CloseEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The close kind: superseded, shipped or abandoned.
+  string kind = 2;
+
+  // The epic that replaces this one. A superseded close requires it.
+  string by = 3;
+}
+
+// CloseEpicResponse carries the epic read back after its close.
+message CloseEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
 }

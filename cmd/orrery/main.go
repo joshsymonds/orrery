@@ -128,6 +128,9 @@ subcommands:
                                                 release an epic that ended with gaps on your word, logged as your
                                                 decision (no --undo-none); each N runs that undo-none release step
                                                 (1-based) again
+  epic close ID --as superseded|shipped|abandoned [--by EPIC]
+                                                close an epic as superseded by EPIC (required), shipped by hand
+                                                or abandoned; its open questions are answered by the close
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs

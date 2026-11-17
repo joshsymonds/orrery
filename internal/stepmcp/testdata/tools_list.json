@@ -325,6 +325,31 @@
     }
   },
   {
+    "name": "epic_close",
+    "description": "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, ends its running turn, node runs and steps, and frees its release slot. Returns the stored epic. Refused for a superseded close without by.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "description": "the close kind: superseded, shipped or abandoned"
+        },
+        "by": {
+          "type": "string",
+          "description": "the epic that replaces this one: required for superseded"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "evidence_run",
     "description": "Run an item's evidence at a revision for one phase, red or green. Returns the evidence run. A refusal names the field that failed.",
     "inputSchema": {

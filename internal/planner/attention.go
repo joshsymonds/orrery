@@ -408,13 +408,14 @@ func questionBlock(seq int64) epicBlock {
 	return epicBlock{name: blockQuestion, ref: fmt.Sprintf("Q%d", seq)}
 }
 
-// reportedPhase reports whether an epic in phase ends with a report: released, done, ended_with_gaps or stopped.
+// reportedPhase reports whether an epic in phase ends with a report: released, done, ended_with_gaps, stopped or a closed
+// phase. An owner's close writes no tell, so an epic it closed has no notice that would open on this block.
 func reportedPhase(phase string) bool {
 	switch phase {
 	case "released", "done", "ended_with_gaps", store.PhaseStopped:
 		return true
 	default:
-		return false
+		return store.IsClosedPhase(phase)
 	}
 }
 

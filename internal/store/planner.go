@@ -380,12 +380,15 @@ func (s *Store) ClaimTurn(ctx context.Context, epic string, at time.Time) (EpicT
 	return turn, nil
 }
 
-// checkClaimable returns ErrNoEpic for an unknown epic, and ErrNotClaimable when the epic is paused or parked, has a
-// running turn, or has no pending trigger.
+// checkClaimable returns ErrNoEpic for an unknown epic, and ErrNotClaimable when the epic is closed, paused or parked, has
+// a running turn, or has no pending trigger.
 func checkClaimable(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return err
+	}
+	if IsClosedPhase(head.Phase) {
+		return fmt.Errorf("epic %s is closed: %w", epic, ErrNotClaimable)
 	}
 	if head.Paused != 0 || head.Parked != "" {
 		return fmt.Errorf("epic %s is paused or parked: %w", epic, ErrNotClaimable)

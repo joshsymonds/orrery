@@ -236,6 +236,9 @@ func (r *Runner) Pass(ctx context.Context) {
 	}
 	planned := make(map[string]bool)
 	for _, epic := range epics {
+		if store.IsClosedPhase(epic.Phase) {
+			continue
+		}
 		flow, loadErr := loadFlow(epic)
 		if loadErr != nil {
 			r.parkUnloaded(ctx, epic, loadErr)

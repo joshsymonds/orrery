@@ -177,11 +177,12 @@ func isOpenTask(tasks []store.EpicTask, seq int64) bool {
 	return false
 }
 
-// Ended reports whether phase is a phase an epic ends in. Every other phase, the empty one included, is not ended.
+// Ended reports whether phase is a phase an epic ends in: the ended phases, and the closed phases a close ends an epic
+// in. Every other phase, the empty one included, is not ended.
 func Ended(phase string) bool {
 	switch phase {
 	case phaseMetAtBase, phaseClean, phaseEndedWithGaps, phaseReleased, phaseDone, phaseStopped:
 		return true
 	}
-	return false
+	return store.IsClosedPhase(phase)
 }

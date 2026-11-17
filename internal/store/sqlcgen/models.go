@@ -69,6 +69,8 @@ type Epic struct {
 	ReportShipped    string
 	ReportNotShipped string
 	ReportWhy        string
+	ClosedBy         string
+	SupersededBy     string
 }
 
 type EpicAddition struct {

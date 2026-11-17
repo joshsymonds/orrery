@@ -19,7 +19,7 @@ import (
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043 and 00044 create, and of the columns those
-// migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042 and 00044 add to epic
+// migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044 and 00045 add to epic
 // tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
@@ -28,6 +28,8 @@ func epicTableColumns() map[string][]string {
 			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "workflow",
 			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary", "phase_at",
 			"report_phase", "report_shipped", "report_not_shipped", "report_why",
+			// R6: closed_by and superseded_by, the closer and the epic that replaces it, are 00045_epic_close.sql.
+			"closed_by", "superseded_by",
 		},
 		"epic_failures":  {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions": {"epic", "position", "location", "what", "why", "cost"},
@@ -509,10 +511,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00044_met_at_base_question.sql is the newest. R4: the
-	// migration was 00043_epic_seen.sql before the met-at-base park question added 00044.
-	if version != 44 {
-		t.Fatalf("store version after Open = %d, want 44", version)
+	// Open applies 00014_epics.sql and every migration after it: 00045_epic_close.sql is the newest. R6: the migration was
+	// 00044_met_at_base_question.sql before the epic close added 00045.
+	if version != 45 {
+		t.Fatalf("store version after Open = %d, want 45", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -992,6 +994,37 @@ func TestReleaseMigrationDownAndUp(t *testing.T) {
 	}
 }
 
+// TestEpicCloseMigrationDownAndUp removes the closer and the replacing epic from the epics table with the Down of
+// 00045_epic_close.sql, and Up restores them.
+func TestEpicCloseMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 44); err != nil {
+		t.Fatalf("DownTo 44: %v", err)
+	}
+	if hasAny(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
+		t.Errorf("epics columns after Down = %v, want no closed_by or superseded_by", columnsOf(t, s, "epics"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
+		t.Errorf("epics columns after Up = %v, want closed_by and superseded_by", columnsOf(t, s, "epics"))
+	}
+}
+
 func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1050,6 +1083,8 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 			"",
 			"[]",
 			"[]",
+			"",
+			"",
 			"",
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},

@@ -56,9 +56,17 @@ type epicReleaseArgs struct {
 	UndoNone []int  `json:"undoNone,omitempty" jsonschema:"the 1-based positions of the undo-none release steps to run again; omit to name none"`
 }
 
+// epicCloseArgs is the arguments of epic_close, described for its input schema. By names the epic that replaces the
+// closed one, which a superseded close requires.
+type epicCloseArgs struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"         jsonschema:"the close kind: superseded, shipped or abandoned"`
+	By   string `json:"by,omitempty" jsonschema:"the epic that replaces this one: required for superseded"`
+}
+
 // epicInputs holds the input schema of each epic tool, by the arguments it takes.
 type epicInputs struct {
-	create, id, list, answer, follow, retry, release json.RawMessage
+	create, id, list, answer, follow, retry, release, close json.RawMessage
 }
 
 // epicToolInputs returns the input schemas of the epic tools.
@@ -84,6 +92,9 @@ func epicToolInputs() (epicInputs, error) {
 		return epicInputs{}, err
 	}
 	if in.release, err = argumentSchema[epicReleaseArgs](nil); err != nil {
+		return epicInputs{}, err
+	}
+	if in.close, err = argumentSchema[epicCloseArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
 	return in, nil
@@ -177,6 +188,15 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 				"Returns the stored epic. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
 			InputSchema: in.release,
 			Handler:     epicReleaseHandler(epics),
+		},
+		{
+			Name: "epic_close",
+			Description: "Close an epic by id as superseded, shipped by hand or abandoned, which ends it. kind names the " +
+				"close; superseded requires by, the epic that replaces it. The close answers the epic's open questions, " +
+				"ends its running turn, node runs and steps, and frees its release slot. Returns the stored epic. " +
+				"Refused for a superseded close without by.",
+			InputSchema: in.close,
+			Handler:     epicCloseHandler(epics),
 		},
 	}, nil
 }
@@ -343,6 +363,20 @@ func epicRetryHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(retried.Msg.GetEpic())
+	}
+}
+
+func epicCloseHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.CloseEpicRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		closed, err := epics.CloseEpic(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(closed.Msg.GetEpic())
 	}
 }
 

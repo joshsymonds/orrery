@@ -137,6 +137,15 @@ func (d *heldDaemon) StopEpic(
 	return connect.NewResponse(&v1.StopEpicResponse{Epic: &v1.StoredEpic{}}), nil
 }
 
+func (d *heldDaemon) CloseEpic(
+	ctx context.Context, _ *connect.Request[v1.CloseEpicRequest],
+) (*connect.Response[v1.CloseEpicResponse], error) {
+	if err := d.hold(ctx, "CloseEpic"); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.CloseEpicResponse{Epic: &v1.StoredEpic{}}), nil
+}
+
 func (d *heldDaemon) RetryEpic(
 	ctx context.Context, _ *connect.Request[v1.RetryEpicRequest],
 ) (*connect.Response[v1.RetryEpicResponse], error) {

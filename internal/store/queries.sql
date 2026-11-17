@@ -366,7 +366,8 @@ SELECT * FROM epics ORDER BY id;
 
 -- name: ListBuildEpics :many
 SELECT epics.id FROM epics
-WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped')
+WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped',
+    'closed_superseded', 'closed_shipped', 'closed_abandoned')
   AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
 ORDER BY epics.id;
 
@@ -384,7 +385,9 @@ UPDATE epics SET summary = ? WHERE id = ? AND summary = '';
 
 -- name: ListUnreportedEpics :many
 SELECT * FROM epics
-WHERE phase IN ('released', 'done', 'ended_with_gaps') AND report_phase <> phase
+WHERE (phase IN ('released', 'done', 'ended_with_gaps')
+       OR (phase IN ('closed_superseded', 'closed_shipped', 'closed_abandoned') AND closed_by = 'planner'))
+  AND report_phase <> phase
 ORDER BY id;
 
 -- name: SetEpicReport :exec
@@ -403,6 +406,17 @@ UPDATE epics SET candidate = ? WHERE id = ?;
 UPDATE epics
 SET phase = sqlc.arg(phase), phase_at = CASE WHEN phase = sqlc.arg(phase) THEN phase_at ELSE sqlc.arg(at) END
 WHERE id = sqlc.arg(id);
+
+-- name: SetEpicClosed :exec
+UPDATE epics SET closed_by = sqlc.arg(closed_by), superseded_by = sqlc.arg(superseded_by), parked = ''
+WHERE id = sqlc.arg(id);
+
+-- name: EndRunningEpicNodeRuns :exec
+UPDATE epic_node_runs SET state = 'ended', outcome = '', ended = sqlc.arg(ended)
+WHERE epic = sqlc.arg(epic) AND state = 'running';
+
+-- name: ConsumePendingEpicTriggers :exec
+UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND state = 'pending';
 
 -- name: InsertEpicFailure :exec
 INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);

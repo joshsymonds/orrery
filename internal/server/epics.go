@@ -346,10 +346,11 @@ func epicMessage(
 	}
 }
 
-// storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its phase time is
-// phaseAt, its changed time is the database's, its seen time is seen, and it is live unless the phase is released or
-// done, which end an epic; ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's
-// when a record of the id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
+// storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, which for a closed
+// epic is the closed phase of its kind, its phase time is phaseAt, its changed time is the database's, its seen time is
+// seen, and it is live unless the phase is released or done, which end an epic, or a closed phase, which a close ends
+// it in; ended_with_gaps and stopped stay live. Its problem joins problems, which are the record's when a record of the
+// id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
 func storedEpicMessage(
 	id, phase string,
 	phaseAt, changed, seen int64,
@@ -366,7 +367,7 @@ func storedEpicMessage(
 		PhaseAt:      phaseAt,
 		Changed:      changed,
 		Seen:         seen,
-		Live:         phase != "released" && phase != "done",
+		Live:         phase != "released" && phase != "done" && !store.IsClosedPhase(phase),
 		RunningSteps: running,
 		EndedSteps:   ended,
 		Problem:      strings.Join(problems, "; "),
