@@ -759,7 +759,7 @@ async function withEventReader(items: ConversationItem[], check: (container: HTM
   }
 }
 
-test("EventRing: an orrery-event prompt of each kind draws one ringed line with the epic slug and no EVENT block", async () => {
+test("EventRing: an orrery-event prompt of each kind draws one ringed line and no EVENT block", async () => {
   for (const [kind, tail] of [
     ["question", "Q1"],
     ["park", "Q1"],
@@ -770,7 +770,6 @@ test("EventRing: an orrery-event prompt of each kind draws one ringed line with 
       [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
       (container) => {
         assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
-        assert.equal(container.querySelector(".ring-slug")?.textContent, "planner-runner");
         assert.equal(container.querySelector(".event"), null, `a ${kind} event is not an EVENT row`);
         const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
         assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);

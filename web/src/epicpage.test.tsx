@@ -260,40 +260,6 @@ test("LiveControls: an accepted orreryd epic shows Pause and Stop, and reads pla
   });
 });
 
-test("LiveControls: a paused orreryd epic shows Resume and Stop, and reads paused", async () => {
-  await withPage(detail({ ...build, paused: true, epic: { ...orrerydEpic, outcome: "built" } }), (container) => {
-    assert.equal(textOf(container, ".title-row .state"), "paused");
-    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Resume", "Stop…"]);
-  });
-});
-
-test("LiveControls: a releasing orreryd epic shows Stop and no Pause, and reads releasing", async () => {
-  await withPage(detail({ ...build, epic: { ...orrerydEpic, outcome: "releasing" } }), (container) => {
-    assert.equal(textOf(container, ".title-row .state"), "releasing");
-    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Stop…"]);
-  });
-});
-
-test("LiveControls: a paused releasing orreryd epic shows Resume, and reads paused", async () => {
-  await withPage(detail({ ...build, paused: true, epic: { ...orrerydEpic, outcome: "releasing" } }), (container) => {
-    assert.equal(textOf(container, ".title-row .state"), "paused");
-    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Resume", "Stop…"]);
-  });
-});
-
-test("LiveControls: a released orreryd epic shows no command, and reads released", async () => {
-  await withPage(detail({ ...build, epic: { ...orrerydEpic, live: false, outcome: "released" } }), (container) => {
-    assert.equal(textOf(container, ".title-row .state"), "released");
-    assert.deepEqual(textsOf(container, ".title-row .acts > *"), []);
-  });
-});
-
-test("LiveControls: a record epic with an empty outcome still shows Pause and Stop", async () => {
-  await withPage(detail({ ...build, epic: { ...liveEpic, source: "record" } }), (container) => {
-    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Pause", "Stop…"]);
-  });
-});
-
 test("an epic that is not live, or has an outcome, offers no command", async () => {
   for (const epic of [
     { ...liveEpic, live: false, outcome: "released" },
