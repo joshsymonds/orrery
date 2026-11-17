@@ -16,6 +16,14 @@ func SendWithClock(
 	return sendWithClock(ctx, clock, client, args, out)
 }
 
+// SendIdleWithClock is SendIdle with clock timing the typed send's pauses, so the cli_test package drives them without
+// sleeping.
+func SendIdleWithClock(
+	ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, text string,
+) (bool, error) {
+	return sendIdleWithClock(ctx, clock, client, pane, text)
+}
+
 // PullQueuedWithClock is PullQueued with clock timing the wait for the popAll records, so the cli_test package
 // decides when that wait ends.
 func PullQueuedWithClock(
