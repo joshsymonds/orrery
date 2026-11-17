@@ -495,7 +495,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .compose .queued > .text { min-width: 0; color: var(--subtext0); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .compose .queued.canceled > .text { color: var(--overlay0); text-decoration: line-through; }
 .compose .queued.canceled > .tag { color: var(--maroon); }
-.compose .queued > .words { display: block; font: 400 11px/1.45 var(--mono); color: var(--overlay1); }
 
 .composer {
   position: relative; display: flex; flex: 1 1 auto; align-items: center; gap: 10px; min-width: 0; padding: 9px 9px 9px 12px;

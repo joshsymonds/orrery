@@ -378,10 +378,10 @@ test("reading text is 14px with a 1.6 line height", () => {
   assert.match(queued, /line-height:\s*1\.6(?![\d.])/);
 });
 
-test("a sending row is dimmed, its mark is 10px, and the queued words are mono", () => {
+test("a sending row is dimmed, its mark is 10px, and a queued row has no rule for a note", () => {
   assert.match(declarationsFor(css, ".reader .t.sending-row"), /opacity:\s*\.55;/);
   assert.match(declarationsFor(css, ".reader .t > .gut.sending"), /font-size:\s*10px;/);
-  assert.match(declarationsFor(css, ".compose .queued > .words"), /font:\s*400 11px\/1\.45 var\(--mono\);/);
+  assert.equal(declarationsFor(css, ".compose .queued > .words"), "");
 });
 
 test("plain texts keep their line breaks", () => {
