@@ -72,6 +72,7 @@ export function EpicPage(props: {
   handover?: ComponentChildren;
   landing?: Landing;
   mark?: InboxMark;
+  strip?: ComponentChildren;
 }): JSX.Element {
   const {
     detail,
@@ -87,6 +88,7 @@ export function EpicPage(props: {
     handover,
     landing,
     mark,
+    strip,
   } = props;
   const { epic, contract, requirements, steps, nodes, releaseSteps, report } = detail;
   const wedges = wedgesOf(detail);
@@ -112,6 +114,7 @@ export function EpicPage(props: {
         state={stateLine(detail, now)}
         blocker={blockerLine(blocker, now)}
         mark={mark}
+        strip={strip}
       >
         {actions}
         {live &&

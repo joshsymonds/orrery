@@ -19,7 +19,7 @@ import {
   type EpicsGetResponse,
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
-import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
+import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
@@ -628,59 +628,6 @@ function outsideList(container: HTMLElement, selector: string): string[] {
     .map((element) => element.getAttribute("class") ?? "");
 }
 
-// hostTexts names the hosts the footer lists, in order.
-function hostTexts(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".lfoot > .host")].map((element) => element.textContent ?? "");
-}
-
-// hostStatus is the host's status the footer's meters read: its host and three stats, two of them with a percent.
-function hostStatus(): HostStatusResponse {
-  return create(HostStatusResponseSchema, {
-    host: "den",
-    stats: [
-      { label: "cpu", value: "12%", percent: 12, level: "ok" },
-      { label: "uptime", value: "3d", level: "warn" },
-      { label: "mem", value: "7.1 GB", percent: 88, level: "crit" },
-    ],
-  });
-}
-
-// footerChildren names the children of the footer in order, by class.
-function footerChildren(container: HTMLElement): string[] {
-  const footer = container.querySelector(".lfoot");
-  assert.ok(footer !== null, "the footer is rendered");
-  return [...footer.children].map((element) => element.getAttribute("class") ?? "");
-}
-
-// meterButtonShown is whether the footer draws the meters button.
-function meterButtonShown(container: HTMLElement): boolean {
-  return container.querySelector(".lfoot > .meters") !== null;
-}
-
-// meterText is the text of the element the selector picks inside the footer's meters button, or null when none is.
-function meterText(container: HTMLElement, selector: string): string | null {
-  return container.querySelector(`.lfoot > .meters ${selector}`)?.textContent ?? null;
-}
-
-// meterPanelShown is whether the panel of the host's stats is open.
-function meterPanelShown(container: HTMLElement): boolean {
-  return container.querySelector(".meters-panel") !== null;
-}
-
-// meterLabels is the label of each stat the open panel draws, in order.
-function meterLabels(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".meters-panel .meter-label")].map((element) => element.textContent ?? "");
-}
-
-// clickMeterButton clicks the footer's meters button, which the footer must draw.
-async function clickMeterButton(container: HTMLElement): Promise<void> {
-  const button = container.querySelector(".lfoot > .meters");
-  assert.ok(button, "the footer draws the meters button");
-  await act(() => {
-    button.dispatchEvent(new Event("click", { bubbles: true }));
-  });
-}
-
 // chipTexts is the text of each option chip the row draws, in order. A row with no chips names none.
 function chipTexts(container: HTMLElement, key: string): string[] {
   return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map((chip) => chip.textContent ?? "");
@@ -824,96 +771,6 @@ test("? opens the key list over the page, outside the list, and a second ? close
     assert.equal(help.previousElementSibling?.classList.contains("panes"), true, "the key list follows the columns");
     await press("?");
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
-  }));
-
-test("the footer names the loaded rows' hosts once each, in the order first seen, and ends with the keys hint", (t) =>
-  withApp(t.signal, {}, (container) => {
-    assert.deepEqual(hostTexts(container), ["box", "laptop"]);
-    assert.equal(container.querySelector(".lfoot > .keys-hint")?.textContent, "? keys");
-  }));
-
-test("the footer lists hosts in the order the rows first show them", (t) =>
-  withApp(t.signal, 
-    {
-      rows: [
-        row({ key: "x", host: "laptop" }),
-        row({ key: "y", host: "box" }),
-        row({ key: "z", host: "laptop" }),
-      ],
-    },
-    (container) => {
-      assert.deepEqual(hostTexts(container), ["laptop", "box"]);
-    },
-  ));
-
-test("a session row's empty host adds nothing to the footer", (t) =>
-  withApp(t.signal, 
-    {
-      rows: [
-        row({
-          key: "s1",
-          id: "s1",
-          kind: "session",
-          archiveKind: "session",
-          host: "",
-          label: "notes",
-          changed: 30,
-          seen: 30,
-        }),
-        row({ key: "x", host: "laptop" }),
-      ],
-    },
-    (container) => {
-      assert.deepEqual(hostTexts(container), ["laptop"]);
-    },
-  ));
-
-test("the footer's meters button follows the host names and reads the status's host and first stat", (t) =>
-  withApp(t.signal, { host: hostStatus() }, (container) => {
-    assert.deepEqual(footerChildren(container), ["host", "host", "meters", "keys-hint"]);
-    assert.equal(meterText(container, ".meters-host"), "den");
-    assert.equal(meterText(container, ".meter-label"), "cpu");
-  }));
-
-test("m opens a panel with every stat, and a second m closes it", (t) =>
-  withApp(t.signal, { host: hostStatus() }, async (container) => {
-    assert.equal(meterPanelShown(container), false);
-    await press("m");
-    assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
-    await press("m");
-    assert.equal(meterPanelShown(container), false);
-  }));
-
-test("a click on the meters button opens the panel, and a second click closes it", (t) =>
-  withApp(t.signal, { host: hostStatus() }, async (container) => {
-    await clickMeterButton(container);
-    assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
-    await clickMeterButton(container);
-    assert.equal(meterPanelShown(container), false);
-  }));
-
-test("with a null status the footer draws no meters button, and m opens no panel, even once a status arrives", (t) =>
-  withApp(t.signal, { host: null }, async (container, fake) => {
-    assert.equal(meterButtonShown(container), false);
-    await press("m");
-    assert.equal(meterPanelShown(container), false);
-    await mount(container, {
-      rows: fixture(),
-      error: "",
-      now,
-      clients: fake.clients,
-      seen: fake.seen,
-      host: hostStatus(),
-    });
-    assert.equal(meterButtonShown(container), true);
-    assert.equal(meterPanelShown(container), false);
-  }));
-
-test("with no status given the footer draws no meters button, and m opens no panel", (t) =>
-  withApp(t.signal, {}, async (container) => {
-    assert.equal(meterButtonShown(container), false);
-    await press("m");
-    assert.equal(meterPanelShown(container), false);
   }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", (t) =>
@@ -1155,16 +1012,16 @@ test("an empty project title with no host shows no directory", (t) =>
 
 test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", (t) =>
   withApp(t.signal, {}, (container) => {
-    assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
-    assert.deepEqual(topChildren(container), ["brand", "filter", "views"]);
+    assert.deepEqual(listChildren(container), ["top", "rows"]);
+    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "keys-hint"]);
     assert.deepEqual(outsideList(container, ".top, .error"), []);
   }));
 
 test("a non-empty error shows one line in the top block, above the rows", (t) =>
   withApp(t.signal, { error: "list unavailable" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
-    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "error"]);
-    assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
+    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "keys-hint", "error"]);
+    assert.deepEqual(listChildren(container), ["top", "rows"]);
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 

@@ -1,4 +1,4 @@
-import type { JSX } from "preact";
+import type { ComponentChildren, JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import { AskFirst } from "./blocker";
@@ -26,8 +26,10 @@ export function PhaseOutputPage(props: {
   hold: (step: string) => Promise<void>;
   stop: (step: string) => Promise<void>;
   mark?: InboxMark;
+  strip?: ComponentChildren;
 }): JSX.Element {
-  const { detail, epic, task, phase, now, loadArtifact, onBack, onOpenPhase, onOpenSession, hold, stop, mark } = props;
+  const { detail, epic, task, phase, now, loadArtifact, onBack, onOpenPhase, onOpenSession, hold, stop, mark, strip } =
+    props;
   const [notice, setNotice] = useState("");
   const output = phaseOutputOf(detail, task);
   const running = output?.running;
@@ -53,7 +55,7 @@ export function PhaseOutputPage(props: {
 
   return (
     <div class="phase-output">
-      <TitleRow crumbs={crumbs} onBack={onBack} mark={mark}>
+      <TitleRow crumbs={crumbs} onBack={onBack} mark={mark} strip={strip}>
         {running !== undefined && !running.held && (
           <button type="button" class="act" onClick={() => void holdStep(running.id)}>
             Hold

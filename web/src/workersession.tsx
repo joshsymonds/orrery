@@ -1,4 +1,4 @@
-import type { JSX } from "preact";
+import type { ComponentChildren, JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
@@ -27,6 +27,7 @@ export function WorkerSessionPage({
   hold,
   stop,
   mark,
+  strip,
 }: {
   conversation: Conversation | null;
   step: EpicStep;
@@ -40,6 +41,7 @@ export function WorkerSessionPage({
   hold: () => Promise<void>;
   stop: () => Promise<void>;
   mark?: InboxMark;
+  strip?: ComponentChildren;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const crumbs: Crumb[] = [
@@ -49,7 +51,7 @@ export function WorkerSessionPage({
   ];
   return (
     <div class="worker-session">
-      <TitleRow crumbs={crumbs} onBack={onBack} mark={mark} />
+      <TitleRow crumbs={crumbs} onBack={onBack} mark={mark} strip={strip} />
       <Reader
         conversation={conversation}
         seenAt={stepSeenAt}

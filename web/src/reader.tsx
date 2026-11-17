@@ -204,22 +204,25 @@ export function ReaderHead({
 }
 
 // ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's label as
-// the page, and the row's state in the state slot. The children, the pill the app passes in, draw after the state.
+// the page, and the row's state in the state slot. The children, the pill the app passes in, draw after the state. The
+// strip, when given, draws under the row.
 export function ConversationHead({
   label,
   state,
   onBack,
   mark,
+  strip,
   children,
 }: {
   label: string;
   state: string;
   onBack: () => void;
   mark?: InboxMark;
+  strip?: ComponentChildren;
   children?: ComponentChildren;
 }): JSX.Element {
   return (
-    <TitleRow crumbs={[{ label }]} onBack={onBack} state={state} mark={mark}>
+    <TitleRow crumbs={[{ label }]} onBack={onBack} state={state} mark={mark} strip={strip}>
       {children}
     </TitleRow>
   );

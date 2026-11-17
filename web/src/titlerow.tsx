@@ -23,13 +23,14 @@ const noInbox: InboxMark = { needs: 0, enter: () => {}, leave: () => {}, pin: ()
 // commands the children are. The breadcrumb opens on the Orrery mark, which carries the count and drives the inbox.
 // Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last crumb
 // is the page itself, a span marked as the current page. Every text is a child text node, so markup in a label shows as
-// text.
+// text. The strip, when given, takes a line of its own under the row's controls.
 export function TitleRow({
   crumbs,
   onBack,
   state,
   blocker,
   mark = noInbox,
+  strip,
   children,
 }: {
   crumbs: Crumb[];
@@ -37,6 +38,7 @@ export function TitleRow({
   state?: string;
   blocker?: string;
   mark?: InboxMark;
+  strip?: ComponentChildren;
   children?: ComponentChildren;
 }): JSX.Element {
   const last = crumbs.length - 1;
@@ -78,6 +80,7 @@ export function TitleRow({
       {state ? <span class="state">{state}</span> : null}
       {blocker ? <span class="blocker">{blocker}</span> : null}
       <div class="acts">{children}</div>
+      {strip}
     </header>
   );
 }

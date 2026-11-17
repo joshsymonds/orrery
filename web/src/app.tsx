@@ -27,7 +27,6 @@ import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { Mark } from "./mark";
-import { MetersButton, MetersPanel } from "./meters";
 import { NeedEntry } from "./needentry";
 import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
@@ -41,6 +40,7 @@ import { byAttention, byProject, type Row, type Section, splitArchived } from ".
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { StepBox } from "./stepbox";
+import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
@@ -192,7 +192,7 @@ const helpEntries: [string[], string][] = [
   [["b"], "pop the inbox out over the page, or tuck it back"],
   [["B"], "pin or unpin the inbox beside the page"],
   [["h", "←"], "back one crumb, or the inbox from the first crumb"],
-  [["m"], "open or close the host's meters"],
+  [["m"], "hide or show the strips"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
@@ -225,7 +225,8 @@ export function App({
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
-  const [metersOpen, setMetersOpen] = useState(false);
+  // Whether the strips under the title rows are drawn. m hides and shows every one of them.
+  const [stripsShown, setStripsShown] = useState(true);
   // Whether a row has been opened by a click or Enter, which hides the inbox. The mark's click or B pins the inbox
   // beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or by a key, and popout
   // records which.
@@ -318,8 +319,6 @@ export function App({
     .split(/\s+/)
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(withRowMark(row, rowMarks), seenWritten));
-  // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
-  const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
   const { rows: defaultRows, archived: archivedRows } = splitArchived(matching);
   // The epics as the local archive marks leave them, which the views draw in place of the list's.
@@ -740,7 +739,7 @@ export function App({
     }
   };
   const toggleOpen = () => setOpen((value) => !value);
-  const toggleMeters = () => setMetersOpen((value) => !value);
+  const toggleStrips = () => setStripsShown((value) => !value);
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
   // new page opens at its top.
   const drill = (next: PageView) => {
@@ -899,6 +898,17 @@ export function App({
     },
     pin: togglePin,
   };
+
+  // pageStrip is the strip a page draws under its title row: the host part stripHost names for the row the page shows,
+  // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host.
+  // m hides every strip, and then a page draws none.
+  const pageStrip = (row: Row | null, conversation: Conversation | null) =>
+    stripsShown ? (
+      <PaneStrip
+        host={stripHost(row, host)}
+        context={row?.kind === "pane" ? conversation?.state?.context : undefined}
+      />
+    ) : undefined;
 
   // focusCursorRow moves focus to the list's current row, the row the cursor rests on.
   const focusCursorRow = () => {
@@ -1093,9 +1103,7 @@ export function App({
         }
         break;
       case "m":
-        if (host !== null) {
-          toggleMeters();
-        }
+        toggleStrips();
         break;
       case "?":
         setHelpOpen((open) => !open);
@@ -1139,6 +1147,7 @@ export function App({
             crumbs={[{ label: detail.epic?.slug ?? "", onGo: toEpicPage }, { label: "contract" }]}
             onBack={back}
             mark={inboxMark}
+            strip={pageStrip(null, null)}
           />
           <ContractBody contract={detail.contract} requirements={detail.requirements} />
         </div>
@@ -1160,6 +1169,7 @@ export function App({
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
           mark={inboxMark}
+          strip={pageStrip(null, null)}
         />
       );
     }
@@ -1183,6 +1193,7 @@ export function App({
           hold={calls.hold}
           stop={calls.stop}
           mark={inboxMark}
+          strip={pageStrip(null, null)}
         />
       );
     }
@@ -1200,6 +1211,7 @@ export function App({
         onBack={closeEpicPage}
         handover={Handover({ detail })}
         mark={inboxMark}
+        strip={pageStrip(null, null)}
         actions={
           <Talk
             key={entry.id}
@@ -1248,6 +1260,9 @@ export function App({
                 <kbd>v</kbd>Archived
               </span>
             </div>
+            <span class="keys-hint">
+              <kbd>?</kbd> keys
+            </span>
             {error !== "" && (
               <p class="error" role="alert">
                 {error}
@@ -1414,18 +1429,6 @@ export function App({
               </div>
             ))}
           </div>
-          {host !== null && metersOpen && <MetersPanel stats={host.stats} />}
-          <footer class="lfoot">
-            {hosts.map((name) => (
-              <span key={name} class="host">
-                {name}
-              </span>
-            ))}
-            {host !== null && <MetersButton status={host} onToggle={toggleMeters} />}
-            <span class="keys-hint">
-              <kbd>?</kbd> keys
-            </span>
-          </footer>
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
@@ -1434,6 +1437,7 @@ export function App({
               state={headState(cursorRow, cursorConversation?.state?.pane)}
               onBack={focusCursorRow}
               mark={inboxMark}
+              strip={pageStrip(cursorRow, cursorConversation)}
             >
               <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
             </ConversationHead>
@@ -1443,6 +1447,7 @@ export function App({
               crumbs={[{ label: stepWhere(cursorStep) }, { label: cursorStep.label }]}
               onBack={focusCursorRow}
               mark={inboxMark}
+              strip={pageStrip(null, null)}
             >
               <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
             </TitleRow>
@@ -1523,6 +1528,7 @@ export function App({
               state={headState(pinned, pinnedConversation?.state?.pane)}
               onBack={closePin}
               mark={inboxMark}
+              strip={pageStrip(pinned, pinnedConversation)}
             >
               <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
             </ConversationHead>
@@ -1801,6 +1807,18 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
   }
   const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
   return unchanged ? previous : kept;
+}
+
+// stripHost is the host a page's strip names. A pane row on another host names that host alone, with no stats. Any
+// other page names the serving host with its stats, and with no status there is no host part.
+function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost | null {
+  if (host === null) {
+    return null;
+  }
+  if (row !== null && row.kind === "pane" && row.host !== "" && row.host !== host.host) {
+    return { host: row.host, stats: [] };
+  }
+  return host;
 }
 
 // headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
