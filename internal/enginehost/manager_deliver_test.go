@@ -3,6 +3,8 @@ package enginehost
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -64,28 +66,30 @@ func TestCallerEventDeliverStoresEventPrompt(t *testing.T) {
 func TestCallerEventDeliverHeldWhileTurnRuns(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
+	dir := t.TempDir()
+	// WAITOPEN holds the turn open until fakeclaude.open exists, so the turn ends by itself and not by the owner's
+	// Interrupt, which would leave the caller quiet (see TestOwnerInterruptQuietsCallerEventsUntilHisSay).
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "WAITOPEN"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, engineOf(m), path, id, "the hanging reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake hanging 1")
-	})
 
-	if err := m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "the event text", PromptID: "e1"}); !errors.Is(
+	if err = m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "the event text", PromptID: "e1"}); !errors.Is(
 		err, ErrSessionBusy,
 	) {
 		t.Fatalf("Deliver during a turn error = %v, want ErrSessionBusy", err)
 	}
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, []deliveredPrompt{{Text: "HANG"}}) {
+	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(
+		got, []deliveredPrompt{{Text: "WAITOPEN"}},
+	) {
 		t.Fatalf("prompts after held Deliver = %+v, want only the start's prompt", got)
 	}
 
-	if err := m.Interrupt(t.Context(), id); err != nil {
-		t.Fatalf("Interrupt: %v", err)
+	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
+		t.Fatalf("open the turn: %v", err)
 	}
 	waitHistory(t, engineOf(m), path, id, "the turn ended and the session is done", func(h store.EngineHistory) bool {
-		return turnEndsWithError(t, h) && h.State == string(protocol.StateDone)
+		return hasBlock(t, h, "fake reply 1") && turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
 	})
 	if err := m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "the event text", PromptID: "e1"}); err != nil {
 		t.Fatalf("Deliver after the turn ended: %v", err)
@@ -94,7 +98,7 @@ func TestCallerEventDeliverHeldWhileTurnRuns(t *testing.T) {
 		return hasBlock(t, h, "fake reply 2")
 	})
 	want := []deliveredPrompt{
-		{Text: "HANG"},
+		{Text: "WAITOPEN"},
 		{Text: "the event text", PromptID: "e1", Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
