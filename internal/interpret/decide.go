@@ -305,11 +305,12 @@ func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) [
 }
 
 // settle decides the settle walks of a running plan run, and reports whether its latest settle walk, and every late
-// walk after it, has ended. A settle point is the highest seq among the tasks of turns above the plan's mark. Its walk
-// runs the plan body's nodes that are not build nodes, under <plan path>/S<seq>/. The latest walk starts only when no
-// task of the epic is building: open and not waiting on other tasks (anyTaskBuilding). Every walk already started is
-// decided on each pass, so an older walk finishes while a newer settle point waits for its tasks. Once the latest walk
-// has ended, its late walks are decided (lateWalks).
+// walk, has ended. A settle point is the highest seq among the tasks of turns above the plan's mark. Its walk runs the
+// plan body's nodes that are not build nodes, under <plan path>/S<seq>/. Every walk already started, settle or late, is
+// decided on each pass, so an older walk finishes while a newer settle point waits for its tasks. The latest walk starts
+// only when no task of the epic is building, open and not waiting on other tasks (anyTaskBuilding), and no late walk
+// runs, so a late walk's batch never races a newer one onto the branch. Once the latest walk has ended, the next late
+// walk may start (nextLateWalk).
 func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 	latest, ok := p.settlePoint(run.Mark)
 	if !ok {
@@ -327,58 +328,62 @@ func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 		walked, _ := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 		acts = append(acts, walked...)
 	}
+	late, lateEnded := p.lateWalks(nodes, run)
+	acts = append(acts, late...)
 	prefix := settlePrefix(run.Path, latest)
-	if !p.hasRunUnder(prefix) && p.anyTaskBuilding() {
+	if !p.hasRunUnder(prefix) && (p.anyTaskBuilding() || !lateEnded) {
 		return acts, false
 	}
 	walked, done := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 	acts = append(acts, walked...)
-	if !done {
+	if !done || !lateEnded {
 		return acts, false
 	}
-	late, lateDone := p.lateWalks(nodes, run, prefix)
-	return append(acts, late...), lateDone
+	next, settled := p.nextLateWalk(nodes, run, prefix)
+	return append(acts, next...), settled
 }
 
-// lateWalks decides the late walks of a plan run whose latest settle walk, under latest, has ended, and reports whether
-// none is left to run. A late walk integrates a task that was waiting on other tasks when the latest walk started, and
-// so was accepted after that walk's integrate run claimed its batch. It runs nodes under <plan path>/L<seq>/, where
-// <seq> is the lowest seq among the tasks of turns above the plan's mark that waited, are done and are claimed by no
-// batch (lateTask). It starts once the latest walk's integrate node has run and every late walk already started has
-// ended, when no task of the epic is building. A late walk that ended without its task claimed starts no other, so its
-// trigger brings the planner first. A plan body with no integrate node has no late walk.
-func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun, latest string) ([]Action, bool) {
-	i := slices.IndexFunc(nodes, func(node workflow.Node) bool { return node.Kind == kindIntegrate })
-	if i < 0 {
-		return nil, true
-	}
+// lateWalks decides each late walk of a plan run that has started, and reports whether all of them have ended. A late
+// walk integrates a task that was waiting on other tasks when the latest settle walk started, and so was accepted after
+// that walk's integrate run claimed its batch. It runs the nodes under <plan path>/L<seq>/, where <seq> is the seq of
+// that task.
+func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun) ([]Action, bool) {
 	var acts []Action
-	done := true
+	ended := true
 	for _, task := range p.rows.Epic.Tasks {
 		prefix := latePrefix(run.Path, task.Seq)
 		if task.Turn <= run.Mark || !p.hasRunUnder(prefix) {
 			continue
 		}
-		walked, ended := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
+		walked, done := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 		acts = append(acts, walked...)
-		done = done && ended
+		ended = ended && done
 	}
-	if !done {
-		return acts, false
+	return acts, ended
+}
+
+// nextLateWalk starts the next late walk of a plan run whose latest settle walk, under latest, and every late walk have
+// ended, and reports whether none is left to run. The next late walk is that of the lowest seq among the tasks of turns
+// above the plan's mark that waited, are done and are claimed by no batch (lateTask). It starts once the latest walk's
+// integrate node has run, when no task of the epic is building. A late walk that ended without its task claimed starts no
+// other, so its trigger brings the planner first. A plan body with no integrate node has no late walk.
+func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest string) ([]Action, bool) {
+	i := slices.IndexFunc(nodes, func(node workflow.Node) bool { return node.Kind == kindIntegrate })
+	if i < 0 {
+		return nil, true
 	}
 	if _, ran := p.byPath[latest+nodes[i].ID]; !ran {
-		return acts, true
+		return nil, true
 	}
 	seq, found := p.lateTask(run.Mark)
 	prefix := latePrefix(run.Path, seq)
 	if !found || p.hasRunUnder(prefix) {
-		return acts, true
+		return nil, true
 	}
 	if p.anyTaskBuilding() {
-		return acts, false
+		return nil, false
 	}
-	walked, ended := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
-	return append(acts, walked...), ended
+	return p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 }
 
 // lateTask returns the lowest seq among the tasks of turns above mark that waited on other tasks, are done and are

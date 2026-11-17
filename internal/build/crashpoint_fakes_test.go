@@ -455,9 +455,9 @@ func (g crashGit) AddWorktree(ctx context.Context, repo, path, base string) erro
 	})
 }
 
-func (g crashGit) MoveWorktree(ctx context.Context, path, from, to string) error {
+func (g crashGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
 	return g.w.act("git worktree move", func() error {
-		return wrapErr("move worktree", MoveWorktree(ctx, path, from, to))
+		return wrapErr("move worktree", MoveWorktree(ctx, path, wip, to))
 	})
 }
 

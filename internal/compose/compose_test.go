@@ -436,3 +436,20 @@ func TestAdvanceRefusesBranchOutsideEpic(t *testing.T) {
 		t.Fatalf("main = %s after a refused Advance, want %s", got, base)
 	}
 }
+
+func TestAdvanceRefusesAMoveThatIsNotAFastForward(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := composeRepo(t)
+	base := composeBase(t, dir)
+	newer := composeRevision(t, dir, base, "newer\n", map[string]string{"a": "newer"}, nil)
+	older := composeRevision(t, dir, base, "older\n", map[string]string{"b": "older"}, nil)
+	composeGit(t, dir, nil, "", "update-ref", testBranch, newer)
+
+	if err := Advance(ctx, dir, testBranch, older, newer); err == nil {
+		t.Fatal("Advance moved the branch to a commit that does not build on it")
+	}
+	if got := composeGit(t, dir, nil, "", "rev-parse", testBranch); got != newer {
+		t.Fatalf("branch = %s after a refused Advance, want %s", got, newer)
+	}
+}

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 // The paths of the integrate runs the retry tests start: two settle walks of one plan, the second the newer.
@@ -227,7 +226,7 @@ func TestRetryFailedIntegrateRefusedForEpicEndedAtBase(t *testing.T) {
 
 // TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk checks that the newest integrate run is the one that
 // started last: a late walk's run, under L<seq> with the seq of a task that waited, started after the settle walk at
-// S3 and is the one RetryNode reruns, though its seq is lower.
+// S3, in the same second, and is the one RetryNode reruns, though its seq is lower.
 func TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -236,7 +235,7 @@ func TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk(t *testing
 	const late = "plan/L2/integrate"
 	if err := s.StartNodes(ctx, integrateEpic, []NodeRun{
 		{Path: late, ID: "id-l2", Node: "integrate", Kind: "integrate", Attempt: 1},
-	}, nil, integrateStartedAt().Add(time.Minute)); err != nil {
+	}, nil, integrateStartedAt()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
 	if err := s.PrepareNode(ctx, integrateEpic, late, 1, "rev-1", "refs-1"); err != nil {

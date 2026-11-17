@@ -265,7 +265,7 @@ type Git interface {
 	CreateBranch(ctx context.Context, repo, epic, base string) error
 	Pin(ctx context.Context, repo, ref, commit string) error
 	AddWorktree(ctx context.Context, repo, path, base string) error
-	MoveWorktree(ctx context.Context, path, from, to string) error
+	MoveWorktree(ctx context.Context, path, wip, to string) error
 	RemoveWorktrees(ctx context.Context, repo, dir string) error
 }
 
@@ -284,8 +284,8 @@ func (packageGit) AddWorktree(ctx context.Context, repo, path, base string) erro
 	return AddWorktree(ctx, repo, path, base)
 }
 
-func (packageGit) MoveWorktree(ctx context.Context, path, from, to string) error {
-	return MoveWorktree(ctx, path, from, to)
+func (packageGit) MoveWorktree(ctx context.Context, path, wip, to string) error {
+	return MoveWorktree(ctx, path, wip, to)
 }
 
 func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {

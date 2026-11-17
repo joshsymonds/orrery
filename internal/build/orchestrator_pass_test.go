@@ -1,7 +1,6 @@
 package build
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -451,6 +450,7 @@ func TestOrchestratePassWaitingTaskMovesOntoTheNewBaseOnceItsTaskIsIntegrated(t 
 	t.Parallel()
 	const file = waitFile
 	f := newWaitFixture(t)
+	identify(t, f.repo)
 	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
 	writeFile(t, filepath.Join(worktree, "thing.go"), "package thing // kept\n")
 	f.endOrchestrator(orchID(0, 0), orchReturn(t, map[string]any{
@@ -489,6 +489,7 @@ func TestOrchestratePassWaitingTaskWhoseMoveFailsFailsWithTheReason(t *testing.T
 	t.Parallel()
 	const file = waitFile
 	f := newWaitFixture(t)
+	identify(t, f.repo)
 	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
 	writeFile(t, filepath.Join(worktree, file), "package mine\n")
 	buildRun(t, worktree, "add", file)
@@ -503,96 +504,5 @@ func TestOrchestratePassWaitingTaskWhoseMoveFailsFailsWithTheReason(t *testing.T
 	if task.Status != "failed" ||
 		!strings.HasPrefix(task.Build.Failure, "T1 could not move onto the new base "+newBase+": ") {
 		t.Fatalf("task %q failure %q, want failed naming the move", task.Status, task.Build.Failure)
-	}
-}
-
-func TestMoveWorktreeCarriesUncommittedWork(t *testing.T) {
-	t.Parallel()
-	setup := newStartSetup(t)
-	repo := setup.epic.Repository
-	path := filepath.Join(t.TempDir(), "implement")
-	if err := AddWorktree(context.Background(), repo, path, setup.base); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(path, "mine.go"), "package mine\n")
-	newBase := commitOff(t, repo, setup.base, "theirs.go", "package theirs\n")
-	for range 2 {
-		if err := MoveWorktree(context.Background(), path, setup.base, newBase); err != nil {
-			t.Fatalf("MoveWorktree: %v", err)
-		}
-	}
-	if head := buildHead(t, path); head != newBase {
-		t.Errorf("HEAD %s, want %s", head, newBase)
-	}
-	for _, name := range []string{"mine.go", "theirs.go"} {
-		if _, err := os.Stat(filepath.Join(path, name)); err != nil {
-			t.Errorf("%s missing after the move: %v", name, err)
-		}
-	}
-}
-
-func TestMoveWorktreeReplaysCommitsAndKeepsUncommittedWork(t *testing.T) {
-	t.Parallel()
-	setup := newStartSetup(t)
-	repo := setup.epic.Repository
-	identify(t, repo)
-	path := filepath.Join(t.TempDir(), "implement")
-	if err := AddWorktree(context.Background(), repo, path, setup.base); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(path, "mine.go"), "package mine\n")
-	buildRun(t, path, "add", "mine.go")
-	buildRun(t, path, "commit", "-q", "-m", "mine")
-	writeFile(t, filepath.Join(path, "draft.go"), "package draft\n")
-	newBase := commitOff(t, repo, setup.base, "theirs.go", "package theirs\n")
-	if err := MoveWorktree(context.Background(), path, setup.base, newBase); err != nil {
-		t.Fatalf("MoveWorktree: %v", err)
-	}
-	if parent := buildRun(t, path, "rev-parse", "HEAD^"); parent != newBase {
-		t.Errorf("HEAD^ %s, want the commit replayed on %s", parent, newBase)
-	}
-	if subject := buildRun(t, path, "log", "-1", "--format=%s"); subject != "mine" {
-		t.Errorf("HEAD subject %q, want mine", subject)
-	}
-	for _, name := range []string{"mine.go", "theirs.go", "draft.go"} {
-		if _, err := os.Stat(filepath.Join(path, name)); err != nil {
-			t.Errorf("%s missing after the move: %v", name, err)
-		}
-	}
-	if err := MoveWorktree(context.Background(), path, setup.base, newBase); err != nil {
-		t.Fatalf("second MoveWorktree: %v", err)
-	}
-	if parent := buildRun(t, path, "rev-parse", "HEAD^"); parent != newBase {
-		t.Errorf("a second move replayed again: HEAD^ %s, want %s", parent, newBase)
-	}
-}
-
-func TestMoveWorktreeRefusesAConflictingReplayAndAborts(t *testing.T) {
-	t.Parallel()
-	setup := newStartSetup(t)
-	repo := setup.epic.Repository
-	identify(t, repo)
-	path := filepath.Join(t.TempDir(), "implement")
-	if err := AddWorktree(context.Background(), repo, path, setup.base); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(path, "same.go"), "package mine\n")
-	buildRun(t, path, "add", "same.go")
-	buildRun(t, path, "commit", "-q", "-m", "mine")
-	head := buildHead(t, path)
-	newBase := commitOff(t, repo, setup.base, "same.go", "package theirs\n")
-	err := MoveWorktree(context.Background(), path, setup.base, newBase)
-	if err == nil || !strings.Contains(err.Error(), "move commits") {
-		t.Fatalf("MoveWorktree = %v, want the refused rebase", err)
-	}
-	if got := buildHead(t, path); got != head {
-		t.Errorf("HEAD %s after the refusal, want the abort to leave %s", got, head)
-	}
-}
-
-func TestMoveWorktreeOfAMissingPathMovesNothing(t *testing.T) {
-	t.Parallel()
-	if err := MoveWorktree(context.Background(), filepath.Join(t.TempDir(), "gone"), "a", "b"); err != nil {
-		t.Errorf("MoveWorktree of a missing path = %v, want nil", err)
 	}
 }

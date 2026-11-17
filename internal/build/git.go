@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -63,9 +64,17 @@ func stepCommits(ctx context.Context, repo, base, head string) ([]string, error)
 // runGit runs git in dir and returns its trimmed stdout. On failure the error carries git's stderr. Like stepGit, it
 // builds the argument vector itself: git runs with argv and no shell.
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+	return runGitEnv(ctx, dir, nil, args...)
+}
+
+// runGitEnv runs git in dir as runGit does, with env added to the environment it inherits.
+func runGitEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git")
 	cmd.Args = append(cmd.Args, "-C", dir)
 	cmd.Args = append(cmd.Args, args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

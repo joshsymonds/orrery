@@ -1041,3 +1041,6 @@ ON CONFLICT (epic) DO UPDATE SET at = excluded.at;
 
 -- name: GetEpicSeen :one
 SELECT at FROM epic_seen WHERE epic = ?;
+
+-- name: ListEpicIntegrateRunPaths :many
+SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;

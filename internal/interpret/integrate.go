@@ -127,7 +127,7 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 		return fmt.Errorf("epic %s has no branch", epic.ID)
 	}
 	if tip != act.Run.Revision {
-		reason, blockErr := advanceBlock(ctx, epic, tip)
+		reason, blockErr := advanceBlock(ctx, epic, tip, act.Run.Revision)
 		if blockErr != nil {
 			return blockErr
 		}
@@ -148,12 +148,21 @@ func (r *Runner) advance(ctx context.Context, epic store.EpicRow, act Action, at
 	return nil
 }
 
-// advanceBlock returns why the epic's branch, at tip, may not move to the candidate: it is not at the stored base, or it
-// is checked out in a worktree. It returns "" when the branch may move.
-func advanceBlock(ctx context.Context, epic store.EpicRow, tip string) (string, error) {
+// advanceBlock returns why the epic's branch, at tip, may not move to candidate: it is not at the stored base, candidate
+// does not build on it, so the move would drop what the branch holds, or it is checked out in a worktree. It returns ""
+// when the branch may move.
+func advanceBlock(ctx context.Context, epic store.EpicRow, tip, candidate string) (string, error) {
 	slug := build.Slug(epic.ID)
 	if tip != epic.StoredBase {
 		return fmt.Sprintf("epic/%s moved: at %s, not the stored base %s", slug, tip, epic.StoredBase), nil
+	}
+	builds, err := isAncestor(ctx, epic.Repository, tip, candidate)
+	if err != nil {
+		return "", fmt.Errorf("compare candidate %s with epic/%s: %w", candidate, slug, err)
+	}
+	if !builds {
+		return fmt.Sprintf("epic/%s is at %s, which the candidate %s does not build on, so it was not moved", slug, tip,
+			candidate), nil
 	}
 	checked, err := build.BranchCheckedOut(ctx, epic.Repository, epic.ID)
 	if err != nil {

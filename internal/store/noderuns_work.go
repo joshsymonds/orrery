@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -228,7 +229,14 @@ func retryParkedNode(ctx context.Context, queries *sqlcgen.Queries, epic, node s
 // caller's write. Any other run of node is a RefusalError, so an integrate run that is running or passed, or an earlier
 // failed run that a later run of node superseded, changes nothing.
 func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, node string, runs []NodeRun) error {
-	run, ok := latestIntegrateRun(runs, node)
+	stored, err := queries.ListEpicIntegrateRunPaths(
+		ctx,
+		sqlcgen.ListEpicIntegrateRunPathsParams{Epic: epic, Node: node},
+	)
+	if err != nil {
+		return fmt.Errorf("list integrate runs of node %s of epic %s: %w", node, epic, err)
+	}
+	run, ok := latestIntegrateRun(runs, stored)
 	if !ok || run.State != NodeEnded || run.Outcome != nodeFailedOutcome {
 		return notParkedRefusal(epic, node)
 	}
@@ -244,28 +252,21 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 	return unparkRetried(ctx, queries, epic)
 }
 
-// latestIntegrateRun returns the integrate run of node that sits in the newest settle walk, and whether there is one.
-// A walk starts only once the walks before it have ended, so the newest is the one whose run started last. A settle walk
-// is numbered by the seq of the task it settles, and a later task has a higher seq, so between runs that started in the
-// same second the one with the highest seq is the latest. A late walk, which integrates a task that waited on others,
-// starts after the settle walk it follows, whatever the seq of its task.
-func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
-	var latest NodeRun
-	var newest uint64
-	found := false
-	for _, run := range runs {
-		if run.Kind != integrateKind || run.Node != node {
+// latestIntegrateRun returns the run among runs that sits in the newest settle or late walk, and whether there is one.
+// stored is the paths of the node's integrate runs in the order the store wrote them, which is the order they started,
+// since a run is written when it starts. A walk starts only once the walks before it have ended, so the newest is the
+// run written last, whatever the seq of its walk: a late walk, which integrates a task that waited on others, starts
+// after the settle walk it follows.
+func latestIntegrateRun(runs []NodeRun, stored []string) (NodeRun, bool) {
+	for i := len(stored) - 1; i >= 0; i-- {
+		if _, ok := settleSeq(stored[i]); !ok {
 			continue
 		}
-		seq, ok := settleSeq(run.Path)
-		if !ok {
-			continue
-		}
-		if !found || run.Started.After(latest.Started) || (run.Started.Equal(latest.Started) && seq > newest) {
-			latest, newest, found = run, seq, true
+		if j := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == stored[i] }); j >= 0 {
+			return runs[j], true
 		}
 	}
-	return latest, found
+	return NodeRun{}, false
 }
 
 // settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N> or L<N>

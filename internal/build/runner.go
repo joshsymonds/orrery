@@ -281,7 +281,7 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 	return err
 }
 
-// readRequest sets the parts of view a request reads. An asked build reads whether its question is still open. A
+// readRequest sets the parts of view a request reads. An asked build reads whether its question is answered (answered). A
 // waiting build reads the epic's tasks as peers and the base the next integrate batch composes on: the epic's candidate
 // when it has one, and its stored base otherwise. An orchestrate unit reads the implementer step it decides, by the
 // build's step, and once its own step has ended done, the peers its decision is checked against.
@@ -289,9 +289,7 @@ func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store
 	build := task.Build
 	switch {
 	case build.Held == HeldAsked:
-		view.Answered = !slices.ContainsFunc(epic.Questions, func(question store.EpicQuestion) bool {
-			return question.Seq == build.Question && question.State == store.QuestionOpen
-		})
+		view.Answered = answered(epic.Questions, build.Question)
 		return nil
 	case build.Held == HeldWaiting:
 		view.NewBase = epic.StoredBase
@@ -319,6 +317,23 @@ func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store
 	peers, err := r.peers(ctx, epic)
 	view.Peers = peers
 	return err
+}
+
+// answered reports whether the owner has answered question seq among questions: it is answered, or the question that
+// replaced it, followed to the last replacement, is. A question that is not stored has no answer to wait for, so it
+// counts as answered.
+func answered(questions []store.EpicQuestion, seq int64) bool {
+	for range questions {
+		i := slices.IndexFunc(questions, func(question store.EpicQuestion) bool { return question.Seq == seq })
+		if i < 0 {
+			return true
+		}
+		if questions[i].State != store.QuestionReplaced || questions[i].ReplacedBy == 0 {
+			return questions[i].State == store.QuestionAnswered
+		}
+		seq = questions[i].ReplacedBy
+	}
+	return false
 }
 
 // peers returns the tasks of epic as a request reads them, with the integration each has by the epic's node runs.

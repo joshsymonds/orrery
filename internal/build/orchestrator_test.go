@@ -263,8 +263,8 @@ func TestOrchestratorCheckRefusesStateTheEngineCannotCarryOut(t *testing.T) {
 			[]string{
 				"files[0]: .git/config is refused: inside a .git directory",
 				"files[1]: a.go is already one of the task's files",
-				"files[2]: owned.go is owned by open T4 (implement), which after_tasks does not name",
-				"files[3]: changed.go is changed by accepted T5, not yet integrated, which after_tasks does not name",
+				"files[2]: owned.go is owned by open T4 (implement), and after_tasks does not name T4",
+				"files[3]: changed.go is changed by accepted T5, not yet integrated, and after_tasks does not name T5",
 				"files[5]: free.go is named twice",
 			},
 		},
@@ -657,5 +657,62 @@ func TestAfterSeqsRoundTripsAndSkipsJunk(t *testing.T) {
 	}
 	if got := AfterSeqs("x,3"); !slices.Equal(got, []int64{3}) {
 		t.Errorf("AfterSeqs(x,3) = %v, want [3]", got)
+	}
+}
+
+func TestOrchestratorCheckNeedsEveryHolderOfAFileInAfterTasks(t *testing.T) {
+	t.Parallel()
+	task := store.EpicTask{Seq: 3, Files: []string{"a.go"}, Status: taskOpen}
+	behind := openPeer(1, "shared.go")
+	behind.Task.Build.Held, behind.Task.Build.After = HeldWaiting, "2"
+	peers := []Peer{{Task: task}, behind, openPeer(2, "shared.go")}
+	if got := holderOf("shared.go", task, peers).Text; got !=
+		"owned by open T1 (implement, waiting) and owned by open T2 (implement)" {
+		t.Errorf("holder = %q, want both owners", got)
+	}
+	check := OrchestratorCheck(task, peers)
+	grant := func(after ...int64) []string {
+		return check(json.RawMessage(orchReturn(t, map[string]any{
+			"decision": "grant", "note": "n", "files": []string{"shared.go"}, "after_tasks": after,
+		})))
+	}
+	want := []string{"files[0]: shared.go is owned by open T1 (implement, waiting) and owned by open T2 " +
+		"(implement), and after_tasks does not name T1"}
+	if got := grant(2); !slices.Equal(got, want) {
+		t.Errorf("grant behind T2 only = %q, want %q", got, want)
+	}
+	if got := grant(1, 2); len(got) != 0 {
+		t.Errorf("grant behind both = %q, want none", got)
+	}
+}
+
+func TestOrchestratorCheckRefusesAnAskAsTheLastDecision(t *testing.T) {
+	t.Parallel()
+	ask := json.RawMessage(orchReturn(t, map[string]any{"decision": "ask", "question": askQuestion()}))
+	for decisions, want := range map[int64][]string{
+		0: nil,
+		decisionLimit - 1: {"decision: an ask is the task's last decision, and no decision would be left to act on " +
+			"the answer"},
+	} {
+		task := store.EpicTask{Seq: 3, Status: taskOpen, Build: store.TaskBuild{Decisions: decisions}}
+		if got := OrchestratorCheck(task, []Peer{{Task: task}})(ask); !slices.Equal(got, want) {
+			t.Errorf("ask after %d decisions: check = %q, want %q", decisions, got, want)
+		}
+	}
+}
+
+func TestAnsweredFollowsReplacementsToTheirAnswer(t *testing.T) {
+	t.Parallel()
+	questions := []store.EpicQuestion{
+		{Seq: 1, State: store.QuestionReplaced, ReplacedBy: 2},
+		{Seq: 2, State: store.QuestionOpen},
+		{Seq: 3, State: store.QuestionReplaced, ReplacedBy: 4},
+		{Seq: 4, State: store.QuestionAnswered, Choice: "edit"},
+		{Seq: 5, State: store.QuestionAnswered},
+	}
+	for seq, want := range map[int64]bool{1: false, 2: false, 3: true, 5: true, 9: true} {
+		if got := answered(questions, seq); got != want {
+			t.Errorf("answered(Q%d) = %v, want %v", seq, got, want)
+		}
 	}
 }

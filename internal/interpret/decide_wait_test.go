@@ -175,3 +175,33 @@ func TestDecideLateWalkRunsItsIntegrateNodeAsAnyWalkDoes(t *testing.T) {
 		t.Errorf("Decide = %+v, want the late walk's integrate run to prepare its batch of T2", acts)
 	}
 }
+
+// TestDecideLateWalkHoldsANewerSettleWalkAndIsDecidedEveryPass: while late walk L3 runs, a turn adds T7, which is
+// accepted. The settle walk at S7 does not start until L3 has ended, and L3's integrate run is decided on each pass
+// meanwhile, so the two batches never race onto the branch.
+func TestDecideLateWalkHoldsANewerSettleWalkAndIsDecidedEveryPass(t *testing.T) {
+	t.Parallel()
+	const late3 = "plan/L3/integrate"
+	flow := workflow.Workflow{Name: "decide", Nodes: planWithChecks(batchNode())}
+	turns := []store.EpicTurn{turnAt(1, "work"), turnAt(2, "work")}
+	three := doneTask(3, 1)
+	three.Build.After = "2"
+	seven := doneTask(7, 2)
+	running3 := attempted(running(startOf(late3, "integrate", "integrate", 0)), 1)
+	settled3 := ended(startOf("plan/S3/integrate", "integrate", "integrate", 0), "passed")
+	reg := integrateKinds(scripted{0: {Kind: kinds.ActPrepare, Tasks: []int64{3}}})
+	rows := rowsOf(turns, []store.EpicTask{claimed(2, "plan/S3/integrate"), three, seven}, runningPlan(0),
+		settled3, running3)
+	acts := Decide(flow, rows, reg)
+	if startsAt(acts, "plan/S7/integrate") {
+		t.Errorf("S7 started while L3 runs; actions %+v", acts)
+	}
+	if !slices.ContainsFunc(acts, func(act Action) bool { return act.Kind == ActWork && act.Path == late3 }) {
+		t.Errorf("L3 was not decided while S7 waits; actions %+v", acts)
+	}
+	rows = rowsOf(turns, []store.EpicTask{claimed(2, "plan/S3/integrate"), claimed(3, late3), seven}, runningPlan(0),
+		settled3, ended(running3, "passed"))
+	if acts := Decide(flow, rows, reg); !startsAt(acts, "plan/S7/integrate") {
+		t.Errorf("S7 did not start once L3 ended; actions %+v", acts)
+	}
+}

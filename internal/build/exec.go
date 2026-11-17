@@ -201,13 +201,13 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 	return r.written(ctx, epic.ID, seq, "ask owner", err)
 }
 
-// resume moves a waiting build's implement worktree from its base onto action's revision, keeping its work
-// (MoveWorktree), then stores action's build. A move git refuses fails the task with
-// `T<seq> could not move onto the new base <base>: <error>`.
+// resume moves a waiting build's implement worktree onto action's revision, keeping its work, with the task's own ref
+// holding its uncommitted work while the move runs (MoveWorktree, WipRef), then stores action's build. A move git
+// refuses fails the task with `T<seq> could not move onto the new base <base>: <error>`.
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	path := ImplementWorktree(r.stateDir, epic.ID, seq)
-	if err := r.git.MoveWorktree(ctx, path, from.Base, action.Revision); err != nil {
+	if err := r.git.MoveWorktree(ctx, path, WipRef(epic.ID, seq), action.Revision); err != nil {
 		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
 		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})
 	}

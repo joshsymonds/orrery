@@ -546,3 +546,35 @@ func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 		}
 	}
 }
+
+// TestIntegrateBatchOnAnOlderBaseNeverMovesTheBranchBack: a batch composed on the base, whose branch a newer batch has
+// since advanced, with the stored base, to a commit the batch does not build on, parks instead of moving the branch
+// back. The branch keeps the newer batch's work. This is the batch of a late walk that a settle walk overtook.
+func TestIntegrateBatchOnAnOlderBaseNeverMovesTheBranchBack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	w := newIntegrateWorld(t)
+	candidate := w.toCaptured()
+	newer := w.commit(w.base, "newer.go", "newer\n")
+	const overtaking = "plan/S7/integrate"
+	if err := w.s.StartNodes(ctx, runEpic, []store.NodeRun{{
+		Path: overtaking, ID: "overtaking", Node: "integrate", Kind: kindIntegrate, Attempt: 1,
+	}}, nil, runClock()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := w.s.PrepareNode(ctx, runEpic, overtaking, 1, newer, ""); err != nil {
+		t.Fatalf("PrepareNode: %v", err)
+	}
+	if err := w.s.EndBatch(ctx, runEpic, overtaking, 1, outcomePassed, "", nil, runClock()); err != nil {
+		t.Fatalf("EndBatch: %v", err)
+	}
+	w.git("update-ref", integrateBranch, newer)
+	pending := w.pending()
+	w.pass()
+	w.requireParked(fmt.Sprintf(
+		"epic/epic-runner is at %s, which the candidate %s does not build on, so it was not moved", newer, candidate,
+	), pending)
+	if tip := w.git("rev-parse", integrateBranch); tip != newer {
+		t.Errorf("branch = %s, want it left at the newer batch's %s", tip, newer)
+	}
+}

@@ -3125,6 +3125,38 @@ func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, e
 	return items, nil
 }
 
+const listEpicIntegrateRunPaths = `-- name: ListEpicIntegrateRunPaths :many
+SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid
+`
+
+type ListEpicIntegrateRunPathsParams struct {
+	Epic string
+	Node string
+}
+
+func (q *Queries) ListEpicIntegrateRunPaths(ctx context.Context, arg ListEpicIntegrateRunPathsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicIntegrateRunPaths, arg.Epic, arg.Node)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		items = append(items, path)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicLedger = `-- name: ListEpicLedger :many
 SELECT epic, id, position, reviewer, finding, claim, citation, location, evidence, verify_by, step, result, unverified, reason FROM epic_ledger WHERE epic = ? ORDER BY position
 `
