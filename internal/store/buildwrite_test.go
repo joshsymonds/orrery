@@ -184,7 +184,7 @@ func TestFailTaskStoresFailedStatusCutFailureAndPendingTrigger(t *testing.T) {
 	// The reason's 1024th byte is the first byte of the two-byte é, so the cut stops before the é.
 	cut := strings.Repeat("a", store.TurnReasonMax-1)
 	reason := cut + "é" + "tail"
-	if err := s.FailTask(ctx, buildEpic, 1, store.TaskBuild{}, reason, writtenAt()); err != nil {
+	if err := s.FailTask(ctx, buildEpic, 1, store.TaskBuild{}, reason, nil, writtenAt()); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 
@@ -364,7 +364,7 @@ func movedWrites() []movedWrite {
 	ctx := context.Background()
 	return []movedWrite{
 		{name: "FailTask", run: func(s *store.Store, from store.TaskBuild) error {
-			return s.FailTask(ctx, buildEpic, 1, from, "late failure", writtenAt())
+			return s.FailTask(ctx, buildEpic, 1, from, "late failure", nil, writtenAt())
 		}},
 		{name: "AcceptTask", run: func(s *store.Store, from store.TaskBuild) error {
 			return s.AcceptTask(ctx, buildEpic, 1, from, "reviewed")
@@ -418,7 +418,7 @@ func TestTaskWritesOnADoneOrFailedTaskReturnErrTaskMovedAndWriteNothing(t *testi
 		}},
 		{name: "failed", close: func(t *testing.T, s *store.Store) {
 			t.Helper()
-			if err := s.FailTask(ctx, buildEpic, 1, openBuildOf(), "red failed", writtenAt()); err != nil {
+			if err := s.FailTask(ctx, buildEpic, 1, openBuildOf(), "red failed", nil, writtenAt()); err != nil {
 				t.Fatalf("FailTask: %v", err)
 			}
 		}},

@@ -75,7 +75,7 @@ func TestBriefRendersEverySectionInOrder(t *testing.T) {
 		"first line\nlast line\n" +
 		"\n```\n" +
 		"Your previous attempt failed: boom\n" +
-		"Commit once, then return status done with commit set to the full id of HEAD and a short summary. Return needs_context or blocked, with the reason in summary, when you cannot."
+		"Commit once, then return status done with commit set to the full id of HEAD and a short summary. Return needs_context or blocked, with the reason in summary, when you cannot. When the work needs files beyond the owned list, return needs_context and name each one in needs_files."
 	if got != want {
 		t.Fatalf("brief\n got:\n%s\nwant:\n%s", got, want)
 	}
@@ -111,7 +111,7 @@ func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) 
 		"Red log (last 8 KiB):\n" +
 		"```\n" +
 		"\n```\n" +
-		"Commit once, then return status done with commit set to the full id of HEAD and a short summary. Return needs_context or blocked, with the reason in summary, when you cannot."
+		"Commit once, then return status done with commit set to the full id of HEAD and a short summary. Return needs_context or blocked, with the reason in summary, when you cannot. When the work needs files beyond the owned list, return needs_context and name each one in needs_files."
 	if got != want {
 		t.Fatalf("brief\n got:\n%s\nwant:\n%s", got, want)
 	}

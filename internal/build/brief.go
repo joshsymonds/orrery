@@ -10,8 +10,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// ImplementerSchema is the schema an implementer step's return must match: its status, a summary, and the commit it
-// made.
+// ImplementerSchema is the schema an implementer step's return must match: its status, a summary, the commit it made,
+// and the files it names as needed beyond its owned list.
 //
 //go:embed implementer.json
 var ImplementerSchema string
@@ -63,7 +63,8 @@ func Brief(
 		lines = append(lines, "Your previous attempt failed: "+failure)
 	}
 	lines = append(lines, "Commit once, then return status done with commit set to the full id of HEAD and a short "+
-		"summary. Return needs_context or blocked, with the reason in summary, when you cannot.")
+		"summary. Return needs_context or blocked, with the reason in summary, when you cannot. When the work needs "+
+		"files beyond the owned list, return needs_context and name each one in needs_files.")
 	return strings.Join(lines, "\n")
 }
 

@@ -355,6 +355,7 @@ type EpicTask struct {
 	FindingPos  int64
 	Batch       string
 	Guard       string
+	NeedsFiles  string
 }
 
 type EpicTaskContribute struct {

@@ -30,7 +30,7 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 	case ActRepro:
 		return r.reproduce(ctx, epic, view, action)
 	case ActFail:
-		return r.fail(ctx, epic, view, action.Reason)
+		return r.fail(ctx, epic, view, action)
 	case ActAccept:
 		return r.accept(ctx, epic, view, action)
 	case ActPause:
@@ -110,10 +110,10 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 	}
 }
 
-// fail fails the task with reason, then removes its worktrees.
-func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, reason string) bool {
+// fail fails the task with action's reason and the files action names as needed, then removes its worktrees.
+func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
-	err := r.store.FailTask(ctx, epic.ID, seq, view.Task.Build, reason, r.now())
+	err := r.store.FailTask(ctx, epic.ID, seq, view.Task.Build, action.Reason, action.NeedsFiles, r.now())
 	if !r.written(ctx, epic.ID, seq, "fail task", err) {
 		return false
 	}
