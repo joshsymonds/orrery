@@ -240,18 +240,73 @@ func (r *buildRig) openReadOnlyStore(t *testing.T) *sql.DB {
 // checkEnded reports whether the node check id is stored and has ended.
 func (r *buildRig) checkEnded(t *testing.T, id string) bool {
 	t.Helper()
+	check, ok := r.nodeCheck(t, id)
+	return ok && check.State == store.NodeEnded
+}
+
+// nodeCheck returns the node check id, and false while it is not stored.
+func (r *buildRig) nodeCheck(t *testing.T, id string) (sqlcgen.EpicNodeCheck, bool) {
+	t.Helper()
 	db := r.openReadOnlyStore(t)
 	check, readErr := sqlcgen.New(db).GetEpicNodeCheck(t.Context(), id)
 	if closeErr := db.Close(); closeErr != nil {
 		t.Fatalf("close store read-only: %v", closeErr)
 	}
 	if errors.Is(readErr, sql.ErrNoRows) {
-		return false
+		return sqlcgen.EpicNodeCheck{}, false
 	}
 	if readErr != nil {
 		t.Fatalf("read node check %s: %v", id, readErr)
 	}
-	return check.State == store.NodeEnded
+	return check, true
+}
+
+// findNodeRun returns the node run at path of the rig's epic, and false while it is not stored.
+func (r *buildRig) findNodeRun(t *testing.T, path string) (sqlcgen.EpicNodeRun, bool) {
+	t.Helper()
+	for _, run := range r.nodeRuns(t) {
+		if run.Path == path {
+			return run, true
+		}
+	}
+	return sqlcgen.EpicNodeRun{}, false
+}
+
+// attemptEnded reports whether the current attempt of the node run at path is over: its check has ended, or the epic is
+// parked, so no pass starts it. A check that ran ends, and so does one that could not start, with its not-run reason. A
+// node run not stored yet has not ended.
+func (r *buildRig) attemptEnded(t *testing.T, path string) bool {
+	t.Helper()
+	if r.epic(t).GetParked() != "" {
+		return true
+	}
+	run, ok := r.findNodeRun(t, path)
+	return ok && r.checkEnded(t, store.NodeWorkID(run.ID, run.Attempt, nodeCheckPart))
+}
+
+// awaitAttemptEnd waits until the current attempt of the node run at path is over, as attemptEnded gives. Each way it
+// ends is terminal, so a check that never starts, or a park that stops it, ends the wait for the caller to assert on.
+func (r *buildRig) awaitAttemptEnd(t *testing.T, path string) {
+	t.Helper()
+	waitUntil(t, func() bool { return r.attemptEnded(t, path) })
+}
+
+// attemptState describes the node run at path, the check of its current attempt and the epic's park, for a failure
+// message.
+func (r *buildRig) attemptState(t *testing.T, path string) string {
+	t.Helper()
+	parked := r.epic(t).GetParked()
+	run, ok := r.findNodeRun(t, path)
+	if !ok {
+		return fmt.Sprintf("no node run at %s, epic parked %q", path, parked)
+	}
+	check, stored := r.nodeCheck(t, store.NodeWorkID(run.ID, run.Attempt, nodeCheckPart))
+	if !stored {
+		return fmt.Sprintf("node %s %q at attempt %d with no check, epic parked %q", path, run.State, run.Attempt,
+			parked)
+	}
+	return fmt.Sprintf("node %s %q at attempt %d, its check %q exit %d not run %q, epic parked %q", path, run.State,
+		run.Attempt, check.State, check.Exit, check.NotRun, parked)
 }
 
 // TestWorkflowNodesSigkillCommandRunsOnce proves that orreryd killed while a pinned workflow's command node runs starts
@@ -269,7 +324,12 @@ func TestWorkflowNodesSigkillCommandRunsOnce(t *testing.T) {
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 	// A command still held at the end of a failed test exits at once, so its holder is not left waiting.
 	t.Cleanup(func() { stepReadoptTouch(t, release) })
-	waitUntil(t, func() bool { return gateRunCount(t, lines) == 1 })
+	// The command holds once it has written its line, so the wait ends on that line, or on an attempt that ended
+	// without it.
+	waitUntil(t, func() bool { return gateRunCount(t, lines) > 0 || r.attemptEnded(t, nodesCommandNode) })
+	if n := gateRunCount(t, lines); n != 1 {
+		t.Fatalf("command lines once it started = %d, want 1; %s", n, r.attemptState(t, nodesCommandNode))
+	}
 
 	killOrreryd(t, daemon)
 	restarted, restartedAck := r.startPassDaemon(t, "restarted")
@@ -306,8 +366,10 @@ func TestWorkflowNodesGateRetryAfterRestartRunsEachAttemptOnce(t *testing.T) {
 	daemon, ack := r.startPassDaemon(t, "first")
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 
-	waitUntil(t, func() bool { return gateRunCount(t, lines) == 1 })
-	r.awaitCheck(t, nodesGateNode)
+	r.awaitAttemptEnd(t, nodesGateNode)
+	if n := gateRunCount(t, lines); n != 1 {
+		t.Fatalf("gate lines once its first attempt ended = %d, want 1; %s", n, r.attemptState(t, nodesGateNode))
+	}
 	signalPass(t, daemon, ack)
 	if run := r.nodeRun(t, nodesGateNode); run.State != store.NodeParked || r.epic(t).GetParked() == "" {
 		t.Fatalf("gate node %q with the epic parked %q, want both parked", run.State, r.epic(t).GetParked())
@@ -336,8 +398,11 @@ func TestWorkflowNodesGateRetryAfterRestartRunsEachAttemptOnce(t *testing.T) {
 	stepReadoptTouch(t, allow)
 	r.retryNode(t, nodesGateNode)
 	signalPass(t, restarted, restartedAck)
-	waitUntil(t, func() bool { return gateRunCount(t, lines) == 2 })
-	r.awaitCheck(t, nodesGateNode)
+	r.awaitAttemptEnd(t, nodesGateNode)
+	if n := gateRunCount(t, lines); n != 2 {
+		t.Fatalf("gate lines once the retried attempt ended = %d, want one per attempt, 2; %s", n,
+			r.attemptState(t, nodesGateNode))
+	}
 	signalPass(t, restarted, restartedAck)
 	if run := r.nodeRun(t, nodesGateNode); run.State != store.NodeEnded || run.Outcome != "passed" || run.Attempt != 1 {
 		t.Fatalf("gate node %q with outcome %q at attempt %d, want ended passed at its next attempt, 1",

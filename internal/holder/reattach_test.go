@@ -530,14 +530,37 @@ func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 // TestReattachStopOfAWedgedHolderFallsBack checks that Stop of a holder whose socket takes the stop's hello and never
 // answers gives up on the socket at its bound and stops the held process instead. The bound is the stop connection's
 // deadline, a kernel timer, so the test checks the fallback and not how long it took.
+//
+// Under load the bound can pass before the stop's dial connects or before it sends its hello. That stop falls back too,
+// and is checked to, but it never met the wedged socket, so the test tries again with a longer bound until a stop does.
 func TestReattachStopOfAWedgedHolderFallsBack(t *testing.T) {
 	t.Parallel()
 
+	for _, bound := range []time.Duration{reattachTestBound, 10 * reattachTestBound, 100 * reattachTestBound} {
+		if stopWedged(t, bound) {
+			return
+		}
+	}
+	t.Fatalf("no stop reached the wedged socket before its bound, the longest %v", 100*reattachTestBound)
+}
+
+// wedgedEnd is the test's end of the connection a stop dialed: conn is nil when no connection was accepted, and hello
+// reports whether the stop's hello arrived on it.
+type wedgedEnd struct {
+	conn  *net.UnixConn
+	hello bool
+}
+
+// stopWedged stops a Process held by a fake whose socket accepts the stop's connection, reads its hello and never
+// answers, with the stop bounded by bound. It fails the test unless Stop returns nil having stopped the held process,
+// and it reports whether the stop's hello reached the socket, that is whether the stop met the wedge.
+func stopWedged(t *testing.T, bound time.Duration) bool {
+	t.Helper()
 	p, server, held, listener := rawProcessHeld(t)
 	if p.stopTimeout != holderStopTimeout {
 		t.Fatalf("Process stop bound = %v, want holderStopTimeout %v", p.stopTimeout, holderStopTimeout)
 	}
-	p.stopTimeout = reattachTestBound
+	p.stopTimeout = bound
 	// Ending the held process also ends the stream, with the exit frame the holder sends when its child has ended.
 	held.cancel = func() {
 		close(held.done)
@@ -546,18 +569,38 @@ func TestReattachStopOfAWedgedHolderFallsBack(t *testing.T) {
 			t.Errorf("send the exit frame: %v", writeErr)
 		}
 	}
-	stopped := startAsync(p.Stop)
-	// The stop dials the holder's socket again. The test accepts that connection and never answers its hello.
-	wedged := acceptRaw(t, listener)
-	if got := wedged.read(); got.Type != TypeHello {
-		t.Fatalf("frame %+v, want the stop's hello", got)
+	// The stop dials the holder's socket again. The accept runs beside the stop, since a stop whose bound passes first
+	// never dials, and the connection stays open, its hello unanswered, until the stop has returned.
+	accepted := startAsync(func() wedgedEnd {
+		conn, err := listener.AcceptUnix()
+		if err != nil {
+			return wedgedEnd{}
+		}
+		frame, err := NewFrameReader(conn).Read()
+		return wedgedEnd{conn: conn, hello: err == nil && frame.Type == TypeHello}
+	})
+	stopErr := awaitResult(t, "Stop", startAsync(p.Stop))
+	// The stop has returned, so its connection, if it made one, has its hello or is closed. A past deadline ends an
+	// accept still waiting for a dial that will not come.
+	if err := listener.SetDeadline(time.Now()); err != nil {
+		t.Fatalf("set the listener's deadline: %v", err)
 	}
-	if err := <-stopped; err != nil {
-		t.Fatalf("Stop = %v, want nil from the held process's stop", err)
+	end := awaitResult(t, "accept", accepted)
+	if end.conn != nil {
+		if err := end.conn.Close(); err != nil {
+			t.Errorf("close the stop's connection: %v", err)
+		}
+	}
+	if stopErr != nil {
+		t.Fatalf("Stop = %v, want nil from the held process's stop", stopErr)
 	}
 	select {
 	case <-held.done:
 	default:
 		t.Fatal("Stop returned without stopping the held process")
 	}
+	if !end.hello {
+		t.Logf("the stop's %v bound passed before its hello reached the socket", bound)
+	}
+	return end.hello
 }

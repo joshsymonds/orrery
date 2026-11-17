@@ -17,7 +17,8 @@
 #   - Go: the packages that hold a changed .go file, plus every package that imports one of them, directly or not.
 #     Lint and `go test -race` run on those. A change to go.mod, go.sum, internal/store SQL, sqlc.yaml or proto/
 #     selects every package. Each tested package's CPU seconds are checked against its baseline
-#     (scripts/test-budget.sh).
+#     (scripts/test-budget.sh), and those budget lines are printed again, with the OK or exceeded line, as the run's last
+#     output: a gate keeps only the tail of its output, and the checks after the Go tests can print more than it keeps.
 #   - sqlc-diff when internal/store SQL or sqlc.yaml changed.
 #   - proto-lint, proto-breaking and gen-diff when proto/ changed.
 #   - web-check and web-page when web/ changed (outside web/build).
@@ -43,7 +44,16 @@ echo "check-changed: base $(git rev-parse --short "$base"), $(printf '%s\n' "$ch
 
 has() { printf '%s\n' "$changed" | grep -qE "$1"; }
 
+# The test-budget lines of the Go tests, once they ran; budget_lines prints them again.
+lines_file=""
+budget_lines() {
+    if [ -n "$lines_file" ]; then
+        cat "$lines_file"
+    fi
+}
+
 over() {
+    budget_lines
     echo "check-changed: exceeded ${budget}s budget ($1 was running)" >&2
     exit 124
 }
@@ -134,7 +144,8 @@ if [ -n "$pkgs" ]; then
         fi
     fi
     # One line per package over its CPU budget; exit 3 when one is over twice its baseline.
-    scripts/test-budget.sh check "$record"
+    scripts/test-budget.sh check --lines "$artifacts/test-budget.lines" "$record"
+    lines_file="$artifacts/test-budget.lines"
 else
     echo "check-changed: no Go package affected"
 fi
@@ -152,4 +163,5 @@ else
     echo "check-changed: Android untouched; android-test skipped"
 fi
 
+budget_lines
 echo "check-changed: OK after $((budget - (end - $(date +%s))))s of its ${budget}s budget"

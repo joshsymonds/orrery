@@ -85,8 +85,9 @@ cover:
     fi
     echo "coverage: ${pct}% (>= 80% OK)"
 
-    # One line per package over its CPU budget; exit 3 when one is over twice its baseline.
-    scripts/test-budget.sh check "$record"
+    # One line per package over its CPU budget; exit 3 when one is over twice its baseline. The lines go to
+    # test-artifacts/test-budget.lines too, which check prints again as its last output.
+    scripts/test-budget.sh check --lines "$artifacts/test-budget.lines" "$record"
 
 # Lint the protobuf contract in proto/.
 proto-lint:
@@ -257,8 +258,10 @@ _visual-build:
     rm -rf web/build/visual-tool
     esbuild $(find web/src/visual -name '*.ts' ! -name '*.test.ts' | sort) --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build/visual-tool --out-extension:.js=.mjs --external:playwright-core --log-level=warning
 
-# Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
+# Lint, coverage, typed-client, and generated-code gates. The pin check runs first. cover's test-budget lines are
+# printed again last: a gate keeps only the tail of its output, and the checks after cover print far more than it keeps.
 check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test test-budget-test
+    cat test-artifacts/test-budget.lines
 
 # Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
 # and its -L server runs on as a daemon. Only a server named orrery-<word>(-<word>)*-<pid>-<hex>, as tests name theirs,

@@ -125,10 +125,13 @@ type Builder interface {
 }
 
 // Reviewers reads the epic-stage reviewers enabled for an epic, and starts the step of one reviewer, verifier or closure
-// verifier at a revision of the epic's repository.
+// verifier at a revision of the epic's repository. Start's doneGates are the checks of the Done gates that ran at
+// revision.
 type Reviewers interface {
 	Epic(epic store.EpicRow) []kinds.Reviewer
-	Start(ctx context.Context, epic store.EpicRow, name, base, revision string) (enginehost.StepStart, error)
+	Start(
+		ctx context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
+	) (enginehost.StepStart, error)
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, a nil Now means time.Now and a nil Getenv

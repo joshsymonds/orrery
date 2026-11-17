@@ -829,7 +829,7 @@ func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
 		def.Effort != "high" || def.Prompt != "Review the diff." {
 		t.Errorf("floor review inline agent = %+v, want the floor's model, tools, effort and prompt", def)
 	}
-	if want := ReviewPrompt(epic, task, base, revision); first.Prompt != want {
+	if want := ReviewPrompt(epic, task, "floor", base, revision, store.StepCheck{}); first.Prompt != want {
 		t.Errorf("floor review Prompt = %q, want the review prompt %q", first.Prompt, want)
 	}
 
@@ -841,7 +841,8 @@ func TestPassReviewRunsEachTaskReviewerAsDeclared(t *testing.T) {
 	if second.Agents != "" {
 		t.Errorf("custom review Agents = %s, want none for an agent reviewer", second.Agents)
 	}
-	if want := "Check the migration.\n\n" + ReviewPrompt(epic, task, base, revision); second.Prompt != want {
+	want := "Check the migration.\n\n" + ReviewPrompt(epic, task, "custom", base, revision, store.StepCheck{})
+	if second.Prompt != want {
 		t.Errorf("custom review Prompt = %q, want %q", second.Prompt, want)
 	}
 }
