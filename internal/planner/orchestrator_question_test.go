@@ -31,12 +31,15 @@ func TestOrchestratorQuestionIsStoredWithItsCatastropheAndRoutedToTheOwner(t *te
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
 	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
-	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+	runner := New(runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
 
-	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
-	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+	turn, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt())
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	if err = runner.complete(ctx, runnerEpicID, turn.Seq, validPlan); err != nil {
+		t.Fatalf("complete turn 1: %v", err)
+	}
 
 	epic := epicOf(t, s)
 	wantQuestions := []store.EpicQuestion{

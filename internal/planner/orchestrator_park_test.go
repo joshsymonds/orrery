@@ -8,13 +8,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// TestOrchestratorParkPlannerParkStartsATurnAndRoutesNoNotice checks that a planner park leaves its epic claimable: one
-// pass of the runner starts the planner's turn through the step fakes, and one attention pass routes no notice, since
-// the planner, not the owner, answers the park. The epic first ends a turn with no park, so attention has an ended,
-// untold turn to judge, and an owner park reported as the epic's park would route a notice on it.
+// TestOrchestratorParkPlannerParkStartsATurnAndRoutesNoNotice checks that a planner park leaves its epic claimable: the
+// decision over the stored state claims the epic, the claimed turn starts one planner step, and one attention pass
+// routes no notice, since the planner, not the owner, answers the park. The epic first ends a turn with no park, so
+// attention has an ended, untold turn to judge, and an owner park reported as the epic's park would route a notice on it.
 func TestOrchestratorParkPlannerParkStartsATurnAndRoutesNoNotice(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	if err := s.CompleteTurn(ctx, runnerEpicID, claimAttentionTurn(t, s), store.EpicPlan{Outcome: "wait"},
@@ -33,13 +33,37 @@ func TestOrchestratorParkPlannerParkStartsATurnAndRoutesNoNotice(t *testing.T) {
 	steps := newFakeSteps()
 	var reads atomic.Int64
 	runner := New(runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
-	t.Cleanup(func() {
-		cancel()
-		runner.WaitTurns()
-	})
 
-	runner.Pass(ctx)
-	waitForStarts(t, steps, 1)
+	states, err := s.PlanStates(ctx)
+	if err != nil {
+		t.Fatalf("PlanStates: %v", err)
+	}
+	var state store.EpicPlanState
+	found := false
+	for _, st := range states {
+		if st.Epic == runnerEpicID {
+			state, found = st, true
+		}
+	}
+	if !found {
+		t.Fatalf("PlanStates lists no state for epic %s", runnerEpicID)
+	}
+	action := Decide(State{
+		Paused: state.Paused, Parked: state.Parked != "", Running: state.Running, Pending: state.Pending,
+	}, nil)
+	if action.Kind != ActionClaim {
+		t.Fatalf("Decide over the planner-parked epic = %q, want %q", action.Kind, ActionClaim)
+	}
+	turn, ok := runner.claim(ctx, runnerEpicID)
+	if !ok {
+		t.Fatalf("claim of the planner-parked epic %s = none, want a turn", runnerEpicID)
+	}
+	if _, err = runner.startStep(ctx, runnerEpicID, turn, runnerAgent); err != nil {
+		t.Fatalf("startStep: %v", err)
+	}
+	if n := len(steps.started()); n != 1 {
+		t.Errorf("planner steps started = %d, want 1", n)
+	}
 
 	router := &fakeAttentionRouter{}
 	attentionOver(s, router).pass(ctx)
