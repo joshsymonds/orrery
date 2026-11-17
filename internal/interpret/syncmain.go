@@ -15,13 +15,24 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// prepareSync carries out the prepare of a sync run. It reads origin's main and, when the stored base does not hold it
-// and no earlier sync tried it, merges it into the stored base without a checkout (mergeMain). The result is recorded,
-// with the merge as the run's revision, in one write, once. What kept the sync from reading or merging origin's main is
-// recorded as the result's error and logged, so the run ends skipped and the epic goes on: a sync never parks.
+// outcomeSkipped is the outcome of a sync run whose advance moved nothing, since its epic was no longer at the quiet
+// point the sync started at.
+const outcomeSkipped = "skipped"
+
+// syncGitLimit is how long the git a sync's prepare runs may take, its fetch of origin's main above all. The prepare runs
+// on the interpreter's pass, so a connection to origin that stalls holds every epic's flow until git is stopped.
+const syncGitLimit = 3 * time.Minute
+
+// prepareSync carries out the prepare of a sync run. It reads origin's main and merges origin's commit into the stored
+// base without a checkout when the stored base does not hold that commit, the commit holds the epic's change base and no
+// earlier sync tried it (mergeMain). Its git runs for at most the runner's sync limit, and git still running then is
+// stopped. The result is
+// recorded, with the merge as the run's revision, in one write, once. What kept the sync from reading or merging origin's
+// main, git that ran past the limit among it, is recorded as the result's error and logged, so the run ends skipped and
+// the epic goes on: a sync never parks.
 func (r *Runner) prepareSync(ctx context.Context, epic store.EpicRow, act Action) error {
 	result := kinds.SyncResult{Base: epic.StoredBase}
-	if err := mergeMain(ctx, epic, act, &result); err != nil {
+	if err := r.mergeMainWithin(ctx, epic, act, &result); err != nil {
 		result.Error = err.Error()
 		r.logger.WarnContext(ctx, "sync of origin's main did not run", "epic", epic.ID, "path", act.Path, "err", err)
 	}
@@ -35,12 +46,26 @@ func (r *Runner) prepareSync(ctx context.Context, epic store.EpicRow, act Action
 	return nil
 }
 
+// mergeMainWithin runs mergeMain for the sync run of act under a context that ends after the runner's sync limit, and
+// returns its error. An error of git that the limit stopped says so, naming the limit.
+func (r *Runner) mergeMainWithin(ctx context.Context, epic store.EpicRow, act Action, result *kinds.SyncResult) error {
+	bounded, cancel := context.WithTimeout(ctx, r.syncLimit)
+	defer cancel()
+	err := mergeMain(bounded, epic, act, result)
+	if err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("git did not finish within %s: %w", r.syncLimit, err)
+	}
+	return err
+}
+
 // mergeMain fills result for the sync run of act. A repository with no remote origin is noted and read no further.
 // Otherwise origin's default branch is fetched into the sync's origin ref, as a release fetches it (fetchOrigin). A
-// commit the stored base holds is noted, and so is a commit an earlier sync tried, which act's Items name with the path
-// of that sync in its IDs. Any other commit is merged into the stored base with git merge-tree --write-tree: a merge that
-// conflicts records its conflicted paths, and one that does not is committed and pinned (commitSync). It returns what
-// kept it from reading or merging origin's main.
+// commit the stored base holds is noted. So is a commit that does not hold the epic's change base (changeBase), with
+// that change base, since the change from such a commit would hold commits of the change base beside the epic's own. So
+// is a commit an earlier sync tried, which act's Items name with the path of that sync in its IDs. Any other
+// commit is merged into the stored base with git merge-tree --write-tree: a merge that conflicts records its conflicted
+// paths, and one that does not is committed and pinned (commitSync). It returns what kept it from reading or merging
+// origin's main.
 func mergeMain(ctx context.Context, epic store.EpicRow, act Action, result *kinds.SyncResult) error {
 	has, err := hasOrigin(ctx, epic.Repository)
 	if err != nil {
@@ -59,6 +84,15 @@ func mergeMain(ctx context.Context, epic store.EpicRow, act Action, result *kind
 	if err != nil || contained {
 		result.Contained = contained
 		return err
+	}
+	from := changeBase(epic)
+	held, err := isAncestor(ctx, epic.Repository, from, origin)
+	if err != nil {
+		return err
+	}
+	if !held {
+		result.ChangeBase = from
+		return nil
 	}
 	if i := slices.Index(act.Items, origin); i >= 0 {
 		result.TriedBy = act.IDs[i]
@@ -127,9 +161,12 @@ func (r *Runner) advanceSync(ctx context.Context, epic store.EpicRow, act Action
 
 // syncEnd moves the epic's branch from the stored base to the merge of the sync run of act, with the same
 // compare-and-swap, fast-forward-only advance an integrate run's batch makes, and returns the run's passed end. A branch
-// already at the merge is one a restart left after it moved the branch, so the end is passed with no move. A branch at
-// another commit, one the merge does not build on, or one checked out in a worktree is not moved (advanceBlock): the end
-// is failed, its output the merge's line and why, and it tells that output. The epic is not parked.
+// already at the merge, with the stored base still the merge's first parent, is one a restart left after it moved the
+// branch and before the end was written, so the end is passed with no move, whatever act's Reason: the end moves the
+// stored base after the branch. Otherwise an act with a Reason, why the epic is no longer at the quiet point the sync
+// started at, moves nothing, and its end is skipped, its output the merge's line and the Reason. A branch at another
+// commit, one the merge does not build on, or one checked out in a worktree is not moved (advanceBlock): the end is
+// failed, its output the merge's line and why, and it tells that output. The epic is not parked.
 func syncEnd(ctx context.Context, epic store.EpicRow, act Action) (store.SyncEnd, error) {
 	result, err := kinds.ParseSyncResult(act.Run.Result)
 	if err != nil {
@@ -140,8 +177,15 @@ func syncEnd(ctx context.Context, epic store.EpicRow, act Action) (store.SyncEnd
 		Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomePassed, Output: act.Output, Synced: result.Origin,
 	}
 	tip, err := branchHead(ctx, epic)
-	if err != nil || tip == merge {
-		return passed, err
+	if err != nil {
+		return store.SyncEnd{}, err
+	}
+	if tip == merge && epic.StoredBase == result.Base {
+		return passed, nil
+	}
+	if act.Reason != "" {
+		output := result.MergeLine() + "\nnot advanced: " + act.Reason
+		return store.SyncEnd{Path: act.Path, Attempt: act.Run.Attempt, Outcome: outcomeSkipped, Output: output}, nil
 	}
 	reason, err := advanceBlock(ctx, epic, tip, merge)
 	if err != nil {
@@ -162,7 +206,9 @@ func syncEnd(ctx context.Context, epic store.EpicRow, act Action) (store.SyncEnd
 
 // changeBase returns the commit the epic's own change is read from: the commit of origin's main its stored base last
 // merged in a sync, or the epic's base when no sync has passed. A sync merges origin's main into the stored base, so the
-// change from the epic's base would hold origin's commits beside the epic's own.
+// change from the epic's base would hold origin's commits beside the epic's own. A sync merges only an origin commit that
+// holds the change base before it (mergeMain), so the change from the change base is the epic's own and none of
+// origin's.
 func changeBase(epic store.EpicRow) string {
 	if epic.Synced != "" {
 		return epic.Synced

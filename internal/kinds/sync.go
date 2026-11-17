@@ -15,8 +15,7 @@ const (
 	kindRelease = "release"
 )
 
-// outcomeSkipped is the outcome of a sync run that tried no merge, or whose merge was not advanced for a reason that is
-// not the merge's.
+// outcomeSkipped is the outcome of a sync run whose prepare tried no merge.
 const outcomeSkipped = "skipped"
 
 // Sync is the kind of the sync of origin's main. The interpreter adds a sync run under a running plan run at a quiet
@@ -28,18 +27,20 @@ type Sync struct{}
 
 // SyncResult is the result a sync run's prepare records: an error that kept it from reading or merging origin's main,
 // or that the repository has no remote origin; else origin's branch and commit, the stored base it was merged into, and
-// then whether that commit is in the stored base already, the path of an earlier sync run that tried it, the paths its
-// merge conflicts in, or the merge it made. The kind reads it and the executor writes it, so it is defined once, here.
+// then whether that commit is in the stored base already, the epic's change base when that commit does not hold it, the
+// path of an earlier sync run that tried it, the paths its merge conflicts in, or the merge it made. The kind reads it
+// and the executor writes it, so it is defined once, here.
 type SyncResult struct {
-	Error     string   `json:"error,omitempty"`
-	NoOrigin  bool     `json:"noOrigin,omitempty"`
-	Branch    string   `json:"branch,omitempty"`
-	Origin    string   `json:"origin,omitempty"`
-	Base      string   `json:"base"`
-	Contained bool     `json:"contained,omitempty"`
-	TriedBy   string   `json:"triedBy,omitempty"`
-	Conflicts []string `json:"conflicts,omitempty"`
-	Merge     string   `json:"merge,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	NoOrigin   bool     `json:"noOrigin,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	Origin     string   `json:"origin,omitempty"`
+	Base       string   `json:"base"`
+	Contained  bool     `json:"contained,omitempty"`
+	ChangeBase string   `json:"changeBase,omitempty"`
+	TriedBy    string   `json:"triedBy,omitempty"`
+	Conflicts  []string `json:"conflicts,omitempty"`
+	Merge      string   `json:"merge,omitempty"`
 }
 
 // Tried reports whether the sync tried a merge of origin's commit: it made the merge, or found it conflicting. A commit
@@ -65,7 +66,7 @@ func ParseSyncResult(result string) (SyncResult, error) {
 // Decide decides a sync run. With no result it prepares, unless the epic is paused or parked, naming the commits of
 // origin's main the epic's other sync runs tried. With one it ends on what the prepare found when the prepare made no
 // merge. Otherwise it walks the Done gates, the captures and the reproductions at the merge, ends failed when one fails,
-// and advances to the merge once all pass, unless the epic moved while they ran.
+// and advances to the merge once all pass, with why when the epic moved while they ran.
 func (Sync) Decide(node Node, rows Rows) Action {
 	run := node.Run
 	if run.Result == "" {
@@ -104,8 +105,8 @@ func syncTries(rows Rows, path string) ([]string, []string) {
 }
 
 // syncUnmerged ends a sync run whose prepare made no merge, and reports whether it did. A repository with no remote
-// origin, an error, origin's commit already in the stored base and a commit an earlier sync tried end it skipped. A
-// merge that conflicts ends it failed, naming the paths.
+// origin, an error, origin's commit already in the stored base, a commit that does not hold the epic's change base and a
+// commit an earlier sync tried end it skipped. A merge that conflicts ends it failed, naming the paths.
 func syncUnmerged(result SyncResult) (Action, bool) {
 	switch {
 	case result.NoOrigin:
@@ -115,6 +116,10 @@ func syncUnmerged(result SyncResult) (Action, bool) {
 	case result.Contained:
 		return syncEnd(outcomeSkipped, fmt.Sprintf(
 			"origin's commit %s is in the stored base %s", result.Origin, result.Base,
+		)), true
+	case result.ChangeBase != "":
+		return syncEnd(outcomeSkipped, fmt.Sprintf(
+			"the epic's change base %s is not in origin's commit %s", result.ChangeBase, result.Origin,
 		)), true
 	case result.TriedBy != "":
 		return syncEnd(outcomeSkipped, fmt.Sprintf(
@@ -136,7 +141,8 @@ func syncUnmerged(result SyncResult) (Action, bool) {
 // that failed or regressed from green at the stored base, and a check lost at a restart twice or exiting
 // store.EnvironmentExit on its last run end the run failed, its output the merge's line and then one line per cause.
 // Once every check has passed, the run advances to the merge, its output the line of what it merged and one line per
-// Requirement, unless the epic moved while the checks ran: then it ends skipped with why.
+// Requirement, and its Reason why the epic moved while the checks ran (syncMoved), empty when it did not. The executor
+// ends a run whose advance has a Reason skipped with it, unless a restart left the branch at the merge already.
 func syncChecks(run store.NodeRun, rows Rows, result SyncResult) Action {
 	gate, act, settled := doneGates(run, rows)
 	if !settled {
@@ -155,12 +161,12 @@ func syncChecks(run store.NodeRun, rows Rows, result SyncResult) Action {
 	if causes := captureCauses(rows, captured); len(causes) > 0 {
 		return syncFailed(result, causes)
 	}
-	if moved := syncMoved(rows, result); moved != "" {
-		return syncEnd(outcomeSkipped, result.MergeLine()+"\nnot advanced: "+moved)
-	}
 	merged := fmt.Sprintf("merged origin's commit %s into the stored base %s as %s", result.Origin, result.Base,
 		result.Merge)
-	return Action{Kind: ActAdvance, Output: outputOf([]string{merged}, requirementLines(rows, captured))}
+	return Action{
+		Kind: ActAdvance, Output: outputOf([]string{merged}, requirementLines(rows, captured)),
+		Reason: syncMoved(rows, result),
+	}
 }
 
 // syncWait returns act, what a check of the sync that is not decided asks for. A park ends the run failed with the

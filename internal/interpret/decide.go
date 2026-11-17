@@ -37,19 +37,20 @@ const (
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
-// the Ends, a failed end in a plan body its Trigger, and an end that builds the epic Built. Round and Park name the loop
-// at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
-// its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason. When Met names
-// Requirements, the evidence node at base found them holding at the base, and the park's question offers them as met.
-// Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. Sync ends the sync run
-// at Path, whose Attempt ended with Outcome and Output, and tells Reason when it is set. ParkEpic parks the epic for
-// Reason, with Trigger. Work carries a check, sync or release node run's work: Work is the kind's action, prepare,
-// start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def, Run, IDs,
-// Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, an
-// integrator the failure its round mends as its Output, and an integrate run's advance the Trigger its passed batch
-// writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends the review run at Path, whose
-// Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path, whose Attempt ended with Outcome
-// and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase and
+// the Ends, a failed end in a plan body its Trigger, and an end that builds the epic Built. Round and Park name the
+// loop at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build
+// child its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason. When
+// Met names Requirements, the evidence node at base found them holding at the base, and the park's question offers them
+// as met. Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. Sync ends
+// the sync run at Path, whose Attempt ended with Outcome and Output, and tells Reason when it is set. ParkEpic parks
+// the epic for Reason, with Trigger. Work carries a check, sync or release node run's work: Work is the kind's action,
+// prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def,
+// Run, IDs, Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome,
+// an integrator the failure its round mends as its Output, an integrate run's advance the Trigger its passed batch
+// writes, and a sync run's advance as its Reason why the epic is no longer at the quiet point the sync started at. Hold
+// pauses the epic for the review step IDs[0], stopped for Reason. Review ends the review run at Path, whose Attempt
+// ended with Output, Verdicts and Ledger. Closure ends the closure run at Path, whose Attempt ended with Outcome and
+// Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase and
 // Output.
 type Action struct {
 	Kind        ActionKind
@@ -635,8 +636,8 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 }
 
 // work returns the work action of a check, sync or release node run: the kind's action, and the ids, items, tasks,
-// units, output and outcome the work is for. An integrate run's advance also carries the trigger its passed batch writes.
-// An action that names a revision runs at it: the run it carries holds that revision in place of its own.
+// units, output, outcome and reason the work is for. An integrate run's advance also carries the trigger its passed batch
+// writes. An action that names a revision runs at it: the run it carries holds that revision in place of its own.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	if act.Revision != "" {
 		run.Revision = act.Revision
@@ -644,6 +645,7 @@ func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Actio
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
 		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,
+		Reason: act.Reason,
 	}
 	if act.Kind == kinds.ActAdvance && def.Kind == kindIntegrate {
 		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)

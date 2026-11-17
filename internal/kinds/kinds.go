@@ -76,7 +76,8 @@ const (
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
 // Phase are what a review, closure or conclusion ends with. Revision, when set, is the revision the work runs at in
 // place of the run's own: a release run walks the Done gates and captures of a merge the release integrator committed,
-// and records it as the candidate, at that commit.
+// and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the epic is no longer at the
+// quiet point the sync started at, and empty while it is.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -91,6 +92,7 @@ type Action struct {
 	Closures []store.Closure
 	Phase    string
 	Revision string
+	Reason   string
 }
 
 // Kind decides what happens next to a node run.

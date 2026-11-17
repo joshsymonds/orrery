@@ -150,7 +150,8 @@ type Config struct {
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
-// hands build runs to the builder and passes the planner for the epics whose plan run is running.
+// hands build runs to the builder and passes the planner for the epics whose plan run is running. syncLimit bounds the
+// git a sync's prepare runs, syncGitLimit unless a test sets it.
 type Runner struct {
 	store     Store
 	planner   Planner
@@ -168,6 +169,7 @@ type Runner struct {
 	logger    *slog.Logger
 	passed    func()
 	kinds     map[string]kinds.Kind
+	syncLimit time.Duration
 }
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
@@ -186,7 +188,7 @@ func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
-		tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
+		tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed, syncLimit: syncGitLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},

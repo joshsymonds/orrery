@@ -58,6 +58,7 @@ func TestSyncPrepareAndUnmerged(t *testing.T) {
 	tried := Rows{Runs: []store.NodeRun{
 		syncTried("plan/M0", `{"origin":"o0","base":"b","conflicts":["a.go"]}`),
 		syncTried("plan/M2", `{"origin":"o2","base":"b","contained":true}`),
+		syncTried("plan/M6", `{"origin":"o6","base":"b","changeBase":"l1"}`),
 		syncTried("fix/M3", `{"origin":"o3","base":"b","merge":"m3"}`),
 		syncTried("fix/M4", `not json`),
 		{Path: "fix/M5", Kind: "sync", State: store.NodeRunning},
@@ -87,6 +88,11 @@ func TestSyncPrepareAndUnmerged(t *testing.T) {
 			"a commit the stored base holds ends skipped",
 			syncNode("", `{"origin":"o1","base":"b","contained":true}`), Rows{},
 			syncEnd("skipped", "origin's commit o1 is in the stored base b"),
+		},
+		{
+			"a commit that does not hold the change base ends skipped",
+			syncNode("", `{"origin":"o1","base":"b","changeBase":"l1"}`), Rows{},
+			syncEnd("skipped", "the epic's change base l1 is not in origin's commit o1"),
 		},
 		{
 			"a commit another sync tried ends skipped",
@@ -172,7 +178,10 @@ func TestSyncReproducesTestItemsAtTheMerge(t *testing.T) {
 	})
 }
 
-func TestSyncDoesNotAdvanceAnEpicThatMoved(t *testing.T) {
+// TestSyncAdvanceNamesWhyTheEpicMoved: an epic that moved while the sync's checks ran still gets the advance, with why
+// it moved as the advance's Reason, so the executor, which reads the branch, ends the run: passed when a restart left the
+// branch at the merge, and skipped with the Reason otherwise.
+func TestSyncAdvanceNamesWhyTheEpicMoved(t *testing.T) {
 	t.Parallel()
 	node := syncNode("m1", syncMerged)
 	captured := []store.EvidenceRun{greenCapture("capture R1", true), greenCapture("capture R2", true)}
@@ -180,14 +189,18 @@ func TestSyncDoesNotAdvanceAnEpicThatMoved(t *testing.T) {
 	turning.Epic.Turns = []store.EpicTurn{{Seq: 2, State: "running"}}
 	moved := syncRows(gatesPassed(), captured...)
 	moved.Epic.StoredBase = "base-2"
+	advance := func(reason string) Action {
+		return Action{
+			Kind: ActAdvance, Output: "merged origin's commit o1 into the stored base base-1 as m1\n" +
+				"R1 green\nR2 green\nR3 not yet green",
+			Reason: reason,
+		}
+	}
 	checkDecisions(t, Sync{}, []decideCase{
+		{"a planner turn that started is the advance's reason", node, turning, advance("planner turn 2 is running")},
 		{
-			"a planner turn that started ends it skipped", node, turning,
-			syncEnd("skipped", syncHead+"\nnot advanced: planner turn 2 is running"),
-		},
-		{
-			"a stored base that moved ends it skipped", node, moved,
-			syncEnd("skipped", syncHead+"\nnot advanced: the stored base moved from base-1 to base-2"),
+			"a stored base that moved is the advance's reason", node, moved,
+			advance("the stored base moved from base-1 to base-2"),
 		},
 	})
 }

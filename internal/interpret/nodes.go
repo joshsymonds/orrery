@@ -351,14 +351,29 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 
 // gitOutput runs git in dir and returns its stdout as git wrote it. On failure the error carries git's stderr.
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	return gitRun(gitCommand(ctx, dir, args), args)
+}
+
+// gitCommand returns the command that runs git in dir with args, which ctx's end stops.
+func gitCommand(ctx context.Context, dir string, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git")
 	cmd.Args = append(cmd.Args, "-C", dir)
 	cmd.Args = append(cmd.Args, args...)
+	return cmd
+}
+
+// gitRun runs cmd, git with args, and returns its stdout as git wrote it. On failure the error carries git's stderr,
+// when git wrote any.
+func gitRun(cmd *exec.Cmd, args []string) (string, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		err = fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			err = fmt.Errorf("%w: %s", err, detail)
+		}
+		return "", err
 	}
 	return string(out), nil
 }

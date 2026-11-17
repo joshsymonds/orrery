@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -17,6 +20,10 @@ import (
 
 // releaseRemote is the remote a release reads origin's default branch from.
 const releaseRemote = "origin"
+
+// remoteKillGrace bounds how long git that reads origin is waited for once its context has ended and it was killed, so
+// a transport it started that outlives it cannot hold its output open.
+const remoteKillGrace = 2 * time.Second
 
 // The exit statuses that answer a question rather than fail. merge-base --is-ancestor exits notAncestor for a commit
 // that is not an ancestor, and merge-tree --write-tree exits mergeConflict when the merge conflicts, with the conflicted
@@ -102,9 +109,9 @@ func decideRelease(ctx context.Context, epic store.EpicRow, run store.NodeRun) (
 
 // fetchOrigin fetches origin's default branch into ref of epic's repository, and returns the branch and the commit the
 // ref names. The default branch is the one origin's HEAD names. A release fetches into its origin ref, and a sync of
-// origin's main into its own.
+// origin's main into its own. It reads origin with remoteOutput.
 func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, string, error) {
-	listing, err := gitOutput(ctx, epic.Repository, "ls-remote", "--symref", releaseRemote, "HEAD")
+	listing, err := remoteOutput(ctx, epic.Repository, "ls-remote", "--symref", releaseRemote, "HEAD")
 	if err != nil {
 		return "", "", err
 	}
@@ -113,7 +120,7 @@ func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, s
 		return "", "", err
 	}
 	fetchSpec := "+" + branch + ":" + ref
-	if _, err = gitOutput(
+	if _, err = remoteOutput(
 		ctx, epic.Repository, "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", releaseRemote, fetchSpec,
 	); err != nil {
 		return "", "", err
@@ -123,6 +130,19 @@ func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, s
 		return "", "", err
 	}
 	return branch, strings.TrimSpace(commit), nil
+}
+
+// remoteOutput runs git in dir as gitOutput does, for a command that reads origin. git never prompts for a username or
+// password (GIT_TERMINAL_PROMPT=0), so it fails where it would wait on a prompt. It runs in a process group of its own,
+// which ctx's end kills whole, so the transport git started is stopped with it, and it is waited for at most
+// remoteKillGrace after that.
+func remoteOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := gitCommand(ctx, dir, args)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = remoteKillGrace
+	return gitRun(cmd, args)
 }
 
 // candidateContainsOrigin reports whether origin's current main is in candidate, which is to say an ancestor of it or the

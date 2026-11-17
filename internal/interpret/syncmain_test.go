@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -42,6 +45,25 @@ func newSyncWorld(t *testing.T) *syncWorld {
 	return &syncWorld{integrateWorld: w, origin: mergeRemote(t, w.repo)}
 }
 
+// newSyncWorldAhead returns a sync world whose epic's base is a commit on main that origin lacks: main is pushed to
+// origin, and then the base is committed on main and not pushed.
+func newSyncWorldAhead(t *testing.T) *syncWorld {
+	t.Helper()
+	var origin string
+	w := newIntegrateWorld(t, madeBy(func(t *testing.T) (string, string) {
+		t.Helper()
+		repo, _ := nodeRepo(t)
+		origin = mergeRemote(t, repo)
+		nodeWrite(t, repo, "local.txt", "local\n")
+		nodeGit(t, repo, "add", "local.txt")
+		nodeGit(t, repo, "commit", "-q", "-m", "local, not pushed")
+		return repo, nodeGit(t, repo, "rev-parse", "HEAD")
+	}))
+	w.git("config", "user.name", "Test")
+	w.git("config", "user.email", "test@example.invalid")
+	return &syncWorld{integrateWorld: w, origin: origin}
+}
+
 // passed carries one pass out on the integrate flow, fails the test when it logged anything, and reports whether the
 // plan run was given its turn, which is whether the planner is passed for the epic.
 func (w *integrateWorld) passed() bool {
@@ -59,6 +81,29 @@ func (w *syncWorld) originCommit(file string) string {
 	return mergeOriginCommit(w.t, w.origin, file)
 }
 
+// forceOrigin commits file on the epic's base in a clone of origin and pushes it over origin's main, as a force-push
+// that rewrote origin's main does, and returns the commit.
+func (w *syncWorld) forceOrigin(file string) string {
+	w.t.Helper()
+	clone := w.t.TempDir()
+	nodeGit(w.t, clone, "clone", "-q", w.origin, ".")
+	nodeGit(w.t, clone, "reset", "-q", "--hard", w.base)
+	nodeWrite(w.t, clone, file, "forced\n")
+	nodeGit(w.t, clone, "add", file)
+	nodeGit(w.t, clone, "commit", "-q", "-m", "forced "+file)
+	nodeGit(w.t, clone, "push", "-q", "--force", "origin", "main")
+	return nodeGit(w.t, clone, "rev-parse", "HEAD")
+}
+
+// uploadPack writes a shell script whose body is body under a temporary directory and makes it the program the test
+// repository's git runs for origin's side of a fetch or ls-remote, which a local origin runs as a child of git.
+func (w *integrateWorld) uploadPack(body string) {
+	w.t.Helper()
+	script := filepath.Join(w.t.TempDir(), "upload-pack")
+	exectest.WriteFile(w.t, script, []byte("#!/bin/sh\n"+body), 0o700)
+	w.git("config", "remote.origin.uploadpack", script)
+}
+
 // toSyncGate runs the first batch to its end with origin's main moved by a commit of origin.txt, which the pass that
 // ends the batch merges into the stored base and starts the sync's Done gate at. It returns the batch's candidate,
 // origin's commit and the sync run. The planner gets no turn in that pass.
@@ -70,6 +115,28 @@ func (w *syncWorld) toSyncGate() (string, string, store.NodeRun) {
 		w.t.Error("the pass that started the sync gave the planner a turn")
 	}
 	return candidate, originHead, runAt(w.t, w.s, syncFirst)
+}
+
+// toSyncAdvance runs the sync of toSyncGate through its Done gate and its capture, both passing, and returns what
+// toSyncGate returns. The pass after it advances the sync.
+func (w *syncWorld) toSyncAdvance() (string, string, store.NodeRun) {
+	w.t.Helper()
+	candidate, originHead, sync := w.toSyncGate()
+	w.endGate(syncFirst, 0, "")
+	w.pass()
+	w.endCapture(syncFirst)
+	return candidate, originHead, sync
+}
+
+// claimTurn starts a planner turn on the test epic, as a planner goroutine an earlier orreryd left would, so the epic's
+// work is no longer at rest. It returns the turn's seq.
+func (w *integrateWorld) claimTurn() int64 {
+	w.t.Helper()
+	turn, err := w.s.ClaimTurn(context.Background(), runEpic, runClock())
+	if err != nil {
+		w.t.Fatalf("ClaimTurn: %v", err)
+	}
+	return turn.Seq
 }
 
 // nextTurn plans the next turn's two tasks on base, as files named after their seqs, accepts both and runs the batch of
@@ -386,6 +453,137 @@ func TestSyncFetchFailureSkipsAndLogs(t *testing.T) {
 	}
 }
 
+// TestSyncFetchThatStallsIsStoppedAtTheLimit: an origin that never answers holds the sync's prepare only for the
+// runner's sync limit. git is stopped then, with the upload-pack it started, and the sync ends skipped with the limit
+// named and a logged warning. Nothing is told or moved, and the planner gets its turn.
+func TestSyncFetchThatStallsIsStoppedAtTheLimit(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	candidate := w.toCaptured()
+	w.originCommit("origin.txt")
+	w.uploadPack("exec sleep 60\n")
+	w.runner.syncLimit = time.Second
+	logs := &bytes.Buffer{}
+	w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
+	started := time.Now()
+	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
+		t.Error("the planner got no turn after the fetch was stopped")
+	}
+	if took := time.Since(started); took > 30*time.Second {
+		t.Errorf("the pass took %s, want it cut at the limit, well before the stalled origin's 60s", took)
+	}
+	run := runAt(t, w.s, syncFirst)
+	if run.State != store.NodeEnded || run.Outcome != "skipped" ||
+		!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1s: git ") {
+		t.Errorf("sync = %+v, want ended skipped on git stopped at the limit", run)
+	}
+	if !strings.Contains(logs.String(), "sync of origin's main did not run") {
+		t.Errorf("logs = %q, want the stopped fetch logged", logs.String())
+	}
+	w.requireUnmoved(candidate)
+	if tells := w.syncTells(); len(tells) != 0 {
+		t.Errorf("tells = %q, want none", tells)
+	}
+}
+
+// TestFetchOriginNeverPrompts: git that reads origin runs with GIT_TERMINAL_PROMPT=0 whatever the daemon's environment
+// says, so an origin that asks for credentials fails the read rather than waiting on a prompt no one answers. The
+// upload-pack origin runs for the ls-remote and then the fetch records the variable each time git passes it on.
+func TestFetchOriginNeverPrompts(t *testing.T) {
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+	repo := mergeRepo(t)
+	mergeRemote(t, repo)
+	seen := filepath.Join(t.TempDir(), "prompt")
+	script := filepath.Join(t.TempDir(), "upload-pack")
+	body := fmt.Sprintf(
+		"#!/bin/sh\nprintf '%%s' \"${GIT_TERMINAL_PROMPT-unset}\" >> '%s'\nexec git upload-pack \"$@\"\n", seen,
+	)
+	exectest.WriteFile(t, script, []byte(body), 0o700)
+	nodeGit(t, repo, "config", "remote.origin.uploadpack", script)
+	epic := store.EpicRow{ID: runEpic, Repository: repo}
+
+	branch, commit, err := fetchOrigin(context.Background(), epic, syncRef(epic, "origin"))
+	if err != nil {
+		t.Fatalf("fetchOrigin: %v", err)
+	}
+	if main := nodeGit(t, repo, "rev-parse", "main"); branch != "refs/heads/main" || commit != main {
+		t.Errorf("fetchOrigin = %s at %s, want refs/heads/main at %s", branch, commit, main)
+	}
+	got, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatalf("read what upload-pack saw: %v", err)
+	}
+	if string(got) != "00" {
+		t.Errorf("GIT_TERMINAL_PROMPT upload-pack saw = %q, want 0 for the ls-remote and 0 for the fetch", got)
+	}
+}
+
+// TestSyncSkipsOriginMainWithoutTheChangeBase: the epic's base is a commit on main that origin lacks, and origin's main
+// moves on from the commit the base was made on. The change from origin's commit would hold the base's own commit
+// beside the epic's, so the sync ends skipped in the pass that started it: it merges and pins nothing, runs no gate,
+// tells nothing and moves nothing, and the planner gets its turn. It tried no merge, so the next quiet point reads
+// origin's commit again and is not skipped as tried.
+func TestSyncSkipsOriginMainWithoutTheChangeBase(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorldAhead(t)
+	candidate := w.toCaptured()
+	originHead := w.originCommit("origin.txt")
+	checks := len(w.fakes.checks.calls)
+	if !w.passed() {
+		t.Error("the planner got no turn after a sync that merged nothing")
+	}
+	output := fmt.Sprintf("the epic's change base %s is not in origin's commit %s", w.base, originHead)
+	if run := w.requireSyncEnded(syncFirst, "skipped", output); run.Revision != "" {
+		t.Errorf("sync revision = %q, want none", run.Revision)
+	}
+	w.requireUnmoved(candidate)
+	if got := len(w.fakes.checks.calls); got != checks {
+		t.Errorf("%d checks run, want %d: a sync that merged nothing runs no gate", got, checks)
+	}
+	if refs := w.git("for-each-ref", "--format=%(refname)", syncRefRoot); refs != syncRefRoot+"origin" {
+		t.Errorf("sync refs = %q, want only the origin ref", refs)
+	}
+	if tells := w.syncTells(); len(tells) != 0 {
+		t.Errorf("tells = %q, want none", tells)
+	}
+
+	w.nextTurn(candidate, 3, 4, integrateNextBatch)
+	next := w.candidate(integrateNextBatch)
+	if !w.passed() {
+		t.Error("the planner got no turn after the second sync")
+	}
+	w.requireSyncEnded(syncSecond, "skipped", output)
+	w.requireUnmoved(next)
+}
+
+// TestSyncSkipsOriginMainForcedPastTheSyncedCommit: once a sync passed, origin's main is forced to a commit on the epic's
+// base that lacks the origin commit the epic synced. The change from the forced commit would hold the synced commit's
+// change beside the epic's, so the next quiet point's sync ends skipped, and the stored base and synced commit stay.
+func TestSyncSkipsOriginMainForcedPastTheSyncedCommit(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	_, originHead, sync := w.toSyncAdvance()
+	w.pass()
+	if epic := epicOf(t, w.s); epic.Synced != originHead {
+		t.Fatalf("synced = %q, want %q after the first sync", epic.Synced, originHead)
+	}
+	forced := w.forceOrigin("forced.txt")
+
+	w.nextTurn(sync.Revision, 3, 4, integrateNextBatch)
+	next := w.candidate(integrateNextBatch)
+	if !w.passed() {
+		t.Error("the planner got no turn after the second sync")
+	}
+	w.requireSyncEnded(syncSecond, "skipped",
+		fmt.Sprintf("the epic's change base %s is not in origin's commit %s", originHead, forced))
+	if epic := epicOf(t, w.s); epic.StoredBase != next || epic.Synced != originHead {
+		t.Errorf("stored base %q and synced %q, want %q and %q", epic.StoredBase, epic.Synced, next, originHead)
+	}
+	if tip := w.git("rev-parse", integrateBranch); tip != next {
+		t.Errorf("branch = %s, want it left at %s", tip, next)
+	}
+}
+
 // TestSyncRestartFinishesTheWalk: a restart that loses the sync's Done gate check reruns it under a runner that starts
 // afresh, which finds the running sync and walks it on. A restart that cut the advance after it moved the branch ends
 // the sync passed once, with the stored base following the branch.
@@ -424,6 +622,47 @@ func TestSyncRestartFinishesTheWalk(t *testing.T) {
 	if epic := epicOf(t, w.s); epic.StoredBase != sync.Revision || epic.Synced != originHead {
 		t.Errorf("stored base %q and synced %q, want %q and %q", epic.StoredBase, epic.Synced, sync.Revision,
 			originHead)
+	}
+}
+
+// TestSyncAtTheMergeEndsPassedWhileTheEpicIsBusy: a restart cut the sync's advance after it moved the branch to the
+// merge and before the end was written, and by the next pass a planner turn runs. The sync ends passed, its stored base
+// following the branch, rather than skipped with the branch ahead of the stored base, where the next batch's advance
+// would park the epic. Nothing is told.
+func TestSyncAtTheMergeEndsPassedWhileTheEpicIsBusy(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	candidate, originHead, sync := w.toSyncAdvance()
+	w.git("update-ref", integrateBranch, sync.Revision, candidate)
+	w.claimTurn()
+	w.pass()
+	w.requireSyncEnded(syncFirst, outcomePassed, fmt.Sprintf(
+		"merged origin's commit %s into the stored base %s as %s\nR1 green", originHead, candidate, sync.Revision))
+	epic := epicOf(t, w.s)
+	if epic.StoredBase != sync.Revision || epic.Synced != originHead || epic.Parked != "" {
+		t.Errorf("stored base %q, synced %q, parked %q, want %q, %q and not parked", epic.StoredBase, epic.Synced,
+			epic.Parked, sync.Revision, originHead)
+	}
+	if tells := w.syncTells(); len(tells) != 0 {
+		t.Errorf("tells = %q, want none", tells)
+	}
+}
+
+// TestSyncDoesNotAdvanceABusyEpic: a planner turn that started while the sync's checks ran keeps the sync from moving
+// the branch, which is still at the stored base: the sync ends skipped with why, tells nothing, and the branch and stored
+// base stay.
+func TestSyncDoesNotAdvanceABusyEpic(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	candidate, originHead, sync := w.toSyncAdvance()
+	turn := w.claimTurn()
+	w.pass()
+	w.requireSyncEnded(syncFirst, "skipped", fmt.Sprintf(
+		"merge %s of origin's commit %s into the stored base %s\nnot advanced: planner turn %d is running",
+		sync.Revision, originHead, candidate, turn))
+	w.requireUnmoved(candidate)
+	if tells := w.syncTells(); len(tells) != 0 {
+		t.Errorf("tells = %q, want none", tells)
 	}
 }
 
