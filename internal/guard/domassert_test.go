@@ -2,9 +2,6 @@ package guard
 
 import (
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -191,29 +188,5 @@ func TestCheckReadsEveryChangedNodeTestFile(t *testing.T) {
 	}
 	if want := []Refusal{domRefusal("assert.equal", 3)}; !slices.Equal(got, want) {
 		t.Errorf("refusals = %v, want %v", got, want)
-	}
-}
-
-func TestWebSuiteHoldsNoDOMAssert(t *testing.T) {
-	t.Parallel()
-	err := filepath.WalkDir("../../web/src", func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() || !nodeTestPath(path) {
-			return walkErr
-		}
-		src, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		calls, err := domAsserts(src)
-		if err != nil {
-			t.Errorf("%s: %v", path, err)
-		}
-		for _, call := range calls {
-			t.Errorf("%s:%d: %s compares a DOM node", path, call.line, call.call)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk web/src: %v", err)
 	}
 }

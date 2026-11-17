@@ -770,7 +770,7 @@ test("EventRing: an orrery-event prompt of each kind draws one ringed line and n
       [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
       (container) => {
         assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
-        assert.equal(container.querySelector(".event"), null, `a ${kind} event is not an EVENT row`);
+        assertNone(container.querySelector(".event"), `a ${kind} event is not an EVENT row`);
         const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
         assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);
       },
@@ -783,8 +783,8 @@ test("EventRing: a pane prompt with the same text draws the ring too, and its ro
     [item({ kind: "prompt", time: 100n, text: eventText("release", "released") })],
     (container) => {
       assert.equal(container.querySelectorAll(".ring-line").length, 1, "the pane prompt draws its ring");
-      assert.equal(container.querySelector(".you"), null, "the pane prompt is not YOU");
-      assert.equal(container.querySelector(".t.owner-turn"), null, "the ring's row is not the owner's turn");
+      assertNone(container.querySelector(".you"), "the pane prompt is not YOU");
+      assertNone(container.querySelector(".t.owner-turn"), "the ring's row is not the owner's turn");
     },
   ));
 
@@ -798,7 +798,7 @@ test("EventRing: an orrery-event prompt draws its EVENT row when the reader hold
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelector(".ring-line"), null, "without epic calls the event draws no ring");
+      assertNone(container.querySelector(".ring-line"), "without epic calls the event draws no ring");
       assert.equal(container.querySelector(".t > .body > .event > small")?.textContent, "EVENT");
     },
   ));

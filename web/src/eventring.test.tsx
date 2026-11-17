@@ -8,7 +8,7 @@ import { act } from "preact/test-utils";
 import type { EpicCalls } from "./card";
 import { type EpicEvent, EventRing, epicEventOf } from "./eventring";
 import { EpicQuestionSchema, EpicSchema, type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 const ringEpic = "orrery-1a2b3c4/planner-runner";
@@ -256,7 +256,7 @@ test("EventRing: a question event whose question is no longer open draws the set
   await withRing(questionEvent, fake.calls(), async (container) => {
     await settle(t, () => container.querySelector(".settled") !== null, "the settled line is drawn");
     assert.equal(container.querySelector(".settled")?.textContent, "This question is settled.");
-    assert.equal(container.querySelector("form.answer"), null, "a settled question draws no form");
+    assertNone(container.querySelector("form.answer"), "a settled question draws no form");
     assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
   });
 });
@@ -266,8 +266,8 @@ test("EventRing: a question event whose epic cannot be read draws neither the fo
   await withRing(questionEvent, fake.calls(), async (container) => {
     await settle(t, () => fake.reads.length === 1, "the ring reads its epic");
     await act(turn);
-    assert.equal(container.querySelector("form.answer"), null, "an unreadable epic draws no form");
-    assert.equal(container.querySelector(".settled"), null, "an unreadable epic draws no settled line");
+    assertNone(container.querySelector("form.answer"), "an unreadable epic draws no form");
+    assertNone(container.querySelector(".settled"), "an unreadable epic draws no settled line");
     assert.equal(container.querySelectorAll(".ring-line").length, 1, "the ring line stays");
   });
 });

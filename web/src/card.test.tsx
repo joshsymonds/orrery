@@ -10,7 +10,7 @@ import type { Conversation } from "./conversation";
 import { type EpicsGetResponse, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { type ConversationItem, ConversationItemSchema, ConversationStateSchema } from "./gen/orrery/v1/orrery_pb";
 import { Reader } from "./reader";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 // epicId is the id the create call names, in the form a contract names: its repository's id and the epic's slug.
@@ -347,19 +347,19 @@ test("EpicWidget: an epic that cannot be read shows its slug and not available",
     await drawn(t, container);
     assert.equal(textOf(container, ".slug"), "demo-epic");
     assert.equal(textOf(container, ".unavailable"), "not available");
-    assert.equal(container.querySelector(".track"), null);
+    assertNone(container.querySelector(".track"));
   });
 });
 
 test("EpicWidget: a refused create and a create with no result yet keep their tool rows", async () => {
   const fake = new FakeEpics(orreryd("accepted"));
   await withReader([createCall(), resultItem(createId, "refused", true)], fake.calls(), (container) => {
-    assert.equal(container.querySelector(".epic-card"), null);
+    assertNone(container.querySelector(".epic-card"));
     assert.equal(textOf(container, ".call b"), "epic_create");
     assert.equal(textOf(container, ".call .fail"), "✗");
   });
   await withReader([createCall()], fake.calls(), (container) => {
-    assert.equal(container.querySelector(".epic-card"), null);
+    assertNone(container.querySelector(".epic-card"));
     assert.equal(textOf(container, ".call b"), "epic_create");
   });
   assert.deepEqual(fake.reads, []);
