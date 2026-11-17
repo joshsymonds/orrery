@@ -265,7 +265,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	sessionsPath, sessions := newSessionsHandler(
-		cfg.Sessions, now, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		cfg.Sessions, cfg.Home, now, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
 		cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)

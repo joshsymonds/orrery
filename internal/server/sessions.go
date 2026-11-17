@@ -13,13 +13,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. steps is the client
-// WatchConversation asks about a step session, and a nil steps answers not_found for one. poll paces the polls of
-// WatchConversation, keepalive is the time without a delta after which it sends a keepalive, sendTimeout bounds each
-// of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
-// dates its retention window and its aging by.
+// sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. home is the home
+// directory whose Claude transcripts WatchConversation reads a session's context figure from, and an empty home reads
+// none. steps is the client WatchConversation asks about a step session, and a nil steps answers not_found for one.
+// poll paces the polls of WatchConversation, keepalive is the time without a delta after which it sends a keepalive,
+// sendTimeout bounds each of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the
+// clock ListHeadless dates its retention window and its aging by.
 type sessionsServer struct {
 	reader      *store.Reader
+	home        string
 	now         func() time.Time
 	steps       StepClient
 	poll        time.Duration
@@ -83,11 +85,12 @@ func sessionMessage(row store.Session) *orreryv1.Session {
 	}
 }
 
-// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with the clock now, the
-// stream timings and shutdown signal of sessionsServer. The handler runs under withResponseWriter, so WatchConversation
-// can reach its connection.
+// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with home, the clock now,
+// the stream timings and shutdown signal of sessionsServer. The handler runs under withResponseWriter, so
+// WatchConversation can reach its connection.
 func newSessionsHandler(
 	reader *store.Reader,
+	home string,
 	now func() time.Time,
 	steps StepClient,
 	poll, keepalive, sendTimeout time.Duration,
@@ -95,8 +98,8 @@ func newSessionsHandler(
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	service := sessionsServer{
-		reader: reader, now: now, steps: steps, poll: poll, keepalive: keepalive, sendTimeout: sendTimeout,
-		shutdown: shutdown,
+		reader: reader, home: home, now: now, steps: steps, poll: poll, keepalive: keepalive,
+		sendTimeout: sendTimeout, shutdown: shutdown,
 	}
 	path, handler := orreryv1connect.NewSessionsHandler(service, opts...)
 	return path, withResponseWriter(handler)

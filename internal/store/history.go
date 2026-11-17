@@ -22,20 +22,21 @@ type EngineEvent struct {
 }
 
 // EngineHistory is a headless engine session's row, the events after a cursor in seq order, and the session's
-// unfinished text in ListEngineText order. Kind is KindEngine or KindStep. Unfinished is empty when the session has no
-// unfinished block.
+// unfinished text in ListEngineText order. Kind is KindEngine or KindStep. ClaudeSession is the Claude session id the
+// row holds, empty when it has none. Unfinished is empty when the session has no unfinished block.
 type EngineHistory struct {
-	Kind        string
-	Dir         string
-	Title       string
-	FirstPrompt string
-	State       string
-	Changed     string
-	Seen        string
-	Question    string
-	Reason      string
-	Events      []EngineEvent
-	Unfinished  []UnfinishedText
+	Kind          string
+	Dir           string
+	Title         string
+	FirstPrompt   string
+	State         string
+	Changed       string
+	Seen          string
+	Question      string
+	Reason        string
+	ClaudeSession string
+	Events        []EngineEvent
+	Unfinished    []UnfinishedText
 }
 
 // EngineEventPage is the events of a headless engine session before a seq, newest first, and the session's kind.
@@ -170,7 +171,7 @@ func readEngineHistory(
 		Kind: session.Kind, Dir: session.Dir, Title: session.Title, FirstPrompt: firstPrompt,
 		State: session.State, Changed: session.Changed,
 		Seen: session.Seen, Question: session.Question, Reason: session.Reason,
-		Events: engineEvents(rows), Unfinished: unfinished,
+		ClaudeSession: session.ClaudeSession, Events: engineEvents(rows), Unfinished: unfinished,
 	}, nil
 }
 

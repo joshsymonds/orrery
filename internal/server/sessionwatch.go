@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/conversation"
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -40,6 +43,7 @@ func (s sessionsServer) WatchConversation(
 	}
 	watch := &sessionWatch{
 		reader: s.reader,
+		home:   s.home,
 		steps:  s.steps,
 		id:     req.Msg.GetId(),
 		limit:  limit,
@@ -86,6 +90,8 @@ func (s sessionsServer) runWatch(
 // sessionWatch is one WatchConversation call: the session it watches and the position its stream has reached.
 type sessionWatch struct {
 	reader *store.Reader
+	// home is the home directory the session's Claude transcript is found under (see transcriptPath).
+	home string
 	// steps is asked about a step session. stepAdmitted is set once StepStatus has found the step labeled.
 	steps        StepClient
 	stepAdmitted bool
@@ -99,6 +105,12 @@ type sessionWatch struct {
 	// session has had one.
 	origin     string
 	haveOrigin bool
+	// transcript is the Claude transcript the context figure is read from, empty while the session has none, and
+	// transcriptSeq is the offset just past the last complete line the stream has read from it. figure is the context
+	// figure of that transcript.
+	transcript    string
+	transcriptSeq int64
+	figure        conversation.Context
 	// request is the newest unrefused request the session has raised.
 	request *orreryv1.OpenRequest
 	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished and sentHeld are the
@@ -118,6 +130,7 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if err != nil {
 		return nil, false, err
 	}
+	w.readFigure(history)
 	state, err := w.state(history)
 	if err != nil {
 		return nil, false, err
@@ -319,7 +332,8 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 }
 
 // state returns the state of the session as history reads it: its origin, its headless session without the summary
-// and newest reply, and the open request while the session waits on one.
+// and newest reply, its context figure when its transcript is read, and the open request while the session waits on
+// one.
 func (w *sessionWatch) state(history store.EngineHistory) (*orreryv1.ConversationState, error) {
 	changed, err := parseStamp(history.Changed)
 	if err != nil {
@@ -341,10 +355,66 @@ func (w *sessionWatch) state(history store.EngineHistory) (*orreryv1.Conversatio
 			Question: history.Question,
 		},
 	}
+	if w.transcript != "" {
+		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}
+	}
 	if history.State == string(protocol.StateWaiting) {
 		state.Request = w.request
 	}
 	return state, nil
+}
+
+// readFigure sets the stream's context figure from the Claude transcript of the session history describes. The
+// transcript is read whole when it is first found or changes, and then only what it has appended since, as
+// conversationWatch follows a pane's. A session with no transcript, and a transcript that is missing or unreadable,
+// has no figure: the error is not reported, and the next step looks for the transcript again.
+func (w *sessionWatch) readFigure(history store.EngineHistory) {
+	path := transcriptPath(w.home, history.Dir, history.ClaudeSession)
+	if path == "" {
+		w.dropFigure()
+		return
+	}
+	if path == w.transcript {
+		if follow, err := conversation.Since(path, w.transcriptSeq); err == nil {
+			w.transcriptSeq = follow.End
+			if follow.HasTokens {
+				w.figure.Tokens = follow.Tokens
+			}
+			return
+		}
+	}
+	conv, end, err := conversation.ReadEnd(path, 0)
+	if err != nil {
+		w.dropFigure()
+		return
+	}
+	w.transcript, w.transcriptSeq, w.figure = path, end, conv.Context
+}
+
+// dropFigure clears the stream's transcript and its figure.
+func (w *sessionWatch) dropFigure() {
+	w.transcript, w.transcriptSeq, w.figure = "", 0, conversation.Context{}
+}
+
+// transcriptPath returns the path of the Claude transcript of the session in dir with the Claude session id, under
+// home: <home>/.claude/projects/<dir with each rune that is not an ASCII letter or digit replaced by '-'>/<id>.jsonl.
+// It returns "" when home or id is empty, or when id holds a path separator and so names no file in that directory.
+func transcriptPath(home, dir, id string) string {
+	if home == "" || id == "" || strings.ContainsRune(id, filepath.Separator) {
+		return ""
+	}
+	project := strings.Map(func(r rune) rune {
+		if isASCIIAlnum(r) {
+			return r
+		}
+		return '-'
+	}, dir)
+	return filepath.Join(home, ".claude", "projects", project, id+".jsonl")
+}
+
+// isASCIIAlnum reports whether r is an ASCII letter or digit.
+func isASCIIAlnum(r rune) bool {
+	return ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')
 }
 
 // unfinishedTexts returns the main-conversation unfinished set of history: the text so far of each unfinished block
