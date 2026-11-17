@@ -870,9 +870,13 @@ test("a keydown reports the input age to Presence.Report with the client header"
     try {
       await until(t.signal, () => labels(root).includes("api"), "the first load");
       document.dispatchEvent(new KeyboardEvent("keydown"));
-      await until(t.signal, () => server.reports.length === 1, "the report after the keydown");
-      assert.equal(server.reports[0].header, clientValue, "the report lacked the client header");
-      assert.match(server.reports[0].inputAgeMs, /^\d+$/, "the report did not carry an age in milliseconds");
+      // The keydown sends at once. The page may send one more report when App's effect first names the cursor's view,
+      // which can land after the keydown, so the test waits for a report rather than for exactly one.
+      await until(t.signal, () => server.reports.length >= 1, "the report after the keydown");
+      for (const report of server.reports) {
+        assert.equal(report.header, clientValue, "a report lacked the client header");
+        assert.match(report.inputAgeMs, /^\d+$/, "a report did not carry an age in milliseconds");
+      }
     } finally {
       stop();
     }
@@ -902,7 +906,8 @@ test("a failed Presence.Report leaves the page without an error line and keeps t
     try {
       await until(t.signal, () => labels(root).includes("api"), "the first load");
       document.dispatchEvent(new KeyboardEvent("keydown"));
-      await until(t.signal, () => server.reports.length === 1, "the failed report");
+      // As above, a report naming the view may follow the keydown's; the test needs the first to have failed.
+      await until(t.signal, () => server.reports.length >= 1, "the failed report");
       await sleep(intervalMs * 10);
       assert.equal(root.querySelector(".error")?.textContent ?? "", "", "a failed report showed an error line");
       assert.ok(labels(root).includes("api"), "the rows went away after a failed report");
