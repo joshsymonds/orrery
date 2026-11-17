@@ -24,6 +24,14 @@ func SendIdleWithClock(
 	return sendIdleWithClock(ctx, clock, client, pane, text)
 }
 
+// WakePaneWithClock is WakePane with clock timing the typed send's pauses, so the cli_test package drives them without
+// sleeping.
+func WakePaneWithClock(
+	ctx context.Context, clock rpcretry.Clock, server, pane, text string,
+) (bool, error) {
+	return wakePaneWithClock(ctx, clock, server, pane, text)
+}
+
 // PullQueuedWithClock is PullQueued with clock timing the wait for the popAll records, so the cli_test package
 // decides when that wait ends.
 func PullQueuedWithClock(
