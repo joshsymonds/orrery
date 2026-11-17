@@ -973,9 +973,7 @@ export function App({
         setView("archived");
         break;
       case "A":
-        // The key leaves no menu open. A pane has no archive kind, and a step is never archived, so the key does nothing
-        // on either.
-        setMenuKey(null);
+        // A pane has no archive kind, and a step is never archived, so the key does nothing on either.
         if (cursorItem !== null && cursorItem.kind !== "step") {
           setArchive(cursorItem, true);
         }

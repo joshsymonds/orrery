@@ -310,13 +310,15 @@ test("ArchiveView: the Archived view lists the archived row and epic with Unarch
     },
   ));
 
-test("ArchiveView: Unarchive sends Epics.Unarchive with the row's kind and id, and the row returns to By attention", (t) =>
+test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchive with the row's kind and id, and the row returns to By attention", (t) =>
   withArchive(
     t.signal,
     { rows: [row({ key: "p", label: "pane" }), headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
     async (container, fake) => {
       await press("v");
-      await click(await openMenu(container, "ha"));
+      const item = await openMenu(container, "ha");
+      assert.equal(item.textContent, "Unarchive");
+      await click(item);
       await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
       assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "ha" });
       await until(t.signal, () => lineOf(container, "ha") === null, "the row leaving the Archived view");
@@ -408,20 +410,6 @@ test("RowMenu: pressing ⋯ opens a menu with Archive, and choosing it sends Epi
     assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "s1" });
     await until(t.signal, () => lineOf(container, "s1") === null, "the row leaving the list");
   }));
-
-test("RowMenu: the Archived view's menu holds Unarchive and sends Epics.Unarchive with the row's kind and id", (t) =>
-  withArchive(
-    t.signal,
-    { rows: [headless({ key: "ha", id: "ha", label: "old docs", archived: true })] },
-    async (container, fake) => {
-      await press("v");
-      const item = await openMenu(container, "ha");
-      assert.equal(item.textContent, "Unarchive");
-      await click(item);
-      await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
-      assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "headless", id: "ha" });
-    },
-  ));
 
 test("RowMenu: with a working cursor row, Escape with its menu open closes the menu and sends no withdraw, interrupt or archive call", (t) =>
   withArchive(
@@ -544,7 +532,7 @@ test("RowMenu: Escape with the open menu's row no longer drawn does what Escape 
     },
   ));
 
-test("RowMenu: after A archives a row whose menu is open, no menu is open, and Escape on a working cursor row interrupts it", (t) =>
+test("RowMenu: after A archives a row whose menu is open, the menu closes once the row leaves the list, and Escape on a working cursor row interrupts it", (t) =>
   withArchive(
     t.signal,
     {
@@ -557,7 +545,6 @@ test("RowMenu: after A archives a row whose menu is open, no menu is open, and E
       assert.equal(cursorKey(container), "h1", "the cursor starts on the first row");
       await openMenu(container, "h1");
       await press("A");
-      assert.equal(menuOpen(container), false, "A leaves no menu open");
       await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
       assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "headless", id: "h1" });
       await until(t.signal, () => lineOf(container, "h1") === null, "the row leaving the list");
@@ -566,5 +553,25 @@ test("RowMenu: after A archives a row whose menu is open, no menu is open, and E
       await press("Escape");
       await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
       assert.deepEqual(fake.callsTo(interruptPath)[0].body, { id: "h2" });
+    },
+  ));
+
+test("RowMenu: the A key archives the cursor row and leaves another row's open menu open", (t) =>
+  withArchive(
+    t.signal,
+    {
+      rows: [
+        headless({ key: "h1", id: "h1", label: "docs", state: "working" }),
+        headless({ key: "h2", id: "h2", label: "notes", state: "working" }),
+      ],
+    },
+    async (container, fake) => {
+      assert.equal(cursorKey(container), "h1", "the cursor starts on the first row");
+      await openMenu(container, "h2");
+      await press("A");
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "headless", id: "h1" });
+      await until(t.signal, () => lineOf(container, "h1") === null, "the row leaving the list");
+      assert.equal(menuOpen(lineOf(container, "h2")), true, "h2's menu is still open");
     },
   ));
