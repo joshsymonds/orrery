@@ -4,7 +4,7 @@
 # BUILT `orrery send`, and reports whether the session's transcript records them as typed.
 #
 # Run by hand only. It spends Haiku turns on the signed-in account, so nothing calls it:
-# not `just check`, not the pre-push hook, not CI. The orchestrator runs it under
+# not `just check`, not CI. The orchestrator runs it under
 # `flock /tmp/claude-1000/orrery-heavy.lock` because it is a heavy job.
 #
 # Isolation: Claude Code runs on a private tmux server (its own -L name, -f /dev/null) in a
