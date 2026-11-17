@@ -405,7 +405,7 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .call b { flex: none; color: var(--blue); font-weight: 400; }
 .reader .call .in { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader .call .fail { flex: none; color: var(--red); }
-.reader .calls { display: flex; flex-direction: column; gap: 0; }
+.reader div.calls { display: flex; flex-direction: column; gap: 0; }
 /* A call still running draws a yellow rail at its left edge, and the running mark names it. */
 .reader .call.running { box-shadow: inset 2px 0 0 var(--yellow), inset 0 -1px 0 var(--rule); }
 .reader .running-mark { flex: none; color: var(--overlay1); }

@@ -504,7 +504,9 @@ test("a call line is 12px grey on a hairline, its tool's name the only colour, a
   assert.match(line, /box-shadow:\s*inset 0 -1px 0 var\(--rule\);/);
   assert.match(line, /(?<![-\w])margin:\s*0;/);
   assert.match(declarationsFor(css, ".reader .call b"), /color:\s*var\(--blue\);/);
-  assert.match(declarationsFor(css, ".reader .calls"), /(?<![-\w])gap:\s*0;/);
+  assert.match(declarationsFor(css, ".reader div.calls"), /(?<![-\w])gap:\s*0;/);
+  // The fold button is a .calls element too, so a column rule on .reader .calls would stack the folded line.
+  assert.doesNotMatch(css, /\.reader \.calls(?![\w-])/);
 });
 
 test("the row's state word and the unused status colours have no rules", () => {
