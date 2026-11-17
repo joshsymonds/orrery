@@ -29,12 +29,20 @@
 #          the checkout through scripts/in-devenv, under a shell named orrery-gate-run (the box's busyCommand looks for
 #          it), once it holds one of the box's slots: `just check`, `just android-test` and `just cover` share about 3
 #          full-check slots on 64 cores and every other command shares wider light-check slots; a run that finds every
-#          slot held says it is queued and waits for one (box_run below). The command's output streams back as it runs.
-#          The run holds the checkout's lock through flock -o, so only flock holds it and nothing the command starts
-#          inherits it. The command runs in its own systemd user scope, orrery-gate-<run>.scope, which is stopped when
-#          the run ends, also when its connection drops: whatever the command left behind (a timed-out test's daemons,
-#          a Gradle daemon) ends with it, since a process stays in its scope's cgroup however it detaches. A box whose
-#          user manager does not answer runs nothing;
+#          slot held says it is queued and waits for one (box_run below). The run holds the checkout's lock through
+#          flock -o, so only flock holds it and nothing the command starts inherits it. The command runs in its own
+#          systemd user scope, orrery-gate-<run>.scope, which is stopped when the run ends or is stopped: whatever the
+#          command left behind (a timed-out test's daemons, a Gradle daemon) ends with it, since a process stays in its
+#          scope's cgroup however it detaches. A box whose user manager does not answer runs nothing.
+#          The run lives apart from every connection: one short connection starts it on the box in a session of its
+#          own (host_launch), with its stdout and stderr in out and err in the checkout's .meta, beside its exit record,
+#          and the output comes back over two more connections, one per log, each following its log until the run ends
+#          (host_stream). Each byte shown here is counted, so when a connection drops the script reconnects, with
+#          backoff (1, 2, 4, 8, then 16 s), and both logs go on from the byte after the last one shown: nothing is shown
+#          twice or left out. It says so on stderr when a connection drops and when it is back. It gives up once
+#          $ORRERY_GATE_COLLECT_SECS (default 120) pass without a connection that brings output, stays up 5 s or sees
+#          the run end. A signal to this script (TERM, INT, HUP) stops the run on the box too, and a run left going by
+#          a script killed outright is stopped by the next run from the work tree before it syncs (host_prepare);
 #       6. a run here goes through $ORRERY_GATE_LOCAL (default /tmp/claude-1000/heavy when it is executable, else the
 #          command runs directly).
 #       When steps 2-4 fail because the box stopped answering, it goes back to step 1 once; when they fail on a box that
@@ -69,14 +77,18 @@
 #   ORRERY_GATE_USER       user `wake` puts in the destination (default orrery)
 #   ORRERY_GATE_FULL_SLOTS   full-check slots on the box (default: its nproc / 20, at least 1)
 #   ORRERY_GATE_LIGHT_SLOTS  light-check slots on the box (default: its nproc / 8, at least 1)
+#   ORRERY_GATE_COLLECT_SECS seconds a run keeps reconnecting after its connections drop before it gives up (default 120)
 #   ORRERY_GATE_REMOTE=0   never use the box
 #
-# Exit codes: the command's status, wherever it ran. 75 is an environment result: the box went away or the connection
-# to it dropped after the command started (a spot interruption, for one), and the line before it says so. It is never
-# a test failure; run again, and the next run waits for the replacement box that the lost one's wake brings up. The
-# box also ends a run with 75 when it cannot hold or wait for its slots, saying why. A
-# checkout the box cannot set up in step 5, or a box without a user manager for the scope, runs the command here. 2 for
-# bad usage or outside a git work tree.
+# Exit codes: the command's status, wherever it ran, also when its connections dropped while the box stayed up and the
+# run was collected after a reconnect. 75 is an environment result, and the line before it says which: the box went
+# away after the command started (a spot interruption, for one; a wake starts so the next run finds the replacement
+# box); the connections stayed down for $ORRERY_GATE_COLLECT_SECS while the box still answers (the run is stopped
+# there); the run ended on the box without recording its exit, as when it was killed there (what is left of it is
+# stopped); or the box no longer knows the run. It is never a test failure; run again. The box also ends a run with 75
+# when it cannot hold or wait for its slots, saying why. A checkout the box cannot set up in step 5, or a box without a
+# user manager for the scope, runs the command here. A signal that ends the script ends it with 128 + the signal. 2
+# for bad usage or outside a git work tree.
 
 set -euo pipefail
 
@@ -203,6 +215,10 @@ run_here() {
 # The script the box runs as `bash -s -- <checkout> <free-kib>`: step 2. It touches the checkout's .meta before the
 # prune, so the prune never takes the checkout being prepared, and removes a checkout only while holding its lock
 # exclusively, which a running gate holds. Its last line is "load <1> <5> <15> nproc <n>".
+#
+# A run of this checkout that is still going was left by a run here that is gone (one killed with SIGKILL, or one that
+# gave up collecting it): runs from one work tree take turns, so nothing will collect it. It is stopped before the sync
+# changes its files, and the prepare waits up to 30 s for it to end.
 host_prepare() {
     cat <<'EOF'
 set -eu
@@ -212,6 +228,15 @@ mkdir -p gate
 cd gate
 mkdir -p "$sub.meta"
 touch "$sub.meta"
+if [ -s "$sub.meta/runner" ] && ! flock -n -s "$sub.meta/runner.lock" true 2>/dev/null; then
+    read -r old pid _ <"$sub.meta/runner" || true
+    if [ -n "${pid:-}" ] && tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -qx orrery-gate-runner; then
+        echo "gate-remote: stopping run $old on $(uname -n), left running by a run that is gone" >&2
+        kill -TERM -- "-$pid" 2>/dev/null || true
+        flock -w 30 -s "$sub.meta/runner.lock" true || kill -KILL -- "-$pid" 2>/dev/null || true
+        systemctl --user stop "orrery-gate-$old.scope" 2>/dev/null || true
+    fi
+fi
 find . -maxdepth 1 -name '*.meta' -mmin +10 -printf '%T@ %f\n' | sort -n | while read -r _ meta; do
     if [ "$(df --output=avail -k . | tail -n 1)" -ge "$keep" ]; then
         break
@@ -243,8 +268,8 @@ EOF
 # it says why and exits 75, never going round the wait again.
 #
 # Then it runs the command in its own user scope, stopped whenever this shell ends, so nothing the command started
-# outlives the run. The command runs in the background and this shell waits for it, so a hangup or TERM (a dropped
-# connection) is acted on at once.
+# outlives the run. The command runs in the background and this shell waits for it, so a hangup or TERM (a run that is
+# stopped) is acted on at once.
 box_run() {
     cat <<'EOF'
 unit="$1"
@@ -329,6 +354,120 @@ wait "$!"
 EOF
 }
 
+# The run on the box, detached from every connection, as
+# `bash -c <this> orrery-gate-runner <run> <checkout> <box_run> <full> <light> <origin/main> <HEAD> <command...>` from
+# the checkout, with its stdout and stderr in the .meta's out and err and the .meta's runner.lock held on fd 9, which it
+# keeps for as long as it lives and closes for everything it starts. It points the checkout at HEAD, origin/main, the
+# tags and the staged patch (step 5), checks that the user manager answers, then runs box_run holding the checkout's
+# lock. It records "<run> <status>" in the .meta's exit, or "<run> setup" or "<run> noscope" when nothing ran, before
+# it ends, so the record is there once the runner.lock is free. A run stopped with TERM records nothing.
+host_runner() {
+    cat <<'EOF'
+id="$1"
+sub="$2"
+box_run="$3"
+full="$4"
+light="$5"
+origin_main="$6"
+head="$7"
+shift 7
+m="../$sub.meta"
+(
+    git fetch -q --prune --no-write-fetch-head ../objects.git '+refs/tags/*:refs/tags/*' \
+        && { [ -z "$origin_main" ] || git update-ref refs/remotes/origin/main "$origin_main"; } \
+        && git update-ref --no-deref HEAD "$head" && git read-tree "$head" \
+        && { [ ! -s "$m/staged.patch" ] || git apply --cached "$m/staged.patch"; } \
+        && { git update-index -q --refresh || true; }
+) 9>&- || {
+    echo "$id setup" >"$m/exit"
+    exit 1
+}
+systemctl --user show-environment >/dev/null 2>&1 9>&- || {
+    echo "$id noscope" >"$m/exit"
+    exit 1
+}
+flock -o -x "../$sub.lock" bash -c "$box_run" orrery-gate-run "orrery-gate-$id" "$full" "$light" "$@" 9>&-
+rc=$?
+echo "$id $rc" >"$m/exit"
+exit "$rc"
+EOF
+}
+
+# What the box runs to start a run, as `bash -c <this> orrery-gate-launch <run> <checkout> <runner> <runner args...>`.
+# It starts the runner in a session of its own with its output in the .meta's out and err, so the run goes on whatever
+# happens to the connection, and records "<run> <pid>" in the .meta's runner. A run that is already recorded there is
+# never started again, so the launch can be repeated after a dropped connection. It ends at once; nothing it starts
+# writes to the connection.
+host_launch() {
+    cat <<'EOF'
+id="$1"
+sub="$2"
+runner="$3"
+shift 3
+cd "gate/$sub" || exit 1
+m="../$sub.meta"
+read -r current _ <"$m/runner" 2>/dev/null || current=""
+[ "$current" != "$id" ] || exit 0
+exec 9>"$m/runner.lock"
+if ! flock -w 30 9; then
+    echo "gate-remote: the run before this one still holds $m/runner.lock on $(uname -n)" >&2
+    exit 1
+fi
+rm -f "$m/exit" "$m/out" "$m/err"
+: >"$m/out" && : >"$m/err" && echo "$id" >"$m/runner" || exit 1
+setsid bash -c "$runner" orrery-gate-runner "$id" "$sub" "$@" </dev/null >>"$m/out" 2>>"$m/err" &
+echo "$id $!" >"$m/runner.new" && mv "$m/runner.new" "$m/runner"
+EOF
+}
+
+# What the box runs to stream one of the run's logs, as `bash -c <this> orrery-gate-stream <checkout> <run> out|err
+# <bytes already shown>`. Its first line is "orrery-gate-stream <run> <state>": "running", then the log from the given
+# byte until the run ends; "ended <record>", then the rest of the log, where the record is what the run recorded in the
+# exit file ("<status>", "setup" or "noscope"; empty when it recorded nothing); or "unknown" when the box has no such
+# run. Everything after that line is the log's bytes.
+host_stream() {
+    cat <<'EOF'
+id="$2"
+log="$3"
+from="$(($4 + 1))"
+if ! cd "gate/$1.meta" 2>/dev/null || ! read -r current _ <runner 2>/dev/null || [ "$current" != "$id" ]; then
+    echo "orrery-gate-stream $id unknown"
+    exit 0
+fi
+if flock -n -s runner.lock true 2>/dev/null; then
+    record=""
+    if read -r recorded rest <exit 2>/dev/null && [ "$recorded" = "$id" ]; then
+        record="$rest"
+    fi
+    echo "orrery-gate-stream $id ended $record"
+    exec tail -c "+$from" "$log"
+fi
+echo "orrery-gate-stream $id running"
+# The watcher ends once the runner has, and tail reads the log once more after it ends. This shell stays tail's parent
+# and reaps the watcher (were tail to replace it, as bash does with a last command, the watcher would stay a zombie
+# that tail sees alive), so tail is not the last command.
+flock -s runner.lock true </dev/null >/dev/null 2>&1 &
+tail -q -s 0.2 --pid="$!" -c "+$from" -f "$log"
+status=$?
+# A watcher that ended while the runner lives (it could not wait on the lock) did not see the run end: a failed stream.
+flock -n -s runner.lock true 2>/dev/null || exit 3
+exit "$status"
+EOF
+}
+
+# What the box runs to stop a run, as `bash -c <this> orrery-gate-stop <checkout> <run>`: it ends the runner's session
+# (box_run's trap stops the command's scope) and stops the scope too, in case box_run is already gone.
+host_stop() {
+    cat <<'EOF'
+cd "gate/$1.meta" 2>/dev/null || exit 0
+read -r current pid _ <runner 2>/dev/null || exit 0
+[ "$current" = "$2" ] && [ -n "$pid" ] || exit 0
+kill -TERM -- "-$pid" 2>/dev/null
+systemctl --user stop --no-block "orrery-gate-$2.scope" 2>/dev/null
+exit 0
+EOF
+}
+
 # Steps 2-4 on dest; prepared holds the box's output.
 prepared=""
 prepare() {
@@ -342,8 +481,97 @@ prepare() {
             ./ "$dest:$remote/"
 }
 
+# remote_command <script> <name> [args...]: the command line that runs the script on the box with `bash -c`, its $0
+# the name and each argument one word.
+remote_command() {
+    local text="$1"
+    shift
+    printf 'bash -c %q' "$text"
+    printf ' %q' "$@"
+}
+
+# The run's output as shown here: $collect/out and $collect/err hold every byte of the box's out and err logs shown so
+# far, so a stream that reconnects starts at the byte after them, and nothing is shown twice or left out.
+collect=""
+run_id=""
+collect_secs="${ORRERY_GATE_COLLECT_SECS:-120}"
+stream_pids=()
+
+shown_bytes() {
+    echo "$(($(stat -c %s "$collect/out") + $(stat -c %s "$collect/err")))"
+}
+
+# read_stream <out|err>: passes one stream connection's output on to stdout or stderr. The box's first line,
+# "orrery-gate-stream <run> <state>", goes to $collect/<log>.state, and every byte after it is shown and appended to
+# $collect/<log>. Output that does not start with that line did not come from the stream and is shown as it is.
+read_stream() {
+    local line fd=1
+    [ "$1" = out ] || fd=2
+    if IFS= read -r line; then
+        if [[ $line == "orrery-gate-stream $run_id "* ]]; then
+            printf '%s\n' "${line#"orrery-gate-stream $run_id "}" >"$collect/$1.state"
+            exec tee -a "$collect/$1" >&"$fd"
+        fi
+        printf '%s\n' "$line" >&"$fd"
+    fi
+    exec cat >&"$fd"
+}
+
+# One attempt to stream both logs from the bytes already shown. Each log has a connection of its own, so the box's
+# stderr never mixes with ssh's own messages. When one connection fails the other is ended too, so both reconnect
+# together. streamed is 1 when both connections ended as the box ended them.
+streamed=0
+stream_logs() {
+    local log first other status release failed=0
+    local -a readers=()
+    local -A ssh_pid=()
+    stream_pids=()
+    for log in out err; do
+        rm -f -- "$collect/$log.fifo" "$collect/$log.state"
+        mkfifo "$collect/$log.fifo"
+        read_stream "$log" <"$collect/$log.fifo" &
+        readers+=("$!")
+        stream_pids+=("$!")
+        "${ssh_cmd[@]}" "$dest" "$(remote_command "$(host_stream)" orrery-gate-stream "$sub" "$run_id" "$log" \
+            "$(stat -c %s "$collect/$log")")" </dev/null >"$collect/$log.fifo" &
+        ssh_pid[$log]=$!
+        stream_pids+=("$!")
+    done
+    status=0
+    wait -n -p first "${ssh_pid[out]}" "${ssh_pid[err]}" || status=$?
+    other="${ssh_pid[out]}"
+    [ "$first" != "$other" ] || other="${ssh_pid[err]}"
+    if [ "$status" -ne 0 ]; then
+        failed=1
+        kill -TERM "$other" 2>/dev/null || true
+    fi
+    status=0
+    wait "$other" || status=$?
+    [ "$status" -eq 0 ] || failed=1
+    # A connection ended before it opened its FIFO leaves the reader waiting for a writer: opening the FIFO for reading
+    # and writing never blocks, and closing it again ends that reader's input.
+    for log in out err; do
+        exec {release}<>"$collect/$log.fifo"
+        exec {release}>&-
+    done
+    wait "${readers[@]}" || true
+    stream_pids=()
+    streamed=$((1 - failed))
+}
+
+# Stops this run on the box, as far as the box answers within 20 s.
+stop_remote() {
+    timeout --foreground 20 "${ssh_cmd[@]}" "$dest" "$(remote_command "$(host_stop)" orrery-gate-stop "$sub" "$run_id")" \
+        </dev/null >/dev/null 2>&1 || true
+}
+
+# Collecting is over: a signal no longer stops the run on the box.
+stop_collecting() {
+    trap - TERM INT HUP
+}
+
 run_remote() {
-    local top head origin_main run_id script record exit_file round status=0
+    local top head origin_main launch round
     if ! top="$(git rev-parse --show-toplevel 2>/dev/null)"; then
         echo "gate-remote: not inside a git work tree" >&2
         exit 2
@@ -392,49 +620,108 @@ run_remote() {
     read -r _ one five fifteen _ cpus <<<"$(tail -n 1 <<<"$prepared")"
 
     run_id="$(date +%s)-$$-$RANDOM"
-    exit_file="../$(printf '%q' "$sub").meta/exit"
-    script="cd $(printf '%q' "$remote") && rm -f $exit_file || exit 1"
-    script+="; git fetch -q --prune --no-write-fetch-head ../objects.git '+refs/tags/*:refs/tags/*'"
-    if [ -n "$origin_main" ]; then
-        script+=" && git update-ref refs/remotes/origin/main $origin_main"
-    fi
-    script+=" && git update-ref --no-deref HEAD $head && git read-tree $head"
-    script+=" && { [ ! -s ../$(printf '%q' "$sub").meta/staged.patch ] || git apply --cached ../$(printf '%q' "$sub").meta/staged.patch; }"
-    script+=" && { git update-index -q --refresh || true; }"
-    script+=" || { echo \"$run_id setup\" >$exit_file; exit 1; }"
-    script+="; systemctl --user show-environment >/dev/null 2>&1 || { echo \"$run_id noscope\" >$exit_file; exit 1; }"
-    script+="; flock -o -x ../$(printf '%q' "$sub").lock bash -c $(printf '%q' "$(box_run)") orrery-gate-run orrery-gate-$run_id $(printf '%q' "${ORRERY_GATE_FULL_SLOTS:-}") $(printf '%q' "${ORRERY_GATE_LIGHT_SLOTS:-}") $(printf '%q ' "$@")"
-    script+="; rc=\$?; echo \"$run_id \$rc\" >$exit_file; exit \$rc"
+    collect="$meta/collect"
+    mkdir "$collect"
+    : >"$collect/out"
+    : >"$collect/err"
+    launch="$(remote_command "$(host_launch)" orrery-gate-launch "$run_id" "$sub" "$(host_runner)" "$(box_run)" \
+        "${ORRERY_GATE_FULL_SLOTS:-}" "${ORRERY_GATE_LIGHT_SLOTS:-}" "$origin_main" "$head" "$@")"
 
     echo "gate-remote: running $(printf '%q ' "$@")on $dest (load $one $five $fifteen, nproc $cpus)" >&2
     started="$(date +%s)"
-    "${ssh_cmd[@]}" "$dest" "$script" </dev/null || status=$?
-    if [ "$status" -eq 0 ]; then
-        finished 0 "on $dest" "$@"
-        exit 0
-    fi
+    # A signal while the run is collected ends its connections and stops the run on the box, as the connection's end
+    # stopped it when the run lived and died with its connection.
+    trap 'stop_collecting; kill -TERM "${stream_pids[@]}" 2>/dev/null || true; stop_remote; exit 143' TERM
+    trap 'stop_collecting; kill -TERM "${stream_pids[@]}" 2>/dev/null || true; stop_remote; exit 130' INT
+    trap 'stop_collecting; kill -TERM "${stream_pids[@]}" 2>/dev/null || true; stop_remote; exit 129' HUP
+    local launched=0 lost=0 deadline=0 delay=1 now begun shown connected out_state err_state record="" state
+    while :; do
+        begun="$(date +%s)"
+        shown="$(shown_bytes)"
+        if [ "$launched" -eq 0 ] && "${ssh_cmd[@]}" "$dest" "$launch" </dev/null; then
+            launched=1
+        fi
+        connected=0
+        streamed=0
+        out_state=""
+        err_state=""
+        if [ "$launched" -eq 1 ]; then
+            stream_logs
+            out_state="$(cat "$collect/out.state" 2>/dev/null || true)"
+            err_state="$(cat "$collect/err.state" 2>/dev/null || true)"
+            if [ -n "$out_state" ] && [ -n "$err_state" ]; then
+                connected=1
+            fi
+        fi
+        now="$(date +%s)"
+        # The run is being collected again once a connection brings output, stays up for 5 s or ends as the box ends
+        # it; a connection that fails at once each time counts towards the bound.
+        if [ "$connected" -eq 1 ] && { [ "$streamed" -eq 1 ] || [ "$(shown_bytes)" -gt "$shown" ] || [ $((now - begun)) -ge 5 ]; }; then
+            if [ "$lost" -eq 1 ]; then
+                echo "gate-remote: reconnected to $dest; the run's output goes on from where it stopped" >&2
+            fi
+            lost=0
+            deadline=0
+            delay=1
+        fi
+        if [ "$streamed" -eq 1 ] && [ "$connected" -eq 1 ]; then
+            if [ "$out_state" = unknown ] || [ "$err_state" = unknown ]; then
+                stop_collecting
+                echo "gate-remote: $dest no longer knows the run (its checkout was removed or replaced); environment result, not a test failure (exit $environment_exit)" >&2
+                exit "$environment_exit"
+            fi
+            # Both logs were followed until the run ended; the next connection reads its record.
+            for state in "$out_state" "$err_state"; do
+                if [ "${state%% *}" = ended ]; then
+                    read -r _ record _ <<<"$state"
+                    break 2
+                fi
+            done
+            continue
+        fi
+        if [ "$deadline" -eq 0 ]; then
+            deadline=$((now + collect_secs))
+            lost=1
+            echo "gate-remote: the connection to $dest dropped; reconnecting for up to ${collect_secs}s to collect the run" >&2
+        fi
+        if [ "$now" -ge "$deadline" ]; then
+            stop_collecting
+            if probe "$dest"; then
+                stop_remote
+                if [ "$launched" -eq 1 ]; then
+                    echo "gate-remote: lost the connection to $dest after the command started and could not collect the run within ${collect_secs}s; environment result, not a test failure (exit $environment_exit)" >&2
+                else
+                    echo "gate-remote: lost the connection to $dest as the command started and could not start or collect the run within ${collect_secs}s; environment result, not a test failure (exit $environment_exit)" >&2
+                fi
+            else
+                echo "gate-remote: $dest went away after the command started (a spot interruption or the box ended); environment result, not a test failure (exit $environment_exit)" >&2
+                start_wake
+            fi
+            exit "$environment_exit"
+        fi
+        sleep "$((delay < deadline - now ? delay : deadline - now))"
+        delay=$((delay * 2 > 16 ? 16 : delay * 2))
+    done
+    stop_collecting
 
-    # A nonzero status is the command's only when the box recorded this run's exit; anything else lost the box.
-    if record="$("${ssh_cmd[@]}" "$dest" "cat $(printf '%q' "$remote.meta/exit")" </dev/null 2>/dev/null)" \
-        && [ "${record% *}" = "$run_id" ]; then
-        if [ "${record##* }" = setup ]; then
+    # The box recorded this run's exit; a run that ended without one was killed there.
+    case "$record" in
+        "")
+            stop_remote
+            echo "gate-remote: the run on $dest ended without recording its exit (it was killed there); environment result, not a test failure (exit $environment_exit)" >&2
+            exit "$environment_exit"
+            ;;
+        setup)
             exec 8>&-
             run_here "$dest could not set up its checkout" "$@"
-        fi
-        if [ "${record##* }" = noscope ]; then
+            ;;
+        noscope)
             exec 8>&-
             run_here "$dest has no user manager for the run's scope" "$@"
-        fi
-        finished "${record##* }" "on $dest" "$@"
-        exit "${record##* }"
-    fi
-    if probe "$dest"; then
-        echo "gate-remote: lost the connection to $dest after the command started; environment result, not a test failure (exit $environment_exit)" >&2
-    else
-        echo "gate-remote: $dest went away after the command started (a spot interruption or the box ended); environment result, not a test failure (exit $environment_exit)" >&2
-        start_wake
-    fi
-    exit "$environment_exit"
+            ;;
+    esac
+    finished "$record" "on $dest" "$@"
+    exit "$record"
 }
 
 # Records this wake's result for the wakes waiting on the lock: "<id> ok <destination>" or "<id> failed <reason>".

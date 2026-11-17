@@ -151,7 +151,8 @@ What a run sends and where it runs:
 - It pushes `HEAD`, `origin/main` and every tag into the box's object store, with `--no-verify`, so no hook runs.
 - It syncs the work tree with rsync. Files that are not git-ignored are sent, whether or not they are committed, and `.git` and `.worktrees/` are not. The box's checkout gets `HEAD` as its index, plus your staged changes.
 - It holds a slot before the command starts. `just check`, `just android-test` and `just cover` share the full-check slots, whose default count is the box's CPU count divided by 20, at least 1. Every other command shares the light-check slots, whose default count is the CPU count divided by 8, at least 1. A run waits in a queue when every slot of its class is held.
-- The command's exit status is the run's. Exit 75 is an environment result, such as a spot interruption or a dropped connection. It is never a test failure. Run again.
+- The run lives on the box apart from its ssh connections. When a connection drops while the box stays up, the script reconnects and shows the rest of the output from where it stopped, then the run's own exit status, so a dropped connection costs no run.
+- The command's exit status is the run's. Exit 75 is an environment result: the box went away (a spot interruption), the connections stayed down for `ORRERY_GATE_COLLECT_SECS` seconds (default 120), or the run was killed on the box. It is never a test failure. Run again.
 
 Finding the box: when `ORRERY_GATE_DEST` is set, it is the destination, and a run whose destination does not answer runs locally without a wake. Otherwise the destination is the one line of the host file, `ORRERY_GATE_HOST_FILE`, which defaults to `orrery/gate-host` under `XDG_CONFIG_HOME` (or `~/.config`). When the host file's box does not answer, `scripts/gate-remote.sh wake` finds a running box or launches one with `ec2 up orrery-gate --spot-only`.
 
