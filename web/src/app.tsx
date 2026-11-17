@@ -1521,7 +1521,11 @@ export function App({
               onGoList={focusCursorRow}
             >
               <Pill
-                model={rowPill(cursorRow.state, cursorConversation?.state?.pane, interrupts.has(cursorRow.key))}
+                model={rowPill(
+                  cursorRow.state,
+                  cursorConversation?.state?.pane,
+                  interrupts.has(cursorRow.key) || cursorConversation?.state?.interrupting === true,
+                )}
                 now={now}
               />
             </ConversationHead>
@@ -1649,7 +1653,11 @@ export function App({
               onGoList={focusCursorRow}
             >
               <Pill
-                model={rowPill(pinned.state, pinnedConversation?.state?.pane, interrupts.has(pinned.key))}
+                model={rowPill(
+                  pinned.state,
+                  pinnedConversation?.state?.pane,
+                  interrupts.has(pinned.key) || pinnedConversation?.state?.interrupting === true,
+                )}
                 now={now}
               />
             </ConversationHead>
