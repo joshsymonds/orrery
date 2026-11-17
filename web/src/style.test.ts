@@ -96,15 +96,56 @@ test("from 760px the page fills the window and the list, reader and epic page sc
   }
 });
 
-test("from 760px the tracks are 440px, fluid and 380px with no gap, and a pin splits the fluid track", () => {
+test("InboxFlyout: from 760px a docked or pinned inbox keeps the inbox track at 340px beside the fluid track and a third track, and a pin splits the fluid track", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   const panes = declarationsFor(wide, ".panes");
-  assert.match(panes, /grid-template-columns:\s*440px minmax\(0,\s*1fr\) 380px;/);
+  assert.match(panes, /grid-template-columns:\s*340px minmax\(0,\s*1fr\) 380px;/);
   assert.match(panes, /(?<![-\w])gap:\s*0;/);
   assert.match(
     declarationsFor(wide, ".panes.split"),
-    /grid-template-columns:\s*440px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+    /grid-template-columns:\s*340px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
+});
+
+test("InboxFlyout: a hidden inbox takes no place: its list is not drawn, and the page takes the one track across the full grid width", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  assert.match(declarationsFor(wide, '.panes[data-inbox="hidden"] > .list'), /display:\s*none;/);
+  assert.match(declarationsFor(wide, '.panes[data-inbox="hidden"]'), /grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  for (const selector of ['.panes[data-inbox="hidden"] > .read', '.panes[data-inbox="hidden"] > section.page']) {
+    assert.match(declarationsFor(wide, selector), /grid-column:\s*1;/, `${selector} takes the one track`);
+  }
+});
+
+test("InboxFlyout: a flyout lies over the page under the title row and above it, and the page keeps the one track at grid-column 1", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  const flyout = declarationsFor(wide, '.panes[data-inbox="flyout"] > .list');
+  assert.match(flyout, /position:\s*absolute;/);
+  assert.match(flyout, /(?<![-\w])top:\s*52px;/, "the flyout starts below the title row");
+  assert.match(flyout, /z-index:\s*5;/, "the flyout stacks above the page");
+  assert.doesNotMatch(flyout, /grid-column|grid-row/);
+  assert.match(
+    declarationsFor(wide, '.panes[data-inbox="flyout"]'),
+    /grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+    "the page keeps the one track while the flyout is out",
+  );
+  for (const selector of ['.panes[data-inbox="flyout"] > .read', '.panes[data-inbox="flyout"] > section.page']) {
+    assert.match(declarationsFor(wide, selector), /grid-column:\s*1;/, `${selector} takes the one track`);
+  }
+});
+
+test("InboxFlyout: the hidden and flyout rules sit in the 760px block, so under 760px the stacked layout always shows the inbox", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  assert.match(
+    wide,
+    /\.panes\[data-inbox="hidden"\] > \.list \{\s*display:\s*none;\s*\}/,
+    "the hidden list is drawn from 760px",
+  );
+  assert.match(
+    wide,
+    /\.panes\[data-inbox="flyout"\] > \.list \{[^}]*position:\s*absolute;/,
+    "the flyout is laid over from 760px",
+  );
+  assert.doesNotMatch(beforeWide(css), /data-inbox/, "no inbox state reaches a page under 760px");
 });
 
 test("from 760px each column keeps its own track in the one row, and the epic page takes the reader's track", () => {
@@ -321,31 +362,38 @@ test("under 760px the body is crust and unpadded, and the columns stack behind t
   assert.match(panes, /padding-right:\s*max\(16px, env\(safe-area-inset-right, 0px\)\);/);
 });
 
-test("from 760px to 1500px the list is 400px and the third track 340px", () => {
-  const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1500px) {");
-  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*400px minmax\(0,\s*1fr\) 340px;/);
+test("InboxFlyout: from 1251px to 1500px the inbox track is 340px, and the third track 340px", () => {
+  const block = mediaBlock(css, "@media (min-width: 1251px) and (max-width: 1500px) {");
+  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*340px minmax\(0,\s*1fr\) 340px;/);
   assert.match(
     declarationsFor(block, ".panes.split"),
-    /grid-template-columns:\s*400px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+    /grid-template-columns:\s*340px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
 });
 
-test("from 760px to 1100px the list is 380px in two tracks", () => {
+test("InboxFlyout: from 760px to 1250px the inbox track is 316px, the third track 340px, and the flyout 316px wide", () => {
+  const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1250px) {");
+  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*316px minmax\(0,\s*1fr\) 340px;/);
+  assert.match(
+    declarationsFor(block, ".panes.split"),
+    /grid-template-columns:\s*316px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+  );
+  assert.match(declarationsFor(block, '.panes[data-inbox="flyout"] > .list'), /width:\s*316px;/);
+});
+
+test("InboxFlyout: from 760px to 1100px the inbox track is 316px in two tracks", () => {
   const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1100px) {");
-  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*380px minmax\(0,\s*1fr\);/);
+  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*316px minmax\(0,\s*1fr\);/);
   assert.match(
     declarationsFor(block, ".panes.split"),
-    /grid-template-columns:\s*380px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+    /grid-template-columns:\s*316px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
 });
 
-test("the brand row sets a 22px mark and 11.5px counts, and new counts are lavender", () => {
+test("the brand row sets a 22px mark", () => {
   assert.match(declarationsFor(css, ".brand"), /display:\s*flex;/);
   assert.match(declarationsFor(css, ".brand .mark"), /width:\s*22px;/);
   assert.match(declarationsFor(css, ".brand .mark"), /height:\s*22px;/);
-  assert.match(declarationsFor(css, ".brand .counts"), /font:\s*400 11\.5px\/22px var\(--mono\);/);
-  assert.match(declarationsFor(css, ".brand .counts"), /margin-left:\s*auto;/);
-  assert.match(declarationsFor(css, ".st-new"), /color:\s*var\(--lavender\);/);
 });
 
 test("the wireframe's --rule token is defined", () => {

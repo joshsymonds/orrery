@@ -35,7 +35,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .top { padding-bottom: 10px; }
 .brand { display: flex; align-items: center; gap: 9px; font: 700 14px/22px var(--mono); }
 .brand .mark { flex: none; width: 22px; height: 22px; }
-.brand .counts { display: flex; gap: 12px; margin-left: auto; font: 400 11.5px/22px var(--mono); white-space: nowrap; }
 .filter {
   display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 10px;
   background: var(--mantle); border-radius: 8px; box-shadow: 0 0 0 1px var(--surface0); color: var(--overlay0);
@@ -108,7 +107,7 @@ button, input, textarea, select { font-family: var(--mono); }
   .app { height: 100%; display: flex; flex-direction: column; }
   .panes {
     flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0;
-    grid-template-columns: 440px minmax(0, 1fr) 380px;
+    grid-template-columns: 340px minmax(0, 1fr) 380px;
   }
   /* Each column keeps its own track, and the epic page takes the reader's. Every column sits in the one row, so a column
      placed in an earlier track than the one before it never opens a second row. */
@@ -118,9 +117,23 @@ button, input, textarea, select { font-family: var(--mono); }
   /* With no pin the reader and the epic page take every track right of the list: no track is left empty. */
   .panes:not(.split) > .read, .panes > section.page { grid-column: 2 / -1; }
   .panes > .read.pinned { grid-column: 3; }
-  .panes.split { grid-template-columns: 440px minmax(0, 1fr) minmax(0, 1fr); }
+  .panes.split { grid-template-columns: 340px minmax(0, 1fr) minmax(0, 1fr); }
   /* With a pin the epic page keeps the reader's track, and the pinned reader the third. */
   .panes.split > section.page { grid-column: 2; }
+  /* The inbox hidden, or popped out over the page, takes no track: the reader and the epic page take the first track,
+     and a pin the second. The flyout lies over the page under the title row and above it, and is out of the grid. */
+  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { grid-template-columns: minmax(0, 1fr); }
+  .panes[data-inbox="hidden"].split, .panes[data-inbox="flyout"].split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .panes[data-inbox="hidden"] > .list { display: none; }
+  .panes[data-inbox="hidden"] > .read, .panes[data-inbox="hidden"] > section.page,
+  .panes[data-inbox="flyout"] > .read, .panes[data-inbox="flyout"] > section.page { grid-column: 1; }
+  .panes[data-inbox="hidden"] > .read.pinned, .panes[data-inbox="flyout"] > .read.pinned { grid-column: 2; }
+  .panes[data-inbox="flyout"] > .list {
+    display: grid; position: absolute; top: 52px; bottom: 0; left: 0; width: 340px; z-index: 5;
+    box-shadow: 8px 0 24px color-mix(in srgb, var(--crust) 80%, transparent);
+  }
   .list, .read, section.page { min-height: 0; }
   .list {
     position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--crust);
@@ -143,15 +156,22 @@ button, input, textarea, select { font-family: var(--mono); }
   .dock { min-height: 0; overflow-y: auto; border-left: 1px solid var(--rule); }
 }
 
-@media (min-width: 760px) and (max-width: 1500px) {
-  .panes { grid-template-columns: 400px minmax(0, 1fr) 340px; }
-  .panes.split { grid-template-columns: 400px minmax(0, 1fr) minmax(0, 1fr); }
+@media (min-width: 1251px) and (max-width: 1500px) {
+  .panes { grid-template-columns: 340px minmax(0, 1fr) 340px; }
+  .panes.split { grid-template-columns: 340px minmax(0, 1fr) minmax(0, 1fr); }
 }
 
-/* From 760px to 1100px the list narrows to 380px, and the epic page takes the reader's track beside it. */
+/* At 1250px and under the inbox track narrows to 316px, and its flyout with it. */
+@media (min-width: 760px) and (max-width: 1250px) {
+  .panes { grid-template-columns: 316px minmax(0, 1fr) 340px; }
+  .panes.split { grid-template-columns: 316px minmax(0, 1fr) minmax(0, 1fr); }
+  .panes[data-inbox="flyout"] > .list { width: 316px; }
+}
+
+/* From 760px to 1100px the inbox narrows to 316px, and the epic page takes the reader's track beside it. */
 @media (min-width: 760px) and (max-width: 1100px) {
-  .panes { grid-template-columns: 380px minmax(0, 1fr); }
-  .panes.split { grid-template-columns: 380px minmax(0, 1fr) minmax(0, 1fr); }
+  .panes { grid-template-columns: 316px minmax(0, 1fr); }
+  .panes.split { grid-template-columns: 316px minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 .rows { min-width: 0; }
@@ -183,9 +203,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row .g-done::after { content: "✓"; font-size: 8px; }
 .b-row .g-interrupted { box-shadow: inset 0 0 0 1.5px var(--maroon); color: var(--maroon); }
 .b-row .g-interrupted::after { content: "!"; }
-.st-working { color: var(--yellow); }
-.st-waiting { color: var(--peach); }
-.st-new { color: var(--lavender); }
 .b-row .main { min-width: 0; }
 .b-row .l1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
 .b-row .ty { flex: none; font: 700 9.5px/20px var(--mono); letter-spacing: .1em; color: var(--peach); }
@@ -551,6 +568,10 @@ section.page.leave { animation: move-leave var(--move-leave); }
 .title-row .state { flex: none; font: 700 11.5px/22px var(--mono); color: var(--subtext0); transition: color var(--move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11.5px/22px var(--mono); color: var(--peach); transition: color var(--move-state); }
 .title-row .acts { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; }
+/* The mark is the title row's first crumb: the orrery drawing, with the count of what needs you beside it when any does. */
+.title-row .mark-crumb { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.title-row .mark-crumb .mark { flex: none; width: 18px; height: 18px; }
+.title-row .mark-crumb .needs { font: 700 11px/16px var(--mono); color: var(--peach); }
 /* The buttons press in the press move: a pressed button shrinks a little and darkens to surface1. */
 button.act, .back, .crumb { transition: transform var(--move-press), background-color var(--move-press); }
 button.act {

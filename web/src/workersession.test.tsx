@@ -45,7 +45,6 @@ function baseProps(calls: string[], init: Partial<Props>): Props {
     epic: "orrery-style",
     task: "api",
     phase: "implementing",
-    onGoList: () => calls.push("onGoList"),
     onGoEpic: () => calls.push("onGoEpic"),
     onBack: () => calls.push("onBack"),
     onOlder: () => calls.push("onOlder"),
@@ -165,9 +164,9 @@ test("a null conversation shows the reader's loading line", async () => {
   });
 });
 
-test("the crumbs read orrery, the epic, task · phase, and session, and the last is the page itself", async () => {
+test("the crumbs read the epic, task · phase, and session, and the last is the page itself", async () => {
   await withPage([], {}, async (container) => {
-    assert.deepEqual(crumbTexts(container), ["orrery", "orrery-style", "api · implementing", "session"]);
+    assert.deepEqual(crumbTexts(container), ["orrery-style", "api · implementing", "session"]);
     assert.equal(find(container, ".crumb.here").tagName, "SPAN");
   });
 });
@@ -181,13 +180,12 @@ test("‹ calls onBack and no crumb", async () => {
   });
 });
 
-test("the orrery crumb calls onGoList, the epic crumb onGoEpic, and the phase crumb onBack", async () => {
+test("the epic crumb calls onGoEpic, and the phase crumb onBack", async () => {
   const calls: string[] = [];
   await withPage(calls, {}, async (container) => {
-    await clickElement(crumbButton(container, "orrery"));
     await clickElement(crumbButton(container, "orrery-style"));
     await clickElement(crumbButton(container, "api · implementing"));
-    assert.deepEqual(calls, ["onGoList", "onGoEpic", "onBack"]);
+    assert.deepEqual(calls, ["onGoEpic", "onBack"]);
   });
 });
 

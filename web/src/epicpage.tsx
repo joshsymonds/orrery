@@ -9,7 +9,7 @@ import { Orrery } from "./orrery";
 import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
 import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
 import { type Blocker, blockerOf, stateOf } from "./status";
-import { TitleRow } from "./titlerow";
+import { type InboxMark, TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
@@ -71,6 +71,7 @@ export function EpicPage(props: {
   actions?: ComponentChildren;
   handover?: ComponentChildren;
   landing?: Landing;
+  mark?: InboxMark;
 }): JSX.Element {
   const {
     detail,
@@ -85,6 +86,7 @@ export function EpicPage(props: {
     actions,
     handover,
     landing,
+    mark,
   } = props;
   const { epic, contract, requirements, steps, nodes, releaseSteps, report } = detail;
   const wedges = wedgesOf(detail);
@@ -105,10 +107,11 @@ export function EpicPage(props: {
   return (
     <div class="epic-page" ref={pageRef}>
       <TitleRow
-        crumbs={[{ label: "orrery", onGo: onBack }, { label: slug }]}
+        crumbs={[{ label: slug }]}
         onBack={onBack}
         state={stateLine(detail, now)}
         blocker={blockerLine(blocker, now)}
+        mark={mark}
       >
         {actions}
         {live &&

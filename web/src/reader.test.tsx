@@ -1745,7 +1745,7 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
-test("a session's conversation head draws the title row: a back button, the crumbs orrery then the session's label, and its state, and back calls its handler", () => {
+test("a session's conversation head draws the title row: a back button, the session's label as the page crumb, and its state, and back calls its handler", () => {
   let backs = 0;
   return withConversationHead(
     {
@@ -1754,7 +1754,6 @@ test("a session's conversation head draws the title row: a back button, the crum
       onBack: () => {
         backs += 1;
       },
-      onGoList: () => {},
       children: <span class="pill">synthetic pill</span>,
     },
     async (container) => {
@@ -1765,10 +1764,10 @@ test("a session's conversation head draws the title row: a back button, the crum
       const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
       assert.deepEqual(
         crumbs.map((crumb) => crumb.textContent),
-        ["orrery", "Synthetic session"],
-        "the crumbs read orrery, then the session's label",
+        ["Synthetic session"],
+        "the crumb reads the session's label",
       );
-      assert.equal(crumbs[1]?.getAttribute("aria-current"), "page", "the label is the page itself");
+      assert.equal(crumbs[0]?.getAttribute("aria-current"), "page", "the label is the page itself");
       assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
       assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
       back?.click();

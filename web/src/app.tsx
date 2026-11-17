@@ -36,7 +36,7 @@ import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader } from "./reader";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
@@ -44,11 +44,15 @@ import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
-import { TitleRow } from "./titlerow";
+import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project" | "archived";
+
+// The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
+// popped out over the hidden page while the pointer is on the mark.
+type InboxState = "docked" | "pinned" | "hidden" | "flyout";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -212,6 +216,12 @@ export function App({
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
+  // Whether a row has been opened by a click or Enter, which hides the inbox. The mark's click or B pins the inbox
+  // beside the page, and the pointer on the mark pops a hidden inbox out over the page.
+  const [rowOpened, setRowOpened] = useState(false);
+  const [inboxPinned, setInboxPinned] = useState(false);
+  const [inboxFlyout, setInboxFlyout] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
   // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
@@ -297,10 +307,6 @@ export function App({
     .split(/\s+/)
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(withRowMark(row, rowMarks), seenWritten));
-  // The brand's counts read every loaded row as the list reads it after seen writes, before the filter.
-  const waitingCount = shownRows.filter((row) => row.state === stateWaiting).length;
-  const workingCount = shownRows.filter((row) => row.state === stateWorking).length;
-  const newCount = shownRows.filter((row) => row.unseen).length;
   // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
   const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
@@ -320,7 +326,14 @@ export function App({
   const detailEpics = [...epics.details.values()].flatMap((detail) =>
     detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
   );
-  const needs = view === "attention" ? epicNeeds(detailEpics, epics.details) : [];
+  // The live epics' needs, which the mark counts in every view. Only the attention view draws them in its section.
+  const liveNeeds = epicNeeds(detailEpics, epics.details);
+  const needs = view === "attention" ? liveNeeds : [];
+  // The mark's count: the loaded rows that need you and are not archived, and the live epics' needs. It reads the same
+  // in every view and under any filter, as the list reads every loaded row after seen writes.
+  const markNeeds =
+    splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length + liveNeeds.length;
+  const inboxState: InboxState = inboxPinned ? "pinned" : !rowOpened ? "docked" : inboxFlyout ? "flyout" : "hidden";
   const sections =
     view === "attention"
       ? withEpicsGroup(withNeedsSection(byAttention(defaultRows), needs.length > 0), kept)
@@ -841,6 +854,21 @@ export function App({
     setPinStream(null);
   };
 
+  // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
+  const togglePin = () => setInboxPinned((value) => !value);
+  // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
+  // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away.
+  const inboxMark: InboxMark = {
+    needs: markNeeds,
+    enter: () => setInboxFlyout(true),
+    leave: (to) => {
+      if (!(to instanceof Node) || listRef.current?.contains(to) !== true) {
+        setInboxFlyout(false);
+      }
+    },
+    pin: togglePin,
+  };
+
   // focusCursorRow moves focus to the list's current row, the row the cursor rests on.
   const focusCursorRow = () => {
     document.querySelector<HTMLElement>(".b-row.cur")?.focus();
@@ -961,10 +989,19 @@ export function App({
         setPickerOpen(true);
         break;
       case "x":
-      case "Enter":
         if (cursorRow !== null) {
           void writeSeen(cursorRow);
         }
+        break;
+      case "Enter":
+        if (cursorRow !== null) {
+          setRowOpened(true);
+          void writeSeen(cursorRow);
+        }
+        break;
+      case "b":
+      case "B":
+        togglePin();
         break;
       case "e":
         if (cursorRow !== null) {
@@ -1044,12 +1081,9 @@ export function App({
       return (
         <div>
           <TitleRow
-            crumbs={[
-              { label: "orrery", onGo: closeEpicPage },
-              { label: detail.epic?.slug ?? "", onGo: toEpicPage },
-              { label: "contract" },
-            ]}
+            crumbs={[{ label: detail.epic?.slug ?? "", onGo: toEpicPage }, { label: "contract" }]}
             onBack={back}
+            mark={inboxMark}
           />
           <ContractBody contract={detail.contract} requirements={detail.requirements} />
         </div>
@@ -1066,11 +1100,11 @@ export function App({
           now={now}
           loadArtifact={loadArtifact}
           onBack={back}
-          onGoList={closeEpicPage}
           onOpenPhase={openPhase}
           onOpenSession={(step) => drill({ kind: "session", task: page.task, phase: page.phase, step })}
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
+          mark={inboxMark}
         />
       );
     }
@@ -1087,13 +1121,13 @@ export function App({
           epic={detail.epic?.slug ?? ""}
           task={page.task}
           phase={page.phase}
-          onGoList={closeEpicPage}
           onGoEpic={toEpicPage}
           onBack={back}
           onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}
           hold={calls.hold}
           stop={calls.stop}
+          mark={inboxMark}
         />
       );
     }
@@ -1110,6 +1144,7 @@ export function App({
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
         handover={Handover({ detail })}
+        mark={inboxMark}
         actions={
           <Talk
             key={entry.id}
@@ -1126,18 +1161,13 @@ export function App({
 
   return (
     <main class="app">
-      <div class={pinned !== null ? "panes split" : "panes"}>
+      <div class={pinned !== null ? "panes split" : "panes"} data-inbox={inboxState}>
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list">
+        <div class="list" ref={listRef} onMouseLeave={() => setInboxFlyout(false)}>
           <header class="top">
             <div class="brand">
               <Mark />
               orrery
-              <span class="counts">
-                {waitingCount > 0 && <span class="st-waiting">{`${waitingCount} need you`}</span>}
-                {workingCount > 0 && <span class="st-working">{`${workingCount} working`}</span>}
-                {newCount > 0 && <span class="st-new">{`✱ ${newCount} new`}</span>}
-              </span>
               <button type="button" onClick={() => setPickerOpen(true)}>
                 + Ask
               </button>
@@ -1278,6 +1308,7 @@ export function App({
                     onClick={(event) => {
                       if (!isLinkClick(event)) {
                         selectItem(item);
+                        setRowOpened(true);
                       }
                     }}
                     onDblClick={(event) => {
@@ -1347,15 +1378,19 @@ export function App({
               label={cursorRow.label}
               state={headState(cursorRow, cursorConversation?.state?.pane)}
               onBack={focusCursorRow}
-              onGoList={focusCursorRow}
+              mark={inboxMark}
             >
               <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
             </ConversationHead>
           )}
           {cursorStep !== null && (
-            <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
+            <TitleRow
+              crumbs={[{ label: stepWhere(cursorStep) }, { label: cursorStep.label }]}
+              onBack={focusCursorRow}
+              mark={inboxMark}
+            >
               <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
-            </ReaderHead>
+            </TitleRow>
           )}
           {cursorRow !== null && (
             <Reader
@@ -1432,7 +1467,7 @@ export function App({
               label={pinned.label}
               state={headState(pinned, pinnedConversation?.state?.pane)}
               onBack={closePin}
-              onGoList={focusCursorRow}
+              mark={inboxMark}
             >
               <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
             </ConversationHead>

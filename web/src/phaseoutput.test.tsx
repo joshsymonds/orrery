@@ -203,9 +203,6 @@ function pageProps(
     onBack: () => {
       calls.push("back");
     },
-    onGoList: () => {
-      calls.push("list");
-    },
     onOpenPhase: (openedTask, openedPhase) => {
       calls.push(`phase:${openedTask}:${openedPhase}`);
     },
@@ -288,23 +285,21 @@ function openPhasesOf(container: HTMLElement): string {
   return textsOf(container, ".phase-row.open .phase-name").join(",");
 }
 
-test("the crumbs read orrery, the epic, then the task and phase, with the phase as the page", async () => {
+test("the crumbs read the epic, then the task and phase, with the phase as the page", async () => {
   await withPage(pageProps(finished(), "T1", "checking", []), (container) => {
-    assert.equal(elementOf(container, ".crumbs").textContent, "orrery › orrery-style › T1 · checking");
+    assert.equal(elementOf(container, ".crumbs").textContent?.trim(), "› orrery-style › T1 · checking");
     assert.equal(elementOf(container, ".crumbs .here").textContent, "T1 · checking");
   });
 });
 
-test("‹ calls onBack, and the orrery and epic crumbs call onGoList and onBack", async () => {
+test("‹ calls onBack, and the epic crumb calls onBack", async () => {
   const calls: string[] = [];
   await withPage(pageProps(finished(), "T1", "checking", calls), async (container) => {
     await click(elementOf(container, ".back"));
-    const crumbs = [...container.querySelectorAll<HTMLButtonElement>(".crumbs button.crumb")];
-    const [orrery, epic] = crumbs;
-    assert.ok(orrery && epic, "the orrery and epic crumbs are buttons");
-    await click(orrery);
+    const [epic] = [...container.querySelectorAll<HTMLButtonElement>(".crumbs button.crumb")];
+    assert.ok(epic, "the epic crumb is a button");
     await click(epic);
-    assert.equal(calls.join(","), "back,list,back");
+    assert.equal(calls.join(","), "back,back");
   });
 });
 

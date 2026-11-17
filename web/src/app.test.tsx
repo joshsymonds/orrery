@@ -341,9 +341,6 @@ function fixture(): Row[] {
   ];
 }
 
-// fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
-const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
-
 const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
@@ -461,7 +458,7 @@ function pinnedHead(container: HTMLElement): Element | null {
   return container.querySelector('section[aria-label="pinned reader"] > .title-row');
 }
 
-// crumbTexts are the crumbs of a title row, in order: the orrery, then the page's label.
+// crumbTexts are the labels of a title row's crumbs, in order, the page's label last. The mark is not a label.
 function crumbTexts(head: Element | null): string[] {
   return Array.from(head?.querySelectorAll(".crumbs .crumb") ?? [], (crumb) => crumb.textContent ?? "");
 }
@@ -631,13 +628,6 @@ function outsideList(container: HTMLElement, selector: string): string[] {
     .map((element) => element.getAttribute("class") ?? "");
 }
 
-// countTexts names each count the brand shows, in order, by class and text.
-function countTexts(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".brand .counts > span")].map(
-    (element) => `${element.getAttribute("class")}: ${element.textContent}`,
-  );
-}
-
 // hostTexts names the hosts the footer lists, in order.
 function hostTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".lfoot > .host")].map((element) => element.textContent ?? "");
@@ -689,11 +679,6 @@ async function clickMeterButton(container: HTMLElement): Promise<void> {
   await act(() => {
     button.dispatchEvent(new Event("click", { bubbles: true }));
   });
-}
-
-// newCount is the text of the brand's new count, or null when the brand shows none.
-function newCount(container: HTMLElement): string | null {
-  return container.querySelector(".brand .counts .st-new")?.textContent ?? null;
 }
 
 // chipTexts is the text of each option chip the row draws, in order. A row with no chips names none.
@@ -1197,38 +1182,9 @@ test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive
     assert.equal(container.querySelectorAll(".brand > svg.mark > path").length, 5);
   }));
 
-test("the brand reads orrery, and its counts stay in place when every count is zero", (t) =>
+test("the brand reads orrery, and holds the Ask button", (t) =>
   withApp(t.signal, { rows: [] }, (container) => {
     assert.equal(container.querySelector(".brand")?.textContent, "orrery+ Ask", "the brand row holds the Ask button");
-    assert.equal(container.querySelector(".brand .counts") === null, false, "the counts span stays");
-    assert.deepEqual(countTexts(container), []);
-  }));
-
-test("the brand counts the loaded rows that need you, are working, and are new", (t) =>
-  withApp(t.signal, {}, (container) => {
-    assert.deepEqual(countTexts(container), fixtureCounts);
-  }));
-
-test("a count of zero is left out of the brand", (t) =>
-  withApp(t.signal, { rows: [row({ key: "s", state: "working", changed: 1, seen: 1 })] }, (container) => {
-    assert.deepEqual(countTexts(container), ["st-working: 1 working"]);
-  }));
-
-test("a successful seen write takes its row out of the new count", (t) =>
-  withApp(t.signal, {}, async (container, fake) => {
-    assert.equal(newCount(container), "✱ 2 new");
-    await press("x");
-    await until(t.signal, () => newCount(container) === "✱ 1 new", "the new count to fall");
-    assert.deepEqual(countTexts(container), ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 1 new"]);
-    assert.equal(fake.callsTo(markPanePath).length, 1);
-  }));
-
-test("typing a filter leaves the counts as they were", (t) =>
-  withApp(t.signal, {}, async (container) => {
-    await press("/");
-    await typeFilter(container, "docs");
-    assert.deepEqual(rowKeys(container), ["c"]);
-    assert.deepEqual(countTexts(container), fixtureCounts);
   }));
 
 test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", (t) =>
@@ -1245,35 +1201,34 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
     await until(t.signal, () => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("the cursor's reader opens on the title row: a back button, the crumbs orrery and the label, the state, and its pill", (t) =>
+test("the cursor's reader opens on the title row: a back button, the crumb of the label, the state, and its pill", (t) =>
   withApp(t.signal, { rows: [paneRow] }, (container) => {
     assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "api"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["api"]);
     assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "waiting");
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "waiting");
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a session's conversation draws the title row: a back button, the crumbs orrery and the session's label, its state, and a pill of its state with no tool or clock", (t) =>
+test("a session's conversation draws the title row: a back button, the crumb of the session's label, its state, and a pill of its state with no tool or clock", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, (container) => {
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "notes"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["notes"]);
     assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "working");
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a step's head names the step, its epic, agent and round, and its pill runs from the step's start", (t) => {
+test("a step's head names its epic, agent and round, then the step, and its pill runs from the step's start", (t) => {
   const running = makeStep("s1", { started: BigInt(now - 60) });
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
   return withApp(t.signal, { epics }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
-    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "s1");
-    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "first › builder · step · round 1");
+    assert.deepEqual(crumbTexts(readerHead(container)), ["first › builder · step · round 1", "s1"]);
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "running");
     assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
   });
@@ -1394,11 +1349,11 @@ test("the cursor's reader is its title row, its conversation and its foot, and n
     ]);
   }));
 
-test("a step's reader is its head, its conversation and its foot, and nothing else", (t) =>
+test("a step's reader is its title row, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
     await onStepOne(t.signal, container, fake);
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
-      "header.head",
+      "header.title-row",
       "div.reader",
       "div.send",
     ]);
@@ -2262,14 +2217,14 @@ test("the pinned title row names the pinned row while the cursor rests on anothe
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.deepEqual(crumbTexts(pinnedHead(container)), ["orrery", "api"]);
+    assert.deepEqual(crumbTexts(pinnedHead(container)), ["api"]);
     assert.equal(pinnedHead(container)?.querySelector(".state")?.textContent, "waiting");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "docs"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["docs"]);
     assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "done");
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
 
-test("‹ and the orrery crumb on the cursor's title row move focus to the list's current row", (t) =>
+test("‹ on the cursor's title row moves focus to the list's current row, and i moves it back to the reply box", (t) =>
   withApp(t.signal, {}, async (container) => {
     const current = () => container.querySelector(".b-row.cur");
     assert.ok(current() !== null, "the list has a current row");
@@ -2279,8 +2234,6 @@ test("‹ and the orrery crumb on the cursor's title row move focus to the list'
     assert.equal(document.activeElement, current(), "‹ moves focus to the current row");
     await press("i");
     assert.equal(document.activeElement === composer(container), true, "the reply box has focus again");
-    await clickButton(container, 'section[aria-label="reader"] .title-row', "orrery");
-    assert.equal(document.activeElement, current(), "the orrery crumb moves focus to the current row");
   }));
 
 test("‹ on the pinned title row closes the pin, as | does", (t) =>
@@ -3871,15 +3824,7 @@ test("back and the slug crumb restore the epic page's scroll place, and the page
     assert.equal(pageScroll(container), 120, "the slug crumb restores the scroll place");
   }));
 
-test("the orrery crumb closes the page from the contract page too", (t) =>
-  withApp(t.signal, { epics: pageEpic({ summary: "Ship the demo", contract: acceptedContract }) }, async (container) => {
-    await press("j");
-    await clickButton(container, ".epic-page", "Ship the demo");
-    await clickButton(container, 'section.page[aria-label="epic"] .title-row', "orrery");
-    assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
-  }));
-
-test("back and the orrery crumb close the epic page until the cursor moves", (t) =>
+test("back closes the epic page until the cursor moves", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container) => {
     await press("j");
     await clickButton(container, 'section.page[aria-label="epic"] .title-row', "‹");
@@ -3891,8 +3836,6 @@ test("back and the orrery crumb close the epic page until the cursor moves", (t)
     await press("k");
     assert.equal(cursorKey(container), `epic:${widgetsFirst}`);
     assert.equal(epicPageShown(container), true, "the page opens again once the cursor has moved");
-    await clickButton(container, 'section.page[aria-label="epic"] .title-row', "orrery");
-    assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
   }));
 
 // phaseEpic is a live epic whose task T1, Parser, runs its gate step run1, which puts T1 in checking, and whose task
@@ -4067,16 +4010,6 @@ test("the epic crumb on the phase output returns to the epic page at its scroll 
     assert.equal(epicPageDrawn(container), true, "the epic crumb returns to the epic page");
     assert.equal(pageClass(container), "page leave", "the epic page comes back with leave");
     assert.equal(String(pageScroll(container)), "120", "the epic page's scroll place is restored");
-  }));
-
-test("the orrery crumb closes the page from the session, and the session's stream stops", (t) =>
-  withApp(t.signal, { epics: phaseEpic() }, async (container, fake) => {
-    await openCheckingPhase(container);
-    await clickButton(container, phaseBody, "Open the session ›");
-    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
-    await clickButton(container, pageTitleRow, "orrery");
-    assert.equal(epicPageShown(container), false, "the orrery crumb closes the page");
-    assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "the closed page's stream stops");
   }));
 
 test("Hold on the phase output calls Steps.Hold with the running step's id", (t) =>

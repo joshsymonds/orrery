@@ -9,7 +9,7 @@ import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
 import { ReplyText } from "./text";
-import { TitleRow } from "./titlerow";
+import { type InboxMark, TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
@@ -203,23 +203,23 @@ export function ReaderHead({
   );
 }
 
-// ConversationHead heads a row's conversation with the shared title row: the back button, the crumbs orrery › the row's
-// label, and the row's state in the state slot. The children, the pill the app passes in, draw after the state.
+// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's label as
+// the page, and the row's state in the state slot. The children, the pill the app passes in, draw after the state.
 export function ConversationHead({
   label,
   state,
   onBack,
-  onGoList,
+  mark,
   children,
 }: {
   label: string;
   state: string;
   onBack: () => void;
-  onGoList: () => void;
+  mark?: InboxMark;
   children?: ComponentChildren;
 }): JSX.Element {
   return (
-    <TitleRow crumbs={[{ label: "orrery", onGo: onGoList }, { label }]} onBack={onBack} state={state}>
+    <TitleRow crumbs={[{ label }]} onBack={onBack} state={state} mark={mark}>
       {children}
     </TitleRow>
   );
