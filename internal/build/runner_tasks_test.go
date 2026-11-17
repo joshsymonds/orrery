@@ -22,6 +22,12 @@ func passTwoTaskPlan() store.EpicPlan {
 // newTwoTaskFixture returns a fixture like newPassFixture whose epic has tasks 1 and 2 planned at its base, both open.
 func newTwoTaskFixture(t *testing.T) *passFixture {
 	t.Helper()
+	return newPlanFixture(t, passTwoTaskPlan())
+}
+
+// newPlanFixture returns a fixture like newPassFixture whose epic has plan's tasks planned at its base, all open.
+func newPlanFixture(t *testing.T, plan store.EpicPlan) *passFixture {
+	t.Helper()
 	ctx := context.Background()
 	setup := newStartSetup(t, readoptCommandGate("check"), readoptReviewGate())
 	path := filepath.Join(t.TempDir(), "orrery.db")
@@ -44,7 +50,7 @@ func newTwoTaskFixture(t *testing.T) *passFixture {
 	if _, err = s.ClaimTurn(ctx, passEpic, passClock()); err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
-	if err = s.CompleteTurn(ctx, passEpic, 1, passTwoTaskPlan(), passClock()); err != nil {
+	if err = s.CompleteTurn(ctx, passEpic, 1, plan, passClock()); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
 	buildRun(t, setup.epic.Repository, "update-ref", "refs/heads/main", setup.base)

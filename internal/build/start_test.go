@@ -187,7 +187,7 @@ func TestStartImplementerWorktreeIsDetachedAtBaseUnderTaskDir(t *testing.T) {
 	); err != nil {
 		t.Fatalf("startStep(implement) = %v, want nil", err)
 	}
-	want := filepath.Join(TaskDir(setup.stateDir, setup.epic.ID, task.Seq), id)
+	want := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
 	start := onlyStart(t, steps)
 	if start.Workspace != want {
 		t.Fatalf("start Workspace = %s, want %s", start.Workspace, want)
@@ -220,7 +220,7 @@ func TestStartImplementerPromptHoldsRedLogAndFailure(t *testing.T) {
 	if !strings.Contains(prompt, "FAIL TestStartNamesRedLog") {
 		t.Errorf("prompt lacks the red log:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Your previous attempt failed: the red test passed") {
+	if !strings.Contains(prompt, "From your previous try on this task: the red test passed") {
 		t.Errorf("prompt lacks the previous attempt's failure:\n%s", prompt)
 	}
 	if !slices.Equal(evidence.runs, []string{"redrun"}) {
@@ -656,5 +656,34 @@ func TestStartVerifierFindingPositionOutOfRangeErrors(t *testing.T) {
 	}
 	if len(steps.starts) != 0 {
 		t.Errorf("Start calls = %d for a missing finding, want none", len(steps.starts))
+	}
+}
+
+func TestStartImplementerLaterAttemptKeepsTheEarlierWork(t *testing.T) {
+	t.Parallel()
+	setup := newStartSetup(t, readoptCommandGate("check"))
+	task := startTask(setup.base)
+	steps := &startSteps{}
+	runner := startRunner(setup, steps, &startEvidence{})
+	first := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)
+	if _, err := runner.startStep(context.Background(), setup.epic, View{Task: task},
+		Action{Kind: ActStartStep, Unit: StageImplement, ID: first}); err != nil {
+		t.Fatalf("startStep(first attempt) = %v, want nil", err)
+	}
+	worktree := ImplementWorktree(setup.stateDir, setup.epic.ID, task.Seq)
+	earlier := buildCommit(t, worktree)
+	task.Build.Attempt = lastAttempt
+	second := StepID(setup.epic.ID, task.Seq, StageImplement, task.Build.Attempt, task.Build.Rerun, 0, 0)
+	if _, err := runner.startStep(context.Background(), setup.epic, View{Task: task},
+		Action{Kind: ActStartStep, Unit: StageImplement, ID: second}); err != nil {
+		t.Fatalf("startStep(second attempt) = %v, want nil", err)
+	}
+	start := steps.starts[len(steps.starts)-1]
+	if start.Workspace != worktree || start.Revision != setup.base {
+		t.Fatalf("second start in %s from %s, want %s checked from the base %s",
+			start.Workspace, start.Revision, worktree, setup.base)
+	}
+	if got := buildRun(t, worktree, "rev-parse", "HEAD"); got != earlier {
+		t.Errorf("worktree HEAD = %s, want the earlier attempt's commit %s", got, earlier)
 	}
 }

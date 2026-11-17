@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -12,42 +13,48 @@ import (
 const triggerPending = "pending"
 
 // FailTask fails task seq of epic in one write, when its stored build is from: the task is failed, its failure is
-// reason cut to TurnReasonMax bytes, and a pending trigger `T<seq>-failed` with cause `task T<seq> failed: <reason>` is
-// added. A task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
+// reason cut to TurnReasonMax bytes, its needsFiles are stored as the files a later task may need, and a pending
+// trigger `T<seq>-failed` with cause `task T<seq> failed: <reason>` is added. A task that is not open, or whose stored
+// build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) FailTask(
 	ctx context.Context,
 	epic string,
 	seq int64,
 	from TaskBuild,
 	reason string,
+	needsFiles []string,
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return failTaskIn(ctx, queries, epic, seq, from, reason, at)
+		return failTask(ctx, queries, epic, seq, from, capTurnText(reason), needsFiles, at)
 	})
 }
 
-// failTaskIn fails task seq of epic in the caller's write, as FailTask does.
-func failTaskIn(
+// failTask fails task seq of epic with failure, as it is to be stored, in the caller's write, when its stored build is
+// from, as FailTask gives.
+func failTask(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	seq int64,
 	from TaskBuild,
-	reason string,
+	failure string,
+	needsFiles []string,
 	at time.Time,
 ) error {
-	stored := capTurnText(reason)
 	to := from
-	to.Failure = stored
+	to.Failure = failure
 	if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 		return err
 	}
 	if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
 		return err
 	}
+	if err := setTaskNeedsFiles(ctx, queries, epic, seq, needsFiles); err != nil {
+		return err
+	}
 	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, stored),
+		Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, failure),
 		State: triggerPending, Turn: 0, Created: at.Unix(),
 	}); err != nil {
 		return fmt.Errorf("insert failure trigger of task %d of epic %s: %w", seq, epic, err)
@@ -66,6 +73,89 @@ func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from Tas
 		}
 		return setTaskStatus(ctx, queries, epic, seq, "done")
 	})
+}
+
+// FileOwnedError is GrantTaskFiles's refusal of a file another open task of the epic owns.
+type FileOwnedError struct {
+	File string
+	Task int64
+}
+
+// Error names the file and the task that owns it.
+func (e FileOwnedError) Error() string {
+	return fmt.Sprintf("%s is owned by open task T%d", e.File, e.Task)
+}
+
+// GrantTaskFiles adds files, in order, after the files of task seq of epic and stores to as its build, in one write,
+// when its stored build is from. A file another open task of the epic owns is a FileOwnedError and writes nothing. A
+// task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
+func (s *Store) GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to TaskBuild, files []string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		return grantFiles(ctx, queries, epic, seq, from, to, files, nil)
+	})
+}
+
+// grantFiles adds files, in order, after the files of task seq of epic and stores to as its build, in the caller's
+// write, when its stored build is from. A file an open task of the epic other than seq owns is a FileOwnedError,
+// unless that task is among behind.
+func grantFiles(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	files []string,
+	behind []int64,
+) error {
+	next, err := grantPosition(ctx, queries, epic, seq, files, behind)
+	if err != nil {
+		return err
+	}
+	if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+		return moveErr
+	}
+	for i, file := range files {
+		if insertErr := queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
+			Epic: epic, Task: seq, Position: next + int64(i), Path: file,
+		}); insertErr != nil {
+			return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, insertErr)
+		}
+	}
+	return nil
+}
+
+// grantPosition returns the position after the last file of task seq of epic, where granted files go. A file in files
+// that another open task of the epic owns is a FileOwnedError, unless that task is among behind.
+func grantPosition(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	files []string,
+	behind []int64,
+) (int64, error) {
+	tasks, err := queries.ListEpicTasks(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read tasks of epic %s: %w", epic, err)
+	}
+	rows, err := queries.ListEpicTaskFiles(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read task files of epic %s: %w", epic, err)
+	}
+	open := map[int64]bool{}
+	for _, task := range tasks {
+		open[task.Seq] = task.Status == "open" && !slices.Contains(behind, task.Seq)
+	}
+	var next int64
+	for _, row := range rows {
+		switch {
+		case row.Task == seq:
+			next = max(next, row.Position+1)
+		case open[row.Task] && slices.Contains(files, row.Path):
+			return 0, FileOwnedError{File: row.Path, Task: row.Task}
+		}
+	}
+	return next, nil
 }
 
 // SetTaskBuildTelling stores to as the build of task seq of epic and adds each of tells as a tell of epic, in one
@@ -167,6 +257,21 @@ func setTaskStatus(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 		Status: status, Epic: epic, Seq: seq,
 	}); err != nil {
 		return fmt.Errorf("set status of task %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
+}
+
+// setTaskNeedsFiles stores paths as the files task seq of epic names as needed beyond its owned list, as a JSON array,
+// and [] for none.
+func setTaskNeedsFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, paths []string) error {
+	encoded, err := encodeList(paths)
+	if err != nil {
+		return fmt.Errorf("encode needs files of task %d of epic %s: %w", seq, epic, err)
+	}
+	if err = queries.SetEpicTaskNeedsFiles(ctx, sqlcgen.SetEpicTaskNeedsFilesParams{
+		NeedsFiles: encoded, Epic: epic, Seq: seq,
+	}); err != nil {
+		return fmt.Errorf("set needs files of task %d of epic %s: %w", seq, epic, err)
 	}
 	return nil
 }

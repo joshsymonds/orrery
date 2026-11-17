@@ -165,3 +165,52 @@ func TestEpicsGetServesStoredSummary(t *testing.T) {
 		t.Errorf("summary = %q, want %q", got, "synthetic summary paragraph")
 	}
 }
+
+func TestEpicsGetAnswerOptionsServesLabelChoicesAndRecommendation(t *testing.T) {
+	t.Parallel()
+	stored := storedEpicOf("repoa/shared", "accepted", epicsAgo(2*time.Hour))
+	stored.Turns = []*enginev1.EpicTurn{{Seq: 1, State: "succeeded", Ended: epicsAgo(3 * time.Hour)}}
+	stored.Questions = []*enginev1.EpicQuestion{
+		{
+			Id: "Q1", Turn: 1, Text: "which store?", State: "open", Label: "storage",
+			Choices: []*enginev1.EpicQuestionChoice{
+				{Id: "sqlite", Does: "synthetic sqlite does"},
+				{Id: "postgres", Does: "synthetic postgres does"},
+			},
+			Recommendation: &enginev1.EpicRecommendation{Choice: "sqlite", Why: "synthetic why", Confidence: "high"},
+		},
+		{
+			Id: "Q2", Turn: 1, Text: "which name?", State: "open", Label: "naming",
+			Choices: []*enginev1.EpicQuestionChoice{{Id: "short", Does: "synthetic short does"}},
+		},
+	}
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
+	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+
+	got := epicsGet(t, client, "repoa/shared").GetQuestions()
+	want := []*orreryv1.EpicQuestion{
+		{
+			Id: "Q1", Text: "which store?", Turn: 1, Asked: epicsAgo(3 * time.Hour), Label: "storage",
+			Choices: []*orreryv1.EpicQuestionChoice{
+				{Id: "sqlite", Does: "synthetic sqlite does"},
+				{Id: "postgres", Does: "synthetic postgres does"},
+			},
+			Recommendation: &orreryv1.EpicRecommendation{Choice: "sqlite", Why: "synthetic why", Confidence: "high"},
+		},
+		{
+			Id: "Q2", Text: "which name?", Turn: 1, Asked: epicsAgo(3 * time.Hour), Label: "naming",
+			Choices: []*orreryv1.EpicQuestionChoice{{Id: "short", Does: "synthetic short does"}},
+		},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("questions = %v, want %d open questions", got, len(want))
+	}
+	for i := range want {
+		if !proto.Equal(got[i], want[i]) {
+			t.Errorf("question %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+	if got[1].GetRecommendation() != nil {
+		t.Errorf("question Q2 recommendation = %v, want unset", got[1].GetRecommendation())
+	}
+}

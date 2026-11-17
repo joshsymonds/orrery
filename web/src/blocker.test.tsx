@@ -13,17 +13,30 @@ import { installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof NowBlock>[0];
 
-const questionBlocker: Blocker = {
+// threeChoices are the choices of the card tests: each names its id and what it does, which the card sends as its text.
+const threeChoices = [
+  { id: "composite", does: "Add a composite index on keeper and shift." },
+  { id: "partial", does: "Add a partial index on open shifts only." },
+  { id: "none", does: "Leave the table as it is." },
+];
+// recommendedBlocker asks a question that recommends partial, the second choice, for its why.
+const recommendedBlocker: Blocker = {
   kind: "question",
   text: "waits on your answer",
   since: 0,
-  question: create(EpicQuestionSchema, { id: "Q1", text: "Which branch should it use?" }),
+  question: create(EpicQuestionSchema, {
+    id: "Q1",
+    text: "Which index should it add?",
+    choices: threeChoices,
+    recommendation: { choice: "partial", why: "open shifts are the only rows the backfill scans", confidence: "high" },
+  }),
 };
-const laterQuestionBlocker: Blocker = {
+// unrecommendedBlocker asks a question that recommends none.
+const unrecommendedBlocker: Blocker = {
   kind: "question",
   text: "waits on your answer",
   since: 0,
-  question: create(EpicQuestionSchema, { id: "Q2", text: "Which lane should it use?" }),
+  question: create(EpicQuestionSchema, { id: "Q2", text: "Which lane should it use?", choices: threeChoices }),
 };
 const parkedBlocker: Blocker = { kind: "parked", text: "parked · rate limit", since: 0 };
 const heldBlocker: Blocker = {
@@ -40,6 +53,7 @@ function baseProps(init: Partial<Props>): Props {
     sentence: "",
     blocker: null,
     slug: "api",
+    numberKeys: true,
     onAnswer: () => Promise.resolve(""),
     onRetry: () => {},
     onStop: () => {},
@@ -93,12 +107,46 @@ async function press(root: ParentNode, selector: string, text: string): Promise<
   return true;
 }
 
+// pressKey sends a key to the document, as the keyboard does when no field has focus.
+async function pressKey(key: string): Promise<void> {
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+  });
+}
+
 function textOf(root: ParentNode, selector: string): string | null {
   return root.querySelector(selector)?.textContent ?? null;
 }
 
 function textsOf(root: ParentNode, selector: string): (string | null)[] {
   return [...root.querySelectorAll(selector)].map((element) => element.textContent);
+}
+
+// cards are the option cards of the question: its choices in order, then Something else.
+function cards(root: ParentNode): HTMLButtonElement[] {
+  return [...root.querySelectorAll<HTMLButtonElement>("form.answer .opts > .opt")];
+}
+
+// selectedIndex is the card that is selected, or -1 when none is.
+function selectedIndex(root: ParentNode): number {
+  return cards(root).findIndex((card) => card.classList.contains("sel"));
+}
+
+// clickCard clicks the card at index, as the owner's pointer does.
+async function clickCard(root: ParentNode, index: number): Promise<void> {
+  const card = cards(root)[index];
+  assert.ok(card, `a card ${index + 1} is drawn`);
+  await act(() => {
+    card.click();
+  });
+}
+
+function confirmButton(root: ParentNode): HTMLButtonElement | null {
+  return root.querySelector<HTMLButtonElement>(".now-block .act.primary");
+}
+
+function confirmDisabled(root: ParentNode): boolean {
+  return confirmButton(root)?.disabled === true;
 }
 
 function answerBox(root: ParentNode): HTMLTextAreaElement | null {
@@ -118,10 +166,6 @@ async function type(root: ParentNode, text: string): Promise<void> {
 
 function answerText(root: ParentNode): string | null {
   return answerBox(root)?.value ?? null;
-}
-
-function answerDisabled(root: ParentNode): boolean {
-  return findButton(root, "button.act.primary", "Answer")?.disabled === true;
 }
 
 function slicesAt(place: Phase, summary: string): PhaseSlice[] {
@@ -181,92 +225,159 @@ test("with no blocker there is no form and no button", () =>
     assert.equal(container.querySelectorAll("button").length, 0);
   }));
 
-test("an open question draws its text in an answer form with a textarea and a disabled Answer button", () =>
-  withBlock({ blocker: questionBlocker }, async (container) => {
-    assert.equal(container.querySelector("form.answer") !== null, true);
-    assert.equal(textOf(container, "form.answer p.question"), "Which branch should it use?");
-    assert.equal(answerBox(container) !== null, true);
-    assert.equal(findButton(container, "button.act.primary", "Answer") !== undefined, true);
-    assert.equal(answerDisabled(container), true, "Answer is disabled while the answer is empty");
+test("an open question draws its text and a card per choice, then Something else, each with its key and what it does", () =>
+  withBlock({ blocker: recommendedBlocker }, async (container) => {
+    assert.equal(textOf(container, "form.answer p.question"), "Which index should it add?");
+    assert.deepEqual(textsOf(container, "form.answer .opts > .opt kbd"), ["1", "2", "3", "4"]);
+    assert.deepEqual(textsOf(container, "form.answer .opts > .opt b"), [
+      "composite",
+      "partial",
+      "none",
+      "Something else",
+    ]);
+    assert.deepEqual(textsOf(container, "form.answer .opts > .opt small:not(.why)"), [
+      "Add a composite index on keeper and shift.",
+      "Add a partial index on open shifts only.",
+      "Leave the table as it is.",
+    ]);
+    assert.equal(answerBox(container), null, "Something else keeps its text box hidden until it is picked");
   }));
 
-test("Answer is disabled while the trimmed answer is empty, and enabled once it has text", () =>
-  withBlock({ blocker: questionBlocker }, async (container) => {
-    await type(container, "   ");
-    assert.equal(answerDisabled(container), true, "a blank answer leaves Answer disabled");
-    await type(container, "  Use main  ");
-    assert.equal(answerDisabled(container), false, "an answer with text enables Answer");
+test("the recommended card is marked with its why and starts selected, and confirm names it", () =>
+  withBlock({ blocker: recommendedBlocker }, async (container) => {
+    assert.equal(cards(container)[1].querySelector("em")?.textContent, "recommended");
+    assert.equal(container.querySelectorAll("form.answer .opts em").length, 1, "only the recommended card is marked");
+    assert.equal(textOf(container, "form.answer .opt small.why"), "open shifts are the only rows the backfill scans");
+    assert.equal(selectedIndex(container), 1);
+    assert.equal(confirmButton(container)?.textContent, "Answer with partial");
+    assert.equal(confirmDisabled(container), false);
   }));
 
-test("submitting sends the question id and the trimmed answer, and clears the box when it is recorded", () => {
-  const calls: [string, string][] = [];
+test("a question that recommends none starts with nothing selected and confirm disabled", () =>
+  withBlock({ blocker: unrecommendedBlocker }, async (container) => {
+    assert.equal(selectedIndex(container), -1);
+    assert.equal(container.querySelectorAll("form.answer .opts em").length, 0);
+    assert.equal(confirmButton(container)?.textContent, "Answer");
+    assert.equal(confirmDisabled(container), true);
+  }));
+
+test("a click on a card selects it, and confirm sends its id and what it does", () => {
+  const calls: [string, string, string][] = [];
   return withBlock(
     {
-      blocker: questionBlocker,
-      onAnswer: async (questionId, text) => {
-        calls.push([questionId, text]);
+      blocker: recommendedBlocker,
+      onAnswer: async (questionId, choice, text) => {
+        calls.push([questionId, choice, text]);
         return "";
       },
     },
     async (container) => {
-      await type(container, "  Use main  ");
-      assert.equal(await press(container, "button.act.primary", "Answer"), true);
+      await clickCard(container, 2);
+      assert.equal(selectedIndex(container), 2);
+      assert.equal(confirmButton(container)?.textContent, "Answer with none");
+      assert.equal(await press(container, ".now-block .act.primary", "Answer with none"), true);
       await settle();
-      assert.deepEqual(calls, [["Q1", "Use main"]]);
-      assert.equal(answerText(container), "");
-      assert.equal(container.querySelector("form.answer p.error") === null, true);
+      assert.deepEqual(calls, [["Q1", "none", "Leave the table as it is."]]);
     },
   );
 });
 
-test("a returned error shows as p.error under the form and keeps the answer, and a later success clears it", () => {
+test("a number key selects the card it names, and confirm sends that choice", () => {
+  const calls: [string, string, string][] = [];
+  return withBlock(
+    {
+      blocker: recommendedBlocker,
+      onAnswer: async (questionId, choice, text) => {
+        calls.push([questionId, choice, text]);
+        return "";
+      },
+    },
+    async (container) => {
+      await pressKey("1");
+      assert.equal(selectedIndex(container), 0);
+      await pressKey("5");
+      assert.equal(selectedIndex(container), 0, "a key that names no card leaves the selection as it was");
+      assert.equal(await press(container, ".now-block .act.primary", "Answer with composite"), true);
+      await settle();
+      assert.deepEqual(calls, [["Q1", "composite", "Add a composite index on keeper and shift."]]);
+    },
+  );
+});
+
+test("Something else reveals a text box, and confirm sends other with the trimmed text once it has some", () => {
+  const calls: [string, string, string][] = [];
+  return withBlock(
+    {
+      blocker: recommendedBlocker,
+      onAnswer: async (questionId, choice, text) => {
+        calls.push([questionId, choice, text]);
+        return "";
+      },
+    },
+    async (container) => {
+      await clickCard(container, 3);
+      assert.equal(answerBox(container) !== null, true, "picking Something else draws its box");
+      assert.equal(confirmDisabled(container), true, "confirm is disabled while the text is blank");
+      await type(container, "   ");
+      assert.equal(confirmDisabled(container), true, "a blank text keeps confirm disabled");
+      await type(container, "  Use main  ");
+      assert.equal(confirmDisabled(container), false);
+      assert.equal(confirmButton(container)?.textContent, "Answer with Something else");
+      assert.equal(await press(container, ".now-block .act.primary", "Answer with Something else"), true);
+      await settle();
+      assert.deepEqual(calls, [["Q1", "other", "Use main"]]);
+      assert.equal(answerText(container), "", "a recorded answer clears the box");
+    },
+  );
+});
+
+test("a refused answer shows its reason under the card and keeps the selection, and a later success clears it", () => {
   let attempts = 0;
   return withBlock(
     {
-      blocker: questionBlocker,
+      blocker: recommendedBlocker,
       onAnswer: async () => {
         attempts++;
         return attempts === 1 ? "question closed" : "";
       },
     },
     async (container) => {
-      await type(container, "Use main");
-      assert.equal(await press(container, "button.act.primary", "Answer"), true);
+      await clickCard(container, 2);
+      assert.equal(await press(container, ".now-block .act.primary", "Answer with none"), true);
       await settle();
       assert.equal(textOf(container, "form.answer p.error"), "question closed");
-      assert.equal(answerText(container), "Use main");
-      assert.equal(await press(container, "button.act.primary", "Answer"), true);
+      assert.equal(selectedIndex(container), 2, "the refused selection is kept");
+      assert.equal(await press(container, ".now-block .act.primary", "Answer with none"), true);
       await settle();
       assert.equal(container.querySelector("form.answer p.error") === null, true);
-      assert.equal(answerText(container), "");
     },
   );
 });
 
-test("a rejected answer shows the fixed line, keeps the answer, and shows no server text", () =>
+test("a rejected answer shows the fixed line, keeps the selection, and shows no server text", () =>
   withBlock(
     {
-      blocker: questionBlocker,
+      blocker: recommendedBlocker,
       onAnswer: () => Promise.reject(new Error("upstream said: secret-7")),
     },
     async (container) => {
-      await type(container, "Use main");
-      assert.equal(await press(container, "button.act.primary", "Answer"), true);
+      assert.equal(await press(container, ".now-block .act.primary", "Answer with partial"), true);
       await settle();
       assert.equal(textOf(container, "form.answer p.error"), answerFailedLine);
-      assert.equal(answerText(container), "Use main");
+      assert.equal(selectedIndex(container), 1);
       assert.equal(container.textContent?.includes("secret-7"), false, "server text is never shown");
     },
   ));
 
-test("a different open question starts with an empty answer box, so a draft never answers another question", () =>
-  withTree(<NowBlock {...baseProps({ blocker: questionBlocker })} />, async (container) => {
-    await type(container, "Use main");
+test("a different open question starts with its own selection, so a pick never answers another question", () =>
+  withTree(<NowBlock {...baseProps({ blocker: recommendedBlocker })} />, async (container) => {
+    await clickCard(container, 0);
     await act(() => {
-      render(<NowBlock {...baseProps({ blocker: laterQuestionBlocker })} />, container);
+      render(<NowBlock {...baseProps({ blocker: unrecommendedBlocker })} />, container);
     });
     assert.equal(textOf(container, "form.answer p.question"), "Which lane should it use?");
-    assert.equal(answerText(container), "");
+    assert.equal(selectedIndex(container), -1);
+    assert.equal(confirmDisabled(container), true);
   }));
 
 test("a park draws its text and a Retry that calls onRetry once, with no answer form", () => {
@@ -288,7 +399,7 @@ test("a park draws its text and a Retry that calls onRetry once, with no answer 
 });
 
 test("Retry is drawn for a park only", async () => {
-  for (const blocker of [questionBlocker, heldBlocker]) {
+  for (const blocker of [recommendedBlocker, heldBlocker]) {
     await withBlock({ blocker }, async (container) => {
       assert.equal(findButton(container, "button.act", "Retry") === undefined, true);
     });
@@ -296,7 +407,7 @@ test("Retry is drawn for a park only", async () => {
 });
 
 const blockers: [string, Blocker][] = [
-  ["question", questionBlocker],
+  ["question", recommendedBlocker],
   ["parked", parkedBlocker],
   ["held", heldBlocker],
 ];
@@ -328,7 +439,7 @@ test("Keep it running returns to the Stop… button and calls nothing", () => {
   let stops = 0;
   return withBlock(
     {
-      blocker: questionBlocker,
+      blocker: recommendedBlocker,
       onStop: () => {
         stops++;
       },

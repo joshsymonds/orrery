@@ -137,29 +137,6 @@ func TestReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
 	}
 }
 
-// TestReleasePrepareConflictRecordsErrorWithoutRevision: a merge that conflicts records an error that names the
-// conflicted path, and no candidate or revision. The error stops the release.
-func TestReleasePrepareConflictRecordsErrorWithoutRevision(t *testing.T) {
-	t.Parallel()
-	w := newMergeWorld(t)
-	origin := mergeRemote(t, w.repo)
-	nodeEpicBranch(t, w.repo, "README")
-	mergeOriginCommit(t, origin, "README")
-	w.pass()
-
-	run := runAt(t, w.s, releaseNodePath)
-	got := decodeMerge(t, run.Result)
-	if !strings.Contains(got.Error, "README") {
-		t.Errorf("Result error = %q, want it to name the conflicted path README", got.Error)
-	}
-	if got.Candidate != "" || run.Revision != "" {
-		t.Errorf("candidate = %q and revision = %q, want neither after a conflict", got.Candidate, run.Revision)
-	}
-	if flow := w.flowOf(runEpic); flow.Epic.Phase != store.PhaseStopped {
-		t.Errorf("epic phase = %q, want stopped by the conflict", flow.Epic.Phase)
-	}
-}
-
 // TestReleasePrepareWithoutOriginRecordsError: a repository with no origin records an error that names the command that
 // failed, and no revision.
 func TestReleasePrepareWithoutOriginRecordsError(t *testing.T) {
@@ -251,38 +228,41 @@ func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 	}
 }
 
-// TestMergedTreeConflictsWhenMergeTreeExitsConflicted: merge-tree's exit status 1 is a conflict, whether or not it lists a
-// conflicted path after the tree. A conflict has no tree, and its error says the merge conflicts and names the paths
-// listed. The output is synthetic, so the test needs no conflicting repository.
-func TestMergedTreeConflictsWhenMergeTreeExitsConflicted(t *testing.T) {
+// TestMergedTreeReadsTreeAndConflictedPaths: merge-tree writes its tree first and then each conflicted path, and a merge
+// that conflicts writes a tree too. mergedTree reads the tree and the paths, each once. The output is synthetic, so the
+// test needs no conflicting repository.
+func TestMergedTreeReadsTreeAndConflictedPaths(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name       string
-		out        string
-		conflicted bool
-		tree       string
-		err        string
+		name  string
+		out   string
+		paths []string
 	}{
-		{name: "clean merge", out: "tree\n", tree: "tree"},
-		{name: "conflict naming paths", out: "tree\nREADME\nd/f\n", conflicted: true, err: "conflicts in README, d/f"},
-		{name: "conflict naming no path", out: "tree\n", conflicted: true, err: "conflicts"},
+		{name: "clean merge", out: "tree\n"},
+		{name: "conflict naming paths", out: "tree\nREADME\nd/f\n", paths: []string{"README", "d/f"}},
+		{name: "a path named twice", out: "tree\nREADME\nREADME\n", paths: []string{"README"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tree, err := mergedTree("tip", "origin", tc.out, tc.conflicted)
-			if tc.err == "" {
-				if err != nil || tree != tc.tree {
-					t.Errorf("mergedTree = %q, %v, want %q and no error", tree, err, tc.tree)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tc.err) {
-				t.Errorf("mergedTree error = %v, want it to say %q", err, tc.err)
-			}
-			if tree != "" {
-				t.Errorf("mergedTree tree = %q for a conflict, want none", tree)
+			tree, paths := mergedTree(tc.out)
+			if tree != "tree" || !slices.Equal(paths, tc.paths) {
+				t.Errorf("mergedTree = %q, %q, want %q, %q", tree, paths, "tree", tc.paths)
 			}
 		})
+	}
+}
+
+// TestConflictMessageNamesConflictedPaths: the reason a conflicting merge gives names origin's commit, the tip and each
+// conflicted path, and says only that the merge conflicts when git named no path.
+func TestConflictMessageNamesConflictedPaths(t *testing.T) {
+	t.Parallel()
+	if got, want := conflictMessage("tip", "origin", []string{"README", "d/f"}),
+		"merge of origin's commit origin into tip conflicts in README, d/f"; got != want {
+		t.Errorf("conflictMessage = %q, want %q", got, want)
+	}
+	got, want := conflictMessage("tip", "origin", nil), "merge of origin's commit origin into tip conflicts"
+	if got != want {
+		t.Errorf("conflictMessage with no path = %q, want %q", got, want)
 	}
 }

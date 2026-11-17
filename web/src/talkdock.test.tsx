@@ -7,11 +7,13 @@ import { act } from "preact/test-utils";
 import { createClients, createTransport } from "./client";
 import { TalkDock } from "./talkdock";
 import { installTestDom, removeTestDom } from "./testdom";
+import { turn, until } from "./testwait";
 
 type Props = Parameters<typeof TalkDock>[0];
 type DomWindow = ReturnType<typeof installTestDom>;
 
 const resumePath = "/orrery.v1.Control/Resume";
+const sayPath = "/orrery.v1.Control/Say";
 const sessionTarget = { kind: "session" as const, id: "s1", label: "api" };
 
 interface Stream {
@@ -46,9 +48,13 @@ class Gauge {
 
 // FakeServer answers the calls the dock makes through TransportOptions.fetch. Each Sessions.WatchConversation call is a
 // stream the test feeds. Control.Resume answers with an empty reply, or with resumeError when the test sets one.
+// Control.Say answers with an empty reply and keeps its body in says. Sessions.Older answers with one older item and no
+// more.
 class FakeServer {
   readonly streams: Stream[] = [];
   readonly resumes: Record<string, unknown>[] = [];
+  readonly says: Record<string, unknown>[] = [];
+  readonly olderBodies: Record<string, unknown>[] = [];
   // opened counts the conversation streams the client has opened; resumed counts the Resume calls it has received.
   readonly opened = new Gauge();
   readonly resumed = new Gauge();
@@ -66,6 +72,17 @@ class FakeServer {
         return new Response("{}", { status: 200, headers: json });
       }
       return new Response(JSON.stringify(this.resumeError), { status: 400, headers: json });
+    }
+    if (path === sayPath) {
+      this.says.push(JSON.parse(new TextDecoder().decode(bytes)));
+      return new Response("{}", { status: 200, headers: json });
+    }
+    if (path.endsWith("/Older")) {
+      this.olderBodies.push(JSON.parse(new TextDecoder().decode(bytes)));
+      return new Response(
+        JSON.stringify({ items: [{ kind: "assistant", text: "older words" }], oldest: "4", more: false }),
+        { status: 200, headers: json },
+      );
     }
     const body = decodeRequest(bytes);
     const stream = new ReadableStream<Uint8Array>({
@@ -242,6 +259,26 @@ test("a refused Resume shows its message in the dock", { timeout: 2000 }, async 
   });
 });
 
+test("the dock's reader asks for the page before its oldest item, and draws the page above", { timeout: 2000 }, async (t) => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container) => {
+    server.emit(0, {
+      transcript: "t1",
+      seq: "5",
+      reset: true,
+      oldest: "9",
+      items: [{ kind: "assistant", text: "nine" }],
+    });
+    await rendered(t.signal, () => textOf(container, ".reader").includes("nine"), "the held item");
+
+    await rendered(t.signal, () => server.olderBodies.length === 1, "the older request");
+    assert.deepEqual(server.olderBodies, [{ id: "s1", before: "9" }]);
+    await rendered(t.signal, () => textOf(container, ".reader").includes("older words"), "the older page");
+    const reader = textOf(container, ".reader");
+    assert.ok(reader.indexOf("older words") < reader.indexOf("nine"), "the older page is drawn above the held item");
+  });
+});
+
 test("a new target restarts the conversation stream with its id", { timeout: 2000 }, async () => {
   const server = new FakeServer();
   await withDock(server, {}, async (container) => {
@@ -251,5 +288,41 @@ test("a new target restarts the conversation stream with its id", { timeout: 200
     await server.opened.reached(2);
     assert.equal(server.streams[1].body.id, "s2");
     assert.equal(textOf(container, "h1"), "web");
+  });
+});
+
+// rendered waits as testwait's until does, with each turn run inside act, so the renders the stream's events queue are
+// applied. It ends with the test's own signal, so a wait that never holds fails the test by name.
+function rendered(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
+  return until(signal, check, what, { step: () => act(turn) });
+}
+
+test("a message sent from the dock draws as a sending row until its stored prompt arrives", { timeout: 2000 }, async (t) => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container) => {
+    server.emit(0, { transcript: "t1", seq: "5", reset: true, items: [], state: { session: { state: "done" } } });
+    const box = container.querySelector<HTMLTextAreaElement>("textarea");
+    assert.ok(box, "the dock has a composer");
+    await act(() => {
+      box.value = "from the dock";
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() => {
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", cancelable: true }));
+    });
+    await rendered(t.signal, () => container.querySelector(".reader .sending-row") !== null, "the sending row");
+    assert.equal(textOf(container, ".reader .sending-row .gut.sending"), "sending");
+    assert.equal(textOf(container, ".reader .sending-row").includes("from the dock"), true, "the row holds the text");
+
+    await rendered(t.signal, () => server.says.length === 1, "the say");
+    const promptId = String(server.says[0].promptId);
+    server.emit(0, { transcript: "t1", seq: "6", items: [{ kind: "prompt", text: "from the dock", promptId }] });
+    await rendered(t.signal, () => container.querySelector(".reader .sending-row") === null, "the sending row leaves");
+    assert.equal(container.querySelectorAll(".reader .you").length, 1, "the stored prompt is the one prompt row");
+
+    server.emit(0, { transcript: "t1", seq: "7", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
+    await rendered(t.signal, () => textOf(container, ".reader").includes("a later reply"), "the reset that drops the prompt");
+    // A boolean, not the element: a failing assertion would format the DOM node, which stalls the test.
+    assert.equal(container.querySelector(".reader .sending-row") === null, true, "a sent message that left never draws again");
   });
 });

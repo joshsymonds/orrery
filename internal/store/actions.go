@@ -193,7 +193,7 @@ func failPlannedTask(
 	if err != nil {
 		return nil, fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, err)
 	}
-	err = failTaskIn(ctx, queries, action.Epic, action.Task, buildOf(task), action.Reason, at)
+	err = failTask(ctx, queries, action.Epic, action.Task, buildOf(task), capTurnText(action.Reason), nil, at)
 	if errors.Is(err, ErrTaskMoved) {
 		return nil, RefusalError(fmt.Sprintf("task %d of epic %s is not open", action.Task, action.Epic))
 	}

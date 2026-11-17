@@ -12,14 +12,15 @@ import (
 )
 
 // The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
-// position the owner set, and a verify run, which records that origin's main was not in a candidate and so the candidate
-// was prepared again.
+// position the owner set, a verify run, which records that origin's main was not in a candidate and so the candidate
+// was prepared again, and a round of the release integrator, which finished a merge of origin's commit that conflicted.
 const (
-	ReleasePartCandidate = "candidate"
-	ReleasePartStep      = "release"
-	ReleasePartJudge     = "judge"
-	ReleasePartNamed     = "named"
-	ReleasePartVerify    = "verify"
+	ReleasePartCandidate  = "candidate"
+	ReleasePartStep       = "release"
+	ReleasePartJudge      = "judge"
+	ReleasePartNamed      = "named"
+	ReleasePartVerify     = "verify"
+	ReleasePartIntegrator = "integrator"
 )
 
 // The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the

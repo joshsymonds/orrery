@@ -19,10 +19,17 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// sessionsClient serves newSessionsHandler's handler on an httptest server and returns a client for it.
+// sessionsClient serves newSessionsHandler's handler on an httptest server, with the clock time.Now, and returns a
+// client for it.
 func sessionsClient(t *testing.T, reader *store.Reader) orreryv1connect.SessionsClient {
 	t.Helper()
-	path, handler := newSessionsHandler(reader, nil, 0, 0, 0, nil)
+	return sessionsClientAt(t, reader, time.Now)
+}
+
+// sessionsClientAt is sessionsClient with the clock now, which dates the retention window ListHeadless answers.
+func sessionsClientAt(t *testing.T, reader *store.Reader, now func() time.Time) orreryv1connect.SessionsClient {
+	t.Helper()
+	path, handler := newSessionsHandler(reader, now, nil, 0, 0, 0, nil)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

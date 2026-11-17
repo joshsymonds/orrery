@@ -98,7 +98,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       key: `session:${session.id}`,
       id: session.id,
       kind: "session",
-      label: session.label || session.id.slice(0, sessionLabelLength),
+      label: session.label,
       project: session.dir,
       host: "",
       state: session.state,

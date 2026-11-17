@@ -49,6 +49,13 @@ type epicRetryArgs struct {
 	Node string `json:"node,omitempty" jsonschema:"the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"`
 }
 
+// epicKickArgs is the arguments of epic_kick, described for its input schema. Text is the owner's words, which the
+// planner reads at the epic's next plan run.
+type epicKickArgs struct {
+	ID   string `json:"id"`
+	Text string `json:"text" jsonschema:"the owner's words, which the planner reads at the epic's next plan run"`
+}
+
 // epicReleaseArgs is the arguments of epic_release, described for its input schema. UndoNone names the 1-based positions
 // of the undo-none release steps to run again; omitted, none runs again.
 type epicReleaseArgs struct {
@@ -66,7 +73,7 @@ type epicCloseArgs struct {
 
 // epicInputs holds the input schema of each epic tool, by the arguments it takes.
 type epicInputs struct {
-	create, id, list, answer, follow, retry, release, close json.RawMessage
+	create, id, list, answer, follow, retry, kick, release, close json.RawMessage
 }
 
 // epicToolInputs returns the input schemas of the epic tools.
@@ -91,6 +98,9 @@ func epicToolInputs() (epicInputs, error) {
 	if in.retry, err = argumentSchema[epicRetryArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
+	if in.kick, err = argumentSchema[epicKickArgs](nil); err != nil {
+		return epicInputs{}, err
+	}
 	if in.release, err = argumentSchema[epicReleaseArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
@@ -100,12 +110,18 @@ func epicToolInputs() (epicInputs, error) {
 	return in, nil
 }
 
-// epicTools returns the epic tools, each calling epics.
+// epicTools returns the epic tools, each calling epics: the record tools, then the control tools.
 func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 	in, err := epicToolInputs()
 	if err != nil {
 		return nil, err
 	}
+	return append(epicRecordTools(epics, in), epicControlTools(epics, in)...), nil
+}
+
+// epicRecordTools returns the epic tools that create, read and answer epics, each calling epics with its input schema
+// from in.
+func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 	return []Tool{
 		{
 			Name: "epic_create",
@@ -146,6 +162,13 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 			InputSchema: in.follow,
 			Handler:     epicFollowHandler(epics),
 		},
+	}
+}
+
+// epicControlTools returns the epic tools that pause, resume, stop, retry, kick, release and close epics, each calling
+// epics with its input schema from in.
+func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
+	return []Tool{
 		{
 			Name: "epic_pause",
 			Description: "Pause an epic by id, so the planner starts no turn for it and no limit reset resumes it. " +
@@ -182,6 +205,14 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 			Handler:     epicRetryHandler(epics),
 		},
 		{
+			Name: "epic_kick",
+			Description: "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it " +
+				"at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park " +
+				"first), and for an epic in an ended phase, which takes no kick. Returns the stored epic.",
+			InputSchema: in.kick,
+			Handler:     epicKickHandler(epics),
+		},
+		{
 			Name: "epic_release",
 			Description: "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. " +
 				"An epic that ended with gaps is released on the owner's word, logged as the owner's decision, so undoNone must be empty for it. " +
@@ -198,7 +229,7 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 			InputSchema: in.close,
 			Handler:     epicCloseHandler(epics),
 		},
-	}, nil
+	}
 }
 
 // CallEpicTool runs the epic tool named name with args, as the MCP server runs it, and returns its result. A name that
@@ -363,6 +394,20 @@ func epicRetryHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(retried.Msg.GetEpic())
+	}
+}
+
+func epicKickHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.KickEpicRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		kicked, err := epics.KickEpic(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(kicked.Msg.GetEpic())
 	}
 }
 

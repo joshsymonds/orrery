@@ -40,7 +40,7 @@ const (
 )
 
 // OwnerHeld reports whether the owner answers a park of class c: an owner class, or the empty class. The empty class is
-// the class of a park stored before 00047_park_class.sql, which the owner's question answered, so it stays the owner's.
+// the class of a park stored before 00050_park_class.sql, which the owner's question answered, so it stays the owner's.
 func (c ParkClass) OwnerHeld() bool {
 	switch c {
 	case "", ParkClassReleaseUndoNone, ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,

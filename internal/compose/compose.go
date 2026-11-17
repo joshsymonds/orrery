@@ -290,8 +290,9 @@ func pinCandidate(ctx context.Context, repo, ref, commit string) error {
 	return nil
 }
 
-// Advance moves branchRef to to, and only when the branch is at from. The empty from means the branch must not exist.
-// Only a branch under refs/heads/epic/ can move.
+// Advance moves branchRef to to, and only when the branch is at from and to builds on from, so the move is a
+// fast-forward that drops nothing the branch holds. The empty from means the branch must not exist. Only a branch under
+// refs/heads/epic/ can move.
 func Advance(ctx context.Context, repo, branchRef, to, from string) error {
 	if !strings.HasPrefix(branchRef, branchPrefix) {
 		return fmt.Errorf("branch %q is outside %s", branchRef, branchPrefix)
@@ -304,6 +305,10 @@ func Advance(ctx context.Context, repo, branchRef, to, from string) error {
 	if from != "" {
 		if expected, err = resolveCommit(ctx, repo, from); err != nil {
 			return fmt.Errorf("resolve advance expected commit: %w", err)
+		}
+		if _, err = runGit(ctx, repo, nil, nil, "merge-base", "--is-ancestor", expected, target); err != nil {
+			return fmt.Errorf("advance branch: %s does not build on %s, so the move is not a fast-forward: %w",
+				target, expected, err)
 		}
 	}
 	if _, err = runGit(ctx, repo, nil, nil, "update-ref", branchRef, target, expected); err != nil {

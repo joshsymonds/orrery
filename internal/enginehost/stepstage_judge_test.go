@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -219,4 +220,60 @@ func TestStepJudgeStagesSurviveRestart(t *testing.T) {
 	}
 	judgeLoopCheckVerdict(t, row.Verdicts[0], 1, "unmet", "the summary is missing", "continue")
 	judgeLoopCheckVerdict(t, row.Verdicts[1], 2, "met", "the summary is there now", "end")
+}
+
+// ownerPromptTrigger accepts a batch that stores a prompt the owner sent.
+func ownerPromptTrigger(ops []store.EngineOp) bool {
+	return slices.ContainsFunc(ops, func(op store.EngineOp) bool {
+		prompt, ok := op.(store.EnginePrompt)
+		return ok && prompt.Sender == store.PromptSenderOwner
+	})
+}
+
+// TestStepOwnerResumeCrashBeforeItsPromptCountsNoRound: the owner resumes a held step, and orreryd stops before the
+// write that stores the owner's prompt lands. The loop state that resumes the step is stored in that same write, so the
+// restart finds the step as the hold left it, and the turn the hold interrupted is no round: no check is stored, the
+// round stays zero and the step stays open. Stored apart, ahead of the prompt, the resumed loop state let the restart
+// judge the interrupted turn as round one.
+func TestStepOwnerResumeCrashBeforeItsPromptCountsNoRound(t *testing.T) {
+	t.Parallel()
+	rig := newStepJudgeRig(t)
+	repo := stepGitTestRepo(t)
+	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
+	id := startLimitProbe(t, rig.stepsRig, repo, revision, "HANG")
+	dir := filepath.Join(rig.worktrees, id)
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the HANG turn to hold", func() bool {
+		err := rig.steps.Hold(t.Context(), id)
+		if errors.Is(err, ErrStepNoTurn) {
+			return false
+		}
+		if err != nil {
+			t.Fatalf("Hold of the running turn: %v", err)
+		}
+		return true
+	})
+	awaitStepStage(t, rig.steps, id, store.StepStageHeld)
+
+	// A prompt resent after the restart plays HANG, so its turn runs on and no later turn end can be judged.
+	stepStageWrite(t, filepath.Join(dir, "fakeclaude.next"), "HANG")
+	rig.applier.armOn(ownerPromptTrigger)
+	// The refused write never lands, as a crash leaves it, so the nudge waits on it until the restart ends its loop.
+	nudged := make(chan error, 1)
+	steps := rig.steps
+	go func() { nudged <- steps.Nudge(t.Context(), id, "owner resumes") }()
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the owner's prompt write to be refused", rig.applier.isRefusing)
+	rig.restartJudgeRig(t)
+	<-nudged
+
+	// An owner call runs on the loop only once it has taken up the turn end it restored, so the row read after it shows
+	// what that turn end did.
+	if err := rig.steps.Hold(t.Context(), id); err != nil && !errors.Is(err, ErrStepHeld) &&
+		!errors.Is(err, ErrStepNoTurn) {
+		t.Fatalf("Hold after the restart: %v", err)
+	}
+	row := stepRowOf(t, rig.steps, id)
+	if row.LoopRound != 0 || len(row.Checks) != 0 || row.End != "" {
+		t.Fatalf("after the restart: round %d, checks %+v, end %q; want round 0, no check and the step open",
+			row.LoopRound, row.Checks, row.End)
+	}
 }

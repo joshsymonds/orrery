@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -76,10 +75,14 @@ const (
 )
 
 // Conversation is a transcript's opening prompt, its newest items, oldest first, its active goal, and its waiting
-// messages. Read leaves Goal and Waiting empty; serve fills Goal from a Goals and Waiting from a Queues.
+// messages. Oldest is the line start of the oldest transcript line that Items take an item from, or 0 when Items is
+// empty. ReadEnd takes whole lines, so its Oldest is a cursor: Older reads the items before it without a gap. Read may
+// take only the newest part of that line, so its Oldest is not one. Read and ReadEnd leave Goal and Waiting empty;
+// serve fills Goal from a Goals and Waiting from a Queues.
 type Conversation struct {
 	Origin  string    `json:"origin"`
 	Items   []Item    `json:"items"`
+	Oldest  int64     `json:"oldest,omitempty"`
 	Goal    string    `json:"goal"`
 	Waiting []Waiting `json:"waiting"`
 	Context Context   `json:"context"`
@@ -155,8 +158,9 @@ type askInput struct {
 	} `json:"questions"`
 }
 
-// Read returns the opening prompt of the transcript at path and its newest limit items, oldest first.
-// Items is never nil.
+// Read returns the opening prompt of the transcript at path and its newest limit items, oldest first. Items is never
+// nil. Read cuts the oldest line it reaches to fit limit, as the conversation route shows it; a read that must resume
+// from an item uses ReadEnd, which takes whole lines.
 func Read(path string, limit int) (Conversation, error) {
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -169,8 +173,12 @@ func Read(path string, limit int) (Conversation, error) {
 		return Conversation{}, fmt.Errorf("stat transcript: %w", err)
 	}
 	size := info.Size()
+	end, err := lastLineEnd(file, size)
+	if err != nil {
+		return Conversation{}, err
+	}
 
-	items, tokens, err := newestItems(file, size, limit)
+	page, tokens, err := newestItems(file, size, end, limit, false)
 	if err != nil {
 		return Conversation{}, err
 	}
@@ -178,69 +186,23 @@ func Read(path string, limit int) (Conversation, error) {
 	if err != nil {
 		return Conversation{}, err
 	}
-	return Conversation{Origin: origin, Items: items, Context: Context{Tokens: tokens, Window: contextWindow}}, nil
+	conv := Conversation{Origin: origin, Items: page.Items, Context: Context{Tokens: tokens, Window: contextWindow}}
+	conv.Oldest = page.Oldest
+	return conv, nil
 }
 
-// newestScan holds the state of a newest-first read of a transcript: the newest items, the indexes of the
-// compactions still waiting for their boundary, and the context figure once one is found.
-type newestScan struct {
-	limit    int
-	newest   []Item
-	awaiting []int
-	tokens   int64
-	found    bool
-}
-
-// visit takes one transcript line, newest first, and reports whether the read should go on.
-func (s *newestScan) visit(line []byte) bool {
-	if trigger, pre, post, ok := boundaryOf(line); ok {
-		s.boundary(trigger, pre, post)
-	} else {
-		if !s.found {
-			s.tokens, s.found = assistantTokens(line)
-		}
-		s.addItems(lineItems(line))
+// newestItems returns the newest page of the transcript whose complete lines end before end, within the tail of src
+// that size bytes end, and the context tokens. The page takes whole lines when wholeLines is set, and the newest limit
+// items otherwise (see pageScan). The scan goes newest first, so a compaction waits for the first compact_boundary line
+// before it and takes that line's trigger and tokens. The context tokens are those of the first line that carries
+// them, a boundary's post-compaction tokens or an assistant line's usage. The scan keeps reading past limit until the
+// context tokens are found and no compaction waits.
+func newestItems(src io.ReaderAt, size, end int64, limit int, wholeLines bool) (Page, int64, error) {
+	scan := newPageScan(src, end, limit, wholeLines, true)
+	if err := scan.run(src, size, MaxTailBytes); err != nil {
+		return Page{}, 0, err
 	}
-	return len(s.newest) < s.limit || len(s.awaiting) > 0 || !s.found
-}
-
-// boundary gives a compaction the trigger and pre-compaction tokens of its boundary, and takes the boundary's
-// post-compaction tokens as the context figure when none is found yet.
-func (s *newestScan) boundary(trigger string, pre, post int64) {
-	for _, i := range s.awaiting {
-		s.newest[i].Trigger = trigger
-		s.newest[i].Tokens = pre
-	}
-	s.awaiting = nil
-	if !s.found {
-		s.tokens, s.found = post, true
-	}
-}
-
-// addItems adds the items of one line, newest first, up to the limit, and records the compactions among them as
-// waiting for their boundary.
-func (s *newestScan) addItems(items []Item) {
-	for i := len(items) - 1; i >= 0 && len(s.newest) < s.limit; i-- {
-		s.newest = append(s.newest, items[i])
-		if items[i].Kind == kindCompaction {
-			s.awaiting = append(s.awaiting, len(s.newest)-1)
-		}
-	}
-}
-
-// newestItems returns the newest limit items of the transcript, oldest first, and its context tokens, from the tail
-// of src. The scan goes newest first, so a compaction waits for the first compact_boundary line before it and takes
-// that line's trigger and tokens. The context tokens are those of the first line that carries them, a boundary's
-// post-compaction tokens or an assistant line's usage. The scan keeps reading past limit until both the context
-// tokens are found and no compaction waits, and it adds no items past limit.
-func newestItems(src io.ReaderAt, size int64, limit int) ([]Item, int64, error) {
-	scan := &newestScan{limit: limit, newest: []Item{}}
-	err := ReadTail(src, size, MaxTailBytes, scan.visit)
-	if err != nil {
-		return nil, 0, err
-	}
-	slices.Reverse(scan.newest)
-	return scan.newest, scan.tokens, nil
+	return scan.page(), scan.tokens, nil
 }
 
 // boundaryOf returns the trigger, pre-compaction and post-compaction token counts of a main-chain compact_boundary

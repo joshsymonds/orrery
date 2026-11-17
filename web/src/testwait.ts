@@ -32,6 +32,13 @@ export function pause(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 2));
 }
 
+// turn resolves after one setImmediate turn, so the promise jobs and I/O queued before it run first. It reads no clock
+// and arms no timer, so a wait stepped by turn ends on the work it waits for, never on time passing, and runs under a
+// mocked setTimeout.
+export function turn(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 // settledFlag returns a function that reports whether promise has settled, resolved or rejected, as an ended check for
 // until: a wait on what an async producer does ends once that producer has returned.
 export function settledFlag(promise: Promise<unknown>): () => boolean {

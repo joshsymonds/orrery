@@ -13,12 +13,19 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// limitStepOps returns the ops that add each of ids as an open step whose usage limit holds it until limitReset.
+// limitStepOps returns the ops that add each of ids as an open step whose usage limit holds it until limitReset. Each
+// step is labeled with the epic epic-<id>, which no store holds, so the notice names that label.
 func limitStepOps(ids ...string) []store.EngineOp {
 	ops := make([]store.EngineOp, 0, 2*len(ids))
 	for _, id := range ids {
 		ops = append(ops,
-			store.StepAdd{ID: id, Agent: "implementer", Prompt: "synthetic prompt", Workspace: "/synthetic/ws"},
+			store.StepAdd{
+				ID:        id,
+				Agent:     "implementer",
+				Prompt:    "synthetic prompt",
+				Workspace: "/synthetic/ws",
+				Epic:      "epic-" + id,
+			},
 			store.StepLoop{ID: id, Limited: true, LimitKind: "usage", LimitResets: limitReset()},
 		)
 	}
@@ -60,7 +67,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	phone := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
 	router := limitRouter(t, phone, log)
 	router.Attach(ctx, first)
-	limits := NewLimitNotices(LimitNoticesConfig{Steps: first, Told: first, Route: router, Now: limitNow})
+	limits := NewLimitNotices(LimitNoticesConfig{Steps: first, Epics: first, Told: first, Route: router, Now: limitNow})
 	// The check before any step is limited reads the marks, and finds none.
 	limits.check(ctx)
 	if err := first.ApplyEngine(ctx, limitStepOps("a", "b"), limitNow()); err != nil {
@@ -71,7 +78,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	router.Wait()
 	phone.Wait()
 
-	const body = "2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b"
+	const body = "Held by the usage limit, reset 2026-11-14T17:00:00Z: epic-a, epic-b"
 	if got := log.got(); len(got) != 1 {
 		t.Fatalf("lines before the restart = %+v, want the one routed limit notice", got)
 	}
@@ -107,7 +114,7 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	restarted.Attach(ctx, second)
 	ticks := make(chan time.Time)
 	rebuilt := NewLimitNotices(LimitNoticesConfig{
-		Steps: second, Told: second, Route: restarted, Now: limitNow, Tick: ticks,
+		Steps: second, Epics: second, Told: second, Route: restarted, Now: limitNow, Tick: ticks,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})

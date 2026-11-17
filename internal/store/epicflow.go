@@ -20,7 +20,7 @@ const releaseKind = "release"
 const judgePart = "judge"
 
 // flowReviewKind and flowClosureKind are the kinds of the review and closure nodes, whose node runs label their steps
-// with their path.
+// with their path. A release node run labels its release integrator's steps with its path too.
 const (
 	flowReviewKind  = "review"
 	flowClosureKind = "closure"
@@ -31,8 +31,8 @@ const (
 // runs as EvidenceRuns returns them, less the runs whose kept spec is no longer current with the item now stored under
 // their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, and
 // how many of its triggers are pending. Steps holds the steps its agent and release node runs ran under as Step returns
-// them, for the runs that have them, then every step labeled with the epic and the path of one of its review or closure
-// node runs, in the order of the runs.
+// them, for the runs that have them, then every step labeled with the epic and the path of one of its review, closure
+// or release node runs, in the order of the runs.
 type EpicFlow struct {
 	Epic     EpicRow
 	Review   Review
@@ -98,11 +98,11 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
-	reviewSteps, err := readReviewSteps(ctx, queries, id, runs)
+	labeled, err := readLabeledSteps(ctx, queries, id, runs)
 	if err != nil {
 		return EpicFlow{}, err
 	}
-	steps = append(steps, reviewSteps...)
+	steps = append(steps, labeled...)
 	pending, err := queries.CountPendingEpicTriggers(ctx, id)
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending triggers of epic %s: %w", id, err)
@@ -185,12 +185,14 @@ func workParts(kind string, releaseSteps int) []string {
 	}
 }
 
-// readReviewSteps returns, in the order of runs, the steps labeled with epic and the path of each review or closure
-// node run, in the order ListLabelledSteps reads them. Node run paths are unique to an epic, so each step is read once.
-func readReviewSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun) ([]StepRow, error) {
+// readLabeledSteps returns, in the order of runs, the steps labeled with epic and the path of each review, closure or
+// release node run, in the order ListLabelledSteps reads them. Node run paths are unique to an epic, so each step is
+// read once. A release run's release steps and judge carry no path label, so only its release integrator's steps are
+// read here.
+func readLabeledSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, runs []NodeRun) ([]StepRow, error) {
 	var steps []StepRow
 	for _, run := range runs {
-		if run.Kind != flowReviewKind && run.Kind != flowClosureKind {
+		if run.Kind != flowReviewKind && run.Kind != flowClosureKind && run.Kind != releaseKind {
 			continue
 		}
 		rows, err := queries.ListLabelledSteps(ctx, sqlcgen.ListLabelledStepsParams{Epic: epic, Task: run.Path})

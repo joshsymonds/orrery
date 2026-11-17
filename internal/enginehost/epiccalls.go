@@ -63,6 +63,8 @@ func epicNamedBy(msg any) string {
 		return req.GetId()
 	case *v1.RetryEpicRequest:
 		return req.GetId()
+	case *v1.KickEpicRequest:
+		return req.GetId()
 	case *v1.ReleaseEpicRequest:
 		return req.GetId()
 	case *v1.CloseEpicRequest:

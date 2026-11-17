@@ -109,10 +109,10 @@ type sessionWatch struct {
 
 // step reads the session once. It returns the message for the read, and true when the message is a delta: the first
 // message, a read with new items, a changed state or a changed unfinished set. Otherwise the message carries neither
-// items nor state, and the caller sends it only as a keepalive.
+// items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its oldest item.
 func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConversationResponse, bool, error) {
 	first := w.sent == nil
-	items, history, err := w.read(ctx, first)
+	items, oldest, history, err := w.read(ctx, first)
 	if err != nil {
 		return nil, false, err
 	}
@@ -136,6 +136,7 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 		Items:      items,
 		Unfinished: unfinished,
 	}
+	msg.Oldest = oldest
 	if stateChanged {
 		msg.State = state
 	}
@@ -146,35 +147,42 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	return msg, changed, nil
 }
 
-// read scans the session's events in pages of eventPageSize and returns the main-thread items the delta carries and
-// the row and unfinished text of the last page. The first read scans from seq 0, so it sees the whole history: the
-// origin and the newest request. It keeps the newest limit items when the client asked for a reset, and the items
-// above its seq otherwise. Later reads scan from the seq the stream has reached and keep every item they read.
+// keptItem is a main-thread item a read keeps, with the seq of the event it came from.
+type keptItem struct {
+	seq  int64
+	item *orreryv1.ConversationItem
+}
+
+// read scans the session's events in pages of eventPageSize and returns the main-thread items the delta carries, the
+// seq of the oldest of them when the delta is a reset (0 otherwise), and the row and unfinished text of the last page.
+// The first read scans from seq 0, so it sees the whole history: the origin and the newest request. It keeps the newest
+// limit items when the client asked for a reset, and the items above its seq otherwise. Later reads scan from the seq
+// the stream has reached and keep every item they read.
 func (w *sessionWatch) read(
 	ctx context.Context,
 	first bool,
-) ([]*orreryv1.ConversationItem, store.EngineHistory, error) {
+) ([]*orreryv1.ConversationItem, int64, store.EngineHistory, error) {
 	if w.reader == nil {
-		return nil, store.EngineHistory{}, listError(connect.CodeUnavailable, "store unavailable")
+		return nil, 0, store.EngineHistory{}, listError(connect.CodeUnavailable, "store unavailable")
 	}
 	reset := first && w.after == 0
 	after := w.seq
 	if first {
 		after = 0
 	}
-	var items []*orreryv1.ConversationItem
+	var kept []keptItem
 	for {
 		page, err := w.reader.EngineHistory(ctx, w.id, after, eventPageSize)
 		if err != nil {
-			return nil, store.EngineHistory{}, sessionReadError(err)
+			return nil, 0, store.EngineHistory{}, sessionReadError(err)
 		}
 		if admitErr := w.admit(ctx, page.Kind); admitErr != nil {
-			return nil, store.EngineHistory{}, admitErr
+			return nil, 0, store.EngineHistory{}, admitErr
 		}
 		for _, event := range page.Events {
-			items, err = w.collect(items, event, first, reset)
+			kept, err = w.collect(kept, event, first, reset)
 			if err != nil {
-				return nil, store.EngineHistory{}, err
+				return nil, 0, store.EngineHistory{}, err
 			}
 		}
 		if n := len(page.Events); n > 0 {
@@ -182,9 +190,23 @@ func (w *sessionWatch) read(
 			w.seq = after
 		}
 		if len(page.Events) < eventPageSize {
-			return items, page, nil
+			items, oldest := keptItems(kept, reset)
+			return items, oldest, page, nil
 		}
 	}
+}
+
+// keptItems returns the items of kept in order, and the seq of the oldest of them when reset is set, or 0 when kept is
+// empty or reset is not set.
+func keptItems(kept []keptItem, reset bool) ([]*orreryv1.ConversationItem, int64) {
+	items := make([]*orreryv1.ConversationItem, 0, len(kept))
+	for _, k := range kept {
+		items = append(items, k.item)
+	}
+	if !reset || len(kept) == 0 {
+		return items, 0
+	}
+	return items, kept[0].seq
 }
 
 // admit returns nil for an engine session and for a step session StepStatus admits. Any other kind is not found.
@@ -223,13 +245,13 @@ func (w *sessionWatch) checkStep(ctx context.Context) error {
 	return nil
 }
 
-// collect tracks one event and appends its main-thread item to items when the delta carries it. first and reset are
+// collect tracks one event and appends its main-thread item to kept when the delta carries it. first and reset are
 // read's flags: a first read skips the items at or below the seq the client holds, and a reset keeps the newest limit.
 func (w *sessionWatch) collect(
-	items []*orreryv1.ConversationItem,
+	kept []keptItem,
 	event store.EngineEvent,
 	first, reset bool,
-) ([]*orreryv1.ConversationItem, error) {
+) ([]keptItem, error) {
 	item, ok, err := sessionItem(event)
 	if err == nil {
 		err = w.track(event, item, ok)
@@ -238,13 +260,13 @@ func (w *sessionWatch) collect(
 		return nil, listError(connect.CodeInternal, "read sessions")
 	}
 	if !ok || (first && event.Seq <= w.after) {
-		return items, nil
+		return kept, nil
 	}
-	items = append(items, item)
-	if reset && len(items) > w.limit {
-		items = items[1:]
+	kept = append(kept, keptItem{seq: event.Seq, item: item})
+	if reset && len(kept) > w.limit {
+		kept = kept[1:]
 	}
-	return items, nil
+	return kept, nil
 }
 
 // track records what an event sets for the stream: the origin, from the session's first prompt, and the request, from
@@ -283,7 +305,7 @@ func (w *sessionWatch) state(history store.EngineHistory) (*orreryv1.Conversatio
 		Session: &orreryv1.HeadlessSession{
 			Id:       w.id,
 			Dir:      history.Dir,
-			Label:    headlessLabel(w.id, history.Dir),
+			Label:    sessionLabel(history.Dir, history.Title, history.FirstPrompt),
 			State:    history.State,
 			Changed:  changed,
 			Seen:     seen,

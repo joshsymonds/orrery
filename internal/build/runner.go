@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -221,8 +220,9 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 // item's green unit. The run is kept only while its spec is current with the task's evidence item, as the store reads
 // a task's runs, so a run whose item has changed reads missing. It also counts the earlier reruns of a red or green
 // unit that exited store.EnvironmentExit in a row, so Decide knows how many runs of the unit have done so. For an
-// ended implementer step it reads the HEAD of the step's worktree, and when the step's refs snapshot is set, the ref
-// moves since it.
+// ended implementer step it reads the HEAD of the workspace the step's row records, which is the worktree the step ran
+// in whatever path that has, and when the step's refs snapshot is set, the ref moves since it. It reads what a request
+// needs as readRequest gives.
 func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTask, tip string) (View, error) {
 	view := View{
 		Epic: epic.ID, Paused: epic.Paused, Parked: epic.Parked != "", ReviewGates: epic.ReviewGates,
@@ -231,11 +231,13 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 	if err := r.readUnit(ctx, epic, task, &view); err != nil {
 		return View{}, err
 	}
+	if err := r.readRequest(ctx, epic, task, &view); err != nil {
+		return View{}, err
+	}
 	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
 		return view, nil
 	}
-	_, stepID := unitIDs(epic.ID, task.Seq, task.Build)
-	view.Head = r.head(ctx, filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), stepID))
+	view.Head = r.head(ctx, view.Step.Workspace)
 	if task.Build.Refs != "" {
 		moves, err := r.refMoves(ctx, epic, task.Build.Refs, task.Build.Base, view.Head)
 		if err != nil {
@@ -279,6 +281,70 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 	return err
 }
 
+// readRequest sets the parts of view a request reads. An asked build reads whether its question is answered (answered). A
+// waiting build reads the epic's tasks as peers and the base the next integrate batch composes on: the epic's candidate
+// when it has one, and its stored base otherwise. An orchestrate unit reads the implementer step it decides, by the
+// build's step, and once its own step has ended done, the peers its decision is checked against.
+func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
+	build := task.Build
+	switch {
+	case build.Held == HeldAsked:
+		view.Answered = answered(epic.Questions, build.Question)
+		return nil
+	case build.Held == HeldWaiting:
+		view.NewBase = epic.StoredBase
+		if epic.Candidate != "" {
+			view.NewBase = epic.Candidate
+		}
+		peers, err := r.peers(ctx, epic)
+		view.Peers = peers
+		return err
+	case build.Stage != StageOrchestrate:
+		return nil
+	}
+	if build.Step != "" {
+		row, ok, err := r.stepRow(ctx, build.Step)
+		if err != nil {
+			return err
+		}
+		if ok {
+			view.Returned = &row
+		}
+	}
+	if view.Step == nil || view.Step.End != endDone {
+		return nil
+	}
+	peers, err := r.peers(ctx, epic)
+	view.Peers = peers
+	return err
+}
+
+// answered reports whether the owner has answered question seq among questions: it is answered, or the question that
+// replaced it, followed to the last replacement, is. A question that is not stored has no answer to wait for, so it
+// counts as answered.
+func answered(questions []store.EpicQuestion, seq int64) bool {
+	for range questions {
+		i := slices.IndexFunc(questions, func(question store.EpicQuestion) bool { return question.Seq == seq })
+		if i < 0 {
+			return true
+		}
+		if questions[i].State != store.QuestionReplaced || questions[i].ReplacedBy == 0 {
+			return questions[i].State == store.QuestionAnswered
+		}
+		seq = questions[i].ReplacedBy
+	}
+	return false
+}
+
+// peers returns the tasks of epic as a request reads them, with the integration each has by the epic's node runs.
+func (r *Runner) peers(ctx context.Context, epic store.EpicRow) ([]Peer, error) {
+	runs, err := r.store.NodeRuns(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("read node runs of epic %s: %w", epic.ID, err)
+	}
+	return peersOf(ctx, epic, runs)
+}
+
 // noVerify reports whether the task-stage reviewer at task's gate position has verify off. The gate positions are the
 // task-stage reviewers in their merged order, so a position no task-stage reviewer holds has verify on.
 func noVerify(epic store.EpicRow, task store.EpicTask) bool {
@@ -288,7 +354,8 @@ func noVerify(epic store.EpicRow, task store.EpicTask) bool {
 }
 
 // unitIDs returns the derived ids of the evidence run and of the step of the unit build is on. A red or green unit has
-// a run and no step, a review or verify unit a step and no run, and an implement unit a step. A unit a build is not on
+// a run and no step, a review or verify unit a step and no run, and an implement unit a step. An orchestrate unit's
+// step counts the decisions made on the task where a review step has its gate position. A unit a build is not on
 // has neither, so both ids are empty.
 func unitIDs(epic string, seq int64, build store.TaskBuild) (string, string) {
 	switch build.Stage {
@@ -298,6 +365,8 @@ func unitIDs(epic string, seq int64, build store.TaskBuild) (string, string) {
 		return RunID(epic, seq, StageGreen, build.Attempt, build.Rerun), ""
 	case StageImplement:
 		return "", StepID(epic, seq, StageImplement, build.Attempt, build.Rerun, 0, 0)
+	case StageOrchestrate:
+		return "", StepID(epic, seq, StageOrchestrate, build.Attempt, build.Rerun, build.Decisions, 0)
 	case StageReview:
 		return "", StepID(epic, seq, StageReview, build.Attempt, build.Rerun, build.GatePos, 0)
 	case StageVerify:

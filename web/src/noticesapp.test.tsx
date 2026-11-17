@@ -443,7 +443,7 @@ function makeEpic(slug: string, init: MessageInitShape<typeof EpicSchema> = {}):
   });
 }
 
-// asking is live with an open question, so its now block draws the answer form.
+// asking is live with an open question, so its now block draws the question's option cards.
 const asking = makeEpic("first");
 // stuck is live and parked on a failed release step, so its now block draws Retry and Stop….
 const stuck = makeEpic("second");
@@ -496,7 +496,7 @@ async function clickEpicNotice(
   await until(signal, () => server.seen.length === 1, "the Seen report");
 }
 
-test("a question notice opens its epic at the now block, with the answer form in the page", (t) =>
+test("a question notice opens its epic at the now block, with the question's option cards in the page", (t) =>
   withPage(
     t.signal,
     async (root, server, scrolled) => {
@@ -506,9 +506,9 @@ test("a question notice opens its epic at the now block, with the answer form in
       assert.equal(pageCrumb(root), asking.slug);
       assert.equal(isCursored(root, epicKeyOf(asking)), true, "the cursor is not on the epic");
       assert.equal(
-        root.querySelector('[aria-label="epic"] textarea[aria-label="answer"]') !== null,
+        root.querySelector('[aria-label="epic"] .now-block form.answer .opts > .opt') !== null,
         true,
-        "no answer form in the epic page",
+        "no option cards in the epic page",
       );
       assert.equal(server.seen[0].epic, asking.id);
     },

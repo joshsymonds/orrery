@@ -151,7 +151,7 @@ func (w *conversationWatch) stepAt(pane *v1.Pane, path string) (*v1.WatchConvers
 		w.betweenReads()
 	}
 	before := w.seq
-	items, reset, err := w.readDelta(path)
+	items, oldest, reset, err := w.readDelta(path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -173,6 +173,7 @@ func (w *conversationWatch) stepAt(pane *v1.Pane, path string) (*v1.WatchConvers
 		Reset_:     reset,
 		Items:      conversationItems(items),
 	}
+	msg.Oldest = oldest
 	if stateChanged {
 		msg.State = state
 		w.sent = state
@@ -180,29 +181,29 @@ func (w *conversationWatch) stepAt(pane *v1.Pane, path string) (*v1.WatchConvers
 	return msg, true, nil
 }
 
-// readDelta returns the items the stream adds from the transcript at path, and whether they reset the stream. The
-// first read resumes at the held seq when the held transcript id is the id of path and Since accepts that seq. Any
-// other read follows the stream's transcript, and resets it when path is another transcript or Since refuses the
-// stream's seq.
-func (w *conversationWatch) readDelta(path string) ([]conversation.Item, bool, error) {
+// readDelta returns the items the stream adds from the transcript at path, the line start of the oldest of them when
+// they reset the stream (0 otherwise), and whether they reset the stream. The first read resumes at the held seq when
+// the held transcript id is the id of path and Since accepts that seq. Any other read follows the stream's transcript,
+// and resets it when path is another transcript or Since refuses the stream's seq.
+func (w *conversationWatch) readDelta(path string) ([]conversation.Item, int64, bool, error) {
 	if w.sent == nil {
 		if filepath.Base(path) == w.held {
 			items, ok, err := w.resume(path)
 			if ok || err != nil {
-				return items, false, err
+				return items, 0, false, err
 			}
 		}
-		items, err := w.reset(path)
-		return items, true, err
+		items, oldest, err := w.reset(path)
+		return items, oldest, true, err
 	}
 	if path == w.path {
 		items, ok, err := w.since()
 		if ok || err != nil {
-			return items, false, err
+			return items, 0, false, err
 		}
 	}
-	items, err := w.reset(path)
-	return items, true, err
+	items, oldest, err := w.reset(path)
+	return items, oldest, true, err
 }
 
 // resume starts the stream at the held seq of path. It reports false when Since refuses that seq.
@@ -232,15 +233,15 @@ func (w *conversationWatch) since() ([]conversation.Item, bool, error) {
 	return follow.Items, true, nil
 }
 
-// reset makes path the stream's transcript, and returns its newest items with the seq, origin and context figure
-// the transcript has now.
-func (w *conversationWatch) reset(path string) ([]conversation.Item, error) {
+// reset makes path the stream's transcript, and returns its newest items, and the line start of the oldest of them, with
+// the seq, origin and context figure the transcript has now.
+func (w *conversationWatch) reset(path string) ([]conversation.Item, int64, error) {
 	conv, end, err := conversation.ReadEnd(path, w.limit)
 	if err != nil {
-		return nil, transcriptError(err)
+		return nil, 0, transcriptError(err)
 	}
 	w.path, w.seq, w.origin, w.figure = path, end, conv.Origin, conv.Context
-	return conv.Items, nil
+	return conv.Items, conv.Oldest, nil
 }
 
 // transcriptState returns the goal and the waiting messages of the transcript at path. The waiting messages are idle

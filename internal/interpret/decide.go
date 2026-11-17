@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -41,9 +42,9 @@ const (
 // Requirements, the evidence node at base found them holding at the base, and the park's question offers them as met.
 // Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
 // parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
-// prepare, start, capture, repro, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
-// Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance
-// the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
+// prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def,
+// Run, IDs, Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome,
+// an integrator the failure its round mends as its Output, and an advance the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
 // the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path,
 // whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path,
 // whose Attempt ended with Phase and Output.
@@ -83,6 +84,7 @@ const (
 	kindLoop      = "loop"
 	spentContinue = "continue"
 	taskOpen      = "open"
+	taskDone      = "done"
 	outcomePassed = "passed"
 	outcomeFailed = "failed"
 	triggerPrefix = "workflow:"
@@ -252,7 +254,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
-		kinds.ActTake, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop, kinds.ActEnding, kinds.ActFree:
+		kinds.ActTake, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
+		kinds.ActEnding, kinds.ActFree:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
@@ -301,10 +304,13 @@ func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) [
 	return []Action{{Kind: ActParkEpic, Reason: reason, Trigger: trigger}}
 }
 
-// settle decides the settle walks of a running plan run, and reports whether its latest settle walk has ended. A settle
-// point is the highest seq among the tasks of turns above the plan's mark. Its walk runs the plan body's nodes that are
-// not build nodes, under <plan path>/S<seq>/. The latest walk starts only when no task of the epic is open. Every walk
-// already started is decided on each pass, so an older walk finishes while a newer settle point waits for its tasks.
+// settle decides the settle walks of a running plan run, and reports whether its latest settle walk, and every late
+// walk, has ended. A settle point is the highest seq among the tasks of turns above the plan's mark. Its walk runs the
+// plan body's nodes that are not build nodes, under <plan path>/S<seq>/. Every walk already started, settle or late, is
+// decided on each pass, so an older walk finishes while a newer settle point waits for its tasks. The latest walk starts
+// only when no task of the epic is building, open and not waiting on other tasks (anyTaskBuilding), and no late walk
+// runs, so a late walk's batch never races a newer one onto the branch. Once the latest walk has ended, the next late
+// walk may start (nextLateWalk).
 func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 	latest, ok := p.settlePoint(run.Mark)
 	if !ok {
@@ -322,12 +328,78 @@ func (p pass) settle(def workflow.Node, run store.NodeRun) ([]Action, bool) {
 		walked, _ := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
 		acts = append(acts, walked...)
 	}
+	late, lateEnded := p.lateWalks(nodes, run)
+	acts = append(acts, late...)
 	prefix := settlePrefix(run.Path, latest)
-	if !p.hasRunUnder(prefix) && p.anyTaskOpen() {
+	if !p.hasRunUnder(prefix) && (p.anyTaskBuilding() || !lateEnded) {
 		return acts, false
 	}
 	walked, done := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
-	return append(acts, walked...), done
+	acts = append(acts, walked...)
+	if !done || !lateEnded {
+		return acts, false
+	}
+	next, settled := p.nextLateWalk(nodes, run, prefix)
+	return append(acts, next...), settled
+}
+
+// lateWalks decides each late walk of a plan run that has started, and reports whether all of them have ended. A late
+// walk integrates a task that was waiting on other tasks when the latest settle walk started, and so was accepted after
+// that walk's integrate run claimed its batch. It runs the nodes under <plan path>/L<seq>/, where <seq> is the seq of
+// that task.
+func (p pass) lateWalks(nodes []workflow.Node, run store.NodeRun) ([]Action, bool) {
+	var acts []Action
+	ended := true
+	for _, task := range p.rows.Epic.Tasks {
+		prefix := latePrefix(run.Path, task.Seq)
+		if task.Turn <= run.Mark || !p.hasRunUnder(prefix) {
+			continue
+		}
+		walked, done := p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
+		acts = append(acts, walked...)
+		ended = ended && done
+	}
+	return acts, ended
+}
+
+// nextLateWalk starts the next late walk of a plan run whose latest settle walk, under latest, and every late walk have
+// ended, and reports whether none is left to run. The next late walk is that of the lowest seq among the tasks of turns
+// above the plan's mark that waited, are done and are claimed by no batch (lateTask). It starts once the latest walk's
+// integrate node has run, when no task of the epic is building. A late walk that ended without its task claimed starts no
+// other, so its trigger brings the planner first. A plan body with no integrate node has no late walk.
+func (p pass) nextLateWalk(nodes []workflow.Node, run store.NodeRun, latest string) ([]Action, bool) {
+	i := slices.IndexFunc(nodes, func(node workflow.Node) bool { return node.Kind == kindIntegrate })
+	if i < 0 {
+		return nil, true
+	}
+	if _, ran := p.byPath[latest+nodes[i].ID]; !ran {
+		return nil, true
+	}
+	seq, found := p.lateTask(run.Mark)
+	prefix := latePrefix(run.Path, seq)
+	if !found || p.hasRunUnder(prefix) {
+		return nil, true
+	}
+	if p.anyTaskBuilding() {
+		return nil, false
+	}
+	return p.walk(nodes, scope{prefix: prefix, round: run.Round, where: planBody})
+}
+
+// lateTask returns the lowest seq among the tasks of turns above mark that waited on other tasks, are done and are
+// claimed by no batch, and whether there is one.
+func (p pass) lateTask(mark int64) (int64, bool) {
+	for _, task := range p.rows.Epic.Tasks {
+		if task.Turn > mark && task.Status == taskDone && task.Batch == "" && task.Build.After != "" {
+			return task.Seq, true
+		}
+	}
+	return 0, false
+}
+
+// latePrefix returns the prefix of the late walk at seq of the plan at path.
+func latePrefix(path string, seq int64) string {
+	return fmt.Sprintf("%s/L%d/", path, seq)
 }
 
 // settlePoint returns the highest seq among the tasks of turns above mark, and whether there is one.
@@ -347,9 +419,12 @@ func settlePrefix(path string, seq int64) string {
 	return fmt.Sprintf("%s/S%d/", path, seq)
 }
 
-// anyTaskOpen reports whether any task of the epic is open.
-func (p pass) anyTaskOpen() bool {
-	return slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool { return task.Status == taskOpen })
+// anyTaskBuilding reports whether any task of the epic is open and not waiting on other tasks (build.Waiting). A
+// waiting task's build moves only once a batch integrates the tasks it waits for, so a settle walk does not wait for it.
+func (p pass) anyTaskBuilding() bool {
+	return slices.ContainsFunc(p.rows.Epic.Tasks, func(task store.EpicTask) bool {
+		return task.Status == taskOpen && !build.Waiting(task)
+	})
 }
 
 // hasRunUnder reports whether a node run's path starts with prefix.
@@ -459,8 +534,12 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 }
 
 // work returns the work action of a check or release node run: the kind's action, and the ids, items, tasks, units,
-// output and outcome the work is for. An advance also carries the trigger its passed batch writes.
+// output and outcome the work is for. An advance also carries the trigger its passed batch writes. An action that names
+// a revision runs at it: the run it carries holds that revision in place of its own.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
+	if act.Revision != "" {
+		run.Revision = act.Revision
+	}
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
 		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,

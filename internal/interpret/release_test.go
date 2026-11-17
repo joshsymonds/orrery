@@ -33,17 +33,18 @@ func tagStep() store.EpicReleaseStep {
 }
 
 // releaseWorld is one release test's world: the store, the check fake, the runner, the scratch repository its epics are
-// in, and what each of its passes logged.
+// in, what each of its passes logged, and the Requirements the epics it creates declare, none unless a test sets them.
 type releaseWorld struct {
-	t       *testing.T
-	s       *store.Store
-	path    string
-	repo    string
-	state   string
-	fakes   nodeFakes
-	ordered *orderedSteps
-	runner  *Runner
-	logs    *bytes.Buffer
+	t            *testing.T
+	s            *store.Store
+	path         string
+	repo         string
+	state        string
+	fakes        nodeFakes
+	ordered      *orderedSteps
+	runner       *Runner
+	logs         *bytes.Buffer
+	requirements []store.EpicRequirement
 }
 
 // newReleaseWorld returns a world with no epic stored, over a scratch repository on main, and a runner that ends epics
@@ -75,9 +76,9 @@ func newReleaseWorldIn(t *testing.T, ending Ending, repo string) *releaseWorld {
 	}
 }
 
-// createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps, and a frozen
-// review at its base, as an epic that ended clean has. The epics of a world are all in its repository, so they share
-// its release slot.
+// createEpic stores the epic id in phase, pinned to the release flow, with steps as its release steps, the world's
+// Requirements, and a frozen review at its base, as an epic that ended clean has. The epics of a world are all in its
+// repository, so they share its release slot.
 func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseStep) {
 	w.t.Helper()
 	pinned, err := workflow.Load("release", func(string) ([]byte, bool, error) {
@@ -89,7 +90,7 @@ func (w *releaseWorld) createEpic(id, phase string, steps ...store.EpicReleaseSt
 	if err = w.s.CreateEpic(w.t.Context(), store.EpicRow{
 		ID: id, Repository: w.repo, Base: runBase, Title: "Release the epic", Phase: phase, Created: runClock(),
 		Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
-		ReleaseThen: releaseThen,
+		ReleaseThen: releaseThen, Requirements: w.requirements,
 		Workflow: store.EpicWorkflow{
 			Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256, Nodes: pinnedNodes(pinned.Workflow.Nodes, ""),
 		},

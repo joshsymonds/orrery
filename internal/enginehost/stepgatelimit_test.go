@@ -34,6 +34,7 @@ func newGateLimitTestFixture(t *testing.T, caller haikuCaller, sessions *stepLoo
 	}
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
+	sessions.writer = writer
 	f := &watchLoopFixture{
 		store:    s,
 		sessions: sessions,

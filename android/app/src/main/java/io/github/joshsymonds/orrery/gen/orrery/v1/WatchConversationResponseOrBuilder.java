@@ -122,4 +122,15 @@ public interface WatchConversationResponseOrBuilder extends
    * <code>repeated .orrery.v1.EngineText unfinished = 6 [json_name = "unfinished"];</code>
    */
   int getUnfinishedCount();
+
+  /**
+   * <pre>
+   * The offset of the line start of the oldest item a reset carries, which Panes.Older pages back from. It is 0 on a
+   * delta that is not a reset, and on a reset that carries no item.
+   * </pre>
+   *
+   * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+   * @return The oldest.
+   */
+  long getOldest();
 }

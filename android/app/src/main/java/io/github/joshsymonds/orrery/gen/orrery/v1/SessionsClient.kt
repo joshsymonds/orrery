@@ -61,4 +61,19 @@ public class SessionsClient(
     ),
   )
 
+
+  /**
+   *  Older returns the main-thread items of one headless session older than a seq, the newest page first.
+   */
+  override suspend fun older(request: SessionsOlderRequest, headers: Headers): ResponseMessage<SessionsOlderResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Sessions/Older",
+      io.github.joshsymonds.orrery.gen.orrery.v1.SessionsOlderRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.SessionsOlderResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

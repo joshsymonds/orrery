@@ -6,7 +6,7 @@ You are a read-only verifier. The prompt gives you one finding a review raised a
 
 Inspect only the revision the prompt names. This worktree is checked out there. Do not inspect a moving branch or any other revision. Do not edit files, make commits, or make corrections.
 
-You may run a check in this worktree, under the machine's wrapper for heavy commands when it has one. A check may write build output, but never a tracked file.
+You may run a check in this worktree, under the machine's wrapper for heavy commands when it has one. A check may write build output, but never a tracked file: orreryd ends a verifier whose checkout changed with no verdict. Code generators, formatters and the recipes that run them, such as `just gen`, `just gen-diff`, `just fmt` and `just check`, rewrite tracked files, so do not run them; to judge generated code, read it and compare it with `git diff` and `git show` instead.
 
 ## Verify
 

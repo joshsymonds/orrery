@@ -17,7 +17,8 @@ import {
 import type { Conversation } from "./conversation";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead } from "./reader";
+import type { Sending } from "./sending";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
@@ -43,6 +44,8 @@ function conversation(init: Partial<Conversation> = {}): Conversation {
     transcript: "t1",
     seq: 1n,
     items: [],
+    oldest: 0n,
+    more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
     ...init,
@@ -57,6 +60,8 @@ interface Props {
   step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
+  onOlder?: () => void;
+  sending?: Sending[];
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -935,7 +940,84 @@ test("a new item while the reader is scrolled up leaves its scroll place alone",
     assert.equal(reader.scrollTop, 500);
   }));
 
-test("at the 50-item cap, appending one item and dropping the oldest keeps a held row's node", () =>
+// olderItems are count replies older than heldItems, each with its own text, so a page of them is drawn above the held
+// rows.
+function olderItems(count: number): ConversationItem[] {
+  return Array.from({ length: count }, (_, index) =>
+    item({ kind: "reply", time: BigInt(50 + index), text: `older-${index}` }),
+  );
+}
+
+// withOlder is props with a conversation that holds items and may have older ones, asking onOlder on each call.
+function withOlder(items: ConversationItem[], asked: { count: number }, more = true): Props {
+  return {
+    ...readerProps(items),
+    conversation: conversation({ items, more, oldest: 50n }),
+    onOlder: () => {
+      asked.count += 1;
+    },
+  };
+}
+
+test("reaching the top of a reader whose conversation has older items calls onOlder", () => {
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(heldItems(1, 20), asked), (container) => {
+    const reader = readerOf(container);
+    assert.equal(asked.count, 0, "a reader opened at its bottom asks for nothing");
+
+    reader.scrollTop = 0;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.equal(asked.count, 1, "the reader at its top asks for the page before its oldest item");
+  });
+});
+
+test("reaching the top of a reader whose conversation has no older items does not call onOlder", () => {
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(heldItems(1, 20), asked, false), (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 0;
+    reader.dispatchEvent(new Event("scroll"));
+    assert.equal(asked.count, 0, "a conversation with nothing older asks for nothing");
+  });
+});
+
+test("a reader that does not fill its height asks for its older items as it is drawn", () => {
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(heldItems(1, 2), asked), (container) => {
+    assert.equal(readerOf(container).scrollTop, 0, "two rows fit the viewport, so the reader has no scroll");
+    assert.equal(asked.count, 1, "the reader at its top, with nothing to scroll, asks for the page before");
+  });
+});
+
+test("an older page drawn above keeps the row on screen where it was", () => {
+  const held = heldItems(1, 20);
+  const asked = { count: 0 };
+  return withScrollingReader(withOlder(held, asked), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    const visible = readerOf(container).children[5];
+    assert.equal(visible.textContent?.includes("held-6"), true, "the row at the top of the view is held-6");
+
+    await rerender({
+      ...withOlder([...olderItems(10), ...held], asked),
+    });
+    assert.ok(readerOf(container).children[15] === visible, "the row moved down past the ten older rows");
+    assert.equal(reader.scrollTop, 1500, "the reader moved by the height the older rows took above");
+    assert.equal(asked.count, 0, "a reader moved away from its top asks for nothing");
+  });
+});
+
+test("an older item equal to a held one keeps the held row's node", () => {
+  const twin = item({ kind: "reply", time: 100n, text: "same" });
+  return withScrollingReader(readerProps([twin]), async (container, rerender) => {
+    const held = readerOf(container).children[0];
+
+    await rerender(readerProps([twin, twin]));
+    assert.ok(readerOf(container).children[1] === held, "the held row is still the row after the older twin");
+  });
+});
+
+test("a window of 50 that drops its oldest item for a new one keeps a held row's node", () =>
   withScrollingReader(readerProps(heldItems(1, 50)), async (container, rerender) => {
     const held = rowWith(container, "held-25");
 
@@ -1314,6 +1396,22 @@ function headOf(container: HTMLElement): HTMLElement {
   return head;
 }
 
+// withConversationHead renders a row's conversation head the way withHead renders a head, and removes it the same way.
+async function withConversationHead(
+  props: Parameters<typeof ConversationHead>[0],
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    render(<ConversationHead {...props} />, container);
+    await check(container);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
 test("a pane's head names its label as the heading and its where line as a span after it", () =>
   withHead({ label: "Synthetic pane", where: "synthetic-project · synthetic-host" }, (container) => {
     const head = headOf(container);
@@ -1353,6 +1451,38 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
+test("a session's conversation head draws the title row: a back button, the crumbs orrery then the session's label, and its state, and back calls its handler", () => {
+  let backs = 0;
+  return withConversationHead(
+    {
+      label: "Synthetic session",
+      state: "waiting",
+      onBack: () => {
+        backs += 1;
+      },
+      onGoList: () => {},
+      children: <span class="pill">synthetic pill</span>,
+    },
+    async (container) => {
+      const row = container.querySelector<HTMLElement>("header.title-row");
+      assert.ok(row !== null, "the title row is drawn");
+      const back = row.querySelector<HTMLButtonElement>("button.back");
+      assert.equal(back?.getAttribute("aria-label"), "back");
+      const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
+      assert.deepEqual(
+        crumbs.map((crumb) => crumb.textContent),
+        ["orrery", "Synthetic session"],
+        "the crumbs read orrery, then the session's label",
+      );
+      assert.equal(crumbs[1]?.getAttribute("aria-current"), "page", "the label is the page itself");
+      assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
+      assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
+      back?.click();
+      assert.equal(backs, 1, "back calls its handler once");
+    },
+  );
+});
+
 test("a label or where holding markup draws as text with no element", () =>
   withHead(
     { label: "<b>bold</b> <img src=x onerror=alert(1)>", where: "<i>italic</i> <a href=x>link</a>" },
@@ -1386,3 +1516,57 @@ test("an opened thinking block stays open as its deltas grow", () =>
       );
     },
   ));
+
+// withRerenderableReader mounts a reader and gives the check a rerender that draws new props into the same mounted
+// reader, as the page does when a stored prompt arrives.
+async function withRerenderableReader(
+  props: Props,
+  check: (container: HTMLElement, rerender: (next: Props) => Promise<void>) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  const rerender = (next: Props) =>
+    act(() => {
+      render(<Reader {...next} />, container);
+    });
+  try {
+    await rerender(props);
+    await check(container, rerender);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
+test("a sending entry draws a dimmed row marked sending after the items, and the stored prompt makes it an ordinary row", async () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, text: "earlier", promptId: "p0" }),
+    item({ kind: "reply", time: 101n, text: "Done." }),
+  ];
+  const sending: Sending[] = [{ promptId: "p1", text: "fix the build", after: items[1] }];
+  await withRerenderableReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, sending },
+    async (container, rerender) => {
+      const rows = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.equal(rows.length, 3, "the two items, then the sending row");
+      const last = rows[2];
+      assert.equal(last.classList.contains("sending-row"), true, "the sending row is dimmed");
+      assert.equal(last.querySelector(".gut")?.textContent, "sending", "the row is marked sending");
+      assert.equal(last.querySelector(".you")?.textContent, "YOUfix the build");
+
+      await rerender({
+        conversation: conversation({
+          items: [...items, item({ kind: "prompt", time: 102n, text: "fix the build", promptId: "p1" })],
+        }),
+        seenAt: 1000,
+        open: false,
+        sending: [],
+      });
+      const after = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
+      assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
+      assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
+      assert.equal(container.querySelector(".gut.sending"), null, "nothing is marked sending");
+    },
+  );
+});

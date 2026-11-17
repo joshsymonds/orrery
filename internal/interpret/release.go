@@ -11,8 +11,9 @@ import (
 )
 
 // release carries out one work action of a release run: the prepare of its candidate, the release slot taken or freed,
-// a stop, the epic's ending, a Done gate check at the candidate, the start of a release step or the judge, or the
-// record of a candidate, a release step or the judge.
+// a stop, the epic's ending, a Done gate check or a capture at the candidate, the start of a round of the release
+// integrator, of a release step or of the judge, or the record of a candidate, a round of the release integrator, a
+// release step or the judge.
 func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
 	case kinds.ActPrepare:
@@ -27,6 +28,10 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 		return r.endEpic(ctx, epic, act, at)
 	case kinds.ActStart:
 		return r.start(ctx, epic, act)
+	case kinds.ActCapture:
+		return r.capture(ctx, epic, act)
+	case kinds.ActIntegrator:
+		return r.startIntegrator(ctx, epic, act, at)
 	case kinds.ActStep:
 		return r.startReleaseStep(ctx, epic, act, at)
 	case kinds.ActJudge:
@@ -38,7 +43,8 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 	}
 }
 
-// recordRelease records the run act names: the candidate, the judge, or else a release step, which its label names.
+// recordRelease records the run act names: the candidate, the judge, a round of the release integrator, or else a
+// release step, which its label names.
 func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if len(act.Items) == 0 {
 		return releaseRefused(act)
@@ -48,6 +54,8 @@ func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Acti
 		return r.recordCandidate(ctx, epic, act, at)
 	case store.ReleasePartJudge:
 		return r.recordJudge(ctx, epic, act, at)
+	case store.ReleasePartIntegrator:
+		return r.recordIntegrator(ctx, epic, act, at)
 	default:
 		return r.recordReleaseStep(ctx, epic, act, at)
 	}
@@ -70,8 +78,12 @@ func (r *Runner) freeSlot(ctx context.Context, epic store.EpicRow) error {
 	return nil
 }
 
-// stopRelease stops the release at the run of act, with the action's output as its reason.
+// stopRelease stops the release at the run of act, with the action's output as its reason. The run's release
+// integrator worktree, when it has one, is removed first, so a stop never leaves it behind.
 func (r *Runner) stopRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	if err := r.removeIntegrator(ctx, epic, act.Run); err != nil {
+		return err
+	}
 	if err := r.store.StopRelease(ctx, epic.ID, act.Path, act.Run.Attempt, act.Output, at); err != nil {
 		return fmt.Errorf("stop release of epic %s: %w", epic.ID, err)
 	}
@@ -91,12 +103,17 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 }
 
 // recordCandidate stores the candidate of the run's attempt as passed, after the one it replaces when it was prepared
-// again. Its Start is the tip the candidate was made from and its Head the candidate. Its Commits name the candidate when
-// it is behind the target, since then the candidate is the merge the release made.
+// again. Its Start is the tip the candidate was made from and its Head the candidate, which is the merge the release
+// integrator committed when the action names that revision. Its Commits name the candidate when it is behind the
+// target, since then the candidate is the merge the release made. The run's release integrator worktree, when it has
+// one, is removed first: the merge it holds is pinned.
 func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
 		return fmt.Errorf("read result of node %s: %w", act.Path, err)
+	}
+	if removeErr := r.removeIntegrator(ctx, epic, act.Run); removeErr != nil {
+		return removeErr
 	}
 	run := store.ReleaseRun{
 		Part: store.ReleasePartCandidate, Attempt: act.Run.Attempt, Start: result.Tip, Head: act.Run.Revision,

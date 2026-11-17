@@ -679,6 +679,7 @@ class EpicScreenTest {
             val sent = EpicsAnswerRequest.parseFrom(requestsTo(server, EPICS_ANSWER).single().body)
             assertEquals(EPIC_ID, sent.epicId)
             assertEquals("example-question-1", sent.question)
+            assertEquals("other", sent.choice)
             assertEquals("Example answer", sent.text)
         }
     }

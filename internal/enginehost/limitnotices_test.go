@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -42,14 +43,24 @@ func otherResetKey() notice.Key {
 	return notice.Key{Limit: "usage@1794733200"}
 }
 
-// usageRow is an open step row limited by usage until limitReset.
-func usageRow(id string) store.StepRow {
-	return store.StepRow{ID: id, LoopLimited: true, LoopLimitKind: "usage", LoopLimitResets: limitReset()}
+// limitTitles returns the contract titles of the epics the limit tests hold steps under, by label. usageRow holds the
+// step with id under the label epic-<id>, so the steps a and b are held under Alpha and Beta.
+func limitTitles() map[string]string {
+	return map[string]string{"epic-a": "Alpha", "epic-b": "Beta", "epic-c": "Gamma", "epic-d": "Delta"}
 }
 
-// laterUsageRow is an open step row limited by usage until limitOtherReset.
+// usageRow is an open step row limited by usage until limitReset, held under the epic epic-<id>.
+func usageRow(id string) store.StepRow {
+	return store.StepRow{
+		ID: id, Epic: "epic-" + id, LoopLimited: true, LoopLimitKind: "usage", LoopLimitResets: limitReset(),
+	}
+}
+
+// laterUsageRow is an open step row limited by usage until limitOtherReset, held under the epic epic-<id>.
 func laterUsageRow(id string) store.StepRow {
-	return store.StepRow{ID: id, LoopLimited: true, LoopLimitKind: "usage", LoopLimitResets: limitOtherReset()}
+	return store.StepRow{
+		ID: id, Epic: "epic-" + id, LoopLimited: true, LoopLimitKind: "usage", LoopLimitResets: limitOtherReset(),
+	}
 }
 
 // limitRead is one answer to a read of the limited steps: its rows, or the error it failed with.
@@ -71,10 +82,29 @@ func (s *scriptedLimits) LimitedSteps(context.Context) ([]store.StepRow, error) 
 	return read.rows, read.err
 }
 
+// fakeEpics is a LimitEpicReader over titles: a label it does not hold is ErrNoEpic, and a held one is an epic whose
+// contract title is its title. Its first failReads reads fail.
+type fakeEpics struct {
+	titles    map[string]string
+	failReads int
+}
+
+func (f *fakeEpics) Epic(_ context.Context, id string) (store.EpicRow, error) {
+	if f.failReads > 0 {
+		f.failReads--
+		return store.EpicRow{}, errors.New("store is closed")
+	}
+	title, ok := f.titles[id]
+	if !ok {
+		return store.EpicRow{}, fmt.Errorf("epic %s: %w", id, store.ErrNoEpic)
+	}
+	return store.EpicRow{ID: id, Title: title}, nil
+}
+
 // tellCall is one TellLimit call a fakeTold received.
 type tellCall struct {
 	limit string
-	steps []string
+	names []string
 }
 
 // fakeTold is a LimitTold that answers reads from marks. Its first failReads reads fail. Each write fails with writeErr
@@ -107,11 +137,11 @@ func (f *fakeTold) ToldLimits(context.Context) (map[string][]string, error) {
 }
 
 // TellLimit records the mark. Like the store, it refuses a write on an ended context, which then records nothing.
-func (f *fakeTold) TellLimit(ctx context.Context, limit string, steps []string) error {
+func (f *fakeTold) TellLimit(ctx context.Context, limit string, names []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	f.tells = append(f.tells, tellCall{limit: limit, steps: steps})
+	f.tells = append(f.tells, tellCall{limit: limit, names: names})
 	return f.writeResult()
 }
 
@@ -150,6 +180,7 @@ func runStoppedLimitNotices(t *testing.T, told *fakeTold, rows []store.StepRow) 
 	router := &stoppingRouter{stop: cancel}
 	NewLimitNotices(LimitNoticesConfig{
 		Steps: &scriptedLimits{reads: []limitRead{{rows: rows}}},
+		Epics: &fakeEpics{titles: limitTitles()},
 		Told:  told,
 		Route: router,
 		Now:   limitNow,
@@ -158,15 +189,23 @@ func runStoppedLimitNotices(t *testing.T, told *fakeTold, rows []store.StepRow) 
 	return router
 }
 
-// runLimitNotices runs LimitNotices over told and reads. The first read is the one at start, and each later read is one
-// tick. It returns once every tick has been taken and processed, with what the router was told and what was logged.
+// runLimitNotices runs LimitNotices over told, the epics of limitTitles, and reads. The first read is the one at start,
+// and each later read is one tick. It returns once every tick has been taken and processed, with what the router was
+// told and what was logged.
 func runLimitNotices(t *testing.T, told *fakeTold, reads ...limitRead) (*fakeRouter, string) {
+	t.Helper()
+	return runLimitNoticesWith(t, told, &fakeEpics{titles: limitTitles()}, reads...)
+}
+
+// runLimitNoticesWith is runLimitNotices with epics as the reader of the epics the steps are held under.
+func runLimitNoticesWith(t *testing.T, told *fakeTold, epics *fakeEpics, reads ...limitRead) (*fakeRouter, string) {
 	t.Helper()
 	router := &fakeRouter{}
 	var logs bytes.Buffer
 	ticks := make(chan time.Time)
 	limits := NewLimitNotices(LimitNoticesConfig{
 		Steps:  &scriptedLimits{reads: reads},
+		Epics:  epics,
 		Told:   told,
 		Route:  router,
 		Now:    limitNow,
@@ -214,27 +253,13 @@ func checkLimitNotice(t *testing.T, n route.Notice, key notice.Key, body string)
 func checkTells(t *testing.T, told *fakeTold, want ...tellCall) {
 	t.Helper()
 	if !slices.EqualFunc(told.tells, want, func(a, b tellCall) bool {
-		return a.limit == b.limit && slices.Equal(a.steps, b.steps)
+		return a.limit == b.limit && slices.Equal(a.names, b.names)
 	}) {
 		t.Fatalf("tells = %+v, want %+v", told.tells, want)
 	}
 }
 
-func TestLimitNoticesNamesEveryStepOfOneLimitInOneNotice(t *testing.T) {
-	t.Parallel()
-	router, _ := runLimitNotices(t, &fakeTold{},
-		limitRead{},
-		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
-	)
-
-	if len(router.notices) != 1 {
-		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
-	}
-	checkLimitNotice(t, router.notices[0], resetKey(),
-		"2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b")
-}
-
-func TestLimitNoticesRenotifiesWhenAStepJoins(t *testing.T) {
+func TestLimitNoticesRenotifiesWhenAnEpicJoins(t *testing.T) {
 	t.Parallel()
 	told := &fakeTold{}
 	router, _ := runLimitNotices(t, told,
@@ -247,10 +272,10 @@ func TestLimitNoticesRenotifiesWhenAStepJoins(t *testing.T) {
 		t.Fatalf("got %d notices, want 2: %+v", len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[1], resetKey(),
-		"3 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b, c")
+		"Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha, Beta, Gamma")
 	checkTells(t, told,
-		tellCall{limit: resetKey().Limit, steps: []string{"a", "b"}},
-		tellCall{limit: resetKey().Limit, steps: []string{"a", "b", "c"}},
+		tellCall{limit: resetKey().Limit, names: []string{"Alpha", "Beta"}},
+		tellCall{limit: resetKey().Limit, names: []string{"Alpha", "Beta", "Gamma"}},
 	)
 }
 
@@ -267,9 +292,9 @@ func TestLimitNoticesSecondResetIsSecondNotice(t *testing.T) {
 			len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[0], resetKey(),
-		"2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b")
+		"Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha, Beta")
 	checkLimitNotice(t, router.notices[1], otherResetKey(),
-		"1 step held by the usage limit, reset 2026-11-15T09:00:00Z: d")
+		"Held by the usage limit, reset 2026-11-15T09:00:00Z: Delta")
 }
 
 func TestLimitNoticesNamesAnUnknownReset(t *testing.T) {
@@ -284,10 +309,10 @@ func TestLimitNoticesNamesAnUnknownReset(t *testing.T) {
 		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[0], notice.Key{Limit: "usage@0"},
-		"1 step held by the usage limit, reset unknown: a")
+		"Held by the usage limit, reset unknown: a step outside any epic")
 }
 
-func TestLimitNoticesTellsStepsLimitedAtStartOnceAndMarksThem(t *testing.T) {
+func TestLimitNoticesTellsEpicsLimitedAtStartOnceAndMarksThem(t *testing.T) {
 	t.Parallel()
 	steps := []store.StepRow{usageRow("a"), usageRow("b")}
 	told := &fakeTold{}
@@ -298,20 +323,20 @@ func TestLimitNoticesTellsStepsLimitedAtStartOnceAndMarksThem(t *testing.T) {
 	)
 
 	if len(router.notices) != 1 {
-		t.Fatalf("got %d notices, want 1 for steps unmarked at start: %+v", len(router.notices), router.notices)
+		t.Fatalf("got %d notices, want 1 for epics unmarked at start: %+v", len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[0], resetKey(),
-		"2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b")
-	checkTells(t, told, tellCall{limit: resetKey().Limit, steps: []string{"a", "b"}})
+		"Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha, Beta")
+	checkTells(t, told, tellCall{limit: resetKey().Limit, names: []string{"Alpha", "Beta"}})
 	if len(router.seens) != 0 {
 		t.Fatalf("got seen reports %+v, want none", router.seens)
 	}
 }
 
-func TestLimitNoticesSendsNothingForStepsMarkedBeforeStart(t *testing.T) {
+func TestLimitNoticesSendsNothingForEpicsMarkedBeforeStart(t *testing.T) {
 	t.Parallel()
 	steps := []store.StepRow{usageRow("a"), usageRow("b")}
-	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha", "Beta"}}}
 	router, _ := runLimitNotices(t, told,
 		limitRead{rows: steps},
 		limitRead{rows: steps},
@@ -319,12 +344,12 @@ func TestLimitNoticesSendsNothingForStepsMarkedBeforeStart(t *testing.T) {
 	)
 
 	if len(router.notices) != 0 || len(router.seens) != 0 {
-		t.Fatalf("notices %+v seens %+v, want none for steps marked as told", router.notices, router.seens)
+		t.Fatalf("notices %+v seens %+v, want none for epics marked as told", router.notices, router.seens)
 	}
 	checkTells(t, told)
 }
 
-func TestLimitNoticesReportsAChangedMembershipOfTheSameSize(t *testing.T) {
+func TestLimitNoticesReportsAChangedSetOfEpics(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -332,20 +357,20 @@ func TestLimitNoticesReportsAChangedMembershipOfTheSameSize(t *testing.T) {
 		body string
 	}{
 		{
-			name: "one step leaves",
+			name: "one epic leaves",
 			next: []store.StepRow{usageRow("a")},
-			body: "1 step held by the usage limit, reset 2026-11-14T17:00:00Z: a",
+			body: "Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha",
 		},
 		{
-			name: "one step leaves and another joins",
+			name: "one epic leaves and another joins",
 			next: []store.StepRow{usageRow("a"), usageRow("c")},
-			body: "2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, c",
+			body: "Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha, Gamma",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+			told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha", "Beta"}}}
 			router, _ := runLimitNotices(t, told,
 				limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 				limitRead{rows: tc.next},
@@ -364,7 +389,7 @@ func TestLimitNoticesReportsAChangedMembershipOfTheSameSize(t *testing.T) {
 
 func TestLimitNoticesSeesAGroupThatEmptiesAndNotifiesANewOne(t *testing.T) {
 	t.Parallel()
-	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha", "Beta"}}}
 	router, _ := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{rows: []store.StepRow{laterUsageRow("c")}},
@@ -378,14 +403,14 @@ func TestLimitNoticesSeesAGroupThatEmptiesAndNotifiesANewOne(t *testing.T) {
 		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[0], otherResetKey(),
-		"1 step held by the usage limit, reset 2026-11-15T09:00:00Z: c")
+		"Held by the usage limit, reset 2026-11-15T09:00:00Z: Gamma")
 	if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
 		t.Fatalf("forgot %v, want the emptied limit %q", told.forgets, resetKey().Limit)
 	}
-	checkTells(t, told, tellCall{limit: otherResetKey().Limit, steps: []string{"c"}})
+	checkTells(t, told, tellCall{limit: otherResetKey().Limit, names: []string{"Gamma"}})
 }
 
-// TestLimitNoticesTellsALimitAgainAfterAResume checks that a step told on a limit, then resumed at its reset, and then
+// TestLimitNoticesTellsALimitAgainAfterAResume checks that an epic told on a limit, then resumed at its reset, and then
 // limited again is told again: the resume empties the limit's group, which is seen and forgotten, so the next limit
 // has no mark, whether it resets later or at the same time.
 func TestLimitNoticesTellsALimitAgainAfterAResume(t *testing.T) {
@@ -423,8 +448,8 @@ func TestLimitNoticesTellsALimitAgainAfterAResume(t *testing.T) {
 				t.Fatalf("forgot %v, want the resumed limit %q once", told.forgets, resetKey().Limit)
 			}
 			checkTells(t, told,
-				tellCall{limit: resetKey().Limit, steps: []string{"a"}},
-				tellCall{limit: tc.key.Limit, steps: []string{"a"}},
+				tellCall{limit: resetKey().Limit, names: []string{"Alpha"}},
+				tellCall{limit: tc.key.Limit, names: []string{"Alpha"}},
 			)
 		})
 	}
@@ -432,7 +457,7 @@ func TestLimitNoticesTellsALimitAgainAfterAResume(t *testing.T) {
 
 func TestLimitNoticesSeesAMarkedGroupThatEmptiesOnceAndForgetsIt(t *testing.T) {
 	t.Parallel()
-	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha"}}}
 	router, _ := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a")}},
 		limitRead{},
@@ -461,14 +486,14 @@ func TestLimitNoticesMarksALimitWhenAStopFollowsItsNotice(t *testing.T) {
 	if len(router.notices) != 1 {
 		t.Fatalf("got %d notices, want 1", len(router.notices))
 	}
-	checkTells(t, told, tellCall{limit: resetKey().Limit, steps: []string{"a"}})
+	checkTells(t, told, tellCall{limit: resetKey().Limit, names: []string{"Alpha"}})
 }
 
 // TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen checks that a marked limit seen just before a stop is still
 // forgotten, so the next start does not see it again.
 func TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen(t *testing.T) {
 	t.Parallel()
-	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha"}}}
 	router := runStoppedLimitNotices(t, told, nil)
 
 	if len(router.seens) != 1 {
@@ -481,7 +506,7 @@ func TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen(t *testing.T) {
 
 func TestLimitNoticesFailedReadIsLoggedAndSkipped(t *testing.T) {
 	t.Parallel()
-	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha", "Beta"}}}
 	router, logs := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{err: errors.New("store is closed")},
@@ -519,7 +544,7 @@ func TestLimitNoticesFailedMarkReadReportsNothingUntilALaterRead(t *testing.T) {
 		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[0], resetKey(),
-		"2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b")
+		"Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha, Beta")
 }
 
 func TestLimitNoticesLogsAFailedMarkWriteAndStillTells(t *testing.T) {
@@ -549,7 +574,7 @@ func TestLimitNoticesWritesARefusedMarkAtTheNextCheck(t *testing.T) {
 	if len(router.notices) != 1 {
 		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
 	}
-	mark := tellCall{limit: resetKey().Limit, steps: []string{"a", "b"}}
+	mark := tellCall{limit: resetKey().Limit, names: []string{"Alpha", "Beta"}}
 	checkTells(t, told, mark, mark)
 	if !strings.Contains(logs, "database is locked") {
 		t.Fatalf("log = %q, want the refused mark write logged", logs)
@@ -560,7 +585,7 @@ func TestLimitNoticesWritesARefusedMarkAtTheNextCheck(t *testing.T) {
 // next check, with no second seen report.
 func TestLimitNoticesWritesARefusedForgetAtTheNextCheck(t *testing.T) {
 	t.Parallel()
-	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}, failWrites: 1}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"Alpha"}}, failWrites: 1}
 	router, _ := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a")}},
 		limitRead{},
@@ -579,7 +604,7 @@ func TestLimitNoticesWritesARefusedForgetAtTheNextCheck(t *testing.T) {
 func TestLimitNoticesLogsAFailedForgetWrite(t *testing.T) {
 	t.Parallel()
 	told := &fakeTold{
-		marks:    map[string][]string{resetKey().Limit: {"a"}},
+		marks:    map[string][]string{resetKey().Limit: {"Alpha"}},
 		writeErr: errors.New("store is read-only"),
 	}
 	router, logs := runLimitNotices(t, told,
@@ -609,13 +634,13 @@ func TestRestoreLimitNoticeRebuildsTheNotice(t *testing.T) {
 			name: "known reset",
 			rows: []store.StepRow{usageRow("a"), usageRow("b")},
 			key:  resetKey(),
-			body: "2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b",
+			body: "Held by the usage limit, reset 2026-11-14T17:00:00Z: Alpha, Beta",
 		},
 		{
 			name: "unknown reset",
 			rows: []store.StepRow{unknown},
 			key:  notice.Key{Limit: "usage@0"},
-			body: "1 step held by the usage limit, reset unknown: c",
+			body: "Held by the usage limit, reset unknown: a step outside any epic",
 		},
 	}
 	for _, tc := range cases {
@@ -637,5 +662,15 @@ func TestRestoreLimitNoticeRebuildsTheNotice(t *testing.T) {
 			}
 			checkLimitNotice(t, restored, tc.key, tc.body)
 		})
+	}
+}
+
+// TestRestoreLimitNoticeRejectsANoticeNamingNothing checks that a stored limit notice with no names, as a notice stored
+// before the names were kept holds, is not restored: no limit holds nothing, so such a body would name nothing.
+func TestRestoreLimitNoticeRejectsANoticeNamingNothing(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{"kind":"usage","resets":"2026-11-14T17:00:00Z","ids":["a"]}`)
+	if _, err := RestoreLimitNotice(t.Context(), data, limitNow().Unix()); err == nil {
+		t.Fatal("restore of a limit notice with no names succeeded, want an error")
 	}
 }

@@ -33,9 +33,10 @@ import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
+import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries } from "./sending";
 import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
@@ -150,7 +151,7 @@ const helpEntries: [string[], string][] = [
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
   [["i"], "focus the reply box"],
-  [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
+  [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
   [["m"], "open or close the host's meters"],
@@ -202,6 +203,11 @@ export function App({
   const [pinStream, setPinStream] = useState<Stream | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
   const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The older page of each followed stream. Its reader calls it at the reader's top, to load the page before its oldest
+  // item; each follow effect sets its own.
+  const cursorOlder = useRef<() => void>(() => {});
+  const pinnedOlder = useRef<() => void>(() => {});
+  const sessionOlder = useRef<() => void>(() => {});
   const pendingG = useRef(false);
   const handler = useRef<(event: KeyboardEvent) => void>();
   // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
@@ -242,6 +248,9 @@ export function App({
   // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
   // waits on the question it answered.
   const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
+  // The messages each row's composer sent that the row's stored conversation does not hold yet, by row key. Each shows
+  // as sending in its row's reader until its stored prompt arrives.
+  const [sendingByRow, setSendingByRow] = useState<Map<string, Sending[]>>(() => new Map());
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row or unseen ended epic the seen watch last rested on, which its write marks seen.
   const restedSeen = useRef<Row | EpicItem | null>(null);
@@ -330,7 +339,9 @@ export function App({
     if (target === null) {
       return undefined;
     }
-    return follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    const followed = follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+    cursorOlder.current = followed.older;
+    return followed.stop;
   }, [readerKey, clients]);
 
   // The worker session the page shows is followed while the page shows it. A back or close past it, or a move of the
@@ -339,9 +350,11 @@ export function App({
     if (shownSession === "") {
       return undefined;
     }
-    return follow(clients, { kind: "session", id: shownSession }, (conversation) =>
+    const followed = follow(clients, { kind: "session", id: shownSession }, (conversation) =>
       setSessionStream({ key: shownSession, conversation }),
     );
+    sessionOlder.current = followed.older;
+    return followed.stop;
   }, [shownSession, clients]);
 
   useEffect(() => {
@@ -371,9 +384,11 @@ export function App({
     if (pinned === null) {
       return undefined;
     }
-    return follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
+    const followed = follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
       setPinStream({ key: pinned.key, conversation }),
     );
+    pinnedOlder.current = followed.older;
+    return followed.stop;
   }, [pinnedKey, clients]);
 
   // A pinned row keeps its last shape while it is missing from the list, as a visited row does.
@@ -537,6 +552,35 @@ export function App({
   // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+  // The messages each reader shows as sending: its row's entries the conversation it holds has not sent yet.
+  const cursorSending =
+    cursorRow === null ? [] : unsentEntries(sendingByRow.get(cursorRow.key) ?? [], cursorConversation, cursorRow.kind);
+  const pinnedSending =
+    pinned === null ? [] : unsentEntries(sendingByRow.get(pinned.key) ?? [], pinnedConversation, pinned.kind);
+  // A stored prompt that a reader's stream holds ends its entry, so the entry leaves the page.
+  useEffect(() => {
+    setSendingByRow((previous) =>
+      pruneSent(previous, [
+        { key: cursorRowKey, kind: cursorRow?.kind ?? "session", conversation: cursorConversation },
+        { key: pinnedKey, kind: pinned?.kind ?? "session", conversation: pinnedConversation },
+      ]),
+    );
+  }, [cursorConversation, pinnedConversation, cursorRowKey, pinnedKey]);
+  // addSending records a message a row's composer sent as it starts. held is the conversation on screen for that row,
+  // which anchors a pane's match, or null when the row's stream is not held.
+  const addSending = (rowKey: string, sent: SentText, held: Conversation | null) =>
+    setSendingByRow((previous) =>
+      new Map(previous).set(rowKey, [...(previous.get(rowKey) ?? []), sendingEntry(sent, held)]),
+    );
+  // retractSending drops a message whose send failed.
+  const retractSending = (rowKey: string, promptId: string) =>
+    setSendingByRow((previous) => {
+      const entries = previous.get(rowKey);
+      if (entries === undefined || !entries.some((entry) => entry.promptId === promptId)) {
+        return previous;
+      }
+      return new Map(previous).set(rowKey, entries.filter((entry) => entry.promptId !== promptId));
+    });
   const toggleOpen = () => setOpen((value) => !value);
   const toggleMeters = () => setMetersOpen((value) => !value);
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
@@ -653,6 +697,17 @@ export function App({
     }
   };
 
+  // closePin closes the pinned reader, as | does on a pin.
+  const closePin = () => {
+    setPinned(null);
+    setPinStream(null);
+  };
+
+  // focusCursorRow moves focus to the list's current row, the row the cursor rests on.
+  const focusCursorRow = () => {
+    document.querySelector<HTMLElement>(".b-row.cur")?.focus();
+  };
+
   const handleKey = (event: KeyboardEvent) => {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
@@ -757,8 +812,7 @@ export function App({
           break;
         }
         if (pinned !== null) {
-          setPinned(null);
-          setPinStream(null);
+          closePin();
         } else if (cursorRow !== null) {
           setPinned(cursorRow);
           setPinStream(null);
@@ -842,6 +896,7 @@ export function App({
           onGoList={closeEpicPage}
           onGoEpic={toEpicPage}
           onBack={back}
+          onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}
           hold={calls.hold}
           stop={calls.stop}
@@ -856,6 +911,7 @@ export function App({
         now={now}
         loadArtifact={loadArtifact}
         commands={epicCommands(clients, entry.id, setCommandError)}
+        numberKeys={!epicPage.closed}
         onOpenContract={openContract}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
@@ -999,6 +1055,7 @@ export function App({
                   <div
                     key={item.key}
                     class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
+                    tabIndex={-1}
                     data-row=""
                     data-key={item.key}
                     data-unseen={item.unseen ? "" : undefined}
@@ -1086,9 +1143,14 @@ export function App({
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
-            <ReaderHead label={cursorRow.label} where={rowWhere(cursorRow)}>
+            <ConversationHead
+              label={cursorRow.label}
+              state={headState(cursorRow, cursorConversation?.state?.pane)}
+              onBack={focusCursorRow}
+              onGoList={focusCursorRow}
+            >
               <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
-            </ReaderHead>
+            </ConversationHead>
           )}
           {cursorStep !== null && (
             <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
@@ -1103,6 +1165,8 @@ export function App({
               question={readerQuestion(cursorRow, cursorConversation)}
               onAnswer={answerCursor}
               onToggleOpen={toggleOpen}
+              onOlder={() => cursorOlder.current()}
+              sending={cursorSending}
             />
           )}
           {cursorStep !== null && (
@@ -1112,6 +1176,7 @@ export function App({
               open={open}
               step={cursorStep.step}
               onToggleOpen={toggleOpen}
+              onOlder={() => cursorOlder.current()}
             />
           )}
           <div class="send">
@@ -1124,6 +1189,8 @@ export function App({
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
+                  onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
+                  onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
                     if (element === null) {
                       composerInputs.current.delete(row.key);
@@ -1159,15 +1226,22 @@ export function App({
         </section>
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && (
-            <ReaderHead label={pinned.label} where={rowWhere(pinned)}>
+            <ConversationHead
+              label={pinned.label}
+              state={headState(pinned, pinnedConversation?.state?.pane)}
+              onBack={closePin}
+              onGoList={focusCursorRow}
+            >
               <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
-            </ReaderHead>
+            </ConversationHead>
           )}
           {pinned !== null && (
             <Reader
               conversation={pinnedConversation}
               seenAt={pinned.seen}
               open={false}
+              onOlder={() => pinnedOlder.current()}
+              sending={pinnedSending}
             />
           )}
           <div class="send">
@@ -1180,6 +1254,8 @@ export function App({
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
+                  onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
+                  onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
                     if (element === null) {
                       pinnedInputs.current.delete(row.key);
@@ -1330,6 +1406,33 @@ function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
 }
 
+// pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
+function pruneSent(
+  previous: Map<string, Sending[]>,
+  held: { key: string; kind: SendKind; conversation: Conversation | null }[],
+): Map<string, Sending[]> {
+  let next = previous;
+  for (const { key, kind, conversation } of held) {
+    const entries = previous.get(key);
+    if (entries === undefined) {
+      continue;
+    }
+    const kept = unsentEntries(entries, conversation, kind);
+    if (kept === entries) {
+      continue;
+    }
+    if (next === previous) {
+      next = new Map(previous);
+    }
+    if (kept.length === 0) {
+      next.delete(key);
+    } else {
+      next.set(key, kept);
+    }
+  }
+  return next;
+}
+
 // composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
 // it.
 function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
@@ -1421,8 +1524,8 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
     resume: () => send(clients.epics.resume({ id: epicId })),
     stop: () => send(clients.epics.stop({ id: epicId })),
     retry: () => send(clients.epics.retry({ id: epicId })),
-    answer: (question, text) =>
-      clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question }).then(
+    answer: (question, choice, text) =>
+      clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question, choice }).then(
         () => "",
         (error: unknown) => (error instanceof Error && error.message !== "" ? error.message : answerFailedText),
       ),
@@ -1522,11 +1625,6 @@ function sectionClass(title: string): string {
     return "b-sec fresh";
   }
   return "b-sec";
-}
-
-// rowWhere is a row's where line: its project's last path element and its host, joined, with an empty part left out.
-function rowWhere(row: Row): string {
-  return [lastPathElement(row.project), row.host].filter((part) => part !== "").join(" · ");
 }
 
 // stepWhere is a step's where line: its epic, its agent, and its round.

@@ -2,44 +2,14 @@ package enginehost
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/joshsymonds/orrery/internal/notice"
-	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
 )
-
-// stepCtlNoticeRouter is the Router a Notifier hands notices to in these tests. It keeps the notices it is given.
-type stepCtlNoticeRouter struct {
-	notices []route.Notice
-}
-
-func (r *stepCtlNoticeRouter) Notify(_ context.Context, n route.Notice) {
-	r.notices = append(r.notices, n)
-}
-
-func (r *stepCtlNoticeRouter) Changed(notice.Key) {}
-
-func (r *stepCtlNoticeRouter) Seen(context.Context, notice.Key, int64) {}
-
-// events returns the notice events the Router was handed, decoded from the source data each notice carries.
-func (r *stepCtlNoticeRouter) events(t *testing.T) []Notice {
-	t.Helper()
-	events := make([]Notice, 0, len(r.notices))
-	for _, n := range r.notices {
-		var event Notice
-		if err := json.Unmarshal(n.Source.Data, &event); err != nil {
-			t.Fatalf("decode notice source: %v", err)
-		}
-		events = append(events, event)
-	}
-	return events
-}
 
 // stepCtlDropApplier stores engine ops through db, except the StepEnd of dropID, which it refuses as a step row that is
 // gone. The Writer drops that op and stores the rest.
@@ -69,8 +39,8 @@ func (f *stepCtlFixture) startNoticeStep(t *testing.T, repo, epic string) string
 	return id
 }
 
-// noticeSteps returns a Steps over the fixture's store and sessions, with writer and notifier. It is closed at cleanup.
-func (f *stepCtlFixture) noticeSteps(t *testing.T, writer *Writer, notifier *Notifier) *Steps {
+// restartSteps returns a Steps over the fixture's store and sessions, with writer. It is closed at cleanup.
+func (f *stepCtlFixture) restartSteps(t *testing.T, writer *Writer) *Steps {
 	t.Helper()
 	steps, err := NewSteps(StepsConfig{
 		Sessions:     f.sessions,
@@ -81,7 +51,6 @@ func (f *stepCtlFixture) noticeSteps(t *testing.T, writer *Writer, notifier *Not
 		Environ:      f.environ,
 		Logger:       slog.New(slog.DiscardHandler),
 		GateStateDir: f.gateStateDir,
-		Notifier:     notifier,
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)
@@ -90,34 +59,7 @@ func (f *stepCtlFixture) noticeSteps(t *testing.T, writer *Writer, notifier *Not
 	return steps
 }
 
-func TestStepsReconcileNoticesOnlyTheEpiclessRestartedStep(t *testing.T) {
-	t.Parallel()
-	f := newStepCtlFixture(t)
-	repo := stepGitTestRepo(t)
-	held := f.startNoticeStep(t, repo, "epic-a")
-	free := f.startNoticeStep(t, repo, "")
-	f.steps.Close()
-
-	router := &stepCtlNoticeRouter{}
-	restarted := f.noticeSteps(t, f.writer, NewNotifier(NotifierConfig{Route: router}))
-	if err := restarted.Reconcile(t.Context()); err != nil {
-		t.Fatalf("Reconcile: %v", err)
-	}
-
-	want := Notice{Session: free, Dir: repo, State: "interrupted", Body: "orreryd restarted during the step"}
-	if got := router.events(t); len(got) != 1 || got[0] != want {
-		t.Errorf("notices = %+v, want exactly [%+v]", got, want)
-	}
-	row, err := restarted.Status(t.Context(), held)
-	if err != nil {
-		t.Fatalf("Status %s: %v", held, err)
-	}
-	if row.End != "engine_restarted" {
-		t.Errorf("epic step %s end = %q, want engine_restarted", held, row.End)
-	}
-}
-
-func TestStepsReconcileNoticesNoStepWhoseEndIsDropped(t *testing.T) {
+func TestStepsReconcileEndsTheKeptStepWhenAnotherEndIsDropped(t *testing.T) {
 	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
@@ -130,15 +72,17 @@ func TestStepsReconcileNoticesNoStepWhoseEndIsDropped(t *testing.T) {
 		Tick:    5 * time.Millisecond,
 	})
 	startRun(t, writer)
-	router := &stepCtlNoticeRouter{}
-	restarted := f.noticeSteps(t, writer, NewNotifier(NotifierConfig{Route: router}))
+	restarted := f.restartSteps(t, writer)
 	err := restarted.Reconcile(t.Context())
 	if !errors.Is(err, store.ErrNoStep) {
 		t.Fatalf("Reconcile error = %v, want it to match ErrNoStep for the dropped end", err)
 	}
 
-	want := Notice{Session: kept, Dir: repo, State: "interrupted", Body: "orreryd restarted during the step"}
-	if got := router.events(t); len(got) != 1 || got[0] != want {
-		t.Errorf("notices = %+v, want exactly [%+v]", got, want)
+	row, err := restarted.Status(t.Context(), kept)
+	if err != nil {
+		t.Fatalf("Status %s: %v", kept, err)
+	}
+	if row.End != "engine_restarted" {
+		t.Errorf("kept step %s end = %q, want engine_restarted", kept, row.End)
 	}
 }

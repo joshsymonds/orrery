@@ -52,7 +52,8 @@ public interface HeadlessSessionOrBuilder extends
 
   /**
    * <pre>
-   * The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+   * The row's label: the session's title once one is stored. Until then, the base name of dir, then " · " and the
+   * first words of the first prompt, or the base name of dir alone when there is no prompt. The id is never the label.
    * </pre>
    *
    * <code>string label = 3 [json_name = "label"];</code>
@@ -61,7 +62,8 @@ public interface HeadlessSessionOrBuilder extends
   java.lang.String getLabel();
   /**
    * <pre>
-   * The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+   * The row's label: the session's title once one is stored. Until then, the base name of dir, then " · " and the
+   * first words of the first prompt, or the base name of dir alone when there is no prompt. The id is never the label.
    * </pre>
    *
    * <code>string label = 3 [json_name = "label"];</code>

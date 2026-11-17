@@ -7,12 +7,15 @@ import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
+import type { Sending } from "./sending";
 import { ReplyText } from "./text";
+import { TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
 const answerChoices = [1, 2, 3] as const;
 const nearBottomPixels = 4;
+const nearTopPixels = 4;
 const toolRunMinimum = 3;
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
@@ -24,7 +27,11 @@ const toolRunMinimum = 3;
 // a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
-// other render keeps the bottom only for a reader that sat within nearBottomPixels of it.
+// other render keeps the bottom only for a reader that sat within nearBottomPixels of it. When items are drawn above
+// the first row shown before, the reader keeps the rows on screen where they were. Once it sits within nearTopPixels
+// of its top while the conversation has older items, it calls onOlder, which loads the page before its oldest item.
+// The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
+// they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
   conversation,
   seenAt,
@@ -33,6 +40,8 @@ export function Reader({
   step,
   onAnswer,
   onToggleOpen,
+  onOlder,
+  sending = [],
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -41,29 +50,53 @@ export function Reader({
   step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
+  onOlder?: () => void;
+  sending?: Sending[];
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
+  const shownKeys = useRef<string[]>([]);
+  const keys = conversation === null ? [] : itemKeys(conversation.items);
   // The position is read before this render changes the DOM, so it is where the reader sat before the new items.
   const element = root.current;
   const atBottom = element !== null && distanceFromBottom(element) <= nearBottomPixels;
+  const before = element === null ? null : { top: element.scrollTop, height: element.scrollHeight };
   const opening = conversation !== null && !drewConversation.current;
+  const more = conversation?.more ?? false;
+  const askOlder = (): void => {
+    const reader = root.current;
+    if (more && reader !== null && reader.scrollTop <= nearTopPixels) {
+      onOlder?.();
+    }
+  };
   useLayoutEffect(() => {
+    const previous = shownKeys.current;
+    shownKeys.current = keys;
     drewConversation.current = conversation !== null;
     const reader = root.current;
-    if (reader !== null && (opening || atBottom)) {
+    if (reader === null) {
+      return;
+    }
+    // A render that draws items above the first row shown before keeps that row where it was: the reader moves by
+    // how much its content grew above it.
+    const prepended = previous.length > 0 && keys.indexOf(previous[0]) > 0;
+    if (before !== null && prepended) {
+      reader.scrollTop = before.top + (reader.scrollHeight - before.height);
+    } else if (opening || atBottom) {
       reader.scrollTop = reader.scrollHeight;
     }
+    askOlder();
   });
+  const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
     return (
       <div class="reader" ref={root}>
         <p class="reader-loading">loading…</p>
+        {sendingRows}
       </div>
     );
   }
   const newIndex = conversation.items.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt);
-  const keys = itemKeys(conversation.items);
   const results = resultsByCall(conversation.items);
   const items = conversation.items;
   const rows: JSX.Element[] = [];
@@ -93,10 +126,11 @@ export function Reader({
     .filter((block) => block.kind === "text" || block.kind === "thinking")
     .map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
   return (
-    <div class="reader" ref={root}>
+    <div class="reader" ref={root} onScroll={askOlder}>
       {rows}
       {questionCard}
       {live}
+      {sendingRows}
     </div>
   );
 }
@@ -118,6 +152,28 @@ export function ReaderHead({
       {where !== "" && <span class="where">{where}</span>}
       {children}
     </header>
+  );
+}
+
+// ConversationHead heads a row's conversation with the shared title row: the back button, the crumbs orrery › the row's
+// label, and the row's state in the state slot. The children, the pill the app passes in, draw after the state.
+export function ConversationHead({
+  label,
+  state,
+  onBack,
+  onGoList,
+  children,
+}: {
+  label: string;
+  state: string;
+  onBack: () => void;
+  onGoList: () => void;
+  children?: ComponentChildren;
+}): JSX.Element {
+  return (
+    <TitleRow crumbs={[{ label: "orrery", onGo: onGoList }, { label }]} onBack={onBack} state={state}>
+      {children}
+    </TitleRow>
   );
 }
 
@@ -190,6 +246,22 @@ function OptionButton({
     >
       {label}
     </button>
+  );
+}
+
+// SendingRow draws a message the page sent that the stored conversation does not hold yet: a prompt row, dimmed, with
+// a mark reading sending. Its text draws through Markdown, as a prompt's does.
+function SendingRow({ text }: { text: string }) {
+  return (
+    <div class="t sending-row">
+      <span class="gut sending">sending</span>
+      <div class="body">
+        <div class="you">
+          <small>YOU</small>
+          <ReplyMarkdown text={text} />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -566,11 +638,15 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
   return rows;
 }
 
-// itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top. An item
-// whose content repeats an older one takes an occurrence suffix counted from the oldest, as the phone's entryKeys does.
+// itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top or prepends
+// older ones. An item whose content repeats a newer one takes an occurrence suffix counted from the newest: the
+// occurrence of an item then depends only on the items after it, so a page prepended above leaves every held key as
+// it was. A repeat appended after an item renumbers the item's earlier twins, which remount.
 function itemKeys(items: ConversationItem[]): string[] {
   const seen = new Map<string, number>();
-  return items.map((item) => {
+  const keys: string[] = new Array<string>(items.length);
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
     const base = JSON.stringify([
       item.kind,
       String(item.time),
@@ -585,8 +661,9 @@ function itemKeys(items: ConversationItem[]): string[] {
     ]);
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
-    return occurrence === 0 ? base : `${base}#${occurrence}`;
-  });
+    keys[index] = occurrence === 0 ? base : `${base}#${occurrence}`;
+  }
+  return keys;
 }
 
 export function clock(time: bigint): string {

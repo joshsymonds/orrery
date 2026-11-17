@@ -25,6 +25,10 @@ service Epics {
   // Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
   rpc Retry(EpicsRetryRequest) returns (EpicsRetryResponse);
 
+  // Kick records the owner's text on the named orreryd epic as a decision and wakes its planner with it at the epic's
+  // next plan run.
+  rpc Kick(EpicsKickRequest) returns (EpicsKickResponse);
+
   // Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
   rpc Answer(EpicsAnswerRequest) returns (EpicsAnswerResponse);
 
@@ -166,6 +170,36 @@ message EpicQuestion {
 
   // When the question was asked: the end of the turn that asked it, in unix seconds.
   int64 asked = 4;
+
+  // The label the question is filed under, kebab-case. Empty for a question stored before labels.
+  string label = 5;
+
+  // The choices the question declares. The owner may also answer with other, which every question offers.
+  repeated EpicQuestionChoice choices = 6;
+
+  // The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+  EpicRecommendation recommendation = 7;
+}
+
+// EpicQuestionChoice is one choice a planner question declares.
+message EpicQuestionChoice {
+  // The choice's id, the answer the owner gives to choose it.
+  string id = 1;
+
+  // What the choice does.
+  string does = 2;
+}
+
+// EpicRecommendation is the choice a planner question recommends, why, and how sure the planner is of it.
+message EpicRecommendation {
+  // The recommended choice's id.
+  string choice = 1;
+
+  // Why the planner recommends the choice.
+  string why = 2;
+
+  // How sure the planner is: low, medium or high.
+  string confidence = 3;
 }
 
 // EpicContract is an orreryd epic's accepted contract, its sections in the contract's order, without its Requirements.
@@ -460,6 +494,18 @@ message EpicsRetryRequest {
 // EpicsRetryResponse confirms a retried epic.
 message EpicsRetryResponse {}
 
+// EpicsKickRequest records the owner's text on one orreryd epic.
+message EpicsKickRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The owner's words, which the planner reads at the epic's next plan run.
+  string text = 2;
+}
+
+// EpicsKickResponse confirms a kicked epic.
+message EpicsKickResponse {}
+
 // EpicsAnswerRequest records the owner's answer on one orreryd epic.
 message EpicsAnswerRequest {
   // The id of the epic the answer belongs to.
@@ -473,6 +519,9 @@ message EpicsAnswerRequest {
 
   // The question, Q<n>, the answer names; empty for a note.
   string question = 4;
+
+  // The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+  string choice = 5;
 }
 
 // EpicsAnswerResponse carries the recorded decision.

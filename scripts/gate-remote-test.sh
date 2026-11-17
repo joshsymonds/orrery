@@ -3,7 +3,9 @@
 # Tests scripts/gate-remote.sh without AWS or a network: the "box" is a directory standing in for the orrery user's home,
 # reached through a fake ssh that runs each remote command there. A fixture repository carries a copy of the script and
 # a scripts/in-devenv that runs bash directly. Covers the push, the sync, the run, exit codes, waiting for a box when
-# the known one is gone, the local fallback when none can come up, a box lost mid-run, and `wake` against a fake ec2,
+# the known one is gone, the local fallback when none can come up, a box lost mid-run, connections that drop mid-run
+# while the box stays up (the run's status and its whole output, once, after one drop or many), a run that cannot be
+# collected or never records its exit, stopping the script and killing it outright, and `wake` against a fake ec2,
 # including two runs that share one launch.
 #
 # Usage: scripts/gate-remote-test.sh   (exits 0 when every case passes)
@@ -62,11 +64,16 @@ pass() {
 
 mkdir -p "$root/bin" "$root/boxbin" "$root/box" "$root/run"
 
-# The fake ssh drops options, then runs the command in the box directory with HOME set to it. Switches:
+# The fake ssh drops options, then runs the command in the box directory with HOME set to it. A connection that streams
+# the run's output relays it as ssh does: the box's side runs in a session of its own, and when the connection ends
+# (ssh is killed, or a switch below drops it) that side ends with it, while the run itself goes on. Switches:
 #   $root/box-down    every connection fails with 255, as ssh does when the box is gone;
 #   $root/down-<dest> connections to that destination fail with 255;
-#   $root/drop-run    the run's connection prints a line and fails with 255; with "box-gone" in the file the box is gone
-#                     afterwards too, otherwise it still answers;
+#   $root/drop-run    every connection that streams the run's output fails with 255 before it carries anything; with
+#                     "box-gone" in the file the box is gone afterwards too, otherwise it still answers;
+#   $root/cut-stream  lines of "<out|err> <bytes> [box-gone]": the next connection that streams that log passes on its
+#                     first line and then that many bytes, then drops (255), using up the line; with "box-gone" the box
+#                     is gone afterwards too;
 #   $root/no-push     git's connection fails; with "and-down" in the file its destination is gone afterwards too, and
 #                     the switch is used up.
 cat >"$root/bin/ssh" <<'EOF'
@@ -91,8 +98,7 @@ if [ -e "$FAKE_ROOT/no-push" ] && [[ $cmd == *git-receive-pack* ]]; then
     fi
     exit 128
 fi
-if [ -e "$FAKE_ROOT/drop-run" ] && [[ $cmd == *orrery-gate-run* ]]; then
-    echo "partial output"
+if [ -e "$FAKE_ROOT/drop-run" ] && [[ $cmd == *orrery-gate-stream* ]]; then
     if grep -q box-gone "$FAKE_ROOT/drop-run"; then
         touch "$FAKE_ROOT/box-down"
     fi
@@ -106,11 +112,44 @@ for fd in /proc/$$/fd/*; do
         eval "exec $fd>&-" 2>/dev/null || true
     fi
 done
-cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" PATH="$FAKE_ROOT/boxbin:$PATH" exec bash -c "$cmd"
+if [[ $cmd != *orrery-gate-stream* ]]; then
+    cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" PATH="$FAKE_ROOT/boxbin:$PATH" exec bash -c "$cmd"
+fi
+cut="" gone=""
+if [ -s "$FAKE_ROOT/cut-stream" ] && [[ $cmd =~ \ (out|err)\ [0-9]+$ ]]; then
+    read -r log bytes then <"$FAKE_ROOT/cut-stream"
+    if [ "$log" = "${BASH_REMATCH[1]}" ]; then
+        cut="$bytes"
+        gone="$then"
+        sed -i 1d "$FAKE_ROOT/cut-stream"
+    fi
+fi
+relay="$(mktemp -u "$FAKE_ROOT/relay.XXXXXX")"
+mkfifo "$relay"
+(cd "$FAKE_ROOT/box" && HOME="$FAKE_ROOT/box" PATH="$FAKE_ROOT/boxbin:$PATH" exec setsid bash -c "$cmd") >"$relay" &
+far=$!
+# The connection ends: the box's side of it ends too.
+hangup() {
+    kill -TERM -- "-$far" 2>/dev/null
+    rm -f "$relay"
+    [ "$gone" != box-gone ] || touch "$FAKE_ROOT/box-down"
+    exit 255
+}
+trap hangup TERM
+if [ -n "$cut" ]; then
+    { IFS= read -r line && printf '%s\n' "$line" && head -c "$cut"; } <"$relay"
+    hangup
+fi
+cat <"$relay" &
+wait "$!"
+status=0
+wait "$far" || status=$?
+rm -f "$relay"
+exit "$status"
 EOF
 # The box's fake systemd: a scope is a process group. systemd-run --scope records "<unit> <pid>" in $root/scopes and
-# runs the command as the leader of a new session; systemctl --user stop <unit>.scope records the unit in $root/stops
-# and kills that group. systemctl --user show-environment fails while $root/no-user-manager exists.
+# runs the command as the leader of a new session; systemctl --user stop [--no-block] <unit>.scope records the unit in
+# $root/stops and kills that group. systemctl --user show-environment fails while $root/no-user-manager exists.
 cat >"$root/boxbin/systemd-run" <<'EOF'
 #!/usr/bin/env bash
 unit=""
@@ -129,8 +168,9 @@ cat >"$root/boxbin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
     "--user show-environment") [ ! -e "$FAKE_ROOT/no-user-manager" ] ;;
-    "--user stop "*.scope)
-        unit="${3%.scope}"
+    "--user stop "*.scope | "--user stop --no-block "*.scope)
+        unit="${*: -1}"
+        unit="${unit%.scope}"
         echo "$unit" >>"$FAKE_ROOT/stops"
         pid="$(awk -v u="$unit" '$1 == u { print $2 }' "$FAKE_ROOT/scopes")"
         [ -z "$pid" ] || kill -TERM -- "-$pid" 2>/dev/null
@@ -193,6 +233,8 @@ export ORRERY_GATE_WAKE="$root/bin/wake"
 export ORRERY_GATE_LOCAL="$root/bin/local"
 export ORRERY_GATE_EC2="$root/bin/ec2"
 export ORRERY_GATE_HOST_FILE="$root/gate-host"
+# A run gives up collecting after 2 s of failed reconnects, so the cases that lose the box end soon.
+export ORRERY_GATE_COLLECT_SECS=2
 unset ORRERY_GATE_DEST ORRERY_GATE_PROBE ORRERY_GATE_USER ORRERY_GATE_REMOTE
 
 work="$root/work"
@@ -488,6 +530,190 @@ gate "$root/out" "$root/err" bash -c 'exit 1'
 expect_status 75 "a dropped connection is an environment result"
 expect_line "$root/err" 'lost the connection to orrery@fake-box after .*environment result' "a dropped connection says so"
 rm "$root/drop-run"
+
+# The run lives apart from its connections. talk writes 40 numbered lines to stdout and to stderr over about 2 s, then
+# exits with its argument, so the connections below drop while it runs.
+talk=$(cat <<'EOF'
+for i in $(seq 1 40); do
+    echo "out line $i"
+    echo "err line $i" >&2
+    sleep 0.05
+done
+exit "$1"
+EOF
+)
+printf 'out line %d\n' $(seq 1 40) >"$root/want-out"
+printf 'err line %d\n' $(seq 1 40) >"$root/want-err"
+dropped_line="gate-remote: the connection to orrery@fake-box dropped; reconnecting for up to 2s to collect the run"
+reconnected_line="gate-remote: reconnected to orrery@fake-box; the run's output goes on from where it stopped"
+
+# collected_once <what>: the run's stdout is the command's, byte for byte, and its stderr, without the lines saying the
+# connection dropped and came back (which a drop in the middle of a line puts inside it), holds the command's lines
+# once each and in order.
+collected_once() {
+    local err
+    if cmp -s "$root/want-out" "$root/out"; then
+        pass "$1: stdout arrives whole and once"
+    else
+        fail "$1: stdout differs from the command's:"
+        diff "$root/want-out" "$root/out" | sed "s/^/    /" >&2 || true
+    fi
+    err="$(cat "$root/err")"
+    err="${err//"$dropped_line"$'\n'/}"
+    err="${err//"$reconnected_line"$'\n'/}"
+    if grep '^err line' <<<"$err" | cmp -s "$root/want-err" -; then
+        pass "$1: stderr arrives whole and once"
+    else
+        fail "$1: stderr differs from the command's:"
+        sed 's/^/    /' "$root/err" >&2
+    fi
+}
+
+# box_procs: what still runs on the fake box, a process whose working directory is in it, one "<pid> <command>" a line.
+box_procs() {
+    local p cwd
+    for p in $(pgrep -u "$(id -u)" .); do
+        cwd="$(readlink "/proc/$p/cwd" 2>/dev/null)" || continue
+        [[ $cwd == "$root/box"* ]] || continue
+        echo "$p $(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | cut -c1-120)"
+    done
+}
+# box_idle: true once nothing runs on the fake box, waiting a little like appears; otherwise it lists what does.
+box_idle() {
+    local i left line
+    for ((i = 0; i < 100; i++)); do
+        left="$(box_procs)"
+        [ -n "$left" ] || return 0
+        sleep 0.1
+    done
+    while IFS= read -r line; do
+        echo "    still running: $line" >&2
+    done <<<"$left"
+    return 1
+}
+
+# The connection carrying stdout drops in the middle of a line while the box stays up: the run goes on, the script
+# reconnects and resumes at the byte after the last one shown, and a passing run passes.
+echo "out 37" >"$root/cut-stream"
+gate "$root/out" "$root/err" bash -c "$talk" _ 0
+expect_status 0 "a passing run whose connection dropped returns its status"
+collected_once "a passing run whose connection dropped"
+expect "the drop happened" test ! -s "$root/cut-stream"
+expect_line "$root/err" "^$dropped_line\$" "a dropped connection says it reconnects"
+expect_line "$root/err" "^$reconnected_line\$" "a dropped connection says it reconnected"
+# before_line <file> <first> <second>: the first line that is <first> comes before the one that is <second>.
+before_line() {
+    local a b
+    a="$(grep -nxF -- "$2" "$1" | head -n 1 | cut -d: -f1)"
+    b="$(grep -nxF -- "$3" "$1" | head -n 1 | cut -d: -f1)"
+    [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
+}
+expect "a reconnect is said as the output comes back, before the rest of it" \
+    before_line "$root/err" "$reconnected_line" "err line 40"
+expect_line "$root/err" '^gate-remote: bash .*exited 0 after [0-9]+s on orrery@fake-box$' "a run collected after a drop reports its exit"
+expect_no_line "$root/err" 'environment result' "a run collected after a drop is no environment result"
+expect "a run collected after a drop runs nothing here" test ! -e "$root/ran-here"
+expect "a run collected after a drop runs no wake" test ! -e "$root/woke"
+expect "nothing of a collected run is left on the box" box_idle
+
+# The connection carrying stderr drops in the middle of a line: a failing run fails with its own status.
+echo "err 45" >"$root/cut-stream"
+gate "$root/out" "$root/err" bash -c "$talk" _ 3
+expect_status 3 "a failing run whose connection dropped returns its status"
+collected_once "a failing run whose connection dropped"
+expect "the stderr drop happened" test ! -s "$root/cut-stream"
+expect_no_line "$root/err" 'environment result' "a failing run collected after a drop is no environment result"
+
+# The connections drop again and again, each time somewhere else.
+printf 'out 37\nerr 45\nout 100\nerr 1\nout 0\n' >"$root/cut-stream"
+gate "$root/out" "$root/err" bash -c "$talk" _ 5
+expect_status 5 "a run whose connections dropped again and again returns its status"
+collected_once "a run whose connections dropped again and again"
+expect "every drop happened" test ! -s "$root/cut-stream"
+expect "nothing of a run collected after many drops is left on the box" box_idle
+
+# The box goes away while the run goes on (a spot interruption): 75 once the reconnects give up, and a wake.
+echo "out 37 box-gone" >"$root/cut-stream"
+gate "$root/out" "$root/err" bash -c "$talk" _ 0
+expect_status 75 "a box gone after a drop is an environment result"
+expect_line "$root/err" 'went away after the command started.*spot interruption.*environment result, not a test failure \(exit 75\)' "a box gone after a drop says so"
+expect "a box gone after a drop starts the wake" woke
+expect "a box gone after a drop does not rerun here" test ! -e "$root/ran-here"
+rm -f "$root/box-down"
+expect "the run on a box that went away ends on its own" box_idle
+
+# long: a command that says it started, records its pid, and runs for 30 s.
+long=$(cat <<'EOF'
+echo "$$" >"$FAKE_ROOT/long-pid"
+exec sleep 30
+EOF
+)
+# long_run: starts long from the work tree in the background and waits until it runs on the box.
+long_run() {
+    rm -f "$root/long-pid" "$root/woke" "$root/ran-here"
+    spawn "$root/out" "$root/err" "$work" scripts/gate-remote.sh bash -c "$long"
+    appears "$root/long-pid" || fail "the long command never started"
+}
+# runner_pid: the box-side runner of the work tree's run.
+runner_pid() {
+    local p
+    for p in $(pgrep -f orrery-gate-runner); do
+        if [ "$(readlink "/proc/$p/cwd" 2>/dev/null)" = "$root/box/gate/$sub" ] \
+            && awk -v RS='\0' 'NR == 4 && $0 == "orrery-gate-runner" { found = 1 } END { exit !found }' "/proc/$p/cmdline"; then
+            echo "$p"
+        fi
+    done
+}
+
+# Every connection that streams the run fails while the box answers and the run goes on: 75 once the reconnects give
+# up, and the run that could not be collected is stopped.
+echo keep >"$root/drop-run"
+rm -f "$root/stops"
+long_run
+rc=""
+ends "$spawned" || fail "a run that could not be collected never ended"
+rm "$root/drop-run"
+expect "a run that could not be collected ends with 75" test "${rc:-none}" = 75
+expect_line "$root/err" '^gate-remote: lost the connection to orrery@fake-box after the command started and could not collect the run within 2s; environment result, not a test failure \(exit 75\)$' "a run that could not be collected says so"
+expect "a run that could not be collected runs no wake" test ! -e "$root/woke"
+expect "a run that could not be collected is stopped on the box" gone "$(cat "$root/long-pid")"
+expect "the scope of a run that could not be collected is stopped" test -s "$root/stops"
+expect "nothing of a run that could not be collected is left on the box" box_idle
+
+# The run's runner is killed on the box, so the run never records an exit: 75, saying so, and what is left of the run
+# is stopped.
+long_run
+runner="$(runner_pid)"
+expect "the run's runner is found" test -n "$runner"
+[ -z "$runner" ] || kill -KILL "$runner"
+rc=""
+ends "$spawned" || fail "a run that recorded no exit never ended"
+expect "a run that recorded no exit ends with 75" test "${rc:-none}" = 75
+expect_line "$root/err" '^gate-remote: the run on orrery@fake-box ended without recording its exit \(it was killed there\); environment result, not a test failure \(exit 75\)$' "a run that recorded no exit says so"
+expect "what is left of a run that recorded no exit is stopped" gone "$(cat "$root/long-pid")"
+expect "nothing of a run that recorded no exit is left on the box" box_idle
+
+# The script itself is stopped (TERM to it alone) while the run goes on: the run on the box is stopped too.
+long_run
+kill -TERM "$spawned"
+rc=""
+ends "$spawned" || fail "a stopped run never ended"
+expect "a stopped run ends with 143" test "${rc:-none}" = 143
+expect "stopping the script stops the run on the box" gone "$(cat "$root/long-pid")"
+expect "nothing of a stopped run is left on the box" box_idle
+
+# The script is killed outright (SIGKILL, no cleanup) while the run goes on: the next run from the work tree stops the
+# one left running before it syncs, then runs.
+long_run
+kill -KILL -- "-$spawned"
+wait "$spawned" 2>/dev/null || true
+left="$(cat "$root/long-pid")"
+expect "a run whose script was killed goes on on the box" kill -0 "$left"
+gate "$root/out" "$root/err" bash -c 'exit 4'
+expect_status 4 "the run after a killed one returns its status"
+expect_line "$root/err" '^gate-remote: stopping run [0-9-]+ on .*, left running by a run that is gone$' "the run after a killed one says it stops the one left running"
+expect "the run left running is stopped" gone "$left"
+expect "nothing of a run left running is left on the box" box_idle
 
 # wake: launches a box when none is listed and writes its destination.
 rm -f "$root/gate-host"

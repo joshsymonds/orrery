@@ -43,6 +43,12 @@ func TaskDir(stateDir, epic string, seq int64) string {
 	return filepath.Join(stateDir, worktreeDir, digest(epic, taskLabel(seq))[:taskDirLength])
 }
 
+// ImplementWorktree returns the path of the worktree every implementer step of task seq of epic runs in, under the
+// task's directory. It is the task's, not one step's, so a later attempt or rerun continues from the earlier work.
+func ImplementWorktree(stateDir, epic string, seq int64) string {
+	return filepath.Join(TaskDir(stateDir, epic, seq), "implement")
+}
+
 // digest returns the lowercase hex sha256 of parts joined with NUL.
 func digest(parts ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))

@@ -67,6 +67,28 @@ INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, ''
 -- name: GetEngineSession :one
 SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
 
+-- name: GetEngineFirstPrompt :one
+SELECT CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions WHERE sessions.id = ?;
+
+-- name: SetSessionTitle :exec
+UPDATE sessions SET title = ? WHERE id = ? AND kind = 'engine' AND title = '';
+
+-- name: ListUntitledEngineSessions :many
+SELECT sessions.id, sessions.dir, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine' AND sessions.title = ''
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
+ORDER BY sessions.id;
+
 -- name: ListEngineSessions :many
 SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
@@ -84,6 +106,7 @@ ORDER BY MAX(known.at) DESC, known.dir;
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
+    sessions.title,
     CAST(COALESCE((
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
@@ -100,7 +123,12 @@ SELECT
              AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
             OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
         )
-    ), 0) AS INTEGER) AS newest_reply
+    ), 0) AS INTEGER) AS newest_reply,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.text') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+        ORDER BY events.seq LIMIT 1
+    ), '') AS TEXT) AS first_prompt
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
@@ -149,6 +177,11 @@ ORDER BY session_id, message_id, parent_tool_use_id, block_index;
 SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
+
+-- name: SessionEventsBefore :many
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
+WHERE session_id = ? AND seq < ?
+ORDER BY seq DESC LIMIT ?;
 
 -- name: LastTurnEnds :many
 SELECT events.session_id, CAST(MAX(events.at) AS INTEGER) AS at FROM events
@@ -663,17 +696,22 @@ SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_
     step = sqlc.arg(to_step), red_run = sqlc.arg(to_red_run), green_run = sqlc.arg(to_green_run),
     revision = sqlc.arg(to_revision), failure = sqlc.arg(to_failure), review = sqlc.arg(to_review),
     refs = sqlc.arg(to_refs), gate_pos = sqlc.arg(to_gate_pos), finding_pos = sqlc.arg(to_finding_pos),
-    guard = sqlc.arg(to_guard)
+    guard = sqlc.arg(to_guard), decisions = sqlc.arg(to_decisions), after_tasks = sqlc.arg(to_after_tasks),
+    question = sqlc.arg(to_question)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
   AND stage = sqlc.arg(from_stage) AND base = sqlc.arg(from_base) AND attempt = sqlc.arg(from_attempt)
   AND rerun = sqlc.arg(from_rerun) AND no_verdict = sqlc.arg(from_no_verdict) AND held = sqlc.arg(from_held)
   AND step = sqlc.arg(from_step) AND red_run = sqlc.arg(from_red_run) AND green_run = sqlc.arg(from_green_run)
   AND revision = sqlc.arg(from_revision) AND failure = sqlc.arg(from_failure) AND review = sqlc.arg(from_review)
   AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos)
-  AND guard = sqlc.arg(from_guard);
+  AND guard = sqlc.arg(from_guard) AND decisions = sqlc.arg(from_decisions)
+  AND after_tasks = sqlc.arg(from_after_tasks) AND question = sqlc.arg(from_question);
 
 -- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: SetEpicTaskNeedsFiles :exec
+UPDATE epic_tasks SET needs_files = sqlc.arg(needs_files) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
 -- name: ClaimEpicTaskBatch :exec
 UPDATE epic_tasks SET batch = sqlc.arg(batch)
@@ -1004,6 +1042,11 @@ ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at
 
 -- name: ListEpicSessions :many
 SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
+       sessions.title, CAST(COALESCE((
+           SELECT json_extract(events.payload, '$.text') FROM events
+           WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+           ORDER BY events.seq LIMIT 1
+       ), '') AS TEXT) AS first_prompt,
        epic_sessions.call, epic_sessions.at
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
@@ -1096,3 +1139,6 @@ SELECT id FROM steps WHERE epic = ? AND end_value = '' ORDER BY started, id;
 
 -- name: ListOpenEpicTaskSteps :many
 SELECT id FROM steps WHERE epic = ? AND task = ? AND end_value = '' ORDER BY started, id;
+
+-- name: ListEpicIntegrateRunPaths :many
+SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;

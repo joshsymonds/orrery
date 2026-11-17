@@ -232,7 +232,7 @@ func actionPark(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 }
 
 // boundHeldPark stores the planner park epic holds as retry_bound, in the caller's write, when the chain of that park holds
-// boundActions actions or more, and reports whether it did. A planner park stored before 00048_park_bound.sql has no row,
+// boundActions actions or more, and reports whether it did. A planner park stored before 00051_park_bound.sql has no row,
 // so it starts no chain and is never bound.
 func boundHeldPark(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, head sqlcgen.Epic, at time.Time,

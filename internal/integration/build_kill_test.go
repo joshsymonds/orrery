@@ -18,7 +18,7 @@ func TestBuildSigkillDuringImplementerStartsItOnce(t *testing.T) {
 	r := newBuildRig(t)
 	daemon, ack := r.startPassDaemon(t, "first")
 	id := r.stepID()
-	dir := r.stepDir(id)
+	dir := r.stepDir()
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
 	r.awaitStep(t, daemon, ack, id)

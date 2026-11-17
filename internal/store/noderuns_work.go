@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -236,7 +237,14 @@ func retryParkedNode(ctx context.Context, queries *sqlcgen.Queries, epic, node s
 // caller's write. Any other run of node is a RefusalError, so an integrate run that is running or passed, or an earlier
 // failed run that a later run of node superseded, changes nothing.
 func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, node string, runs []NodeRun) error {
-	run, ok := latestIntegrateRun(runs, node)
+	stored, err := queries.ListEpicIntegrateRunPaths(
+		ctx,
+		sqlcgen.ListEpicIntegrateRunPathsParams{Epic: epic, Node: node},
+	)
+	if err != nil {
+		return fmt.Errorf("list integrate runs of node %s of epic %s: %w", node, epic, err)
+	}
+	run, ok := latestIntegrateRun(runs, stored)
 	if !ok || run.State != NodeEnded || run.Outcome != nodeFailedOutcome {
 		return notParkedRefusal(epic, node)
 	}
@@ -252,24 +260,23 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 	return unparkRetried(ctx, queries, epic)
 }
 
-// latestIntegrateRun returns the integrate run of node that sits in the newest settle walk, and whether there is one.
-// A settle walk is numbered by the seq of the task it settles, and a later task has a higher seq, so the run with the
-// highest seq is the latest. A run that ended passed with no revision moved nothing, an empty batch, so it does not
-// count: a failed run whose candidate never reached the branch stays the latest behind it. A running run does count.
-func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
-	var latest NodeRun
-	var newest uint64
-	found := false
-	for _, run := range runs {
-		if run.Kind != integrateKind || run.Node != node || emptyPassedBatch(run) {
+// latestIntegrateRun returns the run among runs that sits in the newest settle or late walk, and whether there is one.
+// stored is the paths of the node's integrate runs in the order the store wrote them, which is the order they started,
+// since a run is written when it starts. A walk starts only once the walks before it have ended, so the newest is the
+// run written last, whatever the seq of its walk: a late walk, which integrates a task that waited on others, starts
+// after the settle walk it follows. A run that ended passed with no revision moved nothing, an empty batch, so it does
+// not count: a failed run whose candidate never reached the branch stays the latest behind it. A running run does count.
+func latestIntegrateRun(runs []NodeRun, stored []string) (NodeRun, bool) {
+	for i := len(stored) - 1; i >= 0; i-- {
+		if _, ok := settleSeq(stored[i]); !ok {
 			continue
 		}
-		seq, ok := settleSeq(run.Path)
-		if ok && (!found || seq > newest) {
-			latest, newest, found = run, seq, true
+		if j := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == stored[i] }); j >= 0 &&
+			!emptyPassedBatch(runs[j]) {
+			return runs[j], true
 		}
 	}
-	return latest, found
+	return NodeRun{}, false
 }
 
 // emptyPassedBatch reports whether run is an integrate run that ended passed with no revision, a batch that had nothing
@@ -278,15 +285,19 @@ func emptyPassedBatch(run NodeRun) bool {
 	return run.State == NodeEnded && run.Outcome == nodePassedOutcome && run.Revision == ""
 }
 
-// settleSeq returns the seq of the settle walk that holds the node run at path: the N of the S<N> segment just above the
-// run's own node. It returns false when path sits in no settle walk.
+// settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N> or L<N>
+// segment just above the run's own node. It returns false when path sits in no such walk.
 func settleSeq(path string) (uint64, bool) {
 	i := strings.LastIndex(path, "/")
 	if i < 0 {
 		return 0, false
 	}
 	parent := path[:i]
-	walk, found := strings.CutPrefix(parent[strings.LastIndex(parent, "/")+1:], "S")
+	segment := parent[strings.LastIndex(parent, "/")+1:]
+	walk, found := strings.CutPrefix(segment, "S")
+	if !found {
+		walk, found = strings.CutPrefix(segment, "L")
+	}
 	if !found {
 		return 0, false
 	}

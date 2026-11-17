@@ -46,6 +46,8 @@ const openConversation: Conversation = {
   transcript: "",
   seq: 0n,
   items: [],
+  oldest: 0n,
+  more: false,
   unfinished: [],
   state: create(ConversationStateSchema, {
     request: create(OpenRequestSchema, {

@@ -13,6 +13,9 @@ service Sessions {
   // WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
   // a reset with the newest items when the client holds none, then the deltas that follow each change.
   rpc WatchConversation(SessionsWatchConversationRequest) returns (stream SessionsWatchConversationResponse);
+
+  // Older returns the main-thread items of one headless session older than a seq, the newest page first.
+  rpc Older(SessionsOlderRequest) returns (SessionsOlderResponse);
 }
 
 // Events streams the changes to the tracked sessions, panes and headless sessions alike, in seq order.
@@ -118,7 +121,8 @@ message HeadlessSession {
   // The directory the session runs in.
   string dir = 2;
 
-  // The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+  // The row's label: the session's title once one is stored. Until then, the base name of dir, then " · " and the
+  // first words of the first prompt, or the base name of dir alone when there is no prompt. The id is never the label.
   string label = 3;
 
   // The session's state.
@@ -176,6 +180,36 @@ message SessionsWatchConversationResponse {
 
   // The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
   repeated EngineText unfinished = 6;
+
+  // The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+  // reset, and on a reset that carries no item.
+  int64 oldest = 7;
+}
+
+// SessionsOlderRequest asks for the items of one headless session older than a seq. limit follows
+// ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+message SessionsOlderRequest {
+  // The session's id.
+  string id = 1;
+
+  // The seq the page reads before: the items it answers have an event seq below before.
+  int64 before = 2;
+
+  // The number of items to answer with, at most. Each event makes at most one item, so a page holds exactly limit
+  // items unless the session has fewer older than before.
+  uint32 limit = 3;
+}
+
+// SessionsOlderResponse is one page of a headless session's conversation, older than the seq the request gave.
+message SessionsOlderResponse {
+  // The items of the page, oldest first.
+  repeated ConversationItem items = 1;
+
+  // The seq of the oldest item the page holds, or 0 when it holds none. The next page asks for the items before it.
+  int64 oldest = 2;
+
+  // Whether items older than the page remain.
+  bool more = 3;
 }
 
 // OpenRequest is the request a headless session waits on.
@@ -560,6 +594,9 @@ service Panes {
   // WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
   // and the whole state, then the deltas that follow each change.
   rpc WatchConversation(WatchConversationRequest) returns (stream WatchConversationResponse);
+
+  // Older returns the items of one pane's Claude transcript older than a line start of it, the newest page first.
+  rpc Older(OlderRequest) returns (OlderResponse);
 }
 
 // Host reads the status of the machine orrery runs on.
@@ -768,6 +805,10 @@ message ConversationItem {
 
   // The check round a send-back returns on a prompt item, or 0 otherwise.
   uint32 round = 12;
+
+  // The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+  // not a headless prompt.
+  string prompt_id = 13;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
@@ -829,6 +870,42 @@ message WatchConversationResponse {
 
   // The text so far of each unfinished block. Pane streams never set it.
   repeated EngineText unfinished = 6;
+
+  // The offset of the line start of the oldest item a reset carries, which Panes.Older pages back from. It is 0 on a
+  // delta that is not a reset, and on a reset that carries no item.
+  int64 oldest = 7;
+}
+
+// OlderRequest asks for the items of one pane's conversation older than a line start of its transcript. limit follows
+// ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+message OlderRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The id of the transcript the client holds. It must be the base name of the pane's live transcript, or the request
+  // fails with failed_precondition.
+  string transcript = 2;
+
+  // The line start the page reads before: the items it answers come from lines that end before this offset. It must
+  // be 0 or just after a newline, or the request fails with invalid_argument.
+  int64 before = 3;
+
+  // The number of items to answer with, at most. A page takes whole lines and stops before a line that would take it
+  // past limit, so it holds at most limit items unless its newest line alone holds more.
+  uint32 limit = 4;
+}
+
+// OlderResponse is one page of a pane's conversation, older than the line start the request gave.
+message OlderResponse {
+  // The items of the page, oldest first.
+  repeated ConversationItem items = 1;
+
+  // The line start of the oldest transcript line that yields an item in the page, or 0 when the page holds none. The
+  // next page asks for the items before it.
+  int64 oldest = 2;
+
+  // Whether items older than the page remain.
+  bool more = 3;
 }
 
 // ConversationState is the state of a conversation that a WatchConversationResponse carries.

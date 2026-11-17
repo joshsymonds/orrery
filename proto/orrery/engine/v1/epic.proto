@@ -28,6 +28,10 @@ service Epics {
   // RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
   rpc RetryEpic(RetryEpicRequest) returns (RetryEpicResponse);
 
+  // KickEpic records the owner's text on a stored epic as a decision and wakes its planner with it at the epic's next
+  // plan run, and returns the stored epic.
+  rpc KickEpic(KickEpicRequest) returns (KickEpicResponse);
+
   // FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
   rpc FollowEpics(FollowEpicsRequest) returns (FollowEpicsResponse);
 
@@ -1181,6 +1185,21 @@ message RetryEpicRequest {
 
 // RetryEpicResponse carries the retried epic.
 message RetryEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// KickEpicRequest names the epic to kick and the owner's text the kick records.
+message KickEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The owner's words, which the planner reads at the epic's next plan run.
+  string text = 2;
+}
+
+// KickEpicResponse carries the kicked epic.
+message KickEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
 }

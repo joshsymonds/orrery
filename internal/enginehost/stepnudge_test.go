@@ -23,7 +23,8 @@ var errNudgeContinue = errors.New("continue refused")
 const stepNudgeDone = `{"status":"done"}`
 
 // nudgeSessions is stepStartSessions that records each Interrupt and Continue text. Interrupt returns interruptErr and
-// Continue returns continueErr.
+// Continue returns continueErr. A Continue that succeeds stores the loop state its prompt carries, as Manager.Continue
+// stores it with the prompt.
 type nudgeSessions struct {
 	*stepStartSessions
 
@@ -45,11 +46,15 @@ func (f *nudgeSessions) Interrupt(_ context.Context, id string) error {
 	return f.interruptErr
 }
 
-func (f *nudgeSessions) Continue(_ context.Context, _ string, prompt StepPrompt) error {
+func (f *nudgeSessions) Continue(ctx context.Context, id string, prompt StepPrompt) error {
 	f.nmu.Lock()
-	defer f.nmu.Unlock()
 	f.continued = append(f.continued, prompt)
-	return f.continueErr
+	err := f.continueErr
+	f.nmu.Unlock()
+	if err != nil {
+		return err
+	}
+	return storePromptLoop(ctx, f.writer, id, prompt)
 }
 
 // failInterrupts makes each later Interrupt return err.
@@ -86,11 +91,17 @@ func (f *nudgeSessions) continuedTexts() []string {
 	return texts
 }
 
-// continuedPrompts returns a copy of the prompts Continue was called with.
+// continuedPrompts returns a copy of the prompts Continue was called with, less the loop state each carried to the store,
+// which the tests read from the store.
 func (f *nudgeSessions) continuedPrompts() []StepPrompt {
 	f.nmu.Lock()
 	defer f.nmu.Unlock()
-	return append([]StepPrompt(nil), f.continued...)
+	prompts := make([]StepPrompt, 0, len(f.continued))
+	for _, prompt := range f.continued {
+		prompt.Loop = nil
+		prompts = append(prompts, prompt)
+	}
+	return prompts
 }
 
 // stepNudgeFixture is a Steps over a real store and writer, with nudgeSessions. It is closed at cleanup.

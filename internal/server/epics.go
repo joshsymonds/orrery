@@ -111,10 +111,10 @@ func (e epicsServer) List(
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
 // the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its ledger
 // findings with their closures, its review verdicts in ledger order, its release runs in the order the stored epic
-// lists them, its release steps in the order of its release proof, its report, its open questions, its contract with
-// its acceptance time, its summary, whether it is paused, why it is parked and whether the planner holds the park, its
-// repository, its sessions newest
-// call first, and the tasks of its record when one exists. An id that neither the database nor the record root lists
+// lists them, its release steps in the order of its release proof, its report, its open questions with their labels,
+// choices and recommendations, its contract with its acceptance time, its summary, whether it is paused, why it is
+// parked and whether the planner holds the park, its repository, its sessions newest call first, and the tasks of its
+// record when one exists. An id that neither the database nor the record root lists
 // answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
@@ -250,7 +250,8 @@ func (e epicsServer) listSessions(ctx context.Context, epic string) []*orreryv1.
 }
 
 // epicSessionMessage converts a row of epic calls to its EpicSession. A pane row, whose kind is empty, carries its pane
-// and its label. Any other row is headless: it names no pane and its label is headlessLabel of its id and dir.
+// and its label. Any other row is headless: it names no pane and its label is sessionLabel of its dir, title and first
+// prompt.
 func epicSessionMessage(row store.EpicSessionRow) *orreryv1.EpicSession {
 	session := &orreryv1.EpicSession{Id: row.Session, Call: row.Call, At: row.At}
 	if row.Kind == "" {
@@ -258,7 +259,7 @@ func epicSessionMessage(row store.EpicSessionRow) *orreryv1.EpicSession {
 		session.Label = row.Label
 		return session
 	}
-	session.Label = headlessLabel(row.Session, row.Dir)
+	session.Label = sessionLabel(row.Dir, row.Title, row.FirstPrompt)
 	return session
 }
 
@@ -444,13 +445,38 @@ func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.
 			continue
 		}
 		out = append(out, &orreryv1.EpicQuestion{
-			Id:    question.GetId(),
-			Text:  question.GetText(),
-			Turn:  question.GetTurn(),
-			Asked: endedBySeq[question.GetTurn()],
+			Id:             question.GetId(),
+			Text:           question.GetText(),
+			Turn:           question.GetTurn(),
+			Asked:          endedBySeq[question.GetTurn()],
+			Label:          question.GetLabel(),
+			Choices:        epicQuestionChoiceMessages(question.GetChoices()),
+			Recommendation: epicRecommendationMessage(question.GetRecommendation()),
 		})
 	}
 	return out
+}
+
+// epicQuestionChoiceMessages converts the choices a question declares to their EpicQuestionChoice messages, in order.
+func epicQuestionChoiceMessages(choices []*enginev1.EpicQuestionChoice) []*orreryv1.EpicQuestionChoice {
+	out := make([]*orreryv1.EpicQuestionChoice, 0, len(choices))
+	for _, choice := range choices {
+		out = append(out, &orreryv1.EpicQuestionChoice{Id: choice.GetId(), Does: choice.GetDoes()})
+	}
+	return out
+}
+
+// epicRecommendationMessage converts the recommendation of a question to its EpicRecommendation, or nil when the
+// question recommends none.
+func epicRecommendationMessage(recommendation *enginev1.EpicRecommendation) *orreryv1.EpicRecommendation {
+	if recommendation == nil {
+		return nil
+	}
+	return &orreryv1.EpicRecommendation{
+		Choice:     recommendation.GetChoice(),
+		Why:        recommendation.GetWhy(),
+		Confidence: recommendation.GetConfidence(),
+	}
 }
 
 // epicContractMessage converts contract to its EpicContract: its sections in the contract's order, and accepted, which

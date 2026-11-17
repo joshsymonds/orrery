@@ -29,13 +29,14 @@ func TestReaderQueryPlans(t *testing.T) {
 	t.Parallel()
 	// readerQueries names the sqlcgen queries that each exported *Reader method issues.
 	readerQueries := map[string][]string{
-		"Events":           {"EventPageAfter", "OldestEventSeq", "NewestEventSeq", "ListUnfinishedEngineText"},
-		"Snapshot":         {"ListSessions", "NewestEventSeq"},
-		"EngineHistory":    {"GetEngineSession", "SessionEventsAfter", "ListEngineText"},
-		"HeadlessSessions": {"ListHeadlessSessions"},
-		"LastTurnEnds":     {"LastTurnEnds"},
-		"Dirs":             {"ListKnownDirs"},
-		"EpicSessions":     {"ListEpicSessions"},
+		"Events":             {"EventPageAfter", "OldestEventSeq", "NewestEventSeq", "ListUnfinishedEngineText"},
+		"Snapshot":           {"ListSessions", "NewestEventSeq"},
+		"EngineHistory":      {"GetEngineSession", "GetEngineFirstPrompt", "SessionEventsAfter", "ListEngineText"},
+		"EngineEventsBefore": {"GetEngineSession", "SessionEventsBefore"},
+		"HeadlessSessions":   {"ListHeadlessSessions"},
+		"LastTurnEnds":       {"LastTurnEnds"},
+		"Dirs":               {"ListKnownDirs"},
+		"EpicSessions":       {"ListEpicSessions"},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 

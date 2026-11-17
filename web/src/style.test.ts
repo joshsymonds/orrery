@@ -185,6 +185,12 @@ test("the head sets the label at 17px bold and the where line at 12px in overlay
   assert.match(declarationsFor(css, ".head .where"), /color:\s*var\(--overlay1\);/);
 });
 
+test("a row's conversation title row takes the head's padding from 760px, and the mono family", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  assert.match(declarationsFor(wide, ".read > .title-row"), /padding:\s*12px 28px 11px;/);
+  assert.match(declarationsFor(css, ".read > .title-row"), /font-family:\s*var\(--mono\);/);
+});
+
 test("the pill is a tone's 10% tint with a 30% ring, the glyph is 11px, and each tone sets its colour", () => {
   const pill = declarationsFor(css, ".pill");
   assert.match(pill, /border-radius:\s*99px;/);
@@ -353,6 +359,12 @@ test("reading text is 14px with a 1.6 line height", () => {
   const queued = declarationsFor(css, ".compose .queued > .text");
   assert.match(queued, /font-size:\s*14px/);
   assert.match(queued, /line-height:\s*1\.6(?![\d.])/);
+});
+
+test("a sending row is dimmed, its mark is 10px, and the queued words are mono", () => {
+  assert.match(declarationsFor(css, ".reader .t.sending-row"), /opacity:\s*\.55;/);
+  assert.match(declarationsFor(css, ".reader .t > .gut.sending"), /font-size:\s*10px;/);
+  assert.match(declarationsFor(css, ".compose .queued > .words"), /font:\s*400 11px\/1\.45 var\(--mono\);/);
 });
 
 test("plain texts keep their line breaks", () => {
@@ -729,9 +741,13 @@ test("the now block is a column of its sentence, its blocker's line or form, and
   assert.match(declarationsFor(css, ".now-block .blocked"), /color:\s*var\(--peach\);/);
 });
 
-test("a question's form is a column with its question in peach and its answer box in a surface1 ring", () => {
+test("a question's card is a column with its question in peach, its option cards as key-capped rows, and its text box in a surface1 ring", () => {
   assert.match(declarationsFor(css, ".now-block .answer"), /flex-direction:\s*column;/);
   assert.match(declarationsFor(css, ".now-block .answer .question"), /color:\s*var\(--peach\);/);
+  assert.match(declarationsFor(css, ".now-block .answer .opts"), /display:\s*grid;/);
+  assert.match(declarationsFor(css, ".now-block .answer .opt"), /grid-template-columns:\s*24px minmax\(0, 1fr\);/);
+  assert.match(declarationsFor(css, ".now-block .answer .opt.sel"), /box-shadow:\s*inset 0 0 0 1\.5px var\(--mauve\);/);
+  assert.match(declarationsFor(css, ".now-block .answer .opt em"), /background:\s*var\(--green\);/);
   assert.match(
     declarationsFor(css, ".now-block .answer textarea"),
     /box-shadow:\s*inset 0 0 0 1px var\(--surface1\);/,

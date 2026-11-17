@@ -227,8 +227,9 @@ func controlRequestEvents(raw json.RawMessage) ([]Event, error) {
 }
 
 // requestOf returns the Request for the body of a control request. A can_use_tool body that decodes is
-// a question when its tool is AskUserQuestion and a permission request otherwise. Any other body is
-// kind other and refused, so that the host declines it instead of the session waiting on it.
+// a question when its tool is AskUserQuestion and a permission request otherwise. A question the host
+// cannot answer (see answerableQuestion) is refused, and so is any other body, of kind other, so that
+// the session declines it instead of waiting on it.
 func requestOf(requestID string, body json.RawMessage) Request {
 	subtype := bodySubtype(body)
 	if subtype == subtypeCanUseTool {
@@ -262,6 +263,9 @@ func permissionRequest(requestID string, permission wire.SDKControlPermissionReq
 	}
 	if permission.ToolName == toolAskUserQuestion {
 		request.Kind = RequestQuestion
+		if _, err := answerableQuestion(permission.Input); err != nil {
+			request.Refused = true
+		}
 	}
 	return request
 }

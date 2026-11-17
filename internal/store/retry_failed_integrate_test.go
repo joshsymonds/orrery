@@ -223,3 +223,35 @@ func TestRetryFailedIntegrateRefusedForEpicEndedAtBase(t *testing.T) {
 			row.Parked, row.Phase, reason, phaseMetAtBase)
 	}
 }
+
+// TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk checks that the newest integrate run is the one that
+// started last: a late walk's run, under L<seq> with the seq of a task that waited, started after the settle walk at
+// S3, in the same second, and is the one RetryNode reruns, though its seq is lower.
+func TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	failIntegrateRun(t, s, "plan/S3/integrate", "id-s3", "rev-earlier", "earlier red")
+	const late = "plan/L2/integrate"
+	if err := s.StartNodes(ctx, integrateEpic, []NodeRun{
+		{Path: late, ID: "id-l2", Node: "integrate", Kind: "integrate", Attempt: 1},
+	}, nil, integrateStartedAt()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if err := s.PrepareNode(ctx, integrateEpic, late, 1, "rev-1", "refs-1"); err != nil {
+		t.Fatalf("PrepareNode: %v", err)
+	}
+	if err := s.EndBatch(ctx, integrateEpic, late, 1, "failed", "lint failed", nil, integrateEndedAt()); err != nil {
+		t.Fatalf("EndBatch: %v", err)
+	}
+	parkIntegrateEpic(t, s)
+	if err := s.RetryNode(ctx, integrateEpic, "integrate"); err != nil {
+		t.Fatalf("RetryNode: %v", err)
+	}
+	if run := integrateRun(t, s, late); run.State != NodeRunning || run.Attempt != 2 {
+		t.Errorf("late run state %q attempt %d, want running at attempt 2", run.State, run.Attempt)
+	}
+	if run := integrateRun(t, s, "plan/S3/integrate"); run.State != NodeEnded || run.Attempt != 1 {
+		t.Errorf("settle run state %q attempt %d, want it left ended at attempt 1", run.State, run.Attempt)
+	}
+}

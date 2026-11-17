@@ -31,6 +31,7 @@ type fakeEpics struct {
 	resumes      []*v1.ResumeEpicRequest
 	stops        []*v1.StopEpicRequest
 	retries      []*v1.RetryEpicRequest
+	kicks        []*v1.KickEpicRequest
 	releases     []*v1.ReleaseEpicRequest
 	follows      []*v1.FollowEpicsRequest
 	createReply  *v1.CreateEpicResponse
@@ -41,6 +42,7 @@ type fakeEpics struct {
 	resumeReply  *v1.ResumeEpicResponse
 	stopReply    *v1.StopEpicResponse
 	retryReply   *v1.RetryEpicResponse
+	kickReply    *v1.KickEpicResponse
 	releaseReply *v1.ReleaseEpicResponse
 	followReply  *v1.FollowEpicsResponse
 	err          error
@@ -159,6 +161,19 @@ func (f *fakeEpics) RetryEpic(
 	return connect.NewResponse(f.retryReply), nil
 }
 
+func (f *fakeEpics) KickEpic(
+	_ context.Context,
+	req *connect.Request[v1.KickEpicRequest],
+) (*connect.Response[v1.KickEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.kicks = append(f.kicks, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.kickReply), nil
+}
+
 func (f *fakeEpics) FollowEpics(
 	_ context.Context,
 	req *connect.Request[v1.FollowEpicsRequest],
@@ -202,6 +217,7 @@ type epicCalls struct {
 	resumes  []*v1.ResumeEpicRequest
 	stops    []*v1.StopEpicRequest
 	retries  []*v1.RetryEpicRequest
+	kicks    []*v1.KickEpicRequest
 	releases []*v1.ReleaseEpicRequest
 	follows  []*v1.FollowEpicsRequest
 }
@@ -218,6 +234,7 @@ func (f *fakeEpics) calls() epicCalls {
 		resumes:  slices.Clone(f.resumes),
 		stops:    slices.Clone(f.stops),
 		retries:  slices.Clone(f.retries),
+		kicks:    slices.Clone(f.kicks),
 		releases: slices.Clone(f.releases),
 		follows:  slices.Clone(f.follows),
 	}
@@ -225,7 +242,8 @@ func (f *fakeEpics) calls() epicCalls {
 
 func (c epicCalls) total() int {
 	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
-		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.releases) + len(c.follows)
+		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries) + len(c.kicks) + len(c.releases) +
+		len(c.follows)
 }
 
 // fullContract is an epic contract with every field set, each to a value distinct from the others.

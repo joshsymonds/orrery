@@ -301,8 +301,9 @@ func stopReleaseSlot(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen
 	return open, nil
 }
 
-// openReleaseStep returns the id of the first step, in the order EpicFlow reads them, of epic's release node runs at their
-// current attempts that has no end, or "" when none does.
+// openReleaseStep returns the id of the first step, in the order EpicFlow reads them, of epic's release node runs that has
+// no end, or "" when none does: a release step or the judge at the run's current attempt, or a round of the release
+// integrator, which the step carries the run's path as its label for.
 func openReleaseStep(ctx context.Context, queries *sqlcgen.Queries, epic string) (string, error) {
 	runs, err := readNodeRuns(ctx, queries, epic)
 	if err != nil {
@@ -322,6 +323,11 @@ func openReleaseStep(ctx context.Context, queries *sqlcgen.Queries, epic string)
 	if err != nil {
 		return "", err
 	}
+	integrators, err := readLabeledSteps(ctx, queries, epic, releases)
+	if err != nil {
+		return "", err
+	}
+	rows = append(rows, integrators...)
 	for _, row := range rows {
 		if row.End == "" {
 			return row.ID, nil

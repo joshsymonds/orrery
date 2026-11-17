@@ -18,9 +18,9 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00046 and 00048 create, and of the columns
-// those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045, 00047
-// and 00048 add to epic tables.
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049 and 00051 create, and of the columns
+// those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045, 00048,
+// 00050 and 00051 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -28,9 +28,9 @@ func epicTableColumns() map[string][]string {
 			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "workflow",
 			"workflow_text", "workflow_sha256", "pause_source", "stored_base", "candidate", "summary", "phase_at",
 			"report_phase", "report_shipped", "report_not_shipped", "report_why",
-			// R6: closed_by and superseded_by, the closer and the epic that replaces it, are 00045_epic_close.sql.
+			// R6: closed_by and superseded_by, the closer and the epic that replaces it, are 00048_epic_close.sql.
 			"closed_by", "superseded_by",
-			// park_class, the class of the park, which says who answers it, is 00047_park_class.sql.
+			// park_class, the class of the park, which says who answers it, is 00050_park_class.sql.
 			"park_class",
 		},
 		"epic_failures":  {"epic", "position", "id", "text", "rating", "response"},
@@ -55,7 +55,7 @@ func epicTableColumns() map[string][]string {
 		"epic_tasks": {
 			"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence", "stage", "base", "attempt",
 			"rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision", "failure", "review", "refs",
-			"gate_pos", "finding_pos", "batch", "guard",
+			"gate_pos", "finding_pos", "batch", "guard", "needs_files", "decisions", "after_tasks", "question",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -102,13 +102,13 @@ func epicTableColumns() map[string][]string {
 		"epic_seen":          {"epic", "at"},
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
 		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
-		// R2: the actions a planner turn returned, from 00046_planner_actions.sql. park, the planner park an action
-		// answers, is 00048_park_bound.sql.
+		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
+		// answers, is 00051_park_bound.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
 			"refusal", "park",
 		},
-		// R5: the planner-class parks of each epic and their chains, from 00048_park_bound.sql.
+		// R5: the planner-class parks of each epic and their chains, from 00051_park_bound.sql.
 		"epic_parks":         {"epic", "seq", "class", "subject", "chain", "reason", "created"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
@@ -521,10 +521,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00048_park_bound.sql is the newest. The newest was
-	// 00047_park_class.sql before the park bound added 00048.
-	if version != 48 {
-		t.Fatalf("store version after Open = %d, want 48", version)
+	// Open applies 00014_epics.sql and every migration after it: 00051_park_bound.sql is the newest. The newest was
+	// 00050_park_class.sql before the park bound added 00051.
+	if version != 51 {
+		t.Fatalf("store version after Open = %d, want 51", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1004,7 +1004,7 @@ func TestReleaseMigrationDownAndUp(t *testing.T) {
 	}
 }
 
-// TestPlannerActionsMigrationDownAndUp removes the planner_actions table with the Down of 00046_planner_actions.sql, and Up
+// TestPlannerActionsMigrationDownAndUp removes the planner_actions table with the Down of 00049_planner_actions.sql, and Up
 // restores it.
 func TestPlannerActionsMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
@@ -1020,8 +1020,8 @@ func TestPlannerActionsMigrationDownAndUp(t *testing.T) {
 		t.Fatalf("create goose provider: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 45); err != nil {
-		t.Fatalf("DownTo 45: %v", err)
+	if _, err := provider.DownTo(ctx, 48); err != nil {
+		t.Fatalf("DownTo 48: %v", err)
 	}
 	if tableNames(t, s)["planner_actions"] {
 		t.Errorf("planner_actions after Down = present, want absent")
@@ -1036,70 +1036,8 @@ func TestPlannerActionsMigrationDownAndUp(t *testing.T) {
 }
 
 // TestEpicCloseMigrationDownAndUp removes the closer and the replacing epic from the epics table with the Down of
-// 00045_epic_close.sql, and Up restores them.
+// 00048_epic_close.sql, and Up restores them.
 func TestEpicCloseMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 44); err != nil {
-		t.Fatalf("DownTo 44: %v", err)
-	}
-	if hasAny(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
-		t.Errorf("epics columns after Down = %v, want no closed_by or superseded_by", columnsOf(t, s, "epics"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
-		t.Errorf("epics columns after Up = %v, want closed_by and superseded_by", columnsOf(t, s, "epics"))
-	}
-}
-
-// TestParkClassMigrationDownAndUp removes the park class from the epics table with the Down of 00047_park_class.sql, and Up
-// restores it.
-func TestParkClassMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 46); err != nil {
-		t.Fatalf("DownTo 46: %v", err)
-	}
-	if hasAny(columnsOf(t, s, "epics"), "park_class") {
-		t.Errorf("epics columns after Down = %v, want no park_class", columnsOf(t, s, "epics"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "park_class") {
-		t.Errorf("epics columns after Up = %v, want park_class", columnsOf(t, s, "epics"))
-	}
-}
-
-// TestParkBoundMigrationDownAndUp removes the planner parks table and the park of planner_actions with the Down of
-// 00048_park_bound.sql, and Up restores them.
-func TestParkBoundMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -1115,6 +1053,68 @@ func TestParkBoundMigrationDownAndUp(t *testing.T) {
 
 	if _, err := provider.DownTo(ctx, 47); err != nil {
 		t.Fatalf("DownTo 47: %v", err)
+	}
+	if hasAny(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
+		t.Errorf("epics columns after Down = %v, want no closed_by or superseded_by", columnsOf(t, s, "epics"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
+		t.Errorf("epics columns after Up = %v, want closed_by and superseded_by", columnsOf(t, s, "epics"))
+	}
+}
+
+// TestParkClassMigrationDownAndUp removes the park class from the epics table with the Down of 00050_park_class.sql, and Up
+// restores it.
+func TestParkClassMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 49); err != nil {
+		t.Fatalf("DownTo 49: %v", err)
+	}
+	if hasAny(columnsOf(t, s, "epics"), "park_class") {
+		t.Errorf("epics columns after Down = %v, want no park_class", columnsOf(t, s, "epics"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "park_class") {
+		t.Errorf("epics columns after Up = %v, want park_class", columnsOf(t, s, "epics"))
+	}
+}
+
+// TestParkBoundMigrationDownAndUp removes the planner parks table and the park of planner_actions with the Down of
+// 00051_park_bound.sql, and Up restores them.
+func TestParkBoundMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 50); err != nil {
+		t.Fatalf("DownTo 50: %v", err)
 	}
 	if tableNames(t, s)["epic_parks"] {
 		t.Errorf("epic_parks after Down = present, want absent")

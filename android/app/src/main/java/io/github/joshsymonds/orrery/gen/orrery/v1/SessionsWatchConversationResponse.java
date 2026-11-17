@@ -516,6 +516,47 @@ public  final class SessionsWatchConversationResponse extends
     unfinished_.remove(index);
   }
 
+  public static final int OLDEST_FIELD_NUMBER = 7;
+  private long oldest_;
+  /**
+   * <pre>
+   * The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+   * reset, and on a reset that carries no item.
+   * </pre>
+   *
+   * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+   * @return The oldest.
+   */
+  @java.lang.Override
+  public long getOldest() {
+    return oldest_;
+  }
+  /**
+   * <pre>
+   * The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+   * reset, and on a reset that carries no item.
+   * </pre>
+   *
+   * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+   * @param value The oldest to set.
+   */
+  private void setOldest(long value) {
+    
+    oldest_ = value;
+  }
+  /**
+   * <pre>
+   * The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+   * reset, and on a reset that carries no item.
+   * </pre>
+   *
+   * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+   */
+  private void clearOldest() {
+
+    oldest_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1144,6 +1185,49 @@ public  final class SessionsWatchConversationResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+     * reset, and on a reset that carries no item.
+     * </pre>
+     *
+     * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+     * @return The oldest.
+     */
+    @java.lang.Override
+    public long getOldest() {
+      return instance.getOldest();
+    }
+    /**
+     * <pre>
+     * The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+     * reset, and on a reset that carries no item.
+     * </pre>
+     *
+     * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+     * @param value The oldest to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOldest(long value) {
+      copyOnWrite();
+      instance.setOldest(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
+     * reset, and on a reset that carries no item.
+     * </pre>
+     *
+     * <code>int64 oldest = 7 [json_name = "oldest"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOldest() {
+      copyOnWrite();
+      instance.clearOldest();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.SessionsWatchConversationResponse)
   }
   @java.lang.Override
@@ -1169,10 +1253,11 @@ public  final class SessionsWatchConversationResponse extends
             "state_",
             "unfinished_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EngineText.class,
+            "oldest_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0002\u0000\u0001\u0208\u0002\u0002" +
-              "\u0003\u0007\u0004\u001b\u0005\u1009\u0000\u0006\u001b";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0002\u0000\u0001\u0208\u0002\u0002" +
+              "\u0003\u0007\u0004\u001b\u0005\u1009\u0000\u0006\u001b\u0007\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

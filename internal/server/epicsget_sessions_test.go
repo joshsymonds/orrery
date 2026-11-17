@@ -116,7 +116,7 @@ func TestEpicsGetSessionsNewestCallFirst(t *testing.T) {
 	got := epicsGet(t, epicSessionsClient(t, store.NewReader(path)), epicSessionsEpic).GetSessions()
 	assertEpicSessions(t, got, []*orreryv1.EpicSession{
 		{Id: "orrery-1", Pane: "%1", Label: "worker one", Call: "epic_step", At: second.Unix()},
-		{Id: "engine-session", Label: "reviews · engine-s", Call: "epic_get", At: first.Unix()},
+		{Id: "engine-session", Label: "reviews", Call: "epic_get", At: first.Unix()},
 	})
 }
 
@@ -134,7 +134,7 @@ func TestEpicsGetSessionsLeavesOutRemovedSession(t *testing.T) {
 
 	got := epicsGet(t, epicSessionsClient(t, store.NewReader(path)), epicSessionsEpic).GetSessions()
 	assertEpicSessions(t, got, []*orreryv1.EpicSession{
-		{Id: "engine-session", Label: "reviews · engine-s", Call: "epic_get", At: first.Unix()},
+		{Id: "engine-session", Label: "reviews", Call: "epic_get", At: first.Unix()},
 	})
 }
 

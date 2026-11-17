@@ -23,6 +23,7 @@ public  final class EpicsAnswerRequest extends
     id_ = "";
     text_ = "";
     question_ = "";
+    choice_ = "";
   }
   public static final int EPIC_ID_FIELD_NUMBER = 1;
   private java.lang.String epicId_;
@@ -289,6 +290,73 @@ public  final class EpicsAnswerRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     question_ = value.toStringUtf8();
+
+  }
+
+  public static final int CHOICE_FIELD_NUMBER = 5;
+  private java.lang.String choice_;
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   * @return The choice.
+   */
+  @java.lang.Override
+  public java.lang.String getChoice() {
+    return choice_;
+  }
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   * @return The bytes for choice.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getChoiceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(choice_);
+  }
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   * @param value The choice to set.
+   */
+  private void setChoice(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    choice_ = value;
+  }
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   */
+  private void clearChoice() {
+
+    choice_ = getDefaultInstance().getChoice();
+  }
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   * @param value The bytes for choice to set.
+   */
+  private void setChoiceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    choice_ = value.toStringUtf8();
 
   }
 
@@ -669,6 +737,75 @@ public  final class EpicsAnswerRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+     * </pre>
+     *
+     * <code>string choice = 5 [json_name = "choice"];</code>
+     * @return The choice.
+     */
+    @java.lang.Override
+    public java.lang.String getChoice() {
+      return instance.getChoice();
+    }
+    /**
+     * <pre>
+     * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+     * </pre>
+     *
+     * <code>string choice = 5 [json_name = "choice"];</code>
+     * @return The bytes for choice.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getChoiceBytes() {
+      return instance.getChoiceBytes();
+    }
+    /**
+     * <pre>
+     * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+     * </pre>
+     *
+     * <code>string choice = 5 [json_name = "choice"];</code>
+     * @param value The choice to set.
+     * @return This builder for chaining.
+     */
+    public Builder setChoice(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setChoice(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+     * </pre>
+     *
+     * <code>string choice = 5 [json_name = "choice"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearChoice() {
+      copyOnWrite();
+      instance.clearChoice();
+      return this;
+    }
+    /**
+     * <pre>
+     * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+     * </pre>
+     *
+     * <code>string choice = 5 [json_name = "choice"];</code>
+     * @param value The bytes for choice to set.
+     * @return This builder for chaining.
+     */
+    public Builder setChoiceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setChoiceBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsAnswerRequest)
   }
   @java.lang.Override
@@ -689,10 +826,11 @@ public  final class EpicsAnswerRequest extends
             "id_",
             "text_",
             "question_",
+            "choice_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

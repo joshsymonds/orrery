@@ -54,6 +54,13 @@ func (a *crashApplier) ApplyEngine(ctx context.Context, ops []store.EngineOp, no
 	return a.inner.ApplyEngine(ctx, ops, now)
 }
 
+// armOn makes the applier refuse from the first later batch trigger accepts.
+func (a *crashApplier) armOn(trigger func([]store.EngineOp) bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.trigger = trigger
+}
+
 // refuse makes every batch from now on fail.
 func (a *crashApplier) refuse() {
 	a.mu.Lock()

@@ -86,8 +86,25 @@ func (e epicsServer) Retry(
 	return connect.NewResponse(&orreryv1.EpicsRetryResponse{}), nil
 }
 
-// Answer forwards the owner's answer to orreryd with the decision id, text and question the request names, and answers
-// the decision orreryd recorded with any warning it gave.
+// Kick forwards the owner's text on the named epic to orreryd, which records it as a decision and wakes the epic's
+// planner with it at the epic's next plan run.
+func (e epicsServer) Kick(
+	ctx context.Context,
+	req *connect.Request[orreryv1.EpicsKickRequest],
+) (*connect.Response[orreryv1.EpicsKickResponse], error) {
+	id, text := req.Msg.GetId(), req.Msg.GetText()
+	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
+		_, err := commands.KickEpic(ctx, connect.NewRequest(&enginev1.KickEpicRequest{Id: id, Text: text}))
+		return wrapEngine("kick", err)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.EpicsKickResponse{}), nil
+}
+
+// Answer forwards the owner's answer to orreryd with the decision id, text, question and choice the request names, and
+// answers the decision orreryd recorded with any warning it gave.
 func (e epicsServer) Answer(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsAnswerRequest],
@@ -98,6 +115,7 @@ func (e epicsServer) Answer(
 		var err error
 		reply, err = commands.AnswerEpic(ctx, connect.NewRequest(&enginev1.AnswerEpicRequest{
 			EpicId: msg.GetEpicId(), Id: msg.GetId(), Text: msg.GetText(), Question: msg.GetQuestion(),
+			Choice: msg.GetChoice(),
 		}))
 		return wrapEngine("answer", err)
 	})

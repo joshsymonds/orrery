@@ -7,6 +7,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,11 @@ const (
 	limitWiringRepo   = "/work/synthetic-repo"
 	limitWiringBefore = "limit-before"
 	limitWiringAfter  = "limit-after"
+	limitWiringEpic   = "synthetic-epic"
+	limitWiringTitle  = "Synthetic contract title"
 	limitWiringStamp  = 1_700_000_000
+	// limitWiringNoEpic is the name a step with no epic is held under in a limit's notice and its mark.
+	limitWiringNoEpic = "a step outside any epic"
 )
 
 // limitWiringReset is the usage reset of the step limited before start, and limitWiringLaterReset the reset of the step
@@ -184,13 +189,21 @@ func limitWiringKey(resets time.Time) string {
 	return fmt.Sprintf("usage@%d", resets.Unix())
 }
 
-// addLimitedStep stores an open step row whose loop is limited by usage until resets, as a usage limit leaves it.
+// addLimitedStep stores an open step row with no epic whose loop is limited by usage until resets, as a usage limit
+// leaves it.
 func addLimitedStep(t *testing.T, st *store.Store, id string, resets time.Time) {
+	t.Helper()
+	addLimitedStepInEpic(t, st, id, "", resets)
+}
+
+// addLimitedStepInEpic stores an open step row labeled with epic, whose loop is limited by usage until resets, as a
+// usage limit leaves it. An empty epic stores a step with no epic.
+func addLimitedStepInEpic(t *testing.T, st *store.Store, id, epic string, resets time.Time) {
 	t.Helper()
 	if err := st.ApplyEngine(t.Context(), []store.EngineOp{
 		store.StepAdd{
 			ID: id, Agent: "implementer", Prompt: "synthetic prompt", Schema: "{}", Workspace: limitWiringRepo,
-			ReadOnly: true, DoneValue: "done",
+			ReadOnly: true, DoneValue: "done", Epic: epic,
 		},
 		store.StepLoop{ID: id, Limited: true, LimitKind: "usage", LimitResets: resets},
 	}, time.Unix(limitWiringStamp, 0)); err != nil {
@@ -216,12 +229,12 @@ func TestSessionsHostTellsStepLimitedBeforeStartOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desk notice: %v", err)
 	}
-	const want = "1 step held by the usage limit, reset 2026-11-15T17:00:00Z: " + limitWiringBefore
+	const want = "Held by the usage limit, reset 2026-11-15T17:00:00Z: " + limitWiringNoEpic
 	if desk.Body != want {
 		t.Errorf("notice body = %q, want %q", desk.Body, want)
 	}
 
-	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringReset()): {limitWiringBefore}})
+	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringReset()): {limitWiringNoEpic}})
 	if got := router.received(); len(got) != 1 {
 		t.Fatalf("got %d notices once the mark is stored, want 1: the told step is not told again", len(got))
 	}
@@ -244,7 +257,7 @@ func TestSessionsHostTellsNothingAfterRestartForStepTold(t *testing.T) {
 		t.Fatalf("got %d notices before the restart, want 1", len(got))
 	}
 	// The step counts as told before the restart once its mark is stored.
-	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringReset()): {limitWiringBefore}})
+	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringReset()): {limitWiringNoEpic}})
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
 	}
@@ -296,13 +309,13 @@ func TestSessionsHostTellsAStepLimitedAgainAfterItsResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desk notice: %v", err)
 	}
-	const want = "1 step held by the usage limit, reset 2026-11-16T09:00:00Z: " + limitWiringBefore
+	const want = "Held by the usage limit, reset 2026-11-16T09:00:00Z: " + limitWiringNoEpic
 	if desk.Body != want {
 		t.Errorf("notice body after the resume = %q, want %q", desk.Body, want)
 	}
 	// The check that routed the notice writes the limit's mark after it, and a check after a refused write writes it
 	// again (see LimitNotices.update), so the marks come to name only the second limit.
-	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringBefore}})
+	host.awaitMarks(t, st, map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringNoEpic}})
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
 	}
@@ -325,7 +338,7 @@ func TestSessionsHostSendsNothingForStepMarkedBeforeStart(t *testing.T) {
 	ctx := t.Context()
 	st, getenv := openLimitStore(t)
 	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
-	if err := st.TellLimit(ctx, limitWiringKey(limitWiringReset()), []string{limitWiringBefore}); err != nil {
+	if err := st.TellLimit(ctx, limitWiringKey(limitWiringReset()), []string{limitWiringNoEpic}); err != nil {
 		t.Fatalf("mark limit told: %v", err)
 	}
 
@@ -348,7 +361,7 @@ func TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart(t *testing.T) {
 	ctx := t.Context()
 	st, getenv := openLimitStore(t)
 	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
-	if err := st.TellLimit(ctx, limitWiringKey(limitWiringReset()), []string{limitWiringBefore}); err != nil {
+	if err := st.TellLimit(ctx, limitWiringKey(limitWiringReset()), []string{limitWiringNoEpic}); err != nil {
 		t.Fatalf("mark limit told: %v", err)
 	}
 
@@ -378,9 +391,51 @@ func TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desk notice: %v", err)
 	}
-	const want = "1 step held by the usage limit, reset 2026-11-16T09:00:00Z: " + limitWiringAfter
+	const want = "Held by the usage limit, reset 2026-11-16T09:00:00Z: " + limitWiringNoEpic
 	if desk.Body != want {
 		t.Errorf("notice body = %q, want %q", desk.Body, want)
+	}
+
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions: %v", err)
+	}
+}
+
+// TestSessionsHostNamesTheContractTitleOfAHeldStepsEpic checks that a step a usage limit holds under a stored epic is named
+// in its notice by the epic's contract title, and that the step's id is not in the notice.
+func TestSessionsHostNamesTheContractTitleOfAHeldStepsEpic(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, getenv := openLimitStore(t)
+	created := time.Unix(limitWiringStamp, 0)
+	if err := st.CreateEpic(ctx, store.EpicRow{
+		ID:         limitWiringEpic,
+		Repository: limitWiringRepo,
+		Title:      limitWiringTitle,
+		Phase:      "accepted",
+		Created:    created,
+		Changed:    created,
+	}); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	addLimitedStepInEpic(t, st, limitWiringBefore, limitWiringEpic, limitWiringReset())
+
+	router := &recordingRouter{}
+	host := startLimitHost(t, st, getenv, router)
+	got := host.awaitNotices(router, 1)
+	if len(got) != 1 {
+		t.Fatalf("got %d notices for the step held under the epic, want 1", len(got))
+	}
+	desk, err := got[0].Desk(ctx)
+	if err != nil {
+		t.Fatalf("desk notice: %v", err)
+	}
+	const want = "Held by the usage limit, reset 2026-11-15T17:00:00Z: " + limitWiringTitle
+	if desk.Body != want {
+		t.Errorf("notice body = %q, want %q", desk.Body, want)
+	}
+	if strings.Contains(desk.Body, limitWiringBefore) {
+		t.Errorf("notice body %q names step %s, want no step id", desk.Body, limitWiringBefore)
 	}
 
 	if err := host.stop(); err != nil {

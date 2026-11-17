@@ -8,7 +8,6 @@ import type { EpicCommands } from "./epicpage";
 import { NeedEntry } from "./needentry";
 import type { Need } from "./needs";
 import { installTestDom, removeTestDom } from "./testdom";
-import { pause, until } from "./testwait";
 
 const questionNeed: Need = {
   kind: "question",
@@ -16,13 +15,6 @@ const questionNeed: Need = {
   summary: "",
   epic: "repo-a/alpha",
   question: "Q1",
-};
-const laterQuestionNeed: Need = {
-  kind: "question",
-  text: "alpha asks: Which lane should it use?",
-  summary: "",
-  epic: "repo-a/alpha",
-  question: "Q2",
 };
 const parkNeed: Need = {
   kind: "park",
@@ -64,10 +56,7 @@ function recorder(): { calls: string[]; commands: EpicCommands } {
       retry: () => {
         calls.push("retry");
       },
-      answer: async (questionId, text) => {
-        calls.push(`answer ${questionId} ${text}`);
-        return "";
-      },
+      answer: async () => "",
     },
   };
 }
@@ -131,58 +120,30 @@ function textsOf(root: ParentNode, selector: string): (string | null)[] {
   return [...root.querySelectorAll(selector)].map((element) => element.textContent);
 }
 
-function answerBox(root: ParentNode): HTMLTextAreaElement | null {
-  return root.querySelector<HTMLTextAreaElement>('textarea[aria-label="answer"]');
-}
-
-// type sets the answer box's text as a typist does: its value, then its input event.
-async function type(root: ParentNode, text: string): Promise<void> {
-  const box = answerBox(root);
-  await act(() => {
-    if (box) {
-      box.value = text;
-      box.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  });
-}
-
-function answerText(root: ParentNode): string | null {
-  return answerBox(root)?.value ?? null;
-}
-
-test("a question need draws its sentence and an answer form without a question line", () => {
-  const { commands } = recorder();
+test("a question need draws its sentence and an open button, with no text box", () => {
+  const { calls, commands } = recorder();
   return withTree(entry(questionNeed, commands), async (container) => {
     assert.equal(textOf(container, "p.need-text"), "alpha asks: Which branch should it use?");
-    assert.equal(container.querySelector("form.answer") !== null, true);
-    assert.equal(container.querySelector("form.answer p.question") === null, true, "the sentence is the question");
-    assert.equal(answerBox(container) !== null, true);
-    assert.deepEqual(textsOf(container, "button"), ["Answer"], "a question need draws no Retry or Stop");
+    assert.deepEqual(textsOf(container, "button"), ["Open the epic ›"], "a question need draws only its open button");
+    assert.equal(container.querySelector("form") === null, true, "the options are answered on the epic page");
+    assert.equal(container.querySelector("textarea") === null, true, "a question need draws no text box");
+    assert.deepEqual(calls, []);
   });
 });
 
-test("submitting a question need's answer calls answer with its question id and the trimmed text", (t) => {
+test("a question need's open button calls onOpen once and no command", () => {
   const { calls, commands } = recorder();
-  return withTree(entry(questionNeed, commands), async (container) => {
-    await type(container, "  Use main  ");
-    assert.equal(await press(container, "button.act.primary", "Answer"), true);
-    await until(t.signal, () => answerText(container) === "", "the recorded answer clears the box", { step: () => act(pause) });
-    assert.deepEqual(calls, ["answer Q1 Use main"]);
-    assert.equal(answerText(container), "", "a recorded answer clears the box");
-  });
-});
-
-test("a draft typed for one question is not sent for the next question", () => {
-  const { calls, commands } = recorder();
-  return withTree(entry(questionNeed, commands), async (container) => {
-    await type(container, "Use main");
-    await act(() => {
-      render(entry(laterQuestionNeed, commands), container);
-    });
-    assert.equal(textOf(container, "p.need-text"), "alpha asks: Which lane should it use?");
-    assert.equal(answerText(container), "", "the next question starts with an empty box");
-    assert.deepEqual(calls, [], "switching questions sends nothing");
-  });
+  let opens = 0;
+  return withTree(
+    entry(questionNeed, commands, () => {
+      opens++;
+    }),
+    async (container) => {
+      assert.equal(await press(container, "button.act", "Open the epic ›"), true);
+      assert.equal(opens, 1);
+      assert.deepEqual(calls, []);
+    },
+  );
 });
 
 test("a park need draws its sentence and a Retry that calls retry, with no answer form", () => {

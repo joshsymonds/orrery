@@ -68,16 +68,19 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 }
 
 // EpicSessionRow is one session that made a call of an epic: its newest call of the epic, the unix second it was made
-// at, and the session's kind, server, pane, label and dir from its sessions row.
+// at, and the session's kind, server, pane, label, dir, title and first prompt from its sessions row. Title is "" until
+// a title is stored, and FirstPrompt is the text of the session's oldest engine_prompt event, or "" when it has none.
 type EpicSessionRow struct {
-	Session string
-	Kind    string
-	Server  string
-	Pane    string
-	Label   string
-	Dir     string
-	Call    string
-	At      int64
+	Session     string
+	Kind        string
+	Server      string
+	Pane        string
+	Label       string
+	Dir         string
+	Title       string
+	FirstPrompt string
+	Call        string
+	At          int64
 }
 
 // EpicSessions returns the sessions that made a call of epic and that the sessions table still holds, newest call
@@ -119,7 +122,7 @@ func readEpicSessions(ctx context.Context, db *sql.DB, epic string) ([]EpicSessi
 	for _, row := range rows {
 		listed = append(listed, EpicSessionRow{
 			Session: row.Session, Kind: row.Kind, Server: row.Server, Pane: row.Pane, Label: row.Label,
-			Dir: row.Dir, Call: row.Call, At: row.At,
+			Dir: row.Dir, Title: row.Title, FirstPrompt: row.FirstPrompt, Call: row.Call, At: row.At,
 		})
 	}
 	return listed, nil

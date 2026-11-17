@@ -368,6 +368,10 @@ type EpicTask struct {
 	FindingPos  int64
 	Batch       string
 	Guard       string
+	NeedsFiles  string
+	Decisions   int64
+	AfterTasks  string
+	Question    int64
 }
 
 type EpicTaskContribute struct {
@@ -626,6 +630,7 @@ type Session struct {
 	Background    bool
 	TurnOutput    string
 	PromptsFrom   int64
+	Title         string
 }
 
 type Step struct {

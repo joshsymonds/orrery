@@ -2,7 +2,6 @@ package build
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -52,7 +51,7 @@ func startOriginStep(t *testing.T, holds originHolds) (*passFixture, string, str
 	f.pass()
 	f.addRun(f.lastRun().id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
 	f.pass()
-	worktree := filepath.Join(TaskDir(f.stateDir, passEpic, 1), passStep(StageImplement, 1, 0))
+	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
 	buildRun(t, worktree, "checkout", "-q", "--detach", commit)
 	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+commit+`"}`)
 	return f, commit, origin

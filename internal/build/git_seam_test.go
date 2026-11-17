@@ -19,6 +19,8 @@ func (refusingGit) Pin(context.Context, string, string, string) error { return e
 
 func (refusingGit) AddWorktree(context.Context, string, string, string) error { return errGitRefused }
 
+func (refusingGit) MoveWorktree(context.Context, string, string, string) error { return errGitRefused }
+
 func (refusingGit) RemoveWorktrees(context.Context, string, string) error { return errGitRefused }
 
 // recordingGit records each branch create it is asked for, then makes it through the package's functions.

@@ -122,6 +122,22 @@ public class EpicsClient(
 
 
   /**
+   *  Kick records the owner's text on the named orreryd epic as a decision and wakes its planner with it at the epic's
+   *  next plan run.
+   */
+  override suspend fun kick(request: EpicsKickRequest, headers: Headers): ResponseMessage<EpicsKickResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Kick",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsKickRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsKickResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
    */
   override suspend fun answer(request: EpicsAnswerRequest, headers: Headers): ResponseMessage<EpicsAnswerResponse> = client.unary(

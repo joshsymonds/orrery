@@ -3,14 +3,30 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { useFlash } from "./flash";
 import type { WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import type { SentText } from "./sending";
 import { ReplyText } from "./text";
 
 const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
 const pullFailedLine = "Could not pull the message back.";
+const queuedWords = "It sends when this turn ends";
 
 interface FailedSend {
   text: string;
   promptId: string;
+}
+
+// A message this composer sent while its conversation was working. It stays above the box until the turn ends or its
+// send fails.
+interface LocalQueued {
+  promptId: string;
+  text: string;
+}
+
+// QueueRow is one line of the queue above the box: a message the conversation holds or this composer sent.
+interface QueueRow {
+  key: string;
+  text: string;
+  canceled: boolean;
 }
 
 // edgeClass is the edge a composer shows for its conversation's state: working, waiting, or idle for any other state.
@@ -25,12 +41,12 @@ function edgeClass(state: string): string {
   }
 }
 
-// placeholderFor says what sending does in a state: working queues the text for Claude's next step, waiting answers,
-// and any other state replies.
+// placeholderFor says what sending does in a state: working queues the text until the turn ends, waiting answers, and
+// any other state replies.
 function placeholderFor(state: string, label: string): string {
   switch (state) {
     case "working":
-      return `Queue for ${label}; it lands at Claude's next step`;
+      return `Queue for ${label}; it sends when this turn ends`;
     case "waiting":
       return `Answer ${label}`;
     default:
@@ -38,10 +54,17 @@ function placeholderFor(state: string, label: string): string {
   }
 }
 
+// sameText compares two messages' text as the page does for a sent message: trimmed.
+function sameText(a: string, b: string): boolean {
+  return a.trim() === b.trim();
+}
+
 // Composer is the send box under the reader. Enter and the send button send the text once; Shift+Enter or Alt+Enter
-// puts a line break at the cursor instead. A failed send keeps the draft and its prompt id and is never resent by the
-// composer. Up in an empty box pulls the newest queued text back. The queued messages draw above the box, oldest
-// first, each as a tag and its text. Its edge and placeholder follow the conversation's state.
+// puts a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it
+// rejects. A failed send keeps the draft and its prompt id and is never resent by the composer. Up in an empty box pulls
+// the newest queued text back. The queue draws above the box, oldest first, each message as a tag and its text: the
+// conversation's waiting messages, then the messages this composer sent while the conversation was working. Its edge
+// and placeholder follow the conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -50,10 +73,13 @@ export function Composer(props: {
   newPromptId: () => string;
   inputRef?: Ref<HTMLTextAreaElement>; // the page focuses it on `i`
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
+  onSending?: (entry: SentText) => void; // called as a send starts, before it is awaited
+  onUnsent?: (promptId: string) => void; // called when a send rejects
 }): JSX.Element {
-  const { label, state, send, pull, newPromptId, inputRef, queued = [] } = props;
+  const { label, state, send, pull, newPromptId, inputRef, queued = [], onSending, onUnsent } = props;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  const [local, setLocal] = useState<LocalQueued[]>([]);
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
   const [flashing, flash] = useFlash();
@@ -68,6 +94,13 @@ export function Composer(props: {
     }
   }, [text]);
 
+  // A turn that ends takes the messages sent during it off the queue.
+  useLayoutEffect(() => {
+    if (state !== "working") {
+      setLocal((current) => (current.length === 0 ? current : []));
+    }
+  }, [state]);
+
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "") {
       return;
@@ -78,6 +111,10 @@ export function Composer(props: {
     const promptId = pending !== null && pending.text === sent ? pending.promptId : newPromptId();
     inFlight.current = true;
     setError("");
+    onSending?.({ text: sent, promptId });
+    if (state === "working") {
+      setLocal((current) => [...current, { promptId, text: sent }]);
+    }
     try {
       await send(sent, promptId);
       failed.current = null;
@@ -86,6 +123,8 @@ export function Composer(props: {
     } catch {
       failed.current = { text: sent, promptId };
       setError(sendFailedLine);
+      onUnsent?.(promptId);
+      setLocal((current) => current.filter((entry) => entry.promptId !== promptId));
     } finally {
       inFlight.current = false;
     }
@@ -127,15 +166,26 @@ export function Composer(props: {
     }
   }
 
+  // The local messages show only while the conversation is working, and a message the conversation's queue already
+  // holds, not canceled, is drawn once, from the queue.
+  const sentHere = state === "working" ? local : [];
+  const rows: QueueRow[] = [
+    ...queued.map((message, index) => ({ key: `queued-${index}`, text: message.text, canceled: message.canceled })),
+    ...sentHere
+      .filter((entry) => !queued.some((message) => !message.canceled && sameText(message.text, entry.text)))
+      .map((entry) => ({ key: `local-${entry.promptId}`, text: entry.text, canceled: false })),
+  ];
+
   return (
     <div class="compose">
-      {queued.length > 0 && (
+      {rows.length > 0 && (
         <ol class="queue">
-          {queued.map((message, index) => (
-            <li key={`queued-${index}`} class={message.canceled ? "queued canceled" : "queued"}>
-              <span class="tag">{message.canceled ? "canceled" : "waiting"}</span>
+          {rows.map((row) => (
+            <li key={row.key} class={row.canceled ? "queued canceled" : "queued"}>
+              <span class="tag">{row.canceled ? "canceled" : "queued"}</span>
+              {!row.canceled && <span class="words">{queuedWords}</span>}
               <span class="text">
-                <ReplyText text={message.text} />
+                <ReplyText text={row.text} />
               </span>
             </li>
           ))}

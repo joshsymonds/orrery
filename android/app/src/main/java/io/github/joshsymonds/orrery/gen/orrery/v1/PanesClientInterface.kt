@@ -54,4 +54,9 @@ public interface PanesClientInterface {
    *  and the whole state, then the deltas that follow each change.
    */
   public suspend fun watchConversation(headers: Headers = emptyMap()): ServerOnlyStreamInterface<WatchConversationRequest, WatchConversationResponse>
+
+  /**
+   *  Older returns the items of one pane's Claude transcript older than a line start of it, the newest page first.
+   */
+  public suspend fun older(request: OlderRequest, headers: Headers = emptyMap()): ResponseMessage<OlderResponse>
 }

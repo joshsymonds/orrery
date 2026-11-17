@@ -11,6 +11,7 @@
   },
   "devDependencies": {
     "@types/node": "24.10.1",
-    "happy-dom": "20.0.0"
+    "happy-dom": "20.0.0",
+    "playwright-core": "1.65.1"
   }
 }

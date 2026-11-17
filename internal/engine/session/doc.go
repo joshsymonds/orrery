@@ -8,7 +8,11 @@
 // request it is. A request the package cannot answer arrives as a Refused request, which the host must
 // not answer. A consumer that stops reading Lines pauses only its own session.
 //
+// A question the host cannot answer, anything but one question that is not multi-select and has options, is
+// refused on arrival with a deny response that tells the agent to ask again in that shape or in plain text,
+// so the session never waits on a question no one can answer.
+//
 // Unverified: no recording holds the answer shapes beyond one question with one chosen option. Several
 // questions, multi-select questions and free-text answers have no recorded shape. The error control
-// response used to refuse a request has no recording either.
+// response used to refuse a request that is not a question has no recording either.
 package session

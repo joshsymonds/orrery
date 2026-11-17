@@ -141,6 +141,13 @@ func (f *recordingEpics) RetryEpic(
 	return respond(f, req.Msg, &v1.RetryEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) KickEpic(
+	_ context.Context,
+	req *connect.Request[v1.KickEpicRequest],
+) (*connect.Response[v1.KickEpicResponse], error) {
+	return respond(f, req.Msg, &v1.KickEpicResponse{Epic: f.epic})
+}
+
 func (f *recordingEpics) FollowEpics(
 	_ context.Context,
 	req *connect.Request[v1.FollowEpicsRequest],
@@ -474,6 +481,9 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 		{args: []string{"pause"}, form: "pause ID"},
 		{args: []string{"resume", "a", "b"}, form: "resume ID"},
 		{args: []string{"stop"}, form: "stop ID"},
+		{args: []string{"kick"}, form: "kick ID TEXT"},
+		{args: []string{"kick", epicTestID}, form: "kick ID TEXT"},
+		{args: []string{"kick", epicTestID, "a", "b"}, form: "kick ID TEXT"},
 		{args: []string{"retry"}, form: "retry ID [NODE]"},
 		{args: []string{"retry", epicTestID, "build", "extra"}, form: "retry ID [NODE]"},
 		{args: []string{"retry", epicTestID, ""}, form: "retry ID [NODE]"},

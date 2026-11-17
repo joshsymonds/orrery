@@ -127,7 +127,7 @@ func TestResolveGateUnknownNameWrapsErrUnknown(t *testing.T) {
 
 func TestReadoptCheckRestoresVerifierCheckForVerifierRow(t *testing.T) {
 	t.Parallel()
-	check, err := ReadoptCheck()(context.Background(), store.StepRow{ID: "s1", Schema: VerifierSchema})
+	check, err := ReadoptCheck(nil)(context.Background(), store.StepRow{ID: "s1", Schema: VerifierSchema})
 	if err != nil {
 		t.Fatalf("ReadoptCheck(verifier) error = %v, want nil", err)
 	}
@@ -149,7 +149,7 @@ func TestReadoptCheckIsNilForOtherRows(t *testing.T) {
 		"other schema": {ID: "s3", Schema: `{"type":"object"}`},
 	}
 	for name, row := range rows {
-		check, err := ReadoptCheck()(context.Background(), row)
+		check, err := ReadoptCheck(nil)(context.Background(), row)
 		if err != nil {
 			t.Errorf("ReadoptCheck(%s) error = %v, want nil", name, err)
 		}

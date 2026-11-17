@@ -12,6 +12,10 @@ import (
 // HeadlessRow is one headless engine session the phone lists, with its newest main-conversation reply.
 type HeadlessRow struct {
 	ID, Dir, State, Changed, Seen, Question, Reason string
+	// Title is the session's generated title, or "" until one is stored.
+	Title string
+	// FirstPrompt is the text of the session's oldest engine_prompt event, or "" when it has none.
+	FirstPrompt string
 	// Reply is the text of the newest engine_block of kind text with an empty parentToolUseId, or "" when none.
 	Reply string
 	// NewestReply is the at of the newest such block or of the newest engine_request whose refused is false,
@@ -58,7 +62,8 @@ func readHeadlessSessions(ctx context.Context, db *sql.DB, cutoff int64) ([]Head
 	for _, row := range rows {
 		headless = append(headless, HeadlessRow{
 			ID: row.ID, Dir: row.Dir, State: row.State, Changed: row.Changed, Seen: row.Seen,
-			Question: row.Question, Reason: row.Reason, Reply: row.Reply, NewestReply: row.NewestReply,
+			Question: row.Question, Reason: row.Reason, Title: row.Title, FirstPrompt: row.FirstPrompt,
+			Reply: row.Reply, NewestReply: row.NewestReply,
 		})
 	}
 	return headless, nil

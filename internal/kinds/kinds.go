@@ -69,7 +69,9 @@ const (
 // and Output the output an end reports. IDs are the ids of the work a start starts and Items the Requirement each of
 // them is for, in the same order. Tasks are the seqs of the tasks a prepare claims for its batch, in seq order. Units
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
-// Phase are what a review, closure or conclusion ends with.
+// Phase are what a review, closure or conclusion ends with. Revision, when set, is the revision the work runs at in
+// place of the run's own: a release run walks the Done gates and captures of a merge the release integrator committed,
+// and records it as the candidate, at that commit.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -83,6 +85,7 @@ type Action struct {
 	Round    store.ReviewRound
 	Closures []store.Closure
 	Phase    string
+	Revision string
 }
 
 // Kind decides what happens next to a node run.

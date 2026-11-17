@@ -3,7 +3,6 @@ package build
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -31,7 +30,7 @@ func (e RoleError) Unwrap() error { return e.Err }
 // startStep starts the step of action, under the id it carries, for the task of view in epic, and returns the id the
 // engine started it under. An implement step runs the implementer's agent in its own worktree; a review step runs the
 // task-stage reviewer its review gate names, read-only; a verify step runs the verifier's agent read-only on one
-// finding. An error the engine returns on start is wrapped, so errors.Is still matches it.
+// finding; an orchestrate step runs the orchestrator's agent read-only on the implementer's request. An error the engine returns on start is wrapped, so errors.Is still matches it.
 func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, action Action) (string, error) {
 	var (
 		start enginehost.StepStart
@@ -44,6 +43,8 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 		start, err = r.reviewStart(epic, view.Task, action.ID)
 	case StageVerify:
 		start, err = r.verifierStart(epic, view, action.ID)
+	case StageOrchestrate:
+		start, err = r.orchestratorStart(ctx, epic, view, action.ID)
 	default:
 		return "", fmt.Errorf("unit %q has no step to start", action.Unit)
 	}
@@ -60,8 +61,10 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 }
 
 // implementerStart returns the start of the implementer step id for task of epic. The step runs the roles file's
-// implementer agent in its own detached worktree at the task's base, under the task's directory, with the brief, the
-// task's files, and the command gate the epic names for the task. A gate that is an agent gate is an error.
+// implementer agent in the task's implement worktree (ImplementWorktree), added detached at the task's base when it does
+// not exist and kept as it is when it does, so a later attempt or rerun continues from the earlier work. The step is
+// checked from the task's base, with the brief, the task's files, and the command gate the epic names for the task. A
+// gate that is an agent gate is an error.
 func (r *Runner) implementerStart(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
 ) (enginehost.StepStart, error) {
@@ -76,7 +79,7 @@ func (r *Runner) implementerStart(
 	if gate.Agent != "" {
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
-	path := filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), id)
+	path := ImplementWorktree(r.stateDir, epic.ID, task.Seq)
 	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
@@ -85,7 +88,7 @@ func (r *Runner) implementerStart(
 	return enginehost.StepStart{
 		ID:          id,
 		Agent:       agent,
-		Prompt:      Brief(epic, task, red, redLog, redStderr, task.Build.Failure),
+		Prompt:      Brief(epic, task, gate, red, redLog, redStderr, task.Build.Failure),
 		Schema:      ImplementerSchema,
 		Workspace:   path,
 		Revision:    task.Build.Base,
@@ -179,4 +182,39 @@ func (r *Runner) verifierStart(epic store.EpicRow, view View, id string) (engine
 	task := view.Task
 	subject := Subject{Epic: epic, Task: &task, Base: task.Build.Base, Revision: task.Build.Revision}
 	return VerifierStart(subject, findings[pos], id, agent), nil
+}
+
+// orchestratorStart returns the start of the orchestrator step id that decides the request of view's task. The step runs
+// the role file's orchestrator agent, or the planner's when the role file has no orchestrator key, read-only at the
+// task's base in the epic's repository, with the orchestrator's prompt, schema and return check, which checks the
+// return against the epic's tasks as they stand at the start.
+func (r *Runner) orchestratorStart(
+	ctx context.Context, epic store.EpicRow, view View, id string,
+) (enginehost.StepStart, error) {
+	agent, err := roles.AgentOr(r.getenv, roleOrchestrator, rolePlanner)
+	if err != nil {
+		return enginehost.StepStart{}, RoleError{Err: err}
+	}
+	peers, err := r.peers(ctx, epic)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	prompt, err := r.orchestratorPrompt(ctx, epic, view, peers)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	task := view.Task
+	return enginehost.StepStart{
+		ID:          id,
+		Agent:       agent,
+		ReadOnly:    true,
+		Workspace:   epic.Repository,
+		Revision:    task.Build.Base,
+		Prompt:      prompt,
+		Schema:      OrchestratorSchema,
+		ReturnCheck: OrchestratorCheck(task, peers),
+		DoneValue:   statusDone,
+		Epic:        epic.ID,
+		Task:        taskLabel(task.Seq),
+	}, nil
 }

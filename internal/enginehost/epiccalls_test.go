@@ -145,6 +145,22 @@ func TestEpicCallAnswerRecordsTheTmuxPaneOfItsCaller(t *testing.T) {
 	})
 }
 
+func TestEpicKickIsRecordedAsEpicKick(t *testing.T) {
+	t.Parallel()
+	rec := &fakeEpicRecorder{}
+	_, client := epicCallFixture(t, rec)
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+
+	req := connect.NewRequest(&v1.KickEpicRequest{Id: epicServiceID, Text: "Synthetic kick."})
+	req.Header().Set(protocol.HeaderSession, epicCallSession)
+	if _, err := client.KickEpic(t.Context(), req); err != nil {
+		t.Fatalf("KickEpic: %v", err)
+	}
+	wantEpicCall(t, rec.recorded(), epicCall{
+		epic: epicServiceID, caller: store.EpicCaller{Session: epicCallSession}, call: "epic_kick", at: epicCallAt(),
+	})
+}
+
 func TestCloseEpicRPCIsRecordedAsEpicClose(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}

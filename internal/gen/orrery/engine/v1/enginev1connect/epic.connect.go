@@ -51,6 +51,8 @@ const (
 	EpicsStopEpicProcedure = "/orrery.engine.v1.Epics/StopEpic"
 	// EpicsRetryEpicProcedure is the fully-qualified name of the Epics's RetryEpic RPC.
 	EpicsRetryEpicProcedure = "/orrery.engine.v1.Epics/RetryEpic"
+	// EpicsKickEpicProcedure is the fully-qualified name of the Epics's KickEpic RPC.
+	EpicsKickEpicProcedure = "/orrery.engine.v1.Epics/KickEpic"
 	// EpicsFollowEpicsProcedure is the fully-qualified name of the Epics's FollowEpics RPC.
 	EpicsFollowEpicsProcedure = "/orrery.engine.v1.Epics/FollowEpics"
 	// EpicsReleaseEpicProcedure is the fully-qualified name of the Epics's ReleaseEpic RPC.
@@ -86,6 +88,9 @@ type EpicsClient interface {
 	StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error)
 	// RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
+	// KickEpic records the owner's text on a stored epic as a decision and wakes its planner with it at the epic's next
+	// plan run, and returns the stored epic.
+	KickEpic(context.Context, *connect.Request[v1.KickEpicRequest]) (*connect.Response[v1.KickEpicResponse], error)
 	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
 	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
 	// ReleaseEpic releases a stored epic. It resumes the stopped release at its first unfinished step, running again the
@@ -159,6 +164,12 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("RetryEpic")),
 			connect.WithClientOptions(opts...),
 		),
+		kickEpic: connect.NewClient[v1.KickEpicRequest, v1.KickEpicResponse](
+			httpClient,
+			baseURL+EpicsKickEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("KickEpic")),
+			connect.WithClientOptions(opts...),
+		),
 		followEpics: connect.NewClient[v1.FollowEpicsRequest, v1.FollowEpicsResponse](
 			httpClient,
 			baseURL+EpicsFollowEpicsProcedure,
@@ -196,6 +207,7 @@ type epicsClient struct {
 	resumeEpic  *connect.Client[v1.ResumeEpicRequest, v1.ResumeEpicResponse]
 	stopEpic    *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
 	retryEpic   *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
+	kickEpic    *connect.Client[v1.KickEpicRequest, v1.KickEpicResponse]
 	followEpics *connect.Client[v1.FollowEpicsRequest, v1.FollowEpicsResponse]
 	releaseEpic *connect.Client[v1.ReleaseEpicRequest, v1.ReleaseEpicResponse]
 	closeEpic   *connect.Client[v1.CloseEpicRequest, v1.CloseEpicResponse]
@@ -242,6 +254,11 @@ func (c *epicsClient) RetryEpic(ctx context.Context, req *connect.Request[v1.Ret
 	return c.retryEpic.CallUnary(ctx, req)
 }
 
+// KickEpic calls orrery.engine.v1.Epics.KickEpic.
+func (c *epicsClient) KickEpic(ctx context.Context, req *connect.Request[v1.KickEpicRequest]) (*connect.Response[v1.KickEpicResponse], error) {
+	return c.kickEpic.CallUnary(ctx, req)
+}
+
 // FollowEpics calls orrery.engine.v1.Epics.FollowEpics.
 func (c *epicsClient) FollowEpics(ctx context.Context, req *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error) {
 	return c.followEpics.CallUnary(ctx, req)
@@ -280,6 +297,9 @@ type EpicsHandler interface {
 	StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error)
 	// RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
 	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
+	// KickEpic records the owner's text on a stored epic as a decision and wakes its planner with it at the epic's next
+	// plan run, and returns the stored epic.
+	KickEpic(context.Context, *connect.Request[v1.KickEpicRequest]) (*connect.Response[v1.KickEpicResponse], error)
 	// FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
 	FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error)
 	// ReleaseEpic releases a stored epic. It resumes the stopped release at its first unfinished step, running again the
@@ -349,6 +369,12 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("RetryEpic")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsKickEpicHandler := connect.NewUnaryHandler(
+		EpicsKickEpicProcedure,
+		svc.KickEpic,
+		connect.WithSchema(epicsMethods.ByName("KickEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
 	epicsFollowEpicsHandler := connect.NewUnaryHandler(
 		EpicsFollowEpicsProcedure,
 		svc.FollowEpics,
@@ -391,6 +417,8 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsStopEpicHandler.ServeHTTP(w, r)
 		case EpicsRetryEpicProcedure:
 			epicsRetryEpicHandler.ServeHTTP(w, r)
+		case EpicsKickEpicProcedure:
+			epicsKickEpicHandler.ServeHTTP(w, r)
 		case EpicsFollowEpicsProcedure:
 			epicsFollowEpicsHandler.ServeHTTP(w, r)
 		case EpicsReleaseEpicProcedure:
@@ -438,6 +466,10 @@ func (UnimplementedEpicsHandler) StopEpic(context.Context, *connect.Request[v1.S
 
 func (UnimplementedEpicsHandler) RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.RetryEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) KickEpic(context.Context, *connect.Request[v1.KickEpicRequest]) (*connect.Response[v1.KickEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.KickEpic is not implemented"))
 }
 
 func (UnimplementedEpicsHandler) FollowEpics(context.Context, *connect.Request[v1.FollowEpicsRequest]) (*connect.Response[v1.FollowEpicsResponse], error) {
