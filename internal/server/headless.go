@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -37,7 +36,7 @@ func (s sessionsServer) ListHeadless(
 	if s.reader == nil {
 		return nil, listError(connect.CodeUnavailable, "store unavailable")
 	}
-	cutoff := time.Now().Add(-store.EventRetention).Unix()
+	cutoff := s.now().Add(-store.EventRetention).Unix()
 	rows, err := s.reader.HeadlessSessions(ctx, cutoff)
 	if errors.Is(err, store.ErrUnavailable) {
 		return nil, listError(connect.CodeUnavailable, "store unavailable")

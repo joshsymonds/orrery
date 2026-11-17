@@ -297,10 +297,12 @@ func TestListHeadlessReturnsInternalWithoutStoreDetail(t *testing.T) {
 // labelPrompt is a first prompt whose words run over a line break and whose label cut falls inside a word.
 const labelPrompt = "Refactor the billing module so\n every invoice lines up with the ledger, then add tests for the rounding edge cases"
 
-// listedLabels lists the headless sessions of the store at path and returns each session's label by id.
-func listedLabels(t *testing.T, path string) map[string]string {
+// listedLabels lists the headless sessions of the store at path through a server whose clock is now, and returns each
+// session's label by id.
+func listedLabels(t *testing.T, path string, now time.Time) map[string]string {
 	t.Helper()
-	got, err := listHeadlessClient(t, path).ListHeadless(
+	client := sessionsClientAt(t, store.NewReader(path), func() time.Time { return now })
+	got, err := client.ListHeadless(
 		t.Context(),
 		connect.NewRequest(&orreryv1.ListHeadlessRequest{}),
 	)
@@ -320,7 +322,7 @@ func TestSessionTitleLabelIsTheStoredTitle(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openHeadlessStore(t, path)
-	now := time.Now()
+	now := time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
 	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessAlphaID, Dir: "/work/gamma", State: "idle"})
 	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: headlessAlphaID, Text: labelPrompt})
 	if err := s.SetSessionTitle(t.Context(), headlessAlphaID, "Billing rounding"); err != nil {
@@ -333,7 +335,7 @@ func TestSessionTitleLabelIsTheStoredTitle(t *testing.T) {
 		t.Fatalf("Close store: %v", err)
 	}
 
-	if got := listedLabels(t, path)[headlessAlphaID]; got != "Billing rounding" {
+	if got := listedLabels(t, path, now)[headlessAlphaID]; got != "Billing rounding" {
 		t.Fatalf("label with a stored title = %q, want the title", got)
 	}
 }
@@ -345,7 +347,7 @@ func TestSessionTitleLabelBeforeATitleIsDirAndFirstWords(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openHeadlessStore(t, path)
-	now := time.Now()
+	now := time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
 	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessAlphaID, Dir: "/work/gamma", State: "idle"})
 	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: headlessAlphaID, Text: labelPrompt})
 	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessBetaID, Dir: "/work/delta", State: "idle"})
@@ -353,7 +355,7 @@ func TestSessionTitleLabelBeforeATitleIsDirAndFirstWords(t *testing.T) {
 		t.Fatalf("Close store: %v", err)
 	}
 
-	labels := listedLabels(t, path)
+	labels := listedLabels(t, path, now)
 	if want := "gamma · Refactor the billing module so every inv"; labels[headlessAlphaID] != want {
 		t.Fatalf("label with a prompt = %q, want %q", labels[headlessAlphaID], want)
 	}

@@ -206,7 +206,8 @@ type Config struct {
 	Home string
 	// Picker resolves the open configuration each Picker.Ask uses, or is nil, which answers not found.
 	Picker func() (open.Config, error)
-	// Now returns the current time, which dates the expiry of each picker token, or is nil for time.Now.
+	// Now returns the current time, which dates the expiry of each picker token and the retention window of
+	// ListHeadless, or is nil for time.Now.
 	Now func() time.Time
 	// ReportSeen receives the pane and the seen time it holds after each Panes.MarkSeen succeeds, or is nil to
 	// report nothing.
@@ -261,7 +262,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	sessionsPath, sessions := newSessionsHandler(
-		cfg.Sessions, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		cfg.Sessions, now, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
 		cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
