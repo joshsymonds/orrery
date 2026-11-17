@@ -348,10 +348,23 @@ test("the wireframe's --rule token is defined", () => {
   assert.match(declarationsFor(css, ":root"), /--rule:\s*#2a2b3c;/);
 });
 
-test("the 1200px cap is gone and the reader's text column stops at 68ch", () => {
+test("the 1200px cap is gone, and the reader's gutter and body fill its row with no 68ch track", () => {
   assert.doesNotMatch(css, /max-width:\s*1200px/);
-  assert.match(declarationsFor(css, ".reader .t"), /grid-template-columns:\s*5ch minmax\(0,\s*68ch\);/);
+  assert.doesNotMatch(css, /68ch/);
+  assert.match(declarationsFor(css, ".reader .t"), /grid-template-columns:\s*5ch minmax\(0,\s*1fr\);/);
   assert.match(declarationsFor(css, ".compose .queued"), /minmax\(0,\s*1fr\)/);
+});
+
+test("TurnRhythm: the conversation column's rule sets an 88ch width, centred, at the reading size", () => {
+  const column = declarationsFor(css, ".reader .t");
+  assert.match(column, /(?<![-\w])width:\s*88ch;/);
+  assert.match(column, /(?<![-\w])font-size:\s*14px;/);
+  assert.match(column, /margin-inline:\s*auto;/);
+});
+
+test("TurnRhythm: the owner's turn's rule sets a 30px top margin, and the first row has none", () => {
+  assert.match(declarationsFor(css, ".reader .t.owner-turn"), /margin-top:\s*30px;/);
+  assert.match(declarationsFor(css, ".reader .t.owner-turn:first-child"), /margin-top:\s*0(?![\d.])/);
 });
 
 test("reading text is 14px with a 1.6 line height", () => {

@@ -253,7 +253,7 @@ function OptionButton({
 // a mark reading sending. Its text draws through Markdown, as a prompt's does.
 function SendingRow({ text }: { text: string }) {
   return (
-    <div class="t sending-row">
+    <div class="t owner-turn sending-row">
       <span class="gut sending">sending</span>
       <div class="body">
         <div class="you">
@@ -278,8 +278,9 @@ function ItemRow({
   step?: EpicStep;
   onToggleOpen?: () => void;
 }) {
+  // Its row carries the owner-turn class, which sets the gap above it.
   return (
-    <div class="t">
+    <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
         <ItemBody item={item} result={result} open={open} step={step} onToggleOpen={onToggleOpen} />
@@ -303,15 +304,15 @@ function ItemBody({
 }) {
   switch (item.kind) {
     case "prompt":
-      if (step === undefined || item.sender === "owner") {
-        return (
-          <div class="you">
-            <small>YOU</small>
-            <ReplyMarkdown text={item.text} />
-          </div>
-        );
+      if (step !== undefined && !ownersTurn(item, step)) {
+        return <StepPrompt item={item} checks={step.checks} />;
       }
-      return <StepPrompt item={item} checks={step.checks} />;
+      return (
+        <div class="you">
+          <small>YOU</small>
+          <ReplyMarkdown text={item.text} />
+        </div>
+      );
     case "tool":
     case "question":
       return <CallRow item={item} result={result} />;
@@ -327,6 +328,12 @@ function ItemBody({
     default:
       return <ReplyMarkdown text={item.text} />;
   }
+}
+
+// ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step. Its
+// row carries the owner-turn class, and its body draws as YOU.
+function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
+  return item.kind === "prompt" && (step === undefined || item.sender === "owner");
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles

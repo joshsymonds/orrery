@@ -344,7 +344,15 @@ button, input, textarea, select { font-family: var(--mono); }
 .pill.tone-idle { color: var(--overlay1); background: var(--surface0); box-shadow: 0 0 0 1px color-mix(in srgb, var(--overlay1) 30%, transparent); }
 .reader { min-width: 0; padding: 4px 0 10px; }
 .reader-loading { margin: 0; color: var(--overlay1); }
-.reader .t { display: grid; grid-template-columns: 5ch minmax(0, 68ch); column-gap: 20px; }
+/* Each row is one 88ch column, centred in the reader, with its time in the 5ch gutter on its left. The row takes the
+   reading size, so its ch is the width of the reading text's characters. The owner's turn starts 30px below the row
+   before it; the first row has no row before it, so no gap above it. */
+.reader .t {
+  display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: 20px; font-size: 14px;
+  width: 88ch; max-width: 100%; margin-inline: auto;
+}
+.reader .t.owner-turn { margin-top: 30px; }
+.reader .t.owner-turn:first-child { margin-top: 0; }
 .reader .t > .gut { font: 11px/23px var(--mono); color: var(--overlay0); text-align: right; white-space: nowrap; }
 .reader .t > .gut.new { color: var(--lavender); font-weight: 700; }
 .reader .t > .gut.live { color: var(--yellow); }

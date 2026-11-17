@@ -1570,3 +1570,65 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
     },
   );
 });
+
+test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its body or inside them", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "a reply" })] }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const row = container.querySelector<HTMLElement>(".reader > .t");
+      assert.ok(row !== null, "the reply is a row of the reader");
+      assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
+      assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
+      assert.equal(row.querySelector(".you, .card, .question-card, .fold, .summary"), null, "no surface inside");
+      assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
+    },
+  ));
+
+test("TurnRhythm: an owner prompt's row carries owner-turn, and an engine prompt's row in a step does not", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "prompt", time: 100n, sender: "owner", text: "fix it" }),
+          item({ kind: "prompt", time: 200n, sender: "engine", round: 0, text: "engine text" }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    (container) => {
+      const [owner, engine] = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.ok(owner !== undefined && engine !== undefined, "both prompts are rows of the reader");
+      assert.equal(owner.classList.contains("owner-turn"), true, "the owner's row carries owner-turn");
+      assert.ok(owner.querySelector(".you") !== null, "the owner's row draws YOU");
+      assert.equal(engine.className, "t", "the engine's row carries no owner-turn class");
+    },
+  ));
+
+test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, direct children of .reader", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "compaction", time: 100n, text: "Synthetic summary.", trigger: "auto", tokens: 611000n }),
+          item({ kind: "reply", time: 200n, text: "after the rules" }),
+        ],
+      }),
+      seenAt: 150,
+      open: false,
+    },
+    (container) => {
+      const reader = readerOf(container);
+      const compaction = container.querySelector(".compaction")?.closest(".t");
+      const since = container.querySelector(".rule.new")?.closest(".t");
+      assert.ok(compaction !== null && compaction !== undefined, "the compaction rule is in a row");
+      assert.ok(since !== null && since !== undefined, "the since-you-looked rule is in a row");
+      assert.equal(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
+      assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
+    },
+  ));
