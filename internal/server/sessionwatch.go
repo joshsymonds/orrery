@@ -22,10 +22,10 @@ const originRunes = 300
 
 // WatchConversation answers Sessions.WatchConversation with the stream of one headless session or one labeled step.
 // The limit is checked as Panes.WatchConversation checks it. The stream sends its first delta at once, then a delta for
-// each poll that finds new main-thread items, a changed state or a changed unfinished set, and a keepalive once
-// keepalive has passed without a delta. A step session is admitted once, by StepStatus, before its first delta. The
-// stream ends with the error the session read gives, when serve shuts down, or when a send stays blocked past the send
-// deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
+// each poll that finds new main-thread items, a changed state, a changed unfinished set or a changed held set, and a
+// keepalive once keepalive has passed without a delta. A step session is admitted once, by StepStatus, before its first
+// delta. The stream ends with the error the session read gives, when serve shuts down, or when a send stays blocked
+// past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
 func (s sessionsServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[orreryv1.SessionsWatchConversationRequest],
@@ -101,15 +101,17 @@ type sessionWatch struct {
 	haveOrigin bool
 	// request is the newest unrefused request the session has raised.
 	request *orreryv1.OpenRequest
-	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished is the unfinished set it
-	// last sent.
+	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished and sentHeld are the
+	// unfinished and held sets it last sent.
 	sent           *orreryv1.ConversationState
 	sentUnfinished []*orreryv1.EngineText
+	sentHeld       []*orreryv1.HeldMessage
 }
 
 // step reads the session once. It returns the message for the read, and true when the message is a delta: the first
-// message, a read with new items, a changed state or a changed unfinished set. Otherwise the message carries neither
-// items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its oldest item.
+// message, a read with new items, a changed state, a changed unfinished set or a changed held set. Otherwise the
+// message carries neither items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its
+// oldest item.
 func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConversationResponse, bool, error) {
 	first := w.sent == nil
 	items, oldest, history, err := w.read(ctx, first)
@@ -124,17 +126,25 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if err != nil {
 		return nil, false, err
 	}
+	held, err := w.held(ctx, history)
+	if err != nil {
+		return nil, false, err
+	}
 	stateChanged := first || !proto.Equal(state, w.sent)
 	unfinishedChanged := !slices.EqualFunc(unfinished, w.sentUnfinished, func(a, b *orreryv1.EngineText) bool {
 		return proto.Equal(a, b)
 	})
-	changed := stateChanged || unfinishedChanged || len(items) > 0
+	heldChanged := !slices.EqualFunc(held, w.sentHeld, func(a, b *orreryv1.HeldMessage) bool {
+		return proto.Equal(a, b)
+	})
+	changed := stateChanged || unfinishedChanged || heldChanged || len(items) > 0
 	msg := &orreryv1.SessionsWatchConversationResponse{
 		Transcript: w.id,
 		Seq:        w.seq,
 		Reset_:     first && w.after == 0,
 		Items:      items,
 		Unfinished: unfinished,
+		Held:       held,
 	}
 	msg.Oldest = oldest
 	if stateChanged {
@@ -143,8 +153,27 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if changed {
 		w.sent = state
 		w.sentUnfinished = unfinished
+		w.sentHeld = held
 	}
 	return msg, changed, nil
+}
+
+// held returns the held set of the session history describes, oldest first, as store.Reader.HeldPrompts reads it. A
+// step session holds nothing: the store would accept a hold on a step's row, but the stream never reads one for it. A
+// failed read is answered as a failed session read is.
+func (w *sessionWatch) held(ctx context.Context, history store.EngineHistory) ([]*orreryv1.HeldMessage, error) {
+	if history.Kind == store.KindStep {
+		return nil, nil
+	}
+	prompts, err := w.reader.HeldPrompts(ctx, w.id)
+	if err != nil {
+		return nil, sessionReadError(err)
+	}
+	held := make([]*orreryv1.HeldMessage, 0, len(prompts))
+	for _, prompt := range prompts {
+		held = append(held, &orreryv1.HeldMessage{PromptId: prompt.PromptID, Text: prompt.Text})
+	}
+	return held, nil
 }
 
 // keptItem is a main-thread item a read keeps, with the seq of the event it came from.
