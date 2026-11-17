@@ -30,15 +30,17 @@ func checkBlock(t *testing.T, n route.Notice, want blockWant) {
 	}
 }
 
-// noticeWithBody returns the notice of router whose desk body starts with prefix, and fails the test when none does.
-func noticeWithBody(t *testing.T, router *fakeAttentionRouter, prefix string) route.Notice {
+// noticeEndingWith returns the notice of router whose desk body ends with last, and fails the test when none does. A
+// park's body ends with its reason line. The tells of an epic are routed ahead of its turn's notice, so the first
+// notice that ends with a park's reason is the notice of its tell.
+func noticeEndingWith(t *testing.T, router *fakeAttentionRouter, last string) route.Notice {
 	t.Helper()
 	for _, n := range router.notices {
-		if strings.HasPrefix(shownOf(t, n).desk.Body, prefix) {
+		if strings.HasSuffix(shownOf(t, n).desk.Body, "\n"+last) {
 			return n
 		}
 	}
-	t.Fatalf("no notice body starts with %q among %d notices", prefix, len(router.notices))
+	t.Fatalf("no notice body ends with %q among %d notices", last, len(router.notices))
 	return route.Notice{}
 }
 
@@ -162,7 +164,7 @@ func TestAttentionBlockReleaseStopTellOpensOnTheFailedReleaseStep(t *testing.T) 
 
 	attentionOver(s, router).pass(context.Background())
 
-	checkBlock(t, noticeWithBody(t, router, releaseStopReason+"\n"), blockWant{block: "release_step", ref: "2"})
+	checkBlock(t, noticeEndingWith(t, router, "parked: "+releaseStopReason), blockWant{block: "release_step", ref: "2"})
 }
 
 func TestAttentionBlockQuestionTellOnAStoppedEpicWithNoFailedStepOpensOnItsQuestion(t *testing.T) {
@@ -174,7 +176,7 @@ func TestAttentionBlockQuestionTellOnAStoppedEpicWithNoFailedStepOpensOnItsQuest
 
 	attentionOver(s, router).pass(context.Background())
 
-	checkBlock(t, noticeWithBody(t, router, releaseStopReason+"\n"), blockWant{block: "question", ref: "Q1"})
+	checkBlock(t, noticeEndingWith(t, router, "parked: "+releaseStopReason), blockWant{block: "question", ref: "Q1"})
 }
 
 func TestAttentionBlockRestoreNoticeKeepsTheBlock(t *testing.T) {

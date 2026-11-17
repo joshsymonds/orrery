@@ -64,12 +64,12 @@ func TestCrashPointRestartsToTheUninterruptedRows(t *testing.T) {
 	t.Parallel()
 	want := crashUninterrupted(t)
 	// The windows the brief names: a planner step's start and its turn record, a notice and its told marker, and a
-	// resume prompt and its cleared limit. The notice windows cover both notices the run routes, the limit's and the
-	// tell's.
+	// resume prompt and its cleared limit. The run's one routed notice is the limit's. Its tell is a ref move that
+	// carries no park question, so it routes no notice, and its window runs from its write to its told marker.
 	windows := []crashWindow{
 		{name: "planner step start to turn record", from: "planner step start", to: "SetTurnStep"},
 		{name: "limit notice route to told marker", from: "notice route", to: "MarkTold"},
-		{name: "tell notice route to told marker", from: "notice route", to: "MarkTellTold"},
+		{name: "ref move tell write to told marker", from: "SetTaskBuildTelling", to: "MarkTellTold"},
 		{name: "resume prompt to cleared limit", from: "resume prompt", to: "resume clear"},
 	}
 	var mu sync.Mutex
@@ -130,8 +130,8 @@ func crashUninterrupted(t *testing.T) crashResult {
 	if len(epic.Tasks) != 1 || epic.Tasks[0].Status != "done" {
 		t.Errorf("tasks = %+v, want one accepted task", epic.Tasks)
 	}
-	if len(got.starts) != 5 || len(got.sends) != 1 || len(got.routed) != 2 {
-		t.Errorf("starts = %v, sends = %v, routed = %v, want 5 starts, 1 resume prompt and 2 notices",
+	if len(got.starts) != 5 || len(got.sends) != 1 || len(got.routed) != 1 {
+		t.Errorf("starts = %v, sends = %v, routed = %v, want 5 starts, 1 resume prompt and 1 notice",
 			got.starts, got.sends, got.routed)
 	}
 	if refs := buildRun(t, w.repo, "for-each-ref", "refs/orrery"); refs == "" {

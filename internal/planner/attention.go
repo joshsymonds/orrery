@@ -48,8 +48,9 @@ type epicBlock struct {
 	name, ref string
 }
 
-// epicNotice is the Source data of an epic notice: the id of its cause, the epic, its title, the body the owner reads
-// and the block it opens on. A row stored before the block was kept reads no block.
+// epicNotice is the Source data of an epic notice: the id of its cause, the epic, its title, the body the owner reads,
+// the block it opens on, and whether it is a park notice, whose desk notice is titled by the epic's title rather than
+// its id. A row stored before the block was kept reads no block, and one stored before the park flag reads no park.
 type epicNotice struct {
 	ID       string `json:"id"`
 	Epic     string `json:"epic"`
@@ -57,7 +58,11 @@ type epicNotice struct {
 	Body     string `json:"body"`
 	Block    string `json:"block,omitempty"`
 	BlockRef string `json:"blockRef,omitempty"`
+	Park     bool   `json:"park,omitempty"`
 }
+
+// parkedPrefix heads the reason line of a park's notice body.
+const parkedPrefix = "parked: "
 
 // AttentionStore is the store an Attention reads what each epic needs through, the notice rows it has stored, and
 // marks its turns and tells told in. *store.Store satisfies it.
@@ -178,10 +183,11 @@ func (a *Attention) storedIDs(ctx context.Context) (map[string]bool, error) {
 }
 
 // attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as
-// the epic's notice and marked told. Last, the latest turn, when it has ended and is not told, tells the owner once, if
-// the need is one the owner must answer, and is marked told. Each notice routed here carries the mark of its turn or
-// tell, which its row's write applies. stored holds the ids of the epic notices stored at the start of the pass, and a
-// notice whose id is there is not routed again.
+// the epic's notice, unless it is a silent move tell (see store.SilentMoveTell), and marked told. Last, the latest
+// turn, when it has ended and is not told, tells the owner once, if the need is one the owner must answer, and is
+// marked told. Each notice routed here carries the mark of its turn or tell, which its row's write applies. stored
+// holds the ids of the epic notices stored at the start of the pass, and a notice whose id is there is not routed
+// again.
 func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now time.Time, stored map[string]bool) {
 	need := needOf(entry)
 	if need == needNone {
@@ -197,7 +203,7 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 		id := turnNoticeID(entry.Epic, entry.Latest.Seq, need)
 		if !stored[id] {
 			a.notify(
-				ctx, entry, id, bodyOf(need, entry), turnBlockOf(need, entry),
+				ctx, entry, id, bodyOf(need, entry), turnBlockOf(need, entry), need == needPark,
 				store.ToldMark{Epic: entry.Epic, Seq: entry.Latest.Seq},
 			)
 		}
@@ -208,16 +214,20 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 }
 
 // tell routes tell of entry as the epic's notice, with the tell's text, unless a stored notice carries its id, and
-// marks it told. The notice's row marks the tell told in the write that stores it, so a restart after the route finds
-// the tell told whether or not the row is still stored. The mark after the route covers a tell whose row write failed,
-// and a tell whose mark fails is routed again on the next pass only when its notice is not stored.
+// marks it told. A ref move that carries no park question is routed to no surface, so it is only marked told and stays
+// in the epic's tells (see store.SilentMoveTell). The notice's row marks the tell told in the write that stores it, so
+// a restart after the route finds the tell told whether or not the row is still stored. The mark after the route covers
+// a tell whose row write failed, and a tell whose mark fails is routed again on the next pass only when its notice is
+// not stored.
 func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
-	id := tellNoticeID(entry.Epic, tell.Seq)
-	if !stored[id] {
-		a.notify(
-			ctx, entry, id, tellBody(tell), tellBlockOf(entry, tell),
-			store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true},
-		)
+	if !store.SilentMoveTell(tell.Text, tell.Question != nil) {
+		id := tellNoticeID(entry.Epic, tell.Seq)
+		if !stored[id] {
+			a.notify(
+				ctx, entry, id, tellBody(tell), tellBlockOf(entry, tell), parkTell(tell),
+				store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true},
+			)
+		}
 	}
 	if err := a.store.MarkTellTold(ctx, entry.Epic, tell.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark tell told", "epic", entry.Epic, "tell", tell.Seq, "err", err)
@@ -235,13 +245,13 @@ func tellNoticeID(epic string, seq int64) string {
 	return fmt.Sprintf("%s:tell:%d", epic, seq)
 }
 
-// notify routes a notice of body for entry that opens on block, keyed by its epic, with id in its source data. Its rows
-// mark told.
+// notify routes a notice of body for entry that opens on block, keyed by its epic, with id in its source data. park says
+// whether it is a park notice. Its rows mark told.
 func (a *Attention) notify(
-	ctx context.Context, entry store.EpicAttention, id, body string, block epicBlock, told store.ToldMark,
+	ctx context.Context, entry store.EpicAttention, id, body string, block epicBlock, park bool, told store.ToldMark,
 ) {
 	stored := epicNotice{
-		ID: id, Epic: entry.Epic, Title: entry.Title, Body: body, Block: block.name, BlockRef: block.ref,
+		ID: id, Epic: entry.Epic, Title: entry.Title, Body: body, Block: block.name, BlockRef: block.ref, Park: park,
 	}
 	incoming := attentionNotice(stored)
 	incoming.Told = &told
@@ -266,14 +276,19 @@ func RestoreNotice(_ context.Context, data []byte, _ int64) (route.Notice, error
 }
 
 // attentionNotice is the waiting notice of stored, keyed by its epic, with the desk notice and push that show its body
-// and the block it opens on. Notify and RestoreNotice both build it.
+// and the block it opens on. A park notice's desk notice is titled by the epic's title, and any other by its id. Notify
+// and RestoreNotice both build it.
 func attentionNotice(stored epicNotice) route.Notice {
+	deskTitle := stored.Epic
+	if stored.Park {
+		deskTitle = stored.Title
+	}
 	return route.Notice{
 		Key:   notice.Key{Epic: stored.Epic},
 		State: string(protocol.StateWaiting),
 		Desk: func(context.Context) (deskstream.Notice, error) {
 			return deskstream.Notice{
-				State: string(protocol.StateWaiting), Title: stored.Epic, Body: stored.Body,
+				State: string(protocol.StateWaiting), Title: deskTitle, Body: stored.Body,
 				Block: stored.Block, BlockRef: stored.BlockRef,
 			}, nil
 		},
@@ -316,12 +331,12 @@ func tellsOwner(need attentionNeed, entry store.EpicAttention) bool {
 	}
 }
 
-// bodyOf returns the body of the notice of need for entry: the park reason with the advice of its open park question,
-// the limit's reset time or that it names none, or each open question with its advice.
+// bodyOf returns the body of the notice of need for entry: the park body of its open park question, the limit's reset
+// time or that it names none, or each open question with its advice.
 func bodyOf(need attentionNeed, entry store.EpicAttention) string {
 	switch need {
 	case needPark:
-		return parkBody(entry)
+		return parkBody(entry.Parked, openParkQuestion(entry))
 	case needLimit:
 		if entry.Latest.Resets.IsZero() {
 			return "usage limit, reset time unknown"
@@ -337,15 +352,24 @@ func bodyOf(need attentionNeed, entry store.EpicAttention) string {
 	}
 }
 
-// parkBody returns the park reason of entry, then the advice head and advice lines of its open park question when it
-// has one.
-func parkBody(entry store.EpicAttention) string {
-	lines := []string{"parked: " + entry.Parked}
-	if question := openParkQuestion(entry); question != nil {
-		lines = append(lines, adviceHead(*question))
-		lines = append(lines, adviceLines(*question)...)
+// parkBody returns the body of a park with reason, given its park question, which is nil for a park with none. A
+// question that declares a choice leads the body with its advice head and advice lines, then the reason. A final park's
+// question declares no choice, so the reason leads and the advice follows. A park with no question is its reason alone.
+func parkBody(reason string, question *store.EpicQuestion) string {
+	reasonLine := parkedPrefix + reason
+	if question == nil {
+		return reasonLine
 	}
-	return strings.Join(lines, "\n")
+	advice := append([]string{adviceHead(*question)}, adviceLines(*question)...)
+	if len(question.Choices) == 0 {
+		return strings.Join(append([]string{reasonLine}, advice...), "\n")
+	}
+	return strings.Join(append(advice, reasonLine), "\n")
+}
+
+// parkTell reports whether tell belongs to a park question, as a park writes its reason as a tell with that question.
+func parkTell(tell store.EpicTell) bool {
+	return tell.Question != nil && tell.Question.Label == store.ParkLabel
 }
 
 // openParkQuestion returns the open park question of entry, or nil when it has none.
@@ -358,11 +382,14 @@ func openParkQuestion(entry store.EpicAttention) *store.EpicQuestion {
 	return nil
 }
 
-// tellBody returns the body of the notice of tell: its text, and when it belongs to a question, the question's advice
-// head and advice lines.
+// tellBody returns the body of the notice of tell. A park's tell has the body of its park. Any other tell's body is its
+// text, and when it belongs to a question, the question's advice head and advice lines after the text.
 func tellBody(tell store.EpicTell) string {
-	if tell.Question == nil {
+	switch {
+	case tell.Question == nil:
 		return tell.Text
+	case parkTell(tell):
+		return parkBody(tell.Text, tell.Question)
 	}
 	advice := adviceLines(*tell.Question)
 	lines := make([]string, 0, len(advice)+2)
@@ -426,8 +453,7 @@ func noticeHead(question store.EpicQuestion) string {
 	return fmt.Sprintf("Q%d %s: %s", question.Seq, question.Label, question.Text)
 }
 
-// adviceHead returns the line that heads the advice of question in a park's notice or tell, where its text is already
-// shown: `Qseq label:`.
+// adviceHead returns the line that heads the advice of question in a park's notice or tell: `Qseq label:`.
 func adviceHead(question store.EpicQuestion) string {
 	return fmt.Sprintf("Q%d %s:", question.Seq, question.Label)
 }

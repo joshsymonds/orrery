@@ -57,19 +57,25 @@ func (r *recordRoute) snapshot() []route.Notice {
 	return slices.Clone(r.notices)
 }
 
-// parkedNoticeRouted reports whether routed holds a notice keyed by the synthetic epic whose push summary starts with
-// the parked prefix.
+// parkedNoticeRouted reports whether routed holds a notice keyed by the synthetic epic whose desk notice is titled by the
+// epic's title and whose push summary ends with the parked prefix's reason line. A park's body leads with its question's
+// advice, so its reason is the last line.
 func parkedNoticeRouted(t *testing.T, routed *recordRoute) bool {
 	t.Helper()
 	for _, incoming := range routed.snapshot() {
 		if incoming.Key != (notice.Key{Epic: attentionWiringEpic}) {
 			continue
 		}
+		desk, err := incoming.Desk(t.Context())
+		if err != nil {
+			t.Fatalf("desk notice of epic notice: %v", err)
+		}
 		note, err := incoming.Push(t.Context())
 		if err != nil {
 			t.Fatalf("push of epic notice: %v", err)
 		}
-		if strings.HasPrefix(note.Summary, attentionWiringPrefix) {
+		lines := strings.Split(note.Summary, "\n")
+		if desk.Title == attentionWiringTitle && strings.HasPrefix(lines[len(lines)-1], attentionWiringPrefix) {
 			return true
 		}
 	}
@@ -147,8 +153,8 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	ticks <- time.Time{}
 	ticks <- time.Time{}
 	if !parkedNoticeRouted(t, routed) {
-		t.Fatalf("no notice keyed by epic %s with a summary starting %q was routed",
-			attentionWiringEpic, attentionWiringPrefix)
+		t.Fatalf("no notice keyed by epic %s titled %q with a summary ending in a %q line was routed",
+			attentionWiringEpic, attentionWiringTitle, attentionWiringPrefix)
 	}
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)

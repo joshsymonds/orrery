@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -13,9 +15,21 @@ import (
 // ErrNoTell reports that the epic has no tell with the seq asked for.
 var ErrNoTell = errors.New("no tell")
 
+// refMoveText matches the text of a tell that reports a ref move: an implementer's, which build writes as `T<n>
+// implementer moved …`, or a workflow node's, which interpret writes as `workflow node <path> moved …`.
+var refMoveText = regexp.MustCompile(`^(T[0-9]+ implementer|workflow node \S+) moved `)
+
+// SilentMoveTell reports whether a tell with text, which holds a park question when hasQuestion is set, is a silent move
+// tell: a ref move that carries no park question. Such a tell is stored and marked told, and it notifies no owner, so
+// it is not the epic's latest tell either.
+func SilentMoveTell(text string, hasQuestion bool) bool {
+	return !hasQuestion && refMoveText.MatchString(text)
+}
+
 // EpicAttention is what an epic needs from its owner: its phase, its park reason, whether it is paused, the lowest
 // release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in seq
-// order, the time of its newest tell, and its latest ended turn with the number of questions that turn asked.
+// order, the time of its newest tell that is not silent (see SilentMoveTell), and its latest ended turn with the number
+// of questions that turn asked.
 type EpicAttention struct {
 	Epic        string
 	Title       string
@@ -56,10 +70,10 @@ func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([
 }
 
 // attentionOf returns the attention of epic: its head, the lowest release step its release runs failed, its open
-// questions in seq order, its untold tells in seq order with the time of its newest tell, and its latest ended turn
-// with the questions that turn asked. The latest ended turn is read first, so every write that lands between the reads
-// either leaves the turn as the latest or adds the questions it asked to Open; a turn that ends after the read is
-// reported on a later pass.
+// questions in seq order, its untold tells in seq order with the time of its newest tell that is not silent, and its
+// latest ended turn with the questions that turn asked. The latest ended turn is read first, so every write that lands
+// between the reads either leaves the turn as the latest or adds the questions it asked to Open; a turn that ends after
+// the read is reported on a later pass.
 func attentionOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -100,8 +114,11 @@ func attentionOf(
 		Epic: head.ID, Title: head.Title, Phase: head.Phase, Parked: head.Parked, Paused: head.Paused != 0,
 		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold,
 	}
-	if len(tells) != 0 {
-		entry.LatestTell = time.Unix(tells[len(tells)-1].At, 0)
+	for _, tell := range slices.Backward(tells) {
+		if !SilentMoveTell(tell.Text, tell.Question != 0) {
+			entry.LatestTell = time.Unix(tell.At, 0)
+			break
+		}
 	}
 	if noEnded {
 		return entry, nil

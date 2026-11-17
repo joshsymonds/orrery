@@ -204,13 +204,13 @@ func TestAttentionRoutesATellAgainWhenMarkingItToldFails(t *testing.T) {
 	}
 }
 
-// parkTellBody is the body of the notice of a park's tell for credit ran out: its text, then the park question's head
-// and its retry advice.
-const parkTellBody = `credit ran out
-Q1 park:
+// parkTellBody is the body of the notice of a park's tell for credit ran out: the park question's head and its retry
+// advice, then the tell's text as the reason.
+const parkTellBody = `Q1 park:
   retry: end the park and start a turn on the waiting triggers, as orrery epic retry does
   other: answer in your own words
-  recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers`
+  recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers
+parked: credit ran out`
 
 func TestAttentionRoutesAParkTellWithTheAdviceOfItsQuestion(t *testing.T) {
 	t.Parallel()
