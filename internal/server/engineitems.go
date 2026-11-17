@@ -14,7 +14,8 @@ import (
 
 // sessionItem maps one engine event of a headless session's main thread to the conversation item it shows, stamped
 // with the event's time. It returns false when the event makes no item: a sub-agent block, a thinking block, a text
-// block that is not the assistant's, and every event kind that is not a prompt or a block.
+// block that is not the assistant's, a turn end that the owner's interrupt did not end, and every event kind that is
+// not a prompt, a block or a turn end.
 func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, error) {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -30,6 +31,15 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 			Round:    body.Round,
 			PromptId: body.PromptId,
 		}, true, nil
+	case store.EventEngineTurnEnded:
+		body := &orreryv1.EngineTurnEnded{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return nil, false, fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		if !body.OwnerInterrupted {
+			return nil, false, nil
+		}
+		return &orreryv1.ConversationItem{Kind: "interrupted", Time: event.At}, true, nil
 	case store.EventEngineBlock:
 		body := &orreryv1.EngineBlock{}
 		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
@@ -64,6 +74,16 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 	default:
 		return nil, false, nil
 	}
+}
+
+// sessionInterruptTurning returns the turning flag of an engine_interrupt payload: whether a turn ran when the owner's
+// interrupt was recorded.
+func sessionInterruptTurning(payload string) (bool, error) {
+	body := &orreryv1.EngineInterrupt{}
+	if err := protojson.Unmarshal([]byte(payload), body); err != nil {
+		return false, fmt.Errorf("decode engine interrupt: %w", err)
+	}
+	return body.Turning, nil
 }
 
 // sessionRequest maps an engine_request payload to the open request the phone answers. It returns false when the

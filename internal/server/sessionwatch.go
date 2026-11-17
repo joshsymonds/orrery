@@ -113,6 +113,13 @@ type sessionWatch struct {
 	figure        conversation.Context
 	// request is the newest unrefused request the session has raised.
 	request *orreryv1.OpenRequest
+	// interruptSeq is the seq of the newest engine_interrupt the stream has read, and interruptTurning is whether that
+	// record says a turn ran. turnEndSeq is the seq of the newest engine_turn_ended, and ownerPromptSeq the seq of the
+	// newest engine_prompt whose sender is the owner. A seq of 0 means the stream has read no such event.
+	interruptSeq     int64
+	interruptTurning bool
+	turnEndSeq       int64
+	ownerPromptSeq   int64
 	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished and sentHeld are the
 	// unfinished and held sets it last sent.
 	sent           *orreryv1.ConversationState
@@ -131,15 +138,19 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 		return nil, false, err
 	}
 	w.readFigure(history)
-	state, err := w.state(history)
+	held, err := w.held(ctx, history)
+	if err != nil {
+		return nil, false, err
+	}
+	pending, err := w.pendingEvents(ctx, history, len(held) > 0)
+	if err != nil {
+		return nil, false, err
+	}
+	state, err := w.state(history, pending)
 	if err != nil {
 		return nil, false, err
 	}
 	unfinished, err := unfinishedTexts(history)
-	if err != nil {
-		return nil, false, err
-	}
-	held, err := w.held(ctx, history)
 	if err != nil {
 		return nil, false, err
 	}
@@ -187,6 +198,63 @@ func (w *sessionWatch) held(ctx context.Context, history store.EngineHistory) ([
 		held = append(held, &orreryv1.HeldMessage{PromptId: prompt.PromptID, Text: prompt.Text})
 	}
 	return held, nil
+}
+
+// The waits labels of a PendingEvent: speak when the owner's interrupt keeps the session quiet, and free otherwise.
+const (
+	waitsSpeak = "speak"
+	waitsFree  = "free"
+)
+
+// pendingEvents returns the caller events the session is owed, as store.Reader.PendingCallerEvents reads them. holds is
+// whether the session holds a message, and it sets the waits label of each event (see waitsLabel). A step session is
+// owed none, since caller events go to the sessions that start steps or create epics. A failed read is answered as a
+// failed session read is.
+func (w *sessionWatch) pendingEvents(
+	ctx context.Context,
+	history store.EngineHistory,
+	holds bool,
+) ([]*orreryv1.PendingEvent, error) {
+	if history.Kind == store.KindStep {
+		return nil, nil
+	}
+	events, err := w.reader.PendingCallerEvents(ctx, w.id)
+	if err != nil {
+		return nil, sessionReadError(err)
+	}
+	waits := w.waitsLabel(holds)
+	pending := make([]*orreryv1.PendingEvent, 0, len(events))
+	for _, event := range events {
+		pending = append(pending, &orreryv1.PendingEvent{
+			Id:      event.ID,
+			Kind:    event.Kind,
+			Step:    event.Step,
+			Agent:   event.Agent,
+			End:     event.End,
+			Status:  event.Status,
+			Reason:  event.Reason,
+			Summary: event.Summary,
+			Epic:    event.Epic,
+			Title:   event.Title,
+			Waits:   waits,
+		})
+	}
+	return pending, nil
+}
+
+// waitsLabel returns the waits label of the session's caller events: speak when its newest engine_interrupt is newer
+// than its newest owner prompt and it holds no message, and free otherwise.
+func (w *sessionWatch) waitsLabel(holds bool) string {
+	if w.interruptSeq > w.ownerPromptSeq && !holds {
+		return waitsSpeak
+	}
+	return waitsFree
+}
+
+// interrupting reports whether the owner's Interrupt of the session is recorded and its turn still runs: the state is
+// working, the newest engine_interrupt has turning set, and no engine_turn_ended follows it.
+func (w *sessionWatch) interrupting(state string) bool {
+	return state == string(protocol.StateWorking) && w.interruptTurning && w.turnEndSeq < w.interruptSeq
 }
 
 // keptItem is a main-thread item a read keeps, with the seq of the event it came from.
@@ -311,30 +379,46 @@ func (w *sessionWatch) collect(
 	return kept, nil
 }
 
-// track records what an event sets for the stream: the origin, from the session's first prompt, and the request, from
-// each unrefused request. item and ok are sessionItem's result for event. It returns the decode error of a request.
+// track records what an event sets for the stream: the origin, from the session's first prompt; the request, from each
+// unrefused request; and the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended and
+// owner prompt. item and ok are sessionItem's result for event. It returns the decode error of a request or interrupt.
 func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.ConversationItem, ok bool) error {
-	if event.Kind == store.EventEnginePrompt && ok && !w.haveOrigin {
-		w.origin = cutRunes(item.GetText(), originRunes)
-		w.haveOrigin = true
-	}
-	if event.Kind != store.EventEngineRequest {
-		return nil
-	}
-	req, open, err := sessionRequest(event.Payload)
-	if err != nil {
-		return err
-	}
-	if open {
-		w.request = req
+	switch event.Kind {
+	case store.EventEnginePrompt:
+		if ok && !w.haveOrigin {
+			w.origin = cutRunes(item.GetText(), originRunes)
+			w.haveOrigin = true
+		}
+		if ok && item.GetSender() == store.PromptSenderOwner {
+			w.ownerPromptSeq = event.Seq
+		}
+	case store.EventEngineTurnEnded:
+		w.turnEndSeq = event.Seq
+	case store.EventEngineInterrupt:
+		turning, err := sessionInterruptTurning(event.Payload)
+		if err != nil {
+			return err
+		}
+		w.interruptSeq, w.interruptTurning = event.Seq, turning
+	case store.EventEngineRequest:
+		req, open, err := sessionRequest(event.Payload)
+		if err != nil {
+			return err
+		}
+		if open {
+			w.request = req
+		}
 	}
 	return nil
 }
 
 // state returns the state of the session as history reads it: its origin, its headless session without the summary
-// and newest reply, its context figure when its transcript is read, and the open request while the session waits on
-// one.
-func (w *sessionWatch) state(history store.EngineHistory) (*orreryv1.ConversationState, error) {
+// and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running (see
+// interrupting), the caller events it is owed (pending), and the open request while the session waits on one.
+func (w *sessionWatch) state(
+	history store.EngineHistory,
+	pending []*orreryv1.PendingEvent,
+) (*orreryv1.ConversationState, error) {
 	changed, err := parseStamp(history.Changed)
 	if err != nil {
 		return nil, listError(connect.CodeInternal, "read sessions")
@@ -354,6 +438,8 @@ func (w *sessionWatch) state(history store.EngineHistory) (*orreryv1.Conversatio
 			Seen:     seen,
 			Question: history.Question,
 		},
+		Interrupting: w.interrupting(history.State),
+		Pending:      pending,
 	}
 	if w.transcript != "" {
 		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}
