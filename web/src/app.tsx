@@ -1102,6 +1102,7 @@ export function App({
         />
       );
     }
+    const openTalk = (target: TalkTarget) => setTalkDock({ epic: entry.id, target });
     return (
       <EpicPage
         detail={detail}
@@ -1112,6 +1113,7 @@ export function App({
         commands={epicCommands(clients, entry.id, setCommandError)}
         numberKeys={!epicPage.closed}
         onOpenContract={openContract}
+        onOpenSession={openTalk}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
         handover={Handover({ detail })}
@@ -1122,7 +1124,7 @@ export function App({
             sessions={detail.sessions}
             repository={detail.repository}
             start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
-            onOpen={(target) => setTalkDock({ epic: entry.id, target })}
+            onOpen={openTalk}
           />
         }
       />
