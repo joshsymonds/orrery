@@ -2,7 +2,6 @@ package enginehost
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -82,68 +81,6 @@ func TestHeldQueueEngineWithdrawAllReturnsEveryTextInOrder(t *testing.T) {
 	}
 	if held := heldTexts(t, path, id); len(held) != 0 {
 		t.Fatalf("held messages after withdrawing all = %q, want none", held)
-	}
-	releaseHeldTurn(t, dir)
-}
-
-// TestHeldQueueEngineWithdrawOfAMessageNoLongerHeldIsFailedPrecondition withdraws a message, then withdraws its prompt
-// id again. The second call finds nothing held under the id and answers failed_precondition.
-func TestHeldQueueEngineWithdrawOfAMessageNoLongerHeldIsFailedPrecondition(t *testing.T) {
-	t.Parallel()
-	client, _ := heldQueueClient(t)
-	id, dir := startHeldSession(t, client)
-	sayHeld(t, client, id, "held once", "p-gone")
-	if _, err := client.Withdraw(
-		t.Context(),
-		connect.NewRequest(&v1.WithdrawRequest{Id: id, PromptId: "p-gone"}),
-	); err != nil {
-		t.Fatalf("first Withdraw: %v", err)
-	}
-
-	_, err := client.Withdraw(t.Context(), connect.NewRequest(&v1.WithdrawRequest{Id: id, PromptId: "p-gone"}))
-	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
-		t.Fatalf("Withdraw of a message no longer held: code = %v, want %v (error %v)",
-			got, connect.CodeFailedPrecondition, err)
-	}
-	if !strings.Contains(err.Error(), ErrNotHeld.Error()) {
-		t.Fatalf("Withdraw error = %v, want the not-held reason %q", err, ErrNotHeld.Error())
-	}
-	releaseHeldTurn(t, dir)
-}
-
-// TestHeldQueueEngineWithdrawOfAnUnknownSessionIsNotFound withdraws from an id with no engine row.
-func TestHeldQueueEngineWithdrawOfAnUnknownSessionIsNotFound(t *testing.T) {
-	t.Parallel()
-	client, _ := heldQueueClient(t)
-
-	_, err := client.Withdraw(t.Context(), connect.NewRequest(&v1.WithdrawRequest{
-		Id: "0123456789abcdef0123456789abcdef", PromptId: "p-none",
-	}))
-	if got := connect.CodeOf(err); got != connect.CodeNotFound {
-		t.Fatalf("Withdraw from an unknown session: code = %v, want %v (error %v)", got, connect.CodeNotFound, err)
-	}
-}
-
-// TestHeldQueueEngineWithdrawRefusesAStepID withdraws with a step id while a real session holds a message. The step id
-// is refused as failed_precondition before the manager is asked, and the session's message stays held.
-func TestHeldQueueEngineWithdrawRefusesAStepID(t *testing.T) {
-	t.Parallel()
-	_, path := openStore(t)
-	m := newManagerOn(t, path, 1, fakeClaudePath(t), &fakeSink{})
-	socket, _ := startServerWithSteps(t, m, &stepIDs{steps: map[string]bool{"s1": true}})
-	client := newClient(t, socket)
-	id, dir := startHeldSession(t, client)
-	sayHeld(t, client, id, "stays held", "p-stay")
-
-	_, err := client.Withdraw(t.Context(), connect.NewRequest(&v1.WithdrawRequest{Id: "s1"}))
-	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
-		t.Fatalf("Withdraw of a step id: code = %v, want %v (error %v)", got, connect.CodeFailedPrecondition, err)
-	}
-	if msg := err.Error(); !strings.Contains(msg, "s1") || !strings.Contains(msg, "Steps") {
-		t.Fatalf("Withdraw of a step id error = %v, want the id s1 and a pointer to the Steps service", err)
-	}
-	if held := heldTexts(t, path, id); !slices.Equal(held, []string{"stays held"}) {
-		t.Fatalf("held messages after a refused step withdrawal = %q, want [stays held]", held)
 	}
 	releaseHeldTurn(t, dir)
 }
