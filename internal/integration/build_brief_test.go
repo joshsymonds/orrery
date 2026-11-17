@@ -15,7 +15,7 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 	r := newBuildRig(t)
 	daemon, ack := r.startPassDaemon(t, "first")
 	id := r.stepID()
-	dir := r.stepDir(id)
+	dir := r.stepDir()
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
 	r.awaitStep(t, daemon, ack, id)
@@ -52,7 +52,7 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 		"Deliverable: " + buildRigDeliverable,
 		// The brief's newlines are JSON escapes in the line the fake reads, so the file list is matched with them escaped.
 		`Change only these files:\n- ` + buildRigFile,
-		"Gate: " + buildRigGate + " (orreryd runs it on your commit; it must pass)",
+		"Gate: " + buildRigGate + ". After you return done, orreryd runs",
 		"R1: " + buildRigRequirement,
 		"- " + buildRigExclusion,
 		"- " + buildRigDecision,

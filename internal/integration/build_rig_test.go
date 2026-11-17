@@ -189,9 +189,10 @@ func (r *buildRig) stepID() string {
 	return build.StepID(buildRigEpic, 1, build.StageImplement, 1, 0, 0, 0)
 }
 
-// stepDir returns the worktree step id runs in: its directory under the task worktrees of the state directory.
-func (r *buildRig) stepDir(id string) string {
-	return filepath.Join(build.TaskDir(r.stateDir, buildRigEpic, 1), id)
+// stepDir returns the worktree the implementer step of task 1 runs in: the task's implement worktree under the task
+// worktrees of the state directory, which every implementer step of the task shares.
+func (r *buildRig) stepDir() string {
+	return build.ImplementWorktree(r.stateDir, buildRigEpic, 1)
 }
 
 // epics returns the Epics client of the session socket.
