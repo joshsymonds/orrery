@@ -624,7 +624,7 @@ test("a click on the send button with a blank box sends nothing", async () => {
   });
 });
 
-test("queued messages draw below one head in the given order, a canceled one marked", async () => {
+test("GhostQueued: queued messages draw below one head in the given order, no waiting row tagged, a canceled one marked", async () => {
   const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
   await withComposer({ queued }, async (_box, container) => {
     assert.deepEqual(queuedRows(container), [
@@ -646,29 +646,6 @@ test("GhostQueued: one queue head carries the count of every docked row, cancele
     assert.equal(heads[0]?.textContent, "3 queued", "the head counts all three rows");
     assert.equal(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
     assert.equal(container.querySelectorAll("li.queued").length, 3, "the head is not drawn as a row");
-  });
-});
-
-test("GhostQueued: no queued row carries a per-row queued or waiting tag", async () => {
-  const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
-  await withComposer({ queued }, async (_box, container) => {
-    const waiting = container.querySelectorAll("li.queued:not(.canceled)");
-    assert.equal(waiting.length, 2, "two rows are waiting");
-    for (const row of waiting) {
-      assert.equal(row.querySelector(".tag"), null, "a waiting row has no tag, since the head names them");
-    }
-    const tags = Array.from(container.querySelectorAll("li.queued .tag"), (tag) => tag.textContent);
-    assert.deepEqual(tags, ["canceled"], "the only tag drawn is the canceled mark");
-  });
-});
-
-test("GhostQueued: a canceled row is still marked canceled with its canceled mark", async () => {
-  const queued = [queuedMessage("kept"), queuedMessage("dropped", true)];
-  await withComposer({ queued }, async (_box, container) => {
-    const row = container.querySelector("li.queued.canceled");
-    assert.ok(row, "the canceled row is drawn with the canceled class");
-    assert.equal(row.querySelector(".tag")?.textContent, "canceled", "its mark reads canceled");
-    assert.equal(row.querySelector(".text")?.textContent, "dropped", "its text is the canceled message");
   });
 });
 
