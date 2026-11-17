@@ -31,6 +31,7 @@ import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
+import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
@@ -147,6 +148,8 @@ const helpEntries: [string[], string][] = [
   [["p"], "by project"],
   [["w"], "first waiting row"],
   [["n"], "next unseen row, wrapping"],
+  [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
+  [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
   [["x", "Enter"], "mark the cursor's row seen"],
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
@@ -188,6 +191,10 @@ export function App({
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
+  // Whether the picker palette is open.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // The pane Picker.Run answered, which the cursor moves to once the loaded rows hold its row.
+  const [pickedPane, setPickedPane] = useState("");
   const [stream, setStream] = useState<Stream | null>(null);
   // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
   // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
@@ -647,6 +654,23 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
+  // The pane Picker.Run answered takes the cursor once the loaded rows hold its row, so a row that arrives in a later
+  // render is reached too. A filter that hides the row is accepted: the cursor then stays where it is.
+  useEffect(() => {
+    if (pickedPane === "") {
+      return;
+    }
+    const picked = rows.find((row) => row.kind === "pane" && row.id === pickedPane);
+    if (picked === undefined) {
+      return;
+    }
+    setPickedPane("");
+    const target = flat.findIndex((item) => item.key === picked.key);
+    if (target >= 0) {
+      moveTo(target);
+    }
+  }, [pickedPane, rows, flat]);
+
   // openEpic moves the cursor to an epic's entry, first opening the accepted, folded or ended earlier line that holds
   // it when that line is shut. The entry is then in the list, so the cursor rests on it.
   const openEpic = (id: string) => {
@@ -709,6 +733,12 @@ export function App({
   };
 
   const handleKey = (event: KeyboardEvent) => {
+    // ⌘K and Ctrl+K open the palette anywhere, a text box included.
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      setPickerOpen(true);
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
     }
@@ -771,6 +801,9 @@ export function App({
       }
       case "n":
         nextUnseen();
+        break;
+      case "N":
+        setPickerOpen(true);
         break;
       case "x":
       case "Enter":
@@ -944,6 +977,9 @@ export function App({
                 {workingCount > 0 && <span class="st-working">{`${workingCount} working`}</span>}
                 {newCount > 0 && <span class="st-new">{`✱ ${newCount} new`}</span>}
               </span>
+              <button type="button" onClick={() => setPickerOpen(true)}>
+                + Ask
+              </button>
             </div>
             <div class="filter">
               <kbd>/</kbd>
@@ -1285,6 +1321,16 @@ export function App({
           )}
         </section>
       </div>
+      {pickerOpen && (
+        <PickerPalette
+          clients={clients}
+          onRun={(pane) => {
+            setPickerOpen(false);
+            setPickedPane(pane);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
       {helpOpen && (
         <section class="keys" aria-label="keys">
           <dl>
