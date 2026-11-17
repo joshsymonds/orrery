@@ -47,6 +47,8 @@ const (
 	EngineSeenProcedure = "/orrery.engine.v1.Engine/Seen"
 	// EngineResumeProcedure is the fully-qualified name of the Engine's Resume RPC.
 	EngineResumeProcedure = "/orrery.engine.v1.Engine/Resume"
+	// EngineWithdrawProcedure is the fully-qualified name of the Engine's Withdraw RPC.
+	EngineWithdrawProcedure = "/orrery.engine.v1.Engine/Withdraw"
 )
 
 // EngineClient is a client for the orrery.engine.v1.Engine service.
@@ -69,6 +71,10 @@ type EngineClient interface {
 	// Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
 	// has no Claude session to resume, is refused.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
+	// Withdraw takes back a session's held messages: the one with prompt_id, or every held message when prompt_id is
+	// empty. It returns their texts, oldest first. A prompt_id the session holds no message for is refused, since a
+	// message already written cannot be taken back.
+	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
 // NewEngineClient constructs a client for the orrery.engine.v1.Engine service. By default, it uses
@@ -124,6 +130,12 @@ func NewEngineClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(engineMethods.ByName("Resume")),
 			connect.WithClientOptions(opts...),
 		),
+		withdraw: connect.NewClient[v1.WithdrawRequest, v1.WithdrawResponse](
+			httpClient,
+			baseURL+EngineWithdrawProcedure,
+			connect.WithSchema(engineMethods.ByName("Withdraw")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -136,6 +148,7 @@ type engineClient struct {
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
+	withdraw  *connect.Client[v1.WithdrawRequest, v1.WithdrawResponse]
 }
 
 // Start calls orrery.engine.v1.Engine.Start.
@@ -173,6 +186,11 @@ func (c *engineClient) Resume(ctx context.Context, req *connect.Request[v1.Resum
 	return c.resume.CallUnary(ctx, req)
 }
 
+// Withdraw calls orrery.engine.v1.Engine.Withdraw.
+func (c *engineClient) Withdraw(ctx context.Context, req *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
+	return c.withdraw.CallUnary(ctx, req)
+}
+
 // EngineHandler is an implementation of the orrery.engine.v1.Engine service.
 type EngineHandler interface {
 	// Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
@@ -193,6 +211,10 @@ type EngineHandler interface {
 	// Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
 	// has no Claude session to resume, is refused.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
+	// Withdraw takes back a session's held messages: the one with prompt_id, or every held message when prompt_id is
+	// empty. It returns their texts, oldest first. A prompt_id the session holds no message for is refused, since a
+	// message already written cannot be taken back.
+	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
 // NewEngineHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -244,6 +266,12 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(engineMethods.ByName("Resume")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engineWithdrawHandler := connect.NewUnaryHandler(
+		EngineWithdrawProcedure,
+		svc.Withdraw,
+		connect.WithSchema(engineMethods.ByName("Withdraw")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Engine/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngineStartProcedure:
@@ -260,6 +288,8 @@ func NewEngineHandler(svc EngineHandler, opts ...connect.HandlerOption) (string,
 			engineSeenHandler.ServeHTTP(w, r)
 		case EngineResumeProcedure:
 			engineResumeHandler.ServeHTTP(w, r)
+		case EngineWithdrawProcedure:
+			engineWithdrawHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -295,4 +325,8 @@ func (UnimplementedEngineHandler) Seen(context.Context, *connect.Request[v1.Seen
 
 func (UnimplementedEngineHandler) Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Resume is not implemented"))
+}
+
+func (UnimplementedEngineHandler) Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Engine.Withdraw is not implemented"))
 }

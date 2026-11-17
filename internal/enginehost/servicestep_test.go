@@ -51,7 +51,7 @@ func TestEngineRefusesStepIDsWithoutReachingCommands(t *testing.T) {
 			t.Fatalf("RPC %d on a step id returned %v, want success", i, errs[i])
 		}
 	}
-	for _, i := range []int{1, 2, 3, 4, 6} {
+	for _, i := range []int{1, 2, 3, 4, 6, 7} {
 		err := errs[i]
 		if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
 			t.Fatalf("RPC %d code = %v, want %v (error %v)", i, got, connect.CodeFailedPrecondition, err)
@@ -96,6 +96,7 @@ func TestEngineForwardsNonStepIDsAsBefore(t *testing.T) {
 		{method: "Stop", id: "s1"},
 		{method: "Seen", id: "s1"},
 		{method: "Resume", id: "s1"},
+		{method: "Withdraw", id: "s1"},
 	}
 	if got := engine.recorded(); !slices.Equal(got, want) {
 		t.Fatalf("commands received %+v, want %+v", got, want)
@@ -111,7 +112,7 @@ func TestEngineStatusFailureIsInternalAndReachesNoCommand(t *testing.T) {
 		t.Fatalf("Serve: %v", err)
 	}
 
-	for _, i := range []int{1, 2, 3, 4, 6} {
+	for _, i := range []int{1, 2, 3, 4, 6, 7} {
 		err := errs[i]
 		if got := connect.CodeOf(err); got != connect.CodeInternal {
 			t.Fatalf("RPC %d code = %v, want %v (error %v)", i, got, connect.CodeInternal, err)

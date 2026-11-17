@@ -97,6 +97,10 @@ func (f *fakeCommands) Resume(_ context.Context, id string) error {
 	return f.record(call{method: "Resume", id: id})
 }
 
+func (f *fakeCommands) Withdraw(_ context.Context, id, promptID string) ([]string, error) {
+	return nil, f.record(call{method: "Withdraw", id: id, promptID: promptID})
+}
+
 // startServer listens on a socket in a temp directory and serves commands on it, with no steps. The returned stop
 // cancels the server's context and returns Serve's error. A test that does not call stop gets it through t.Cleanup.
 func startServer(t *testing.T, commands Commands) (string, func() error) {
@@ -166,7 +170,8 @@ func callAll(t *testing.T, client enginev1connect.EngineClient) []error {
 	_, stopErr := client.Stop(ctx, connect.NewRequest(&v1.StopRequest{Id: "s1"}))
 	_, seenErr := client.Seen(ctx, connect.NewRequest(&v1.SeenRequest{Id: "s1"}))
 	_, resumeErr := client.Resume(ctx, connect.NewRequest(&v1.ResumeRequest{Id: "s1"}))
-	return []error{startErr, sayErr, answerErr, interruptErr, stopErr, seenErr, resumeErr}
+	_, withdrawErr := client.Withdraw(ctx, connect.NewRequest(&v1.WithdrawRequest{Id: "s1"}))
+	return []error{startErr, sayErr, answerErr, interruptErr, stopErr, seenErr, resumeErr, withdrawErr}
 }
 
 func TestListenCreatesSocketModeZeroSixHundred(t *testing.T) {
@@ -346,6 +351,12 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 			err:  fmt.Errorf("resume session x: %w: its state is done, not interrupted", ErrNotResumable),
 			code: connect.CodeFailedPrecondition,
 			text: "resume session x: " + ErrNotResumable.Error() + ": its state is done, not interrupted",
+		},
+		{
+			name: "message not held",
+			err:  wrapf(ErrNotHeld, "withdraw"),
+			code: connect.CodeFailedPrecondition,
+			text: "withdraw: " + ErrNotHeld.Error(),
 		},
 		{
 			name: "bad directory",

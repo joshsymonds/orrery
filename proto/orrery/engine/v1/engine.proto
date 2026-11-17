@@ -29,6 +29,11 @@ service Engine {
   // Resume resumes an interrupted session's turn by sending its resume prompt. A session that is not interrupted, or
   // has no Claude session to resume, is refused.
   rpc Resume(ResumeRequest) returns (ResumeResponse);
+
+  // Withdraw takes back a session's held messages: the one with prompt_id, or every held message when prompt_id is
+  // empty. It returns their texts, oldest first. A prompt_id the session holds no message for is refused, since a
+  // message already written cannot be taken back.
+  rpc Withdraw(WithdrawRequest) returns (WithdrawResponse);
 }
 
 // StartRequest asks for a new headless session.
@@ -119,3 +124,18 @@ message ResumeRequest {
 
 // ResumeResponse acknowledges a resume. It has no fields.
 message ResumeResponse {}
+
+// WithdrawRequest takes back the held messages of a session.
+message WithdrawRequest {
+  // The session's id.
+  string id = 1;
+
+  // The prompt id of the held message to take back. Empty takes back every held message of the session.
+  string prompt_id = 2;
+}
+
+// WithdrawResponse carries the texts of the held messages taken back.
+message WithdrawResponse {
+  // The texts of the messages taken back, oldest first.
+  repeated string texts = 1;
+}

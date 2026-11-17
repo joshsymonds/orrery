@@ -189,6 +189,33 @@ func (c controlServer) Resume(
 	return connect.NewResponse(&orreryv1.ResumeResponse{}), nil
 }
 
+// Withdraw forwards a withdrawal of held messages to the engine, unless its id names a step. It answers with the texts
+// the engine took back, oldest first.
+func (c controlServer) Withdraw(
+	ctx context.Context,
+	req *connect.Request[orreryv1.WithdrawRequest],
+) (*connect.Response[orreryv1.WithdrawResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
+	var texts []string
+	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
+		resp, err := engine.Withdraw(ctx, connect.NewRequest(&enginev1.WithdrawRequest{
+			Id:       req.Msg.GetId(),
+			PromptId: req.Msg.GetPromptId(),
+		}))
+		if err != nil {
+			return wrapEngine("withdraw", err)
+		}
+		texts = resp.Msg.GetTexts()
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&orreryv1.WithdrawResponse{Texts: texts}), nil
+}
+
 // forward runs call against the engine under the control timeout. A nil engine answers unavailable. Any engine
 // error answers as translateError does.
 func (c controlServer) forward(

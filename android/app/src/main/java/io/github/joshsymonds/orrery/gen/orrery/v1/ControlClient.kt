@@ -121,4 +121,21 @@ public class ControlClient(
     ),
   )
 
+
+  /**
+   *  Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
+   *  prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
+   *  back, so a prompt_id that is not held is refused.
+   */
+  override suspend fun withdraw(request: WithdrawRequest, headers: Headers): ResponseMessage<WithdrawResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Control/Withdraw",
+      io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

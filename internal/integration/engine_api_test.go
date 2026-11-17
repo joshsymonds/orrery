@@ -118,6 +118,7 @@ func TestEngineAPIGuardsControlPaths(t *testing.T) {
 		orreryv1connect.ControlInterruptProcedure,
 		orreryv1connect.ControlStopProcedure,
 		orreryv1connect.ControlSeenProcedure,
+		orreryv1connect.ControlWithdrawProcedure,
 	}
 	for _, procedure := range procedures {
 		target := base + procedure

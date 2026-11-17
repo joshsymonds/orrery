@@ -47,6 +47,11 @@ service Control {
 
   // Resume resumes an interrupted headless session's turn by sending its resume prompt.
   rpc Resume(ResumeRequest) returns (ResumeResponse);
+
+  // Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
+  // prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
+  // back, so a prompt_id that is not held is refused.
+  rpc Withdraw(WithdrawRequest) returns (WithdrawResponse);
 }
 
 // ListRequest asks for every tracked session. It has no fields.
@@ -184,6 +189,19 @@ message SessionsWatchConversationResponse {
   // The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
   // reset, and on a reset that carries no item.
   int64 oldest = 7;
+
+  // The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
+  // holds with it.
+  repeated HeldMessage held = 8;
+}
+
+// HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
+message HeldMessage {
+  // The prompt id the message is held under: the Say's own, or one orreryd assigned.
+  string prompt_id = 1;
+
+  // The message text.
+  string text = 2;
 }
 
 // SessionsOlderRequest asks for the items of one headless session older than a seq. limit follows
@@ -414,6 +432,21 @@ message ResumeRequest {
 
 // ResumeResponse is the reply to a Resume. It has no fields.
 message ResumeResponse {}
+
+// WithdrawRequest takes back the held messages of a headless session.
+message WithdrawRequest {
+  // The session's id.
+  string id = 1;
+
+  // The prompt id of the held message to take back. Empty takes back every held message of the session.
+  string prompt_id = 2;
+}
+
+// WithdrawResponse carries the texts of the held messages taken back.
+message WithdrawResponse {
+  // The texts of the messages taken back, oldest first.
+  repeated string texts = 1;
+}
 
 // EngineAdded carries the placement of a headless session row that was inserted.
 message EngineAdded {

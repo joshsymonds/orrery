@@ -630,7 +630,7 @@ A held message is never written to a process that has ended. A turn that ends wi
 
 A held message survives an `orreryd` restart. Re-adopting a holder whose turn still runs leaves its held messages held and unwritten. A re-adopted session that is idle and not draining writes its oldest held message (`enginehost.Manager.prime`, `enginehost.Manager.writeHeldIdle`).
 
-`Manager.Withdraw` removes the held message of a session with a prompt id, or every held message of the session when the prompt id is empty, in one store write, and returns their text in order. A prompt id the session holds no message for is refused with `ErrNotHeld`, which covers a message already written; the call then removes nothing. An id with no engine row is refused with `ErrNoSession`. The withdrawal takes the locks a `Say` takes, so a message is withdrawn or written, never both. The Engine service does not expose it yet (`enginehost.Manager.Withdraw`, `enginehost.ErrNotHeld`, `enginehost.ErrNoSession`, `store.Store.HeldPrompts`). `store.Reader.HeldPrompts` reads a session's held messages from the store file, in order, for readers of the conversation.
+`Manager.Withdraw` removes the held message of a session with a prompt id, or every held message of the session when the prompt id is empty, in one store write, and returns their text in order. A prompt id the session holds no message for is refused with `ErrNotHeld`, which covers a message already written; the call then removes nothing. An id with no engine row is refused with `ErrNoSession`. The withdrawal takes the locks a `Say` takes, so a message is withdrawn or written, never both. The Engine service's `Withdraw` call (see [Session control socket](#session-control-socket)) and the `Control.Withdraw` call (see [Control API](#control-api)) answer with it (`enginehost.Manager.Withdraw`, `enginehost.ErrNotHeld`, `enginehost.ErrNoSession`, `store.Store.HeldPrompts`). `store.Reader.HeldPrompts` reads a session's held messages from the store file, in order, for readers of the conversation.
 
 #### Session control socket
 
@@ -645,6 +645,7 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 | `Stop` | `id` | the session is live |
 | `Seen` | `id` | the session has a row |
 | `Resume` | `id` | the session has a row in state `interrupted` and a Claude session. The call sends `Resume working.` as the session's next prompt, through `Say`, so the turn continues on that Claude session |
+| `Withdraw` | `id`, `prompt_id` | the session has a row. An empty `prompt_id` takes back every held message of the session; otherwise the session holds a message with that `prompt_id`. Returns `texts`, the texts taken back, oldest first (see [Held messages](#held-messages)) |
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
@@ -652,7 +653,7 @@ A call that does not fit its precondition does not change the session. An `Answe
 
 **The owner speaks over an open request.** A `Say` to a live session, and an `Interrupt`, first deny every request the session has open with `The owner did not answer this request; they sent a message or an interrupt instead. Read it and act on it.`, then record the row `working` with no question, and only then write the message or the interrupt, so a session waiting on a request reads them instead of holding them behind it. A `Say` to a live session with no request open is held instead while its turn runs (see [Held messages](#held-messages)) (`enginehost.Manager.declineOpen`, `enginehost.Manager.declineLocked`, `enginehost.Manager.deliver`, `enginehost.Manager.decide`, `enginehost.Manager.Interrupt`).
 
-`Say`, `Answer`, `Interrupt`, `Stop` and `Resume` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`, `enginehost.service.Resume`). `Resume` is refused as `failed_precondition` when its row is not `interrupted`, or has no Claude session; the message names which, as `resume session <id>: session cannot be resumed: its state is <state>, not interrupted` or `resume session <id>: session cannot be resumed: it has no Claude session` (`enginehost.Manager.Resume`, `enginehost.ErrNotResumable`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
+`Say`, `Answer`, `Interrupt`, `Stop`, `Resume` and `Withdraw` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`, `enginehost.service.Resume`, `enginehost.service.Withdraw`). `Resume` is refused as `failed_precondition` when its row is not `interrupted`, or has no Claude session; the message names which, as `resume session <id>: session cannot be resumed: its state is <state>, not interrupted` or `resume session <id>: session cannot be resumed: it has no Claude session` (`enginehost.Manager.Resume`, `enginehost.ErrNotResumable`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
 
 Errors are Connect codes:
 
@@ -662,7 +663,7 @@ Errors are Connect codes:
 | `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
 | `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
 | `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, a `model` or `id` that does not fit its rule, or an answer that does not fit the open request |
-| `failed_precondition` | `Say`, `Answer`, `Interrupt`, `Stop` or `Resume` names a step id (see the paragraph above the table), or `Resume` names a session that is not `interrupted` or has no Claude session |
+| `failed_precondition` | `Say`, `Answer`, `Interrupt`, `Stop`, `Resume` or `Withdraw` names a step id (see the paragraph above the table), `Resume` names a session that is not `interrupted` or has no Claude session, or `Withdraw` names a `prompt_id` the session holds no message for, which a message already written is (`enginehost.commandError`, `enginehost.ErrNotHeld`) |
 | `internal` | any other failure, including a call made while `orreryd` is shutting down |
 
 #### Lifecycle rules
@@ -3060,7 +3061,7 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with seven calls, which [Control API](#control-api) describes, and the six phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker`, `orrery.v1.Pools` and `orrery.v1.Presence`, with seventeen calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with nine calls, `orrery.v1.Steps`, with three calls, and `orrery.v1.Evidence`, with one call, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps). The service `orrery.v1.Notices`, with two calls, `Watch` and `Seen`, serves the web page's in-app notices, which [In-app notices](#in-app-notices) describes. Its schema is `proto/orrery/v1/notice.proto`.
+The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with eight calls, which [Control API](#control-api) describes, and the six phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker`, `orrery.v1.Pools` and `orrery.v1.Presence`, with seventeen calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with nine calls, `orrery.v1.Steps`, with three calls, and `orrery.v1.Evidence`, with one call, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps). The service `orrery.v1.Notices`, with two calls, `Watch` and `Seen`, serves the web page's in-app notices, which [In-app notices](#in-app-notices) describes. Its schema is `proto/orrery/v1/notice.proto`.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
@@ -3075,6 +3076,7 @@ The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` 
 | `Control.Stop` | `POST /orrery.v1.Control/Stop` | `StopRequest` | `StopResponse` |
 | `Control.Seen` | `POST /orrery.v1.Control/Seen` | `SeenRequest` | `SeenResponse` |
 | `Control.Resume` | `POST /orrery.v1.Control/Resume` | `ResumeRequest` | `ResumeResponse` |
+| `Control.Withdraw` | `POST /orrery.v1.Control/Withdraw` | `WithdrawRequest` | `WithdrawResponse` |
 | `Panes.List` | `POST /orrery.v1.Panes/List` | `PanesListRequest`, empty | `PanesListResponse` |
 | `Panes.Screen` | `POST /orrery.v1.Panes/Screen` | `ScreenRequest` | `ScreenResponse` |
 | `Panes.Conversation` | `POST /orrery.v1.Panes/Conversation` | `ConversationRequest` | `ConversationResponse` |
@@ -3221,11 +3223,12 @@ Each message has these fields:
 - `state` is a `ConversationState`. It is set on the first delta and when `origin`, `session` or `request` changed, and it is unset otherwise. It has `origin`, the text of the session's first prompt cut to 300 runes, or `""` before a prompt. It has `session`, the `HeadlessSession` of the session with `id`, `dir`, `label`, `state`, `changed`, `seen` and `question` set and `summary` and `newest_reply` unset. It has `request` only while `state` is `waiting`, and then it is the newest unrefused permission or question request the stream has read. `goal`, `waiting`, `context` and `pane` are unset.
 - `request` is an `OpenRequest` with `id`, `kind` (`permission` or `question`), and `question`. For a permission, `question` is the tool name and `options` is `allow` and `deny`. For a question, `question` is the question's text, and `options` holds the labels when the input has one question that is not `multiSelect`, and no options otherwise.
 - `unfinished` holds the text so far of each unfinished block of the main conversation, as an `EngineText` with `message_id`, `index`, `kind` and `text`. It is sent with every message, keepalives included. The blocks are in message id order, then block index order.
+- `held` is the session's whole held set: each message the session holds and has not written, as a `HeldMessage` with `prompt_id` and `text`, oldest first. It is sent with every message, keepalives included, so a client replaces the held set it holds with it. A message leaves the set when it is written or withdrawn (`proto/orrery/v1/orrery.proto: SessionsWatchConversationResponse.held`, `proto/orrery/v1/orrery.proto: HeldMessage`).
 
 Timing:
 
-- The stream checks the session every 500 ms. A delta is sent when a read finds a main-thread item, when `state` changed, or when `unfinished` changed. A read that moves `seq` without any of these sends no delta.
-- After 5 seconds without a message, the stream sends a keepalive: a message with `transcript`, `seq` and `unfinished` set, and no items or state. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+- The stream checks the session every 500 ms. A delta is sent when a read finds a main-thread item, when `state` changed, when `unfinished` changed, or when `held` changed. A read that moves `seq` without any of these sends no delta.
+- After 5 seconds without a message, the stream sends a keepalive: a message with `transcript`, `seq`, `unfinished` and `held` set, and no items or state. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
 
 The stream ends in one of these ways:
 
@@ -3246,6 +3249,7 @@ The request and response messages are these:
 - `SayRequest`: `id`, `text`, `prompt_id`. `SayResponse` has no fields.
 - `AnswerRequest`: `id`, `request_id`, `answer`. `AnswerResponse` has no fields.
 - `InterruptRequest`, `StopRequest`, `SeenRequest` and `ResumeRequest`: `id`. Their responses have no fields.
+- `WithdrawRequest`: `id`, `prompt_id`. `WithdrawResponse`: `texts`, the texts of the held messages taken back, oldest first.
 
 Rules:
 
@@ -3253,7 +3257,7 @@ Rules:
 - **Client-chosen ids.** `StartRequest.id` names the new session's id, 32 lowercase hex digits. Empty lets orreryd mint one. A start that names an existing session's id returns that id and starts nothing. `SayRequest.prompt_id` names the prompt. A say whose `prompt_id` an `engine_prompt` event of the session already carries succeeds and sends nothing. A call that names a key with a running attempt waits for that attempt and returns its result. A say whose send failed returns that failure to every later call with its key and sends nothing, also after a restart, because the failure is stored in `engine_prompt_failed`. Any other key whose attempt failed after storing its record returns that attempt's error to every later call with the key, and does nothing else, while `orreryd` runs. A key whose attempt failed before storing its record is free, so a retry runs, unless the record cannot be read after the failure, which keeps the error as a stored record does. Empty means no id and no check.
 - **Model.** `StartRequest.model` is the model alias the started session's process runs, passed to claude as `--model`. Empty runs claude's default. A model outside the rule of [Session control socket](#session-control-socket) is refused with `invalid_argument`. A process that a later `Say` resumes runs claude's default model.
 - **Forward.** Each call that passes the home rule is forwarded to the engine under a deadline. The deadline is 10 seconds, the default for `serve`, which sets no other. The forward reaches the session socket through a unix-socket transport, `sessions.sock` beside the daemon socket. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` without dialing.
-- **Step ids.** `Say`, `Answer`, `Interrupt`, `Stop` and `Resume` ask orreryd's `StepStatus` about their `id` before they forward. When the id names a step, the call answers `failed_precondition` and nothing is forwarded, so a session command cannot drive a step around its own loop. A `not_found` from `StepStatus` forwards as before, and any other `StepStatus` error answers as the forward's errors do. `Seen` and `Start` do not ask. With no step client, every call forwards as before.
+- **Step ids.** `Say`, `Answer`, `Interrupt`, `Stop`, `Resume` and `Withdraw` ask orreryd's `StepStatus` about their `id` before they forward. When the id names a step, the call answers `failed_precondition` and nothing is forwarded, so a session command cannot drive a step around its own loop. A `not_found` from `StepStatus` forwards as before, and any other `StepStatus` error answers as the forward's errors do. `Seen` and `Start` do not ask. With no step client, every call forwards as before (`server.controlServer.refuseStep`, `server.controlServer.Withdraw`).
 - **Body bound.** A request body over 1 MiB (1048576 bytes) is refused with `resource_exhausted` before it reaches the engine.
 
 Errors are Connect codes. The messages marked fixed are the same whatever orreryd said:
@@ -3265,7 +3269,7 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 | `deadline_exceeded` | `session command timed out` (fixed) | the forward outlives the 10-second deadline, or the client's own deadline ends the call first |
 | `internal` | `session command failed` (fixed) | orreryd answers `internal` or `unknown`, or the forward fails with an error that is not a Connect error |
 | `resource_exhausted` | the Connect library's message | the request body is over 1 MiB |
-| `failed_precondition` | `<id> is a step: drive it through Steps`, where `<id>` is the id given, or orreryd's message | `Say`, `Answer`, `Interrupt`, `Stop` or `Resume` names a step (see Step ids above), or `Resume` names a session that orreryd refuses, which it does when the session is not `interrupted` or has no Claude session |
+| `failed_precondition` | `<id> is a step: drive it through Steps`, where `<id>` is the id given, or orreryd's message | `Say`, `Answer`, `Interrupt`, `Stop`, `Resume` or `Withdraw` names a step (see Step ids above), `Resume` names a session that orreryd refuses, which it does when the session is not `interrupted` or has no Claude session, or `Withdraw` names a `prompt_id` that no held message has |
 | other codes | orreryd's message, passed through | `invalid_argument` (a bad `model`, `id`, `prompt` or `text`), `not_found` (no row, or an answer whose request is not open), `resource_exhausted` (the session cap) |
 
 ### Phone API

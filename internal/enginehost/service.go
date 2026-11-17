@@ -35,6 +35,7 @@ type Commands interface {
 	Stop(ctx context.Context, id string) error
 	Seen(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
+	Withdraw(ctx context.Context, id, promptID string) ([]string, error)
 }
 
 // Listen returns a listener on the engine socket at socketPath. daemon.Listen creates the socket directory and
@@ -257,6 +258,23 @@ func (s *service) Resume(
 	return connect.NewResponse(&v1.ResumeResponse{}), nil
 }
 
+func (s *service) Withdraw(
+	ctx context.Context,
+	req *connect.Request[v1.WithdrawRequest],
+) (*connect.Response[v1.WithdrawResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
+	texts, err := s.commands.Withdraw(ctx, req.Msg.GetId(), req.Msg.GetPromptId())
+	if err != nil {
+		return nil, commandError(err)
+	}
+	return connect.NewResponse(&v1.WithdrawResponse{Texts: texts}), nil
+}
+
 // commandError maps a Commands error to its Connect code. The error's text is the message.
 func commandError(err error) error {
 	code := connect.CodeInternal
@@ -268,7 +286,7 @@ func commandError(err error) error {
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
 		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer):
 		code = connect.CodeInvalidArgument
-	case errors.Is(err, ErrNotResumable):
+	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrNotHeld):
 		code = connect.CodeFailedPrecondition
 	}
 	return errors.Join(connect.NewError(code, err))

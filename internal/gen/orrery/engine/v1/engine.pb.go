@@ -676,6 +676,107 @@ func (*ResumeResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{13}
 }
 
+// WithdrawRequest takes back the held messages of a session.
+type WithdrawRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The prompt id of the held message to take back. Empty takes back every held message of the session.
+	PromptId      string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WithdrawRequest) Reset() {
+	*x = WithdrawRequest{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WithdrawRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WithdrawRequest) ProtoMessage() {}
+
+func (x *WithdrawRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WithdrawRequest.ProtoReflect.Descriptor instead.
+func (*WithdrawRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *WithdrawRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *WithdrawRequest) GetPromptId() string {
+	if x != nil {
+		return x.PromptId
+	}
+	return ""
+}
+
+// WithdrawResponse carries the texts of the held messages taken back.
+type WithdrawResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The texts of the messages taken back, oldest first.
+	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WithdrawResponse) Reset() {
+	*x = WithdrawResponse{}
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WithdrawResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WithdrawResponse) ProtoMessage() {}
+
+func (x *WithdrawResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_engine_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WithdrawResponse.ProtoReflect.Descriptor instead.
+func (*WithdrawResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *WithdrawResponse) GetTexts() []string {
+	if x != nil {
+		return x.Texts
+	}
+	return nil
+}
+
 var File_orrery_engine_v1_engine_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_engine_proto_rawDesc = "" +
@@ -711,7 +812,12 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\fSeenResponse\"\x1f\n" +
 	"\rResumeRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x10\n" +
-	"\x0eResumeResponse2\x94\x04\n" +
+	"\x0eResumeResponse\">\n" +
+	"\x0fWithdrawRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\tprompt_id\x18\x02 \x01(\tR\bpromptId\"(\n" +
+	"\x10WithdrawResponse\x12\x14\n" +
+	"\x05texts\x18\x01 \x03(\tR\x05texts2\xe7\x04\n" +
 	"\x06Engine\x12H\n" +
 	"\x05Start\x12\x1e.orrery.engine.v1.StartRequest\x1a\x1f.orrery.engine.v1.StartResponse\x12B\n" +
 	"\x03Say\x12\x1c.orrery.engine.v1.SayRequest\x1a\x1d.orrery.engine.v1.SayResponse\x12K\n" +
@@ -719,7 +825,8 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\tInterrupt\x12\".orrery.engine.v1.InterruptRequest\x1a#.orrery.engine.v1.InterruptResponse\x12E\n" +
 	"\x04Stop\x12\x1d.orrery.engine.v1.StopRequest\x1a\x1e.orrery.engine.v1.StopResponse\x12E\n" +
 	"\x04Seen\x12\x1d.orrery.engine.v1.SeenRequest\x1a\x1e.orrery.engine.v1.SeenResponse\x12K\n" +
-	"\x06Resume\x12\x1f.orrery.engine.v1.ResumeRequest\x1a .orrery.engine.v1.ResumeResponseB\xcb\x01\n" +
+	"\x06Resume\x12\x1f.orrery.engine.v1.ResumeRequest\x1a .orrery.engine.v1.ResumeResponse\x12Q\n" +
+	"\bWithdraw\x12!.orrery.engine.v1.WithdrawRequest\x1a\".orrery.engine.v1.WithdrawResponseB\xcb\x01\n" +
 	"\x14com.orrery.engine.v1B\vEngineProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -734,7 +841,7 @@ func file_orrery_engine_v1_engine_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_engine_proto_rawDescData
 }
 
-var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_orrery_engine_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_orrery_engine_v1_engine_proto_goTypes = []any{
 	(*StartRequest)(nil),      // 0: orrery.engine.v1.StartRequest
 	(*StartResponse)(nil),     // 1: orrery.engine.v1.StartResponse
@@ -750,6 +857,8 @@ var file_orrery_engine_v1_engine_proto_goTypes = []any{
 	(*SeenResponse)(nil),      // 11: orrery.engine.v1.SeenResponse
 	(*ResumeRequest)(nil),     // 12: orrery.engine.v1.ResumeRequest
 	(*ResumeResponse)(nil),    // 13: orrery.engine.v1.ResumeResponse
+	(*WithdrawRequest)(nil),   // 14: orrery.engine.v1.WithdrawRequest
+	(*WithdrawResponse)(nil),  // 15: orrery.engine.v1.WithdrawResponse
 }
 var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	0,  // 0: orrery.engine.v1.Engine.Start:input_type -> orrery.engine.v1.StartRequest
@@ -759,15 +868,17 @@ var file_orrery_engine_v1_engine_proto_depIdxs = []int32{
 	8,  // 4: orrery.engine.v1.Engine.Stop:input_type -> orrery.engine.v1.StopRequest
 	10, // 5: orrery.engine.v1.Engine.Seen:input_type -> orrery.engine.v1.SeenRequest
 	12, // 6: orrery.engine.v1.Engine.Resume:input_type -> orrery.engine.v1.ResumeRequest
-	1,  // 7: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
-	3,  // 8: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
-	5,  // 9: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
-	7,  // 10: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
-	9,  // 11: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
-	11, // 12: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
-	13, // 13: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
-	7,  // [7:14] is the sub-list for method output_type
-	0,  // [0:7] is the sub-list for method input_type
+	14, // 7: orrery.engine.v1.Engine.Withdraw:input_type -> orrery.engine.v1.WithdrawRequest
+	1,  // 8: orrery.engine.v1.Engine.Start:output_type -> orrery.engine.v1.StartResponse
+	3,  // 9: orrery.engine.v1.Engine.Say:output_type -> orrery.engine.v1.SayResponse
+	5,  // 10: orrery.engine.v1.Engine.Answer:output_type -> orrery.engine.v1.AnswerResponse
+	7,  // 11: orrery.engine.v1.Engine.Interrupt:output_type -> orrery.engine.v1.InterruptResponse
+	9,  // 12: orrery.engine.v1.Engine.Stop:output_type -> orrery.engine.v1.StopResponse
+	11, // 13: orrery.engine.v1.Engine.Seen:output_type -> orrery.engine.v1.SeenResponse
+	13, // 14: orrery.engine.v1.Engine.Resume:output_type -> orrery.engine.v1.ResumeResponse
+	15, // 15: orrery.engine.v1.Engine.Withdraw:output_type -> orrery.engine.v1.WithdrawResponse
+	8,  // [8:16] is the sub-list for method output_type
+	0,  // [0:8] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -784,7 +895,7 @@ func file_orrery_engine_v1_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_engine_proto_rawDesc), len(file_orrery_engine_v1_engine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

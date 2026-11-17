@@ -74,6 +74,8 @@ const (
 	ControlSeenProcedure = "/orrery.v1.Control/Seen"
 	// ControlResumeProcedure is the fully-qualified name of the Control's Resume RPC.
 	ControlResumeProcedure = "/orrery.v1.Control/Resume"
+	// ControlWithdrawProcedure is the fully-qualified name of the Control's Withdraw RPC.
+	ControlWithdrawProcedure = "/orrery.v1.Control/Withdraw"
 	// PanesListProcedure is the fully-qualified name of the Panes's List RPC.
 	PanesListProcedure = "/orrery.v1.Panes/List"
 	// PanesScreenProcedure is the fully-qualified name of the Panes's Screen RPC.
@@ -358,6 +360,10 @@ type ControlClient interface {
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
 	// Resume resumes an interrupted headless session's turn by sending its resume prompt.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
+	// Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
+	// prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
+	// back, so a prompt_id that is not held is refused.
+	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
 // NewControlClient constructs a client for the orrery.v1.Control service. By default, it uses the
@@ -413,6 +419,12 @@ func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(controlMethods.ByName("Resume")),
 			connect.WithClientOptions(opts...),
 		),
+		withdraw: connect.NewClient[v1.WithdrawRequest, v1.WithdrawResponse](
+			httpClient,
+			baseURL+ControlWithdrawProcedure,
+			connect.WithSchema(controlMethods.ByName("Withdraw")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -425,6 +437,7 @@ type controlClient struct {
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
 	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
+	withdraw  *connect.Client[v1.WithdrawRequest, v1.WithdrawResponse]
 }
 
 // Start calls orrery.v1.Control.Start.
@@ -462,6 +475,11 @@ func (c *controlClient) Resume(ctx context.Context, req *connect.Request[v1.Resu
 	return c.resume.CallUnary(ctx, req)
 }
 
+// Withdraw calls orrery.v1.Control.Withdraw.
+func (c *controlClient) Withdraw(ctx context.Context, req *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
+	return c.withdraw.CallUnary(ctx, req)
+}
+
 // ControlHandler is an implementation of the orrery.v1.Control service.
 type ControlHandler interface {
 	// Start starts a headless session in a directory and sends it its first prompt.
@@ -478,6 +496,10 @@ type ControlHandler interface {
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
 	// Resume resumes an interrupted headless session's turn by sending its resume prompt.
 	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
+	// Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
+	// prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
+	// back, so a prompt_id that is not held is refused.
+	Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error)
 }
 
 // NewControlHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -529,6 +551,12 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(controlMethods.ByName("Resume")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlWithdrawHandler := connect.NewUnaryHandler(
+		ControlWithdrawProcedure,
+		svc.Withdraw,
+		connect.WithSchema(controlMethods.ByName("Withdraw")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Control/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlStartProcedure:
@@ -545,6 +573,8 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 			controlSeenHandler.ServeHTTP(w, r)
 		case ControlResumeProcedure:
 			controlResumeHandler.ServeHTTP(w, r)
+		case ControlWithdrawProcedure:
+			controlWithdrawHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -580,6 +610,10 @@ func (UnimplementedControlHandler) Seen(context.Context, *connect.Request[v1.See
 
 func (UnimplementedControlHandler) Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Resume is not implemented"))
+}
+
+func (UnimplementedControlHandler) Withdraw(context.Context, *connect.Request[v1.WithdrawRequest]) (*connect.Response[v1.WithdrawResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Withdraw is not implemented"))
 }
 
 // PanesClient is a client for the orrery.v1.Panes service.

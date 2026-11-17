@@ -102,6 +102,13 @@ func (f *urlFake) Seen(
 	return controlReply(f, req.Msg, &orreryv1.SeenResponse{})
 }
 
+func (f *urlFake) Withdraw(
+	_ context.Context,
+	req *connect.Request[orreryv1.WithdrawRequest],
+) (*connect.Response[orreryv1.WithdrawResponse], error) {
+	return controlReply(f, req.Msg, &orreryv1.WithdrawResponse{})
+}
+
 func (f *urlFake) Resume(
 	_ context.Context,
 	req *connect.Request[orreryv1.ResumeRequest],

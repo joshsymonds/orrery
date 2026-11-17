@@ -33,6 +33,11 @@ const fakeStartedID = "synthetic-started-id"
 // synthSessionID is a session id of the 32-digit hex form, named by Start, Say and the other Control calls.
 const synthSessionID = "0123456789abcdef0123456789abcdef"
 
+// fakeWithdrawnTexts returns the texts the fake orreryd takes back on each Withdraw, oldest first.
+func fakeWithdrawnTexts() []string {
+	return []string{"synthetic held first", "synthetic held second"}
+}
+
 // shortControlTimeout bounds the forwards of the deadline test, short enough that the test ends quickly.
 const shortControlTimeout = 50 * time.Millisecond
 
@@ -140,6 +145,16 @@ func (f *fakeEngine) Seen(
 	return connect.NewResponse(&enginev1.SeenResponse{}), nil
 }
 
+func (f *fakeEngine) Withdraw(
+	ctx context.Context,
+	req *connect.Request[enginev1.WithdrawRequest],
+) (*connect.Response[enginev1.WithdrawResponse], error) {
+	if err := f.answer(ctx, req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.WithdrawResponse{Texts: fakeWithdrawnTexts()}), nil
+}
+
 // newFakeOrreryd serves fake as orreryd's Engine on a loopback test server and returns a client for it.
 func newFakeOrreryd(t *testing.T, fake *fakeEngine) enginev1connect.EngineClient {
 	t.Helper()
@@ -229,7 +244,7 @@ func replyOf[T any, M interface {
 	return M(resp.Msg), nil
 }
 
-// controlCalls returns the seven Control calls, each with every request field set. Start sends dir and expects the
+// controlCalls returns the eight Control calls, each with every request field set. Start sends dir and expects the
 // engine to receive resolved, the same directory with its symlinks resolved.
 func controlCalls(dir, resolved string) []controlCall {
 	return []controlCall{
@@ -297,6 +312,16 @@ func controlCalls(dir, resolved string) []controlCall {
 			engine: &enginev1.ResumeRequest{Id: synthSessionID},
 			reply:  &orreryv1.ResumeResponse{},
 		},
+		{
+			name: "Withdraw",
+			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
+				return replyOf(c.Withdraw(ctx, connect.NewRequest(&orreryv1.WithdrawRequest{
+					Id: synthSessionID, PromptId: "synthetic-prompt",
+				})))
+			},
+			engine: &enginev1.WithdrawRequest{Id: synthSessionID, PromptId: "synthetic-prompt"},
+			reply:  &orreryv1.WithdrawResponse{Texts: fakeWithdrawnTexts()},
+		},
 	}
 }
 
@@ -310,6 +335,7 @@ func controlPaths() []string {
 		orreryv1connect.ControlStopProcedure,
 		orreryv1connect.ControlSeenProcedure,
 		orreryv1connect.ControlResumeProcedure,
+		orreryv1connect.ControlWithdrawProcedure,
 	}
 }
 

@@ -95,7 +95,7 @@ func newStepControlHandler(
 	return handler
 }
 
-// stepSessionCalls returns the five session Control calls that a step id refuses, and Seen, each on id with every
+// stepSessionCalls returns the six session Control calls that a step id refuses, and Seen, each on id with every
 // request field set. Each names the engine request it forwards and the reply it answers with.
 func stepSessionCalls(id string) []controlCall {
 	return []controlCall{
@@ -142,6 +142,16 @@ func stepSessionCalls(id string) []controlCall {
 			},
 			engine: &enginev1.ResumeRequest{Id: id},
 			reply:  &orreryv1.ResumeResponse{},
+		},
+		{
+			name: "Withdraw",
+			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
+				return replyOf(c.Withdraw(ctx, connect.NewRequest(&orreryv1.WithdrawRequest{
+					Id: id, PromptId: "synthetic-prompt",
+				})))
+			},
+			engine: &enginev1.WithdrawRequest{Id: id, PromptId: "synthetic-prompt"},
+			reply:  &orreryv1.WithdrawResponse{Texts: fakeWithdrawnTexts()},
 		},
 		{
 			name: "Seen",
