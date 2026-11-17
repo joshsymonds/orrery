@@ -342,7 +342,7 @@ function fixture(): Row[] {
 // fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
 const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -2614,7 +2614,7 @@ test("a double click on a row writes seen for that row, as Enter does for the cu
 test("a click on the view labels switches the view as a and p do", (t) =>
   withApp(t.signal, {}, async (container) => {
     const labels = container.querySelectorAll<HTMLElement>(".views .view");
-    assert.equal(labels.length, 2);
+    assert.equal(labels.length, 3);
     await act(() => {
       labels[1].dispatchEvent(clickEvent());
     });
