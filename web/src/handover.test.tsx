@@ -261,16 +261,16 @@ test("a released epic draws its release steps with their runs, then the candidat
       assert.deepEqual(
         publishRuns[0].map((run) => spansOf(run)),
         [
-          ["attempt 1", "failed", "failed", "head b1"],
-          ["attempt 2", "done", "passed", "head b2", "commit c1", "commit c2"],
+          ["attempt 1", "failed", "failed", "⎇"],
+          ["attempt 2", "done", "passed", "⎇", "⎇", "⎇"],
         ],
         "the failed attempt comes before the passed one",
       );
       assert.deepEqual(
         publishRuns[0].map((run) => spanClassesOf(run)),
         [
-          [null, "end", "state", null],
-          [null, "end", "state", null, null, null],
+          [null, "end", "state", "commit-mark"],
+          [null, "end", "state", "commit-mark", "commit-mark", "commit-mark"],
         ],
       );
       assert.deepEqual(
@@ -327,3 +327,43 @@ test("a release step with no run draws no nested list, and a run whose step is a
       assert.deepEqual(spansOf(rows[1]), ["release", "attempt 1", "failed", "failed"]);
     },
   ));
+
+test("CommitMark: a release run's head and commits draw as ⎇ marks titled with the hash, and no hash shows", () => {
+  const head = "0123456789abcdef0123456789abcdef01234567";
+  const commits = ["89abcdef0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210fedcba98"];
+  return withHandover(
+    {
+      contract: { releaseSteps: [{ step: "publish tag", target: "github", undo: "delete the tag" }] },
+      releases: [
+        {
+          part: "release",
+          position: 1n,
+          attempt: 1n,
+          step: "publish tag",
+          start: "a1",
+          head,
+          end: "done",
+          commits,
+          evidence: "",
+          passed: true,
+          reason: "",
+          at: 0n,
+        },
+      ],
+    },
+    (container) => {
+      const marks = [...container.querySelectorAll("section .commit-mark")];
+      assert.deepEqual(
+        marks.map((mark) => mark.textContent),
+        ["⎇", "⎇", "⎇"],
+        "the head and each commit draw a mark",
+      );
+      assert.deepEqual(marks.map((mark) => mark.getAttribute("title")), [head, ...commits]);
+      assert.deepEqual(marks.map((mark) => mark.getAttribute("aria-label")), [head, ...commits]);
+      const visible = container.textContent ?? "";
+      for (const hash of [head, ...commits]) {
+        assert.equal(visible.includes(hash), false, `${hash} is not visible text`);
+      }
+    },
+  );
+});

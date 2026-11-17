@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { CommitMark } from "./commitmark";
 import type { EvidenceArtifact, EvidenceRun } from "./gen/orrery/v1/epics_pb";
 
 // LoadArtifact reads one artifact of an evidence run, or the run's log when the name is empty: its stderr log when
@@ -11,13 +12,10 @@ export type LoadArtifact = (
   stderr: boolean,
 ) => Promise<{ data: Uint8Array; mediaType: string }>;
 
-// revisionLength is how many characters of a run's commit id show.
-const revisionLength = 12;
-
 // EvidenceRuns is a requirement's evidence runs in order. Each run shows its phase, source, state, verdict, result,
-// exit and revision, its stdout log behind a toggle and its stderr log behind a second toggle when it has one, and its
-// artifacts; a kept image is drawn inline. Every text is a child of its element, so no markup in a log, reason or path
-// becomes an element.
+// exit and commit mark, its stdout log behind a toggle and its stderr log behind a second toggle when it has one,
+// and its artifacts; a kept image is drawn inline. Every text is a child of its element, so no markup in a log, reason
+// or path becomes an element.
 export function EvidenceRuns(props: { runs: EvidenceRun[]; loadArtifact: LoadArtifact }): JSX.Element {
   const { runs, loadArtifact } = props;
   return (
@@ -44,7 +42,7 @@ function EvidenceRunRow(props: { run: EvidenceRun; loadArtifact: LoadArtifact })
         <span class="verdict">{verdictOf(run)}</span>
         <span class={run.passed ? "pass ok" : "pass"}>{run.passed ? "passed" : "not passed"}</span>
         {ended && <span class="exit">{`exit ${run.exit}`}</span>}
-        <span class="revision">{run.revision.slice(0, revisionLength)}</span>
+        {run.revision !== "" && <CommitMark hash={run.revision} />}
       </div>
       <LogToggle run={run.id} stderr={false} loadArtifact={loadArtifact} />
       {run.stderrBytes > 0n && <LogToggle run={run.id} stderr loadArtifact={loadArtifact} />}

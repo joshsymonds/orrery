@@ -6,8 +6,8 @@ import { blockerOf } from "./status";
 // A need's kind: a waiting row, an open question, a failed release step, a park, or any other blocker.
 export type NeedKind = "row" | "question" | "release" | "park" | "other";
 
-// One thing waiting on the user, as a sentence. A row's summary is the why under its sentence. An epic's sentence
-// already says why, so its summary is empty. An epic need names its epic, and a question need its question's id; a
+// One thing waiting on the user, as a sentence. A row's summary is its why, which the row's title draws, so the row's
+// sentence does not repeat it. An epic's sentence already says why, so its summary is empty. An epic need names its epic, and a question need its question's id; a
 // row need names neither.
 export interface Need {
   kind: NeedKind;
@@ -20,11 +20,10 @@ export interface Need {
 // The state of a release step that did not pass.
 const releaseFailed = "failed";
 
-// rowNeed is the need of a waiting row: its label asks the question the row holds, else it waits on you. Its summary is
-// the why.
+// rowNeed is the need of a waiting row: the question the row holds, which it asks, else that it waits on you. The row's
+// title already draws its directory and its summary, so the sentence names neither. Its summary is the why.
 export function rowNeed(row: Row): Need {
-  const text =
-    row.question === "" ? `${row.label} waits on you` : `${row.label} asks: ${parseQuestion(row.question).title}`;
+  const text = row.question === "" ? "waits on you" : `asks: ${parseQuestion(row.question).title}`;
   return { kind: "row", text, summary: row.summary, epic: "", question: "" };
 }
 

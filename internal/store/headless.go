@@ -14,6 +14,8 @@ type HeadlessRow struct {
 	ID, Dir, State, Changed, Seen, Question, Reason string
 	// Title is the session's generated title, or "" until one is stored.
 	Title string
+	// Headline is the session's stored headline, or "" until one is written.
+	Headline string
 	// FirstPrompt is the text of the session's oldest engine_prompt event, or "" when it has none.
 	FirstPrompt string
 	// Reply is the text of the newest engine_block of kind text with an empty parentToolUseId, or "" when none.
@@ -62,8 +64,8 @@ func readHeadlessSessions(ctx context.Context, db *sql.DB, cutoff int64) ([]Head
 	for _, row := range rows {
 		headless = append(headless, HeadlessRow{
 			ID: row.ID, Dir: row.Dir, State: row.State, Changed: row.Changed, Seen: row.Seen,
-			Question: row.Question, Reason: row.Reason, Title: row.Title, FirstPrompt: row.FirstPrompt,
-			Reply: row.Reply, NewestReply: row.NewestReply,
+			Question: row.Question, Reason: row.Reason, Title: row.Title, Headline: row.Headline,
+			FirstPrompt: row.FirstPrompt, Reply: row.Reply, NewestReply: row.NewestReply,
 		})
 	}
 	return headless, nil
