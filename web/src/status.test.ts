@@ -63,7 +63,10 @@ test("an orreryd epic reads paused, then parked, then waiting, ahead of its trac
   assert.equal(stateOf(detail({ epic: waiting })), "waiting");
 });
 
-test("LiveControls: an accepted orreryd epic with a task reads building", () => {
+test("LiveControls: an accepted orreryd epic shows Pause and Stop, and reads planning until it has a task, then building", () => {
+  const planning = detail({ epic: { ...orreryd, outcome: "accepted" } });
+  assert.deepEqual(controlsOf(planning), { pause: true, resume: false, stop: true });
+  assert.equal(stateOf(planning), "planning");
   const building = detail({ epic: { ...orreryd, outcome: "accepted" }, tasks: [{ slug: "t1" }] });
   assert.equal(stateOf(building), "building");
 });
@@ -72,6 +75,12 @@ test("LiveControls: a paused orreryd epic shows Resume and Stop, and reads pause
   const d = detail({ epic: { ...orreryd, outcome: "built" }, paused: true });
   assert.deepEqual(controlsOf(d), { pause: false, resume: true, stop: true });
   assert.equal(stateOf(d), "paused");
+});
+
+test("LiveControls: a releasing orreryd epic shows Stop and no Pause, and reads releasing", () => {
+  const d = detail({ epic: { ...orreryd, outcome: "releasing" } });
+  assert.deepEqual(controlsOf(d), { pause: false, resume: false, stop: true });
+  assert.equal(stateOf(d), "releasing");
 });
 
 test("LiveControls: a paused releasing orreryd epic shows Resume and Stop", () => {
@@ -107,7 +116,7 @@ test("LiveControls: an orreryd epic pauses in accepted, built, reviewing and cor
   });
 });
 
-test("LiveControls: an orreryd epic's state word is its track part in each track phase, and its phase as written off the track", () => {
+test("an orreryd epic's state word is its track part in each track phase, and its phase as written off the track", () => {
   const words = [
     ["accepted", "planning"],
     ["built", "building"],
