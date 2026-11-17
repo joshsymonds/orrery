@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -207,5 +208,61 @@ func TestEpicReviewersStartPromptPrintsNoneForEmptyRequirementsAndMustNotShip(t 
 	}, "\n")
 	if got.Prompt != want {
 		t.Errorf("Prompt\n got:\n%s\nwant:\n%s", got.Prompt, want)
+	}
+}
+
+// TestEpicReviewersStartPromptListsTheEvidenceAmendments checks that an epic whose Requirements' evidence was amended
+// shows each amendment to its reviewers, applied or refused, with both items, before the change.
+func TestEpicReviewersStartPromptListsTheEvidenceAmendments(t *testing.T) {
+	t.Parallel()
+	epic := rvEpic(rvModel())
+	old := evidence.Item{
+		Capture:    []string{"./t", "old"},
+		Limit:      1,
+		Conclusion: "one holds",
+		Judge:      "j",
+		Kind:       "capture",
+	}
+	moved := evidence.Item{
+		Capture:    []string{"./t", "new"},
+		Limit:      1,
+		Conclusion: "one holds",
+		Judge:      "j",
+		Kind:       "capture",
+	}
+	epic.Amendments = []store.EvidenceAmendment{
+		{
+			Seq: 1, Requirement: "R1", Amender: store.AmenderPlanner, State: store.AmendmentApplied,
+			Reason: "the test moved", Prior: old, Item: moved,
+		},
+		{
+			Seq: 2, Requirement: "R2", Amender: store.AmenderOwner, State: store.AmendmentRefused,
+			Reason: "a looser capture", Prior: old, Item: moved, Refusal: "its red holds at the base",
+		},
+	}
+	got, err := NewEpicReviewers().Start(context.Background(), epic, "correctness", "base111", "frozen222")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	oldJSON := `{"capture":["./t","old"],"limit":1,"artifacts":null,"supplied":null,"conclusion":"one holds",` +
+		`"judge":"j","kind":"capture"}`
+	newJSON := strings.Replace(oldJSON, `"old"`, `"new"`, 1)
+	want := strings.Join([]string{
+		"Epic repo/epic-x (Review the epic)",
+		"Requirements:",
+		"- R1: one",
+		"- R2: two",
+		"Must Not Ship:",
+		"- no new dependency",
+		"- no network calls",
+		"Evidence amendments:",
+		"- A1 R1 by planner, applied: the test moved; prior item: " + oldJSON + "; new item: " + newJSON,
+		"- A2 R2 by owner, refused: a looser capture; prior item: " + oldJSON + "; new item: " + newJSON +
+			"; refused: its red holds at the base",
+		"The change under review is base111..frozen222; this worktree is checked out at frozen222. " +
+			"Inspect it with `git diff base111 frozen222`.",
+	}, "\n")
+	if !strings.HasSuffix(got.Prompt, want) {
+		t.Errorf("Prompt\n got:\n%s\nwant it to end:\n%s", got.Prompt, want)
 	}
 }

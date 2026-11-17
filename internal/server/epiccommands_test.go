@@ -111,6 +111,26 @@ func (f *epicCommandsFake) SeeEpic(
 	return connect.NewResponse(&enginev1.SeeEpicResponse{}), nil
 }
 
+func (f *epicCommandsFake) ArchiveRow(
+	_ context.Context,
+	req *connect.Request[enginev1.ArchiveRowRequest],
+) (*connect.Response[enginev1.ArchiveRowResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.ArchiveRowResponse{}), nil
+}
+
+func (f *epicCommandsFake) UnarchiveRow(
+	_ context.Context,
+	req *connect.Request[enginev1.UnarchiveRowRequest],
+) (*connect.Response[enginev1.UnarchiveRowResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.UnarchiveRowResponse{}), nil
+}
+
 // record appends req to the calls and returns the next queued failure, or nil when the call succeeds.
 func (f *epicCommandsFake) record(req proto.Message) error {
 	f.mu.Lock()

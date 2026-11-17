@@ -9,6 +9,7 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // getEpicHistoryOK returns the stored epic with epicServiceID through client, asking for its history when history is set.
@@ -33,10 +34,22 @@ func TestEpicGetAnswersSummaryAndHistory(t *testing.T) {
 	if err := st.SetEpicSummary(t.Context(), epicServiceID, "Synthetic summary."); err != nil {
 		t.Fatalf("SetEpicSummary: %v", err)
 	}
-	if err := st.ParkEpic(t.Context(), epicServiceID, "Synthetic first tell.", time.Unix(1700000800, 0)); err != nil {
+	if err := st.ParkEpic(
+		t.Context(),
+		epicServiceID,
+		store.ParkClassBranch,
+		"Synthetic first tell.",
+		time.Unix(1700000800, 0),
+	); err != nil {
 		t.Fatalf("ParkEpic first: %v", err)
 	}
-	if err := st.ParkEpic(t.Context(), epicServiceID, "Synthetic second tell.", time.Unix(1700000900, 0)); err != nil {
+	if err := st.ParkEpic(
+		t.Context(),
+		epicServiceID,
+		store.ParkClassBranch,
+		"Synthetic second tell.",
+		time.Unix(1700000900, 0),
+	); err != nil {
 		t.Fatalf("ParkEpic second: %v", err)
 	}
 

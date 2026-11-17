@@ -269,4 +269,14 @@ public interface SessionOrBuilder extends
    */
   com.google.protobuf.ByteString
       getTranscriptBytes();
+
+  /**
+   * <pre>
+   * True while the session is archived: the owner archived it and has not unarchived it since.
+   * </pre>
+   *
+   * <code>bool archived = 14 [json_name = "archived"];</code>
+   * @return The archived.
+   */
+  boolean getArchived();
 }

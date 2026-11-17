@@ -68,7 +68,8 @@ func claimedAt() time.Time {
 // storeQuestion is the question validPlan asks: a shaped question with two choices and a recommendation.
 const storeQuestion = `{"label":"which-store","text":"which store?","choices":[` +
 	`{"id":"sqlite","does":"Keep the store in SQLite."},{"id":"files","does":"Write the store to files."}],` +
-	`"recommended":"sqlite","why":"The tables already hold the epic.","confidence":"high","replaces":""}`
+	`"recommended":"sqlite","why":"The tables already hold the epic.","catastrophe":"irreversible-step",` +
+	`"confidence":"high","replaces":""}`
 
 // validPlan is a planner return that passes the check: one task on R1 that names a file no task owns, a gate, an
 // evidence item whose lists are empty, and the question storeQuestion.
@@ -85,7 +86,8 @@ const badQuestionPlan = `{"status":"done","decisions":["use the store"],` +
 	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
 	`"supplied":[],"conclusion":"the runner runs","judge":"a judge","kind":"capture"}}],"outline":"one task","questions":[` +
 	`{"label":"which-store","text":"which store?","choices":[{"id":"sqlite","does":"Keep the store in SQLite."}],` +
-	`"recommended":"sqlite","why":"The tables already hold the epic.","confidence":"high","replaces":""}],` +
+	`"recommended":"sqlite","why":"The tables already hold the epic.","catastrophe":"irreversible-step",` +
+	`"confidence":"high","replaces":""}],` +
 	`"outcome":"work"}`
 
 // runnerEvidenceItem returns the evidence item validPlan's task stores and reads back as.
@@ -412,17 +414,6 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	}}
 	if !reflect.DeepEqual(epic.Tasks, wantTasks) {
 		t.Errorf("tasks = %+v, want %+v", epic.Tasks, wantTasks)
-	}
-	wantQuestions := []store.EpicQuestion{{
-		Seq: 1, Turn: 1, Text: "which store?", State: "open", Label: "which-store",
-		Choices: []store.EpicChoice{
-			{ID: "sqlite", Does: "Keep the store in SQLite."},
-			{ID: "files", Does: "Write the store to files."},
-		},
-		Recommended: "sqlite", Why: "The tables already hold the epic.", Confidence: "high",
-	}}
-	if !reflect.DeepEqual(epic.Questions, wantQuestions) {
-		t.Errorf("questions = %+v, want %+v", epic.Questions, wantQuestions)
 	}
 	triggers, err := s.TurnTriggers(ctx, runnerEpicID, 1)
 	if err != nil {

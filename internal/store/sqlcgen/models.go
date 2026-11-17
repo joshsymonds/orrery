@@ -8,6 +8,13 @@ import (
 	"database/sql"
 )
 
+type ArchivedRow struct {
+	Kind         string
+	ID           string
+	ArchivedAt   int64
+	UnarchivedAt int64
+}
+
 type CallerEvent struct {
 	Event   string
 	Session string
@@ -75,6 +82,14 @@ type Epic struct {
 	ReportShipped    string
 	ReportNotShipped string
 	ReportWhy        string
+	ClosedBy         string
+	SupersededBy     string
+	ParkClass        string
+	Synced           string
+	OriginReadBase   string
+	OriginReadCommit string
+	OriginReadState  string
+	OriginReadAt     int64
 }
 
 type EpicAddition struct {
@@ -92,6 +107,29 @@ type EpicAlternative struct {
 	Alternative string
 	WhyNot      string
 	Reconsider  string
+}
+
+type EpicAmendment struct {
+	Epic         string
+	Seq          int64
+	Requirement  string
+	Amender      string
+	Turn         int64
+	Position     int64
+	PriorItem    string
+	Item         string
+	Reason       string
+	Base         string
+	State        string
+	RedAttempt   int64
+	RedRun       string
+	StoredBase   string
+	GreenAttempt int64
+	GreenRun     string
+	ReproCheck   string
+	Refusal      string
+	Created      int64
+	Settled      int64
 }
 
 type EpicClosure struct {
@@ -212,6 +250,16 @@ type EpicNodeRun struct {
 	RefsChecked int64
 	Result      string
 	Output      string
+}
+
+type EpicPark struct {
+	Epic    string
+	Seq     int64
+	Class   string
+	Subject string
+	Chain   int64
+	Reason  string
+	Created int64
 }
 
 type EpicPremise struct {
@@ -563,6 +611,24 @@ type PendingNotice struct {
 type PendingNoticeID struct {
 	ID   int64
 	High int64
+}
+
+type PlannerAction struct {
+	Epic        string
+	Turn        int64
+	Position    int64
+	Kind        string
+	Node        string
+	Task        int64
+	CloseKind   string
+	ByEpic      string
+	UndoNone    string
+	Reason      string
+	State       string
+	Refusal     string
+	Park        int64
+	Requirement string
+	Item        string
 }
 
 type PushedAlertNotice struct {

@@ -15,7 +15,7 @@ type callerSeedEvent struct {
 	at      int64
 }
 
-// seedCallerEpic inserts the epic id in phase at version 48.
+// seedCallerEpic inserts the epic id in phase at version 56.
 func seedCallerEpic(t *testing.T, s *Store, id, phase string) {
 	t.Helper()
 	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epics
@@ -35,7 +35,7 @@ func seedCallerSession(t *testing.T, s *Store, epic, session, call string, at in
 	}
 }
 
-// seedCallerQuestion inserts question seq of epic at version 48, in state.
+// seedCallerQuestion inserts question seq of epic at version 56, in state.
 func seedCallerQuestion(t *testing.T, s *Store, epic string, seq int, state string) {
 	t.Helper()
 	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_questions (epic, seq, turn, text, state)
@@ -44,13 +44,13 @@ func seedCallerQuestion(t *testing.T, s *Store, epic string, seq int, state stri
 	}
 }
 
-// applyCallerEventSeed runs 00049's Up on the store at version 48 and returns the caller_events rows, ordered by event
+// applyCallerEventSeed runs 00057's Up on the store at version 56 and returns the caller_events rows, ordered by event
 // and then session.
 func applyCallerEventSeed(t *testing.T, s *Store, provider *goose.Provider) []callerSeedEvent {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := provider.UpByOne(ctx); err != nil {
-		t.Fatalf("Up of 00049: %v", err)
+		t.Fatalf("Up of 00057: %v", err)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT event, session, at FROM caller_events ORDER BY event, session`)
 	if err != nil {
@@ -74,7 +74,7 @@ func applyCallerEventSeed(t *testing.T, s *Store, provider *goose.Provider) []ca
 // is a session that called epic_create, in any state, and the epic's ended phase.
 func TestCallerEventSeedMarksCreatorQuestionsAndEndedPhase(t *testing.T) {
 	t.Parallel()
-	s, provider := storeAtVersion(t, 48)
+	s, provider := storeAtVersion(t, 56)
 	const epic = "orrery-1/ended"
 	seedCallerEpic(t, s, epic, "done")
 	seedCallerSession(t, s, epic, "creator", "epic_create", 1700000100)
@@ -96,7 +96,7 @@ func TestCallerEventSeedMarksCreatorQuestionsAndEndedPhase(t *testing.T) {
 // epic, but no phase event for either: clean is not an ended phase, and accepted is the phase of a running epic.
 func TestCallerEventSeedSkipsCleanAndRunningPhases(t *testing.T) {
 	t.Parallel()
-	s, provider := storeAtVersion(t, 48)
+	s, provider := storeAtVersion(t, 56)
 	const clean = "orrery-2/clean"
 	const running = "orrery-2/running"
 	seedCallerEpic(t, s, clean, "clean")
@@ -120,7 +120,7 @@ func TestCallerEventSeedSkipsCleanAndRunningPhases(t *testing.T) {
 // session's newest call is epic_get, though the epic has a question and an ended phase.
 func TestCallerEventSeedSkipsSessionsWhoseNewestCallIsNotCreate(t *testing.T) {
 	t.Parallel()
-	s, provider := storeAtVersion(t, 48)
+	s, provider := storeAtVersion(t, 56)
 	const epic = "orrery-3/ended"
 	seedCallerEpic(t, s, epic, "done")
 	seedCallerSession(t, s, epic, "reader", "epic_get", 1700000400)

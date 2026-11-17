@@ -113,6 +113,23 @@ func (f *recordingEpics) StopEpic(
 	return respond(f, req.Msg, &v1.StopEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) CloseEpic(
+	_ context.Context,
+	req *connect.Request[v1.CloseEpicRequest],
+) (*connect.Response[v1.CloseEpicResponse], error) {
+	return respond(f, req.Msg, &v1.CloseEpicResponse{Epic: f.epic})
+}
+
+func (f *recordingEpics) AmendEvidence(
+	_ context.Context,
+	req *connect.Request[v1.AmendEvidenceRequest],
+) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	return respond(f, req.Msg, &v1.AmendEvidenceResponse{
+		Amendment: &v1.EpicAmendment{Seq: 1, Requirement: req.Msg.GetRequirement(), State: "checking"},
+		Epic:      f.epic,
+	})
+}
+
 func (f *recordingEpics) ReleaseEpic(
 	_ context.Context,
 	req *connect.Request[v1.ReleaseEpicRequest],
@@ -125,6 +142,20 @@ func (f *recordingEpics) SeeEpic(
 	req *connect.Request[v1.SeeEpicRequest],
 ) (*connect.Response[v1.SeeEpicResponse], error) {
 	return respond(f, req.Msg, &v1.SeeEpicResponse{})
+}
+
+func (f *recordingEpics) ArchiveRow(
+	_ context.Context,
+	req *connect.Request[v1.ArchiveRowRequest],
+) (*connect.Response[v1.ArchiveRowResponse], error) {
+	return respond(f, req.Msg, &v1.ArchiveRowResponse{})
+}
+
+func (f *recordingEpics) UnarchiveRow(
+	_ context.Context,
+	req *connect.Request[v1.UnarchiveRowRequest],
+) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	return respond(f, req.Msg, &v1.UnarchiveRowResponse{})
 }
 
 func (f *recordingEpics) RetryEpic(

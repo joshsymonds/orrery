@@ -131,7 +131,7 @@ func (e *EpicCallerEvents) send(
 	}
 }
 
-// The event ids below are the ids that migration 00049_caller_events.sql seeds as marks, so the two must match: change
+// The event ids below are the ids that migration 00057_caller_events.sql seeds as marks, so the two must match: change
 // them together.
 
 // questionEvent returns the id of the event of question seq of epic, which is a park or a question.

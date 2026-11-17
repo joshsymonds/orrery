@@ -36,11 +36,15 @@ const (
 const stepPart = "step"
 
 // work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
-// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or closure run's
-// prepare and start are its own. The work of a release run is carried out by release.
+// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or
+// closure run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
+// run by syncWork.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	if act.NodeKind == kindRelease {
+	switch act.NodeKind {
+	case kindRelease:
 		return r.release(ctx, epic, act, at)
+	case kindSync:
+		return r.syncWork(ctx, epic, act, at)
 	}
 	switch act.Work {
 	case kinds.ActPrepare:
@@ -145,7 +149,7 @@ func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) erro
 			return missingService("reviewers")
 		}
 		return r.startReviewUnits(ctx, epic, act)
-	case kindGate, kindCommand, kindIntegrate, kindRelease:
+	case kindGate, kindCommand, kindIntegrate, kindSync, kindRelease:
 		if r.checks == nil {
 			return missingService("checks")
 		}
@@ -173,14 +177,14 @@ func missingService(service string) error {
 }
 
 // startCheck starts the check of a gate or command run under the id its action names, at the run's revision. The check of
-// an integrate or release run is one of its Done gates, which the action names.
+// an integrate, sync or release run is one of its Done gates, which the action names.
 func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
 	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
 	var err error
 	switch act.NodeKind {
 	case kindGate:
 		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
-	case kindIntegrate, kindRelease:
+	case kindIntegrate, kindSync, kindRelease:
 		check, err = r.withGate(ctx, epic, act.Items[0], check)
 	default:
 		check.Argv = act.Def.Settings.Argv
@@ -288,14 +292,15 @@ func refusedForGood(err error) bool {
 		errors.Is(err, agents.ErrUnresolved)
 }
 
-// recordOwned records the paths the epic's branch changes over its base as a JSON array, which is [] when none changed.
-// --no-renames lists a renamed path under both its names, so a rename out of an owned path is not missed.
+// recordOwned records the paths the epic's branch changes over its change base (changeBase) as a JSON array, which is []
+// when none changed. --no-renames lists a renamed path under both its names, so a rename out of an owned path is not
+// missed.
 func (r *Runner) recordOwned(ctx context.Context, epic store.EpicRow, act Action) error {
 	head, err := branchHead(ctx, epic)
 	if err != nil {
 		return err
 	}
-	listing, err := gitOutput(ctx, epic.Repository, "diff", "--name-only", "-z", "--no-renames", epic.Base, head)
+	listing, err := gitOutput(ctx, epic.Repository, "diff", "--name-only", "-z", "--no-renames", changeBase(epic), head)
 	if err != nil {
 		return fmt.Errorf("list paths changed by epic %s: %w", epic.ID, err)
 	}
@@ -344,14 +349,29 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, act Action, 
 
 // gitOutput runs git in dir and returns its stdout as git wrote it. On failure the error carries git's stderr.
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	return gitRun(gitCommand(ctx, dir, args), args)
+}
+
+// gitCommand returns the command that runs git in dir with args, which ctx's end stops.
+func gitCommand(ctx context.Context, dir string, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git")
 	cmd.Args = append(cmd.Args, "-C", dir)
 	cmd.Args = append(cmd.Args, args...)
+	return cmd
+}
+
+// gitRun runs cmd, git with args, and returns its stdout as git wrote it. On failure the error carries git's stderr,
+// when git wrote any.
+func gitRun(cmd *exec.Cmd, args []string) (string, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		err = fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			err = fmt.Errorf("%w: %s", err, detail)
+		}
+		return "", err
 	}
 	return string(out), nil
 }

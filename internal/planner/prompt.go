@@ -21,10 +21,10 @@ const (
 )
 
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
-// new notes, the open questions, the advice followed, the tasks, the triggers and the last failure. epic is read after
-// the turn is claimed, so its Turns include turn, and triggers are the triggers turn claimed. follows are the store's
-// follow counts per label. It returns an error when a gate, a Requirement's evidence item or a task's evidence item
-// cannot be encoded.
+// new notes, the open questions, the advice followed, the tasks, the evidence amendments, the triggers and the last
+// failure. epic is read after the turn is claimed, so its Turns include turn, and triggers are the triggers turn claimed.
+// follows are the store's follow counts per label. It returns an error when a gate, a Requirement's evidence item, a
+// task's evidence item or an amendment's item cannot be encoded.
 func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
@@ -43,6 +43,11 @@ func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follow
 		return "", fmt.Errorf("tasks section: %w", err)
 	}
 	WriteSection(&out, "Tasks", tasks)
+	amendments, err := amendmentLines(epic.Amendments)
+	if err != nil {
+		return "", fmt.Errorf("evidence amendments section: %w", err)
+	}
+	WriteSection(&out, "Evidence amendments", amendments)
 	WriteSection(&out, "Triggers", triggerLines(triggers))
 	WriteSection(&out, "Last failure", failureLines(last, found))
 	return out.String(), nil
@@ -355,6 +360,26 @@ func failedLines(task store.EpicTask) []string {
 		"  failure: " + task.Build.Failure,
 		"  files the next task may need: " + nameList(task.NeedsFiles),
 	}
+}
+
+// amendmentLines returns each evidence amendment as `- A<seq> <Requirement> by <amender> [<state>]: <reason>`, then the
+// item it asks for as compact JSON, then `  refused: <refusal>` when it was refused.
+func amendmentLines(amendments []store.EvidenceAmendment) ([]string, error) {
+	lines := make([]string, 0, 2*len(amendments))
+	for _, amended := range amendments {
+		item, err := json.Marshal(amended.Item)
+		if err != nil {
+			return nil, fmt.Errorf("encode item of amendment A%d: %w", amended.Seq, err)
+		}
+		lines = append(lines,
+			fmt.Sprintf("- A%d %s by %s [%s]: %s", amended.Seq, amended.Requirement, amended.Amender, amended.State,
+				amended.Reason),
+			"  new item: "+string(item))
+		if amended.State == store.AmendmentRefused {
+			lines = append(lines, "  refused: "+amended.Refusal)
+		}
+	}
+	return lines, nil
 }
 
 // triggerLines returns each trigger as `- id: cause`.

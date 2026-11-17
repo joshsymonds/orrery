@@ -34,6 +34,12 @@ service Epics {
 
   // Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
   rpc Seen(EpicsSeenRequest) returns (EpicsSeenResponse);
+
+  // Archive archives the named list row, so the lists hide it. kind is epic, session or headless.
+  rpc Archive(EpicsArchiveRequest) returns (EpicsArchiveResponse);
+
+  // Unarchive clears the archive mark of the named list row, so the lists show it again.
+  rpc Unarchive(EpicsUnarchiveRequest) returns (EpicsUnarchiveResponse);
 }
 
 // Steps carries the owner's calls on one labelled step. It has no call that starts a step.
@@ -133,6 +139,10 @@ message EpicsGetResponse {
 
   // The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
   EpicReport report = 19;
+
+  // Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+  // is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+  bool planner_parked = 20;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -538,6 +548,30 @@ message EpicsSeenRequest {
 // EpicsSeenResponse is the reply to a Seen. It has no fields.
 message EpicsSeenResponse {}
 
+// EpicsArchiveRequest names the list row the owner archives.
+message EpicsArchiveRequest {
+  // The row's kind: epic, session or headless.
+  string kind = 1;
+
+  // The row's id, the same text the list gave it.
+  string id = 2;
+}
+
+// EpicsArchiveResponse is the reply to an Archive. It has no fields.
+message EpicsArchiveResponse {}
+
+// EpicsUnarchiveRequest names the list row the owner unarchives.
+message EpicsUnarchiveRequest {
+  // The row's kind: epic, session or headless.
+  string kind = 1;
+
+  // The row's id, the same text the list gave it.
+  string id = 2;
+}
+
+// EpicsUnarchiveResponse is the reply to an Unarchive. It has no fields.
+message EpicsUnarchiveResponse {}
+
 // Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
 message Epic {
   // The epic's id, "<repo-id>/<epic-slug>", the same text a step's epic label carries.
@@ -584,6 +618,9 @@ message Epic {
 
   // When the owner last saw the epic, in unix seconds, from its latest Seen; 0 when the owner has not seen it.
   int64 seen = 14;
+
+  // True while the epic is archived: the owner archived it and has not unarchived it since.
+  bool archived = 15;
 }
 
 // EpicTask is one task from an effort's state.json.

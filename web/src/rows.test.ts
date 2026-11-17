@@ -11,7 +11,7 @@ import {
   type Pane,
   type Session,
 } from "./gen/orrery/v1/orrery_pb";
-import { byAttention, byProject, rowsFrom, type Row, type Section } from "./rows";
+import { byAttention, byProject, rowsFrom, splitArchived, type Row, type Section } from "./rows";
 
 function makePane(init: MessageInitShape<typeof PaneSchema>): Pane {
   return create(PaneSchema, { host: "box", session: "work", cwd: "/work/app", ...init });
@@ -62,6 +62,8 @@ test("a pane row takes its label, project, host, state, text, and times from the
       changed: 40,
       seen: 10,
       unseen: true,
+      archived: false,
+      archiveKind: "none",
     },
   ]);
 });
@@ -116,6 +118,8 @@ test("a session row is keyed by its id, named by its first eight characters, and
       changed: 42,
       seen: 42,
       unseen: false,
+      archived: false,
+      archiveKind: "session",
     },
   ]);
 });
@@ -162,6 +166,48 @@ test("a headless row is labeled by the server's label, and an empty label stays 
       ["0123456789abcdef", "", "/work/app"],
       ["fedcba9876543210", "Billing rounding", "/work/app"],
     ],
+  );
+});
+
+test("ArchiveView: rowsFrom marks archived session and headless rows with their archive kinds, and a pane row has no archive kind", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%3" })],
+    [makeSession({ id: "sess-archived", pane: "", archived: true }), makeSession({ id: "sess-live", pane: "" })],
+    [makeHeadless({ id: "head-archived", dir: "/work/app", archived: true }), makeHeadless({ id: "head-live" })],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.archived, row.archiveKind]),
+    [
+      ["%3", false, "none"],
+      ["sess-archived", true, "session"],
+      ["sess-live", false, "session"],
+      ["head-archived", true, "headless"],
+      ["head-live", false, "headless"],
+    ],
+  );
+});
+
+test("ArchiveView: splitArchived leaves archived rows out of the default rows and lists them as archived, each in input order", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%1" })],
+    [
+      makeSession({ id: "sess-z", pane: "", archived: true }),
+      makeSession({ id: "sess-y", pane: "" }),
+      makeSession({ id: "sess-x", pane: "", archived: true }),
+    ],
+    [makeHeadless({ id: "head-w" })],
+  );
+
+  const split = splitArchived(rows);
+
+  assert.deepEqual(
+    split.rows.map((row) => row.key),
+    ["pane:box:%1", "session:sess-y", "session:head-w"],
+  );
+  assert.deepEqual(
+    split.archived.map((row) => row.key),
+    ["session:sess-z", "session:sess-x"],
   );
 });
 

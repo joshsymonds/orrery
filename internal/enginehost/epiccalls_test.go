@@ -161,6 +161,22 @@ func TestEpicKickIsRecordedAsEpicKick(t *testing.T) {
 	})
 }
 
+func TestCloseEpicRPCIsRecordedAsEpicClose(t *testing.T) {
+	t.Parallel()
+	rec := &fakeEpicRecorder{}
+	_, client := epicCallFixture(t, rec)
+	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+
+	req := connect.NewRequest(&v1.CloseEpicRequest{Id: epicServiceID, Kind: "abandoned"})
+	req.Header().Set(protocol.HeaderSession, epicCallSession)
+	if _, err := client.CloseEpic(t.Context(), req); err != nil {
+		t.Fatalf("CloseEpic: %v", err)
+	}
+	wantEpicCall(t, rec.recorded(), epicCall{
+		epic: epicServiceID, caller: store.EpicCaller{Session: epicCallSession}, call: "epic_close", at: epicCallAt(),
+	})
+}
+
 func TestEpicCallRecordsNothingForRefusedOrUnnamedCalls(t *testing.T) {
 	t.Parallel()
 	rec := &fakeEpicRecorder{}

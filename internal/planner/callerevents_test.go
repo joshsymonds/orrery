@@ -131,7 +131,7 @@ func TestCallerEventEpicKindsReachTheCreatorOnce(t *testing.T) {
 			name: "park",
 			plan: store.EpicPlan{Outcome: "wait"},
 			reach: func(ctx context.Context, s *store.Store) error {
-				return s.ParkEpic(ctx, runnerEpicID, callerEpicParkedText, claimedAt())
+				return s.ParkEpic(ctx, runnerEpicID, store.ParkClassBranch, callerEpicParkedText, claimedAt())
 			},
 			event: "epic:" + runnerEpicID + ":Q1",
 			block: `<orrery-event kind="park" id="epic:orrery-1a2b3c4/planner-runner:Q1">

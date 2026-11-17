@@ -6,16 +6,41 @@ import { VIEW, cellPath, sector, sliceSpan, sliceStart } from "./orbits";
 import { ARC_INNER, ARC_OUTER } from "./orrery";
 import { requirementArcs, wedgesOf } from "./phases";
 
-// EpicLine draws an epic's line: its small orrery, then its slug, repository and count, then its state and blocker. An
-// ended epic's line draws its ended words as its state, in place of the count, state and blocker. A full epic also
-// draws its strip of one segment per record task. An epic with no detail draws no orrery. Each state and blocker span is
-// keyed by its text, so a changed phrase mounts anew and its move plays.
+// ArchiveControl is the archive button a list line draws. archived is whether the line sits in the Archived view, which
+// draws Unarchive; run archives the line, or unarchives it there.
+export interface ArchiveControl {
+  archived: boolean;
+  run: () => void;
+}
+
+// ArchiveButton draws a line's archive control. Its press acts on its own: it moves no cursor and marks nothing seen.
+export function ArchiveButton({ control }: { control: ArchiveControl }): JSX.Element {
+  return (
+    <button
+      type="button"
+      class="archive"
+      onClick={(event) => {
+        event.stopPropagation();
+        control.run();
+      }}
+      onDblClick={(event) => event.stopPropagation()}
+    >
+      {control.archived ? "Unarchive" : "Archive"}
+    </button>
+  );
+}
+
+// EpicLine draws an epic's line: its small orrery, then its slug, repository and count, then its state and blocker, and
+// its archive button when it has one. An ended epic's line draws its ended words as its state, in place of the count,
+// state and blocker. A full epic also draws its strip of one segment per record task. An epic with no detail draws no
+// orrery. Each state and blocker span is keyed by its text, so a changed phrase mounts anew and its move plays.
 export function EpicLine({
   epic,
   full,
   current,
   now,
   ended,
+  archive,
   onSelect,
 }: {
   epic: EpicItem;
@@ -23,6 +48,7 @@ export function EpicLine({
   current: boolean;
   now: number;
   ended?: string;
+  archive?: ArchiveControl;
   onSelect: (item: EpicItem) => void;
 }): JSX.Element {
   const line = ended === undefined ? epicLine(epic, now) : { count: "", state: ended, blocker: "" };
@@ -53,6 +79,7 @@ export function EpicLine({
           </div>
         )}
       </div>
+      {archive !== undefined && <ArchiveButton control={archive} />}
     </div>
   );
 }

@@ -20,6 +20,8 @@ export interface EpicItem {
   done: number;
   total: number;
   strip: StripTone[];
+  // Whether the owner archived the epic. An archived epic is set aside in EpicsView.archived, never drawn.
+  archived: boolean;
   detail: EpicsGetResponse | undefined;
 }
 
@@ -59,9 +61,10 @@ export interface EpicsView {
   blocks: EpicBlock[];
   waiting: EpicItem[];
   live: number;
-  folded: EpicItem[];
   justEnded: EpicItem[];
   endedEarlier: EpicItem[];
+  // The archived epics, live or not, in input order.
+  archived: EpicItem[];
   details: Map<string, EpicsGetResponse>;
 }
 
@@ -70,7 +73,6 @@ export interface EpicSection {
   epics: EpicBlock[];
   waiting: EpicItem[];
   rows: Row[];
-  folded: EpicItem[];
   justEnded: EpicItem[];
   endedEarlier: EpicItem[];
   count: number;
@@ -78,9 +80,6 @@ export interface EpicSection {
 
 // An epic block shows this many of its running steps; the rest are counted.
 const shownSteps = 4;
-
-// Quiet epics draw one line each until this many blocks are drawn. Epics with running or held work always draw.
-const shownBlocks = 6;
 
 // A task strip past this many segments draws dense, its segments touching.
 export const denseStrip = 60;
@@ -96,33 +95,36 @@ export const noEpics: EpicsView = {
   blocks: [],
   waiting: [],
   live: 0,
-  folded: [],
   justEnded: [],
   endedEarlier: [],
+  archived: [],
   details: new Map(),
 };
 
-// Blocks the live epics that draw, collects the live epics waiting to start in input order, and sorts each ended epic
-// into justEnded while it is unseen, else into endedEarlier, both newest ending first. Every other epic is folded, in
-// input order: a live epic not drawn, and a record epic that went quiet. Epics with a running or held step draw first,
-// in input order; quiet live epics follow in input order while fewer than shownBlocks are drawn. An epic with no detail
-// carries no detail, and its counts read zero.
+// Blocks every live epic that is not waiting, busy ones first and each group in input order, and collects the live
+// epics waiting to start in input order. Each epic that is not live has ended: it sorts into justEnded while it is
+// unseen, else into endedEarlier, both newest ending first. A record epic has no phase time, so it is never unseen. An
+// archived epic, live or not, goes into archived in input order and into none of the other lists, nor the live count.
+// An epic with no detail carries no detail, and its counts read zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
   const waiting: EpicItem[] = [];
   const justEnded: EpicItem[] = [];
   const endedEarlier: EpicItem[] = [];
+  const archived: EpicItem[] = [];
   let live = 0;
   for (const epic of epics) {
+    if (epic.archived) {
+      archived.push(itemOf(epic, details.get(epic.id)));
+      continue;
+    }
     if (!epic.live) {
-      if (isEnded(epic)) {
-        const item = itemOf(epic, details.get(epic.id));
-        if (epic.seen < epic.phaseAt) {
-          justEnded.push(item);
-        } else {
-          endedEarlier.push(item);
-        }
+      const item = itemOf(epic, details.get(epic.id));
+      if (epic.seen < epic.phaseAt) {
+        justEnded.push(item);
+      } else {
+        endedEarlier.push(item);
       }
       continue;
     }
@@ -136,25 +138,15 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
       quiet.push(block);
     }
   }
-  const blocks = [...busy, ...quiet.slice(0, Math.max(0, shownBlocks - busy.length))];
-  const placed = new Set([...blocks.map((block) => block.epic.id), ...waiting.map((item) => item.id)]);
-  const folded = epics
-    .filter((epic) => !placed.has(epic.id) && !isEnded(epic))
-    .map((epic) => itemOf(epic, details.get(epic.id)));
   return {
-    blocks,
+    blocks: [...busy, ...quiet],
     waiting,
     live,
-    folded,
     justEnded: newestFirst(justEnded),
     endedEarlier: newestFirst(endedEarlier),
+    archived,
     details,
   };
-}
-
-// An orreryd epic that is not live has ended. A record epic that went quiet is not ended: it stays folded.
-function isEnded(epic: Epic): boolean {
-  return epic.source === "orreryd" && !epic.live;
 }
 
 // Orders ended epics newest ending first. Equal endings keep their order, so an epic moved in goes after those it ties.
@@ -209,6 +201,7 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     done: doneOf(tasks),
     total: tasks.length,
     strip: stripOf(tasks, detail?.slices ?? []),
+    archived: epic.archived,
     detail,
   };
 }
@@ -314,7 +307,6 @@ function rowSection(section: Section): EpicSection {
     epics: [],
     waiting: [],
     rows: section.rows,
-    folded: [],
     justEnded: [],
     endedEarlier: [],
     count: section.rows.length,
@@ -322,19 +314,18 @@ function rowSection(section: Section): EpicSection {
 }
 
 // Wraps each section, then places the Epics group after the Needs you section, or first when there is none, and the
-// Just ended section right after it. The Epics group counts every live epic and is left out when no epic is drawn,
-// waiting or folded. The Just ended section carries both ended lists and counts the unseen ones; it is left out when
-// neither list holds an epic.
+// Just ended section right after it. The Epics group counts every live epic and is left out when no epic is drawn or
+// waiting. The Just ended section carries both ended lists and counts the unseen ones; it is left out when neither list
+// holds an epic.
 export function withEpicsGroup(sections: Section[], view: EpicsView): EpicSection[] {
   const result = sections.map(rowSection);
   const groups: EpicSection[] = [];
-  if (view.blocks.length > 0 || view.waiting.length > 0 || view.folded.length > 0) {
+  if (view.blocks.length > 0 || view.waiting.length > 0) {
     groups.push({
       title: epicsTitle,
       epics: view.blocks,
       waiting: view.waiting,
       rows: [],
-      folded: view.folded,
       justEnded: [],
       endedEarlier: [],
       count: view.live,
@@ -346,7 +337,6 @@ export function withEpicsGroup(sections: Section[], view: EpicsView): EpicSectio
       epics: [],
       waiting: [],
       rows: [],
-      folded: [],
       justEnded: view.justEnded,
       endedEarlier: view.endedEarlier,
       count: view.justEnded.length,
@@ -383,7 +373,6 @@ export function placeEpics(sections: Section[], blocks: EpicBlock[]): EpicSectio
       epics,
       waiting: [],
       rows: [],
-      folded: [],
       justEnded: [],
       endedEarlier: [],
       count: epics.length,

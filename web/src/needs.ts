@@ -28,9 +28,12 @@ export function rowNeed(row: Row): Need {
   return { kind: "row", text, summary: row.summary, epic: "", question: "" };
 }
 
-// epicNeeds raises the needs of each live epic with a detail, in list order. Each open question is a question need. The
-// epic's first failed release step is a release need, and it replaces the park. Otherwise a park is a park need, and any
-// other blocker is an other need with its own text. The blocker is read without the questions, which are raised first.
+// epicNeeds raises the needs of each live epic with a detail, in list order. Each open question is a question need,
+// even when the planner holds the epic's park. A planner-parked epic (plannerParked) raises no release, park or other
+// need from that park: the planner answers it. For any other epic, the epic's first failed release step is a release
+// need, and it replaces the park. Otherwise a park is a park need, and any other blocker is an other need with its own
+// text. The blocker is read without the questions, which are raised first, and without the park, which the branches
+// above already answer.
 export function epicNeeds(epics: Epic[], details: Map<string, EpicsGetResponse>): Need[] {
   const needs: Need[] = [];
   for (const epic of epics) {
@@ -41,15 +44,17 @@ export function epicNeeds(epics: Epic[], details: Map<string, EpicsGetResponse>)
     for (const question of detail.questions) {
       needs.push(epicNeed("question", epic.id, `${epic.slug} asks: ${question.text}`, question.id));
     }
-    const failed = detail.releaseSteps.find((proof) => proof.state === releaseFailed);
+    const failed = detail.plannerParked
+      ? undefined
+      : detail.releaseSteps.find((proof) => proof.state === releaseFailed);
     if (failed !== undefined) {
       needs.push(
         epicNeed("release", epic.id, `${epic.slug}: release step ${failed.position} (${failed.step}) failed: ${failed.reason}`),
       );
-    } else if (detail.parked !== "") {
+    } else if (detail.parked !== "" && !detail.plannerParked) {
       needs.push(epicNeed("park", epic.id, `${epic.slug} is parked: ${detail.parked}`));
     } else {
-      const blocker = blockerOf({ ...detail, questions: [] });
+      const blocker = blockerOf({ ...detail, parked: "", questions: [] });
       if (blocker !== null) {
         needs.push(epicNeed("other", epic.id, `${epic.slug}: ${blocker.text}`));
       }

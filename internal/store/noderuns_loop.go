@@ -22,9 +22,9 @@ func (s *Store) NextRound(ctx context.Context, epic, path string, from int64) er
 	})
 }
 
-// ParkLoop parks the running loop at path of epic at round round, parks epic with reason, and adds reason as a tell, in
-// one write. Reason is cut to TurnReasonMax bytes. A loop at another round, and a loop that is not running, change
-// nothing and add no tell, so a repeat is a no-op.
+// ParkLoop parks the running loop at path of epic at round round, and parks epic with reason as the loop planner class,
+// in one write. Reason is cut to TurnReasonMax bytes. A loop at another round, and a loop that is not running, change
+// nothing, so a repeat is a no-op.
 func (s *Store) ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		rows, err := queries.ParkEpicLoopRun(ctx, sqlcgen.ParkEpicLoopRunParams{
@@ -36,7 +36,7 @@ func (s *Store) ParkLoop(ctx context.Context, epic, path string, round int64, re
 		if rows == 0 {
 			return nil
 		}
-		return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+		return parkEpicAs(ctx, queries, epic, ParkClassLoop, path, reason, at)
 	})
 }
 

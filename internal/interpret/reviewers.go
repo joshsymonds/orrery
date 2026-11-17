@@ -2,11 +2,13 @@ package interpret
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -69,7 +71,8 @@ func (EpicReviewers) Start(
 }
 
 // epicStageReviewPrompt renders the prompt of an epic-stage review step: the epic and every Requirement it declares,
-// its Must Not Ship entries, and the change from base to revision.
+// its Must Not Ship entries, the amendments of its Requirements' evidence items when it has any (see amendmentBullets),
+// and the change from base to revision.
 func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 	requirements := make([]string, len(epic.Requirements))
 	for i, requirement := range epic.Requirements {
@@ -78,13 +81,43 @@ func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 	change := fmt.Sprintf(
 		"The change under review is %s..%s; this worktree is checked out at %s. Inspect it with `git diff %s %s`.",
 		base, revision, revision, base, revision)
+	var amendments []string
+	if len(epic.Amendments) > 0 {
+		amendments = append([]string{"Evidence amendments:"}, epicStageBullets(amendmentBullets(epic.Amendments))...)
+	}
 	return strings.Join(slices.Concat(
 		[]string{fmt.Sprintf("Epic %s (%s)", epic.ID, epic.Title), "Requirements:"},
 		epicStageBullets(requirements),
 		[]string{"Must Not Ship:"},
 		epicStageBullets(epic.Exclusions),
+		amendments,
 		[]string{change},
 	), "\n")
+}
+
+// amendmentBullets returns one line per amendment of a Requirement's evidence item, so a reviewer reads how the evidence
+// of each Requirement changed while the epic ran: `A<seq> <Requirement> by <amender>, <state>: <reason>; prior item:
+// <json>; new item: <json>`, with `; refused: <refusal>` after a refused one.
+func amendmentBullets(amendments []store.EvidenceAmendment) []string {
+	lines := make([]string, 0, len(amendments))
+	for _, amended := range amendments {
+		line := fmt.Sprintf("A%d %s by %s, %s: %s; prior item: %s; new item: %s", amended.Seq, amended.Requirement,
+			amended.Amender, amended.State, amended.Reason, compactItem(amended.Prior), compactItem(amended.Item))
+		if amended.State == store.AmendmentRefused {
+			line += "; refused: " + amended.Refusal
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// compactItem returns item as compact JSON, or the encoding error's text.
+func compactItem(item evidence.Item) string {
+	encoded, err := json.Marshal(item)
+	if err != nil {
+		return "unencodable item: " + err.Error()
+	}
+	return string(encoded)
 }
 
 // epicStageBullets prefixes each item with "- ", or returns the single line "- none" when there are no items.

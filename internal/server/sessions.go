@@ -17,7 +17,7 @@ import (
 // WatchConversation asks about a step session, and a nil steps answers not_found for one. poll paces the polls of
 // WatchConversation, keepalive is the time without a delta after which it sends a keepalive, sendTimeout bounds each
 // of its sends, and closing shutdown ends its streams. A nil shutdown never closes. now is the clock ListHeadless
-// dates its retention window by.
+// dates its retention window and its aging by.
 type sessionsServer struct {
 	reader      *store.Reader
 	now         func() time.Time
@@ -44,9 +44,17 @@ func (s sessionsServer) List(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, "read sessions")
 	}
+	marks, err := readArchiveMarks(ctx, s.reader)
+	if err != nil {
+		return nil, err
+	}
 	sessions := make([]*orreryv1.Session, 0, len(snap.Sessions))
 	for _, row := range snap.Sessions {
-		sessions = append(sessions, sessionMessage(row))
+		session := sessionMessage(row)
+		mark := marks[archiveKey{kind: archiveKindSession, id: row.ID}]
+		// A pane session takes its mark alone: it never ages out.
+		session.Archived = archivedRow(mark, sessionChanged(row.Fields.Changed), false)
+		sessions = append(sessions, session)
 	}
 	return connect.NewResponse(&orreryv1.ListResponse{Sessions: sessions, Seq: snap.Seq}), nil
 }

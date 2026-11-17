@@ -34,7 +34,7 @@ function makeEpic(init: MessageInitShape<typeof EpicSchema>): Epic {
 function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
   const details = detail === undefined ? new Map() : new Map([[epic.id, detail]]);
   const view = epicsView([epic], details);
-  return [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.folded][0];
+  return [...view.blocks.map((block) => block.epic), ...view.waiting, ...view.justEnded, ...view.endedEarlier][0];
 }
 
 // synthetic is a live epic building since 49 minutes before now, with three record tasks and three requirements. t0 is

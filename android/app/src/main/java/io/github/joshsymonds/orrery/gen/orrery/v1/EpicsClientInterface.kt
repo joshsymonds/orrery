@@ -61,4 +61,14 @@ public interface EpicsClientInterface {
    *  Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
    */
   public suspend fun seen(request: EpicsSeenRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsSeenResponse>
+
+  /**
+   *  Archive archives the named list row, so the lists hide it. kind is epic, session or headless.
+   */
+  public suspend fun archive(request: EpicsArchiveRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsArchiveResponse>
+
+  /**
+   *  Unarchive clears the archive mark of the named list row, so the lists show it again.
+   */
+  public suspend fun unarchive(request: EpicsUnarchiveRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsUnarchiveResponse>
 }
