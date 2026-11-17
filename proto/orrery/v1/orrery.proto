@@ -155,6 +155,10 @@ message HeadlessSession {
 
   // True while the headless session is archived: the owner archived it and has not unarchived it since.
   bool archived = 10;
+
+  // The session's headline: the stored headline once one is written, else the title, else the first words of the first
+  // prompt. It never holds the directory, which a client shows beside it.
+  string headline = 11;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows

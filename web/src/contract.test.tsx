@@ -160,10 +160,21 @@ test("a contract with no additions says None under its heading", () =>
 test("the accepted line gives the clock, and the base when there is one", async () => {
   const clockText = clock(acceptedAt);
   await withBody(contract({ ...fields }), (container) => {
-    assert.equal(textOf(container, "article.contract > p.accepted"), `accepted ${clockText} · base 0123456789ab`);
+    assert.equal(textOf(container, "article.contract > p.accepted"), `accepted ${clockText} · ⎇`);
   });
   await withBody(contract({ ...fields, base: "" }), (container) => {
     assert.equal(textOf(container, "article.contract > p.accepted"), `accepted ${clockText}`);
+  });
+});
+
+test("CommitMark: a contract's base draws as a ⎇ mark titled with the base, and the base shows as no text", async () => {
+  await withBody(contract({ ...fields }), (container) => {
+    const mark = container.querySelector("article.contract > p.accepted .commit-mark");
+    assert.equal(mark?.textContent, "⎇");
+    assert.equal(mark?.getAttribute("title"), fields.base);
+    assert.equal(mark?.getAttribute("aria-label"), fields.base);
+    const accepted = textOf(container, "article.contract > p.accepted") ?? "";
+    assert.equal(accepted.includes(fields.base), false, "the base is not visible text");
   });
 });
 

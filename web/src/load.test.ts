@@ -33,11 +33,11 @@ const syntheticSession = {
   seen: "30",
 };
 
-// A headless session as Sessions.ListHeadless answers it, under a synthetic directory.
+// A headless session as Sessions.ListHeadless answers it, under a synthetic directory, with its served headline.
 const syntheticHeadless = {
   id: "170bf619aa00bb11cc22dd33ee44ff55",
   dir: "/work/gatehouse",
-  label: "gatehouse · 170bf619",
+  headline: "Billing rounding plan",
   state: "working",
   changed: "50",
   seen: "0",
@@ -104,9 +104,9 @@ test("every list answers: rows come from the panes, the sessions and the headles
   assert.deepEqual(
     result.rows.map((row) => [row.kind, row.key, row.label, row.project]),
     [
-      ["pane", "pane:box:%1", "api", "/work/api"],
+      ["pane", "pane:box:%1", "building", "/work/api"],
       ["session", "session:s1", "notes", ""],
-      ["session", `session:${syntheticHeadless.id}`, "gatehouse · 170bf619", "/work/gatehouse"],
+      ["session", `session:${syntheticHeadless.id}`, "Billing rounding plan", "/work/gatehouse"],
     ],
   );
 });

@@ -1,7 +1,8 @@
 import { type ComponentChildren, Fragment, type JSX } from "preact";
 
+// A crumb's label is text, or the title a row's conversation head draws (TitleParts).
 export interface Crumb {
-  label: string;
+  label: ComponentChildren;
   onGo?: () => void;
 }
 

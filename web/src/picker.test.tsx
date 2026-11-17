@@ -5,6 +5,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { createClients, createTransport } from "./client";
+import type { Row } from "./rows";
 import { PickerPalette } from "./picker";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
@@ -13,13 +14,14 @@ const askPath = "/orrery.v1.Picker/Ask";
 const runPath = "/orrery.v1.Picker/Run";
 const startPath = "/orrery.v1.Control/Start";
 
-// Synthetic rows only: made-up tokens, panes, directories and words.
+// Synthetic rows only: made-up tokens, panes, directories and words. A jump row carries its pane's label; a folder row
+// carries no label, as the server sends it.
 const jumpRow = {
   token: "tok-jump",
   kind: "jump",
   dir: "/work/api",
   pane: "%3",
-  label: "api",
+  label: "auth refactor",
   note: "waiting on you",
   prompt: false,
 };
@@ -28,7 +30,7 @@ const resumeRow = {
   kind: "resume",
   dir: "/work/docs",
   pane: "",
-  label: "docs",
+  label: "",
   note: "resume sess-7",
   prompt: true,
 };
@@ -37,7 +39,7 @@ const freshRow = {
   kind: "fresh",
   dir: "/work/web",
   pane: "",
-  label: "web",
+  label: "",
   note: "start fresh",
   prompt: false,
 };
@@ -46,10 +48,32 @@ const promptRow = {
   kind: "pane",
   dir: "/work/docs",
   pane: "%4",
-  label: "docs",
+  label: "",
   note: "pane in docs",
   prompt: true,
 };
+
+// listedPane is a listed pane row, which a picker row with the same pane id takes its title from.
+function listedPane(pane: string, project: string, label: string): Row {
+  return {
+    key: `pane:${pane}`,
+    id: pane,
+    kind: "pane",
+    label,
+    project,
+    host: "",
+    state: "waiting",
+    summary: label,
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    archiveKind: "none",
+    archiveId: "",
+  };
+}
 
 interface Call {
   path: string;
@@ -119,9 +143,13 @@ async function mountPalette(
   onRun: (pane: string) => void = () => {},
   onClose: () => void = () => {},
   onStart: (session: string) => void = () => {},
+  rows: Row[] = [],
 ): Promise<void> {
   await act(() => {
-    render(<PickerPalette clients={server.clients} onRun={onRun} onStart={onStart} onClose={onClose} />, container);
+    render(
+      <PickerPalette clients={server.clients} rows={rows} onRun={onRun} onStart={onStart} onClose={onClose} />,
+      container,
+    );
   });
 }
 
@@ -182,9 +210,56 @@ test("PickerPalette: Enter sends the typed words to Picker.Ask, and the rows com
     await untilTurn(t.signal, () => rowButtons(container).length === 2, "the rows are listed");
     assert.deepEqual(server.callsTo(askPath).map((call) => call.body), [{ text: "api  web" }]);
     assert.deepEqual(rowTexts(container), [
-      ["api", "waiting on you"],
+      ["api auth refactor", "waiting on you"],
       ["web", "start fresh"],
     ]);
+  }));
+
+test("TitleParts: a pane row joined to a listed pane draws the listed row's directory and summary, then its note", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow] } });
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [
+      listedPane("%3", "/work/billing", "retry the webhook"),
+    ]);
+    await typeWords(container, "billing");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
+    const [row] = rowButtons(container);
+    assert.equal(row.querySelector(".picker-label .title-dir")?.textContent, "billing", "the listed directory");
+    assert.equal(row.querySelector(".picker-label .title-line")?.textContent, "retry the webhook", "the listed summary");
+    assert.equal(row.querySelector(".picker-note")?.textContent, "waiting on you", "the note follows the title");
+    assert.deepEqual(rowTexts(container), [["billing retry the webhook", "waiting on you"]]);
+  }));
+
+test("TitleParts: a folder row draws its directory and note, with no line", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "web");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
+    const [row] = rowButtons(container);
+    assert.equal(row.querySelector(".picker-label .title-dir")?.textContent, "web", "the folder's directory");
+    assert.equal(row.querySelector(".picker-label .title-line"), null, "a folder row has no line");
+    assert.equal(row.querySelector(".picker-note")?.textContent, "start fresh");
+  }));
+
+test("TitleParts: no picker row shows a pane id, and a pane row with no listed pane draws its own directory and label", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [jumpRow, promptRow] } });
+    await mountPalette(container, server, () => {}, () => {}, () => {}, [
+      listedPane("%3", "/work/billing", "retry the webhook"),
+    ]);
+    await typeWords(container, "api");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 2, "the rows are listed");
+    const [listed, unlisted] = rowButtons(container);
+    assert.equal(listed.querySelector(".title-dir")?.textContent, "billing", "the listed pane's directory");
+    assert.equal(unlisted.querySelector(".title-dir")?.textContent, "docs", "the unlisted pane's own directory");
+    assert.equal(unlisted.querySelector(".title-line"), null, "an unlisted pane with no label draws no line");
+    for (const button of rowButtons(container)) {
+      assert.equal(/%\d/.test(button.textContent ?? ""), false, "a row shows no pane id");
+    }
   }));
 
 test("PickerPalette: choosing a jump or resume row sends its token to Picker.Run and reports the pane", (t) =>

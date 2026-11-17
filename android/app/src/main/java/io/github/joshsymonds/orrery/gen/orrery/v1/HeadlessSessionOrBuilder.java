@@ -174,4 +174,26 @@ public interface HeadlessSessionOrBuilder extends
    * @return The archived.
    */
   boolean getArchived();
+
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   * @return The headline.
+   */
+  java.lang.String getHeadline();
+  /**
+   * <pre>
+   * The session's headline: the stored headline once one is written, else the title, else the first words of the first
+   * prompt. It never holds the directory, which a client shows beside it.
+   * </pre>
+   *
+   * <code>string headline = 11 [json_name = "headline"];</code>
+   * @return The bytes for headline.
+   */
+  com.google.protobuf.ByteString
+      getHeadlineBytes();
 }
