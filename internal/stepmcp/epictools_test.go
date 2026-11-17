@@ -198,6 +198,20 @@ func (f *fakeEpics) SeeEpic(
 	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
 }
 
+func (f *fakeEpics) ArchiveRow(
+	_ context.Context,
+	_ *connect.Request[v1.ArchiveRowRequest],
+) (*connect.Response[v1.ArchiveRowResponse], error) {
+	return connect.NewResponse(&v1.ArchiveRowResponse{}), nil
+}
+
+func (f *fakeEpics) UnarchiveRow(
+	_ context.Context,
+	_ *connect.Request[v1.UnarchiveRowRequest],
+) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	return connect.NewResponse(&v1.UnarchiveRowResponse{}), nil
+}
+
 // epicCalls is a copy of the requests the fake received.
 type epicCalls struct {
 	creates  []*v1.CreateEpicRequest

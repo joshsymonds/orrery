@@ -42,6 +42,14 @@ service Epics {
 
   // SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
   rpc SeeEpic(SeeEpicRequest) returns (SeeEpicResponse);
+
+  // ArchiveRow marks the list row of kind and id archived, at the time of the call, and answers an empty reply. kind is
+  // epic, session or headless. A row needs no table of its own: an epic with only a record is archived by its id.
+  rpc ArchiveRow(ArchiveRowRequest) returns (ArchiveRowResponse);
+
+  // UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
+  // those of ArchiveRow.
+  rpc UnarchiveRow(UnarchiveRowRequest) returns (UnarchiveRowResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -1241,6 +1249,30 @@ message SeeEpicRequest {
 
 // SeeEpicResponse is the reply to a SeeEpic. It has no fields.
 message SeeEpicResponse {}
+
+// ArchiveRowRequest names the list row the owner archives.
+message ArchiveRowRequest {
+  // The row's kind: epic, session or headless.
+  string kind = 1;
+
+  // The row's id.
+  string id = 2;
+}
+
+// ArchiveRowResponse is the reply to an ArchiveRow. It has no fields.
+message ArchiveRowResponse {}
+
+// UnarchiveRowRequest names the list row the owner unarchives.
+message UnarchiveRowRequest {
+  // The row's kind: epic, session or headless.
+  string kind = 1;
+
+  // The row's id.
+  string id = 2;
+}
+
+// UnarchiveRowResponse is the reply to an UnarchiveRow. It has no fields.
+message UnarchiveRowResponse {}
 
 // RunEvidenceRequest asks for one item's evidence to run at a revision for one phase.
 message RunEvidenceRequest {

@@ -57,6 +57,10 @@ const (
 	EpicsAnswerProcedure = "/orrery.v1.Epics/Answer"
 	// EpicsSeenProcedure is the fully-qualified name of the Epics's Seen RPC.
 	EpicsSeenProcedure = "/orrery.v1.Epics/Seen"
+	// EpicsArchiveProcedure is the fully-qualified name of the Epics's Archive RPC.
+	EpicsArchiveProcedure = "/orrery.v1.Epics/Archive"
+	// EpicsUnarchiveProcedure is the fully-qualified name of the Epics's Unarchive RPC.
+	EpicsUnarchiveProcedure = "/orrery.v1.Epics/Unarchive"
 	// StepsHoldProcedure is the fully-qualified name of the Steps's Hold RPC.
 	StepsHoldProcedure = "/orrery.v1.Steps/Hold"
 	// StepsNudgeProcedure is the fully-qualified name of the Steps's Nudge RPC.
@@ -90,6 +94,10 @@ type EpicsClient interface {
 	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
 	// Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
 	Seen(context.Context, *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error)
+	// Archive archives the named list row, so the lists hide it. kind is epic, session or headless.
+	Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error)
+	// Unarchive clears the archive mark of the named list row, so the lists show it again.
+	Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.v1.Epics service. By default, it uses the
@@ -163,21 +171,35 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("Seen")),
 			connect.WithClientOptions(opts...),
 		),
+		archive: connect.NewClient[v1.EpicsArchiveRequest, v1.EpicsArchiveResponse](
+			httpClient,
+			baseURL+EpicsArchiveProcedure,
+			connect.WithSchema(epicsMethods.ByName("Archive")),
+			connect.WithClientOptions(opts...),
+		),
+		unarchive: connect.NewClient[v1.EpicsUnarchiveRequest, v1.EpicsUnarchiveResponse](
+			httpClient,
+			baseURL+EpicsUnarchiveProcedure,
+			connect.WithSchema(epicsMethods.ByName("Unarchive")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // epicsClient implements EpicsClient.
 type epicsClient struct {
-	list    *connect.Client[v1.EpicsListRequest, v1.EpicsListResponse]
-	get     *connect.Client[v1.EpicsGetRequest, v1.EpicsGetResponse]
-	history *connect.Client[v1.EpicsHistoryRequest, v1.EpicsHistoryResponse]
-	pause   *connect.Client[v1.EpicsPauseRequest, v1.EpicsPauseResponse]
-	resume  *connect.Client[v1.EpicsResumeRequest, v1.EpicsResumeResponse]
-	stop    *connect.Client[v1.EpicsStopRequest, v1.EpicsStopResponse]
-	retry   *connect.Client[v1.EpicsRetryRequest, v1.EpicsRetryResponse]
-	kick    *connect.Client[v1.EpicsKickRequest, v1.EpicsKickResponse]
-	answer  *connect.Client[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse]
-	seen    *connect.Client[v1.EpicsSeenRequest, v1.EpicsSeenResponse]
+	list      *connect.Client[v1.EpicsListRequest, v1.EpicsListResponse]
+	get       *connect.Client[v1.EpicsGetRequest, v1.EpicsGetResponse]
+	history   *connect.Client[v1.EpicsHistoryRequest, v1.EpicsHistoryResponse]
+	pause     *connect.Client[v1.EpicsPauseRequest, v1.EpicsPauseResponse]
+	resume    *connect.Client[v1.EpicsResumeRequest, v1.EpicsResumeResponse]
+	stop      *connect.Client[v1.EpicsStopRequest, v1.EpicsStopResponse]
+	retry     *connect.Client[v1.EpicsRetryRequest, v1.EpicsRetryResponse]
+	kick      *connect.Client[v1.EpicsKickRequest, v1.EpicsKickResponse]
+	answer    *connect.Client[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse]
+	seen      *connect.Client[v1.EpicsSeenRequest, v1.EpicsSeenResponse]
+	archive   *connect.Client[v1.EpicsArchiveRequest, v1.EpicsArchiveResponse]
+	unarchive *connect.Client[v1.EpicsUnarchiveRequest, v1.EpicsUnarchiveResponse]
 }
 
 // List calls orrery.v1.Epics.List.
@@ -230,6 +252,16 @@ func (c *epicsClient) Seen(ctx context.Context, req *connect.Request[v1.EpicsSee
 	return c.seen.CallUnary(ctx, req)
 }
 
+// Archive calls orrery.v1.Epics.Archive.
+func (c *epicsClient) Archive(ctx context.Context, req *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error) {
+	return c.archive.CallUnary(ctx, req)
+}
+
+// Unarchive calls orrery.v1.Epics.Unarchive.
+func (c *epicsClient) Unarchive(ctx context.Context, req *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error) {
+	return c.unarchive.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.v1.Epics service.
 type EpicsHandler interface {
 	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
@@ -253,6 +285,10 @@ type EpicsHandler interface {
 	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
 	// Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
 	Seen(context.Context, *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error)
+	// Archive archives the named list row, so the lists hide it. kind is epic, session or headless.
+	Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error)
+	// Unarchive clears the archive mark of the named list row, so the lists show it again.
+	Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -322,6 +358,18 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("Seen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsArchiveHandler := connect.NewUnaryHandler(
+		EpicsArchiveProcedure,
+		svc.Archive,
+		connect.WithSchema(epicsMethods.ByName("Archive")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsUnarchiveHandler := connect.NewUnaryHandler(
+		EpicsUnarchiveProcedure,
+		svc.Unarchive,
+		connect.WithSchema(epicsMethods.ByName("Unarchive")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsListProcedure:
@@ -344,6 +392,10 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsAnswerHandler.ServeHTTP(w, r)
 		case EpicsSeenProcedure:
 			epicsSeenHandler.ServeHTTP(w, r)
+		case EpicsArchiveProcedure:
+			epicsArchiveHandler.ServeHTTP(w, r)
+		case EpicsUnarchiveProcedure:
+			epicsUnarchiveHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -391,6 +443,14 @@ func (UnimplementedEpicsHandler) Answer(context.Context, *connect.Request[v1.Epi
 
 func (UnimplementedEpicsHandler) Seen(context.Context, *connect.Request[v1.EpicsSeenRequest]) (*connect.Response[v1.EpicsSeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Seen is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Archive is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Unarchive is not implemented"))
 }
 
 // StepsClient is a client for the orrery.v1.Steps service.
