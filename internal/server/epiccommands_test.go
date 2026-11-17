@@ -432,33 +432,71 @@ func TestEpicsAnswerRepeatedIDReturnsFirstDecisionFromEngine(t *testing.T) {
 
 func TestEpicsAnswerOptionsForwardsQuestionAndChoice(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name   string
-		choice string
-		text   string
-	}{
-		{name: "declared choice", choice: "sqlite", text: "Synthetic answer."},
-		{name: "other with text", choice: "other", text: "Synthetic own words."},
+	decision := &enginev1.EpicDecision{Seq: 2, Id: "A1", Text: "Synthetic answer.", Time: 1_700_000_000, Question: "Q1"}
+	fake := &epicCommandsFake{decision: decision}
+	client := epicCommandServe(t, fake)
+	reply, err := client.Answer(t.Context(), connect.NewRequest(&orreryv1.EpicsAnswerRequest{
+		EpicId: syntheticEpicID, Id: "A1", Text: "Synthetic answer.", Question: "Q1", Choice: "sqlite",
+	}))
+	if err != nil {
+		t.Fatalf("Answer: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			decision := &enginev1.EpicDecision{Seq: 2, Id: "A1", Text: tc.text, Time: 1_700_000_000, Question: "Q1"}
-			fake := &epicCommandsFake{decision: decision}
-			client := epicCommandServe(t, fake)
-			reply, err := client.Answer(t.Context(), connect.NewRequest(&orreryv1.EpicsAnswerRequest{
-				EpicId: syntheticEpicID, Id: "A1", Text: tc.text, Question: "Q1", Choice: tc.choice,
-			}))
-			if err != nil {
-				t.Fatalf("Answer: %v", err)
-			}
-			assertForwarded(t, fake.recorded(), &enginev1.AnswerEpicRequest{
-				EpicId: syntheticEpicID, Id: "A1", Text: tc.text, Question: "Q1", Choice: tc.choice,
-			})
-			want := &orreryv1.EpicDecision{Seq: 2, Id: "A1", Text: tc.text, Time: 1_700_000_000, Question: "Q1"}
-			if !proto.Equal(reply.Msg.GetDecision(), want) {
-				t.Fatalf("decision = %v, want %v", reply.Msg.GetDecision(), want)
-			}
-		})
+	assertForwarded(t, fake.recorded(), &enginev1.AnswerEpicRequest{
+		EpicId: syntheticEpicID, Id: "A1", Text: "Synthetic answer.", Question: "Q1", Choice: "sqlite",
+	})
+	want := &orreryv1.EpicDecision{Seq: 2, Id: "A1", Text: "Synthetic answer.", Time: 1_700_000_000, Question: "Q1"}
+	if !proto.Equal(reply.Msg.GetDecision(), want) {
+		t.Fatalf("decision = %v, want %v", reply.Msg.GetDecision(), want)
+	}
+}
+
+func TestEpicsAnswerOptionsOtherWithTextIsRecordedByEngine(t *testing.T) {
+	t.Parallel()
+	st := openEpicAnswerStore(t)
+	turn, err := st.ClaimTurn(t.Context(), syntheticEpicID, time.Unix(1_700_000_100, 0))
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	plan := store.EpicPlan{
+		Outline: "Synthetic outline.",
+		Outcome: "Synthetic outcome.",
+		Questions: []store.EpicQuestionInput{{
+			Label: "synthetic-question-one", Text: "Synthetic question one?",
+			Choices: []store.EpicChoice{
+				{ID: "synthetic-a", Does: "Synthetic choice A."},
+				{ID: "synthetic-b", Does: "Synthetic choice B."},
+			},
+			Recommended: "synthetic-a", Why: "Synthetic reason.", Confidence: "low",
+		}},
+	}
+	if err = st.CompleteTurn(t.Context(), syntheticEpicID, turn.Seq, plan, time.Unix(1_700_000_200, 0)); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
+	}
+
+	const text = "Synthetic own words."
+	client := epicCommandServe(t, serveEngineEpics(t, st))
+	reply, err := client.Answer(t.Context(), connect.NewRequest(&orreryv1.EpicsAnswerRequest{
+		EpicId: syntheticEpicID, Id: "A1", Text: text, Question: "Q1", Choice: store.ChoiceOther,
+	}))
+	if err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	decision := reply.Msg.GetDecision()
+	if decision.GetSeq() != 1 || decision.GetQuestion() != "Q1" || decision.GetText() != text {
+		t.Fatalf("decision = %v, want seq 1 answering Q1 with %q", decision, text)
+	}
+
+	epic, err := st.Epic(t.Context(), syntheticEpicID)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	if len(epic.Questions) != 1 {
+		t.Fatalf("questions = %v, want only Q1", epic.Questions)
+	}
+	if q := epic.Questions[0]; q.State != "answered" || q.Choice != store.ChoiceOther {
+		t.Fatalf("question = %v, want Q1 answered with choice %q", q, store.ChoiceOther)
+	}
+	if len(epic.Decisions) != 1 || epic.Decisions[0].Question != 1 || epic.Decisions[0].Text != text {
+		t.Fatalf("stored decisions = %v, want one decision answering question 1 with %q", epic.Decisions, text)
 	}
 }
