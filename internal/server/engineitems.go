@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/joshsymonds/orrery/internal/conversation"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -46,7 +47,12 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 		case "tool_call":
 			input := protocol.ToolInputText(json.RawMessage(body.Input))
 			return &orreryv1.ConversationItem{
-				Kind: "tool", Time: event.At, Tool: body.Name, Input: input, Id: body.ToolUseId,
+				Kind:  "tool",
+				Time:  event.At,
+				Tool:  body.Name,
+				Input: input,
+				Id:    body.ToolUseId,
+				Epic:  conversation.CreatedEpic(body.Name, json.RawMessage(body.Input)),
 			}, true, nil
 		case "tool_result":
 			return &orreryv1.ConversationItem{

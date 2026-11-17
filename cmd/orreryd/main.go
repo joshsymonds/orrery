@@ -98,7 +98,7 @@ const (
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
 	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
-	// epic summaries, the session titles and the epic reports run.
+	// epic summaries, the session titles, the session headlines and the epic reports run.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -107,7 +107,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR]
+               [--holder-scope PATH] [--holder-scope-memory SIZE] [--step-cap N] [--metrics-listen ADDR]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -125,6 +125,9 @@ flags:
   --holder-scope PATH
                     systemd-run binary that runs each session's holder in its own user scope
                     (default: none, the holder starts plainly)
+  --holder-scope-memory SIZE
+                    memory cap of each holder's scope, with no swap past it: bytes, or a whole
+                    number with K, M, G or T (powers of 1024) (default 8G)
   --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
   --metrics-listen ADDR
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
@@ -156,6 +159,7 @@ type options struct {
 	sessionCap      int
 	sessionShell    string
 	holderScope     string
+	scopeMemory     int64 // the --holder-scope-memory cap of each holder's scope, in bytes
 	stepCap         int
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	writeTick       time.Duration           // the --write-tick test seam's engine writer tick, 0 for the writer's own
@@ -377,6 +381,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
+	scopeMemory := scopeMemoryFlag(flags)
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
@@ -431,6 +436,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
 		holderScope:   *holderScope,
+		scopeMemory:   *scopeMemory,
 		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
 		writeTick:     *writeTick,
@@ -800,6 +806,8 @@ type sessionHost struct {
 	summariesDone chan struct{}
 	stopTitles    context.CancelFunc
 	titlesDone    chan struct{}
+	stopHeadlines context.CancelFunc
+	headlinesDone chan struct{}
 	stopReports   context.CancelFunc
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
@@ -826,6 +834,22 @@ func stateDirOf(getenv func(string) string) (string, error) {
 	return stateDir, nil
 }
 
+// newSessionHost returns the sessionHost that startSessions fills, with the done channels of the loops and the writer
+// already made, and logger logging each shutdown phase.
+func newSessionHost(logger *slog.Logger) *sessionHost {
+	return &sessionHost{
+		logger:        logger,
+		writerDone:    make(chan struct{}),
+		idleDone:      make(chan struct{}),
+		flowDone:      make(chan struct{}),
+		limitsDone:    make(chan struct{}),
+		dueDone:       make(chan struct{}),
+		summariesDone: make(chan struct{}),
+		reportsDone:   make(chan struct{}),
+		serveDone:     make(chan error, 1),
+	}
+}
+
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
 // services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
 // notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
@@ -839,12 +863,13 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
 // passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
 // limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
-// until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's caller when the
-// step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents). A readopt,
-// reconcile, restore or resume failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
-// unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
-// unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic records its
-// session in st.
+// until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
+// every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's
+// caller when the step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents).
+// A readopt, reconcile, restore or resume failure is logged and serving goes on; a failed restore serves no Pools,
+// which refuse as unavailable, and the gates fail for want of pools. The Notices service on it answers from notices,
+// and refuses as unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic
+// records its session in st.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -855,17 +880,7 @@ func startSessions(
 	logger *slog.Logger,
 	getenv func(string) string,
 ) (*sessionHost, error) {
-	host := &sessionHost{
-		logger:        logger,
-		writerDone:    make(chan struct{}),
-		idleDone:      make(chan struct{}),
-		flowDone:      make(chan struct{}),
-		limitsDone:    make(chan struct{}),
-		dueDone:       make(chan struct{}),
-		summariesDone: make(chan struct{}),
-		reportsDone:   make(chan struct{}),
-		serveDone:     make(chan error, 1),
-	}
+	host := newSessionHost(logger)
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
 	var epics enginehost.EpicCommands
@@ -880,37 +895,39 @@ func startSessions(
 		})
 		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
-			Shell:       opts.sessionShell,
-			Claude:      opts.claude,
-			Environ:     childEnviron,
-			HolderScope: opts.holderScope,
-			StateDir:    stateDir,
-			ManagedDir:  managedDir,
-			Cap:         opts.sessionCap,
-			StepCap:     opts.stepCap,
-			Writer:      host.writer,
-			Notifier:    notifier,
-			Store:       st,
-			Logger:      logger,
-			Metrics:     opts.metrics,
+			Shell:             opts.sessionShell,
+			Claude:            opts.claude,
+			Environ:           childEnviron,
+			HolderScope:       opts.holderScope,
+			HolderScopeMemory: opts.scopeMemory,
+			StateDir:          stateDir,
+			ManagedDir:        managedDir,
+			Cap:               opts.sessionCap,
+			StepCap:           opts.stepCap,
+			Writer:            host.writer,
+			Notifier:          notifier,
+			Store:             st,
+			Logger:            logger,
+			Metrics:           opts.metrics,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		resolve := planner.NewResolver(os.Environ(), managedDir)
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
-			Sessions:     host.manager,
-			Store:        st,
-			Writer:       host.writer,
-			Pools:        host.pools,
-			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
-			Environ:      childEnviron,
-			Logger:       logger,
-			Haiku:        haiku,
-			GateStateDir: filepath.Join(stateDir, "gates"),
-			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, resolve),
-			ReadoptGate:  readoptGate(st),
+			Sessions:        host.manager,
+			Store:           st,
+			Writer:          host.writer,
+			Pools:           host.pools,
+			Worktrees:       filepath.Join(stateDir, "step-worktrees"),
+			Environ:         childEnviron,
+			Logger:          logger,
+			Haiku:           haiku,
+			GateStateDir:    filepath.Join(stateDir, "gates"),
+			GateScope:       opts.holderScope,
+			GateScopeMemory: opts.scopeMemory,
+			ReadoptCheck:    readoptCheck(st, resolve),
+			ReadoptGate:     readoptGate(st),
 		})
 		if err != nil {
 			host.stopBroker()
@@ -923,13 +940,14 @@ func startSessions(
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx, st, opts, logger)
-		host.startEvidence(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
+		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
+		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
+		host.startHeadlines(ctx, st, haiku, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
@@ -1119,23 +1137,26 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
-// them up is logged and serving goes on. Its gates run in environ.
+// them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
+// name.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
-	stateDir, holderScope string,
+	stateDir string,
+	opts options,
 	environ []string,
 	logger *slog.Logger,
 ) {
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
-		Store:        st,
-		Steps:        h.steps,
-		Pools:        h.pools,
-		Environ:      environ,
-		StateDir:     stateDir,
-		GateStateDir: filepath.Join(stateDir, "gates"),
-		GateScope:    holderScope,
-		Logger:       logger,
+		Store:           st,
+		Steps:           h.steps,
+		Pools:           h.pools,
+		Environ:         environ,
+		StateDir:        stateDir,
+		GateStateDir:    filepath.Join(stateDir, "gates"),
+		GateScope:       opts.holderScope,
+		GateScopeMemory: opts.scopeMemory,
+		Logger:          logger,
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
@@ -1144,22 +1165,24 @@ func (h *sessionHost) startEvidence(
 
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
-// serving goes on. Its gates run in environ.
+// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
-	stateDir, holderScope string,
+	stateDir string,
+	opts options,
 	environ []string,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
-		Store:        st,
-		Pools:        h.pools,
-		Environ:      environ,
-		StateDir:     stateDir,
-		GateStateDir: filepath.Join(stateDir, "gates"),
-		GateScope:    holderScope,
-		Logger:       logger,
+		Store:           st,
+		Pools:           h.pools,
+		Environ:         environ,
+		StateDir:        stateDir,
+		GateStateDir:    filepath.Join(stateDir, "gates"),
+		GateScope:       opts.holderScope,
+		GateScopeMemory: opts.scopeMemory,
+		Logger:          logger,
 	})
 	if err := h.checks.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume node checks, serving anyway", "error", err)
@@ -1443,6 +1466,32 @@ func (h *sessionHost) startTitles(
 	}()
 }
 
+// startHeadlines refreshes the headline of each headless session whose turns have ended since its last headline, from
+// its first prompt and recent turns through haiku, checking st every limitTick until stop. The first check runs at
+// start.
+func (h *sessionHost) startHeadlines(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	headlines := enginehost.NewSessionHeadlines(enginehost.SessionHeadlinesConfig{
+		Store:  st,
+		Haiku:  haiku,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var headlinesCtx context.Context
+	headlinesCtx, h.stopHeadlines = context.WithCancel(ctx)
+	h.headlinesDone = make(chan struct{})
+	go func() {
+		defer close(h.headlinesDone)
+		defer ticker.Stop()
+		headlines.Run(headlinesCtx)
+	}()
+}
+
 // startReports writes the report of each ended epic that has none, through haiku, checking st every limitTick until
 // stop. The first check runs at start.
 func (h *sessionHost) startReports(
@@ -1469,10 +1518,10 @@ func (h *sessionHost) startReports(
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries, the session titles and the epic reports to return, stops the caller-event passes and waits for each to
-// return, closes the node checks and the evidence runner and waits for their drives, ends every step loop, stops every
-// live session, and ends the writer after its last flush. The notices the sessions started are waited on in serve.
-// Without a broker, manager and writer it does nothing.
+// summaries, the session titles, the session headlines and the epic reports to return, stops the caller-event passes
+// and waits for each to return, closes the node checks and the evidence runner and waits for their drives, ends every
+// step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
+// waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -1504,6 +1553,10 @@ func (h *sessionHost) shutdown() {
 		h.phase("session titles", func() {
 			h.stopTitles()
 			<-h.titlesDone
+		})
+		h.phase("session headlines", func() {
+			h.stopHeadlines()
+			<-h.headlinesDone
 		})
 		h.phase("epic reports", func() {
 			h.stopReports()

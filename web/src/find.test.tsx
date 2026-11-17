@@ -278,6 +278,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    archiveId: "",
     ...init,
   };
 }

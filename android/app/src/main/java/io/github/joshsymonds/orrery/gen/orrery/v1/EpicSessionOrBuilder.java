@@ -99,4 +99,15 @@ public interface EpicSessionOrBuilder extends
    * @return The at.
    */
   long getAt();
+
+  /**
+   * <pre>
+   * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+   * creator.
+   * </pre>
+   *
+   * <code>bool creator = 6 [json_name = "creator"];</code>
+   * @return The creator.
+   */
+  boolean getCreator();
 }

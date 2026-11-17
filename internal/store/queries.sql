@@ -90,6 +90,41 @@ WHERE sessions.kind = 'engine' AND sessions.title = ''
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt')
 ORDER BY sessions.id;
 
+-- name: SetSessionHeadline :exec
+UPDATE sessions SET headline = sqlc.arg(headline), headline_at = sqlc.arg(headline_at)
+WHERE id = sqlc.arg(id) AND kind = 'engine';
+
+-- name: ListHeadlineDueSessions :many
+SELECT sessions.id, sessions.dir, sessions.headline_at, CAST(COALESCE((
+    SELECT MAX(events.at) FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended'
+), 0) AS INTEGER) AS turn_at, CAST(COALESCE((
+    SELECT json_extract(events.payload, '$.text') FROM events
+    WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
+    ORDER BY events.seq LIMIT 1
+), '') AS TEXT) AS first_prompt
+FROM sessions
+WHERE sessions.kind = 'engine'
+  AND EXISTS (
+      SELECT 1 FROM events
+      WHERE events.session_id = sessions.id AND events.kind = 'engine_turn_ended' AND events.at > sessions.headline_at
+  )
+ORDER BY sessions.id;
+
+-- name: ListRecentTurns :many
+SELECT CAST(CASE WHEN events.kind = 'engine_prompt' THEN 'user' ELSE 'assistant' END AS TEXT) AS role,
+       CAST(json_extract(events.payload, '$.text') AS TEXT) AS text
+FROM events
+WHERE events.session_id = sqlc.arg(id)
+  AND (events.kind = 'engine_prompt' OR (
+      events.kind = 'engine_block'
+      AND json_extract(events.payload, '$.kind') = 'text'
+      AND json_extract(events.payload, '$.role') = 'assistant'
+      AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
+  ))
+ORDER BY events.seq DESC
+LIMIT sqlc.arg(items);
+
 -- name: ListEngineSessions :many
 SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
@@ -107,7 +142,7 @@ ORDER BY MAX(known.at) DESC, known.dir;
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
-    sessions.title,
+    sessions.title, sessions.headline,
     CAST(COALESCE((
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
@@ -301,6 +336,12 @@ WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_turn_ended'
   )
 ORDER BY events.seq DESC
 LIMIT 1;
+
+-- name: ListStepBlocks :many
+SELECT at, payload FROM events
+WHERE session_id = sqlc.arg(id) AND kind = 'engine_block'
+ORDER BY seq DESC
+LIMIT sqlc.arg(count);
 
 -- name: UpdateStepWatch :exec
 UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
@@ -1098,7 +1139,7 @@ SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, se
            WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
            ORDER BY events.seq LIMIT 1
        ), '') AS TEXT) AS first_prompt,
-       epic_sessions.call, epic_sessions.at
+       epic_sessions.call, epic_sessions.at, epic_sessions.creator
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?

@@ -9,8 +9,9 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView } from "./epics";
 import { type Epic, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
-import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { PaneSchema, SessionSchema } from "./gen/orrery/v1/orrery_pb";
+import { rowsFrom, type Row } from "./rows";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -113,6 +114,7 @@ async function withArchive(
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
     id: init.key,
+    archiveId: "",
     kind: "pane",
     label: init.key,
     project: "/work/app",
@@ -132,12 +134,26 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
 
 // session is a session row that archives as a session.
 function session(init: Partial<Row> & Pick<Row, "key">): Row {
-  return row({ kind: "session", archiveKind: "session", changed: 30, seen: 30, ...init });
+  return row({
+    kind: "session",
+    archiveKind: "session",
+    archiveId: init.id ?? init.key,
+    changed: 30,
+    seen: 30,
+    ...init,
+  });
 }
 
 // headless is a headless session row, which archives as a headless session.
 function headless(init: Partial<Row> & Pick<Row, "key">): Row {
-  return row({ kind: "session", archiveKind: "headless", changed: 30, seen: 30, ...init });
+  return row({
+    kind: "session",
+    archiveKind: "headless",
+    archiveId: init.id ?? init.key,
+    changed: 30,
+    seen: 30,
+    ...init,
+  });
 }
 
 // epic is a live or ended orreryd epic with the given fields.
@@ -354,14 +370,71 @@ test("ArchiveView: an archived live epic's needs leave Needs you", (t) => {
   });
 });
 
-test("ArchiveView: a pane row has no Archive button, and A on it sends nothing", (t) =>
-  withArchive(t.signal, { rows: [row({ key: "p", label: "pane" })] }, async (container, fake) => {
-    assert.equal(lineOf(container, "p")?.querySelector("button"), null, "the pane row draws no button");
+test("ArchivePaneRow: a pane with no orrery_id draws no archive control, and A on it sends nothing", (t) =>
+  withArchive(t.signal, { rows: [row({ key: "p", label: "pane", archiveId: "" })] }, async (container, fake) => {
+    assertNone(lineOf(container, "p")?.querySelector("button"), "the pane row draws no button");
     await press("A");
     await flush();
     assert.deepEqual(archiveCalls(fake), []);
     assert.deepEqual(rowKeys(container), ["p"]);
   }));
+
+test("ArchivePaneRow: a pane row with an orrery_id draws a ⋯ menu whose Archive sends Epics.Archive with kind session and that id", (t) =>
+  withArchive(
+    t.signal,
+    { rows: [row({ key: "p1", id: "%3", archiveId: "sess-7", archiveKind: "session", label: "api" })] },
+    async (container, fake) => {
+      const item = await openMenu(container, "p1");
+      assert.equal(item.textContent, "Archive");
+      await click(item);
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "sess-7" });
+      await until(t.signal, () => lineOf(container, "p1") === null, "the row leaving the list");
+    },
+  ));
+
+test("ArchivePaneRow: A archives the cursor pane row with an orrery_id, sending Epics.Archive with kind session and that id", (t) =>
+  withArchive(
+    t.signal,
+    { rows: [row({ key: "p1", id: "%3", archiveId: "sess-7", archiveKind: "session", label: "api" })] },
+    async (container, fake) => {
+      await press("A");
+      await until(t.signal, () => fake.callsTo(archivePath).length === 1, "the archive call");
+      assert.deepEqual(fake.callsTo(archivePath)[0].body, { kind: "session", id: "sess-7" });
+      await until(t.signal, () => lineOf(container, "p1") === null, "the row leaving the list");
+    },
+  ));
+
+test("ArchivePaneRow: a pane whose Session is archived leaves By attention, and shows in Archived with Unarchive that sends kind session and its orrery_id", (t) => {
+  const rows = rowsFrom(
+    [
+      create(PaneSchema, {
+        id: "%3",
+        host: "box",
+        session: "work",
+        cwd: "/work/api",
+        label: "api",
+        state: "working",
+        orreryId: "sess-7",
+      }),
+    ],
+    [create(SessionSchema, { id: "sess-7", pane: "%3", archived: true })],
+  );
+  return withArchive(t.signal, { rows }, async (container, fake) => {
+    assert.equal(lineOf(container, "pane:box:%3"), null, "the archived pane has no line in By attention");
+    await press("v");
+    assert.equal(dataList(container), "archived");
+    assert.deepEqual(rowKeys(container), ["pane:box:%3"]);
+    const item = await openMenu(container, "pane:box:%3");
+    assert.equal(item.textContent, "Unarchive");
+    await click(item);
+    await until(t.signal, () => fake.callsTo(unarchivePath).length === 1, "the unarchive call");
+    assert.deepEqual(fake.callsTo(unarchivePath)[0].body, { kind: "session", id: "sess-7" });
+    await until(t.signal, () => lineOf(container, "pane:box:%3") === null, "the row leaving the Archived view");
+    await press("a");
+    assert.deepEqual(rowKeys(container), ["pane:box:%3"]);
+  });
+});
 
 test("ArchiveView: a failed archive leaves the row where it was and shows the error line", (t) =>
   withArchive(t.signal, { rows: [session({ key: "s1", id: "s1", label: "notes" })] }, async (container, fake) => {

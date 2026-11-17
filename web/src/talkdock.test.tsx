@@ -5,8 +5,9 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { createClients, createTransport } from "./client";
+import type { Row } from "./rows";
 import { TalkDock } from "./talkdock";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 type Props = Parameters<typeof TalkDock>[0];
@@ -15,6 +16,25 @@ type DomWindow = ReturnType<typeof installTestDom>;
 const resumePath = "/orrery.v1.Control/Resume";
 const sayPath = "/orrery.v1.Control/Say";
 const sessionTarget = { kind: "session" as const, id: "s1", label: "api" };
+
+// listed is a row the dock's head titles from. Only the fields a title reads are set; the rest are empty.
+function listed(init: Pick<Row, "kind" | "id" | "project" | "label">): Row {
+  return {
+    key: `${init.kind}:${init.id}`,
+    host: "",
+    state: "",
+    summary: "",
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    archiveKind: "none",
+    archiveId: "",
+    ...init,
+  };
+}
 
 interface Stream {
   body: Record<string, unknown>;
@@ -143,6 +163,7 @@ function shown(window: DomWindow, container: HTMLElement, check: () => boolean):
 function baseProps(server: FakeServer, init: Partial<Props>): Props {
   return {
     clients: server.clients,
+    rows: [],
     target: sessionTarget,
     onClose: () => {},
     ...init,
@@ -288,6 +309,39 @@ test("a new target restarts the conversation stream with its id", { timeout: 200
     await server.opened.reached(2);
     assert.equal(server.streams[1].body.id, "s2");
     assert.equal(textOf(container, "h1"), "web");
+  });
+});
+
+test("TitleParts: the head draws the listed row's directory and headline, and shows no id", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  const headline = listed({ kind: "session", id: "s1", project: "/work/api", label: "fix the retry queue" });
+  await withDock(server, { rows: [headline] }, async (container) => {
+    assert.equal(textOf(container, "h1 .title-dir"), "api");
+    assert.equal(textOf(container, "h1 .title-line"), "fix the retry queue");
+    assert.equal(textOf(container, "h1"), "api fix the retry queue", "the head is the directory and the headline, no id");
+  });
+});
+
+test("TitleParts: the head follows a listed row whose line changes on rerender, and the composer names the same title", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  const headline = (label: string): Row => listed({ kind: "session", id: "s1", project: "/work/api", label });
+  await withDock(server, { rows: [headline("first headline")] }, async (container) => {
+    assert.equal(textOf(container, "h1 .title-line"), "first headline");
+    await act(() => {
+      render(<TalkDock {...baseProps(server, { rows: [headline("second headline")] })} />, container);
+    });
+    assert.equal(textOf(container, "h1 .title-line"), "second headline", "the head shows the refreshed line");
+    assert.equal(textOf(container, "h1"), "api second headline");
+    assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Reply to api second headline");
+  });
+});
+
+test("TitleParts: with no listed row the head falls back to the served label, with no directory", { timeout: 2000 }, async () => {
+  const server = new FakeServer();
+  await withDock(server, { rows: [] }, async (container) => {
+    assert.equal(textOf(container, "h1"), "api");
+    assertNone(container.querySelector("h1 .title-dir"), "no directory is drawn");
+    assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Reply to api");
   });
 });
 

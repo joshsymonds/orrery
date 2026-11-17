@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -345,6 +347,70 @@ func TestStepLoopResumeTurnEndLeavesNoTurnRunning(t *testing.T) {
 	clock.advance(5 * time.Minute)
 	if trip, due := f.run.watch.due(clock.now()); due {
 		t.Fatalf("due = %+v after a turn end was found, want no trip: no turn is running", trip)
+	}
+}
+
+// A turn that ended while a background task is listed, with a return that is not done, has ended: the restored step
+// waits for the turn claude starts once the task ends, as a live step does, with no turn running meanwhile. The
+// unread return is no round, and the next turn's return is.
+func TestStepLoopResumeBackgroundTurnEndWaitsWithNoTurnRunning(t *testing.T) {
+	t.Parallel()
+	f := newStepLoopFixture(t, nil)
+	clock := newIdleClock()
+	f.run.now = clock.now
+	f.run.modelLimit = time.Hour
+	row := f.row(t)
+	f.resumeFrom(stepRestore{
+		Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"BLOCKED"}`, Background: true}, Found: true,
+	})
+	_, done := f.start(t)
+	f.loopSettled(t)
+
+	clock.advance(15 * time.Minute)
+	if trip, due := f.run.watch.due(clock.now()); due {
+		t.Fatalf("due = %+v while the step waits on its background task, want no trip: no turn is running", trip)
+	}
+	row = f.row(t)
+	if row.End != "" || row.LoopRound != 0 || row.Result != "" {
+		t.Fatalf("end %q round %d result %q, want the step open with its not-done return unread",
+			row.End, row.LoopRound, row.Result)
+	}
+	if got := f.sessions.continuedTexts(); len(got) != 0 {
+		t.Fatalf("Continue texts = %q, want none for an unread return", got)
+	}
+
+	f.run.Event(session.Started{})
+	clock.advance(5 * time.Minute)
+	if trip, due := f.run.watch.due(clock.now()); !due || trip.Kind != watchTripPeriodic {
+		t.Fatalf("due = %+v, %v, want a periodic trip five minutes into the turn claude started", trip, due)
+	}
+	const next = `{"status":"PARTIAL","note":"after the task"}`
+	f.run.Event(session.TurnEnded{StructuredOutput: json.RawMessage(next)})
+	f.run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(next)})
+	waitRunEnd(t, done)
+
+	row = f.row(t)
+	if row.End != stepLoopEndReturned || row.Result != next || row.LoopRound != 1 {
+		t.Fatalf("end %q result %q round %d, want returned with the next turn's return as round 1",
+			row.End, row.Result, row.LoopRound)
+	}
+}
+
+// A turn that ended while a background task is listed with a done return is a return, as a live step hands it, so the
+// restored step takes it up.
+func TestStepLoopResumeBackgroundDoneTurnEndIsTaken(t *testing.T) {
+	t.Parallel()
+	f := newStepLoopFixture(t, nil)
+	row := f.row(t)
+	f.resumeFrom(stepRestore{
+		Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"DONE"}`, Background: true}, Found: true,
+	})
+	_, done := f.start(t)
+	waitRunEnd(t, done)
+
+	row = f.row(t)
+	if row.End != stepLoopEndDone || row.Status != stepLoopDone || row.LoopRound != 1 {
+		t.Fatalf("end %q status %q round %d, want done %q in round 1", row.End, row.Status, row.LoopRound, stepLoopDone)
 	}
 }
 

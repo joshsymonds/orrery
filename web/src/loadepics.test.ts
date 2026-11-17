@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
-import { loadEpics } from "./loadepics";
+import { type HeldEpic, loadEpics } from "./loadepics";
 
 const listPath = "/orrery.v1.Epics/List";
 const getPath = "/orrery.v1.Epics/Get";
@@ -11,6 +11,10 @@ const getPath = "/orrery.v1.Epics/Get";
 const liveAlpha = { id: "repo-a/alpha", repository: "repo-a", slug: "alpha", outcome: "", changed: "100", live: true };
 const foldedBeta = { id: "repo-b/beta", repository: "repo-b", slug: "beta", outcome: "released", changed: "50", live: false };
 const liveGamma = { id: "repo-a/gamma", repository: "repo-a", slug: "gamma", outcome: "", changed: "90", live: true };
+
+// alpha while its one running step runs, and the same alpha after the step's task changes. changed stays the same.
+const steppedAlpha = { ...liveAlpha, runningSteps: [{ id: "step-1", task: "draft", agent: "agent-a" }], endedSteps: 0 };
+const retaskedAlpha = { ...steppedAlpha, runningSteps: [{ id: "step-1", task: "review", agent: "agent-a" }] };
 
 const listed = [liveAlpha, foldedBeta, liveGamma];
 
@@ -70,7 +74,7 @@ test("two live epics and one folded: each live epic is asked for by id, the fold
     fakeEpics({ status: 200, body: { epics: listed } }, { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) }, calls),
   );
 
-  const result = await loadEpics(clients);
+  const result = await loadEpics(clients, new Map(), false);
 
   assert.equal(calls[0]?.path, listPath, "Epics.List is called before any Get");
   assert.deepEqual(
@@ -98,7 +102,7 @@ test("one Get fails: the other epic's detail is kept, the failed epic is left ou
     ),
   );
 
-  const result = await loadEpics(clients);
+  const result = await loadEpics(clients, new Map(), false);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -117,7 +121,7 @@ test("Epics.List fails: no epics, no details, the fixed error without server tex
   const calls: Call[] = [];
   const clients = clientsFor(fakeEpics(serverError, {}, calls));
 
-  const result = await loadEpics(clients);
+  const result = await loadEpics(clients, new Map(), false);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -133,7 +137,7 @@ test("an empty List: no epics, no details, no error, and no Get is asked", async
   const calls: Call[] = [];
   const clients = clientsFor(fakeEpics({ status: 200, body: { epics: [] } }, {}, calls));
 
-  const result = await loadEpics(clients);
+  const result = await loadEpics(clients, new Map(), false);
 
   assert.deepEqual(
     calls.map((call) => call.path),
@@ -165,8 +169,103 @@ test("the live Gets are in flight at once: the first Get waits until the second 
     return respond(notFound);
   };
 
-  const result = await loadEpics(clientsFor(fakeFetch));
+  const result = await loadEpics(clientsFor(fakeFetch), new Map(), false);
 
   assert.equal(result.error, "");
   assert.deepEqual([...result.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
+});
+
+// loadAgainst runs loadEpics against a fake server that lists epics and answers the Gets, recording its calls.
+function loadAgainst(
+  epics: unknown[],
+  gets: Partial<Record<string, Answer>>,
+  held: ReadonlyMap<string, HeldEpic>,
+  tick: boolean,
+  calls: Call[],
+) {
+  return loadEpics(clientsFor(fakeEpics({ status: 200, body: { epics } }, gets, calls)), held, tick);
+}
+
+test("ChangedEpicsOnly: an identical listed epic makes no Get on an event reload", async () => {
+  const gets = { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) };
+  const first = await loadAgainst(listed, gets, new Map(), false, []);
+  const calls: Call[] = [];
+
+  const second = await loadAgainst(listed, {}, first.held, false, calls);
+
+  assert.deepEqual(
+    calls.map((call) => call.path),
+    [listPath],
+    "an unchanged epic was asked for",
+  );
+  assert.equal(second.details.get(liveAlpha.id), first.details.get(liveAlpha.id), "the held alpha detail was not kept");
+  assert.equal(second.details.get(liveGamma.id), first.details.get(liveGamma.id), "the held gamma detail was not kept");
+});
+
+test("ChangedEpicsOnly: a changed running step with the same changed is fetched", async () => {
+  const first = await loadAgainst([steppedAlpha], { [liveAlpha.id]: ok(detailOf(steppedAlpha)) }, new Map(), false, []);
+  const calls: Call[] = [];
+
+  const second = await loadAgainst(
+    [retaskedAlpha],
+    { [liveAlpha.id]: ok(detailOf(retaskedAlpha)) },
+    first.held,
+    false,
+    calls,
+  );
+
+  assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id]);
+  assert.equal(second.details.get(liveAlpha.id)?.epic?.runningSteps[0]?.task, "review", "the detail was not refetched");
+});
+
+test("ChangedEpicsOnly: an epic seen for the first time is fetched", async () => {
+  const first = await loadAgainst([liveGamma], { [liveGamma.id]: ok(detailOf(liveGamma)) }, new Map(), false, []);
+  const calls: Call[] = [];
+
+  const second = await loadAgainst(
+    listed,
+    { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) },
+    first.held,
+    false,
+    calls,
+  );
+
+  assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id]);
+  assert.deepEqual([...second.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
+});
+
+test("ChangedEpicsOnly: a tick fetches every live epic", async () => {
+  const gets = { [liveAlpha.id]: ok(detailOf(liveAlpha)), [liveGamma.id]: ok(detailOf(liveGamma)) };
+  const first = await loadAgainst(listed, gets, new Map(), false, []);
+  const calls: Call[] = [];
+
+  await loadAgainst(listed, gets, first.held, true, calls);
+
+  assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id, liveGamma.id].sort());
+});
+
+test("ChangedEpicsOnly: a failed Get keeps the previous detail", async () => {
+  const first = await loadAgainst([steppedAlpha], { [liveAlpha.id]: ok(detailOf(steppedAlpha)) }, new Map(), false, []);
+
+  const failed = await loadAgainst([retaskedAlpha], { [liveAlpha.id]: serverError }, first.held, false, []);
+
+  assert.equal(failed.error, "");
+  assert.equal(failed.details.get(liveAlpha.id), first.details.get(liveAlpha.id), "the held detail was dropped");
+  assert.equal(
+    failed.held.get(liveAlpha.id)?.listed,
+    first.held.get(liveAlpha.id)?.listed,
+    "the listed message the detail was fetched against was replaced",
+  );
+
+  // The kept listed message still differs from the retasked one, so the next event reload asks again.
+  const calls: Call[] = [];
+  const retried = await loadAgainst(
+    [retaskedAlpha],
+    { [liveAlpha.id]: ok(detailOf(retaskedAlpha)) },
+    failed.held,
+    false,
+    calls,
+  );
+  assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id]);
+  assert.equal(retried.details.get(liveAlpha.id)?.epic?.runningSteps[0]?.task, "review");
 });

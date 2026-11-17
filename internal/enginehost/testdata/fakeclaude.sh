@@ -12,7 +12,10 @@
 # ends its turn with a not-done return, then, once fakeclaude.release exists, ends the first task and starts a turn by
 # itself, reading no stdin, which ends with a done return while the second task still runs, BGSELFHELD plays BGSELF but
 # holds the turn it starts by itself, after that turn's text block, until fakeclaude.open exists, PAIR answers with one
-# assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
+# assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", SUBAGENT launches a
+# subagent in the background and ends its turn, then, once fakeclaude.release exists, streams the subagent's content with
+# no turn open and reads stdin again, SUBAGENTSELF plays SUBAGENT and then starts a turn by itself once fakeclaude.open
+# exists, which runs until an interrupt (see subagent), STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
 # structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
 # structured output is done with no commit, as a read-only step's return is, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
@@ -52,7 +55,7 @@ assistant_line() {
 	if [ -n "$2" ]; then
 		error_field='"error":"'"$2"'",'
 	fi
-	printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":['"$1"'],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null},"parent_tool_use_id":null,'"$error_field"'"session_id":"session_1","uuid":"uuid_9","timestamp":"redacted","request_id":"req_2","user_message_uuid":"uuid_1","user_message_uuids":'"$answered"'}'
+	printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":['"$1"'],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null},"parent_tool_use_id":'"$parent"','"$error_field"'"session_id":"session_1","uuid":"uuid_9","timestamp":"redacted","request_id":"req_2","user_message_uuid":"uuid_1","user_message_uuids":'"$answered"'}'
 }
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
@@ -60,12 +63,12 @@ text_block() {
 	index=$1
 	full=$2
 	shift 2
-	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":'"$index"',"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
+	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":'"$index"',"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":'"$parent"',"uuid":"uuid_7","api_message_id":"redacted"}'
 	for delta in "$@"; do
-		printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":'"$index"',"delta":{"type":"text_delta","text":"'"$delta"'"}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_8","api_message_id":"redacted"}'
+		printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":'"$index"',"delta":{"type":"text_delta","text":"'"$delta"'"}},"session_id":"session_1","parent_tool_use_id":'"$parent"',"uuid":"uuid_8","api_message_id":"redacted"}'
 	done
 	assistant_line '{"type":"text","text":"'"$full"'"}'
-	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_stop","index":'"$index"'},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_10","api_message_id":"redacted"}'
+	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_stop","index":'"$index"'},"session_id":"session_1","parent_tool_use_id":'"$parent"',"uuid":"uuid_10","api_message_id":"redacted"}'
 }
 
 # line_uuid sets line_uuid to the uuid of the user message in line, or to nothing when line has none. A session writes the
@@ -163,6 +166,11 @@ permit() {
 hang() {
 	turn_open
 	text_block 0 "fake hanging $n" "fake hanging $n"
+	await_interrupt
+}
+
+# await_interrupt reads stdin until an interrupt, then ends the open turn with the error result an interrupt gives.
+await_interrupt() {
 	while next; do
 		case $line in
 			*'"subtype":"interrupt"'*) break ;;
@@ -282,6 +290,38 @@ bgself() {
 	origin='{"kind":"task-notification","producer":"session-task","runId":"run_fake"}'
 	result_index=1
 	turn_close
+}
+
+# subagent launches a subagent in the background, as an Agent tool call with run_in_background does: its turn makes the
+# tool call, lists the subagent as a background task and ends while it runs. Once fakeclaude.release exists in its
+# directory, the subagent streams a text block "fake subagent n" and makes a Read tool call, every line under the
+# parent_tool_use_id of the Agent call, with no turn of the main conversation open. With $1 set to self, it then waits until
+# fakeclaude.open exists, ends the task and starts a turn by itself, as the task's notification does: that turn streams a
+# main-conversation text block "fake notified n", then reads stdin until an interrupt ends it, as hang does.
+subagent() {
+	turn_open
+	assistant_line '{"type":"tool_use","id":"toolu_agent_'"$n"'","name":"Agent","input":{"description":"fake","prompt":"fake","run_in_background":true}}'
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_agent","description":"fake agent"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 1 "fake launched $n" "fake launched $n"
+	turn_close
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	parent='"toolu_agent_'"$n"'"'
+	text_block 0 "fake subagent $n" "fake " "subagent $n"
+	assistant_line '{"type":"tool_use","id":"toolu_sub_'"$n"'","name":"Read","input":{"file_path":"/home/user/project/a"}}'
+	parent=null
+	if [ "$1" != self ]; then
+		return
+	fi
+	while [ ! -e fakeclaude.open ]; do
+		sleep 0.05
+	done
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t6"}'
+	answered='[]'
+	turn_open
+	text_block 0 "fake notified $n" "fake notified $n"
+	await_interrupt
 }
 
 # pair answers with one assistant line that carries two finished text blocks, so one stdout line yields two events.
@@ -461,6 +501,7 @@ case $tools in
 	*'"StructuredOutput"'*) structured_tool=1 ;;
 esac
 n=0
+parent=null
 if [ -n "$resume" ]; then
 	if [ "$resume" != session_1 ]; then
 		echo "fake claude: no conversation with id $resume" >&2
@@ -505,6 +546,8 @@ while next; do
 				*BGDONE*) bgdone ;;
 				*BGSELFHELD*) bgself held ;;
 				*BGSELF*) bgself ;;
+				*SUBAGENTSELF*) subagent self ;;
+				*SUBAGENT*) subagent ;;
 				*PAIR*) pair ;;
 				*READDONE*) readdone ;;
 				*STEPDONE*) stepdone ;;

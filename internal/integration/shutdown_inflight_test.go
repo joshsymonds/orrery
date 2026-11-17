@@ -51,6 +51,7 @@ func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
 
 	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
 		Agent: stepReadoptAgent, Prompt: stepReadoptPrompt, Schema: stepReadoptSchema, Workspace: r.worktree,
+		OwnedPaths: []string{stepReadoptOwned},
 	}))
 	if err != nil {
 		t.Fatalf("start step: %v", err)

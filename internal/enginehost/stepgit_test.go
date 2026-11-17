@@ -274,6 +274,22 @@ func TestStepGitOwnedMatchesExactPaths(t *testing.T) {
 	}
 }
 
+func TestStepGitOwnedDirectoryEntryOwnsPathsBelowIt(t *testing.T) {
+	t.Parallel()
+	dir := stepGitTestRepo(t)
+	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
+	commit := stepGitTestCommit(t, dir, map[string]string{"owned/deep/b.go": "x\n", "owned/a.go.bak": "x\n"})
+
+	under := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, []string{"owned/"}), "owned")
+	if !under.OK {
+		t.Fatalf("owned failed for paths below the directory entry owned/: %s", under.Detail)
+	}
+	other := stepGitTestCheck(t, commitChecks(context.Background(), dir, start, commit, []string{"own/"}), "owned")
+	if other.OK {
+		t.Fatalf("owned passed for owned/... against the directory entry own/: %s", other.Detail)
+	}
+}
+
 func TestStepGitOwnedCountsBothSidesOfRename(t *testing.T) {
 	t.Parallel()
 	dir := stepGitTestRepo(t)

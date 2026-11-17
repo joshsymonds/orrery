@@ -6,7 +6,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { StepBox, outcomeOf } from "./stepbox";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof StepBox>[0];
 
@@ -712,8 +712,8 @@ test("a message with markup is drawn as text, not as elements", async () => {
       await press(box, "Enter");
       await settle();
       assertNotice(container, `nudge refused: ${markup}`, "alert");
-      assert.equal(container.querySelector("img"), null);
-      assert.equal(container.querySelector("b"), null);
+      assertNone(container.querySelector("img"));
+      assertNone(container.querySelector("b"));
     },
   );
 });

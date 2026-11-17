@@ -2,24 +2,42 @@ import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { useFlash } from "./flash";
-import type { HeldMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
-import { type SentText, sameText, withoutTexts } from "./sending";
+import type { ConversationItem, HeldMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import { type Sending, type SentText, promptHeld, sameText, withoutTexts } from "./sending";
 import { ReplyText } from "./text";
 
 const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
 const pullFailedLine = "Could not pull the message back.";
-const queuedWords = "It sends when this turn ends";
 
 interface FailedSend {
   text: string;
   promptId: string;
 }
 
-// A message this composer sent while its conversation was working. It stays above the box until the turn ends or its
-// send fails.
-interface LocalQueued {
-  promptId: string;
-  text: string;
+// A message this composer sent while its conversation was working, with the newest item the conversation held as it was
+// sent. It stays above the box until the conversation's items hold its prompt, it leaves the held set after it was in it
+// (wasHeld), the turn ends or its send fails.
+interface LocalQueued extends Sending {
+  wasHeld: boolean;
+}
+
+// settleLocal drops each local entry whose prompt items hold, and each one that has left held after it was in it, and
+// marks the ones held carries as held. It returns entries itself when nothing changes.
+function settleLocal(entries: LocalQueued[], items: ConversationItem[], held: HeldMessage[]): LocalQueued[] {
+  let changed = false;
+  const kept: LocalQueued[] = [];
+  for (const entry of entries) {
+    const inHeld = held.some((message) => message.promptId === entry.promptId);
+    if (promptHeld(entry, items) || (entry.wasHeld && !inHeld)) {
+      changed = true;
+    } else if (inHeld && !entry.wasHeld) {
+      changed = true;
+      kept.push({ ...entry, wasHeld: true });
+    } else {
+      kept.push(entry);
+    }
+  }
+  return changed ? kept : entries;
 }
 
 // QueueRow is one line of the queue above the box: a message the conversation holds or this composer sent.
@@ -41,12 +59,11 @@ function edgeClass(state: string): string {
   }
 }
 
-// placeholderFor says what sending does in a state: working queues the text until the turn ends, waiting answers, and
-// any other state replies.
+// placeholderFor says what sending does in a state: working queues the text, waiting answers, and any other state replies.
 function placeholderFor(state: string, label: string): string {
   switch (state) {
     case "working":
-      return `Queue for ${label}; it sends when this turn ends`;
+      return `Queue for ${label}`;
     case "waiting":
       return `Answer ${label}`;
     default:
@@ -68,8 +85,10 @@ export interface ComposerHandle {
 // the newest queued text back. In an empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to
 // onFind. The queue draws above the box under one head that counts its rows, oldest first, each message as its text:
 // the conversation's waiting messages, then its held messages, then the messages this composer sent while the
-// conversation was working, except those the held set now carries under their prompt id. A canceled message is tagged.
-// Its edge and placeholder follow the conversation's state.
+// conversation was working, except those the held set now carries under their prompt id. Such a message leaves once
+// the conversation's items hold its prompt, or once it leaves the held set it was in, so a message that became a prompt
+// is not drawn as queued while the conversation stays working. A canceled message is tagged. Its edge and placeholder
+// follow the conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -80,6 +99,7 @@ export function Composer(props: {
   register?: (handle: ComposerHandle | null) => void; // gets the handle while mounted, and null once unmounted
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
   held?: HeldMessage[]; // the row's held messages, oldest first, each drawn as a queued row; none drawn when absent
+  items?: ConversationItem[]; // the conversation's items, whose prompts end the queued messages sent here
   onSending?: (entry: SentText) => void; // called as a send starts, before it is awaited
   onUnsent?: (promptId: string) => void; // called when a send rejects
   onPage?: (direction: "up" | "down") => boolean; // an empty box's Page Up or Page Down; true prevents the key
@@ -95,6 +115,7 @@ export function Composer(props: {
     register,
     queued = [],
     held = [],
+    items = [],
     onSending,
     onUnsent,
     onPage,
@@ -138,6 +159,11 @@ export function Composer(props: {
     }
   }, [state]);
 
+  // A message whose prompt the conversation holds, or that left the held set, is no longer queued.
+  useLayoutEffect(() => {
+    setLocal((current) => settleLocal(current, items, held));
+  }, [items, held]);
+
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "") {
       return;
@@ -150,7 +176,7 @@ export function Composer(props: {
     setError("");
     onSending?.({ text: sent, promptId });
     if (state === "working") {
-      setLocal((current) => [...current, { promptId, text: sent }]);
+      setLocal((current) => [...current, { promptId, text: sent, after: items.at(-1), wasHeld: false }]);
     }
     try {
       await send(sent, promptId);
@@ -233,7 +259,6 @@ export function Composer(props: {
           {rows.map((row) => (
             <li key={row.key} class={row.canceled ? "queued canceled" : "queued"}>
               {row.canceled && <span class="tag">canceled</span>}
-              {!row.canceled && <span class="words">{queuedWords}</span>}
               <span class="text">
                 <ReplyText text={row.text} />
               </span>

@@ -135,8 +135,9 @@ func stepGitCleanCheck(ctx context.Context, dir string) stepCheck {
 	return stepCheck{Name: stepGitCleanName, Detail: stepGitListPaths("working tree has changes: ", dirty)}
 }
 
-// stepGitOwnedCheck passes when every path changed from start to commit is in owned by exact match. Without rename
-// detection git reports both the old and the new side of a rename, so both are checked.
+// stepGitOwnedCheck passes when every path changed from start to commit is owned: equal to an entry of owned, or under
+// an entry that ends in "/", which owns every path below that directory. An entry without the slash owns that exact path
+// only. Without rename detection git reports both the old and the new side of a rename, so both are checked.
 func stepGitOwnedCheck(ctx context.Context, dir, start, commit string, owned []string) stepCheck {
 	from, err := stepGitResolve(ctx, dir, start)
 	if err != nil {
@@ -151,12 +152,17 @@ func stepGitOwnedCheck(ctx context.Context, dir, start, commit string, owned []s
 		return stepCheck{Name: stepGitOwnedName, Detail: fmt.Sprintf("diff %s %s: %v", from, to, err)}
 	}
 	allowed := make(map[string]bool, len(owned))
+	var dirs []string
 	for _, p := range owned {
-		allowed[p] = true
+		if strings.HasSuffix(p, "/") {
+			dirs = append(dirs, p)
+		} else {
+			allowed[p] = true
+		}
 	}
 	var outside []string
 	for _, p := range strings.Split(out, "\x00") {
-		if p != "" && !allowed[p] {
+		if p != "" && !allowed[p] && !underOwnedDir(p, dirs) {
 			outside = append(outside, p)
 		}
 	}
@@ -164,6 +170,16 @@ func stepGitOwnedCheck(ctx context.Context, dir, start, commit string, owned []s
 		return stepCheck{Name: stepGitOwnedName, OK: true, Detail: "every changed path is owned"}
 	}
 	return stepCheck{Name: stepGitOwnedName, Detail: stepGitListPaths("changed paths outside owned: ", outside)}
+}
+
+// underOwnedDir reports whether path lies below one of dirs, each an owned entry ending in "/".
+func underOwnedDir(path string, dirs []string) bool {
+	for _, dir := range dirs {
+		if strings.HasPrefix(path, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // stepGitListPaths joins up to stepGitPathLimit entries after prefix and notes how many were left out.

@@ -7,9 +7,14 @@ import { act } from "preact/test-utils";
 
 import { type ComposerHandle, Composer } from "./composer";
 import { flashMillis } from "./flash";
-import { HeldMessageSchema, WaitingMessageSchema, type WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import {
+  ConversationItemSchema,
+  HeldMessageSchema,
+  WaitingMessageSchema,
+  type WaitingMessage,
+} from "./gen/orrery/v1/orrery_pb";
 import type { SentText } from "./sending";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof Composer>[0];
 
@@ -124,18 +129,16 @@ function queuedMessage(text: string, canceled = false): WaitingMessage {
   return create(WaitingMessageSchema, { text, canceled });
 }
 
-// queuedRows reads each drawn queued message as its tag (empty when it has none), its words, its text and whether it is
-// marked canceled.
-function queuedRows(container: HTMLElement): { tag: string; words: string; text: string; canceled: boolean }[] {
+// queuedRows reads each drawn queued message as its tag (empty when it has none), its text and whether it is marked
+// canceled. A row draws no note under its tag: words is true when it has one.
+function queuedRows(container: HTMLElement): { tag: string; words: boolean; text: string; canceled: boolean }[] {
   return Array.from(container.querySelectorAll("li.queued"), (row) => ({
     tag: row.querySelector(".tag")?.textContent ?? "",
-    words: row.querySelector(".words")?.textContent ?? "",
+    words: row.querySelector(".words") !== null,
     text: row.querySelector(".text")?.textContent ?? "",
     canceled: row.classList.contains("canceled"),
   }));
 }
-
-const queuedWords = "It sends when this turn ends";
 
 // settleSends lets a send that is pending resolve or reject, and the state it sets render, inside act.
 async function settleSends(): Promise<void> {
@@ -674,7 +677,7 @@ test("/ with a modifier held calls nothing and is not prevented", async () => {
 
 // The state cases: working queues the text, waiting answers, and any other state, known or not, replies.
 const stateCases = [
-  { state: "working", edge: "edge-working", placeholder: "Queue for api; it sends when this turn ends" },
+  { state: "working", edge: "edge-working", placeholder: "Queue for api" },
   { state: "waiting", edge: "edge-waiting", placeholder: "Answer api" },
   { state: "idle", edge: "edge-idle", placeholder: "Reply to api" },
   { state: "unknown-state", edge: "edge-idle", placeholder: "Reply to api" },
@@ -759,9 +762,9 @@ test("GhostQueued: queued messages draw below one head in the given order, no wa
   const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
   await withComposer({ queued }, async (_box, container) => {
     assert.deepEqual(queuedRows(container), [
-      { tag: "", words: queuedWords, text: "first", canceled: false },
-      { tag: "canceled", words: "", text: "second", canceled: true },
-      { tag: "", words: queuedWords, text: "third", canceled: false },
+      { tag: "", words: false, text: "first", canceled: false },
+      { tag: "canceled", words: false, text: "second", canceled: true },
+      { tag: "", words: false, text: "third", canceled: false },
     ]);
     const root = container.querySelector(".compose");
     assert.ok(root, "the composer renders its root");
@@ -775,7 +778,7 @@ test("GhostQueued: one queue head carries the count of every docked row, cancele
     const heads = container.querySelectorAll(".queue .queue-head");
     assert.equal(heads.length, 1, "the queue draws one head");
     assert.equal(heads[0]?.textContent, "3 queued", "the head counts all three rows");
-    assert.equal(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
+    assertSame(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
     assert.equal(container.querySelectorAll("li.queued").length, 3, "the head is not drawn as a row");
   });
 });
@@ -871,21 +874,21 @@ for (const { kind, pull } of [
   { kind: "session", pull: null },
   { kind: "pane", pull: async () => "" },
 ]) {
-  test(`a send to a working ${kind} draws above the box as queued, with its words, and leaves when the turn ends`, async () => {
+  test(`a send to a working ${kind} draws above the box as queued, with no note, and leaves when the turn ends`, async () => {
     await withRerenderableComposer(
       { state: "working", pull, send: async () => {} },
       async (box, container, rerender) => {
         await type(box, "hello");
         await press(box, "Enter");
         await settleSends();
-        assert.deepEqual(queuedRows(container), [{ tag: "", words: queuedWords, text: "hello", canceled: false }]);
+        assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
         const root = container.querySelector(".compose");
         assert.ok(root, "the composer renders its root");
         assert.equal(root.children[0]?.className, "queue", "the queue sits above the box");
         assert.deepEqual(edgesOf(container), ["edge-working"]);
         await rerender({ state: "idle" });
         assert.deepEqual(queuedRows(container), [], "the message leaves when the turn ends");
-        assert.equal(container.querySelector(".queue"), null);
+        assertNone(container.querySelector(".queue"));
       },
     );
   });
@@ -899,7 +902,7 @@ test("a pane's queued message with the text a send drew above the box is drawn o
       await press(box, "Enter");
       await settleSends();
       await rerender({ queued: [queuedMessage("hello")] });
-      assert.deepEqual(queuedRows(container), [{ tag: "", words: queuedWords, text: "hello", canceled: false }]);
+      assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
       await rerender({ queued: [queuedMessage("hello", true)] });
       assert.deepEqual(
         queuedRows(container).map((row) => [row.tag, row.text]),
@@ -922,7 +925,58 @@ test("a held message draws one queued row, and the local entry the held set carr
       await settleSends();
       assert.equal(queuedRows(container).length, 1, "the sent message is queued");
       await rerender({ held: [create(HeldMessageSchema, { promptId: "p1", text: "hello" })] });
-      assert.deepEqual(queuedRows(container), [{ tag: "", words: queuedWords, text: "hello", canceled: false }]);
+      assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
+    },
+  );
+});
+
+// promptItem is a conversation's prompt item with text, under promptId when one is given, as a pane's carries none.
+function promptItem(text: string, promptId = "") {
+  return create(ConversationItemSchema, { kind: "prompt", text, promptId });
+}
+
+test("a message sent to a working session leaves the queue once the conversation's items hold its prompt, while it stays working", async () => {
+  await withRerenderableComposer(
+    { state: "working", send: async () => {}, newPromptId: () => "p1", items: [promptItem("earlier", "p0")] },
+    async (box, container, rerender) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      assert.equal(queuedRows(container).length, 1, "the sent message is queued");
+      await rerender({ items: [promptItem("earlier", "p0"), promptItem("hello", "p9")] });
+      assert.equal(queuedRows(container).length, 1, "a prompt with the same text under another prompt id is not this one");
+      await rerender({ items: [promptItem("earlier", "p0"), promptItem("hello", "p9"), promptItem("hello", "p1")] });
+      assert.deepEqual(queuedRows(container), [], "the prompt with its prompt id ends it while the state stays working");
+    },
+  );
+});
+
+test("a message sent to a working session leaves the queue once it leaves the held set it was in", async () => {
+  await withRerenderableComposer(
+    { state: "working", send: async () => {}, newPromptId: () => "p1" },
+    async (box, container, rerender) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      await rerender({ held: [create(HeldMessageSchema, { promptId: "p1", text: "hello" })] });
+      assert.equal(queuedRows(container).length, 1, "the held message draws one row");
+      await rerender({ held: [] });
+      assert.deepEqual(queuedRows(container), [], "a message that left the held set is not queued");
+    },
+  );
+});
+
+test("a message sent to a working pane leaves the queue once a prompt with its text comes after the items it was sent after", async () => {
+  const before = [promptItem("hello")];
+  await withRerenderableComposer(
+    { state: "working", pull: async () => "", send: async () => {}, items: before },
+    async (box, container, rerender) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      assert.equal(queuedRows(container).length, 1, "a prompt with its text before the send is not this one");
+      await rerender({ items: [...before, promptItem("hello")] });
+      assert.deepEqual(queuedRows(container), [], "the prompt after the send ends it while the state stays working");
     },
   );
 });

@@ -252,7 +252,7 @@ coverage, generated code, and test conventions. Running `just` with no argument
 lists the recipes.
 
 - `just check-changed` is the fast gate for work in progress. It runs the checks that your changes can affect.
-- `just check` is the full gate. The pre-push hook and CI run it.
+- `just check` is the full gate. CI runs it; no git hook does.
 - `nix flake check` evaluates and checks the flake, and `nix build` builds the packages.
 
 ## Documentation

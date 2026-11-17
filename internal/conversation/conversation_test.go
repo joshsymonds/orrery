@@ -1165,3 +1165,58 @@ func TestReadMetaAndSidechainAttachmentsGiveNothing(t *testing.T) {
 		})
 	}
 }
+
+// TestReadEpicWidgetNamesTheCreatedEpic checks that a pane transcript's epic_create tool item names the epic it creates,
+// from the call's full input past the input clip, and that another tool call with a contract in its input names none.
+func TestReadEpicWidgetNamesTheCreatedEpic(t *testing.T) {
+	longInput := `{"contract":{"title":"` + strings.Repeat("t", 250) + `","id":"demo-0a1b2c3/epic-long"}}`
+	path := writeTranscript(t,
+		`{"type":"assistant","timestamp":"`+stampAt(1)+`","message":{"content":[`+
+			`{"type":"tool_use","id":"toolu_1","name":"mcp__orrery__epic_create","input":`+longInput+`}]}}`,
+		`{"type":"assistant","timestamp":"`+stampAt(2)+`","message":{"content":[`+
+			`{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"contract":{"id":"demo-0a1b2c3/epic-login"}}}]}}`,
+	)
+
+	type named struct{ tool, epic string }
+	conv := mustRead(t, path, 10)
+	got := make([]named, 0, len(conv.Items))
+	for _, item := range conv.Items {
+		got = append(got, named{item.Tool, item.Epic})
+	}
+	want := []named{{"mcp__orrery__epic_create", "demo-0a1b2c3/epic-long"}, {"Bash", ""}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool items = %+v, want %+v", got, want)
+	}
+}
+
+// TestEpicWidgetCreatedEpicByToolName checks that only an MCP server's epic_create call names an epic, and that an
+// input naming no contract id, or one that does not decode, names no epic.
+func TestEpicWidgetCreatedEpicByToolName(t *testing.T) {
+	input := json.RawMessage(`{"contract":{"id":"demo-0a1b2c3/epic-login"}}`)
+	tests := []struct {
+		name  string
+		tool  string
+		input json.RawMessage
+		want  string
+	}{
+		{"bare epic_create names no epic", "epic_create", input, ""},
+		{"mcp epic_create names its contract id", "mcp__orrery__epic_create", input, "demo-0a1b2c3/epic-login"},
+		{
+			"mcp server name with separators names its contract id",
+			"mcp__my__server__epic_create",
+			input,
+			"demo-0a1b2c3/epic-login",
+		},
+		{"mcp name with no server", "mcp__epic_create", input, ""},
+		{"mcp epic_get", "mcp__orrery__epic_get", input, ""},
+		{"epic_create with no contract id", "mcp__orrery__epic_create", json.RawMessage(`{"contract":{}}`), ""},
+		{"epic_create with input that does not decode", "mcp__orrery__epic_create", json.RawMessage(`not json`), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CreatedEpic(tt.tool, tt.input); got != tt.want {
+				t.Fatalf("CreatedEpic(%q) = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+}

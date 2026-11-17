@@ -1,4 +1,4 @@
-import type { EpicRequirement, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { EpicRequirement, EpicsGetResponse, EpicStep, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { taskStateOf } from "./taskstatus";
 
 export const PHASES = ["implementing", "checking", "reviewing", "integrating"] as const;
@@ -32,7 +32,7 @@ export interface RequirementArc {
 }
 
 // A task as a wedge reads it: a planned build task, or a record task, which has no stage.
-interface Task {
+export interface Task {
   task: string;
   title: string;
   status: string;
@@ -51,13 +51,18 @@ function tasksOf(detail: EpicsGetResponse): Task[] {
       requirements: build.requirements,
     }));
   }
-  return detail.tasks.map((record) => ({
+  return detail.tasks.map(recordTaskOf);
+}
+
+// A record task as a wedge reads it: its slug names it, and it has no stage.
+export function recordTaskOf(record: EpicTask): Task {
+  return {
     task: record.slug,
     title: record.subject,
     status: record.status,
     stage: "",
     requirements: record.requirements,
-  }));
+  };
 }
 
 // The stages whose running step is checking.
@@ -80,7 +85,7 @@ interface Placement {
 }
 
 // The place and tone of a task, by the first rule that matches.
-function placementOf(task: Task, steps: EpicStep[]): Placement {
+export function placementOf(task: Task, steps: EpicStep[]): Placement {
   if (taskStateOf(task.status) === "done") {
     return { place: "integrated", tone: "ok" };
   }

@@ -1,13 +1,23 @@
 import { blockerLine, stateLine } from "./epicpage";
 import type { Epic, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
-import { type CellKind, cellKind, RINGS, type StatusTone, taskReadout } from "./orbitcells";
-import { durationText, provenOf, wedgesOf } from "./phases";
+import { type CellKind, cellKind, RINGS } from "./orbitcells";
+import { durationText, placementOf, provenOf, recordTaskOf, type Tone, wedgesOf } from "./phases";
 import type { Row, Section } from "./rows";
 import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
 
-// A strip segment's tone: its record task's status tone, or none when no slice names the task.
-export type StripTone = StatusTone | "none";
+// A strip segment's tone: the tone its record task is placed at, over the epic's steps of every kind.
+export type StripTone = "passed" | "accepted" | "now" | "held" | "errored" | "none";
+
+// The strip tone each placement tone draws as.
+const stripToneOf: Record<Tone, StripTone> = {
+  ok: "passed",
+  acc: "accepted",
+  run: "now",
+  mine: "held",
+  bad: "errored",
+  plan: "none",
+};
 
 export interface EpicItem {
   kind: "epic";
@@ -183,7 +193,7 @@ function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
     full,
     steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic, step, slices)),
     more: Math.max(0, epic.runningSteps.length - shownSteps),
-    tail: full ? tailOf(epic.endedSteps, item.strip, slices) : "",
+    tail: full ? tailOf(epic.endedSteps, item.strip, detail) : "",
   };
 }
 
@@ -200,7 +210,7 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     phaseAt: Number(epic.phaseAt),
     done: doneOf(tasks),
     total: tasks.length,
-    strip: stripOf(tasks, detail?.slices ?? []),
+    strip: stripOf(tasks, detail?.steps ?? []),
     archived: epic.archived,
     detail,
   };
@@ -244,17 +254,19 @@ export function doneOf(tasks: EpicTask[]): number {
   return tasks.filter((task) => taskStateOf(task.status) === "done").length;
 }
 
-// One tone per record task, in record order: the tone of the slice that names the task, or none when none does.
-export function stripOf(tasks: EpicTask[], slices: EpicSlice[]): StripTone[] {
-  return tasks.map((task) => {
-    const index = slices.findIndex((slice) => slice.task === task.slug);
-    return index === -1 ? "none" : taskReadout(slices, index).tone;
+// One tone per record task, in record order: the strip tone its placement takes over the epic's steps of every kind,
+// the same placement the orrery draws its wedge at.
+export function stripOf(tasks: EpicTask[], steps: EpicStep[]): StripTone[] {
+  return tasks.map((record) => {
+    const task = recordTaskOf(record);
+    return stripToneOf[placementOf(task, steps.filter((step) => step.task === task.task)).tone];
   });
 }
 
-// A full block's tail: its gap slices, the record tasks no slice names, and its ended steps, each left out at zero.
-function tailOf(ended: number, strip: StripTone[], slices: EpicSlice[]): string {
-  const gaps = slices.filter((slice) => slice.hue === "gap").length;
+// A full block's tail: its gap wedges, the record tasks not started, and its ended steps, each left out at zero. A gap
+// is a wedge the orrery draws bad, so the count matches its glyph, whether or not the epic has record tasks.
+function tailOf(ended: number, strip: StripTone[], detail: EpicsGetResponse | undefined): string {
+  const gaps = detail === undefined ? 0 : wedgesOf(detail).filter((wedge) => wedge.tone === "bad").length;
   const notStarted = strip.filter((tone) => tone === "none").length;
   return [
     gaps > 0 ? `${gaps} gap` : "",

@@ -386,7 +386,10 @@ type EpicSession struct {
 	// The tool name of the session's newest epic call, such as epic_get.
 	Call string `protobuf:"bytes,4,opt,name=call,proto3" json:"call,omitempty"`
 	// When the session's newest epic call was made, in unix seconds.
-	At            int64 `protobuf:"varint,5,opt,name=at,proto3" json:"at,omitempty"`
+	At int64 `protobuf:"varint,5,opt,name=at,proto3" json:"at,omitempty"`
+	// Whether the session created the epic: its epic_create call created it. A session that called later is not the
+	// creator.
+	Creator       bool `protobuf:"varint,6,opt,name=creator,proto3" json:"creator,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -454,6 +457,13 @@ func (x *EpicSession) GetAt() int64 {
 		return x.At
 	}
 	return 0
+}
+
+func (x *EpicSession) GetCreator() bool {
+	if x != nil {
+		return x.Creator
+	}
+	return false
 }
 
 // EpicQuestion is one open question a planner turn of an orreryd epic asked.
@@ -5441,13 +5451,14 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"repository\x12@\n" +
 	"\rrelease_steps\x18\x12 \x03(\v2\x1b.orrery.v1.EpicReleaseProofR\freleaseSteps\x12-\n" +
 	"\x06report\x18\x13 \x01(\v2\x15.orrery.v1.EpicReportR\x06report\x12%\n" +
-	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\"k\n" +
+	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\"\x85\x01\n" +
 	"\vEpicSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04pane\x18\x02 \x01(\tR\x04pane\x12\x14\n" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x12\n" +
 	"\x04call\x18\x04 \x01(\tR\x04call\x12\x0e\n" +
-	"\x02at\x18\x05 \x01(\x03R\x02at\"\xf2\x01\n" +
+	"\x02at\x18\x05 \x01(\x03R\x02at\x12\x18\n" +
+	"\acreator\x18\x06 \x01(\bR\acreator\"\xf2\x01\n" +
 	"\fEpicQuestion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x12\n" +

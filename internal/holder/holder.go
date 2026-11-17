@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,6 +51,8 @@ type Config struct {
 	version int
 	// peerUID returns the uid of a connection's peer. Nil takes PeerUID.
 	peerUID func(*net.UnixConn) (int, error)
+	// memory reads the memory accounting of the scope the holder runs in. The zero value takes systemMemoryCap().
+	memory memoryCap
 }
 
 // withDefaults returns cfg with each zero field set to its default.
@@ -71,6 +74,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.peerUID == nil {
 		cfg.peerUID = PeerUID
+	}
+	if cfg.memory == (memoryCap{}) {
+		cfg.memory = systemMemoryCap()
 	}
 	return cfg
 }
@@ -130,6 +136,8 @@ func openHolder(cfg Config) (*holder, error) {
 	if err != nil {
 		return nil, errors.Join(err, listener.Close())
 	}
+	// The scope's kills are counted from here, so only the kills of this child's run are reported.
+	killsBefore, _ := cfg.memory.kills()
 	child, err := StartChild(cfg.Child, spool)
 	if err == nil {
 		err = recordChild(cfg.Dir, child)
@@ -144,6 +152,7 @@ func openHolder(cfg Config) (*holder, error) {
 		listener:     listener,
 		spool:        spool,
 		child:        child,
+		killsBefore:  killsBefore,
 		ended:        make(chan struct{}),
 		conns:        make(map[*conn]struct{}),
 		stoppers:     make(map[*conn]struct{}),
@@ -160,6 +169,8 @@ type holder struct {
 	listener *net.UnixListener
 	spool    *Spool
 	child    *Child
+	// killsBefore is the scope's oom_kill count before the child started.
+	killsBefore int
 
 	// serving counts the accept loop and every connection goroutine.
 	serving sync.WaitGroup
@@ -239,7 +250,7 @@ func (h *holder) run(ctx context.Context) (Exit, error) {
 	}
 	<-h.child.Done()
 
-	exit := h.child.Exit(h.exitReason())
+	exit := h.withMemoryKills(h.child.Exit(h.exitReason()))
 	writeErr := WriteExit(h.exitPath, exit)
 	// Close stops the accept loop and removes the socket file.
 	closeErr := h.listener.Close()
@@ -256,6 +267,23 @@ func (h *holder) run(ctx context.Context) (Exit, error) {
 	close(h.writesClosed)
 	<-writing
 	return exit, errors.Join(writeErr, closeErr, connErr, h.spool.Close())
+}
+
+// withMemoryKills returns exit with the processes the scope's memory cap killed while the child ran: their count in
+// MemoryKills, and a line that names the cap and the count added to Stderr, so whoever reads the record sees why the
+// child or a process it started ended. A holder that runs in no holder scope, or cannot read its scope's count, reports
+// no kills.
+func (h *holder) withMemoryKills(exit Exit) Exit {
+	after, ok := h.cfg.memory.kills()
+	if !ok || after <= h.killsBefore {
+		return exit
+	}
+	exit.MemoryKills = after - h.killsBefore
+	if exit.Stderr != "" && !strings.HasSuffix(exit.Stderr, "\n") {
+		exit.Stderr += "\n"
+	}
+	exit.Stderr += memoryCapLine(exit.MemoryKills, h.cfg.memory.limit())
+	return exit
 }
 
 // accept serves each connection the listener takes, until the listener closes.

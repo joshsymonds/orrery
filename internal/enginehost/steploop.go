@@ -95,7 +95,8 @@ const apiErrorRateLimit = "rate_limit"
 // with commitChecks against start and owned in dir, without its owned check when unowned, and with gate when every
 // commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
-// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under. A read-only
+// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under, and
+// scopeMemory is the scope's memory cap in bytes, zero for holder.DefaultScopeMemory. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
 // has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
@@ -122,21 +123,22 @@ type stepRunConfig struct {
 	agentGate   *gates.Gate
 	returnCheck func(value json.RawMessage) []string
 
-	writing    bool
-	dir        string
-	checkout   stepCheckout
-	start      string
-	owned      []string
-	unowned    bool
-	gate       []string
-	gateLimit  time.Duration
-	environ    []string
-	pools      PoolCommands
-	grant      grants.Request
-	gateName   string
-	gateSource string
-	stateDir   string
-	scope      string
+	writing     bool
+	dir         string
+	checkout    stepCheckout
+	start       string
+	owned       []string
+	unowned     bool
+	gate        []string
+	gateLimit   time.Duration
+	environ     []string
+	pools       PoolCommands
+	grant       grants.Request
+	gateName    string
+	gateSource  string
+	stateDir    string
+	scope       string
+	scopeMemory int64
 
 	// restore, when set, is the state a re-adopted step resumes from. run takes it up before it takes any return or
 	// exit.
@@ -144,7 +146,8 @@ type stepRunConfig struct {
 }
 
 // stepRestore is the state a re-adopted step resumes from: its row as the store holds it, and the turn end its session
-// last ended after its last prompt. Turn is that turn end when Found is set, and Found is what store.StepTurn returns.
+// last ended after its last prompt. Turn is that turn end when Found is set, and Found is what store.StepTurn returns:
+// unset means the turn the last prompt started is still running.
 type stepRestore struct {
 	Row   store.StepRow
 	Turn  store.StepTurnEnd
@@ -359,8 +362,10 @@ func (r *stepRun) tick(ctx context.Context) bool {
 
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
 // when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
-// end its latest return covers goes to resumeReturn. Any other turn end is handled as one the session has just given. It
-// reports whether the run goes on.
+// end its latest return covers goes to resumeReturn. A turn end stored while a background task is listed is a return
+// only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is left unread and the
+// step waits with no turn running, as a live step does. Any other turn end is handled as one the session has just
+// given. It reports whether the run goes on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -377,6 +382,7 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	if row.GateHolder != "" {
 		r.resumeGate = store.StepGate{ID: r.id, Grant: row.GateGrant, Holder: row.GateHolder, Round: row.GateRound}
 	}
+	ended := session.TurnEnded{IsError: restore.Turn.IsError, StructuredOutput: json.RawMessage(restore.Turn.Output)}
 	switch {
 	case row.LoopLimited:
 		r.limited = true
@@ -386,10 +392,10 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 		return true
 	case restore.Turn.Returned:
 		return r.resumeReturn(ctx, row)
+	case restore.Turn.Background && !r.Done(ended):
+		return true
 	}
-	return r.turnEnded(ctx, session.TurnEnded{
-		IsError: restore.Turn.IsError, StructuredOutput: json.RawMessage(restore.Turn.Output),
-	})
+	return r.turnEnded(ctx, ended)
 }
 
 // resumeReturn takes up a step whose latest return is stored and covered by its turn end, so nothing has been sent
@@ -936,7 +942,8 @@ func (r *stepRun) gateAttemptOf(round int) (int, error) {
 func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev string) (gateResult, error) {
 	run := gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, Tail: stepGateLogTail,
+		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, ScopeMemory: r.scopeMemory,
+		Tail: stepGateLogTail,
 	}
 	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {
 		r.resumeGate = store.StepGate{}
@@ -1000,7 +1007,8 @@ func stepLoopRecord(round int, c stepCheck) store.StepCheck {
 }
 
 // stepLoopGateCheck returns the gate check of round for result. It passes when the gate exits 0 without passing limit.
-// Its detail gives the exit status, or the limit when the gate was killed for it. Its Stdout and Stderr keep the newest
+// Its detail gives the exit status, or the limit when the gate was killed for it, and then the processes its scope's
+// memory cap killed, when it killed any. Its Stdout and Stderr keep the newest
 // stepGateCheckTail bytes of the gate's two streams apart (see stepCheckTail).
 func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.StepCheck {
 	check := store.StepCheck{
@@ -1014,6 +1022,9 @@ func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.
 		check.Detail = fmt.Sprintf("gate ran past its limit of %s and was killed", limit)
 	} else {
 		check.Detail = fmt.Sprintf("gate exited %d", result.Exit)
+	}
+	if result.MemoryKills > 0 {
+		check.Detail += fmt.Sprintf("; its scope's memory cap killed %d of its processes", result.MemoryKills)
 	}
 	return check
 }

@@ -33,6 +33,7 @@ public  final class Pane extends
     tool_ = "";
     claudeSession_ = "";
     questionHash_ = "";
+    orreryId_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -1169,6 +1170,73 @@ public  final class Pane extends
   private void clearLastTurnEnd() {
 
     lastTurnEnd_ = 0L;
+  }
+
+  public static final int ORRERY_ID_FIELD_NUMBER = 21;
+  private java.lang.String orreryId_;
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   * @return The orreryId.
+   */
+  @java.lang.Override
+  public java.lang.String getOrreryId() {
+    return orreryId_;
+  }
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   * @return The bytes for orreryId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getOrreryIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(orreryId_);
+  }
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   * @param value The orreryId to set.
+   */
+  private void setOrreryId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    orreryId_ = value;
+  }
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   */
+  private void clearOrreryId() {
+
+    orreryId_ = getDefaultInstance().getOrreryId();
+  }
+  /**
+   * <pre>
+   * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+   * </pre>
+   *
+   * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+   * @param value The bytes for orreryId to set.
+   */
+  private void setOrreryIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    orreryId_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Pane parseFrom(
@@ -2450,6 +2518,75 @@ public  final class Pane extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+     * </pre>
+     *
+     * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+     * @return The orreryId.
+     */
+    @java.lang.Override
+    public java.lang.String getOrreryId() {
+      return instance.getOrreryId();
+    }
+    /**
+     * <pre>
+     * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+     * </pre>
+     *
+     * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+     * @return The bytes for orreryId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getOrreryIdBytes() {
+      return instance.getOrreryIdBytes();
+    }
+    /**
+     * <pre>
+     * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+     * </pre>
+     *
+     * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+     * @param value The orreryId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOrreryId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setOrreryId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+     * </pre>
+     *
+     * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOrreryId() {
+      copyOnWrite();
+      instance.clearOrreryId();
+      return this;
+    }
+    /**
+     * <pre>
+     * The pane's &#64;orrery_id option, which is the id its Session row carries, or empty when unset.
+     * </pre>
+     *
+     * <code>string orrery_id = 21 [json_name = "orreryId"];</code>
+     * @param value The bytes for orreryId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOrreryIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setOrreryIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Pane)
   }
   @java.lang.Override
@@ -2486,12 +2623,13 @@ public  final class Pane extends
             "questionHash_",
             "newestReply_",
             "lastTurnEnd_",
+            "orreryId_",
           };
           java.lang.String info =
-              "\u0000\u0014\u0000\u0000\u0001\u0014\u0014\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0015\u0000\u0000\u0001\u0015\u0015\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0004\u0005\u0004\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0002\f\u0002\r\u0208\u000e\u0208\u000f\u0002\u0010\u0208\u0011\u0208\u0012" +
-              "\u0208\u0013\u0002\u0014\u0002";
+              "\u0208\u0013\u0002\u0014\u0002\u0015\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

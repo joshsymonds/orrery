@@ -65,7 +65,8 @@ type judgment struct {
 }
 
 // Judge returns the refusals the changes break under the set, in change order, or nil
-// when nothing is refused.
+// when nothing is refused. Every node test file the changes hold is also judged by the DOM assert rule, whatever
+// set it is in (see domAssertsAdded).
 func Judge(set Set, changes []Change) []Refusal {
 	judged := judgment{
 		guarded:  members(set.Guarded),
@@ -76,6 +77,7 @@ func Judge(set Set, changes []Change) []Refusal {
 	refusals := make([]Refusal, 0, len(changes))
 	for _, change := range changes {
 		refusals = append(refusals, judged.change(change)...)
+		refusals = append(refusals, domAssertsAdded(change)...)
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -180,8 +182,7 @@ func parserFor(path string) func(src []byte) ([]Test, error) {
 	if strings.HasSuffix(path, "_test.go") {
 		return goTests
 	}
-	if strings.HasSuffix(path, ".test.ts") || strings.HasSuffix(path, ".test.tsx") ||
-		strings.HasSuffix(path, ".test.js") {
+	if nodeTestPath(path) {
 		return nodeTests
 	}
 	if strings.HasSuffix(path, ".kt") {

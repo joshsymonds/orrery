@@ -20,8 +20,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// ErrBadOwned reports a step whose owned path is absolute or reaches outside the repository.
-var ErrBadOwned = errors.New("step owned path must be a relative path inside the repository")
+// ErrBadOwned reports a step whose owned paths are refused: an owned path that is absolute or reaches outside the
+// repository, or a writing step that names no owned path and is not Unowned.
+var ErrBadOwned = errors.New("step owned paths are refused")
 
 // ErrBadGate reports a step whose gate is refused: a named gate that does not resolve, or a gates file that is not
 // absolute or is set without a name.
@@ -49,7 +50,8 @@ const stepDefaultModelLimit = 60 * time.Minute
 const stepDefaultWatchTick = 5 * time.Second
 
 // StepStart describes a step to start. A writing step (ReadOnly false) runs in Workspace, a linked worktree, and its
-// done return is checked against its commit and Owned paths and, when it names one, its gate. A read-only step runs in
+// done return is checked against its commit and Owned paths and, when it names one, its gate. A writing step needs at
+// least one Owned path unless it is Unowned, or the start is refused with ErrBadOwned. A read-only step runs in
 // a detached worktree at Revision, which is removed when the step ends. Revision names the start commit and empty means
 // HEAD. DoneValue empty means "done", and ModelLimit zero means 60 minutes, the model-time limit the step is stored
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
@@ -115,13 +117,14 @@ type StepStart struct {
 	ReturnCheck func(value json.RawMessage) []string
 }
 
-// StepStore reads the step rows Steps reports, the turn ends their sessions stored and the rate limits their sessions were
-// rejected with, and marks an ended step read by its caller. *store.Store satisfies it.
+// StepStore reads the step rows Steps reports, the turn ends and finished blocks their sessions stored and the rate
+// limits their sessions were rejected with, and marks an ended step read by its caller. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
+	StepBlocks(ctx context.Context, id string, limit int) ([]store.StepBlock, error)
 	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
 	MarkStepRead(ctx context.Context, id string, caller store.EpicCaller) (bool, error)
 }
@@ -133,7 +136,8 @@ type StepStore interface {
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
 // time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
 // GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
-// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. With GateScope set, Close
+// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. GateScopeMemory is that
+// scope's memory cap in bytes, and zero takes holder.DefaultScopeMemory. With GateScope set, Close
 // leaves a running gate under its holder for a restarted Steps to re-adopt; without it, Close kills the gate.
 // ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
 // it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
@@ -142,20 +146,21 @@ type StepStore interface {
 // row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
 // that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
 type StepsConfig struct {
-	Sessions     stepSessions
-	Store        StepStore
-	Writer       *Writer
-	Pools        PoolCommands
-	Worktrees    string
-	Environ      []string
-	Logger       *slog.Logger
-	Haiku        *Haiku
-	Now          func() time.Time
-	WatchTick    time.Duration
-	GateStateDir string
-	GateScope    string
-	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	Sessions        stepSessions
+	Store           StepStore
+	Writer          *Writer
+	Pools           PoolCommands
+	Worktrees       string
+	Environ         []string
+	Logger          *slog.Logger
+	Haiku           *Haiku
+	Now             func() time.Time
+	WatchTick       time.Duration
+	GateStateDir    string
+	GateScope       string
+	GateScopeMemory int64
+	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -171,20 +176,21 @@ type StepAdopter interface {
 // and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it. starting holds the
 // caller-given id of each start in flight, so a second start under that id is refused until the first returns.
 type Steps struct {
-	sessions     stepSessions
-	store        StepStore
-	writer       *Writer
-	pools        PoolCommands
-	worktrees    string
-	environ      []string
-	logger       *slog.Logger
-	haiku        *Haiku
-	now          func() time.Time
-	tick         time.Duration
-	gateStateDir string
-	gateScope    string
-	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	sessions        stepSessions
+	store           StepStore
+	writer          *Writer
+	pools           PoolCommands
+	worktrees       string
+	environ         []string
+	logger          *slog.Logger
+	haiku           *Haiku
+	now             func() time.Time
+	tick            time.Duration
+	gateStateDir    string
+	gateScope       string
+	gateScopeMemory int64
+	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -212,25 +218,26 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		tick = stepDefaultWatchTick
 	}
 	steps := &Steps{
-		sessions:     cfg.Sessions,
-		store:        cfg.Store,
-		writer:       cfg.Writer,
-		pools:        cfg.Pools,
-		worktrees:    cfg.Worktrees,
-		environ:      cfg.Environ,
-		logger:       logger,
-		haiku:        cfg.Haiku,
-		now:          cfg.Now,
-		tick:         tick,
-		gateStateDir: cfg.GateStateDir,
-		gateScope:    cfg.GateScope,
-		readoptCheck: cfg.ReadoptCheck,
-		readoptGate:  cfg.ReadoptGate,
-		loops:        map[string]context.CancelFunc{},
-		causes:       map[string]context.CancelCauseFunc{},
-		runs:         map[string]*stepRun{},
-		adopted:      map[string]*stepRun{},
-		starting:     map[string]bool{},
+		sessions:        cfg.Sessions,
+		store:           cfg.Store,
+		writer:          cfg.Writer,
+		pools:           cfg.Pools,
+		worktrees:       cfg.Worktrees,
+		environ:         cfg.Environ,
+		logger:          logger,
+		haiku:           cfg.Haiku,
+		now:             cfg.Now,
+		tick:            tick,
+		gateStateDir:    cfg.GateStateDir,
+		gateScope:       cfg.GateScope,
+		gateScopeMemory: cfg.GateScopeMemory,
+		readoptCheck:    cfg.ReadoptCheck,
+		readoptGate:     cfg.ReadoptGate,
+		loops:           map[string]context.CancelFunc{},
+		causes:          map[string]context.CancelCauseFunc{},
+		runs:            map[string]*stepRun{},
+		adopted:         map[string]*stepRun{},
+		starting:        map[string]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps, nil
@@ -298,7 +305,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
-		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,
+		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
@@ -469,7 +476,8 @@ func (s *Steps) endLoop(id string) {
 }
 
 // checkStepStart reports whether start's prompt, id, workspace and owned paths are usable, before anything is stored or
-// any worktree is added. Start checks the schema once the gate has set it.
+// any worktree is added. A writing step that is not Unowned needs at least one owned path, because an empty list would
+// let it change nothing. Start checks the schema once the gate has set it.
 func checkStepStart(start StepStart) error {
 	if start.Prompt == "" {
 		return ErrEmptyPrompt
@@ -480,9 +488,12 @@ func checkStepStart(start StepStart) error {
 	if err := checkDir(start.Workspace); err != nil {
 		return err
 	}
+	if !start.ReadOnly && !start.Unowned && len(start.Owned) == 0 {
+		return fmt.Errorf("%w: a writing step needs owned_paths", ErrBadOwned)
+	}
 	for _, path := range start.Owned {
 		if !filepath.IsLocal(path) {
-			return fmt.Errorf("%w: %q", ErrBadOwned, path)
+			return fmt.Errorf("%w: %q is not a relative path inside the repository", ErrBadOwned, path)
 		}
 	}
 	return nil

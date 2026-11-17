@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { render } from "preact";
+import { options, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { EpicCalls } from "./card";
+import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -20,7 +21,8 @@ import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
+import { turn } from "./testwait";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -711,6 +713,96 @@ test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt
       assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
       assert.equal(container.querySelector("button.fold") === null, true, "the event is not an engine fold");
       assert.equal(container.querySelector(".card") === null, true, "the event is not a send-back card");
+    },
+  ));
+
+// ringEpic is the epic the event blocks in the EventRing tests name.
+const ringEpic = "orrery-1a2b3c4/planner-runner";
+
+// eventText is the block an epic's event carries, as the server writes it.
+function eventText(kind: string, tail: string): string {
+  return `<orrery-event kind="${kind}" id="epic:${ringEpic}:${tail}">\nEpic ${ringEpic} (Plan the runner) is done.\n</orrery-event>`;
+}
+
+// ringCalls are the epic calls an event ring reads through. The epic reads as one with no open question, so a question
+// event draws its settled line.
+function ringCalls(): EpicCalls {
+  const reading = create(EpicsGetResponseSchema, {
+    epic: create(EpicSchema, { id: ringEpic, slug: "planner-runner" }),
+  });
+  return {
+    get: async () => reading,
+    pause: () => Promise.resolve(),
+    resume: () => Promise.resolve(),
+    answer: async () => "",
+    openEpic: () => {},
+    tick: 1,
+  };
+}
+
+// withEventReader draws the reader over items with the ring's epic calls, lets the ring's read settle inside act, runs
+// check on the container, then removes the DOM.
+async function withEventReader(items: ConversationItem[], check: (container: HTMLElement) => void): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    await act(() => {
+      render(
+        <Reader conversation={conversation({ items })} seenAt={10_000} open={false} epicCalls={ringCalls()} />,
+        container,
+      );
+    });
+    await act(turn);
+    check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
+}
+
+test("EventRing: an orrery-event prompt of each kind draws one ringed line and no EVENT block", async () => {
+  for (const [kind, tail] of [
+    ["question", "Q1"],
+    ["park", "Q1"],
+    ["release", "released"],
+    ["end", "done"],
+  ]) {
+    await withEventReader(
+      [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
+      (container) => {
+        assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
+        assertNone(container.querySelector(".event"), `a ${kind} event is not an EVENT row`);
+        const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
+        assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);
+      },
+    );
+  }
+});
+
+test("EventRing: a pane prompt with the same text draws the ring too, and its row takes no owner's-turn gap", () =>
+  withEventReader(
+    [item({ kind: "prompt", time: 100n, text: eventText("release", "released") })],
+    (container) => {
+      assert.equal(container.querySelectorAll(".ring-line").length, 1, "the pane prompt draws its ring");
+      assertNone(container.querySelector(".you"), "the pane prompt is not YOU");
+      assertNone(container.querySelector(".t.owner-turn"), "the ring's row is not the owner's turn");
+    },
+  ));
+
+test("EventRing: an orrery-event prompt draws its EVENT row when the reader holds no epic calls", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", text: eventText("release", "released") })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assertNone(container.querySelector(".ring-line"), "without epic calls the event draws no ring");
+      assert.equal(container.querySelector(".t > .body > .event > small")?.textContent, "EVENT");
     },
   ));
 
@@ -1701,9 +1793,9 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
     (container) => {
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), false, "the fold carries no running class");
-      assert.equal(fold.querySelector(".running-mark"), null, "the fold carries no running mark");
-      assert.equal(container.querySelector(".running"), null, "no line of the reader is running");
-      assert.equal(container.querySelector(".running-mark"), null);
+      assertNone(fold.querySelector(".running-mark"), "the fold carries no running mark");
+      assertNone(container.querySelector(".running"), "no line of the reader is running");
+      assertNone(container.querySelector(".running-mark"));
     },
   ));
 
@@ -1861,11 +1953,12 @@ test("a child passed to the head draws after the where line as the head's last c
     },
   ));
 
-test("a session's conversation head draws the title row: a back button, the crumbs orrery then the session's label, and its state, and back calls its handler", () => {
+test("a session's conversation head draws the title row: a back button, the crumbs orrery then the session's title, and its state, and back calls its handler", () => {
   let backs = 0;
   return withConversationHead(
     {
-      label: "Synthetic session",
+      dir: "/work/synthetic-app",
+      line: "Synthetic session",
       state: "waiting",
       onBack: () => {
         backs += 1;
@@ -1881,10 +1974,10 @@ test("a session's conversation head draws the title row: a back button, the crum
       const crumbs = [...row.querySelectorAll<HTMLElement>(".crumbs .crumb")];
       assert.deepEqual(
         crumbs.map((crumb) => crumb.textContent),
-        ["orrery", "Synthetic session"],
-        "the crumbs read orrery, then the session's label",
+        ["orrery", "synthetic-app Synthetic session"],
+        "the crumbs read orrery, then the session's directory and title",
       );
-      assert.equal(crumbs[1]?.getAttribute("aria-current"), "page", "the label is the page itself");
+      assert.equal(crumbs[1]?.getAttribute("aria-current"), "page", "the title is the page itself");
       assert.equal(row.querySelector(".state")?.textContent, "waiting", "the state sits in the state slot");
       assert.equal(row.querySelector(".acts > .pill")?.textContent, "synthetic pill", "the pill is the row's child");
       back?.click();
@@ -1892,6 +1985,38 @@ test("a session's conversation head draws the title row: a back button, the crum
     },
   );
 });
+
+test("TitleParts: the title row's last crumb draws the directory's last element, then the line, and no id or hash", () =>
+  withConversationHead(
+    { dir: "/work/synthetic/app", line: "Synthetic summary", state: "working", onBack: () => {}, onGoList: () => {} },
+    (container) => {
+      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
+      assert.equal(crumb?.querySelector(".title-dir")?.textContent, "app", "the directory's last element");
+      assert.equal(crumb?.querySelector(".title-line")?.textContent, "Synthetic summary", "the line");
+      assert.equal(crumb?.textContent, "app Synthetic summary", "the crumb holds nothing else, no id or hash");
+    },
+  ));
+
+test("TitleParts: a title with an empty line draws its directory alone, with no line element", () =>
+  withConversationHead(
+    { dir: "/work/synthetic-app", line: "", state: "idle", onBack: () => {}, onGoList: () => {} },
+    (container) => {
+      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
+      assert.equal(crumb?.textContent, "synthetic-app");
+      assert.equal(crumb?.querySelector(".title-line") === null, true);
+    },
+  ));
+
+test("TitleParts: markup in a line draws as text, with no element", () =>
+  withConversationHead(
+    { dir: "/work/synthetic-app", line: "<b>bold</b> <img src=x onerror=alert(1)>", state: "idle", onBack: () => {}, onGoList: () => {} },
+    (container) => {
+      const crumb = container.querySelector<HTMLElement>(".crumbs .crumb.here");
+      assert.equal(crumb?.querySelector("b") === null, true);
+      assert.equal(crumb?.querySelector("img") === null, true);
+      assert.equal(crumb?.querySelector(".title-line")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
+    },
+  ));
 
 test("a label or where holding markup draws as text with no element", () =>
   withHead(
@@ -1976,7 +2101,7 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
       assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
       assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
       assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
-      assert.equal(container.querySelector(".gut.sending"), null, "nothing is marked sending");
+      assertNone(container.querySelector(".gut.sending"), "nothing is marked sending");
     },
   );
 });
@@ -1993,7 +2118,7 @@ test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its
       assert.ok(row !== null, "the reply is a row of the reader");
       assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
       assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
-      assert.equal(row.querySelector(".you, .card, .question-card, .fold, .summary"), null, "no surface inside");
+      assertNone(row.querySelector(".you, .card, .question-card, .fold, .summary"), "no surface inside");
       assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
     },
   ));
@@ -2038,8 +2163,8 @@ test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, di
       const since = container.querySelector(".rule.new")?.closest(".t");
       assert.ok(compaction !== null && compaction !== undefined, "the compaction rule is in a row");
       assert.ok(since !== null && since !== undefined, "the since-you-looked rule is in a row");
-      assert.equal(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
-      assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
+      assertSame(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
+      assertSame(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
     },
   ));
 
@@ -2273,4 +2398,326 @@ test("TranscriptSearch: a reader drawn without a find, or with an empty query, h
       assert.equal(container.querySelector("mark"), null, "a reader with an empty query marks nothing");
     },
   );
+});
+
+// Render is one component render a RenderCounter saw: the component's name and the props it rendered with.
+interface Render {
+  name: string;
+  props: Record<string, unknown>;
+}
+
+// RenderCounter records each component render made while it is in place, through the diffed option, which runs after
+// each vnode is diffed. A component's own vnode is made by its parent's render, so a row its memo skips never has a
+// vnode diffed and leaves no record. stop restores the option the counter found.
+class RenderCounter {
+  private readonly renders: Render[] = [];
+  private readonly previous = options.diffed;
+
+  constructor() {
+    options.diffed = (vnode) => {
+      this.previous?.(vnode);
+      const { type } = vnode;
+      if (typeof type === "function") {
+        this.renders.push({ name: type.name, props: vnode.props });
+      }
+    };
+  }
+
+  // rendersOf returns the props of each render of the component named name, in render order.
+  rendersOf(name: string): Record<string, unknown>[] {
+    return this.renders.filter((render) => render.name === name).map((render) => render.props);
+  }
+
+  clear(): void {
+    this.renders.length = 0;
+  }
+
+  stop(): void {
+    options.diffed = this.previous;
+  }
+}
+
+// withRowRenders is withRerenderableReader with a RenderCounter the check gets, stopped when the check ends.
+async function withRowRenders(
+  props: Props,
+  check: (
+    container: HTMLElement,
+    rerender: (next: Props) => Promise<void>,
+    counter: RenderCounter,
+  ) => void | Promise<void>,
+): Promise<void> {
+  const counter = new RenderCounter();
+  try {
+    await withRerenderableReader(props, (container, rerender) => check(container, rerender, counter));
+  } finally {
+    counter.stop();
+  }
+}
+
+// itemsRendered returns the item of each ItemRow the counter saw render, in render order.
+function itemsRendered(counter: RenderCounter): unknown[] {
+  return counter.rendersOf("ItemRow").map((props) => props.item);
+}
+
+test("RenderOnce: re-rendering the reader with the same conversation, including a run of three or more tool calls, and with fresh onToggleOpen, onOlder and onAnswer and a new but equal step, renders no ItemRow or ToolRun again", () => {
+  const conv = conversation({
+    items: [
+      item({ kind: "reply", time: 100n, text: "before the run" }),
+      toolItem("Read", "r1", "a.txt"),
+      resultItem("r1", "alpha"),
+      toolItem("Read", "r2", "b.txt"),
+      resultItem("r2", "beta"),
+      toolItem("Bash", "b1", "make"),
+      resultItem("b1", "built"),
+      item({ kind: "compaction", time: 150n, text: "Synthetic summary.", trigger: "auto", tokens: 611000n }),
+      item({ kind: "prompt", time: 200n, sender: "engine", round: 1, text: "gate failed: exit 1" }),
+    ],
+  });
+  const checks = [{ round: 1, name: "gate", ok: false }];
+  return withRowRenders(
+    {
+      conversation: conv,
+      seenAt: 10_000,
+      open: false,
+      step: stepWith(checks),
+      onToggleOpen: () => {},
+      onOlder: () => {},
+      onAnswer: () => {},
+    },
+    async (container, rerender, counter) => {
+      const calls: string[] = [];
+      counter.clear();
+      await rerender({
+        conversation: conv,
+        seenAt: 10_000,
+        open: false,
+        step: stepWith(checks),
+        onToggleOpen: () => calls.push("toggle"),
+        onOlder: () => calls.push("older"),
+        onAnswer: () => calls.push("answer"),
+      });
+      assert.equal(container.querySelectorAll(".fold.calls").length, 1, "the three-call run is drawn");
+      assert.equal(counter.rendersOf("ItemRow").length, 0, "no item row renders again");
+      assert.equal(counter.rendersOf("ToolRun").length, 0, "the three-call run does not render again");
+
+      const rule = container.querySelector<HTMLButtonElement>("button.rule");
+      assert.ok(rule !== null, "the compaction rule is a button, as it has a toggle");
+      await clickControl(rule);
+      assert.deepEqual(calls, ["toggle"], "the rule calls the onToggleOpen of the latest render");
+    },
+  );
+});
+
+test("RenderOnce: changing one item's result re-renders only that row, and its fold shows the new result", () => {
+  const before = item({ kind: "reply", time: 100n, text: "before" });
+  const call = toolItem("Read", "r1", "a.txt");
+  const after = item({ kind: "reply", time: 300n, text: "after" });
+  const alpha = resultItem("r1", "alpha");
+  const beta = resultItem("r1", "beta");
+  const props = (result: ConversationItem): Props => ({
+    conversation: conversation({ items: [before, call, result, after] }),
+    seenAt: 10_000,
+    open: false,
+  });
+  return withRowRenders(props(alpha), async (container, rerender, counter) => {
+    const line = container.querySelector<HTMLButtonElement>("button.call");
+    assert.ok(line !== null, "a call with a result is a button");
+    await clickControl(line);
+    assert.equal(container.querySelector(".result")?.textContent, "alpha", "the fold shows the first result");
+
+    counter.clear();
+    await rerender(props(beta));
+    const rendered = itemsRendered(counter);
+    assert.equal(rendered.length, 1, "one row renders again");
+    assert.equal(rendered[0], call, "the row is the call the changed result answers");
+    assert.equal(container.querySelector(".result")?.textContent, "beta", "the fold shows the new result");
+  });
+});
+
+test("RenderOnce: a running call re-renders its row when it gets its result, or when text follows it", () => {
+  const before = item({ kind: "reply", time: 100n, text: "before" });
+  const call = toolItem("Bash", "b1", "make");
+  const built = resultItem("b1", "built");
+  return withRowRenders(
+    { conversation: conversation({ items: [before, call] }), seenAt: 10_000, open: false },
+    async (container, rerender, counter) => {
+      assert.ok(container.querySelector(".call.running") !== null, "a call with no result is running");
+
+      // live text after the call ends the calls, so the call stops running though it has no result
+      counter.clear();
+      await rerender({
+        conversation: conversation({ items: [before, call], unfinished: [unfinished("typing")] }),
+        seenAt: 10_000,
+        open: false,
+      });
+      assert.deepEqual(itemsRendered(counter), [call], "the call's row renders again as its running state changes");
+      assert.equal(container.querySelector(".call.running"), null, "the call is no longer running");
+
+      counter.clear();
+      await rerender({
+        conversation: conversation({ items: [before, call, built], unfinished: [unfinished("typing")] }),
+        seenAt: 10_000,
+        open: false,
+      });
+      const rendered = itemsRendered(counter);
+      assert.equal(rendered.length, 1, "one row renders again");
+      assert.equal(rendered[0], call, "the row is the call that got its result");
+      assert.equal(container.querySelector(".running-mark"), null);
+    },
+  );
+});
+
+test("RenderOnce: toggling open re-renders the compaction row alone, and that row shows its summary", () => {
+  const compaction = item({
+    kind: "compaction",
+    time: 100n,
+    text: "Synthetic summary.",
+    trigger: "auto",
+    tokens: 611000n,
+  });
+  const reply = item({ kind: "reply", time: 200n, text: "after" });
+  const conv = conversation({ items: [compaction, reply] });
+  return withRowRenders({ conversation: conv, seenAt: 10_000, open: false }, async (container, rerender, counter) => {
+    assert.equal(container.textContent?.includes("Synthetic summary."), false, "the summary is folded while closed");
+
+    counter.clear();
+    await rerender({ conversation: conv, seenAt: 10_000, open: true });
+    const rendered = itemsRendered(counter);
+    assert.equal(rendered.length, 1, "one row renders again");
+    assert.equal(rendered[0], compaction, "the row is the compaction");
+    assert.equal(container.querySelector(".compaction.open .summary")?.textContent, "Synthetic summary.");
+  });
+});
+
+// readerCard returns the send-back card the reader draws.
+function readerCard(container: HTMLElement): HTMLElement {
+  const card = container.querySelector<HTMLElement>("div.card");
+  assert.ok(card !== null, "a send-back card is drawn");
+  return card;
+}
+
+test("RenderOnce: a step whose checks change re-renders its send-back card with the new chips", () => {
+  const sendBack = item({ kind: "prompt", time: 300n, sender: "engine", round: 1, text: "gate failed: exit 1" });
+  const conv = conversation({ items: [sendBack] });
+  return withRowRenders(
+    { conversation: conv, seenAt: 10_000, open: false, step: stepWith([{ round: 1, name: "gate", ok: true }]) },
+    async (container, rerender, counter) => {
+      assert.deepEqual(chipTexts(readerCard(container)), ["gate ✓"]);
+
+      counter.clear();
+      await rerender({
+        conversation: conv,
+        seenAt: 10_000,
+        open: false,
+        step: stepWith([{ round: 1, name: "gate", ok: false }]),
+      });
+      const rendered = itemsRendered(counter);
+      assert.equal(rendered.length, 1, "one row renders again");
+      assert.equal(rendered[0], sendBack, "the row is the send-back");
+      const card = readerCard(container);
+      assert.deepEqual(chipTexts(card), ["gate ✗"], "the chip shows the check as failed");
+      assert.deepEqual(badChipTexts(card), ["gate ✗"]);
+      assert.equal(card.classList.contains("bad"), true, "the card's edge is bad");
+    },
+  );
+});
+
+// ReadCounts counts the reads a render makes of items: each read of an item's id, and each scan of the items array by
+// forEach or findIndex. itemKeys reads every id, resultsByCall and groupRows scan the array, and newIndex scans it.
+interface ReadCounts {
+  ids: number;
+  scans: number;
+}
+
+// countScans wraps an items array so each scan of it by forEach or findIndex is counted in reads.
+function countScans(items: ConversationItem[], reads: ReadCounts): ConversationItem[] {
+  return new Proxy(items, {
+    get(target, key, receiver) {
+      if (key === "forEach" || key === "findIndex") {
+        reads.scans += 1;
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+// probeItems returns items for a conversation, with each id read counted in reads and the array's scans too.
+function probeItems(items: ConversationItem[], reads: ReadCounts): ConversationItem[] {
+  const wrapped = items.map(
+    (entry) =>
+      new Proxy(entry, {
+        get(target, key, receiver) {
+          if (key === "id") {
+            reads.ids += 1;
+          }
+          return Reflect.get(target, key, receiver);
+        },
+      }),
+  );
+  return countScans(wrapped, reads);
+}
+
+test("RenderOnce: a redraw with the same items array derives no keys, results or rows again, and a new array does", () => {
+  const reads: ReadCounts = { ids: 0, scans: 0 };
+  const items = probeItems(
+    [
+      item({ kind: "reply", time: 100n, text: "before the run" }),
+      toolItem("Read", "r1", "a.txt"),
+      resultItem("r1", "alpha"),
+      toolItem("Read", "r2", "b.txt"),
+      resultItem("r2", "beta"),
+      toolItem("Bash", "b1", "make"),
+      resultItem("b1", "built"),
+      item({ kind: "reply", time: 300n, text: "after the run" }),
+    ],
+    reads,
+  );
+  const conv = conversation({ items });
+  const props = { conversation: conv, seenAt: 10_000, open: false, onToggleOpen: () => {} };
+  return withRowRenders(props, async (_container, rerender, counter) => {
+    reads.ids = 0;
+    reads.scans = 0;
+    counter.clear();
+    await rerender({ conversation: conv, seenAt: 10_000, open: false, onToggleOpen: () => {} });
+    assert.equal(reads.ids, 0, "a redraw with the same array reads no item's id");
+    assert.equal(reads.scans, 0, "a redraw with the same array scans the array for no rows, results or new rule");
+    assert.equal(counter.rendersOf("ItemRow").length, 0, "and renders no row");
+
+    await rerender({ conversation: conversation({ items: countScans([...items], reads) }), seenAt: 10_000, open: false });
+    assert.ok(reads.ids > 0, "a new array with the same items derives its keys again");
+    assert.ok(reads.scans > 0, "a new array with the same items derives its rows and results again");
+  });
+});
+
+test("RenderOnce: rendering 100 rows calls no Date.prototype.toLocaleTimeString and constructs no Intl.DateTimeFormat", async (t) => {
+  const base = localTime(9, 30);
+  const items = Array.from({ length: 100 }, (_, n) =>
+    item({ kind: "reply", time: base + BigInt(n), text: `row ${n}` }),
+  );
+  const toLocale = t.mock.method(Date.prototype, "toLocaleTimeString");
+  const RealDateTimeFormat = Intl.DateTimeFormat;
+  let constructed = 0;
+  Intl.DateTimeFormat = new Proxy(RealDateTimeFormat, {
+    construct(target, args, newTarget) {
+      constructed += 1;
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+  try {
+    // every item is read, so no since-you-looked row draws among the 100
+    const readAll = Number(localTime(23, 59));
+    await withReader({ conversation: conversation({ items }), seenAt: readAll, open: false }, (container) => {
+      const gutters = [...container.querySelectorAll(".reader > .t > .gut")].map((gut) => gut.textContent ?? "");
+      assert.equal(gutters.length, 100, "100 rows are drawn");
+      assert.equal(
+        gutters.every((gut) => /^\d\d:\d\d$/.test(gut)),
+        true,
+        "each row's time is drawn as HH:MM",
+      );
+    });
+  } finally {
+    Intl.DateTimeFormat = RealDateTimeFormat;
+  }
+  assert.equal(toLocale.mock.callCount(), 0, "no row formats its time with toLocaleTimeString");
+  assert.equal(constructed, 0, "no row constructs an Intl.DateTimeFormat");
 });

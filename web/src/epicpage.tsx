@@ -3,12 +3,15 @@ import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { AskFirst, NowBlock, nowSentence } from "./blocker";
 import type { LoadArtifact } from "./evidence";
-import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import type { EpicHistoryEntry, EpicSession, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { JustHappened, NextRows, NowRows } from "./happenings";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
 import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
-import { type Blocker, blockerOf, stateOf } from "./status";
+import type { Row } from "./rows";
+import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
+import { type TalkTarget, talkTarget } from "./talk";
+import { listedTitle, TitleParts } from "./titleparts";
 import { TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
 
@@ -38,6 +41,18 @@ export function stateLine(detail: EpicsGetResponse, now: number): string {
   return state !== "" && phaseAt > 0 ? `${state} · ${durationText(Math.max(0, now - phaseAt))}` : state;
 }
 
+// creatorOf is the session that created the epic, the one its epic_create call made. When more than one is marked, it
+// is the one whose newest call is latest. It is undefined when no listed session is the creator.
+function creatorOf(sessions: EpicSession[]): EpicSession | undefined {
+  let creator: EpicSession | undefined;
+  for (const session of sessions) {
+    if (session.creator && (creator === undefined || session.at > creator.at)) {
+      creator = session;
+    }
+  }
+  return creator;
+}
+
 // Landing is the block an opened notice lands the epic page on, by its kind. Each notice makes its own, so the page
 // brings the block into view once for each. The empty kind names no block.
 export interface Landing {
@@ -52,10 +67,12 @@ const landingTargets: Partial<Record<string, string>> = {
   report: ".proof.report",
 };
 
-// EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the now sentence
-// and blocker, the red proof, the implementation (the orrery, Now, Next, Just happened and the workflow), the green
-// proof, the handover when given, the release proof and the report. A section the epic has not reached is dim. The
-// commands are live only while the epic is live and has no outcome. Each phase click reaches onOpenPhase. A landing
+// EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the Conversation
+// line to the session that created the epic, the now sentence and blocker, the red proof, the implementation (the
+// orrery, Now, Next, Just happened and the workflow), the green proof, the handover when given, the release proof and
+// the report. A section the epic has not reached is dim. The commands are the ones controlsOf shows for the epic. Each
+// phase click reaches onOpenPhase. The Conversation line draws the creator's title as Talk's menu does, its listed row's
+// directory and line from rows through TitleParts, and reaches onOpenSession with the creator's target. A landing
 // brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
 // the open question.
 export function EpicPage(props: {
@@ -66,11 +83,13 @@ export function EpicPage(props: {
   commands: EpicCommands;
   numberKeys: boolean;
   onOpenContract: () => void;
+  onOpenSession: (target: TalkTarget) => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   actions?: ComponentChildren;
   handover?: ComponentChildren;
   landing?: Landing;
+  rows?: Row[];
 }): JSX.Element {
   const {
     detail,
@@ -80,17 +99,23 @@ export function EpicPage(props: {
     commands,
     numberKeys,
     onOpenContract,
+    onOpenSession,
     onBack,
     onOpenPhase,
     actions,
     handover,
     landing,
+    rows = [],
   } = props;
-  const { epic, contract, requirements, steps, nodes, releaseSteps, report } = detail;
+  const { epic, contract, requirements, steps, nodes, releaseSteps, report, sessions } = detail;
   const wedges = wedgesOf(detail);
   const blocker = blockerOf(detail);
   const slug = epic?.slug ?? "";
-  const live = epic?.live === true && epic.outcome === "";
+  const controls = controlsOf(detail);
+  const creator = creatorOf(sessions);
+  const creatorTarget = creator === undefined ? undefined : talkTarget(creator);
+  const creatorTitle =
+    creatorTarget === undefined ? undefined : listedTitle(rows, creatorTarget.kind, creatorTarget.id, creatorTarget.label);
   const released = epic !== undefined && epic.outcome.startsWith("released");
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -111,17 +136,17 @@ export function EpicPage(props: {
         blocker={blockerLine(blocker, now)}
       >
         {actions}
-        {live &&
-          (detail.paused ? (
-            <button type="button" class="act" onClick={() => commands.resume()}>
-              Resume
-            </button>
-          ) : (
-            <button type="button" class="act" onClick={() => commands.pause()}>
-              Pause
-            </button>
-          ))}
-        {live && (
+        {controls.resume && (
+          <button type="button" class="act" onClick={() => commands.resume()}>
+            Resume
+          </button>
+        )}
+        {controls.pause && (
+          <button type="button" class="act" onClick={() => commands.pause()}>
+            Pause
+          </button>
+        )}
+        {controls.stop && (
           <AskFirst
             label="Stop…"
             question={`Stop ${slug}?`}
@@ -134,6 +159,12 @@ export function EpicPage(props: {
       {contract !== undefined && (
         <button type="button" class="summary" onClick={() => onOpenContract()}>
           {detail.summary !== "" ? detail.summary : contract.title}
+        </button>
+      )}
+      {creatorTarget !== undefined && creatorTitle !== undefined && (
+        <button type="button" class="summary conversation" onClick={() => onOpenSession(creatorTarget)}>
+          {"Conversation · "}
+          <TitleParts dir={creatorTitle.dir} line={creatorTitle.line} />
         </button>
       )}
       {epic !== undefined && epic.problem !== "" && <p class="problem error">{epic.problem}</p>}

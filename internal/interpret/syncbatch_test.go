@@ -18,7 +18,8 @@ func (w *integrateWorld) laterBy(by time.Duration) {
 }
 
 // TestSyncPastAFailedBatchThatComposedNothingLeavesNoCandidate: a batch whose tasks were all left out composes nothing
-// and fails at the stored base, with no candidate. A sync then moves the stored base past it. The owner's retry of that
+// and fails at the stored base, with no candidate. Its tasks were built on the epic's base, an ancestor of the stored
+// base, and change the files the first batch changed since, so neither composes. A sync then moves the stored base past it. The owner's retry of that
 // failed batch ends it failed again at once, at the old base, and sets no candidate: one would hold the epic behind
 // its stored base, where no sync starts while it stands and the next batch composes on it. So the next turn's batch,
 // built on the sync's merge, composes on the stored base and advances the branch without a park, and a later move of
@@ -34,8 +35,8 @@ func TestSyncPastAFailedBatchThatComposedNothingLeavesNoCandidate(t *testing.T) 
 
 	completeTurn(t, w.s, runPlan("work"))
 	w.pass()
-	w.accept(3, w.base, w.commit(w.base, "t3.go", "three\n"))
-	w.accept(4, w.base, w.commit(w.base, "t4.go", "four\n"))
+	w.accept(3, w.base, w.commit(w.base, "internal/a/x.go", "three\n"))
+	w.accept(4, w.base, w.commit(w.base, "b.go", "four\n"))
 	if !w.passed() {
 		t.Error("the planner got no turn after the batch that composed nothing failed")
 	}
