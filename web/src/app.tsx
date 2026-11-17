@@ -63,6 +63,12 @@ interface EscapeTarget {
   state: string;
 }
 
+// A reply box an opening focuses: the cursor's or the pinned column's box, by the key of the row it holds.
+interface BoxOpen {
+  column: "cursor" | "pinned";
+  key: string;
+}
+
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
 interface Cursor {
   key: string;
@@ -171,10 +177,13 @@ const helpEntries: [string[], string][] = [
   [["n"], "next unseen row, wrapping"],
   [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
   [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
-  [["x", "Enter"], "mark the cursor's row seen"],
+  [["x", "Enter"], "mark the cursor's row seen; Enter also opens the row into its reply box"],
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
   [["i"], "focus the reply box"],
+  [["Shift+Tab"], "from a reply box, back to the list's cursor row, taking nothing back"],
+  [["Page Up", "Page Down"], "in an empty reply box, page the transcript"],
+  [["/"], "in an empty reply box, find in the transcript"],
   [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
@@ -235,6 +244,9 @@ export function App({
   const [pinStream, setPinStream] = useState<Stream | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
   const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The reply box an opening asks to focus: a click or Enter on a row, or | on a row. The layout effect takes it once the
+  // render that draws the box has run.
+  const [boxOpened, setBoxOpened] = useState<BoxOpen | null>(null);
   // The older page of each followed stream. Its reader calls it at the reader's top, to load the page before its oldest
   // item; each follow effect sets its own.
   const cursorOlder = useRef<() => void>(() => {});
@@ -512,6 +524,20 @@ export function App({
     }
     restorePageScroll.current = null;
   }, [epicPage]);
+
+  // An opening focuses the reply box it names, with the caret at the end of its text. The box is drawn by the same render
+  // that moved the cursor or pinned the row, so it is in its ref here.
+  useLayoutEffect(() => {
+    if (boxOpened === null) {
+      return;
+    }
+    const box = (boxOpened.column === "pinned" ? pinnedInputs : composerInputs).current.get(boxOpened.key);
+    if (box !== undefined) {
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }
+    setBoxOpened(null);
+  }, [boxOpened]);
 
   // seenWrite runs one seen write. A failure shows the fixed line and runs no landed; a landed write clears the line
   // and runs landed.
@@ -887,9 +913,9 @@ export function App({
       }
       return;
     }
-    // Keys typed in a text box are text: only Escape leaves it. That covers the reply boxes and the answer box. Escape
-    // in the cursor's or the pinned row's reply box takes its queued messages back, as Escape outside a box does; any
-    // other box is only left.
+    // Keys typed in a text box are text: only Escape leaves it, and in the cursor's or the pinned row's reply box Shift+Tab
+    // also leaves it, for the list. That covers the reply boxes and the answer box. Escape in the cursor's or the pinned
+    // row's reply box takes its queued messages back, as Escape outside a box does; any other box is only left.
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
       if (event.key === "Escape") {
@@ -899,6 +925,11 @@ export function App({
         } else {
           void escapeRow(target, focused);
         }
+      } else if (event.key === "Tab" && event.shiftKey && replyBoxTarget(focused) !== null) {
+        // Shift+Tab takes the focus to the list's cursor row. It takes nothing back and interrupts nothing.
+        event.preventDefault();
+        focused.blur();
+        focusCursorRow();
       }
       return;
     }
@@ -964,6 +995,10 @@ export function App({
       case "Enter":
         if (cursorRow !== null) {
           void writeSeen(cursorRow);
+          // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
+          if (event.key === "Enter") {
+            setBoxOpened({ column: "cursor", key: cursorRow.key });
+          }
         }
         break;
       case "e":
@@ -1004,6 +1039,7 @@ export function App({
         } else if (cursorRow !== null) {
           setPinned(cursorRow);
           setPinStream(null);
+          setBoxOpened({ column: "pinned", key: cursorRow.key });
         }
         break;
       case "m":
@@ -1278,6 +1314,7 @@ export function App({
                     onClick={(event) => {
                       if (!isLinkClick(event)) {
                         selectItem(item);
+                        setBoxOpened({ column: "cursor", key: item.key });
                       }
                     }}
                     onDblClick={(event) => {

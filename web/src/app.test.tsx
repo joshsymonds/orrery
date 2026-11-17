@@ -58,6 +58,8 @@ const commandFailedText = "epic command failed";
 const startSessionPath = "/orrery.v1.Control/Start";
 const pickerAskPath = "/orrery.v1.Picker/Ask";
 const pickerRunPath = "/orrery.v1.Picker/Run";
+const withdrawPath = "/orrery.v1.Control/Withdraw";
+const interruptPath = "/orrery.v1.Control/Interrupt";
 
 type Clients = ReturnType<typeof createClients>;
 
@@ -344,7 +346,7 @@ function fixture(): Row[] {
 // fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
 const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "Shift+Tab", "Page Up", "Page Down", "/", "1", "2", "3", "o", "|", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -408,8 +410,8 @@ async function settle(): Promise<void> {
   await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 }
 
-async function pressIn(element: Element, key: string): Promise<KeyboardEvent> {
-  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+async function pressIn(element: Element, key: string, modifiers: KeyboardEventInit = {}): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
   await act(() => {
     element.dispatchEvent(event);
   });
@@ -1505,6 +1507,7 @@ test("a row's queued messages draw in no other foot: the pin keeps its own, and 
       state: { waiting: [{ text: "pinned waiting", canceled: false }] },
     });
     await until(t.signal, () => pinnedQueueTexts(container).length === 1, "the pinned queue");
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
     await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
@@ -1601,6 +1604,7 @@ test("a message sent from the pinned composer draws as a sending row in the pinn
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [] });
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c", "the cursor moves off the pinned row");
     await typeInto(pinnedComposer(container), "keep going");
@@ -1799,6 +1803,150 @@ test("ArrowUp in a session's composer pulls nothing", (t) =>
     await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.equal(fake.callsTo(pullPath).length, 0, "a session has no queue to pull");
     assert.equal(box.value, "");
+  }));
+
+// focusedTextBox is whether a text box has focus: a reply box or a step's box.
+function focusedTextBox(): boolean {
+  return document.activeElement?.tagName === "TEXTAREA";
+}
+
+// clickRow clicks the list row with the key, as a pointer click on it does, and lets Preact draw what the click changed.
+async function clickRow(container: HTMLElement, key: string): Promise<void> {
+  await act(() => {
+    rowElement(container, key).dispatchEvent(clickEvent());
+  });
+}
+
+test("ComposerFocus: a click on a session row focuses its reply box, and the caret goes to the end of its text", (t) =>
+  withApp(t.signal, { rows: [paneRow, sessionRow] }, async (container) => {
+    await clickRow(container, "s1");
+    const box = composer(container);
+    assert.equal(document.activeElement === box, true, "the session's reply box has focus");
+    await typeInto(box, "half a thought");
+    box.setSelectionRange(0, 0);
+    await pressIn(box, "Tab", { shiftKey: true });
+    assert.equal(focusedTextBox(), false, "Shift+Tab left the box");
+    await clickRow(container, "s1");
+    assert.equal(document.activeElement === box, true, "the click focuses the box again");
+    assert.equal(box.selectionStart, box.value.length, "the caret is at the end of the draft");
+  }));
+
+test("ComposerFocus: Enter on the cursor's pane row focuses its reply box, with the caret at its end, and still marks the row seen", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await typeInto(composer(container), "half a thought");
+    composer(container).setSelectionRange(0, 0);
+    await press("j");
+    await press("k");
+    assert.equal(cursorKey(container), "a");
+    await press("Enter");
+    const box = composer(container);
+    assert.equal(document.activeElement === box, true, "Enter focuses the cursor's reply box");
+    assert.equal(box.selectionStart, box.value.length, "the caret is at the end of the draft");
+    await untilTurn(t.signal, () => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+  }));
+
+test("ComposerFocus: a click or Enter on an epic line or a step focuses no reply box", (t) =>
+  withApp(t.signal, { epics: oneEpic() }, async (container) => {
+    await clickRow(container, `epic:${widgetsRepo}/first`);
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    assert.equal(focusedTextBox(), false, "the epic line focuses no box");
+    await press("Enter");
+    assert.equal(focusedTextBox(), false, "Enter on the epic line focuses no box");
+    await clickRow(container, "step:s1");
+    assert.equal(cursorKey(container), "step:s1");
+    assert.equal(focusedTextBox(), false, "the step focuses no box");
+    await press("Enter");
+    assert.equal(focusedTextBox(), false, "Enter on the step focuses no box");
+  }));
+
+test("ComposerFocus: j, k, G, gg, n, w and e move the cursor and focus no reply box", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    const moves: [string[], string][] = [
+      [["j"], "c"],
+      [["k"], "a"],
+      [["G"], "d"],
+      [["g", "g"], "a"],
+      [["n"], "c"],
+      [["w"], "a"],
+      [["e"], "c"],
+    ];
+    for (const [keys, target] of moves) {
+      await pressEach(keys);
+      assert.equal(cursorKey(container), target, `${keys.join("")} moves the cursor to ${target}`);
+      assert.equal(focusedTextBox(), false, `${keys.join("")} focuses no reply box`);
+    }
+  }));
+
+test("ComposerFocus: Escape in the focused reply box of an idle session leaves the box, and interrupts nothing", (t) =>
+  withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
+    await clickRow(container, "s1");
+    const box = composer(container);
+    assert.equal(document.activeElement === box, true, "the reply box has focus");
+    await pressIn(box, "Escape");
+    await untilTurn(t.signal, () => document.activeElement !== box, "the blur after the withdraw");
+    assert.equal(fake.callsTo(withdrawPath).length, 1, "the held messages were still asked for");
+    assert.equal(fake.callsTo(interruptPath).length, 0, "an idle session is not interrupted");
+  }));
+
+test("ComposerFocus: Shift+Tab in the reply box of a working session leaves it for the cursor's row, takes nothing back and interrupts nothing", (t) =>
+  withApp(t.signal, { rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await clickRow(container, "s1");
+    const box = composer(container);
+    assert.equal(document.activeElement === box, true, "the reply box has focus");
+    const event = await pressIn(box, "Tab", { shiftKey: true });
+    assert.equal(event.defaultPrevented, true, "Shift+Tab is prevented");
+    assert.equal(document.activeElement === box, false, "the box lost focus");
+    assert.equal(document.activeElement, rowElement(container, "s1"), "the cursor's row has focus");
+    await letTurnsRun();
+    assert.equal(fake.callsTo(withdrawPath).length, 0, "nothing is taken back");
+    assert.equal(fake.callsTo(interruptPath).length, 0, "nothing is interrupted");
+    await press("k");
+    assert.equal(cursorKey(container), "a", "the list's keys work again on the working row");
+  }));
+
+test("ComposerFocus: | focuses the pinned row's reply box, and Shift+Tab leaves it for the cursor's row with no pull or key", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "b");
+    await press("|");
+    assert.equal(document.activeElement === pinnedComposer(container), true, "the pinned reply box has focus");
+    const event = await pressIn(pinnedComposer(container), "Tab", { shiftKey: true });
+    assert.equal(event.defaultPrevented, true, "Shift+Tab is prevented");
+    assert.equal(document.activeElement, rowElement(container, "b"), "the cursor's row has focus");
+    await letTurnsRun();
+    assert.equal(fake.callsTo(pullPath).length, 0, "nothing is pulled back");
+    assert.equal(fake.callsTo(sendKeysPath).length, 0, "no Escape key is sent");
+    await press("k");
+    assert.equal(cursorKey(container), "c", "the list's keys work again");
+  }));
+
+test("ComposerFocus: closing the pin with | focuses no reply box", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    await press("|");
+    assert.equal(document.activeElement === pinnedComposer(container), true, "the pinned reply box has focus");
+    await pressIn(pinnedComposer(container), "Tab", { shiftKey: true });
+    await press("|");
+    assert.equal(pinnedColumn(container), null, "the pin is closed");
+    assert.equal(focusedTextBox(), false, "closing the pin focuses no box");
+  }));
+
+test("ComposerFocus: the keys help says Enter opens the row into its reply box, and names Shift+Tab, Page Up, Page Down and /", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    await press("?");
+    const help = container.querySelector('[aria-label="keys"]');
+    assert.ok(help, "help panel is open");
+    const described = (key: string) =>
+      [...help.querySelectorAll(".key")]
+        .filter((entry) => [...entry.querySelectorAll("dt kbd")].some((cap) => cap.textContent === key))
+        .map((entry) => entry.querySelector("dd")?.textContent ?? "")
+        .join(" | ");
+    assert.match(described("Enter"), /opens the row into its reply box/);
+    assert.match(described("Shift+Tab"), /back to the list/);
+    assert.match(described("Page Up"), /in an empty reply box, page the transcript/);
+    assert.match(described("Page Down"), /in an empty reply box, page the transcript/);
+    assert.match(described("/"), /in an empty reply box, find in the transcript/);
   }));
 
 test("Enter on the list writes Panes.MarkSeen for the cursor's pane row", (t) =>
@@ -2260,6 +2408,7 @@ test("the pinned title row names the pinned row while the cursor rests on anothe
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
     assert.deepEqual(crumbTexts(pinnedHead(container)), ["orrery", "api"]);
@@ -2298,6 +2447,7 @@ test("the pinned column draws the pill of its own stream and no note while the c
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
     await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
@@ -2367,6 +2517,7 @@ test("the pinned composer follows its own stream's pane while the cursor rests o
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
     await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
@@ -2396,6 +2547,7 @@ test("| pins the cursor's row in a second column that streams it while the curso
     });
     await until(t.signal, () => pinnedColumn(container)?.textContent?.includes("pinned reply") === true, "the pinned reply");
 
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
     await until(t.signal, () => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
@@ -2409,6 +2561,7 @@ test("the pinned column's draft survives the cursor's moves, and Enter sends it 
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await typeInto(pinnedComposer(container), "keep going");
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), "c");
     assert.equal(pinnedComposer(container).value, "keep going", "the draft survives the cursor's move");
@@ -2427,6 +2580,7 @@ test("| again removes the pinned column and aborts its stream, and the cursor's 
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
+    await press("Tab", { shiftKey: true });
     await press("|");
     assert.equal(pinnedColumn(container) === null, true, "the pinned column is removed");
     assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted");
@@ -3761,6 +3915,7 @@ test("a pin splits the panes around a step's reader, and the epic page stays hid
     await press("g");
     await press("g");
     await press("|");
+    await press("Tab", { shiftKey: true });
     await onStepOne(t.signal, container, fake);
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), true, "row a is pinned");
     assert.equal(readerHidden(container), false, "the step's reader shows");
@@ -3823,6 +3978,7 @@ test("with a row pinned, the epic page follows the cursor from one epic to anoth
   return withApp(t.signal, { epics }, async (container) => {
     await press("|");
     assert.ok(pinnedColumn(container), "row a is pinned");
+    await press("Tab", { shiftKey: true });
     await press("j");
     assert.equal(cursorKey(container), epicKey(first));
     assert.equal(pageSlug(container), "first");
