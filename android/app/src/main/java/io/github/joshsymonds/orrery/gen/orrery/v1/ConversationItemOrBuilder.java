@@ -231,4 +231,26 @@ public interface ConversationItemOrBuilder extends
    */
   com.google.protobuf.ByteString
       getPromptIdBytes();
+
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   * @return The epic.
+   */
+  java.lang.String getEpic();
+  /**
+   * <pre>
+   * The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+   * not an epic_create call or its contract names no id.
+   * </pre>
+   *
+   * <code>string epic = 14 [json_name = "epic"];</code>
+   * @return The bytes for epic.
+   */
+  com.google.protobuf.ByteString
+      getEpicBytes();
 }

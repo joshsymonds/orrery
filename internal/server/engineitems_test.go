@@ -1,13 +1,70 @@
 package server
 
 import (
+	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/conversation"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 )
+
+// TestSessionItemEpicWidgetNamesTheCreatedEpic checks that a tool item of an epic_create call names the epic it
+// creates, from the call's full input, and that another tool call names none.
+func TestSessionItemEpicWidgetNamesTheCreatedEpic(t *testing.T) {
+	t.Parallel()
+	// The contract id comes after more than 200 runes of compact input, so the display text clips it away.
+	longInput := `{"contract":{"title":"` + strings.Repeat("t", 250) + `","id":"demo-0a1b2c3/epic-long"}}`
+	tests := []struct {
+		name  string
+		tool  string
+		input string
+		want  string
+	}{
+		{
+			name:  "mcp epic_create names its contract id",
+			tool:  "mcp__orrery__epic_create",
+			input: `{"contract":{"id":"demo-0a1b2c3/epic-login"}}`,
+			want:  "demo-0a1b2c3/epic-login",
+		},
+		{
+			name:  "mcp epic_create names a contract id past the input clip",
+			tool:  "mcp__orrery__epic_create",
+			input: longInput,
+			want:  "demo-0a1b2c3/epic-long",
+		},
+		{
+			name:  "another tool call with a contract in its input names no epic",
+			tool:  "Bash",
+			input: `{"contract":{"id":"demo-0a1b2c3/epic-login"}}`,
+			want:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			payload, err := json.Marshal(map[string]string{
+				"kind": "tool_call", "role": "assistant", "toolUseId": "toolu_1", "name": tt.tool, "input": tt.input,
+			})
+			if err != nil {
+				t.Fatalf("marshal block: %v", err)
+			}
+			got, ok, err := sessionItem(store.EngineEvent{
+				Seq: 1, Kind: store.EventEngineBlock, At: 200, Payload: string(payload),
+			})
+			if err != nil || !ok {
+				t.Fatalf("sessionItem ok = %v, err = %v, want a tool item", ok, err)
+			}
+			if got.GetKind() != "tool" || got.GetEpic() != tt.want {
+				t.Fatalf("item kind %q epic %q, want kind %q epic %q", got.GetKind(), got.GetEpic(), "tool", tt.want)
+			}
+		})
+	}
+}
 
 func TestSessionItem(t *testing.T) {
 	t.Parallel()
@@ -267,4 +324,27 @@ func TestSessionRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConversationItemsEpicWidgetCopiesTheEpic checks that a pane transcript's item carries its epic to the wire,
+// and that an item with no epic keeps it empty.
+func TestConversationItemsEpicWidgetCopiesTheEpic(t *testing.T) {
+	t.Parallel()
+	items := conversationItems([]conversation.Item{
+		{Kind: "tool", Tool: "mcp__orrery__epic_create", Epic: "demo-0a1b2c3/epic-login"},
+		{Kind: "tool", Tool: "Bash"},
+	})
+	want := []string{"demo-0a1b2c3/epic-login", ""}
+	if got := epicsOf(items); !slices.Equal(got, want) {
+		t.Fatalf("epics = %q, want %q", got, want)
+	}
+}
+
+// epicsOf returns the epic of each item, in order.
+func epicsOf(items []*orreryv1.ConversationItem) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.GetEpic())
+	}
+	return out
 }

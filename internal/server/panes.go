@@ -246,6 +246,7 @@ func conversationItems(items []conversation.Item) []*v1.ConversationItem {
 			Notice:  item.Notice,
 			Trigger: item.Trigger,
 			Tokens:  item.Tokens,
+			Epic:    item.Epic,
 		})
 	}
 	return out

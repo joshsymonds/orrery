@@ -848,6 +848,10 @@ message ConversationItem {
   // The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
   // not a headless prompt.
   string prompt_id = 13;
+
+  // The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+  // not an epic_create call or its contract names no id.
+  string epic = 14;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured

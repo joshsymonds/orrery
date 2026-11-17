@@ -59,6 +59,9 @@ const (
 // askUserQuestionTool is the tool whose tool_use items are questions.
 const askUserQuestionTool = "AskUserQuestion"
 
+// epicCreateTool is the epic tool that creates an epic. An MCP server names it mcp__<server>__epic_create.
+const epicCreateTool = "epic_create"
+
 const (
 	// maxTextBytes caps the text of one item.
 	maxTextBytes = 4096
@@ -97,7 +100,7 @@ type Context struct {
 
 // Item is one reply, tool call, question, prompt, tool result, notice or compaction of a transcript. A compaction
 // takes its trigger and tokens from the compact_boundary line before it, and both stay empty when that line is
-// not read.
+// not read. A tool call that creates an epic takes the epic's id from its full input (see CreatedEpic).
 type Item struct {
 	Kind    string `json:"kind"`
 	Time    int64  `json:"time"`
@@ -109,6 +112,7 @@ type Item struct {
 	Notice  string `json:"notice"`
 	Trigger string `json:"trigger"`
 	Tokens  int64  `json:"tokens"`
+	Epic    string `json:"epic"`
 }
 
 // transcriptLine holds the fields of one transcript line that the reader uses.
@@ -285,7 +289,48 @@ func toolItem(block contentBlock, ts int64) Item {
 		text := cutText(questionText(block["input"]), maxTextBytes)
 		return Item{Kind: kindQuestion, Time: ts, Text: text, Tool: name, ID: id}
 	}
-	return Item{Kind: kindTool, Time: ts, Tool: name, Input: protocol.ToolInputText(block["input"]), ID: id}
+	return Item{
+		Kind:  kindTool,
+		Time:  ts,
+		Tool:  name,
+		Input: protocol.ToolInputText(block["input"]),
+		ID:    id,
+		Epic:  CreatedEpic(name, block["input"]),
+	}
+}
+
+// CreatedEpic returns the id of the epic a tool call creates: the contract id in the call's full input when the
+// call is an epic_create call, named epic_create or mcp__<server>__epic_create. It returns "" for any other call,
+// and for an input that does not decode or names no contract id. input is the whole input, not its display text.
+func CreatedEpic(name string, input json.RawMessage) string {
+	if !isEpicCreate(name) {
+		return ""
+	}
+	var call epicCreateInput
+	if json.Unmarshal(input, &call) != nil {
+		return ""
+	}
+	return call.Contract.ID
+}
+
+// epicCreateInput holds the contract of an epic_create input, whose id names the epic.
+type epicCreateInput struct {
+	Contract struct {
+		ID string `json:"id"`
+	} `json:"contract"`
+}
+
+// isEpicCreate reports whether a tool name is the epic_create tool, bare or behind an MCP server.
+func isEpicCreate(name string) bool {
+	if name == epicCreateTool {
+		return true
+	}
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return false
+	}
+	server, ok := strings.CutSuffix(rest, "__"+epicCreateTool)
+	return ok && server != ""
 }
 
 // questionText returns the questions of an AskUserQuestion input, joined with newlines.
