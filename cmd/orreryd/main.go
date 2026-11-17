@@ -29,6 +29,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/alerts"
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/donejudge"
@@ -186,6 +187,12 @@ type options struct {
 	flowTicks string
 	flight    *telemetry.Flight // the flight recorder run starts, nil when it could not start
 	started   time.Time         // when run began, the start of the start phase
+	// stepEventTicks is a test seam: when set, the step caller-event pass passes at each value it delivers in place of
+	// every five seconds, and production leaves it nil.
+	stepEventTicks <-chan time.Time
+	// epicEventTicks is a test seam: when set, the epic caller-event pass passes at each value it delivers in place of
+	// every five seconds, and production leaves it nil.
+	epicEventTicks <-chan time.Time
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -797,6 +804,10 @@ type sessionHost struct {
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
+	// stopCallerEvents cancels the caller-event passes, each of which closes its done channel when it returns.
+	stopCallerEvents context.CancelFunc
+	stepEventsDone   chan struct{}
+	epicEventsDone   chan struct{}
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -828,9 +839,10 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
 // passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
 // limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
-// until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure
-// is logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
-// want of pools. The Notices service on it answers from notices, and refuses as
+// until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's caller when the
+// step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents). A readopt,
+// reconcile, restore or resume failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
+// unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
 // unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic records its
 // session in st.
 func startSessions(
@@ -910,6 +922,7 @@ func startSessions(
 		epics = st
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
+		host.startCallerEvents(ctx, st, opts, logger)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
@@ -1303,6 +1316,39 @@ func (h *sessionHost) startLimits(
 	}()
 }
 
+// startCallerEvents runs the step caller-event pass and the epic caller-event pass over st until shutdown, each every
+// five seconds, or at each value of opts.stepEventTicks and opts.epicEventTicks when those are not nil. Both send
+// through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane caller gets it
+// through cli.WakePane, and a step caller is only marked. Neither depends on a router, since a caller event goes to its
+// caller alone.
+func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, opts options, logger *slog.Logger) {
+	sender := enginehost.NewCallerSender(enginehost.CallerSenderConfig{
+		Deliver:  h.manager.Deliver,
+		WakePane: cli.WakePane,
+		Store:    st,
+		Now:      time.Now,
+		Logger:   logger,
+	})
+	steps := enginehost.NewStepCallerEvents(enginehost.StepCallerEventsConfig{
+		Store: st, Sender: sender, Ticks: opts.stepEventTicks, Logger: logger,
+	})
+	epics := planner.NewEpicCallerEvents(planner.EpicCallerEventsConfig{
+		Store: st, Sender: sender, Ticks: opts.epicEventTicks, Logger: logger,
+	})
+	var eventsCtx context.Context
+	eventsCtx, h.stopCallerEvents = context.WithCancel(ctx)
+	h.stepEventsDone = make(chan struct{})
+	h.epicEventsDone = make(chan struct{})
+	go func() {
+		defer close(h.stepEventsDone)
+		steps.Run(eventsCtx)
+	}()
+	go func() {
+		defer close(h.epicEventsDone)
+		epics.Run(eventsCtx)
+	}()
+}
+
 // startIdle runs the manager's stop of idle sessions until stop.
 func (h *sessionHost) startIdle(ctx context.Context) {
 	var idleCtx context.Context
@@ -1423,9 +1469,10 @@ func (h *sessionHost) startReports(
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries, the session titles and the epic reports to return, closes the node checks and the evidence runner and
-// waits for their drives, ends every step loop, stops every live session, and ends the writer after its last flush. The
-// notices the sessions started are waited on in serve. Without a broker, manager and writer it does nothing.
+// summaries, the session titles and the epic reports to return, stops the caller-event passes and waits for each to
+// return, closes the node checks and the evidence runner and waits for their drives, ends every step loop, stops every
+// live session, and ends the writer after its last flush. The notices the sessions started are waited on in serve.
+// Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -1462,6 +1509,11 @@ func (h *sessionHost) shutdown() {
 			h.stopReports()
 			<-h.reportsDone
 		})
+		h.phase("step caller events", func() {
+			h.stopCallerEvents()
+			<-h.stepEventsDone
+		})
+		h.phase("epic caller events", func() { <-h.epicEventsDone })
 		h.phase("steps", h.steps.Close)
 		h.phase("sessions", h.manager.Close)
 	}
