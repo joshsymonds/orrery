@@ -20,12 +20,14 @@ type Line struct {
 }
 
 // Started reports that a session initialized: the session id claude assigned, the permission mode the
-// session runs in, and the agent names claude loaded, in the order its init line gives them. Agents is
-// nil when the init line has no agents field.
+// session runs in, the agent names claude loaded, in the order its init line gives them, and the tool names
+// its init line lists, in the same order. Agents is nil when the init line has no agents field, and Tools is
+// nil when it has no tools field.
 type Started struct {
 	SessionID      string
 	PermissionMode string
 	Agents         []string
+	Tools          []string
 }
 
 func (Started) isEvent() {}

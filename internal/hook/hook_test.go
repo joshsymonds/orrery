@@ -399,37 +399,48 @@ func TestReportReadFailure(t *testing.T) {
 const testInput int64 = 1_700_000_002_000
 
 func TestReportInputFrame(t *testing.T) {
-	path, ln := listen(t)
-
-	got := make(chan received, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			got <- received{err: err}
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		frame, err := protocol.ReadFrame(conn)
-		got <- received{frame: frame, err: err}
-	}()
-
-	if err := ReportInput(path, testInput); err != nil {
-		t.Fatalf("ReportInput: %v", err)
+	cases := []struct {
+		name string
+		view protocol.ViewKey
+	}{
+		{"no viewing key", protocol.ViewKey{}},
+		{"viewing a session", protocol.ViewKey{Session: "synthetic-session"}},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path, ln := listen(t)
 
-	result := <-got
-	if result.err != nil {
-		t.Fatalf("read frame: %v", result.err)
-	}
-	want := protocol.HookFrame{Input: testInput}
-	if !reflect.DeepEqual(result.frame, want) {
-		t.Errorf("frame = %+v, want %+v", result.frame, want)
+			got := make(chan received, 1)
+			go func() {
+				conn, err := ln.Accept()
+				if err != nil {
+					got <- received{err: err}
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				frame, err := protocol.ReadFrame(conn)
+				got <- received{frame: frame, err: err}
+			}()
+
+			if err := ReportInput(path, testInput, tc.view); err != nil {
+				t.Fatalf("ReportInput: %v", err)
+			}
+
+			result := <-got
+			if result.err != nil {
+				t.Fatalf("read frame: %v", result.err)
+			}
+			want := protocol.HookFrame{Input: testInput, View: tc.view}
+			if !reflect.DeepEqual(result.frame, want) {
+				t.Errorf("frame = %+v, want %+v", result.frame, want)
+			}
+		})
 	}
 }
 
 func TestReportInputNoSocketFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent.sock")
-	if err := ReportInput(path, testInput); err != nil {
+	if err := ReportInput(path, testInput, protocol.ViewKey{}); err != nil {
 		t.Fatalf("ReportInput with no socket file: %v, want nil", err)
 	}
 }
@@ -449,13 +460,13 @@ func TestReportInputStaleSocket(t *testing.T) {
 		t.Fatalf("stale socket file missing: %v", err)
 	}
 
-	if err := ReportInput(path, testInput); err != nil {
+	if err := ReportInput(path, testInput, protocol.ViewKey{}); err != nil {
 		t.Fatalf("ReportInput with stale socket: %v, want nil", err)
 	}
 }
 
 func TestReportInputEmptySocketPath(t *testing.T) {
-	if err := ReportInput("", testInput); err != nil {
+	if err := ReportInput("", testInput, protocol.ViewKey{}); err != nil {
 		t.Fatalf("ReportInput with empty socket path: %v, want nil", err)
 	}
 }
@@ -469,7 +480,7 @@ func TestReportInputFailure(t *testing.T) {
 	}
 	path := filepath.Join(blocker, "h.sock")
 
-	if err := ReportInput(path, testInput); err == nil {
+	if err := ReportInput(path, testInput, protocol.ViewKey{}); err == nil {
 		t.Fatal("ReportInput with an unreachable socket path returned nil, want an error")
 	}
 }

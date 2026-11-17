@@ -139,8 +139,9 @@ type Config struct {
 // background task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is
 // set when a check stops the session for being idle. step is set for a step session, which sends no notice and frees a
 // step slot rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is
-// set from a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. draining is set for a
-// session re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set
+// set from a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. schema is set for a
+// step that runs with a schema, whose init event must list StructuredOutput (see observe). draining is set for a session
+// re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set
 // once no turn, request or background task runs and it owes no answer, and retired is set once it has. stopped is closed
 // once the stop of a retired session returns, which is once its holder has ended and its directory is removed. sending
 // counts the sends of a prompt that claim, claimStep or markSending began and send has not ended, so a draining session
@@ -154,6 +155,7 @@ type liveSession struct {
 	cancel       context.CancelFunc
 	step         bool
 	agent        string
+	schema       bool
 	observer     StepObserver
 	exited       bool
 	turning      bool
@@ -912,7 +914,7 @@ func (m *Manager) register(
 ) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
-		step: sp.step, agent: sp.agent, observer: sp.observer, requests: map[string]struct{}{}}
+		step: sp.step, agent: sp.agent, schema: sp.schema != "", observer: sp.observer, requests: map[string]struct{}{}}
 	reply := ""
 	if re != nil {
 		var err error
@@ -1565,10 +1567,15 @@ func (m *Manager) answerStepRequest(ctx context.Context, live *liveSession, requ
 	}
 }
 
+// structuredOutputTool is the tool claude returns a --json-schema result through. A step with a schema whose init event
+// does not list it cannot return a value.
+const structuredOutputTool = "StructuredOutput"
+
 // observe gives the observer of the step live the event the pump has just recorded: the event itself, then the turn end
 // of a hand-off, or an exit with its failure reason, or stepExitedReason for a clean exit, since a step ends either way.
 // A step whose init event does not run its agent ends with an exit reason naming the agent, and its observer stops it.
-// A session without an observer gets nothing.
+// A step with a schema whose init event lists no StructuredOutput tool ends the same way, before any turn end, since
+// its agent cannot return the schema's value. A session without an observer gets nothing.
 func observe(live *liveSession, event session.Event, handed bool) {
 	if live.observer == nil {
 		return
@@ -1576,8 +1583,13 @@ func observe(live *liveSession, event session.Event, handed bool) {
 	live.observer.Event(event)
 	switch ev := event.(type) {
 	case session.Started:
-		if live.step && !initNamesAgent(ev.Agents, live.agent) {
+		switch {
+		case live.step && !initNamesAgent(ev.Agents, live.agent):
 			live.observer.Exited(fmt.Sprintf("claude's init event does not run the step's agent %q", live.agent))
+		case live.step && live.schema && !slices.Contains(ev.Tools, structuredOutputTool):
+			live.observer.Exited(fmt.Sprintf(
+				"claude's init event gives the step's agent %q no %s tool", live.agent, structuredOutputTool,
+			))
 		}
 	case session.TurnEnded:
 		if handed {

@@ -5274,11 +5274,19 @@ func (*PoolsFreeResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{79}
 }
 
-// PresenceReportRequest reports how long ago the page's newest input was.
+// PresenceReportRequest reports how long ago the page's newest input was, and what the page views when it reports.
 type PresenceReportRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The milliseconds since the page's newest input, by the page's own clock.
-	InputAgeMs    int64 `protobuf:"varint,1,opt,name=input_age_ms,json=inputAgeMs,proto3" json:"input_age_ms,omitempty"`
+	InputAgeMs int64 `protobuf:"varint,1,opt,name=input_age_ms,json=inputAgeMs,proto3" json:"input_age_ms,omitempty"`
+	// The pane, session or epic the page views, as a notice is keyed. Unset when the page views none of them.
+	//
+	// Types that are valid to be assigned to Viewing:
+	//
+	//	*PresenceReportRequest_ViewingPane
+	//	*PresenceReportRequest_ViewingSession
+	//	*PresenceReportRequest_ViewingEpic
+	Viewing       isPresenceReportRequest_Viewing `protobuf_oneof:"viewing"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5319,6 +5327,62 @@ func (x *PresenceReportRequest) GetInputAgeMs() int64 {
 	}
 	return 0
 }
+
+func (x *PresenceReportRequest) GetViewing() isPresenceReportRequest_Viewing {
+	if x != nil {
+		return x.Viewing
+	}
+	return nil
+}
+
+func (x *PresenceReportRequest) GetViewingPane() string {
+	if x != nil {
+		if x, ok := x.Viewing.(*PresenceReportRequest_ViewingPane); ok {
+			return x.ViewingPane
+		}
+	}
+	return ""
+}
+
+func (x *PresenceReportRequest) GetViewingSession() string {
+	if x != nil {
+		if x, ok := x.Viewing.(*PresenceReportRequest_ViewingSession); ok {
+			return x.ViewingSession
+		}
+	}
+	return ""
+}
+
+func (x *PresenceReportRequest) GetViewingEpic() string {
+	if x != nil {
+		if x, ok := x.Viewing.(*PresenceReportRequest_ViewingEpic); ok {
+			return x.ViewingEpic
+		}
+	}
+	return ""
+}
+
+type isPresenceReportRequest_Viewing interface {
+	isPresenceReportRequest_Viewing()
+}
+
+type PresenceReportRequest_ViewingPane struct {
+	ViewingPane string `protobuf:"bytes,2,opt,name=viewing_pane,json=viewingPane,proto3,oneof"`
+}
+
+type PresenceReportRequest_ViewingSession struct {
+	ViewingSession string `protobuf:"bytes,3,opt,name=viewing_session,json=viewingSession,proto3,oneof"`
+}
+
+type PresenceReportRequest_ViewingEpic struct {
+	ViewingEpic string `protobuf:"bytes,4,opt,name=viewing_epic,json=viewingEpic,proto3,oneof"`
+}
+
+func (*PresenceReportRequest_ViewingPane) isPresenceReportRequest_Viewing() {}
+
+func (*PresenceReportRequest_ViewingSession) isPresenceReportRequest_Viewing() {}
+
+func (*PresenceReportRequest_ViewingEpic) isPresenceReportRequest_Viewing() {}
 
 // PresenceReportResponse is the reply to a Report. It has no fields.
 type PresenceReportResponse struct {
@@ -5743,10 +5807,14 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x11PoolsHoldResponse\"*\n" +
 	"\x10PoolsFreeRequest\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\tR\x06member\"\x13\n" +
-	"\x11PoolsFreeResponse\"9\n" +
+	"\x11PoolsFreeResponse\"\xb9\x01\n" +
 	"\x15PresenceReportRequest\x12 \n" +
 	"\finput_age_ms\x18\x01 \x01(\x03R\n" +
-	"inputAgeMs\"\x18\n" +
+	"inputAgeMs\x12#\n" +
+	"\fviewing_pane\x18\x02 \x01(\tH\x00R\vviewingPane\x12)\n" +
+	"\x0fviewing_session\x18\x03 \x01(\tH\x00R\x0eviewingSession\x12#\n" +
+	"\fviewing_epic\x18\x04 \x01(\tH\x00R\vviewingEpicB\t\n" +
+	"\aviewing\"\x18\n" +
 	"\x16PresenceReportResponse2\x86\x02\n" +
 	"\bSessions\x127\n" +
 	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponse\x12O\n" +
@@ -6009,6 +6077,11 @@ func file_orrery_v1_orrery_proto_init() {
 	file_orrery_v1_orrery_proto_msgTypes[51].OneofWrappers = []any{}
 	file_orrery_v1_orrery_proto_msgTypes[53].OneofWrappers = []any{}
 	file_orrery_v1_orrery_proto_msgTypes[59].OneofWrappers = []any{}
+	file_orrery_v1_orrery_proto_msgTypes[80].OneofWrappers = []any{
+		(*PresenceReportRequest_ViewingPane)(nil),
+		(*PresenceReportRequest_ViewingSession)(nil),
+		(*PresenceReportRequest_ViewingEpic)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

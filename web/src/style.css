@@ -62,7 +62,7 @@ button, input, textarea, select { font-family: var(--mono); }
 /* The list and its columns stack on a phone, between the phone's side gutters. From 760px they sit abreast in the frame
    below. A hidden column takes no place, so the epic page takes the reader's track when the reader is hidden. */
 .panes {
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start;
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 .list, .read, section.page { min-width: 0; }
@@ -72,6 +72,33 @@ button, input, textarea, select { font-family: var(--mono); }
 .side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }
 .reply { min-width: 0; }
 .pin-reply { min-width: 0; }
+/* The in-app notice stack sits at the top right of .panes, the reading area, over the list and the reader. Each row is
+   one line: its title and body are cut with an ellipsis, and its × stays at the row's end. */
+.notices {
+  position: absolute; top: 12px; right: 12px; z-index: 20; width: min(440px, calc(100% - 24px));
+  display: flex; flex-direction: column; gap: 4px;
+}
+.notices .notice-row {
+  display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap;
+  background: var(--mantle); border: 1px solid var(--surface0); border-radius: 6px; padding: 0 4px 0 10px;
+  font: 12.5px/26px var(--mono);
+}
+.notices .notice {
+  flex: 1 1 auto; display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  margin: 0; padding: 0; border: 0; background: none; color: var(--subtext0); text-align: left; cursor: pointer;
+  font: inherit;
+}
+.notices .notice-title { color: var(--text); font-weight: 700; }
+.notices .notice-separator { color: var(--overlay0); }
+.notices .notice-body { color: var(--subtext0); }
+.notices .notice-dismiss {
+  flex: none; width: 22px; height: 22px; margin: 0; padding: 0; border: 0; border-radius: 4px; background: none;
+  color: var(--overlay1); cursor: pointer; font: 400 14px/22px var(--mono);
+}
+.notices .notice-dismiss:hover { color: var(--text); background: var(--surface0); }
+.notices .notices-more {
+  margin: 0; padding: 0 10px; text-align: right; color: var(--overlay1); font: 11.5px/20px var(--mono);
+}
 @media (min-width: 760px) {
   /* The page is the window and does not scroll as a whole. The list's rows, the conversation's scroll box (.read > .reader,
      which the pinned reader shares) and the epic page each scroll on their own. The rows keep room for the current-row

@@ -31,6 +31,7 @@ import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
+import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
@@ -167,6 +168,7 @@ export function App({
   epics = noEpics,
   notices = [],
   host = null,
+  onViewing,
 }: {
   rows: Row[];
   error: string;
@@ -177,6 +179,7 @@ export function App({
   epics?: EpicsView;
   notices?: InAppNotice[];
   host?: HostStatusResponse | null;
+  onViewing?: (viewing: Viewing) => void;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -419,6 +422,12 @@ export function App({
     setEpicPage(openEpicPage);
   }, [cursorKey]);
 
+  // onViewing reports the viewing key of the cursor's entry each time that entry's kind or id changes, so the page's
+  // presence reports name what it shows.
+  useEffect(() => {
+    onViewing?.(viewingOf(cursorItem));
+  }, [cursorItem?.kind, cursorItem?.id]);
+
   // Showing another epic closes the dock. A row or step shows no epic, so the dock is kept across it.
   useLayoutEffect(() => {
     if (epicId !== "") {
@@ -609,11 +618,16 @@ export function App({
     setCursor({ key: `epic:${id}`, index: shownIndex });
   };
 
+  // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
+  const markNoticeSeen = (notice: InAppNotice) => {
+    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+  };
+
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
   // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
   const openNotice = (notice: InAppNotice) => {
-    void clients.notices.seen({ key: notice.key }).catch(() => undefined);
+    markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
       if (listsEpic(kept, epic)) {
@@ -862,8 +876,8 @@ export function App({
 
   return (
     <main class="app">
-      {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} />}
       <div class={pinned !== null ? "panes split" : "panes"}>
+        {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
         <div class="list">
           <header class="top">
             <div class="brand">

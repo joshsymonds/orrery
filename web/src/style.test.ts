@@ -1058,3 +1058,26 @@ test("a meter bar is a 2px fill: lavender, peach at level-warn and red at level-
   assert.match(declarationsFor(css, ".bar.level-warn"), /(?<![-\w])background:\s*var\(--peach\);/);
   assert.match(declarationsFor(css, ".bar.level-crit"), /(?<![-\w])background:\s*var\(--red\);/);
 });
+
+test("the notice stack is absolute, offset from the top and right of its containing block", () => {
+  const stack = declarationsFor(css, ".notices");
+  assert.match(stack, /(?<![-\w])position:\s*absolute;/);
+  assert.match(stack, /(?<![-\w])top:\s*\d+px;/);
+  assert.match(stack, /(?<![-\w])right:\s*\d+px;/);
+});
+
+test(".panes is position relative, so it is the notice stack's containing block", () => {
+  assert.match(declarationsFor(css, ".panes"), /(?<![-\w])position:\s*relative;/);
+});
+
+test("each notice row is one line: nowrap, and its title and body are cut with an ellipsis", () => {
+  assert.match(declarationsFor(css, ".notices .notice-row"), /white-space:\s*nowrap;/);
+  const open = declarationsFor(css, ".notices .notice");
+  assert.match(open, /overflow:\s*hidden;/);
+  assert.match(open, /white-space:\s*nowrap;/);
+  assert.match(open, /text-overflow:\s*ellipsis;/);
+});
+
+test("the stack's rules are scoped to .notices, so the reader's own .notice keeps its rules", () => {
+  assert.equal(declarationsFor(css, ".notice"), "");
+});

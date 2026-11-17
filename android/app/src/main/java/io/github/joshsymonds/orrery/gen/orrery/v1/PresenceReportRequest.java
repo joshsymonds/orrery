@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * PresenceReportRequest reports how long ago the page's newest input was.
+ * PresenceReportRequest reports how long ago the page's newest input was, and what the page views when it reports.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.PresenceReportRequest}
@@ -20,6 +20,52 @@ public  final class PresenceReportRequest extends
     PresenceReportRequestOrBuilder {
   private PresenceReportRequest() {
   }
+  private int viewingCase_ = 0;
+  private java.lang.Object viewing_;
+  public enum ViewingCase
+      implements com.google.protobuf.AbstractMessageLite.InternalOneOfEnum {
+    VIEWING_PANE(2),
+    VIEWING_SESSION(3),
+    VIEWING_EPIC(4),
+    VIEWING_NOT_SET(0);
+    private final int value;
+    private ViewingCase(int value) {
+      this.value = value;
+    }
+    /**
+     * @deprecated Use {@link #forNumber(int)} instead.
+     */
+    @java.lang.Deprecated
+    public static ViewingCase valueOf(int value) {
+      return forNumber(value);
+    }
+
+    public static ViewingCase forNumber(int value) {
+      switch (value) {
+        case 2: return VIEWING_PANE;
+        case 3: return VIEWING_SESSION;
+        case 4: return VIEWING_EPIC;
+        case 0: return VIEWING_NOT_SET;
+        default: return null;
+      }
+    }
+    @java.lang.Override public int getNumber() {
+      return this.value;
+    }
+  };
+
+  @java.lang.Override
+  public ViewingCase
+  getViewingCase() {
+    return ViewingCase.forNumber(
+        viewingCase_);
+  }
+
+  private void clearViewing() {
+    viewingCase_ = 0;
+    viewing_ = null;
+  }
+
   public static final int INPUT_AGE_MS_FIELD_NUMBER = 1;
   private long inputAgeMs_;
   /**
@@ -56,6 +102,198 @@ public  final class PresenceReportRequest extends
   private void clearInputAgeMs() {
 
     inputAgeMs_ = 0L;
+  }
+
+  public static final int VIEWING_PANE_FIELD_NUMBER = 2;
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @return Whether the viewingPane field is set.
+   */
+  @java.lang.Override
+  public boolean hasViewingPane() {
+    return viewingCase_ == 2;
+  }
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @return The viewingPane.
+   */
+  @java.lang.Override
+  public java.lang.String getViewingPane() {
+    java.lang.String ref = "";
+    if (viewingCase_ == 2) {
+      ref = (java.lang.String) viewing_;
+    }
+    return ref;
+  }
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @return The bytes for viewingPane.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getViewingPaneBytes() {
+    java.lang.String ref = "";
+    if (viewingCase_ == 2) {
+      ref = (java.lang.String) viewing_;
+    }
+    return com.google.protobuf.ByteString.copyFromUtf8(ref);
+  }
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @param value The viewingPane to set.
+   */
+  private void setViewingPane(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    viewingCase_ = 2;
+    viewing_ = value;
+  }
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   */
+  private void clearViewingPane() {
+    if (viewingCase_ == 2) {
+      viewingCase_ = 0;
+      viewing_ = null;
+    }
+  }
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @param value The bytes for viewingPane to set.
+   */
+  private void setViewingPaneBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    viewing_ = value.toStringUtf8();
+    viewingCase_ = 2;
+  }
+
+  public static final int VIEWING_SESSION_FIELD_NUMBER = 3;
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @return Whether the viewingSession field is set.
+   */
+  @java.lang.Override
+  public boolean hasViewingSession() {
+    return viewingCase_ == 3;
+  }
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @return The viewingSession.
+   */
+  @java.lang.Override
+  public java.lang.String getViewingSession() {
+    java.lang.String ref = "";
+    if (viewingCase_ == 3) {
+      ref = (java.lang.String) viewing_;
+    }
+    return ref;
+  }
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @return The bytes for viewingSession.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getViewingSessionBytes() {
+    java.lang.String ref = "";
+    if (viewingCase_ == 3) {
+      ref = (java.lang.String) viewing_;
+    }
+    return com.google.protobuf.ByteString.copyFromUtf8(ref);
+  }
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @param value The viewingSession to set.
+   */
+  private void setViewingSession(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    viewingCase_ = 3;
+    viewing_ = value;
+  }
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   */
+  private void clearViewingSession() {
+    if (viewingCase_ == 3) {
+      viewingCase_ = 0;
+      viewing_ = null;
+    }
+  }
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @param value The bytes for viewingSession to set.
+   */
+  private void setViewingSessionBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    viewing_ = value.toStringUtf8();
+    viewingCase_ = 3;
+  }
+
+  public static final int VIEWING_EPIC_FIELD_NUMBER = 4;
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @return Whether the viewingEpic field is set.
+   */
+  @java.lang.Override
+  public boolean hasViewingEpic() {
+    return viewingCase_ == 4;
+  }
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @return The viewingEpic.
+   */
+  @java.lang.Override
+  public java.lang.String getViewingEpic() {
+    java.lang.String ref = "";
+    if (viewingCase_ == 4) {
+      ref = (java.lang.String) viewing_;
+    }
+    return ref;
+  }
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @return The bytes for viewingEpic.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getViewingEpicBytes() {
+    java.lang.String ref = "";
+    if (viewingCase_ == 4) {
+      ref = (java.lang.String) viewing_;
+    }
+    return com.google.protobuf.ByteString.copyFromUtf8(ref);
+  }
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @param value The viewingEpic to set.
+   */
+  private void setViewingEpic(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    viewingCase_ = 4;
+    viewing_ = value;
+  }
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   */
+  private void clearViewingEpic() {
+    if (viewingCase_ == 4) {
+      viewingCase_ = 0;
+      viewing_ = null;
+    }
+  }
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @param value The bytes for viewingEpic to set.
+   */
+  private void setViewingEpicBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    viewing_ = value.toStringUtf8();
+    viewingCase_ = 4;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.PresenceReportRequest parseFrom(
@@ -143,7 +381,7 @@ public  final class PresenceReportRequest extends
 
   /**
    * <pre>
-   * PresenceReportRequest reports how long ago the page's newest input was.
+   * PresenceReportRequest reports how long ago the page's newest input was, and what the page views when it reports.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.PresenceReportRequest}
@@ -156,6 +394,18 @@ public  final class PresenceReportRequest extends
     // Construct using io.github.joshsymonds.orrery.gen.orrery.v1.PresenceReportRequest.newBuilder()
     private Builder() {
       super(DEFAULT_INSTANCE);
+    }
+
+    @java.lang.Override
+    public ViewingCase
+        getViewingCase() {
+      return instance.getViewingCase();
+    }
+
+    public Builder clearViewing() {
+      copyOnWrite();
+      instance.clearViewing();
+      return this;
     }
 
 
@@ -199,6 +449,177 @@ public  final class PresenceReportRequest extends
       return this;
     }
 
+    /**
+     * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+     * @return Whether the viewingPane field is set.
+     */
+    @java.lang.Override
+    public boolean hasViewingPane() {
+      return instance.hasViewingPane();
+    }
+    /**
+     * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+     * @return The viewingPane.
+     */
+    @java.lang.Override
+    public java.lang.String getViewingPane() {
+      return instance.getViewingPane();
+    }
+    /**
+     * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+     * @return The bytes for viewingPane.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getViewingPaneBytes() {
+      return instance.getViewingPaneBytes();
+    }
+    /**
+     * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+     * @param value The viewingPane to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViewingPane(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setViewingPane(value);
+      return this;
+    }
+    /**
+     * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearViewingPane() {
+      copyOnWrite();
+      instance.clearViewingPane();
+      return this;
+    }
+    /**
+     * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+     * @param value The bytes for viewingPane to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViewingPaneBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setViewingPaneBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+     * @return Whether the viewingSession field is set.
+     */
+    @java.lang.Override
+    public boolean hasViewingSession() {
+      return instance.hasViewingSession();
+    }
+    /**
+     * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+     * @return The viewingSession.
+     */
+    @java.lang.Override
+    public java.lang.String getViewingSession() {
+      return instance.getViewingSession();
+    }
+    /**
+     * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+     * @return The bytes for viewingSession.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getViewingSessionBytes() {
+      return instance.getViewingSessionBytes();
+    }
+    /**
+     * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+     * @param value The viewingSession to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViewingSession(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setViewingSession(value);
+      return this;
+    }
+    /**
+     * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearViewingSession() {
+      copyOnWrite();
+      instance.clearViewingSession();
+      return this;
+    }
+    /**
+     * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+     * @param value The bytes for viewingSession to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViewingSessionBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setViewingSessionBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+     * @return Whether the viewingEpic field is set.
+     */
+    @java.lang.Override
+    public boolean hasViewingEpic() {
+      return instance.hasViewingEpic();
+    }
+    /**
+     * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+     * @return The viewingEpic.
+     */
+    @java.lang.Override
+    public java.lang.String getViewingEpic() {
+      return instance.getViewingEpic();
+    }
+    /**
+     * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+     * @return The bytes for viewingEpic.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getViewingEpicBytes() {
+      return instance.getViewingEpicBytes();
+    }
+    /**
+     * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+     * @param value The viewingEpic to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViewingEpic(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setViewingEpic(value);
+      return this;
+    }
+    /**
+     * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearViewingEpic() {
+      copyOnWrite();
+      instance.clearViewingEpic();
+      return this;
+    }
+    /**
+     * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+     * @param value The bytes for viewingEpic to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViewingEpicBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setViewingEpicBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.PresenceReportRequest)
   }
   @java.lang.Override
@@ -215,10 +636,13 @@ public  final class PresenceReportRequest extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "viewing_",
+            "viewingCase_",
             "inputAgeMs_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0002";
+              "\u0000\u0004\u0001\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0002\u0002\u023b" +
+              "\u0000\u0003\u023b\u0000\u0004\u023b\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

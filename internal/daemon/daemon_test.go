@@ -532,11 +532,13 @@ func inputFrameFor(pane, socket string) protocol.HookFrame {
 func TestDaemonInputReport(t *testing.T) {
 	srv := startServer(t)
 	inputs := make(chan int64, 4)
+	views := make(chan daemon.ViewReport, 4)
 	seens := make(chan daemon.SeenReport, 4)
 	reads := make(chan daemon.ReadReport, 4)
 	transitions := make(chan daemon.Transition, 4)
 	socket := serve(t, daemon.Config{
 		Input:     func(input int64) { inputs <- input },
+		Viewing:   func(report daemon.ViewReport) { views <- report },
 		Seen:      func(report daemon.SeenReport) { seens <- report },
 		Read:      func(report daemon.ReadReport) { reads <- report },
 		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
@@ -545,6 +547,9 @@ func TestDaemonInputReport(t *testing.T) {
 	sendFrame(t, socket, inputFrameFor(srv.pane, srv.socket))
 	if got := drain(inputs); len(got) != 1 || got[0] != inputAt {
 		t.Fatalf("input reports = %v, want exactly [%d]", got, inputAt)
+	}
+	if got := drain(views); len(got) != 1 || got[0] != (daemon.ViewReport{Input: inputAt}) {
+		t.Fatalf("input report reached Config.Viewing %+v, want once with %d and no view", got, inputAt)
 	}
 	if got := drain(seens); len(got) != 0 {
 		t.Fatalf("input report reached Config.Seen: %+v", got)
@@ -560,6 +565,15 @@ func TestDaemonInputReport(t *testing.T) {
 	sendFrame(t, socket, protocol.HookFrame{Input: inputAt})
 	if got := drain(inputs); len(got) != 1 || got[0] != inputAt {
 		t.Fatalf("paneless input report reached Config.Input %v times, want once with %d", got, inputAt)
+	}
+	if got := drain(views); len(got) != 1 || got[0] != (daemon.ViewReport{Input: inputAt}) {
+		t.Fatalf("paneless input report reached Config.Viewing %+v, want once with %d and no view", got, inputAt)
+	}
+
+	view := protocol.ViewKey{Session: "synthetic-session"}
+	sendFrame(t, socket, protocol.HookFrame{Input: inputAt, View: view})
+	if got := drain(views); len(got) != 1 || got[0] != (daemon.ViewReport{Input: inputAt, View: view}) {
+		t.Fatalf("input report with a view reached Config.Viewing %+v, want once with %d and %+v", got, inputAt, view)
 	}
 }
 

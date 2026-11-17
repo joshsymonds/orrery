@@ -722,8 +722,8 @@ func readReporterTo(flagSocket string, getenv func(string) string, errs io.Write
 }
 
 // inputReporter returns the reporter that tells the daemon socket protocol.SocketPath resolves that the web view had
-// input at a time. It returns nil when no socket resolves, so the input still answers. A failed report is written to
-// standard error and never fails the input.
+// input at a time and views a key. It returns nil when no socket resolves, so the input still answers. A failed report
+// is written to standard error and never fails the input.
 func inputReporter(flagSocket string, getenv func(string) string) server.InputReporter {
 	return inputReporterTo(flagSocket, getenv, os.Stderr)
 }
@@ -734,8 +734,8 @@ func inputReporterTo(flagSocket string, getenv func(string) string, errs io.Writ
 	if err != nil {
 		return nil
 	}
-	return func(input int64) {
-		if err := hook.ReportInput(socket, input); err != nil {
+	return func(input int64, view protocol.ViewKey) {
+		if err := hook.ReportInput(socket, input, view); err != nil {
 			fmt.Fprintf(errs, "orrery serve: report input: %v\n", err)
 		}
 	}

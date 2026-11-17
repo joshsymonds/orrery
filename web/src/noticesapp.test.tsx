@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape, toJson } from "@bufbuild/protobuf";
+import { act } from "preact/test-utils";
 
 import { createClients, createTransport } from "./client";
 import {
@@ -209,6 +210,37 @@ function clickRow(root: HTMLElement, key: string): boolean {
   return true;
 }
 
+// dismissRow clicks the × of the banner's row titled title. The row must be drawn.
+function dismissRow(root: HTMLElement, title: string): void {
+  const row = [...root.querySelectorAll(".notice-row")].find(
+    (element) => element.querySelector(".notice-title")?.textContent === title,
+  );
+  const dismiss = row?.querySelector(".notice-dismiss");
+  assert.ok(dismiss, `no × on the banner row titled ${title}`);
+  dismiss.dispatchEvent(new Event("click", { bubbles: true }));
+}
+
+// settle is the wait between checks in a test whose timers are mocked. It awaits act, which applies the renders the page
+// has queued, and waits on no timer, so the mocked clock stays where the test put it.
+function settle(): Promise<void> {
+  return act(() => {});
+}
+
+// settleTurns awaits settle a fixed number of times, so a request the page has sent reaches the fake server before the
+// test looks at what the server recorded.
+async function settleTurns(): Promise<void> {
+  for (let turn = 0; turn < 50; turn++) {
+    await settle();
+  }
+}
+
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
+}
+
 // isCursored reports whether the list row under key is the cursor's row.
 function isCursored(root: HTMLElement, key: string): boolean {
   return root.querySelector(`[data-key="${key}"]`)?.getAttribute("aria-current") === "true";
@@ -246,11 +278,13 @@ function pageButtons(root: HTMLElement): string[] {
 // withPage starts a page over a fake server in a fresh DOM, waits until its list, its cursor's pane stream and its
 // notice stream are up, runs check, and stops the page. The pane stream opens from an effect declared after the
 // cursor's own effect, so once it is open the cursor has settled and a click lands on the cursor the page holds.
-// scrolled holds the class of each element a scrollIntoView ran on, in the order the calls ran.
+// scrolled holds the class of each element a scrollIntoView ran on, in the order the calls ran. step is the wait
+// between the checks; a test whose timers are mocked passes settle, since the default wait is a timer.
 async function withPage(
   signal: AbortSignal,
   check: (root: HTMLElement, server: FakeServer, scrolled: string[]) => Promise<void>,
   fixtures: Fixtures = {},
+  step?: () => Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   const scrolled: string[] = [];
@@ -267,9 +301,15 @@ async function withPage(
     await removeTestDom(window);
   });
   try {
-    await until(signal, () => isCursored(root, apiRow), "the api row under the cursor");
-    await until(signal, () => server.paneStreams === 1, "the api pane's stream");
-    await until(signal, () => server.notices !== null, "the notice stream");
+    if (step === undefined) {
+      await until(signal, () => isCursored(root, apiRow), "the api row under the cursor");
+      await until(signal, () => server.paneStreams === 1, "the api pane's stream");
+    } else {
+      // The cursor and the pane stream are opened from effects, which a mocked timer holds back, so a test with mocked
+      // timers waits for the list to draw and for the notice stream alone.
+      await until(signal, () => lineDrawn(root, apiRow), "the api row in the list", { step });
+    }
+    await until(signal, () => server.notices !== null, "the notice stream", { step });
     await check(root, server, scrolled);
   } finally {
     await teardown();
@@ -326,6 +366,66 @@ test("a failed Seen is dropped without a page error, and the click still moves t
     await sleep(settleMs);
     assert.deepEqual(errorTexts(root), []);
   }));
+
+test("the notice stack is drawn inside .panes, the reading area it sits over", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  return withPage(
+    t.signal,
+    async (root, server) => {
+      sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+      await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner", {
+        step: settle,
+      });
+      const panes = root.querySelector(".panes");
+      assert.ok(panes, "the page draws no .panes");
+      assert.ok(panes.querySelector(".notices"), "the notice stack is not a descendant of .panes");
+    },
+    {},
+    settle,
+  );
+});
+
+test("a × removes its row at once, sends Seen for its key, and the other notices stay", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  return withPage(
+    t.signal,
+    async (root, server) => {
+      sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+      sendNotice(server, shownMessage({ limit: limitKey }, "limit reached"));
+      await until(t.signal, () => bannerTitles(root).length === 2, "both notices in the banner", { step: settle });
+      await act(() => {
+        dismissRow(root, "web needs you");
+      });
+      assert.deepEqual(bannerTitles(root), ["limit reached"], "the row stayed after its ×");
+      await until(t.signal, () => server.seen.length === 1, "the Seen report", { step: settle });
+      assert.equal(server.seen[0].pane, "%2", "the Seen report names another notice");
+      assert.deepEqual(bannerTitles(root), ["limit reached"], "the other notice left the banner");
+    },
+    {},
+    settle,
+  );
+});
+
+test("a notice leaves the stack at 8 seconds after it appears, and no Seen is sent for it", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  return withPage(
+    t.signal,
+    async (root, server) => {
+      sendNotice(server, shownMessage({ pane: "%2" }, "web needs you"));
+      await until(t.signal, () => bannerTitles(root).includes("web needs you"), "the notice in the banner", {
+        step: settle,
+      });
+      await advance(t, 7999);
+      assert.deepEqual(bannerTitles(root), ["web needs you"], "the notice left the stack before 8000 ms");
+      await advance(t, 1);
+      assert.deepEqual(bannerTitles(root), [], "the notice was still on the stack at 8000 ms");
+      await settleTurns();
+      assert.deepEqual(server.seen, [], "a Seen was sent for the timed-out notice");
+    },
+    {},
+    settle,
+  );
+});
 
 const widgetsRepo = "widgets-5d0c1a7";
 // endedAt is when the ended epic released, in unix seconds. Only its order against the other epics matters to the page.

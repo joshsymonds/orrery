@@ -344,6 +344,48 @@ func TestServeReportsInputToDaemon(t *testing.T) {
 	}
 }
 
+// TestServeReportsViewingKeyWithInput runs orrery serve through runServe with a daemon socket a test listener holds.
+// One Presence.Report that names the pane the page views sends one input report that carries that pane. serveStart
+// returns once serve listens, so the test makes that one call and no poll. The test does not read the wall clock: the
+// input time is the serve clock's now, which the server and orreryd tests pin on a synthetic clock, so here it is only
+// checked to be dated.
+func TestServeReportsViewingKeyWithInput(t *testing.T) {
+	daemon, ln := listenDaemon(t)
+	got := receiveFrame(ln)
+	state := t.TempDir()
+	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
+	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done, addr := serveStart(ctx, t, opts, getenv, "--allow-login", serveTestLogin)
+
+	presence := orreryv1connect.NewPresenceClient(
+		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
+	req := &orreryv1.PresenceReportRequest{
+		Viewing: &orreryv1.PresenceReportRequest_ViewingPane{ViewingPane: servePane},
+	}
+	if _, err := presence.Report(ctx, connect.NewRequest(req)); err != nil {
+		t.Fatalf("Presence.Report: %v", err)
+	}
+
+	result := <-got
+	if result.err != nil {
+		t.Fatalf("read frame: %v", result.err)
+	}
+	if result.frame.Input <= 0 {
+		t.Fatalf("frame Input = %d, want the serve clock's unix second", result.frame.Input)
+	}
+	want := protocol.HookFrame{Input: result.frame.Input, View: protocol.ViewKey{Pane: servePane}}
+	if !reflect.DeepEqual(result.frame, want) {
+		t.Fatalf("frame = %+v, want %+v", result.frame, want)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("runServe returned %v, want nil", err)
+	}
+}
+
 // serveTestRead is the synthetic read time, in unix seconds, the read reporter tests send.
 const serveTestRead int64 = 1_700_000_001
 
@@ -479,7 +521,7 @@ func TestInputReporterSendsOneInputReport(t *testing.T) {
 	if report == nil {
 		t.Fatal("inputReporter returned nil for a resolvable socket, want a reporter")
 	}
-	report(serveTestInput)
+	report(serveTestInput, protocol.ViewKey{})
 
 	result := <-got
 	if result.err != nil {
@@ -531,7 +573,7 @@ func TestInputReporterFailureWritesStderr(t *testing.T) {
 		t.Fatal("inputReporterTo returned nil for a resolvable socket, want a reporter")
 	}
 
-	report(serveTestInput)
+	report(serveTestInput, protocol.ViewKey{})
 
 	out, err := os.ReadFile(capturePath)
 	if err != nil {

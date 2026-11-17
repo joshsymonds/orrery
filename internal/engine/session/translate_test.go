@@ -134,6 +134,21 @@ func TestStartedCarriesInitAgents(t *testing.T) {
 	})
 }
 
+func TestStartedCarriesInitTools(t *testing.T) {
+	t.Parallel()
+	tr := newTranslator()
+	got := translateLines(
+		t,
+		tr,
+		`{"type":"system","subtype":"init","session_id":"session_1","permissionMode":"default","tools":["Read","StructuredOutput"]}`,
+		`{"type":"system","subtype":"init","session_id":"session_1","permissionMode":"default","tools":[]}`,
+	)
+	requireEvents(t, got, []Event{
+		Started{SessionID: "session_1", PermissionMode: "default", Tools: []string{"Read", "StructuredOutput"}},
+		Started{SessionID: "session_1", PermissionMode: "default", Tools: []string{}},
+	})
+}
+
 func TestInterleavedSubagentStreamsKeepTheirMessage(t *testing.T) {
 	t.Parallel()
 	tr := newTranslator()

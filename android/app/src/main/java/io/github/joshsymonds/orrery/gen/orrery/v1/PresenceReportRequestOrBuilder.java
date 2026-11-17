@@ -19,4 +19,57 @@ public interface PresenceReportRequestOrBuilder extends
    * @return The inputAgeMs.
    */
   long getInputAgeMs();
+
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @return Whether the viewingPane field is set.
+   */
+  boolean hasViewingPane();
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @return The viewingPane.
+   */
+  java.lang.String getViewingPane();
+  /**
+   * <code>string viewing_pane = 2 [json_name = "viewingPane"];</code>
+   * @return The bytes for viewingPane.
+   */
+  com.google.protobuf.ByteString
+      getViewingPaneBytes();
+
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @return Whether the viewingSession field is set.
+   */
+  boolean hasViewingSession();
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @return The viewingSession.
+   */
+  java.lang.String getViewingSession();
+  /**
+   * <code>string viewing_session = 3 [json_name = "viewingSession"];</code>
+   * @return The bytes for viewingSession.
+   */
+  com.google.protobuf.ByteString
+      getViewingSessionBytes();
+
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @return Whether the viewingEpic field is set.
+   */
+  boolean hasViewingEpic();
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @return The viewingEpic.
+   */
+  java.lang.String getViewingEpic();
+  /**
+   * <code>string viewing_epic = 4 [json_name = "viewingEpic"];</code>
+   * @return The bytes for viewingEpic.
+   */
+  com.google.protobuf.ByteString
+      getViewingEpicBytes();
+
+  public io.github.joshsymonds.orrery.gen.orrery.v1.PresenceReportRequest.ViewingCase getViewingCase();
 }

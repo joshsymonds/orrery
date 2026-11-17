@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import v8 from "node:v8";
 import vm from "node:vm";
 
@@ -16,7 +16,7 @@ import {
   type NoticesWatchResponse,
   NoticesWatchResponseSchema,
 } from "./gen/orrery/v1/notice_pb";
-import { applyNotice, NoticeBanner, watchNotices } from "./notices";
+import { applyNotice, NoticeBanner, noticeLifetimeMillis, watchNotices } from "./notices";
 import { installTestDom, removeTestDom } from "./testdom";
 import { settledFlag, until } from "./testwait";
 
@@ -304,7 +304,11 @@ test("a banner shows each notice's title and body as one button, and a click ope
   try {
     await act(() => {
       render(
-        <NoticeBanner notices={[notice("%1", "one"), notice("%2", "two")]} onOpen={(item) => opened.push(item)} />,
+        <NoticeBanner
+          notices={[notice("%1", "one"), notice("%2", "two")]}
+          onOpen={(item) => opened.push(item)}
+          onDismiss={() => undefined}
+        />,
         container,
       );
     });
@@ -327,12 +331,201 @@ test("a banner shows each notice's title and body as one button, and a click ope
   }
 });
 
+// A row's open button is its .notice; its × is a separate button, so the open buttons are the ones read here.
 function buttonTexts(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll("button"), (button) => button.textContent ?? "");
+  return Array.from(container.querySelectorAll("button.notice"), (button) => button.textContent ?? "");
 }
 
 function clickButton(container: HTMLElement, index: number): void {
-  const button = container.querySelectorAll("button")[index];
+  const button = container.querySelectorAll("button.notice")[index];
   assert.ok(button !== undefined, `no button at index ${index}`);
   button.dispatchEvent(new Event("click", { bubbles: true }));
 }
+
+interface BannerHandlers {
+  onOpen?: (notice: InAppNotice) => void;
+  onDismiss?: (notice: InAppNotice) => void;
+}
+
+// drawBanner renders the banner of notices into container, in the current act.
+function drawBanner(container: HTMLElement, notices: InAppNotice[], handlers: BannerHandlers = {}): void {
+  render(
+    <NoticeBanner
+      notices={notices}
+      onOpen={handlers.onOpen ?? (() => undefined)}
+      onDismiss={handlers.onDismiss ?? (() => undefined)}
+    />,
+    container,
+  );
+}
+
+// withBanner runs check in a fresh DOM, and removes the DOM when check ends.
+async function withBanner(check: (container: HTMLElement) => Promise<void>): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  try {
+    await check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    container.remove();
+    await removeTestDom(window);
+  }
+}
+
+// rowTitles reads the titles of the rows the banner draws, in order.
+function rowTitles(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".notice-row .notice-title")].map((element) => element.textContent ?? "");
+}
+
+// moreLine reads the "+n more" line the banner draws, or an empty string when it draws none.
+function moreLine(container: HTMLElement): string {
+  return container.querySelector(".notices-more")?.textContent ?? "";
+}
+
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
+}
+
+test("a row holds its title and its body as separate elements, with a separator between them", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withBanner(async (container) => {
+    await act(() => {
+      drawBanner(container, [notice("%1", "one")]);
+    });
+    const open = container.querySelector(".notice-row > button.notice");
+    assert.ok(open, "the row has no open button");
+    assert.deepEqual(
+      [...open.children].map((child) => child.className),
+      ["notice-title", "notice-separator", "notice-body"],
+      "the title, the separator and the body are not three elements in that order",
+    );
+    assert.equal(open.querySelector(".notice-title")?.textContent, "one");
+    assert.equal(open.querySelector(".notice-body")?.textContent, "one body");
+  });
+});
+
+test("the banner draws at most three rows, then a +n more line for the rest", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withBanner(async (container) => {
+    const five = ["one", "two", "three", "four", "five"].map((title, index) => notice(`%${index + 1}`, title));
+    await act(() => {
+      drawBanner(container, five);
+    });
+    assert.deepEqual(rowTitles(container), ["one", "two", "three"], "the rows are not the first three notices");
+    assert.equal(moreLine(container), "+2 more");
+
+    await act(() => {
+      drawBanner(container, five.slice(0, 3));
+    });
+    assert.equal(moreLine(container), "", "a line for the rest drawn with none left over");
+  });
+});
+
+test("a × drops its row at once and calls onDismiss with its notice, and the other rows stay", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dismissed: InAppNotice[] = [];
+  const opened: InAppNotice[] = [];
+  await withBanner(async (container) => {
+    await act(() => {
+      drawBanner(container, [notice("%1", "one"), notice("%2", "two")], {
+        onDismiss: (item) => dismissed.push(item),
+        onOpen: (item) => opened.push(item),
+      });
+    });
+    const dismiss = container.querySelectorAll("button.notice-dismiss")[0];
+    assert.ok(dismiss, "the first row has no ×");
+    await act(() => {
+      dismiss.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    assert.deepEqual(rowTitles(container), ["two"], "the × did not drop its row at once");
+    assert.deepEqual(
+      dismissed.map((item) => item.key?.pane),
+      ["%1"],
+      "onDismiss was not called once with the dismissed notice",
+    );
+    assert.deepEqual(opened, [], "the × opened its notice");
+  });
+});
+
+test("a row leaves the stack 8 seconds after it first shows, and nothing is told of it", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const dismissed: InAppNotice[] = [];
+  await withBanner(async (container) => {
+    await act(() => {
+      drawBanner(container, [notice("%1", "one")], { onDismiss: (item) => dismissed.push(item) });
+    });
+    await advance(t, noticeLifetimeMillis - 1);
+    assert.deepEqual(rowTitles(container), ["one"], "the row left before 8 seconds");
+    await advance(t, 1);
+    assert.deepEqual(rowTitles(container), [], "the row was still drawn at 8 seconds");
+    assert.deepEqual(dismissed, [], "onDismiss was called for the timed-out row");
+  });
+});
+
+test("a fourth notice starts its own 8 seconds when it moves into the three rows", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withBanner(async (container) => {
+    const four = ["one", "two", "three", "four"].map((title, index) => notice(`%${index + 1}`, title));
+    await act(() => {
+      drawBanner(container, four);
+    });
+    assert.equal(moreLine(container), "+1 more");
+    await advance(t, noticeLifetimeMillis);
+    assert.deepEqual(rowTitles(container), ["four"], "the fourth notice did not move into the rows");
+    await advance(t, noticeLifetimeMillis - 1);
+    assert.deepEqual(rowTitles(container), ["four"], "the fourth notice left before its own 8 seconds");
+    await advance(t, 1);
+    assert.deepEqual(rowTitles(container), [], "the fourth notice was still drawn at its own 8 seconds");
+  });
+});
+
+test("a notice that leaves the list and is shown again under its key shows again", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withBanner(async (container) => {
+    await act(() => {
+      drawBanner(container, [notice("%1", "one")], { onDismiss: () => undefined });
+    });
+    const dismiss = container.querySelector("button.notice-dismiss");
+    assert.ok(dismiss, "the row has no ×");
+    await act(() => {
+      dismiss.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    await act(() => {
+      drawBanner(container, [notice("%1", "one, changed")]);
+    });
+    assert.deepEqual(rowTitles(container), [], "the notice came back while still on the list after its ×");
+    await act(() => {
+      drawBanner(container, []);
+    });
+    await act(() => {
+      drawBanner(container, [notice("%1", "one")]);
+    });
+    assert.deepEqual(rowTitles(container), ["one"], "a notice shown again after it left the list did not show");
+  });
+});
+
+test("unmounting clears the pending lifetime timer of each row", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const scheduled = t.mock.method(globalThis, "setTimeout");
+  const cleared = t.mock.method(globalThis, "clearTimeout");
+  await withBanner(async (container) => {
+    await act(() => {
+      drawBanner(container, [notice("%1", "one")]);
+    });
+    const lifetime = scheduled.mock.calls.find((call) => call.arguments[1] === noticeLifetimeMillis);
+    assert.ok(lifetime, "a row's first draw schedules its lifetime timer");
+    await act(() => {
+      render(null, container);
+    });
+    assert.ok(
+      cleared.mock.calls.some((call) => call.arguments[0] === lifetime.result),
+      "unmounting does not clear the lifetime timer, so the row's timer outlives the banner",
+    );
+  });
+});
