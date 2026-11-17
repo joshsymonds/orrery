@@ -159,10 +159,12 @@ type Config struct {
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
 // and the cancel that frees a pump blocked on a write. exited is set by the pump when it records the process's exit, so
-// Stop and Close do not record over the state that exit recorded. turning is set while a turn runs, from the send of its
-// prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by Interrupt while a turn
-// runs, until that turn's end, which then sends no notice. ownerInterrupt is set by OwnerInterrupt while a turn runs,
-// until that turn's end or the process's Exited, and marks that turn's end as caused by the owner (see
+// Stop and Close do not record over the state that exit recorded. rec is the recorder the pump records with, which Stop
+// and Close read for the background tasks still running once the pump has finished. turning is set while a turn runs,
+// from the send of its prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by
+// Interrupt while a turn runs, until that turn's end, which then sends no notice. ownerInterrupt is set by
+// OwnerInterrupt while a turn runs, until that turn's end or the process's Exited, and marks that turn's end as caused
+// by the owner (see
 // noteTurnEndedLocked). starter is who started the turn running now, or the last one: the owner, through Start, Say or
 // a held message, a caller event through Deliver, or claude itself, as a background
 // task's end starts a turn (see turnStarter). A turn that a prompt follows keeps its starter, since the prompt that follows
@@ -183,6 +185,7 @@ type liveSession struct {
 	id             string
 	dir            string
 	sess           *session.Session
+	rec            *recorder
 	done           chan struct{}
 	stopped        chan struct{}
 	cancel         context.CancelFunc
@@ -1508,7 +1511,7 @@ func (m *Manager) register(
 	ctx context.Context, sess *session.Session, id, dir string, sp spawnSpec, rec *recorder, re *readoption,
 ) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
+	live := &liveSession{id: id, dir: dir, sess: sess, rec: rec, done: make(chan struct{}), cancel: cancel,
 		step: sp.step, agent: sp.agent, schema: sp.schema != "", observer: sp.observer, requests: map[string]struct{}{},
 		draining: re != nil && re.draining}
 	reply := ""
@@ -2597,9 +2600,10 @@ func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 	}
 }
 
-// recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed,
-// unless its exit already recorded both. A stopped session's turn has ended, and a stopped process delivers no exit
-// of its own. The stop tells the owner the session changed. It returns the error of the wait or of the write.
+// recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed and
+// each background task still running recorded stopped, unless its exit already recorded them. A stopped session's turn
+// has ended, and a stopped process delivers no exit of its own. The stop tells the owner the session changed. It
+// returns the error of the wait or of the write.
 func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2608,8 +2612,9 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 		return nil
 	}
 	stopped := stateStopped
-	err := m.writer.Commit(ctx, live.id, store.EngineTextClear{ID: live.id}, store.EngineSet{ID: live.id,
+	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EngineSet{ID: live.id,
 		Changes: store.EngineChanges{State: &stopped}})
+	err := m.writer.Commit(ctx, live.id, ops...)
 	if err != nil {
 		return fmt.Errorf("record session %s stopped: %w", live.id, err)
 	}
@@ -2620,9 +2625,10 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 }
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
-// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed. An
-// interruption notifies the owner. A session whose exit already recorded its state is left alone. Under a holder scope
-// Close only detaches the session, so nothing is recorded for it. It returns the error of the wait or of the write.
+// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed and
+// each background task still running is recorded stopped. An interruption notifies the owner. A session whose exit
+// already recorded its state is left alone. Under a holder scope Close only detaches the session, so nothing is
+// recorded for it. It returns the error of the wait or of the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2633,7 +2639,7 @@ func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	m.mu.Lock()
 	turning := live.turning
 	m.mu.Unlock()
-	ops := []store.EngineOp{store.EngineTextClear{ID: live.id}}
+	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id})
 	if turning {
 		interrupted := stateInterrupted
 		reason := interruptedReason

@@ -3,6 +3,7 @@ package enginehost
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -20,23 +21,73 @@ const (
 // rateLimitRejected is the rate-limit status that refuses the session's next turn. Only it is recorded.
 const rateLimitRejected = "rejected"
 
+// The statuses an engine task records. A task a message reports as completed is done, one reported as failed is failed,
+// and any other terminal status is stopped. A task still running when the session exits is stopped too.
+const (
+	taskRunning = "running"
+	taskDone    = "done"
+	taskFailed  = "failed"
+	taskStopped = "stopped"
+)
+
 // openText is the unfinished text of one streaming block: its kind and the text streamed so far.
 type openText struct {
 	kind string
 	text string
 }
 
+// runningTask is what the recorder keeps of one background task that is running: the fields a message of the task may
+// omit, so that a later message of the task still records them.
+type runningTask struct {
+	toolUseID    string
+	description  string
+	taskType     string
+	subagentType string
+}
+
+// op returns the EngineTask that records the task taskID with status, lastTool and summary, and the task's own fields.
+func (t runningTask) op(id, taskID, status, lastTool, summary string) store.EngineTask {
+	return store.EngineTask{
+		ID: id, TaskID: taskID, ToolUseID: t.toolUseID, Description: t.description,
+		Type: taskKind(t.taskType, t.subagentType), SubagentType: t.subagentType,
+		Status: status, LastTool: lastTool, Summary: summary,
+	}
+}
+
+// taskKind is the type an engine task records: agent when its task type ends in agent or a subagent type is named, and
+// shell otherwise.
+func taskKind(taskType, subagentType string) string {
+	if strings.HasSuffix(taskType, "agent") || subagentType != "" {
+		return "agent"
+	}
+	return "shell"
+}
+
+// taskEndStatus is the status an engine task records when its message reports the terminal status the wire gives.
+func taskEndStatus(status string) string {
+	switch status {
+	case "completed":
+		return taskDone
+	case "failed":
+		return taskFailed
+	default:
+		return taskStopped
+	}
+}
+
 // recorder translates the events of one headless session into the store ops that record them. It keeps the
-// unfinished text of each open block and the claude session it last recorded. It is not safe for concurrent use.
+// unfinished text of each open block, the claude session it last recorded and the background tasks still running. It
+// is not safe for concurrent use.
 type recorder struct {
 	id            string
 	claudeSession string
 	texts         map[textKey]openText
+	tasks         map[string]runningTask
 }
 
 // newRecorder returns a recorder for the session id.
 func newRecorder(id string) *recorder {
-	return &recorder{id: id, texts: map[textKey]openText{}}
+	return &recorder{id: id, texts: map[textKey]openText{}, tasks: map[string]runningTask{}}
 }
 
 // ops returns the store ops that record event, in the order they apply. A finished block and the removal of its
@@ -70,14 +121,69 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 			store.EngineRequestCancelled{ID: r.id, RequestID: ev.RequestID, ToolUseID: ev.ToolUseID},
 			store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &working, Question: new("")}},
 		}
+	case session.TaskStarted:
+		return r.taskStarted(ev)
+	case session.TaskProgress:
+		return r.taskProgress(ev)
+	case session.TaskEnded:
+		return r.taskEnded(ev)
 	case session.TurnEnded:
 		return r.turnEnd(ev, protocol.StateDone, false)
 	case session.Exited:
 		clear(r.texts)
-		return []store.EngineOp{store.EngineTextClear{ID: r.id}, store.EngineSet{ID: r.id, Changes: exitChanges(ev)}}
+		ops := r.stoppedTasks()
+		return append(ops, store.EngineTextClear{ID: r.id}, store.EngineSet{ID: r.id, Changes: exitChanges(ev)})
 	default:
 		return nil
 	}
+}
+
+// taskStarted returns the store op that records a task that started running, and adds the task to the running ones.
+func (r *recorder) taskStarted(ev session.TaskStarted) []store.EngineOp {
+	task := runningTask{toolUseID: ev.ToolUseID, description: ev.Description, taskType: ev.TaskType,
+		subagentType: ev.SubagentType}
+	r.tasks[ev.TaskID] = task
+	return []store.EngineOp{task.op(r.id, ev.TaskID, taskRunning, "", "")}
+}
+
+// taskProgress returns the store op that records the progress of a running task. The fields the progress gives update
+// the task's fields, and those it omits keep the values the task had.
+func (r *recorder) taskProgress(ev session.TaskProgress) []store.EngineOp {
+	task := r.tasks[ev.TaskID]
+	if ev.ToolUseID != "" {
+		task.toolUseID = ev.ToolUseID
+	}
+	if ev.Description != "" {
+		task.description = ev.Description
+	}
+	if ev.SubagentType != "" {
+		task.subagentType = ev.SubagentType
+	}
+	r.tasks[ev.TaskID] = task
+	return []store.EngineOp{task.op(r.id, ev.TaskID, taskRunning, ev.LastTool, ev.Summary)}
+}
+
+// taskEnded returns the store op that records a task that reached a terminal status, and removes the task from the
+// running ones.
+func (r *recorder) taskEnded(ev session.TaskEnded) []store.EngineOp {
+	task := r.tasks[ev.TaskID]
+	delete(r.tasks, ev.TaskID)
+	if ev.ToolUseID != "" {
+		task.toolUseID = ev.ToolUseID
+	}
+	return []store.EngineOp{task.op(r.id, ev.TaskID, taskEndStatus(ev.Status), "", ev.Summary)}
+}
+
+// stoppedTasks returns the store ops that record each task still running as stopped, in task id order, and forgets
+// those tasks.
+func (r *recorder) stoppedTasks() []store.EngineOp {
+	ids := slices.Sorted(maps.Keys(r.tasks))
+	ops := make([]store.EngineOp, 0, len(ids))
+	for _, id := range ids {
+		ops = append(ops, r.tasks[id].op(r.id, id, taskStopped, "", ""))
+	}
+	clear(r.tasks)
+	return ops
 }
 
 // followedTurnEnd returns the store ops that record ended, a turn's end that another turn follows: its turn end and the

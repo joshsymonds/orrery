@@ -15,8 +15,10 @@
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", SUBAGENT launches a
 # subagent in the background and ends its turn, then, once fakeclaude.release exists, streams the subagent's content with
 # no turn open and reads stdin again, SUBAGENTSELF plays SUBAGENT and then starts a turn by itself once fakeclaude.open
-# exists, which runs until an interrupt (see subagent), STEPDONE waits until
-# fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
+# exists, which runs until an interrupt (see subagent), TASKS makes an Agent tool call and starts a background agent
+# for it and a background shell task, reports the agent's progress, first with its last tool and then with a summary,
+# and ends the agent with a completed notification, then ends the turn while the shell task still runs, STEPDONE waits
+# until fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
 # structured output is that commit as done, READDONE waits as STEPDONE does and ends with a success result whose
 # structured output is done with no commit, as a read-only step's return is, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
@@ -324,6 +326,21 @@ subagent() {
 	await_interrupt
 }
 
+# tasks makes an Agent tool call, starts task_fake_agent for it as a local agent of general-purpose and
+# task_fake_shell as a local bash task, reports the agent's progress with its last tool and then with a summary, ends
+# the agent with a completed notification, and ends the turn while the shell task still runs. The second progress
+# names no description, so the agent's description comes from its start.
+tasks() {
+	turn_open
+	assistant_line '{"type":"tool_use","id":"toolu_agent_'"$n"'","name":"Agent","input":{"description":"fake","prompt":"fake","run_in_background":true}}'
+	printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"task_fake_agent","tool_use_id":"toolu_agent_'"$n"'","description":"fake agent","task_type":"local_agent","subagent_type":"general-purpose","session_id":"session_1","uuid":"uuid_t1"}'
+	printf '%s\n' '{"type":"system","subtype":"task_started","task_id":"task_fake_shell","tool_use_id":null,"description":"fake sleep","task_type":"local_bash","session_id":"session_1","uuid":"uuid_t2"}'
+	printf '%s\n' '{"type":"system","subtype":"task_progress","task_id":"task_fake_agent","tool_use_id":"toolu_agent_'"$n"'","description":"fake agent","subagent_type":"general-purpose","usage":{"total_tokens":10,"tool_uses":1,"duration_ms":5},"last_tool_name":"Read","session_id":"session_1","uuid":"uuid_t3"}'
+	printf '%s\n' '{"type":"system","subtype":"task_progress","task_id":"task_fake_agent","usage":{"total_tokens":20,"tool_uses":2,"duration_ms":9},"summary":"fake reading the agent","session_id":"session_1","uuid":"uuid_t4"}'
+	printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"task_fake_agent","tool_use_id":"toolu_agent_'"$n"'","status":"completed","output_file":"fake.output","summary":"fake agent finished","session_id":"session_1","uuid":"uuid_t5"}'
+	turn_close
+}
+
 # pair answers with one assistant line that carries two finished text blocks, so one stdout line yields two events.
 pair() {
 	turn_open
@@ -532,6 +549,7 @@ while next; do
 			is_error=false
 			result_text=redacted
 			case $prompt in
+				*TASKS*) tasks ;;
 				*ASK*) ask ;;
 				*PERMIT*) permit ;;
 				*HANG*) hang ;;
