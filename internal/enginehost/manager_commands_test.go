@@ -346,9 +346,16 @@ func TestSayWhileARequestIsOpenDeniesItFirst(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "never mind that"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	history := waitHistory(t, engineOf(m), path, id, "the reply to the owner's message", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake denied 1") && hasBlock(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		id,
+		"the reply to the owner's message",
+		func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake denied 1") && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	if !workingWithoutQuestion(t, history) {
 		t.Fatalf("no engine_changed sets state working with no question in %+v", changedFields(t, history))
 	}

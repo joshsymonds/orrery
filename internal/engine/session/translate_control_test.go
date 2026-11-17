@@ -115,14 +115,18 @@ func TestAskUserQuestionWithMadeUpFieldsIsQuestion(t *testing.T) {
 			`"options":[{"label":"made-up option"}]}]},`+
 			`"tool_use_id":"toolu_ask_8"}}`,
 	)
-	requireEvents(t, got, []Event{Request{
-		Kind:      RequestQuestion,
-		RequestID: "req_ask_8",
-		ToolUseID: "toolu_ask_8",
-		ToolName:  "AskUserQuestion",
-		Subtype:   "can_use_tool",
-		Input:     json.RawMessage(`{"questions":[{"question":"made-up question","options":[{"label":"made-up option"}]}]}`),
-	}})
+	requireEvents(t, got, []Event{
+		Request{
+			Kind:      RequestQuestion,
+			RequestID: "req_ask_8",
+			ToolUseID: "toolu_ask_8",
+			ToolName:  "AskUserQuestion",
+			Subtype:   "can_use_tool",
+			Input: json.RawMessage(
+				`{"questions":[{"question":"made-up question","options":[{"label":"made-up option"}]}]}`,
+			),
+		},
+	})
 }
 
 func TestElicitationRequestIsRefusedOther(t *testing.T) {

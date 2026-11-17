@@ -310,7 +310,7 @@ func TestUnanswerableQuestionIsDeniedOnArrival(t *testing.T) {
 		{"req_empty", `{"questions":[]}`},
 		{"req_none", `{"questions":[{"question":"Free text?","header":"Free","multiSelect":false,"options":[]}]}`},
 	}
-	var denials []string
+	denials := make([]string, 0, 4)
 	for _, tc := range cases {
 		emit(t, process, canUseTool(tc.requestID, "AskUserQuestion", "toolu_"+tc.requestID, tc.input))
 		request := requireRequest(t, session, RequestQuestion, tc.requestID)
