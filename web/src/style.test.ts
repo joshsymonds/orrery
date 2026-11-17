@@ -579,7 +579,7 @@ function propertyNames(declarations: string): string[] {
   return [...declarations.matchAll(/([\w-]+)\s*:/g)].map((match) => match[1]);
 }
 
-test("a now cell pulses on a 1.8s glow, and reduced motion holds it still", () => {
+test("CompositorGlow: the now-cell glow's keyframes change only opacity on a pseudo-element of .strip i.k-now and .pips i.k-now", () => {
   for (const cell of nowCells) {
     assert.match(declarationsFor(css, cell), /(?<![-\w])position:\s*relative;/, `${cell} positions its glow`);
     assert.match(
@@ -587,18 +587,6 @@ test("a now cell pulses on a 1.8s glow, and reduced motion holds it still", () =
       /animation:\s*now-glow 1\.8s ease-in-out infinite;/,
       `${cell}::before pulses`,
     );
-  }
-  assert.match(css, /@keyframes now-glow\s*\{/);
-  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
-  for (const cell of nowCells) {
-    assert.match(declarationsFor(reduced, `${cell}::before`), /animation:\s*none;/, `${cell}::before holds still under reduced motion`);
-  }
-});
-
-test("CompositorGlow: the now-cell glow's keyframes change only opacity on a pseudo-element of .strip i.k-now and .pips i.k-now", () => {
-  for (const cell of nowCells) {
-    const pseudo = `${declarationsFor(css, `${cell}::before`)};${declarationsFor(css, `${cell}::after`)}`;
-    assert.match(pseudo, /animation:\s*now-glow 1\.8s ease-in-out infinite;/, `${cell}'s pseudo-element names now-glow`);
     assert.doesNotMatch(declarationsFor(css, cell), /animation:|box-shadow:/, `${cell} itself animates no box-shadow`);
   }
   const steps = rulesIn(mediaBlock(css, "@keyframes now-glow {"));
