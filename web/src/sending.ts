@@ -48,6 +48,18 @@ function sentIn(entry: Sending, held: Conversation, kind: SendKind): boolean {
   return held.items.some((item, index) => index > from && item.kind === "prompt" && sameText(item.text, entry.text));
 }
 
+// promptHeld reports whether items hold the prompt of entry: a prompt item with its prompt id, or, for a prompt item that
+// carries no prompt id, as a pane's does, one with its text, compared trimmed, after the item the send began after. When
+// that item is no longer held, a reset dropped it, and any such prompt with the text matches.
+export function promptHeld(entry: Sending, items: ConversationItem[]): boolean {
+  const from = entry.after === undefined ? -1 : items.indexOf(entry.after);
+  return items.some(
+    (item, index) =>
+      item.kind === "prompt" &&
+      (item.promptId === "" ? index > from && sameText(item.text, entry.text) : item.promptId === entry.promptId),
+  );
+}
+
 // sameText compares two messages' text as the page does for a sent message: trimmed.
 export function sameText(a: string, b: string): boolean {
   return a.trim() === b.trim();

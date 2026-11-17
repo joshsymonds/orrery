@@ -1422,6 +1422,7 @@ export function App({
                   register={(handle) => registerHandle(composerHandles, row.key, handle)}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
+                  items={row.key === cursorRowKey ? cursorConversation?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1489,6 +1490,7 @@ export function App({
                   register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
                   held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
+                  items={row.key === pinnedKey ? pinnedConversation?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {

@@ -1644,7 +1644,7 @@ test("a message sent to a working session draws above the box as queued, and lea
     assert.equal(container.querySelector('[aria-label="reader"] .send .queue .queue-head')?.textContent, "1 queued");
     const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
     assert.equal(queued?.querySelector(".tag"), null, "a waiting row carries no per-row tag, since the head names it");
-    assert.equal(queued?.querySelector(".words")?.textContent, "It sends when this turn ends");
+    assert.equal(queued?.querySelector(".words"), null, "a waiting row carries no note on when it sends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],
       error: "",
@@ -1667,8 +1667,9 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     assert.equal(
-      container.querySelector('[aria-label="reader"] .send .queue li.queued .words')?.textContent,
-      "It sends when this turn ends",
+      container.querySelector('[aria-label="reader"] .send .queue li.queued .words'),
+      null,
+      "a waiting row carries no note on when it sends",
     );
 
     fake.emit(stream, { transcript: "t1", seq: "2", items: [], state: { pane: { id: "a", state: "idle" } } });
@@ -2329,7 +2330,7 @@ test("the reader's composer on a working row has the working edge and says it qu
     await press("j");
     assert.equal(cursorKey(container), "b");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for web; it sends when this turn ends");
+    assert.equal(composer(container).placeholder, "Queue for web");
   }));
 
 test("a working pane turns a waiting row's composer from answering to queueing", (t) =>
@@ -2341,7 +2342,7 @@ test("a working pane turns a waiting row's composer from answering to queueing",
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for api; it sends when this turn ends");
+    assert.equal(composer(container).placeholder, "Queue for api");
   }));
 
 test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", (t) =>
@@ -2355,7 +2356,7 @@ test("a pane on the cursor's stream turns only the shown composer; a visited row
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for docs; it sends when this turn ends");
+    assert.equal(composer(container).placeholder, "Queue for docs");
     const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
     const api = hidden.find((box) => box.placeholder === "Answer api");
     assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
@@ -2375,7 +2376,7 @@ test("the pinned composer follows its own stream's pane while the cursor rests o
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
     assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
-    assert.equal(pinnedComposer(container).placeholder, "Queue for api; it sends when this turn ends");
+    assert.equal(pinnedComposer(container).placeholder, "Queue for api");
     assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
     assert.equal(composer(container).placeholder, "Reply to docs");
   }));
