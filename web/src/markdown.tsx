@@ -125,3 +125,74 @@ function phrase(token: Token, depth: number): ComponentChildren {
       return token.raw;
   }
 }
+
+// drawnText returns the text Markdown draws for text: the walk above, keeping each element's text and dropping its
+// markup, so a link draws its label and not its target. Each block is a line of its own, so two blocks never run
+// together into one word. Text the lexer throws on draws whole, as Markdown draws it.
+export function drawnText(text: string): string {
+  const tokens = lex(text);
+  return tokens === null ? text : drawnBlocks(tokens, 0);
+}
+
+function drawnBlocks(tokens: Token[] = [], depth: number): string {
+  return lines(tokens.map((token) => drawnBlock(token, depth)));
+}
+
+function drawnBlock(token: Token, depth: number): string {
+  if (depth > maxDepth) {
+    return token.raw;
+  }
+  switch (token.type) {
+    case "space":
+    case "hr":
+      return "";
+    case "paragraph":
+    case "text":
+    case "heading":
+      return drawnPhrases(token.tokens, depth + 1);
+    case "code":
+      return token.text;
+    case "blockquote":
+      return drawnBlocks(token.tokens, depth + 1);
+    case "list":
+      return lines(token.items.map((item: Tokens.ListItem) => drawnBlocks(item.tokens, depth + 1)));
+    case "table":
+      return lines(
+        [...token.header, ...token.rows.flat()].map((cell: Tokens.TableCell) => drawnPhrases(cell.tokens, depth + 1)),
+      );
+    default:
+      return token.raw;
+  }
+}
+
+function drawnPhrases(tokens: Token[] = [], depth: number): string {
+  return tokens.map((token) => drawnPhrase(token, depth)).join("");
+}
+
+function drawnPhrase(token: Token, depth: number): string {
+  if (depth > maxDepth) {
+    return token.raw;
+  }
+  switch (token.type) {
+    case "text":
+      return token.raw;
+    case "escape":
+    case "codespan":
+    case "image":
+      return token.text;
+    case "em":
+    case "strong":
+    case "del":
+    case "link":
+      return drawnPhrases(token.tokens, depth + 1);
+    case "br":
+      return "\n";
+    default:
+      return token.raw;
+  }
+}
+
+// lines joins the non-empty parts, one to a line.
+function lines(parts: string[]): string {
+  return parts.filter((part) => part !== "").join("\n");
+}
