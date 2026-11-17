@@ -541,14 +541,15 @@ export function App({
     );
 
   // setArchive archives a row or epic, or unarchives it in the Archived view, through Epics.Archive or Epics.Unarchive
-  // with the kind and id the entry names. A pane has no archive kind, so it does nothing. A landed call marks the entry
-  // as the call left it, until the next list answer; a failed call leaves the entry where it was.
+  // with the kind the entry names and the id it archives by: a row's archiveId, which for a pane is its orrery_id, and
+  // an epic's id. A pane with no orrery_id has no archive kind, so it does nothing. A landed call marks the entry as the
+  // call left it, keyed by the entry's key, until the next list answer; a failed call leaves the entry where it was.
   const setArchive = (entry: Row | EpicItem, archived: boolean) => {
     const kind = entry.kind === "epic" ? "epic" : entry.archiveKind;
     if (kind === "none") {
       return;
     }
-    const request = { kind, id: entry.id };
+    const request = { kind, id: entry.kind === "epic" ? entry.id : entry.archiveId };
     void lineWrite(
       () => (archived ? clients.epics.archive(request) : clients.epics.unarchive(request)),
       archiveFailedText,
@@ -973,7 +974,7 @@ export function App({
         setView("archived");
         break;
       case "A":
-        // A pane has no archive kind, and a step is never archived, so the key does nothing on either.
+        // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
         if (cursorItem !== null && cursorItem.kind !== "step") {
           setArchive(cursorItem, true);
         }

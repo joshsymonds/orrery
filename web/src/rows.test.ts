@@ -51,6 +51,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
     {
       key: "pane:box:%3",
       id: "%3",
+      archiveId: "",
       kind: "pane",
       label: "api",
       project: "/work/api",
@@ -107,6 +108,7 @@ test("a session row is keyed by its id, named by its first eight characters, and
     {
       key: "session:0123456789abcdef",
       id: "0123456789abcdef",
+      archiveId: "0123456789abcdef",
       kind: "session",
       label: "01234567",
       project: "",
@@ -169,9 +171,9 @@ test("a headless row is labeled by the server's label, and an empty label stays 
   );
 });
 
-test("ArchiveView: rowsFrom marks archived session and headless rows with their archive kinds, and a pane row has no archive kind", () => {
+test("ArchiveView: rowsFrom marks archived session and headless rows with their archive kinds, and a pane with no orrery_id has no archive kind", () => {
   const rows = rowsFrom(
-    [makePane({ id: "%3" })],
+    [makePane({ id: "%3", orreryId: "" })],
     [makeSession({ id: "sess-archived", pane: "", archived: true }), makeSession({ id: "sess-live", pane: "" })],
     [makeHeadless({ id: "head-archived", dir: "/work/app", archived: true }), makeHeadless({ id: "head-live" })],
   );
@@ -184,6 +186,29 @@ test("ArchiveView: rowsFrom marks archived session and headless rows with their 
       ["sess-live", false, "session"],
       ["head-archived", true, "headless"],
       ["head-live", false, "headless"],
+    ],
+  );
+});
+
+test("ArchivePaneRow: a pane with an orrery_id archives as the session that id names, and reads archived from that session, or not when the session is missing", () => {
+  const rows = rowsFrom(
+    [
+      makePane({ id: "%1", orreryId: "sess-archived" }),
+      makePane({ id: "%2", orreryId: "sess-live" }),
+      makePane({ id: "%4", orreryId: "sess-missing" }),
+    ],
+    [
+      makeSession({ id: "sess-archived", pane: "%1", archived: true }),
+      makeSession({ id: "sess-live", pane: "%2" }),
+    ],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.archiveId, row.archiveKind, row.archived]),
+    [
+      ["%1", "sess-archived", "session", true],
+      ["%2", "sess-live", "session", false],
+      ["%4", "sess-missing", "session", false],
     ],
   );
 });

@@ -299,6 +299,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    archiveId: "",
     ...init,
   };
 }
@@ -540,6 +541,7 @@ const paneRow = row({
 const sessionRow = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   archiveKind: "session",
   label: "notes",
@@ -868,6 +870,7 @@ test("a session row's empty host adds nothing to the footer", (t) =>
         row({
           key: "s1",
           id: "s1",
+          archiveId: "s1",
           kind: "session",
           archiveKind: "session",
           host: "",
@@ -1956,6 +1959,7 @@ const answerableRow = row({
 const otherSessionRow = row({
   key: "s2",
   id: "s2",
+  archiveId: "s2",
   kind: "session",
   archiveKind: "session",
   label: "docs",
@@ -2102,6 +2106,7 @@ const permissionRow = row({
 const waitingSession = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   archiveKind: "session",
   label: "notes",
@@ -2115,6 +2120,7 @@ const waitingSession = row({
 const workingSession = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   archiveKind: "session",
   label: "notes",
@@ -4760,6 +4766,7 @@ test("App reports the cursor's pane, epic, step and session to onViewing as the 
   const session = row({
     key: "sess",
     id: "sess-9",
+    archiveId: "sess-9",
     kind: "session",
     archiveKind: "session",
     label: "notes",
@@ -4939,6 +4946,7 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
     const started = row({
       key: "session:sess-new",
       id: "sess-new",
+      archiveId: "sess-new",
       kind: "session",
       label: "web",
       state: "working",

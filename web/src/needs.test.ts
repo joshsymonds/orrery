@@ -11,6 +11,7 @@ function makeRow(init: Partial<Row>): Row {
   return {
     key: "pane:box:%3",
     id: "%3",
+    archiveId: "",
     kind: "pane",
     label: "api",
     project: "/work/api",

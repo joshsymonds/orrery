@@ -757,6 +757,9 @@ message Pane {
 
   // The unix seconds the pane's last turn ended, or 0 when unknown.
   int64 last_turn_end = 20;
+
+  // The pane's @orrery_id option, which is the id its Session row carries, or empty when unset.
+  string orrery_id = 21;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
