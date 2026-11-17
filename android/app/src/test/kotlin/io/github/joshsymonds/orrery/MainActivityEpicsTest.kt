@@ -592,6 +592,7 @@ class MainActivityEpicsTest {
         val answer = EpicsAnswerRequest.parseFrom(requestBody(EPICS_ANSWER_PATH))
         assertEquals(EPIC_ID, answer.epicId)
         assertEquals("Q1", answer.question)
+        assertEquals("other", answer.choice)
         assertEquals("Use main", answer.text)
         composeRule.awaitUntil { server.requests.count { it.rawPath == EPICS_LIST_PATH } >= 2 }
     }

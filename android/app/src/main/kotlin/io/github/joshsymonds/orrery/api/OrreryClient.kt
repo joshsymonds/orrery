@@ -115,6 +115,9 @@ private const val TIMEOUT_MS = 10_000
 private const val CLIENT_HEADER = "orrery-android"
 private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" to listOf(CLIENT_HEADER))
 
+/** The choice an answer to a question names when the owner types the answer rather than picking a declared option. */
+private const val CHOICE_OTHER = "other"
+
 /** The answers to ListHeadless that mean the server has no headless sessions to list. */
 private val HEADLESS_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
 
@@ -1099,8 +1102,9 @@ class OrreryClient(
     }
 
     /**
-     * Records [text] as the owner's answer on the orreryd epic [epicId], tied to the question [questionId] names, or as
-     * a note when [questionId] is empty. A refused answer answers [StepCallResult.Refused].
+     * Records [text] as the owner's answer on the orreryd epic [epicId], tied to the question [questionId] names with
+     * the choice 'other', or as a note with no choice when [questionId] is empty. A refused answer answers
+     * [StepCallResult.Refused].
      */
     fun answerEpic(epicId: String, questionId: String, text: String): StepCallResult {
         // The decision id is the caller's, and orreryd refuses an empty one. A fresh id makes each answer a decision.
@@ -1109,6 +1113,7 @@ class OrreryClient(
             .setId(UUID.randomUUID().toString())
             .setText(text)
             .setQuestion(questionId)
+            .setChoice(if (questionId.isEmpty()) "" else CHOICE_OTHER)
             .build()
         return stepCall { call(write = true) { standard.epics.answer(request, CLIENT_HEADERS) } }
     }

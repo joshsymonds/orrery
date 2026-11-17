@@ -1266,11 +1266,13 @@ class OrreryClientEpicsTest {
             val answer = EpicsAnswerRequest.parseFrom(requests[0].body)
             assertEquals("example-repo/example-epic", answer.epicId)
             assertEquals("Q1", answer.question)
+            assertEquals("other", answer.choice)
             assertEquals("example answer", answer.text)
             assertTrue(answer.id.isNotEmpty())
             val note = EpicsAnswerRequest.parseFrom(requests[1].body)
             assertEquals("example-repo/example-epic", note.epicId)
             assertEquals("", note.question)
+            assertEquals("", note.choice)
             assertEquals("example note", note.text)
             assertTrue(note.id.isNotEmpty() && note.id != answer.id)
         }
