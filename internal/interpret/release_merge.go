@@ -71,7 +71,7 @@ func decideRelease(ctx context.Context, epic store.EpicRow, run store.NodeRun) (
 	if !ok {
 		return kinds.ReleaseResult{}, fmt.Errorf("epic %s has no branch", epic.ID)
 	}
-	branch, origin, err := fetchOrigin(ctx, epic)
+	branch, origin, err := fetchOrigin(ctx, epic, releaseRef(epic, "origin"))
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
@@ -100,9 +100,10 @@ func decideRelease(ctx context.Context, epic store.EpicRow, run store.NodeRun) (
 	return kinds.ReleaseResult{Behind: true, Candidate: merged, Tip: tip}, nil
 }
 
-// fetchOrigin fetches origin's default branch into the release's origin ref of epic's repository, and returns the
-// branch and the commit the ref names. The default branch is the one origin's HEAD names.
-func fetchOrigin(ctx context.Context, epic store.EpicRow) (string, string, error) {
+// fetchOrigin fetches origin's default branch into ref of epic's repository, and returns the branch and the commit the
+// ref names. The default branch is the one origin's HEAD names. A release fetches into its origin ref, and a sync of
+// origin's main into its own.
+func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, string, error) {
 	listing, err := gitOutput(ctx, epic.Repository, "ls-remote", "--symref", releaseRemote, "HEAD")
 	if err != nil {
 		return "", "", err
@@ -111,7 +112,6 @@ func fetchOrigin(ctx context.Context, epic store.EpicRow) (string, string, error
 	if err != nil {
 		return "", "", err
 	}
-	ref := releaseRef(epic, "origin")
 	fetchSpec := "+" + branch + ":" + ref
 	if _, err = gitOutput(
 		ctx, epic.Repository, "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", releaseRemote, fetchSpec,
@@ -128,7 +128,7 @@ func fetchOrigin(ctx context.Context, epic store.EpicRow) (string, string, error
 // candidateContainsOrigin reports whether origin's current main is in candidate, which is to say an ancestor of it or the
 // commit itself. It fetches origin first, as a prepare does, so the answer is for origin as it is now.
 func candidateContainsOrigin(ctx context.Context, epic store.EpicRow, candidate string) (bool, error) {
-	_, origin, err := fetchOrigin(ctx, epic)
+	_, origin, err := fetchOrigin(ctx, epic, releaseRef(epic, "origin"))
 	if err != nil {
 		return false, err
 	}

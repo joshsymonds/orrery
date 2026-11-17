@@ -16,9 +16,9 @@ import (
 // ActionKind names what the interpreter does for an epic's workflow.
 type ActionKind string
 
-// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch and ActParkEpic change the node
-// runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the review. ActWork hands
-// a check or release node run's work to the interpreter, and ActRun hands a node run to its kind.
+// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch, ActSync and ActParkEpic change
+// the node runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the review. ActWork
+// hands a check, sync or release node run's work to the interpreter, and ActRun hands a node run to its kind.
 const (
 	ActStart    ActionKind = "start"
 	ActEnd      ActionKind = "end"
@@ -27,6 +27,7 @@ const (
 	ActParkNode ActionKind = "park_node"
 	ActParkEpic ActionKind = "park_epic"
 	ActBatch    ActionKind = "batch"
+	ActSync     ActionKind = "sync"
 	ActHold     ActionKind = "hold"
 	ActReview   ActionKind = "review"
 	ActClosure  ActionKind = "closure"
@@ -40,14 +41,16 @@ const (
 // at Path and its current Round, and Park its Reason. Run names the node run at Path of NodeKind, and for a build child
 // its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason. When Met names
 // Requirements, the evidence node at base found them holding at the base, and the park's question offers them as met.
-// Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
-// parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
-// prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def,
-// Run, IDs, Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome,
-// an integrator the failure its round mends as its Output, and an advance the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
-// the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path,
-// whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path,
-// whose Attempt ended with Phase and Output.
+// Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. Sync ends the sync run
+// at Path, whose Attempt ended with Outcome and Output, and tells Reason when it is set. ParkEpic parks the epic for
+// Reason, with Trigger. Work carries a check, sync or release node run's work: Work is the kind's action, prepare,
+// start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def, Run, IDs,
+// Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, an
+// integrator the failure its round mends as its Output, and an integrate run's advance the Trigger its passed batch
+// writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends the review run at Path, whose
+// Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path, whose Attempt ended with Outcome
+// and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase and
+// Output.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
@@ -90,6 +93,14 @@ const (
 	triggerPrefix = "workflow:"
 	kindIntegrate = "integrate"
 	kindRelease   = "release"
+)
+
+// The kind of a sync run, the node id it is stored under, and the cause its id is derived from. A sync run is no node
+// of the workflow: the interpreter adds it under a plan run (syncMain).
+const (
+	kindSync  = "sync"
+	syncNode  = "sync"
+	syncCause = "sync"
 )
 
 // The kinds of the end-of-epic review nodes. Each ends with an action of its own.
@@ -272,18 +283,108 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 }
 
 // plan decides a running plan run from the act its kind gives. The plan runs while its kind keeps it running, and it
-// ends once its kind ends it and its latest settle walk has ended. Its settle walks and its fan-out are decided with it.
-// A plan whose kind leaves it waiting gives no action.
+// ends once its kind ends it, its latest settle walk has ended and no sync of origin's main holds it. Its settle walks,
+// its sync and its fan-out are decided with it. While a sync holds the plan, the plan gets no run, so the planner gets no
+// turn. A plan whose kind leaves it waiting gives no action.
 func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
 	if act.Kind != kinds.ActEnd && act.Kind != kinds.ActRun {
 		return nil
 	}
 	walks, settled := p.settle(def, run)
-	if act.Kind == kinds.ActEnd && settled {
+	synced, holds := p.syncMain(def, run, settled)
+	if act.Kind == kinds.ActEnd && settled && !holds {
 		return p.complete(def, run, act)
 	}
-	acts := append([]Action{{Kind: ActRun, Path: run.Path, NodeKind: def.Kind, Task: run.Task}}, walks...)
+	acts := walks
+	if !holds {
+		acts = append([]Action{{Kind: ActRun, Path: run.Path, NodeKind: def.Kind, Task: run.Task}}, acts...)
+	}
+	acts = append(acts, synced...)
 	return append(acts, p.fanOut(def, run)...)
+}
+
+// syncMain decides the sync of origin's main under a running plan run, and reports whether the sync holds the plan. A
+// running sync run under the plan is decided by the sync kind, and holds the plan until it ends. Otherwise, once the
+// plan's walks have settled and the epic is at a quiet point (quiet), a sync run starts at <plan path>/M<turn>, where
+// <turn> is the epic's highest turn seq, unless a run is stored there already: one sync is tried for each turn. A sync
+// that starts holds the plan too. An interpreter that registers no sync kind starts none.
+func (p pass) syncMain(def workflow.Node, run store.NodeRun, settled bool) ([]Action, bool) {
+	kind, ok := p.reg[kindSync]
+	if !ok {
+		return nil, false
+	}
+	if open, running := p.runningSync(run.Path); running {
+		return p.decideSync(kind, open), true
+	}
+	if !settled || !p.quiet(def, run) {
+		return nil, false
+	}
+	path := syncPath(run.Path, p.highestTurn())
+	if _, stored := p.byPath[path]; stored {
+		return nil, false
+	}
+	child := store.NodeRun{
+		Path: path, ID: store.NodeRunID(p.rows.Epic.ID, path, run.Round, syncCause), Node: syncNode, Kind: kindSync,
+		Round: run.Round,
+	}
+	return []Action{{Kind: ActStart, Runs: []store.NodeRun{child}}}, true
+}
+
+// syncPath returns the path of the sync run of the plan at path for turn.
+func syncPath(path string, turn int64) string {
+	return fmt.Sprintf("%s/M%d", path, turn)
+}
+
+// runningSync returns the running sync run under the plan at path, and whether there is one.
+func (p pass) runningSync(path string) (store.NodeRun, bool) {
+	for _, run := range p.rows.Runs {
+		if run.Kind == kindSync && run.State == store.NodeRunning && within(run.Path, path) {
+			return run, true
+		}
+	}
+	return store.NodeRun{}, false
+}
+
+// decideSync decides a running sync run with kind. An end ends the run, telling its output when it ended failed. The
+// prepare, the checks at the merge and the advance are its work.
+func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
+	def := workflow.Node{ID: syncNode, Kind: kindSync}
+	act := kind.Decide(kinds.Node{Def: def, Run: run}, p.rows)
+	switch act.Kind {
+	case kinds.ActEnd:
+		end := Action{Kind: ActSync, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output}
+		if act.Outcome == outcomeFailed {
+			end.Reason = syncTell(run.Path, act.Output)
+		}
+		return []Action{end}
+	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance:
+		return []Action{p.work(def, run, act)}
+	default:
+		return nil
+	}
+}
+
+// syncTell returns the tell of the sync run at path that ended failed with output.
+func syncTell(path, output string) string {
+	return fmt.Sprintf("workflow node %s failed: %s", path, output)
+}
+
+// quiet reports whether the epic is at a quiet point of the plan run of def: the plan's body holds an integrate node, a
+// batch under the plan run has passed and moved the stored base, the epic is neither paused nor parked, its review has
+// not frozen, it does not hold its repository's release slot, and its work is at rest (kinds.Busy). The review compares
+// revisions against a frozen one, so no sync runs once it froze.
+func (p pass) quiet(def workflow.Node, run store.NodeRun) bool {
+	epic := p.rows.Epic
+	switch {
+	case !slices.ContainsFunc(def.Body, func(node workflow.Node) bool { return node.Kind == kindIntegrate }),
+		epic.Paused, epic.Parked != "", p.rows.Review.Frozen != "", p.rows.Slot == epic.ID,
+		kinds.Busy(p.rows) != "":
+		return false
+	}
+	return slices.ContainsFunc(p.rows.Runs, func(batch store.NodeRun) bool {
+		return batch.Kind == kindIntegrate && within(batch.Path, run.Path) && batch.Outcome == outcomePassed &&
+			batch.Revision != ""
+	})
 }
 
 // complete decides a plan run whose kind ends it and whose latest settle walk has ended. A plan body that holds an
@@ -533,9 +634,9 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 	}
 }
 
-// work returns the work action of a check or release node run: the kind's action, and the ids, items, tasks, units,
-// output and outcome the work is for. An advance also carries the trigger its passed batch writes. An action that names
-// a revision runs at it: the run it carries holds that revision in place of its own.
+// work returns the work action of a check, sync or release node run: the kind's action, and the ids, items, tasks,
+// units, output and outcome the work is for. An integrate run's advance also carries the trigger its passed batch writes.
+// An action that names a revision runs at it: the run it carries holds that revision in place of its own.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
 	if act.Revision != "" {
 		run.Revision = act.Revision
@@ -544,7 +645,7 @@ func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Actio
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
 		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,
 	}
-	if act.Kind == kinds.ActAdvance {
+	if act.Kind == kinds.ActAdvance && def.Kind == kindIntegrate {
 		out.Trigger = p.batchTrigger(run, outcomePassed, act.Output)
 	}
 	return out

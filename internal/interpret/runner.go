@@ -44,6 +44,8 @@ type Store interface {
 		ctx context.Context, epic, path string, attempt int64, outcome, output string, trigger *store.NodeTrigger,
 		at time.Time,
 	) error
+	PrepareSync(ctx context.Context, epic, path string, attempt int64, revision, result string) error
+	EndSync(ctx context.Context, epic string, end store.SyncEnd, at time.Time) error
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
@@ -178,8 +180,8 @@ const maxSteps = 16
 // builtinEpic is the workflow an epic with no pinned text runs.
 const builtinEpic = "epic"
 
-// New returns a Runner for cfg, with the plan and build kinds registered, and the review, closure and conclude kinds too
-// when cfg has both Reviewers and Ending.
+// New returns a Runner for cfg, with the plan, build, check, integrate, sync and release kinds registered, and the
+// review, closure and conclude kinds too when cfg has both Reviewers and Ending.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
@@ -188,7 +190,7 @@ func New(cfg Config) *Runner {
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
-			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
+			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{}, kindSync: kinds.Sync{},
 		},
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
@@ -366,6 +368,10 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
 		err = r.store.EndBatch(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Trigger, at)
+	case ActSync:
+		err = r.store.EndSync(ctx, epic.ID, store.SyncEnd{
+			Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
+		}, at)
 	case ActHold, ActReview, ActClosure, ActConclude:
 		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:

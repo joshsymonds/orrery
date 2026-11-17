@@ -432,6 +432,9 @@ WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> s
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 
+-- name: SyncEpicStoredBase :exec
+UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
+
 -- name: SetEpicCandidate :exec
 UPDATE epics SET candidate = ? WHERE id = ?;
 
@@ -570,6 +573,10 @@ WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
 
 -- name: RecordEpicNodeResult :exec
 UPDATE epic_node_runs SET result = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
+
+-- name: PrepareEpicSyncRun :exec
+UPDATE epic_node_runs SET revision = ?, result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
 
 -- name: CheckEpicNodeRefs :execrows

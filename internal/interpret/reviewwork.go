@@ -79,14 +79,15 @@ func (r *Runner) startReviewUnits(ctx context.Context, epic store.EpicRow, act A
 }
 
 // reviewUnitStart returns the step of unit, a unit of the review or closure run act is, before its id and labels are set. A
-// reviewer's step is the reviewers' step at the frozen revision, which is act's run revision. A verifier's step runs over
-// the epic's base to that revision. A closure verifier's step runs over the frozen revision to the closure run's revision.
+// reviewer's step is the reviewers' step at the frozen revision, which is act's run revision, over the change from the
+// epic's change base (changeBase). A verifier's step runs over the change base to that revision. A closure verifier's
+// step runs over the frozen revision to the closure run's revision.
 func (r *Runner) reviewUnitStart(
 	ctx context.Context, epic store.EpicRow, act Action, unit kinds.Unit,
 ) (enginehost.StepStart, error) {
 	switch {
 	case strings.HasPrefix(unit.Part, reviewerPart):
-		start, err := r.reviewers.Start(ctx, epic, unit.Reviewer, epic.Base, act.Run.Revision)
+		start, err := r.reviewers.Start(ctx, epic, unit.Reviewer, changeBase(epic), act.Run.Revision)
 		if err != nil {
 			return enginehost.StepStart{}, fmt.Errorf("reviewer %s: %w", unit.Reviewer, err)
 		}
@@ -96,7 +97,7 @@ func (r *Runner) reviewUnitStart(
 		if err != nil {
 			return enginehost.StepStart{}, err
 		}
-		return epicVerifierStart(epic, epic.Base, act.Run.Revision, unit.Finding, unit.ID, agent), nil
+		return epicVerifierStart(epic, changeBase(epic), act.Run.Revision, unit.Finding, unit.ID, agent), nil
 	case strings.HasPrefix(unit.Part, closePart):
 		frozen, err := r.frozenRevision(ctx, epic.ID)
 		if err != nil {

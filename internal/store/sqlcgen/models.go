@@ -72,6 +72,7 @@ type Epic struct {
 	ClosedBy         string
 	SupersededBy     string
 	ParkClass        string
+	Synced           string
 }
 
 type EpicAddition struct {

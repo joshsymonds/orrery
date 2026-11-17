@@ -132,11 +132,12 @@ func gateCheck(run store.NodeRun, i int, gate string, checks []store.NodeCheck) 
 	case chainLost:
 		return store.NodeCheck{}, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("integrate %s: Done gate %s lost at a restart twice", run.Path, gate),
+			Output: fmt.Sprintf("%s %s: Done gate %s lost at a restart twice", walkName(run), run.Path, gate),
 		}, false
 	case chainEnvironment:
 		return store.NodeCheck{}, Action{
-			Kind: ActPark, Output: fmt.Sprintf("integrate %s: %s", run.Path, environmentPark("Done gate "+gate)),
+			Kind:   ActPark,
+			Output: fmt.Sprintf("%s %s: %s", walkName(run), run.Path, environmentPark("Done gate "+gate)),
 		}, false
 	case chainEnded:
 		return check, Action{}, true
@@ -181,12 +182,12 @@ func captures(run store.NodeRun, rows Rows) (map[string]store.EvidenceRun, Actio
 	case len(lost) > 0:
 		return nil, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("integrate %s: capture %s lost at a restart twice", run.Path, lost[0]),
+			Output: fmt.Sprintf("%s %s: capture %s lost at a restart twice", walkName(run), run.Path, lost[0]),
 		}, false
 	case len(environment) > 0:
 		return nil, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("integrate %s: %s", run.Path, environmentPark("capture "+environment[0])),
+			Output: fmt.Sprintf("%s %s: %s", walkName(run), run.Path, environmentPark("capture "+environment[0])),
 		}, false
 	}
 	return captured, Action{}, true
@@ -218,8 +219,10 @@ func reproductions(run store.NodeRun, rows Rows) (Action, bool) {
 		return Action{Kind: ActNone}, false
 	case len(lost) > 0:
 		return Action{
-			Kind:   ActPark,
-			Output: fmt.Sprintf("integrate %s: reproduction %s lost at a restart twice", run.Path, lost[0]),
+			Kind: ActPark,
+			Output: fmt.Sprintf(
+				"%s %s: reproduction %s lost at a restart twice", walkName(run), run.Path, lost[0],
+			),
 		}, false
 	}
 	return Action{}, true
@@ -287,13 +290,13 @@ func outputOf(lines, leftOut []string) string {
 	return strings.Join(append(slices.Clone(lines), leftOut...), "\n")
 }
 
-// GreenAt returns the Requirements whose capture passed in an integrate run that ended passed at revision, at the run's
-// attempt. A rerun stands for the capture it reran. A Requirement whose evidence amendment ran its green run at revision
-// is green there too when that run passed (see amendedGreen).
+// GreenAt returns the Requirements whose capture passed in an integrate or sync run that ended passed at revision, at
+// the run's attempt. A rerun stands for the capture it reran. A Requirement whose evidence amendment ran its green run
+// at revision is green there too when that run passed (see amendedGreen).
 func GreenAt(rows Rows, revision string) map[string]bool {
 	green := make(map[string]bool)
 	for _, run := range rows.Runs {
-		if run.Kind != kindIntegrate || run.Outcome != outcomePassed || run.Revision != revision {
+		if !integrated(run) || run.Outcome != outcomePassed || run.Revision != revision {
 			continue
 		}
 		for _, requirement := range itemRequirements(rows.Epic.Requirements) {
@@ -387,8 +390,9 @@ func Unbuilt(rows Rows) []string {
 
 // Disagreement returns the line that names test-item Requirement id when its judged red disagrees with its reproduction
 // at the epic's base: the judge found red fails, yet the reproduction with the candidate's tests exited 0 and did not
-// time out. It reads the reproductions of the integrate runs that ended passed at the stored base. It returns "" for any
-// other Requirement, and when one of those reproductions shows red's exit holds: timed out or exited non-zero.
+// time out. It reads the reproductions of the integrate and sync runs that ended passed at the stored base. It returns
+// "" for any other Requirement, and when one of those reproductions shows red's exit holds: timed out or exited
+// non-zero.
 func Disagreement(rows Rows, id string) string {
 	if !slices.ContainsFunc(rows.Epic.Requirements, func(requirement store.EpicRequirement) bool {
 		return requirement.ID == id && isTestItem(requirement)
@@ -431,16 +435,16 @@ func noReproduction(rows Rows, id string) string {
 	return line + ": " + checks[0].NotRun
 }
 
-// baseReproductions returns, in run order, the reproduction of Requirement id that each integrate run which ended passed
-// at the stored base decides on, and then the reproduction the amendment of id ran at the stored base, when it ran one
-// there. A run with no reproduction of id contributes none. When the item of id is an amendment's, neither does a run
-// whose capture of id is stale, since its reproduction ran the capture of an item the Requirement no longer holds. A
-// rerun stands for the reproduction it reran.
+// baseReproductions returns, in run order, the reproduction of Requirement id that each integrate or sync run which
+// ended passed at the stored base decides on, and then the reproduction the amendment of id ran at the stored base,
+// when it ran one there. A run with no reproduction of id contributes none. When the item of id is an amendment's,
+// neither does a run whose capture of id is stale, since its reproduction ran the capture of an item the Requirement no
+// longer holds. A rerun stands for the reproduction it reran.
 func baseReproductions(rows Rows, id string) []store.NodeCheck {
 	amended, isAmended := amendment(rows, id)
 	var checks []store.NodeCheck
 	for _, run := range rows.Runs {
-		if run.Kind != kindIntegrate || run.Outcome != outcomePassed || run.Revision != rows.Epic.StoredBase {
+		if !integrated(run) || run.Outcome != outcomePassed || run.Revision != rows.Epic.StoredBase {
 			continue
 		}
 		if _, _, outcome := evidenceChain(
