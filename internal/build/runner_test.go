@@ -62,7 +62,7 @@ func (f *passSteps) Start(_ context.Context, start enginehost.StepStart) (string
 		return "", f.err
 	}
 	if _, ok := f.rows[start.ID]; !ok {
-		f.rows[start.ID] = store.StepRow{ID: start.ID}
+		f.rows[start.ID] = store.StepRow{ID: start.ID, Workspace: start.Workspace}
 	}
 	return start.ID, nil
 }
@@ -299,9 +299,9 @@ func (f *passFixture) setGreen(attempt int64, verdict string) {
 	f.addRun(passRunID(StageGreen, attempt), evidence.PhaseGreen, f.base, 0, verdict)
 }
 
-// setStep stores the row of the step id, ended with end and kept result.
+// setStep stores the row of the step id, ended with end and kept result, keeping the workspace its start recorded.
 func (f *passFixture) setStep(id, end, result string) {
-	f.steps.rows[id] = store.StepRow{ID: id, End: end, Result: result}
+	f.steps.rows[id] = store.StepRow{ID: id, End: end, Result: result, Workspace: f.steps.rows[id].Workspace}
 }
 
 // addRun gives the evidence run id of phase at revision its capture, exit, and judged verdict, as the store holds a
@@ -663,6 +663,20 @@ func TestPassImplementerDoneWithoutCommitGreenAtWorktreeHead(t *testing.T) {
 	id := passStep(StageImplement, 1, 0)
 	head := buildCommit(t, ImplementWorktree(f.stateDir, passEpic, 1))
 	f.setStep(id, "done", `{"summary":"done"}`)
+	f.pass()
+	f.expectGreenAt(head)
+}
+
+// TestPassImplementerDoneWithoutCommitReadsHeadFromTheStepsWorkspace: an implementer step whose row records a worktree
+// other than the task's implement worktree, as a step started by an earlier orreryd does, has its return without a
+// commit taken at the HEAD of the worktree the row records.
+func TestPassImplementerDoneWithoutCommitReadsHeadFromTheStepsWorkspace(t *testing.T) {
+	t.Parallel()
+	f := newImplementerFixture(t)
+	id := passStep(StageImplement, 1, 0)
+	elsewhere := f.addTaskWorktree(id)
+	head := buildCommit(t, elsewhere)
+	f.steps.rows[id] = store.StepRow{ID: id, End: "done", Result: `{"summary":"done"}`, Workspace: elsewhere}
 	f.pass()
 	f.expectGreenAt(head)
 }

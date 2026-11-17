@@ -220,8 +220,8 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 // item's green unit. The run is kept only while its spec is current with the task's evidence item, as the store reads
 // a task's runs, so a run whose item has changed reads missing. It also counts the earlier reruns of a red or green
 // unit that exited store.EnvironmentExit in a row, so Decide knows how many runs of the unit have done so. For an
-// ended implementer step it reads the HEAD of the step's worktree, and when the step's refs snapshot is set, the ref
-// moves since it.
+// ended implementer step it reads the HEAD of the workspace the step's row records, which is the worktree the step ran
+// in whatever path that has, and when the step's refs snapshot is set, the ref moves since it.
 func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTask, tip string) (View, error) {
 	view := View{
 		Epic: epic.ID, Paused: epic.Paused, Parked: epic.Parked != "", ReviewGates: epic.ReviewGates,
@@ -233,7 +233,7 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
 		return view, nil
 	}
-	view.Head = r.head(ctx, ImplementWorktree(r.stateDir, epic.ID, task.Seq))
+	view.Head = r.head(ctx, view.Step.Workspace)
 	if task.Build.Refs != "" {
 		moves, err := r.refMoves(ctx, epic, task.Build.Refs, task.Build.Base, view.Head)
 		if err != nil {
