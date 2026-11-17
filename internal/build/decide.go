@@ -11,10 +11,18 @@ import (
 // kept, and the implementer's commit is read from it.
 const endGoalUnmet = "goal_unmet"
 
-// implementerReturn is the part of the implementer's kept return Decide reads: its summary and the commit it made.
+// statusNeedsContext is the status of an implementer return that asks for the files it needs beyond its owned list.
+const statusNeedsContext = "needs_context"
+
+// needsFilesKey is the key of the paths an implementer's return names as needed beyond its owned list.
+const needsFilesKey = "needs_files"
+
+// implementerReturn is the part of the implementer's kept return Decide reads: its summary, the commit it made, and the
+// files it names as needed beyond its owned list, which parseImplementerReturn reads from needsFilesKey.
 type implementerReturn struct {
-	Summary string `json:"summary"`
-	Commit  string `json:"commit"`
+	Summary    string   `json:"summary"`
+	Commit     string   `json:"commit"`
+	NeedsFiles []string `json:"-"`
 }
 
 // Decide returns the next action for an open task from its view. A held build waits until the owner releases it. A
@@ -170,7 +178,11 @@ func decideImplement(view View) Action {
 		if !ok {
 			return noVerdict(view, StageImplement, endText(step))
 		}
-		return Action{Kind: ActFail, Reason: fmt.Sprintf("returned %s: %s", step.Status, ret.Summary)}
+		fail := Action{Kind: ActFail, Reason: fmt.Sprintf("returned %s: %s", step.Status, ret.Summary)}
+		if step.Status == statusNeedsContext {
+			fail.NeedsFiles = ret.NeedsFiles
+		}
+		return fail
 	case endStopped:
 		return holdStopped(build)
 	case endEngineRestarted:
@@ -197,9 +209,21 @@ func implementerMoves(view View) (string, []string) {
 	return reason, tells
 }
 
-// parseImplementerReturn decodes the implementer's kept return. It reports false when the return does not decode.
+// parseImplementerReturn decodes the implementer's kept return, and the paths under needsFilesKey when it has them. It
+// reports false when the return does not decode, or when needsFilesKey is not a list of paths.
 func parseImplementerReturn(result string) (implementerReturn, bool) {
 	var ret implementerReturn
-	err := json.Unmarshal([]byte(result), &ret)
-	return ret, err == nil
+	if err := json.Unmarshal([]byte(result), &ret); err != nil {
+		return ret, false
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result), &fields); err != nil {
+		return ret, false
+	}
+	if raw, ok := fields[needsFilesKey]; ok {
+		if err := json.Unmarshal(raw, &ret.NeedsFiles); err != nil {
+			return implementerReturn{}, false
+		}
+	}
+	return ret, true
 }

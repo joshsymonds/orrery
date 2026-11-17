@@ -94,20 +94,22 @@ const (
 )
 
 // Action is one thing a pass does for a task. Next is the build the task moves to. Reason is what a fail or a park
-// carries, the text of a parking move, or the review an accept stores. Phase and ID name the evidence run or step to
-// start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a review or finding
-// action stores, and Tells are the texts the owner is told.
+// carries, the text of a parking move, or the review an accept stores. NeedsFiles is what a fail carries as the files
+// a later task may need: the paths an implementer that returned needs_context named. Phase and ID name the evidence
+// run or step to start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a
+// review or finding action stores, and Tells are the texts the owner is told.
 type Action struct {
-	Kind     ActionKind
-	Next     store.TaskBuild
-	Reason   string
-	Phase    string
-	ID       string
-	Revision string
-	Unit     string
-	Review   store.TaskReview
-	Finding  store.TaskFindingResult
-	Tells    []string
+	Kind       ActionKind
+	Next       store.TaskBuild
+	Reason     string
+	NeedsFiles []string
+	Phase      string
+	ID         string
+	Revision   string
+	Unit       string
+	Review     store.TaskReview
+	Finding    store.TaskFindingResult
+	Tells      []string
 }
 
 // spend returns the action for a unit of the build that failed with failure. The first attempt moves the build to the
@@ -180,7 +182,10 @@ type Store interface {
 	SetTaskBuildTelling(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, tells []string, at time.Time,
 	) error
-	FailTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, at time.Time) error
+	FailTask(
+		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
+		at time.Time,
+	) error
 	AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error
 	StopTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	ParkTask(

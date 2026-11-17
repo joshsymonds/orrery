@@ -605,10 +605,10 @@ func (s crashStore) SetTaskBuild(ctx context.Context, epic string, seq int64, fr
 }
 
 func (s crashStore) FailTask(
-	ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, at time.Time,
+	ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string, at time.Time,
 ) error {
 	return s.w.act("FailTask", func() error {
-		return wrapErr("fail task", s.Store.FailTask(ctx, epic, seq, from, reason, at))
+		return wrapErr("fail task", s.Store.FailTask(ctx, epic, seq, from, reason, needsFiles, at))
 	})
 }
 

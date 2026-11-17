@@ -55,7 +55,8 @@ type EpicTurn struct {
 // gave them, its gate, its evidence item and its status. Turn is the seq of the turn that planned it.
 // Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
 // its build names, nil when it names none or when the run is not current with Evidence. Batch is the path of the
-// integrate run that claimed the task, "" while none has.
+// integrate run that claimed the task, "" while none has. NeedsFiles are the paths beyond its owned Files that its
+// implementer named when it failed, in the order it named them.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -73,6 +74,7 @@ type EpicTask struct {
 	Red          *EvidenceRun
 	Green        *EvidenceRun
 	Batch        string
+	NeedsFiles   []string
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it. Label,
@@ -274,11 +276,16 @@ func taskOf(
 	if err != nil {
 		return EpicTask{}, fmt.Errorf("task %d evidence: %w", stored.Seq, err)
 	}
+	needsFiles, err := decodeList[string](stored.NeedsFiles)
+	if err != nil {
+		return EpicTask{}, fmt.Errorf("task %d needs files: %w", stored.Seq, err)
+	}
 	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
 		Files: files, Requirements: requirements, Contributes: contributes, TestChanges: testChanges,
 		Gate: stored.Gate, Evidence: item,
 		Status: stored.Status, Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
+		NeedsFiles: needsFiles,
 	}
 	if task.Build.RedRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.RedRun)

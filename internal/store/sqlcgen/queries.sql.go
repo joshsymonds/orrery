@@ -3935,7 +3935,7 @@ func (q *Queries) ListEpicTaskTestChanges(ctx context.Context, epic string) ([]E
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -3973,6 +3973,7 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.FindingPos,
 			&i.Batch,
 			&i.Guard,
+			&i.NeedsFiles,
 		); err != nil {
 			return nil, err
 		}
@@ -6348,6 +6349,21 @@ func (q *Queries) SetEpicTaskFindingResult(ctx context.Context, arg SetEpicTaskF
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicTaskNeedsFiles = `-- name: SetEpicTaskNeedsFiles :exec
+UPDATE epic_tasks SET needs_files = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskNeedsFilesParams struct {
+	NeedsFiles string
+	Epic       string
+	Seq        int64
+}
+
+func (q *Queries) SetEpicTaskNeedsFiles(ctx context.Context, arg SetEpicTaskNeedsFilesParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskNeedsFiles, arg.NeedsFiles, arg.Epic, arg.Seq)
+	return err
 }
 
 const setEpicTaskStatus = `-- name: SetEpicTaskStatus :exec

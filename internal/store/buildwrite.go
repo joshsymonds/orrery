@@ -12,14 +12,16 @@ import (
 const triggerPending = "pending"
 
 // FailTask fails task seq of epic in one write, when its stored build is from: the task is failed, its failure is
-// reason cut to TurnReasonMax bytes, and a pending trigger `T<seq>-failed` with cause `task T<seq> failed: <reason>` is
-// added. A task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
+// reason cut to TurnReasonMax bytes, its needsFiles are stored as the files a later task may need, and a pending
+// trigger `T<seq>-failed` with cause `task T<seq> failed: <reason>` is added. A task that is not open, or whose stored
+// build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) FailTask(
 	ctx context.Context,
 	epic string,
 	seq int64,
 	from TaskBuild,
 	reason string,
+	needsFiles []string,
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -30,6 +32,9 @@ func (s *Store) FailTask(
 			return err
 		}
 		if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
+			return err
+		}
+		if err := setTaskNeedsFiles(ctx, queries, epic, seq, needsFiles); err != nil {
 			return err
 		}
 		if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
@@ -149,6 +154,21 @@ func setTaskStatus(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 		Status: status, Epic: epic, Seq: seq,
 	}); err != nil {
 		return fmt.Errorf("set status of task %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
+}
+
+// setTaskNeedsFiles stores paths as the files task seq of epic names as needed beyond its owned list, as a JSON array,
+// and [] for none.
+func setTaskNeedsFiles(ctx context.Context, queries *sqlcgen.Queries, epic string, seq int64, paths []string) error {
+	encoded, err := encodeList(paths)
+	if err != nil {
+		return fmt.Errorf("encode needs files of task %d of epic %s: %w", seq, epic, err)
+	}
+	if err = queries.SetEpicTaskNeedsFiles(ctx, sqlcgen.SetEpicTaskNeedsFilesParams{
+		NeedsFiles: encoded, Epic: epic, Seq: seq,
+	}); err != nil {
+		return fmt.Errorf("set needs files of task %d of epic %s: %w", seq, epic, err)
 	}
 	return nil
 }

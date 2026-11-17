@@ -318,7 +318,7 @@ func followLines(follows []store.LabelFollow) []string {
 }
 
 // taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, contributes,
-// gate, and its evidence item as compact JSON.
+// gate, and its evidence item as compact JSON. A failed task is followed by failedLines.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
 	lines := make([]string, 0, 7*len(tasks))
 	for _, task := range tasks {
@@ -335,8 +335,21 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 			"  gate: "+task.Gate,
 			"  evidence: "+string(evidence),
 		)
+		if task.Status == taskFailed {
+			lines = append(lines, failedLines(task)...)
+		}
 	}
 	return lines, nil
+}
+
+// failedLines returns the failure of a failed task as `  failure: reason`, where the reason is the implementer's
+// return or the check that failed, then `  files the next task may need: ` with the paths its implementer named
+// as needed beyond its owned list, joined by commas, or None. when it named none.
+func failedLines(task store.EpicTask) []string {
+	return []string{
+		"  failure: " + task.Build.Failure,
+		"  files the next task may need: " + nameList(task.NeedsFiles),
+	}
 }
 
 // triggerLines returns each trigger as `- id: cause`.
