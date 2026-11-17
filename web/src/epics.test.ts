@@ -140,7 +140,7 @@ test("an epic with no detail carries none, and its counts read zero", () => {
   assert.deepEqual(block.epic.strip, []);
 });
 
-test("the strip gives each record task its tone in record order, matched by slug, none when no step matches", () => {
+test("StripAgreesOrrery: the strip gives each record task its tone in record order, matched by slug, none when no step matches; a not-done task whose latest step ended goal_unmet is errored, a running step is now, a held step is held and a task no step touched is none", () => {
   const epic = makeEpic({});
   const tasks = [
     { slug: "t0", status: "done" },
@@ -228,22 +228,6 @@ test("StripAgreesOrrery: a not-done record task whose writing step ended returne
   ];
 
   assert.deepEqual(stripOfOne("pending", steps), ["accepted"]);
-});
-
-test("StripAgreesOrrery: a not-done record task whose latest step ended goal_unmet is errored", () => {
-  assert.deepEqual(stripOfOne("pending", [makeStep({ id: "s1", task: "t0", end: "goal_unmet" })]), ["errored"]);
-});
-
-test("StripAgreesOrrery: a running step is now", () => {
-  assert.deepEqual(stripOfOne("pending", [makeStep({ id: "s1", task: "t0" })]), ["now"]);
-});
-
-test("StripAgreesOrrery: a held step is held", () => {
-  assert.deepEqual(stripOfOne("pending", [makeStep({ id: "s1", task: "t0", held: true })]), ["held"]);
-});
-
-test("StripAgreesOrrery: an untouched task is none", () => {
-  assert.deepEqual(stripOfOne("pending", []), ["none"]);
 });
 
 test("StripAgreesOrrery: on an epic whose wedges are its record tasks the tail's gap count equals the errored segments", () => {
