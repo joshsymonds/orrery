@@ -6,7 +6,7 @@ import type { Clients } from "./actions";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
-import { ArchiveButton, type ArchiveControl, EpicLine } from "./epicline";
+import { type ArchiveControl, EpicLine, RowMenu } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
   type EpicBlock,
@@ -263,6 +263,9 @@ export function App({
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
   const [archiveError, setArchiveError] = useState("");
+  // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
+  // is drawn.
+  const [menuKey, setMenuKey] = useState<string | null>(null);
   // The archive marks the landed Archive and Unarchive calls left, by row key and by epic id. Each shows in place of
   // the list's own archived field until the next list answer, which carries that field.
   const [rowMarks, setRowMarks] = useState<Map<string, boolean>>(() => new Map());
@@ -340,6 +343,9 @@ export function App({
         ? placeEpics(byProject(defaultRows), kept.blocks)
         : [archivedSection(kept.archived, archivedRows)];
   const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
+  // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
+  const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
+  const openMenu = menuDrawn ? menuKey : null;
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -583,11 +589,30 @@ export function App({
     );
   };
 
-  // archiveControl is the archive button an entry's line draws: Archive in a default view, Unarchive in the Archived
-  // one.
+  // A menu whose entry leaves the list closes, so it does not reopen when the entry returns. While a menu is open, a
+  // pointerdown anywhere closes it: the ⋯ and the menu stop their own pointerdowns, so only a press outside reaches here.
+  useEffect(() => {
+    if (menuKey !== null && !menuDrawn) {
+      setMenuKey(null);
+    }
+  }, [menuKey, menuDrawn]);
+  useEffect(() => {
+    if (menuKey === null) {
+      return;
+    }
+    const close = () => setMenuKey(null);
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuKey]);
+
+  // archiveControl is the ⋯ menu an entry's line draws. Its one item is Archive in a default view, and Unarchive in the
+  // Archived one. toggle opens the entry's menu, or shuts it when it is the open one, so only one menu is open.
   const archiveControl = (entry: Row | EpicItem): ArchiveControl => ({
     archived: view === "archived",
+    open: openMenu === entry.key,
     run: () => setArchive(entry, view !== "archived"),
+    toggle: () => setMenuKey((current) => (current === entry.key ? null : entry.key)),
+    close: () => setMenuKey(null),
   });
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
@@ -901,6 +926,12 @@ export function App({
         setPickerOpen(false);
         event.preventDefault();
       }
+      return;
+    }
+    // While a drawn entry's ⋯ menu is open, Escape closes it and does nothing else: it takes back and interrupts nothing.
+    if (event.key === "Escape" && openMenu !== null) {
+      setMenuKey(null);
+      event.preventDefault();
       return;
     }
     const input = inputRef.current;
@@ -1334,7 +1365,7 @@ export function App({
                         <span class="label">{item.label}</span>
                         <span class="proj">{lastPathElement(item.project)}</span>
                         <span class="age">{ageText(item.changed, now)}</span>
-                        {item.archiveKind !== "none" && <ArchiveButton control={archiveControl(item)} />}
+                        {item.archiveKind !== "none" && <RowMenu control={archiveControl(item)} />}
                       </div>
                       <div class={item.unseen ? "l2" : "l2 one"}>
                         <ReplyText text={item.state === stateWaiting ? rowNeed(item).text : item.summary} />
