@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
@@ -30,6 +31,12 @@ type StepCommands interface {
 	Resume(ctx context.Context, id string) error
 }
 
+// stepReadMarker is what a status or wait call marks an ended step read through, when its caller headers name the
+// step's caller. Steps satisfies it. A StepCommands without it marks nothing.
+type stepReadMarker interface {
+	MarkRead(ctx context.Context, id string, caller store.EpicCaller)
+}
+
 // stepService implements the Steps RPCs over steps.
 // stoppingMessage is why a WaitSteps still waiting when the session socket shuts down fails.
 const stoppingMessage = "orreryd is stopping"
@@ -40,6 +47,20 @@ type stepService struct {
 	// this orreryd's steps, the producers of every end it waits for, are stopping with it; its caller waits again on the
 	// next orreryd, as it does for any unavailable orreryd.
 	stopping <-chan struct{}
+}
+
+// markRead marks the ended step row read by the caller that header names, when the steps can mark reads and the header
+// names a caller. A call with no caller headers marks nothing.
+func (s *stepService) markRead(ctx context.Context, row store.StepRow, header http.Header) {
+	marker, ok := s.steps.(stepReadMarker)
+	if !ok || row.End == "" {
+		return
+	}
+	caller, named := epicCallerOf(header)
+	if !named {
+		return
+	}
+	marker.MarkRead(ctx, row.ID, caller)
 }
 
 // isStopping reports whether Serve has begun its shutdown.
@@ -123,6 +144,7 @@ func (s *stepService) StepStatus(
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
+	s.markRead(ctx, row, req.Header())
 	return connect.NewResponse(&v1.StepStatusResponse{Step: step}), nil
 }
 
@@ -162,6 +184,11 @@ func (s *stepService) WaitSteps(
 			return nil, stepCommandError(err)
 		}
 		resp.Steps = append(resp.Steps, step)
+	}
+	// The ended step is one of rows, so marking every ended row marks it too. The marks follow the last message, so a
+	// call that fails answers its caller with no end and marks none.
+	for _, row := range rows {
+		s.markRead(ctx, row, req.Header())
 	}
 	return connect.NewResponse(resp), nil
 }

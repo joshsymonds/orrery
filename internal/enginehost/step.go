@@ -116,13 +116,14 @@ type StepStart struct {
 }
 
 // StepStore reads the step rows Steps reports, the turn ends their sessions stored and the rate limits their sessions were
-// rejected with. *store.Store satisfies it.
+// rejected with, and marks an ended step read by its caller. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
 	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
+	MarkStepRead(ctx context.Context, id string, caller store.EpicCaller) (bool, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
