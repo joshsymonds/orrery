@@ -166,6 +166,13 @@ func evidenceChain(
 	return evidence, id, outcome
 }
 
+// EvidenceRunID returns the work id of the evidence run that decides part of run, as Evidence.Decide reads it: the first
+// run, or the rerun that a store.EnvironmentExit started. It is the first run's id when no run of part is stored.
+func EvidenceRunID(run store.NodeRun, runs []store.EvidenceRun, part string) string {
+	_, id, _ := evidenceChain(run, runs, part, false)
+	return id
+}
+
 // environmentPark returns the reason a run parks with when its last run exited store.EnvironmentExit: what ran, and that the
 // exit is an environment result, not a verdict.
 func environmentPark(what string) string {

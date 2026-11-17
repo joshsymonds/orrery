@@ -256,3 +256,46 @@ func TestEpicGetUnpinnedEpicOrdersNodesByTheBuiltInWorkflow(t *testing.T) {
 	}
 	wantProtos(t, "GetEpic nodes", getEpicOK(t, client).GetNodes(), want)
 }
+
+// TestEpicGetEvidenceNodeListsTheRerunThatDecides checks that an evidence node lists, for a Requirement whose first run
+// exited store.EnvironmentExit, the rerun that decides it and not the first run, as kinds.Evidence decides it.
+func TestEpicGetEvidenceNodeListsTheRerunThatDecides(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st := epicTestStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createNodesEpic(t, client)
+	at := time.Unix(turnStarted, 0)
+	run := store.NodeRun{Path: "evidence", ID: "run-evidence", Node: "evidence", Kind: "evidence", Attempt: 1}
+	if err := st.StartNodes(ctx, epicServiceID, []store.NodeRun{run}, nil, at); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	first := store.NodeWorkID("run-evidence", 1, "R1")
+	rerun := store.NodeWorkID("run-evidence", 1, "R1 rerun")
+	for _, id := range []string{first, rerun} {
+		if err := st.AddEvidenceRun(ctx, store.EvidenceRun{
+			ID: id, Epic: epicServiceID, Item: "R1", Revision: nodesRevision, Phase: "red", Source: "captured",
+			Spec: evidenceItemOf(epicTestItem()), Created: at,
+		}); err != nil {
+			t.Fatalf("AddEvidenceRun %s: %v", id, err)
+		}
+	}
+	if err := st.RecordEvidenceCapture(ctx, first, store.EvidenceCapture{
+		Exit: store.EnvironmentExit, NotCaptured: store.NotCapturedEnvironment, At: at,
+	}); err != nil {
+		t.Fatalf("RecordEvidenceCapture %s: %v", first, err)
+	}
+
+	var evidence *v1.EpicNode
+	for _, node := range getEpicOK(t, client).GetNodes() {
+		if node.GetPath() == "evidence" {
+			evidence = node
+		}
+	}
+	if evidence == nil {
+		t.Fatalf("GetEpic nodes have no evidence node")
+	}
+	if got := evidence.GetRuns(); !slices.Equal(got, []string{rerun}) {
+		t.Errorf("evidence node runs = %v, want only the deciding rerun %q", got, rerun)
+	}
+}

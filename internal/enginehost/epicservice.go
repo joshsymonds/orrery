@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -855,12 +856,13 @@ func planRows(epic store.EpicRow, mark int64) ([]int64, []int64) {
 	return turns, tasks
 }
 
-// evidenceRunIDs returns the ids of the evidence runs stored for run's attempt, one per Requirement in the contract's
-// order. An id is derived from run's id, its attempt and the Requirement's id, so only that attempt's runs match.
+// evidenceRunIDs returns, for run's attempt, the id of the evidence run that decides each Requirement, in the contract's
+// order: the first run, or the rerun a store.EnvironmentExit started, as kinds.EvidenceRunID walks them. A Requirement
+// with no stored run at that attempt is left out.
 func evidenceRunIDs(flow store.EpicFlow, run store.NodeRun) []string {
 	var ids []string
 	for _, requirement := range flow.Epic.Requirements {
-		id := store.NodeWorkID(run.ID, run.Attempt, requirement.ID)
+		id := kinds.EvidenceRunID(run, flow.Evidence, requirement.ID)
 		if slices.ContainsFunc(flow.Evidence, func(stored store.EvidenceRun) bool { return stored.ID == id }) {
 			ids = append(ids, id)
 		}
