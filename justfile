@@ -204,6 +204,17 @@ web-check:
 web-page:
     scripts/build-web.sh web/build/page
 
+# Capture the web client against its accepted wireframe: every scenario of web/visual/map.json at widths 1600 and 1000,
+# each side's screenshot and web/build/visual/report.json. The check compares nothing and exits 0 whatever it finds; a
+# run that cannot start exits 1. It runs under the visual devenv profile, which carries Chromium and the prose font, so
+# the default shell and the gates stay free of them. The driver is web/src/visual/report-main.ts.
+[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
+visual-report:
+    scripts/build-web.sh web/build/page
+    rm -rf web/build/visual web/build/visual-tool
+    esbuild $(find web/src/visual -name '*.ts' ! -name '*.test.ts' | sort) --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build/visual-tool --out-extension:.js=.mjs --external:playwright-core --log-level=warning
+    node web/build/visual-tool/visual/report-main.mjs
+
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
 check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test
 
