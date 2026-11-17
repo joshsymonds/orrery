@@ -400,14 +400,14 @@ func baseReproductions(rows Rows, id string) []store.NodeCheck {
 }
 
 // hasRedAtBase reports whether an evidence node run that ended passed has a passed red run of Requirement id at the
-// epic's base, at the run's attempt.
+// epic's base, at the run's attempt. That red run is the one the run's rerun chain decides on, as Evidence.Decide reads it.
 func hasRedAtBase(rows Rows, id string) bool {
 	for _, run := range rows.Runs {
 		if run.Kind != kindEvidence || run.Outcome != outcomePassed {
 			continue
 		}
-		red, ok := evidenceByID(rows.Evidence, store.NodeWorkID(run.ID, run.Attempt, id))
-		if ok && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed {
+		red, _, outcome := evidenceChain(run, rows.Evidence, id, false)
+		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed {
 			return true
 		}
 	}
@@ -415,16 +415,16 @@ func hasRedAtBase(rows Rows, id string) bool {
 }
 
 // MetAtBase returns the Requirements whose red run at the attempt of the node run was judged met, so their conclusion
-// already holds at the base. They are in contract order. A Requirement dropped as already met has no red run to judge,
-// so it is never named.
+// already holds at the base. That red run is the one the rerun chain decides on, as Evidence.Decide reads it. They are in
+// contract order. A Requirement dropped as already met has no red run to judge, so it is never named.
 func MetAtBase(node Node, rows Rows) []string {
 	var met []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		if droppedAsMet(requirement) {
 			continue
 		}
-		red, ok := evidenceByID(rows.Evidence, store.NodeWorkID(node.Run.ID, node.Run.Attempt, requirement.ID))
-		if ok && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
+		red, _, outcome := evidenceChain(node.Run, rows.Evidence, requirement.ID, false)
+		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
 			met = append(met, requirement.ID)
 		}
 	}
