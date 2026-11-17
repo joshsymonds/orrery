@@ -503,13 +503,18 @@ shown_bytes() {
 
 # read_stream <out|err>: passes one stream connection's output on to stdout or stderr. The box's first line,
 # "orrery-gate-stream <run> <state>", goes to $collect/<log>.state, and every byte after it is shown and appended to
-# $collect/<log>. Output that does not start with that line did not come from the stream and is shown as it is.
+# $collect/<log>. Output that does not start with that line did not come from the stream and is shown as it is. After a
+# drop ($collect/lost), the stderr stream says the run is back as its first line arrives, before its output goes on.
 read_stream() {
     local line fd=1
     [ "$1" = out ] || fd=2
     if IFS= read -r line; then
         if [[ $line == "orrery-gate-stream $run_id "* ]]; then
             printf '%s\n' "${line#"orrery-gate-stream $run_id "}" >"$collect/$1.state"
+            if [ "$1" = err ] && [ -e "$collect/lost" ]; then
+                rm -f -- "$collect/lost"
+                echo "gate-remote: reconnected to $dest; the run's output goes on from where it stopped" >&2
+            fi
             exec tee -a "$collect/$1" >&"$fd"
         fi
         printf '%s\n' "$line" >&"$fd"
@@ -634,7 +639,7 @@ run_remote() {
     trap 'stop_collecting; kill -TERM "${stream_pids[@]}" 2>/dev/null || true; stop_remote; exit 143' TERM
     trap 'stop_collecting; kill -TERM "${stream_pids[@]}" 2>/dev/null || true; stop_remote; exit 130' INT
     trap 'stop_collecting; kill -TERM "${stream_pids[@]}" 2>/dev/null || true; stop_remote; exit 129' HUP
-    local launched=0 lost=0 deadline=0 delay=1 now begun shown connected out_state err_state record="" state
+    local launched=0 deadline=0 delay=1 now begun shown connected out_state err_state record="" state
     while :; do
         begun="$(date +%s)"
         shown="$(shown_bytes)"
@@ -657,10 +662,6 @@ run_remote() {
         # The run is being collected again once a connection brings output, stays up for 5 s or ends as the box ends
         # it; a connection that fails at once each time counts towards the bound.
         if [ "$connected" -eq 1 ] && { [ "$streamed" -eq 1 ] || [ "$(shown_bytes)" -gt "$shown" ] || [ $((now - begun)) -ge 5 ]; }; then
-            if [ "$lost" -eq 1 ]; then
-                echo "gate-remote: reconnected to $dest; the run's output goes on from where it stopped" >&2
-            fi
-            lost=0
             deadline=0
             delay=1
         fi
@@ -679,10 +680,13 @@ run_remote() {
             done
             continue
         fi
+        # Each drop after the run was reached again is said once, and the stderr stream says when it is back.
+        if [ ! -e "$collect/lost" ]; then
+            : >"$collect/lost"
+            echo "gate-remote: the connection to $dest dropped; reconnecting for up to ${collect_secs}s to collect the run" >&2
+        fi
         if [ "$deadline" -eq 0 ]; then
             deadline=$((now + collect_secs))
-            lost=1
-            echo "gate-remote: the connection to $dest dropped; reconnecting for up to ${collect_secs}s to collect the run" >&2
         fi
         if [ "$now" -ge "$deadline" ]; then
             stop_collecting

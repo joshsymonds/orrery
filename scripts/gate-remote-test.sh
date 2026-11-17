@@ -601,6 +601,15 @@ collected_once "a passing run whose connection dropped"
 expect "the drop happened" test ! -s "$root/cut-stream"
 expect_line "$root/err" "^$dropped_line\$" "a dropped connection says it reconnects"
 expect_line "$root/err" "^$reconnected_line\$" "a dropped connection says it reconnected"
+# before_line <file> <first> <second>: the first line that is <first> comes before the one that is <second>.
+before_line() {
+    local a b
+    a="$(grep -nxF -- "$2" "$1" | head -n 1 | cut -d: -f1)"
+    b="$(grep -nxF -- "$3" "$1" | head -n 1 | cut -d: -f1)"
+    [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
+}
+expect "a reconnect is said as the output comes back, before the rest of it" \
+    before_line "$root/err" "$reconnected_line" "err line 40"
 expect_line "$root/err" '^gate-remote: bash .*exited 0 after [0-9]+s on orrery@fake-box$' "a run collected after a drop reports its exit"
 expect_no_line "$root/err" 'environment result' "a run collected after a drop is no environment result"
 expect "a run collected after a drop runs nothing here" test ! -e "$root/ran-here"
