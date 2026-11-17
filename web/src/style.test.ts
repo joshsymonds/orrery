@@ -482,13 +482,25 @@ test("the answered line is 12px over 18px in green, under a 5px margin", () => {
   assert.match(ans, /color:\s*var\(--green\);/);
 });
 
-test("a run fold's ✓ is green and its ✗ red, both pushed to the right", () => {
-  const ok = declarationsFor(css, ".reader .fold .ok");
-  assert.match(ok, /margin-left:\s*auto;/);
-  assert.match(ok, /color:\s*var\(--green\);/);
-  const bad = declarationsFor(css, ".reader .fold .bad");
-  assert.match(bad, /margin-left:\s*auto;/);
-  assert.match(bad, /color:\s*var\(--red\);/);
+test("a run fold's dot trail is pushed to the right, and a failed call's dot is red", () => {
+  assert.match(declarationsFor(css, ".reader .fold .trail"), /margin-left:\s*auto;/);
+  assert.match(declarationsFor(css, ".reader .fold .dot.failed"), /background:\s*var\(--red\);/);
+});
+
+test("a running call's line and a running run's fold draw a yellow rail, and a running dot is yellow", () => {
+  assert.match(declarationsFor(css, ".reader .call.running"), /box-shadow:\s*inset 2px 0 0 var\(--yellow\)/);
+  assert.match(declarationsFor(css, ".reader .fold.running"), /box-shadow:\s*inset 2px 0 0 var\(--yellow\)/);
+  assert.match(declarationsFor(css, ".reader .fold .dot.running"), /background:\s*var\(--yellow\)/);
+});
+
+test("a call line is 12px grey on a hairline, its tool's name the only colour, and a run's opened lines touch", () => {
+  const line = declarationsFor(css, ".reader .call");
+  assert.match(line, /font:\s*12px\/20px var\(--mono\);/);
+  assert.match(line, /(?<![-\w])color:\s*var\(--overlay1\);/);
+  assert.match(line, /box-shadow:\s*inset 0 -1px 0 var\(--rule\);/);
+  assert.match(line, /(?<![-\w])margin:\s*0;/);
+  assert.match(declarationsFor(css, ".reader .call b"), /color:\s*var\(--blue\);/);
+  assert.match(declarationsFor(css, ".reader .calls"), /(?<![-\w])gap:\s*0;/);
 });
 
 test("the row's state word and the unused status colours have no rules", () => {

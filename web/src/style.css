@@ -394,12 +394,15 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .rule.new { color: var(--lavender); font-weight: 700; }
 .reader .rule.new::after { background: color-mix(in srgb, var(--lavender) 50%, transparent); }
 .reader .compaction .summary { margin-top: 6px; padding: 9px 14px; border-radius: 8px; background: var(--mantle); color: var(--subtext0); font-size: 14.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.reader .call { display: flex; gap: 9px; padding: 2px 10px; font: 12px/20px var(--mono); color: var(--subtext0); min-width: 0; }
+/* A call line is 12px grey text on a hairline, and its tool's name is the only colour. The lines of an opened run touch. */
+.reader .call { display: flex; gap: 9px; margin: 0; padding: 2px 10px; box-shadow: inset 0 -1px 0 var(--rule); font: 12px/20px var(--mono); color: var(--overlay1); min-width: 0; }
 .reader .call b { flex: none; color: var(--blue); font-weight: 400; }
 .reader .call .in { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader .call .fail { flex: none; color: var(--red); }
-.reader .call.question { color: var(--peach); }
-.reader .call.question b { color: inherit; }
+.reader .calls { display: flex; flex-direction: column; gap: 0; }
+/* A call still running draws a yellow rail at its left edge, and the running mark names it. */
+.reader .call.running { box-shadow: inset 2px 0 0 var(--yellow), inset 0 -1px 0 var(--rule); }
+.reader .running-mark { flex: none; color: var(--overlay1); }
 .reader .question { padding: 2px 10px; font: 12px/20px var(--mono); color: var(--peach); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* A call with a result, and a live thinking row, are buttons: the browser's button chrome is reset to the line. */
 .reader button.call, .reader button.thinking { width: 100%; margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
@@ -427,8 +430,13 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .fold::before { content: "▸"; flex: none; color: var(--overlay0); font-size: 10px; }
 .reader .fold b { flex: none; color: var(--subtext1); }
 .reader .fold .names { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.reader .fold .ok { margin-left: auto; color: var(--green); }
-.reader .fold .bad { margin-left: auto; color: var(--red); }
+.reader .fold.running { box-shadow: inset 2px 0 0 var(--yellow); }
+/* A run's trail is one dot per call in call order, pushed to the right: grey for a call that succeeded, red for one that
+   failed, yellow for one still running. */
+.reader .fold .trail { display: inline-flex; flex: none; align-items: center; gap: 4px; margin-left: auto; }
+.reader .fold .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--overlay1); }
+.reader .fold .dot.failed { background: var(--red); }
+.reader .fold .dot.running { background: var(--yellow); }
 .reader .fold-text { margin-top: 6px; padding: 9px 14px; border-radius: 8px; background: var(--mantle); color: var(--subtext0); overflow-wrap: anywhere; }
 .reader .card { padding: 9px 12px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--ink, var(--overlay0)); }
 .reader .card.bad { --ink: var(--red); }
