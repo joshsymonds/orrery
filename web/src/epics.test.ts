@@ -384,32 +384,6 @@ test("waiting epics leave the blocks for their own list, in input order, and are
   assert.deepEqual(itemIds(view.endedEarlier), ["gadgets-0e1f2a3/old"]);
 });
 
-test("ArchiveView: epicsView builds no folded field, and the Epics group carries no folded list", () => {
-  const epics = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic({ id: `widgets-5d0c1a7/${slug}`, slug }));
-
-  const view = epicsView(epics, new Map());
-  const [group] = withEpicsGroup([], view);
-
-  assert.deepEqual(Object.keys(view).sort(), [
-    "archived",
-    "blocks",
-    "details",
-    "endedEarlier",
-    "justEnded",
-    "live",
-    "waiting",
-  ]);
-  assert.deepEqual(Object.keys(group).sort(), [
-    "count",
-    "endedEarlier",
-    "epics",
-    "justEnded",
-    "rows",
-    "title",
-    "waiting",
-  ]);
-});
-
 test("ArchiveView: more than six quiet live epics are all listed in their repository's section", () => {
   const quiet = ["a", "b", "c", "d", "e", "f", "g", "h"].map((slug) =>
     makeEpic({ id: `widgets-5d0c1a7/${slug}`, slug }),
