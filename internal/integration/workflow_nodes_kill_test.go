@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -314,8 +315,10 @@ func TestWorkflowNodesGateRetryAfterRestartRunsEachAttemptOnce(t *testing.T) {
 	if run := r.nodeRun(t, nodesGateNode); run.Outcome != "failed" || run.Attempt != 0 {
 		t.Fatalf("parked gate node = outcome %q attempt %d, want failed at attempt 0", run.Outcome, run.Attempt)
 	}
-	if reason := r.epic(t).GetParked(); !strings.Contains(reason, "workflow node "+nodesGateNode+" failed") {
-		t.Fatalf("park reason %q does not name node %s", reason, nodesGateNode)
+	if causes := r.triggerCauses(t); !slices.ContainsFunc(causes, func(cause string) bool {
+		return strings.Contains(cause, "workflow node "+nodesGateNode+" failed")
+	}) {
+		t.Fatalf("planner triggers %q do not name node %s", causes, nodesGateNode)
 	}
 	if n := gateRunCount(t, lines); n != 1 {
 		t.Fatalf("gate lines before the restart = %d, want 1", n)

@@ -278,16 +278,56 @@ func TestParkNodeParksRunAndEpicWithOneTell(t *testing.T) {
 	}
 
 	const reason = "workflow node check failed: gate output"
-	if err := s.ParkNode(ctx, workEpic, "check", 2, "failed", "wrong attempt", reason, loopParkedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workEpic,
+		"check",
+		2,
+		"failed",
+		"wrong attempt",
+		store.ParkClassBranch,
+		reason,
+		loopParkedAt(),
+	); err != nil {
 		t.Fatalf("ParkNode at another attempt: %v", err)
 	}
-	if err := s.ParkNode(ctx, workEpic, "check", 1, "failed", "gate output", reason, loopParkedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workEpic,
+		"check",
+		1,
+		"failed",
+		"gate output",
+		store.ParkClassBranch,
+		reason,
+		loopParkedAt(),
+	); err != nil {
 		t.Fatalf("ParkNode: %v", err)
 	}
-	if err := s.ParkNode(ctx, workEpic, "check", 1, "passed", "second", "second reason", nodeEndedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workEpic,
+		"check",
+		1,
+		"passed",
+		"second",
+		store.ParkClassBranch,
+		"second reason",
+		nodeEndedAt(),
+	); err != nil {
 		t.Fatalf("repeat ParkNode: %v", err)
 	}
-	if err := s.ParkNode(ctx, workEpic, "done", 1, "failed", "ended", "ended reason", nodeEndedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workEpic,
+		"done",
+		1,
+		"failed",
+		"ended",
+		store.ParkClassBranch,
+		"ended reason",
+		nodeEndedAt(),
+	); err != nil {
 		t.Fatalf("ParkNode of an ended run: %v", err)
 	}
 
@@ -335,7 +375,17 @@ func TestNodeOutputOverMaxIsCutOnARuneStart(t *testing.T) {
 	if err := s.EndNodesWaking(ctx, workEpic, ends, trigger, nodeEndedAt()); err != nil {
 		t.Fatalf("EndNodesWaking: %v", err)
 	}
-	if err := s.ParkNode(ctx, workEpic, "parked", 1, "failed", straddling, "parked reason", nodeEndedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workEpic,
+		"parked",
+		1,
+		"failed",
+		straddling,
+		store.ParkClassNode,
+		"parked reason",
+		nodeEndedAt(),
+	); err != nil {
 		t.Fatalf("ParkNode: %v", err)
 	}
 
@@ -439,10 +489,30 @@ func TestRetryNodeTurnsParkedRunRunningAtNextAttempt(t *testing.T) {
 	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, "", nil, loopParkedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs: %v", err)
 	}
-	if err := s.ParkNode(ctx, workEpic, "check", 1, "failed", "boom", reason, loopParkedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workEpic,
+		"check",
+		1,
+		"failed",
+		"boom",
+		store.ParkClassNode,
+		reason,
+		loopParkedAt(),
+	); err != nil {
 		t.Fatalf("ParkNode: %v", err)
 	}
-	if err := s.ParkNode(ctx, workOther, "check", 1, "failed", "other", "other reason", loopParkedAt()); err != nil {
+	if err := s.ParkNode(
+		ctx,
+		workOther,
+		"check",
+		1,
+		"failed",
+		"other",
+		store.ParkClassNode,
+		"other reason",
+		loopParkedAt(),
+	); err != nil {
 		t.Fatalf("ParkNode of %s: %v", workOther, err)
 	}
 

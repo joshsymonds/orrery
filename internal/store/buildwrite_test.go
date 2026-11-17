@@ -254,7 +254,16 @@ func TestParkTaskParksEpicWithReasonAndAddsTell(t *testing.T) {
 	to := store.TaskBuild{Stage: "red", Base: buildBase, Held: "parked"}
 	const reason = "the red run did not capture"
 
-	if err := s.ParkTask(ctx, buildEpic, 1, store.TaskBuild{}, to, reason, writtenAt()); err != nil {
+	if err := s.ParkTask(
+		ctx,
+		buildEpic,
+		1,
+		store.TaskBuild{},
+		to,
+		store.ParkClassRefMove,
+		reason,
+		writtenAt(),
+	); err != nil {
 		t.Fatalf("ParkTask: %v", err)
 	}
 
@@ -276,7 +285,7 @@ func TestParkEpicParksWithReasonAndAddsTell(t *testing.T) {
 	s, raw := openBuildStore(ctx, t)
 	const reason = "the branch exists"
 
-	if err := s.ParkEpic(ctx, buildEpic, reason, writtenAt()); err != nil {
+	if err := s.ParkEpic(ctx, buildEpic, store.ParkClassBranch, reason, writtenAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 
@@ -295,7 +304,7 @@ func TestParkEpicOfUnknownEpicIsErrNoEpicAndWritesNothing(t *testing.T) {
 	s, raw := openBuildStore(ctx, t)
 	before := storedState(t, raw)
 
-	err := s.ParkEpic(ctx, "orrery-1a2b3c4/epic-missing", "no such epic", writtenAt())
+	err := s.ParkEpic(ctx, "orrery-1a2b3c4/epic-missing", store.ParkClassBranch, "no such epic", writtenAt())
 	if !errors.Is(err, store.ErrNoEpic) {
 		t.Fatalf("ParkEpic of unknown epic err = %v, want ErrNoEpic", err)
 	}
@@ -377,7 +386,7 @@ func movedWrites() []movedWrite {
 		{name: "ParkTask", run: func(s *store.Store, from store.TaskBuild) error {
 			to := from
 			to.Held = "parked"
-			return s.ParkTask(ctx, buildEpic, 1, from, to, "late park", writtenAt())
+			return s.ParkTask(ctx, buildEpic, 1, from, to, store.ParkClassTask, "late park", writtenAt())
 		}},
 	}
 }

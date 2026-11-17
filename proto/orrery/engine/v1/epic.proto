@@ -40,6 +40,18 @@ service Epics {
   // owner's decision, and names no undo-none step. It returns the stored epic.
   rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
 
+  // CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
+  // its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
+  // planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+  rpc CloseEpic(CloseEpicRequest) returns (CloseEpicResponse);
+
+  // AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
+  // created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
+  // of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
+  // amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
+  // change the conclusion; any other call amends as the owner, who may.
+  rpc AmendEvidence(AmendEvidenceRequest) returns (AmendEvidenceResponse);
+
   // SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
   rpc SeeEpic(SeeEpicRequest) returns (SeeEpicResponse);
 
@@ -949,6 +961,12 @@ message StoredEpic {
 
   // When the owner last saw the epic, in unix seconds, from its latest SeeEpic; 0 when the owner has not seen it.
   int64 seen = 26;
+
+  // The class of the epic's park, which says who answers it. Empty when the epic is not parked.
+  string park_class = 27;
+
+  // The amendments of the evidence items of the epic's Requirements, in the order they were asked for.
+  repeated EpicAmendment amendments = 28;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -1239,6 +1257,110 @@ message ReleaseEpicRequest {
 message ReleaseEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+}
+
+// CloseEpicRequest names the epic to close, the kind it closes as and, for superseded, the epic that replaces it.
+message CloseEpicRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The close kind: superseded, shipped or abandoned.
+  string kind = 2;
+
+  // The epic that replaces this one. A superseded close requires it.
+  string by = 3;
+}
+
+// CloseEpicResponse carries the epic read back after its close.
+message CloseEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// AmendEvidenceRequest names the epic, the Requirement whose evidence item to amend, the item it should hold and why.
+message AmendEvidenceRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The id of the Requirement to amend, such as R2.
+  string requirement = 2;
+
+  // The evidence item the Requirement should hold in place of its own.
+  EvidenceItem item = 3;
+
+  // Why the item is amended, recorded with the amendment.
+  string reason = 4;
+}
+
+// AmendEvidenceResponse carries the stored amendment, checking, and the epic read back after it.
+message AmendEvidenceResponse {
+  // The amendment as stored.
+  EpicAmendment amendment = 1;
+
+  // The stored epic.
+  StoredEpic epic = 2;
+}
+
+// EpicAmendment is one amendment of a Requirement's evidence item.
+message EpicAmendment {
+  // The amendment's number on its epic, from 1, shown as A<seq>.
+  int64 seq = 1;
+
+  // The id of the Requirement it amends.
+  string requirement = 2;
+
+  // Who asked for it: owner or planner.
+  string amender = 3;
+
+  // The turn of the planner action that asked for it; 0 when no action did.
+  int64 turn = 4;
+
+  // The 1-based position of that action in its turn's return; 0 when no action did.
+  int64 position = 5;
+
+  // The item the Requirement held when the amendment was asked for.
+  EvidenceItem prior_item = 6;
+
+  // The item the amendment asks the Requirement to hold.
+  EvidenceItem item = 7;
+
+  // Why it was asked for.
+  string reason = 8;
+
+  // The epic's base, where the red run of the new item runs.
+  string base = 9;
+
+  // checking while that red run is judged, refused when it is refused, capturing once the new item is applied and its
+  // green runs at the stored base, and applied once it is done.
+  string state = 10;
+
+  // The attempt of the red run, from 0; a run lost at a restart, or that exited for its environment, runs again.
+  int64 red_attempt = 11;
+
+  // The id of the red run of the new item at the base.
+  string red_run = 12;
+
+  // The stored base the green run and reproduction run at; empty until the amendment is capturing, and for one applied
+  // with nothing integrated yet.
+  string stored_base = 13;
+
+  // The attempt of the green run and reproduction, from 0.
+  int64 green_attempt = 14;
+
+  // The id of the green run of the new item at the stored base; empty when it has none.
+  string green_run = 15;
+
+  // The id of the reproduction check of a test item at the epic's base; empty when it has none.
+  string repro_check = 16;
+
+  // Why a refused amendment was refused; empty otherwise.
+  string refusal = 17;
+
+  // When it was asked for, in unix seconds.
+  int64 created = 18;
+
+  // When it left checking, applied or refused, in unix seconds; 0 while it is checking.
+  int64 settled = 19;
 }
 
 // SeeEpicRequest names the stored epic the owner saw.

@@ -55,7 +55,7 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 		err := r.store.StopTask(ctx, epic.ID, seq, from, action.Next)
 		return r.written(ctx, epic.ID, seq, "pause task", err)
 	case ActPark:
-		err := r.store.ParkTask(ctx, epic.ID, seq, from, action.Next, action.Reason, r.now())
+		err := r.store.ParkTask(ctx, epic.ID, seq, from, action.Next, store.ParkClassTask, action.Reason, r.now())
 		return r.written(ctx, epic.ID, seq, "park task", err)
 	case ActReview:
 		err := r.store.AddTaskReview(ctx, epic.ID, seq, from, action.Next, action.Review)
@@ -88,7 +88,9 @@ func (r *Runner) checkRefs(ctx context.Context, epic store.EpicRow, view View, a
 	seq, from := view.Task.Seq, view.Task.Build
 	var err error
 	if action.Reason != "" {
-		err = r.store.ParkTask(ctx, epic.ID, seq, from, action.Next, action.Reason, r.now(), action.Tells...)
+		err = r.store.ParkTask(
+			ctx, epic.ID, seq, from, action.Next, store.ParkClassRefMove, action.Reason, r.now(), action.Tells...,
+		)
 	} else {
 		err = r.store.SetTaskBuildTelling(ctx, epic.ID, seq, from, action.Next, action.Tells, r.now())
 	}
@@ -125,7 +127,7 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 	case errors.As(err, &roleErr):
 		next := from
 		next.Held = HeldParked
-		park := r.store.ParkTask(ctx, epic.ID, seq, from, next, err.Error(), r.now())
+		park := r.store.ParkTask(ctx, epic.ID, seq, from, next, store.ParkClassTask, err.Error(), r.now())
 		return r.written(ctx, epic.ID, seq, "park on role error", park)
 	default:
 		return r.execute(ctx, epic, view, DecideStartError(view, err))

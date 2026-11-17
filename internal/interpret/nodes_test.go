@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +174,8 @@ func (f *fakeChecks) Run(ctx context.Context, check store.NodeCheck) (store.Node
 // evidenceCall is one RunItem call: the run's id, epic, Requirement, revision and phase.
 type evidenceCall struct {
 	id, epic, item, revision, phase string
+	// spec is the item an amendment's run was asked for, and the zero item for a run of the item a Requirement holds.
+	spec evidence.Item
 }
 
 // fakeEvidence stands in for the evidence service. It stores each run it is asked for once, under its id, in the
@@ -187,6 +190,33 @@ func (f *fakeEvidence) RunItem(
 	ctx context.Context, id, epic, item, revision, phase string,
 ) (store.EvidenceRun, error) {
 	f.calls = append(f.calls, evidenceCall{id: id, epic: epic, item: item, revision: revision, phase: phase})
+	// The run keeps the Requirement's item as its spec, and the fixture's items capture, so the run's source is
+	// captured, as the real service gives them.
+	return f.add(ctx, id, epic, item, revision, phase, func(row store.EpicRow) evidence.Item {
+		var spec evidence.Item
+		for _, requirement := range row.Requirements {
+			if requirement.ID == item {
+				spec = requirement.Item
+			}
+		}
+		return spec
+	})
+}
+
+// RunAmendment records the call with its spec, and stores the run of spec unless its id is stored already.
+func (f *fakeEvidence) RunAmendment(
+	ctx context.Context, id, epic, requirement string, spec evidence.Item, revision, phase string,
+) (store.EvidenceRun, error) {
+	f.calls = append(f.calls, evidenceCall{
+		id: id, epic: epic, item: requirement, revision: revision, phase: phase, spec: spec,
+	})
+	return f.add(ctx, id, epic, requirement, revision, phase, func(store.EpicRow) evidence.Item { return spec })
+}
+
+// add stores the run of the spec specOf gives under id, unless a run with id is stored already, and returns the stored run.
+func (f *fakeEvidence) add(
+	ctx context.Context, id, epic, item, revision, phase string, specOf func(store.EpicRow) evidence.Item,
+) (store.EvidenceRun, error) {
 	stored, err := f.store.EvidenceRun(ctx, id)
 	if err == nil {
 		return stored, nil
@@ -194,21 +224,13 @@ func (f *fakeEvidence) RunItem(
 	if !errors.Is(err, store.ErrNoEvidenceRun) {
 		return store.EvidenceRun{}, fmt.Errorf("read evidence run %s: %w", id, err)
 	}
-	// The run keeps the Requirement's item as its spec, and the fixture's items capture, so the run's source is
-	// captured, as the real service gives them.
 	row, err := f.store.Epic(ctx, epic)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	var spec evidence.Item
-	for _, requirement := range row.Requirements {
-		if requirement.ID == item {
-			spec = requirement.Item
-		}
-	}
 	run := store.EvidenceRun{
 		ID: id, Epic: epic, Item: item, Revision: revision, Phase: phase, Source: evidence.SourceCaptured,
-		Spec: spec, Created: runClock(),
+		Spec: specOf(row), Created: runClock(),
 	}
 	if err = f.store.AddEvidenceRun(ctx, run); err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("add evidence run %s: %w", id, err)
@@ -453,6 +475,20 @@ func openNodeStore(t *testing.T) (*store.Store, string) {
 	return s, path
 }
 
+// triggerCausesOf returns the cause of each trigger of epic, in the order the store lists them.
+func triggerCausesOf(t *testing.T, s *store.Store, epic string) []string {
+	t.Helper()
+	history, err := s.EpicHistory(context.Background(), epic)
+	if err != nil {
+		t.Fatalf("EpicHistory of %s: %v", epic, err)
+	}
+	causes := make([]string, 0, len(history.Triggers))
+	for _, trigger := range history.Triggers {
+		causes = append(causes, trigger.Cause)
+	}
+	return causes
+}
+
 // nodeTells returns the tells of the test epic in seq order, read from the store file at path. Attention lists only the
 // epics that have a turn, so the file is read.
 func nodeTells(t *testing.T, path string) []string {
@@ -673,8 +709,11 @@ func TestFailedTopLevelCheckParksAndTells(t *testing.T) {
 	if got := epicOf(t, s).Parked; got != reason {
 		t.Errorf("epic Parked = %q, want %q", got, reason)
 	}
-	if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells = %q, want %q", got, []string{reason})
+	if got := nodeTells(t, dbPath); len(got) != 0 {
+		t.Errorf("tells = %q, want none: a failed node is a planner park", got)
+	}
+	if got := triggerCausesOf(t, s, runEpic); !slices.Contains(got, reason) {
+		t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
 	}
 }
 
@@ -832,8 +871,11 @@ func TestRefusedAgentStartParksAndTells(t *testing.T) {
 			if got := epicOf(t, s).Parked; got != reason {
 				t.Errorf("epic Parked = %q, want %q", got, reason)
 			}
-			if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{reason}) {
-				t.Errorf("tells = %q, want %q", got, []string{reason})
+			if got := nodeTells(t, dbPath); len(got) != 0 {
+				t.Errorf("tells = %q, want none: a refused node is a planner park", got)
+			}
+			if got := triggerCausesOf(t, s, runEpic); !slices.Contains(got, reason) {
+				t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
 			}
 			if got := len(fakes.steps.calls); got != 1 {
 				t.Errorf("step starts = %d, want 1: a refused start is not retried", got)

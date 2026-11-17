@@ -189,14 +189,16 @@ func (s *Store) StopTask(ctx context.Context, epic string, seq int64, from, to T
 	})
 }
 
-// ParkTask stores to as the build of task seq of epic, parks the epic with reason, adds reason as a tell, and adds each
-// of tells after it, in one write, when the stored build is from. Reason is cut to TurnReasonMax bytes. A task that is
+// ParkTask stores to as the build of task seq of epic and parks the epic with reason as class, in one write, when the
+// stored build is from. An owner class also adds reason as a tell and each of tells after it. A planner class adds
+// neither, so its tells are dropped, and wakes the planner instead. Reason is cut to TurnReasonMax bytes. A task that is
 // not open, or whose stored build is not from, is ErrTaskMoved and parks nothing.
 func (s *Store) ParkTask(
 	ctx context.Context,
 	epic string,
 	seq int64,
 	from, to TaskBuild,
+	class ParkClass,
 	reason string,
 	at time.Time,
 	tells ...string,
@@ -205,18 +207,21 @@ func (s *Store) ParkTask(
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		if err := parkWithTell(ctx, queries, epic, capTurnText(reason), at); err != nil {
+		if err := parkEpicAs(ctx, queries, epic, class, taskSubject(seq), reason, at); err != nil {
 			return err
+		}
+		if !class.OwnerHeld() {
+			return nil
 		}
 		return insertTells(ctx, queries, epic, tells, at)
 	})
 }
 
-// ParkEpic parks epic with reason and adds reason as a tell, in one write. Reason is cut to TurnReasonMax bytes. An
-// unknown epic is ErrNoEpic and writes nothing.
-func (s *Store) ParkEpic(ctx context.Context, epic, reason string, at time.Time) error {
+// ParkEpic parks epic with reason as class, in one write. An owner class adds reason as a tell; a planner class wakes the
+// planner. Reason is cut to TurnReasonMax bytes. An unknown epic is ErrNoEpic and writes nothing.
+func (s *Store) ParkEpic(ctx context.Context, epic string, class ParkClass, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+		return parkEpicAs(ctx, queries, epic, class, "", reason, at)
 	})
 }
 
@@ -269,16 +274,6 @@ func setTaskNeedsFiles(ctx context.Context, queries *sqlcgen.Queries, epic strin
 		return fmt.Errorf("set needs files of task %d of epic %s: %w", seq, epic, err)
 	}
 	return nil
-}
-
-// parkWithTell parks epic with reason, opens its park question, and adds reason as a tell that carries the seq of that
-// question, in the write the caller runs.
-func parkWithTell(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
-	question, err := setParked(ctx, queries, epic, reason)
-	if err != nil {
-		return err
-	}
-	return insertQuestionTell(ctx, queries, epic, reason, question, at)
 }
 
 // insertTells adds each of texts to epic as tells, in order, as insertTell does.

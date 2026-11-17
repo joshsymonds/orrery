@@ -3,7 +3,7 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 
 import { Epics, Evidence, Steps } from "./gen/orrery/v1/epics_pb";
 import { Notices } from "./gen/orrery/v1/notice_pb";
-import { Control, Events, Host, Panes, Presence, Sessions } from "./gen/orrery/v1/orrery_pb";
+import { Control, Events, Host, Panes, Picker, Presence, Sessions } from "./gen/orrery/v1/orrery_pb";
 
 // The header internal/server/server.go requires on every request, so the serve guard admits it. Its value only has
 // to be non-empty.
@@ -36,6 +36,7 @@ export function createClients(transport: Transport) {
     sessions: createClient(Sessions, transport),
     events: createClient(Events, transport),
     control: createClient(Control, transport),
+    picker: createClient(Picker, transport),
     epics: createClient(Epics, transport),
     evidence: createClient(Evidence, transport),
     steps: createClient(Steps, transport),

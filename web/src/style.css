@@ -320,6 +320,12 @@ button, input, textarea, select { font-family: var(--mono); }
   .keys .key { grid-template-columns: 1fr; gap: 2px; }
 }
 
+/* The palette is a panel over the page, above the notices. Its list scrolls within the panel. */
+.picker {
+  position: fixed; top: 12vh; left: 50%; z-index: 30; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto; background: var(--mantle);
+}
+
 /* ============ reader: its head, one conversation, its new rule, live text, its send foot ============ */
 .head { display: flex; align-items: center; gap: 14px; min-width: 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .head h1 { margin: 0; font: 700 17px/24px var(--mono); }

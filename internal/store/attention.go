@@ -26,7 +26,7 @@ func SilentMoveTell(text string, hasQuestion bool) bool {
 	return !hasQuestion && refMoveText.MatchString(text)
 }
 
-// EpicAttention is what an epic needs from its owner: its phase, its park reason, whether it is paused, the lowest
+// EpicAttention is what an epic needs from its owner: its phase, its owner park reason, whether it is paused, the lowest
 // release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in seq
 // order, the time of its newest tell that is not silent (see SilentMoveTell), and its latest ended turn with the number
 // of questions that turn asked.
@@ -44,8 +44,9 @@ type EpicAttention struct {
 	LatestAsked int
 }
 
-// Attention returns one entry per epic with at least one turn, ordered by epic id. Latest is the epic's highest-seq
-// turn that has ended, zero when none has, and LatestAsked counts the questions that turn asked.
+// Attention returns one entry per epic with at least one turn or at least one untold tell, ordered by epic id. An epic
+// with neither has no entry. Latest is the epic's highest-seq turn that has ended, zero when none has, and LatestAsked
+// counts the questions that turn asked.
 func (s *Store) Attention(ctx context.Context) ([]EpicAttention, error) {
 	return s.attention(ctx, func(string) {})
 }
@@ -54,9 +55,9 @@ func (s *Store) Attention(ctx context.Context) ([]EpicAttention, error) {
 // between the reads.
 func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([]EpicAttention, error) {
 	queries := sqlcgen.New(s.db)
-	epics, err := queries.ListEpicsWithTurns(ctx)
+	epics, err := queries.ListEpicsWithTurnsOrUntoldTells(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list epics with turns: %w", err)
+		return nil, fmt.Errorf("list epics with turns or untold tells: %w", err)
 	}
 	var out []EpicAttention
 	for _, epic := range epics {
@@ -111,7 +112,8 @@ func attentionOf(
 		return EpicAttention{}, fmt.Errorf("release runs: %w", err)
 	}
 	entry := EpicAttention{
-		Epic: head.ID, Title: head.Title, Phase: head.Phase, Parked: head.Parked, Paused: head.Paused != 0,
+		Epic: head.ID, Title: head.Title, Phase: head.Phase,
+		Parked: ownedPark(head.Parked, head.ParkClass), Paused: head.Paused != 0,
 		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold,
 	}
 	for _, tell := range slices.Backward(tells) {

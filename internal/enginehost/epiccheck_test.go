@@ -116,9 +116,11 @@ func runEpicRefusals(t *testing.T, repo string, refusals []epicRefusal) {
 			if !errors.As(err, &fieldErr) {
 				t.Fatalf("checkEpic error is %T, want *epicFieldError", err)
 			}
-			if got := err.Error(); got != tc.want {
+			got := err.Error()
+			if got != tc.want {
 				t.Fatalf("checkEpic = %q, want %q", got, tc.want)
 			}
+			t.Logf("checkEpic refused the contract: %s", got)
 		})
 	}
 }

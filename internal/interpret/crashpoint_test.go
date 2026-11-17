@@ -344,9 +344,15 @@ func (s crashStore) ParkLoop(ctx context.Context, epic, path string, round int64
 }
 
 // ParkEpic is one write of the world, labeled with the epic it parks.
-func (s crashStore) ParkEpic(ctx context.Context, epic, reason string, at time.Time) error {
+func (s crashStore) ParkEpic(
+	ctx context.Context,
+	epic string,
+	class store.ParkClass,
+	reason string,
+	at time.Time,
+) error {
 	return s.w.act("park epic "+epic, func() error {
-		return crashWrap("park epic", s.Store.ParkEpic(ctx, epic, reason, at))
+		return crashWrap("park epic", s.Store.ParkEpic(ctx, epic, class, reason, at))
 	})
 }
 
@@ -401,13 +407,15 @@ func crashUninterrupted(t *testing.T) crashEnd {
 	if replan := pathRun(t, got.runs, "replan"); replan.State != store.NodeEnded {
 		t.Errorf("replan = %+v, want ended", replan)
 	}
-	wantTells := []crashTell{{seq: 1, text: "loop refine spent its 2 rounds without review.done"}}
-	if !reflect.DeepEqual(got.tells, wantTells) {
-		t.Errorf("tells = %+v, want the park told once: %+v", got.tells, wantTells)
+	// A loop park is a planner park: it adds no tell, and its trigger carries the park's reason.
+	if len(got.tells) != 0 {
+		t.Errorf("tells = %+v, want none: a loop park is the planner's", got.tells)
 	}
-	// The epic's own creation trigger is written by CreateEpic, before any pass; the replan trigger is the pass's.
+	// The epic's own creation trigger is written by CreateEpic, before any pass; the loop's park trigger and the replan
+	// trigger are the pass's.
 	wantTriggers := []crashTrigger{
 		{id: "created", cause: "epic created", state: "pending"},
+		{id: "park:2", cause: "loop refine spent its 2 rounds without review.done", state: "pending"},
 		{
 			id:    "workflow:" + store.NodeRunID(runEpic, "replan", 0, "trigger"),
 			cause: "workflow node replan started",
@@ -415,7 +423,11 @@ func crashUninterrupted(t *testing.T) crashEnd {
 		},
 	}
 	if !reflect.DeepEqual(got.triggers, wantTriggers) {
-		t.Errorf("triggers = %+v, want the replan trigger once: %+v", got.triggers, wantTriggers)
+		t.Errorf(
+			"triggers = %+v, want the loop's park trigger and the replan trigger once: %+v",
+			got.triggers,
+			wantTriggers,
+		)
 	}
 	if got.parked != "" {
 		t.Errorf("epic parked = %q after the retry, want none", got.parked)
