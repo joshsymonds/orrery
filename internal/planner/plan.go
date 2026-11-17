@@ -6,6 +6,8 @@ package planner
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
@@ -83,15 +85,11 @@ const Schema = `{
 			"items": {
 				"type": "object",
 				"properties": {
-					"kind": {"type": "string", "enum": ["retry_node", "retry_epic", "fail_task", "resume_release", "close_epic"]},
-					"node": {"type": "string"},
-					"task": {"type": "integer"},
-					"close": {"type": "string", "enum": ["", "superseded", "abandoned"]},
-					"by": {"type": "string"},
-					"undo_none": {"type": "array", "items": {"type": "integer"}},
+					"kind": {"type": "string"},
+					"args": {"type": "string"},
 					"reason": {"type": "string"}
 				},
-				"required": ["kind", "node", "task", "close", "by", "undo_none", "reason"],
+				"required": ["kind", "args", "reason"],
 				"additionalProperties": false
 			}
 		},
@@ -113,16 +111,61 @@ type Return struct {
 }
 
 // EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close and replacing epic its
-// kind uses, the undo-none positions it names, and the planner's reason. check.go lists the fields each kind uses. UndoNone
-// is read by Parse from the key undo_none, as the schema spells it, since the package's JSON tags are camel case.
+// kind uses, the undo-none positions it names, and the planner's reason. check.go lists the fields each kind uses. The
+// return carries the fields a kind uses as args, a JSON object written as a string, so that the schema the model is held to
+// stays one small fixed shape however many kinds there are; Parse reads args into these fields. ArgsError is why args
+// did not read, and Unknown lists the keys of args that no kind uses; check.go refuses either.
 type EngineAction struct {
-	Kind     string  `json:"kind"`
-	Node     string  `json:"node"`
-	Task     int64   `json:"task"`
-	Close    string  `json:"close"`
-	By       string  `json:"by"`
-	UndoNone []int64 `json:"-"`
-	Reason   string  `json:"reason"`
+	Kind      string   `json:"kind"`
+	Node      string   `json:"-"`
+	Task      int64    `json:"-"`
+	Close     string   `json:"-"`
+	By        string   `json:"-"`
+	UndoNone  []int64  `json:"-"`
+	Reason    string   `json:"reason"`
+	ArgsError string   `json:"-"`
+	Unknown   []string `json:"-"`
+}
+
+// The keys an action's args may hold, by the names the role text gives them.
+const (
+	argNode     = "node"
+	argTask     = "task"
+	argClose    = "close"
+	argBy       = "by"
+	argUndoNone = "undo_none"
+)
+
+// readArgs fills action's fields from args, a JSON object written as a string. Blank args reads as no fields. args that is
+// not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError;
+// keys outside the five above are listed in Unknown.
+func readArgs(action *EngineAction, args string) {
+	if strings.TrimSpace(args) == "" {
+		return
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(args), &keys); err != nil {
+		action.ArgsError = "not a JSON object: " + err.Error()
+		return
+	}
+	var read EngineAction
+	fields := map[string]any{
+		argNode: &read.Node, argTask: &read.Task, argClose: &read.Close, argBy: &read.By, argUndoNone: &read.UndoNone,
+	}
+	for key, value := range keys {
+		field, known := fields[key]
+		if !known {
+			action.Unknown = append(action.Unknown, key)
+			continue
+		}
+		if err := json.Unmarshal(value, field); err != nil {
+			action.ArgsError = key + ": " + err.Error()
+			return
+		}
+	}
+	slices.Sort(action.Unknown)
+	action.Node, action.Task, action.Close, action.By, action.UndoNone =
+		read.Node, read.Task, read.Close, read.By, read.UndoNone
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it
@@ -157,8 +200,9 @@ type Task struct {
 	Evidence     evidence.Item `json:"evidence"`
 }
 
-// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON. A task's test_changes and an
-// action's undo_none are read by their keys, as the schema spells them, since the package's JSON tags are camel case.
+// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON. A task's test_changes is read by
+// its key, as the schema spells it, since the package's JSON tags are camel case, and each action's fields are read from
+// its args (readArgs).
 func Parse(raw json.RawMessage) (Return, error) {
 	var ret Return
 	if err := json.Unmarshal(raw, &ret); err != nil {
@@ -181,13 +225,13 @@ func Parse(raw json.RawMessage) (Return, error) {
 		}
 	}
 	for i, action := range keyed.Actions {
-		value, ok := action["undo_none"]
-		if !ok {
-			continue
+		var args string
+		if value, ok := action["args"]; ok {
+			if err := json.Unmarshal(value, &args); err != nil {
+				return Return{}, fmt.Errorf("planner return: actions[%d] args: %w", i, err)
+			}
 		}
-		if err := json.Unmarshal(value, &ret.Actions[i].UndoNone); err != nil {
-			return Return{}, fmt.Errorf("planner return: actions[%d] undo_none: %w", i, err)
-		}
+		readArgs(&ret.Actions[i], args)
 	}
 	return ret, nil
 }

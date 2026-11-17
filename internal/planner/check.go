@@ -168,21 +168,22 @@ func actionKinds() []string {
 func actionFields(kind string) ([]string, bool) {
 	switch kind {
 	case store.ActionRetryNode:
-		return []string{"node"}, true
+		return []string{argNode}, true
 	case store.ActionRetryEpic:
 		return nil, true
 	case store.ActionFailTask:
-		return []string{"task"}, true
+		return []string{argTask}, true
 	case store.ActionResumeRelease:
-		return []string{"undo_none"}, true
+		return []string{argUndoNone}, true
 	case store.ActionCloseEpic:
-		return []string{"close", "by"}, true
+		return []string{argClose, argBy}, true
 	}
 	return nil, false
 }
 
-// checkAction returns the refusals of one action of a return, at position i, in the order of the rules: the kind, the
-// fields its kind needs, the fields its kind does not use, then the reason. An unknown kind has no other field to check.
+// checkAction returns the refusals of one action of a return, at position i, in the order of the rules: the kind, args that
+// do not read or hold a key no kind uses, the fields its kind needs, the fields its kind does not use, then the reason. An
+// unknown kind has no other field to check.
 func checkAction(i int, action EngineAction) []string {
 	prefix := fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind)
 	var refusals []string
@@ -190,10 +191,16 @@ func checkAction(i int, action EngineAction) []string {
 		refusals = append(refusals, prefix+" "+field+": "+reason)
 	}
 	used, known := actionFields(action.Kind)
-	if known {
+	switch {
+	case known && action.ArgsError != "":
+		refuse("args", action.ArgsError)
+	case known:
+		for _, key := range action.Unknown {
+			refuse("args", "no kind uses the key "+key)
+		}
 		checkNeededFields(action, refuse)
 		checkUnusedFields(action, used, refuse)
-	} else {
+	default:
 		refuse("kind", "not one of "+strings.Join(actionKinds(), ", "))
 	}
 	if strings.TrimSpace(action.Reason) == "" {
@@ -208,18 +215,18 @@ func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
 		if strings.TrimSpace(action.Node) == "" {
-			refuse("node", reasonEmpty)
+			refuse(argNode, reasonEmpty)
 		}
 	case store.ActionFailTask:
 		if action.Task <= 0 {
-			refuse("task", reasonAboveZero)
+			refuse(argTask, reasonAboveZero)
 		}
 	case store.ActionCloseEpic:
 		if action.Close != closeSuperseded && action.Close != closeAbandoned {
-			refuse("close", reasonNotClose)
+			refuse(argClose, reasonNotClose)
 		}
 		if action.Close == closeSuperseded && strings.TrimSpace(action.By) == "" {
-			refuse("by", reasonEmpty)
+			refuse(argBy, reasonEmpty)
 		}
 	}
 }
@@ -230,11 +237,11 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		name string
 		set  bool
 	}{
-		{"node", action.Node != ""},
-		{"task", action.Task != 0},
-		{"close", action.Close != ""},
-		{"by", action.By != ""},
-		{"undo_none", len(action.UndoNone) > 0},
+		{argNode, action.Node != ""},
+		{argTask, action.Task != 0},
+		{argClose, action.Close != ""},
+		{argBy, action.By != ""},
+		{argUndoNone, len(action.UndoNone) > 0},
 	}
 	for _, field := range fields {
 		if field.set && !slices.Contains(used, field.name) {

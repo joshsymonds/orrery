@@ -13,7 +13,7 @@ import (
 
 // closeActionPlan is a planner return with no task or question that closes its epic as abandoned.
 const closeActionPlan = `{"status":"done","decisions":[],"tasks":[],"outline":"close the epic","questions":[],` +
-	`"actions":[{"kind":"close_epic","node":"","task":0,"close":"abandoned","by":"","undo_none":[],` +
+	`"actions":[{"kind":"close_epic","args":"{\"close\":\"abandoned\"}",` +
 	`"reason":"the epic is no longer wanted"}],"outcome":"complete"}`
 
 // TestOrchestratorActionCheckRefusesAnActionWithoutItsNode checks that Check refuses a retry_node action that names no node,
@@ -41,7 +41,7 @@ func TestOrchestratorActionIsCarriedOutByTheNextPass(t *testing.T) {
 
 	// validPlan with one more field: an action that fails task 1, the task validPlan plans.
 	failTaskPlan := strings.Replace(validPlan, `"outcome":"work"}`,
-		`"actions":[{"kind":"fail_task","node":"","task":1,"close":"","by":"","undo_none":[],`+
+		`"actions":[{"kind":"fail_task","args":"{\"task\":1}",`+
 			`"reason":"the build cannot reach the store"}],"outcome":"work"}`, 1)
 	turn, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt())
 	if err != nil {

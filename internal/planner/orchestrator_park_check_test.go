@@ -18,7 +18,7 @@ func TestOrchestratorParkTurnOfAPlannerParkNeedsAnActionOrQuestion(t *testing.T)
 	const reason = "workflow node check failed: boom"
 	bare := `{"status":"done","decisions":[],"tasks":[],"outline":"o","questions":[],"outcome":"wait"}`
 	withRetry := `{"status":"done","decisions":[],"tasks":[],"outline":"o","questions":[],` +
-		`"actions":[{"kind":"retry_epic","node":"","task":0,"close":"","by":"","undo_none":[],` +
+		`"actions":[{"kind":"retry_epic","args":"",` +
 		`"reason":"the park is settled"}],"outcome":"wait"}`
 	nodePark := store.EpicRow{Parked: reason, ParkClass: store.ParkClassNode}
 	ownerPark := store.EpicRow{Parked: "branch is gone", ParkClass: store.ParkClassBranch}
