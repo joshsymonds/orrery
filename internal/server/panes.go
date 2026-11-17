@@ -274,7 +274,7 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 		if err = json.Unmarshal(data, &pane); err != nil {
 			return nil, fmt.Errorf("server: decode pane: %w", err)
 		}
-		claudeSession, questionHash, newestReply, lastTurnEnd, err := paneExtras(fields)
+		claudeSession, questionHash, newestReply, lastTurnEnd, orreryID, err := paneExtras(fields)
 		if err != nil {
 			return nil, err
 		}
@@ -299,29 +299,33 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 			QuestionHash:  questionHash,
 			NewestReply:   newestReply,
 			LastTurnEnd:   lastTurnEnd,
+			OrreryId:      orreryID,
 		})
 	}
 	return out, nil
 }
 
-// paneExtras returns the claude_session, question_hash, newest_reply and last_turn_end of one pane object of a
-// listing, which paneJSON does not tag.
-func paneExtras(fields map[string]json.RawMessage) (string, string, int64, int64, error) {
-	var claudeSession, questionHash string
+// paneExtras returns the claude_session, question_hash, newest_reply, last_turn_end and orrery_id of one pane object of
+// a listing, which paneJSON does not tag.
+func paneExtras(fields map[string]json.RawMessage) (string, string, int64, int64, string, error) {
+	var claudeSession, questionHash, orreryID string
 	var newestReply, lastTurnEnd int64
 	if err := paneField(fields, claudeSessionKey, &claudeSession); err != nil {
-		return "", "", 0, 0, err
+		return "", "", 0, 0, "", err
 	}
 	if err := paneField(fields, questionHashKey, &questionHash); err != nil {
-		return "", "", 0, 0, err
+		return "", "", 0, 0, "", err
 	}
 	if err := paneField(fields, newestReplyKey, &newestReply); err != nil {
-		return "", "", 0, 0, err
+		return "", "", 0, 0, "", err
 	}
 	if err := paneField(fields, lastTurnEndKey, &lastTurnEnd); err != nil {
-		return "", "", 0, 0, err
+		return "", "", 0, 0, "", err
 	}
-	return claudeSession, questionHash, newestReply, lastTurnEnd, nil
+	if err := paneField(fields, orreryIDKey, &orreryID); err != nil {
+		return "", "", 0, 0, "", err
+	}
+	return claudeSession, questionHash, newestReply, lastTurnEnd, orreryID, nil
 }
 
 // paneField decodes the value of key in fields into dst. A value that does not decode is an error.

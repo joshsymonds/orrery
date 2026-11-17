@@ -385,7 +385,10 @@ type HeadlessSession struct {
 	// ConversationState.
 	NewestReply int64 `protobuf:"varint,9,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
 	// True while the headless session is archived: the owner archived it and has not unarchived it since.
-	Archived      bool `protobuf:"varint,10,opt,name=archived,proto3" json:"archived,omitempty"`
+	Archived bool `protobuf:"varint,10,opt,name=archived,proto3" json:"archived,omitempty"`
+	// The session's headline: the stored headline once one is written, else the title, else the first words of the first
+	// prompt. It never holds the directory, which a client shows beside it.
+	Headline      string `protobuf:"bytes,11,opt,name=headline,proto3" json:"headline,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -488,6 +491,13 @@ func (x *HeadlessSession) GetArchived() bool {
 		return x.Archived
 	}
 	return false
+}
+
+func (x *HeadlessSession) GetHeadline() string {
+	if x != nil {
+		return x.Headline
+	}
+	return ""
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -3015,7 +3025,9 @@ type Pane struct {
 	// The unix seconds of the newest reply or question in the pane's transcript, or 0 when it has none.
 	NewestReply int64 `protobuf:"varint,19,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
 	// The unix seconds the pane's last turn ended, or 0 when unknown.
-	LastTurnEnd   int64 `protobuf:"varint,20,opt,name=last_turn_end,json=lastTurnEnd,proto3" json:"last_turn_end,omitempty"`
+	LastTurnEnd int64 `protobuf:"varint,20,opt,name=last_turn_end,json=lastTurnEnd,proto3" json:"last_turn_end,omitempty"`
+	// The pane's @orrery_id option, which is the id its Session row carries, or empty when unset.
+	OrreryId      string `protobuf:"bytes,21,opt,name=orrery_id,json=orreryId,proto3" json:"orrery_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3188,6 +3200,13 @@ func (x *Pane) GetLastTurnEnd() int64 {
 		return x.LastTurnEnd
 	}
 	return 0
+}
+
+func (x *Pane) GetOrreryId() string {
+	if x != nil {
+		return x.OrreryId
+	}
+	return ""
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
@@ -5947,7 +5966,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\barchived\x18\x0e \x01(\bR\barchived\"\x15\n" +
 	"\x13ListHeadlessRequest\"N\n" +
 	"\x14ListHeadlessResponse\x126\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\x82\x02\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\x9e\x02\n" +
 	"\x0fHeadlessSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x14\n" +
@@ -5959,7 +5978,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\bquestion\x18\b \x01(\tR\bquestion\x12!\n" +
 	"\fnewest_reply\x18\t \x01(\x03R\vnewestReply\x12\x1a\n" +
 	"\barchived\x18\n" +
-	" \x01(\bR\barchived\"^\n" +
+	" \x01(\bR\barchived\x12\x1a\n" +
+	"\bheadline\x18\v \x01(\tR\bheadline\"^\n" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +
@@ -6146,7 +6166,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
 	"\x10PanesListRequest\":\n" +
 	"\x11PanesListResponse\x12%\n" +
-	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\x89\x04\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xa6\x04\n" +
 	"\x04Pane\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
@@ -6168,7 +6188,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x0eclaude_session\x18\x11 \x01(\tR\rclaudeSession\x12#\n" +
 	"\rquestion_hash\x18\x12 \x01(\tR\fquestionHash\x12!\n" +
 	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\x12\"\n" +
-	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\"Q\n" +
+	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\x12\x1b\n" +
+	"\torrery_id\x18\x15 \x01(\tR\borreryId\"Q\n" +
 	"\rScreenRequest\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
 	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +

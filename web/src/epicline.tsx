@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { type EpicItem, denseStrip, epicLine } from "./epics";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
@@ -6,34 +7,55 @@ import { VIEW, cellPath, sector, sliceSpan, sliceStart } from "./orbits";
 import { ARC_INNER, ARC_OUTER } from "./orrery";
 import { requirementArcs, wedgesOf } from "./phases";
 
-// ArchiveControl is the archive button a list line draws. archived is whether the line sits in the Archived view, which
-// draws Unarchive; run archives the line, or unarchives it there.
+// ArchiveControl is the ⋯ menu a list line draws and the archive its one item holds. archived is whether the line sits in
+// the Archived view, whose item is Unarchive; run archives the line, or unarchives it there. open is whether this line's
+// menu is the open one; toggle opens or closes it on a press of ⋯, and close shuts it.
 export interface ArchiveControl {
   archived: boolean;
+  open: boolean;
   run: () => void;
+  toggle: () => void;
+  close: () => void;
 }
 
-// ArchiveButton draws a line's archive control. Its press acts on its own: it moves no cursor and marks nothing seen.
-export function ArchiveButton({ control }: { control: ArchiveControl }): JSX.Element {
+// RowMenu draws a line's ⋯ button and the menu it opens. The menu holds one item, Archive, or Unarchive in the Archived
+// view: choosing it runs the control and closes the menu. The ⋯ and the menu stop click, double-click and pointerdown
+// propagation, so a press on either moves no cursor, opens no row and marks nothing seen. An open menu scrolls into view
+// within the list.
+export function RowMenu({ control }: { control: ArchiveControl }): JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (control.open) {
+      menuRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [control.open]);
+  const stop = (event: Event) => event.stopPropagation();
   return (
-    <button
-      type="button"
-      class="archive"
-      onClick={(event) => {
-        event.stopPropagation();
-        control.run();
-      }}
-      onDblClick={(event) => event.stopPropagation()}
-    >
-      {control.archived ? "Unarchive" : "Archive"}
-    </button>
+    <div class="row-menu" onClick={stop} onDblClick={stop} onPointerDown={stop}>
+      <button type="button" class="more" aria-label="more" aria-expanded={control.open} onClick={control.toggle}>
+        ⋯
+      </button>
+      {control.open && (
+        <div class="row-menu-list" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => {
+              control.run();
+              control.close();
+            }}
+          >
+            {control.archived ? "Unarchive" : "Archive"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
 // EpicLine draws an epic's line: its small orrery, then its slug, repository and count, then its state and blocker, and
-// its archive button when it has one. An ended epic's line draws its ended words as its state, in place of the count,
-// state and blocker. A full epic also draws its strip of one segment per record task. An epic with no detail draws no
-// orrery. Each state and blocker span is keyed by its text, so a changed phrase mounts anew and its move plays.
+// its ⋯ menu when it has one. An ended epic's line draws its ended words as its state, in place of the count, state and
+// blocker. A full epic also draws its strip of one segment per record task. An epic with no detail draws no orrery. Each
+// state and blocker span is keyed by its text, so a changed phrase mounts anew and its move plays.
 export function EpicLine({
   epic,
   full,
@@ -79,7 +101,7 @@ export function EpicLine({
           </div>
         )}
       </div>
-      {archive !== undefined && <ArchiveButton control={archive} />}
+      {archive !== undefined && <RowMenu control={archive} />}
     </div>
   );
 }

@@ -54,6 +54,9 @@ const newestReplyKey = "newest_reply"
 // done according to the store, or 0 when it is unknown.
 const lastTurnEndKey = "last_turn_end"
 
+// orreryIDKey is the key listPanes adds to each pane, holding its @orrery_id option, or "" when it is unset.
+const orreryIDKey = "orrery_id"
+
 // Query keys screenFlags reads, and the largest history value it accepts, in lines.
 const (
 	queryANSI        = "ansi"
@@ -531,8 +534,8 @@ func endInterruptedTurns(
 	return ended, nil
 }
 
-// addPaneFields sets the questionHashKey, newestReplyKey and lastTurnEndKey fields of the JSON object of pane, from the
-// values its listing read. ends holds the turn ends turnEnds reads for the listing.
+// addPaneFields sets the questionHashKey, newestReplyKey, lastTurnEndKey and orreryIDKey fields of the JSON object of
+// pane, from the values its listing read. ends holds the turn ends turnEnds reads for the listing.
 func addPaneFields(newest *conversation.Newest, ends map[string]int64, pane listedPane) error {
 	hash, err := json.Marshal(protocol.QuestionHash(pane.listed.Question))
 	if err != nil {
@@ -550,9 +553,14 @@ func addPaneFields(newest *conversation.Newest, ends map[string]int64, pane list
 	if err != nil {
 		return fmt.Errorf("server: encode last turn end: %w", err)
 	}
+	orreryIDJSON, err := json.Marshal(pane.listed.OrreryID)
+	if err != nil {
+		return fmt.Errorf("server: encode orrery id: %w", err)
+	}
 	pane.fields[questionHashKey] = hash
 	pane.fields[newestReplyKey] = newestJSON
 	pane.fields[lastTurnEndKey] = turnEndJSON
+	pane.fields[orreryIDKey] = orreryIDJSON
 	return nil
 }
 

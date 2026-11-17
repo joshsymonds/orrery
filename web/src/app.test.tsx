@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
@@ -299,6 +300,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    archiveId: "",
     ...init,
   };
 }
@@ -308,7 +310,7 @@ function fixture(): Row[] {
   return [
     row({
       key: "a",
-      label: "api",
+      label: "build green",
       project: "/work/api",
       state: "waiting",
       question: "Ship it?",
@@ -319,7 +321,7 @@ function fixture(): Row[] {
     }),
     row({
       key: "c",
-      label: "docs",
+      label: "wrote the guide",
       project: "/work/docs",
       host: "laptop",
       state: "done",
@@ -328,7 +330,7 @@ function fixture(): Row[] {
       seen: 50,
       unseen: true,
     }),
-    row({ key: "b", label: "web", project: "/work/web", state: "working", summary: "bundling", changed: 200, seen: 200 }),
+    row({ key: "b", label: "bundling", project: "/work/web", state: "working", summary: "bundling", changed: 200, seen: 200 }),
     row({
       key: "d",
       label: "old",
@@ -529,7 +531,7 @@ function workingPane(tool: string) {
 
 const paneRow = row({
   key: "a",
-  label: "api",
+  label: "build green",
   state: "waiting",
   question: "Ship it?",
   changed: 300,
@@ -540,6 +542,7 @@ const paneRow = row({
 const sessionRow = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   archiveKind: "session",
   label: "notes",
@@ -868,6 +871,7 @@ test("a session row's empty host adds nothing to the footer", (t) =>
         row({
           key: "s1",
           id: "s1",
+          archiveId: "s1",
           kind: "session",
           archiveKind: "session",
           host: "",
@@ -1045,18 +1049,15 @@ test("only unseen rows carry the unseen mark", (t) =>
     assert.equal(rowElement(container, "d").hasAttribute("data-unseen"), false);
   }));
 
-test("a row shows its tag, label, project's last path element, age, and reply text", (t) =>
+test("a row shows its tag, its directory's last element and line, age, and reply text", (t) =>
   withApp(t.signal, {}, (container) => {
     const element = rowElement(container, "a");
-    assert.equal(element.querySelector(".label")?.textContent, "api");
-    assert.equal(element.querySelector(".proj")?.textContent, "api");
+    assert.equal(element.querySelector(".title-dir")?.textContent, "api");
+    assert.equal(element.querySelector(".title-line")?.textContent, "build green");
+    assert.equal(element.querySelector(".label") === null && element.querySelector(".proj") === null, true, "no label or project span");
     assert.equal(element.querySelector(".age")?.textContent, "11m");
     assert.equal(element.querySelector(".ty")?.textContent, "QUESTION");
-    assert.equal(
-      element.querySelector(".l2")?.textContent,
-      "api asks: Ship it?",
-      "the need's sentence replaces the summary",
-    );
+    assert.equal(element.querySelector(".l2")?.textContent, "asks: Ship it?", "the need's sentence is the second line");
   }));
 
 // stateRows has a row in each state a row can carry, one waiting with a question, one without, and two seen.
@@ -1131,10 +1132,10 @@ test("a section head shows its title and its row count, and Needs you and New si
     },
   ));
 
-test("a row that is not waiting shows its summary, not its question", (t) =>
-  withApp(t.signal, 
+test("a session row that is not waiting shows its summary, not its question", (t) =>
+  withApp(t.signal,
     {
-      rows: [row({ key: "s", state: "working", question: "stale?", summary: "compiling" })],
+      rows: [row({ key: "s", kind: "session", state: "working", question: "stale?", summary: "compiling" })],
     },
     (container) => {
       assert.equal(rowElement(container, "s").querySelector(".l2")?.textContent, "compiling", "only a waiting row shows its question");
@@ -1142,9 +1143,9 @@ test("a row that is not waiting shows its summary, not its question", (t) =>
   ));
 
 test("reply text renders as text, never as markup", (t) =>
-  withApp(t.signal, 
+  withApp(t.signal,
     {
-      rows: [row({ key: "x", state: "working", summary: "<script>alert(1)</script> and <img src=x onerror=alert(1)>" })],
+      rows: [row({ key: "x", kind: "session", state: "working", summary: "<script>alert(1)</script> and <img src=x onerror=alert(1)>" })],
     },
     (container) => {
       assert.equal(container.querySelector("script") === null, true);
@@ -1250,7 +1251,7 @@ test("the cursor's reader opens on the title row: a back button, the crumbs orre
     assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
     assert.equal(readerHead(container)?.getAttribute("class"), "title-row");
     assert.equal(readerHead(container)?.querySelector(".back")?.getAttribute("aria-label"), "back");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "api"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "app build green"]);
     assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "waiting");
     assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "waiting");
     assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
@@ -1644,7 +1645,7 @@ test("a message sent to a working session draws above the box as queued, and lea
     assert.equal(container.querySelector('[aria-label="reader"] .send .queue .queue-head')?.textContent, "1 queued");
     const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
     assert.equal(queued?.querySelector(".tag"), null, "a waiting row carries no per-row tag, since the head names it");
-    assert.equal(queued?.querySelector(".words")?.textContent, "It sends when this turn ends");
+    assert.equal(queued?.querySelector(".words"), null, "a waiting row carries no note on when it sends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],
       error: "",
@@ -1667,8 +1668,9 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     assert.equal(
-      container.querySelector('[aria-label="reader"] .send .queue li.queued .words')?.textContent,
-      "It sends when this turn ends",
+      container.querySelector('[aria-label="reader"] .send .queue li.queued .words'),
+      null,
+      "a waiting row carries no note on when it sends",
     );
 
     fake.emit(stream, { transcript: "t1", seq: "2", items: [], state: { pane: { id: "a", state: "idle" } } });
@@ -1955,6 +1957,7 @@ const answerableRow = row({
 const otherSessionRow = row({
   key: "s2",
   id: "s2",
+  archiveId: "s2",
   kind: "session",
   archiveKind: "session",
   label: "docs",
@@ -2101,6 +2104,7 @@ const permissionRow = row({
 const waitingSession = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   archiveKind: "session",
   label: "notes",
@@ -2114,6 +2118,7 @@ const waitingSession = row({
 const workingSession = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   archiveKind: "session",
   label: "notes",
@@ -2262,9 +2267,9 @@ test("the pinned title row names the pinned row while the cursor rests on anothe
     await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.deepEqual(crumbTexts(pinnedHead(container)), ["orrery", "api"]);
+    assert.deepEqual(crumbTexts(pinnedHead(container)), ["orrery", "api build green"]);
     assert.equal(pinnedHead(container)?.querySelector(".state")?.textContent, "waiting");
-    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "docs"]);
+    assert.deepEqual(crumbTexts(readerHead(container)), ["orrery", "docs wrote the guide"]);
     assert.equal(readerHead(container)?.querySelector(".state")?.textContent, "done");
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
@@ -2329,7 +2334,7 @@ test("the reader's composer on a working row has the working edge and says it qu
     await press("j");
     assert.equal(cursorKey(container), "b");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for web; it sends when this turn ends");
+    assert.equal(composer(container).placeholder, "Queue for web");
   }));
 
 test("a working pane turns a waiting row's composer from answering to queueing", (t) =>
@@ -2341,7 +2346,7 @@ test("a working pane turns a waiting row's composer from answering to queueing",
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for api; it sends when this turn ends");
+    assert.equal(composer(container).placeholder, "Queue for api");
   }));
 
 test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", (t) =>
@@ -2355,7 +2360,7 @@ test("a pane on the cursor's stream turns only the shown composer; a visited row
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for docs; it sends when this turn ends");
+    assert.equal(composer(container).placeholder, "Queue for docs");
     const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
     const api = hidden.find((box) => box.placeholder === "Answer api");
     assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
@@ -2375,7 +2380,7 @@ test("the pinned composer follows its own stream's pane while the cursor rests o
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
     assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
-    assert.equal(pinnedComposer(container).placeholder, "Queue for api; it sends when this turn ends");
+    assert.equal(pinnedComposer(container).placeholder, "Queue for api");
     assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
     assert.equal(composer(container).placeholder, "Reply to docs");
   }));
@@ -2535,7 +2540,7 @@ test("a waiting pane row shows its question's text, never its raw JSON, and a bu
   withApp(t.signal, { rows: [askRow] }, async (container, fake) => {
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
-    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "api asks: Which fruit?");
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "asks: Which fruit?");
     await until(t.signal, () => container.querySelector(".question-card") !== null, "the question card");
     const reader = container.querySelector(".reader")?.textContent ?? "";
     assert.ok(reader.includes("Which fruit?"));
@@ -2648,7 +2653,7 @@ test("a click on the view labels switches the view as a and p do", (t) =>
   }));
 
 const linkedRows = fixture().map((item) =>
-  item.key === "c" ? { ...item, summary: "see https://example.com/notes" } : item,
+  item.key === "c" ? { ...item, label: "see https://example.com/notes", summary: "see https://example.com/notes" } : item,
 );
 
 test("a click or double click on a link in a row opens the link and moves nothing else", (t) =>
@@ -2832,7 +2837,7 @@ test("Needs you reads each need as a sentence: a waiting row's, an open question
     ]),
   );
   return withApp(t.signal, { epics }, (container) => {
-    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "api asks: Ship it?");
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "asks: Ship it?");
     assert.deepEqual(needSentences(container), ["first asks: Which way?", "second is parked: a lock is held"]);
     assert.deepEqual(needButtons(container), ["Open the epic ›", "Retry"]);
     assert.equal(
@@ -2931,15 +2936,123 @@ test("a click on the seventh quiet epic's need moves the cursor to it, which dra
   });
 });
 
-test("a waiting row with no question says in its second line that it waits on you, and its summary is the why", (t) =>
+test("TitleParts: a waiting pane with no question says in its second line that it waits on you, and draws its directory and its summary once each", (t) =>
   withApp(
     t.signal,
     {
-      rows: [row({ key: "w", label: "web", state: "waiting", summary: "build green", changed: 300, seen: 300 })],
+      rows: [
+        row({
+          key: "w",
+          label: "build green",
+          project: "/work/web",
+          state: "waiting",
+          summary: "build green",
+          changed: 300,
+          seen: 300,
+        }),
+      ],
     },
     (container) => {
-      assert.equal(rowElement(container, "w").querySelector(".l2")?.textContent, "web waits on you");
-      assert.equal(rowElement(container, "w").querySelector(".why")?.textContent, "build green");
+      const element = rowElement(container, "w");
+      assert.equal(element.querySelector(".l2")?.textContent, "waits on you");
+      assert.equal(element.querySelector(".why"), null, "no second summary line");
+      assert.equal(element.querySelectorAll(".title-dir").length, 1, "the directory is drawn once");
+      assert.equal(element.textContent?.split("build green").length, 2, "the summary is drawn once");
+    },
+  ));
+
+test("TitleParts: an inbox row draws its directory and its line, and no session id, pane id or hash", (t) =>
+  withApp(
+    t.signal,
+    {
+      rows: [
+        row({
+          key: "p",
+          id: "%3",
+          kind: "pane",
+          label: "tidying imports",
+          project: "/work/api",
+          state: "waiting",
+          question: "Ship it?",
+          questionHash: "hash-of-question",
+          summary: "tidying imports",
+        }),
+        row({
+          key: "s",
+          id: "0123456789abcdef",
+          kind: "session",
+          label: "Billing rounding plan",
+          project: "/work/app",
+          state: "working",
+          summary: "reconciling invoices",
+        }),
+      ],
+    },
+    (container) => {
+      const pane = rowElement(container, "p");
+      assert.equal(pane.querySelector(".title-dir")?.textContent, "api");
+      assert.equal(pane.querySelector(".title-line")?.textContent, "tidying imports");
+      const session = rowElement(container, "s");
+      assert.equal(session.querySelector(".title-dir")?.textContent, "app");
+      assert.equal(session.querySelector(".title-line")?.textContent, "Billing rounding plan");
+      assert.equal(session.querySelector(".l2")?.textContent, "reconciling invoices", "a session keeps its summary as its second line");
+      for (const [element, hidden] of [
+        [pane, ["%3", "hash-of-question"]],
+        [session, ["0123456789abcdef"]],
+      ] as const) {
+        for (const text of hidden) {
+          assert.equal(element.textContent?.includes(text), false, `the row draws no ${text}`);
+        }
+      }
+    },
+  ));
+
+test("TitleParts: a pane with no summary and a session with an empty headline each show their directory alone", (t) =>
+  withApp(
+    t.signal,
+    {
+      rows: [
+        row({ key: "p", kind: "pane", project: "/work/api", label: "", summary: "", state: "working" }),
+        row({ key: "s", kind: "session", project: "/work/app", label: "", state: "done" }),
+      ],
+    },
+    (container) => {
+      assert.equal(rowElement(container, "p").querySelector(".title-dir")?.textContent, "api");
+      assert.equal(rowElement(container, "s").querySelector(".title-dir")?.textContent, "app");
+      assert.equal(container.querySelector(".title-line"), null, "no row draws a line");
+    },
+  ));
+
+test("TitleParts: a Sessions.List row with no label shows the word session as its line, with no directory", (t) =>
+  withApp(
+    t.signal,
+    { rows: [row({ key: "n", kind: "session", project: "", label: "session", state: "done" })] },
+    (container) => {
+      const element = rowElement(container, "n");
+      assert.equal(element.querySelector(".title-line")?.textContent, "session");
+      assert.equal(element.querySelector(".title-dir"), null, "a Sessions.List row has no directory");
+    },
+  ));
+
+test("TitleParts: in the by-project view a session row and a pane row still draw their directory, and no display: none rule in style.css hides .title-dir", (t) =>
+  withApp(
+    t.signal,
+    {
+      rows: [
+        row({ key: "p", kind: "pane", project: "/work/api", label: "building", summary: "building", state: "working" }),
+        row({ key: "s", kind: "session", project: "/work/app", label: "Billing rounding plan", state: "working" }),
+      ],
+    },
+    async (container) => {
+      await press("p");
+      assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "project");
+      assert.equal(rowElement(container, "p").querySelector(".title-dir")?.textContent, "api");
+      assert.equal(rowElement(container, "s").querySelector(".title-dir")?.textContent, "app");
+      const css = readFileSync(new URL("../src/style.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      const hiding = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter(([, selectors, declarations]) => /display\s*:\s*none/.test(declarations) && selectors.includes("title-dir"))
+        .map(([, selectors]) => selectors.trim());
+      assert.deepEqual(hiding, [], "no display: none rule targets .title-dir");
     },
   ));
 
@@ -3372,24 +3485,22 @@ test("an epic with no outcome reads building and its count, and epic unavailable
 });
 
 test("a full epic draws a strip with one segment per record task, in each task's tone", (t) => {
-  const slices = [
-    { task: "task-0", hue: "done" },
-    { task: "task-1", hue: "done" },
-    { task: "task-2", hue: "gap", errorAt: 3 },
-    { task: "task-3", hue: "dispatched", at: 2 },
-    { task: "task-4", hue: "dispatched", at: 1 },
-    { task: "task-5", hue: "dispatched", at: 4, held: true },
+  const steps = [
+    makeStep("a", { task: "task-0", end: "done" }),
+    makeStep("b", { task: "task-1", end: "goal_unmet" }),
+    makeStep("c", { task: "task-2" }),
+    makeStep("d", { task: "task-3", held: true }),
   ];
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")] });
-  const statuses = Array.from({ length: 7 }, () => "pending");
-  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, statuses, [], slices)]]));
+  const statuses = ["pending", "pending", "pending", "pending", "pending", "done", "integrated"];
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, statuses, steps)]]));
   return withApp(t.signal, { epics }, (container) => {
     const strip = sectionOf(container, "Epics").querySelector(".strip");
     assert.ok(strip !== null, "the full epic draws its strip");
     assert.equal(strip.className, "strip", "seven segments are not dense");
     assert.deepEqual(
       [...strip.children].map((segment) => segment.className),
-      ["k-passed", "k-passed", "k-errored", "k-now", "k-now", "k-held", "k-none"],
+      ["k-accepted", "k-errored", "k-now", "k-held", "k-none", "k-passed", "k-passed"],
     );
   });
 });
@@ -4689,6 +4800,27 @@ test("choosing a session in Talk docks its conversation beside the epic page, an
     assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "× stops the session's stream");
   }));
 
+test("TitleParts: a session chosen in Talk docks with a head drawn from its listed row", (t) =>
+  withApp(
+    t.signal,
+    {
+      epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }),
+      rows: [...fixture(), row({ key: "sess-1", kind: "session", label: "auth refresh", project: "/work/api" })],
+    },
+    async (container) => {
+      await press("j");
+      await clickButton(container, ".epic-page .title-row .acts", "Talk");
+      await chooseTalkLine(container, "api auth refresh");
+      assert.equal(dockShown(container), true, "the session's conversation docks beside the epic page");
+      assert.equal(
+        container.querySelector('aside.dock[aria-label="talk"] h1 .title-dir')?.textContent,
+        "api",
+        "the head draws the listed row's directory",
+      );
+      assert.equal(dockLabel(container), "api auth refresh", "the head reads the listed row's directory and line");
+    },
+  ));
+
 test("New session in the repository starts a session there with the first prompt, and docks it", (t) =>
   withApp(t.signal, { epics: pageEpic({ repository: talkRepository }) }, async (container, fake) => {
     fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
@@ -4759,6 +4891,7 @@ test("App reports the cursor's pane, epic, step and session to onViewing as the 
   const session = row({
     key: "sess",
     id: "sess-9",
+    archiveId: "sess-9",
     kind: "session",
     archiveKind: "session",
     label: "notes",
@@ -4938,6 +5071,7 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
     const started = row({
       key: "session:sess-new",
       id: "sess-new",
+      archiveId: "sess-new",
       kind: "session",
       label: "web",
       state: "working",

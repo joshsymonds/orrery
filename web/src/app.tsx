@@ -7,7 +7,7 @@ import { epicCallsOf } from "./card";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
-import { ArchiveButton, type ArchiveControl, EpicLine } from "./epicline";
+import { type ArchiveControl, EpicLine, RowMenu } from "./epicline";
 import { type EpicCommands, EpicPage, type Landing } from "./epicpage";
 import {
   type EpicBlock,
@@ -45,6 +45,7 @@ import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
+import { lastPathElement, TitleParts } from "./titleparts";
 import { TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
@@ -252,6 +253,9 @@ export function App({
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
   const [archiveError, setArchiveError] = useState("");
+  // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
+  // is drawn.
+  const [menuKey, setMenuKey] = useState<string | null>(null);
   // The archive marks the landed Archive and Unarchive calls left, by row key and by epic id. Each shows in place of
   // the list's own archived field until the next list answer, which carries that field.
   const [rowMarks, setRowMarks] = useState<Map<string, boolean>>(() => new Map());
@@ -329,6 +333,9 @@ export function App({
         ? placeEpics(byProject(defaultRows), kept.blocks)
         : [archivedSection(kept.archived, archivedRows)];
   const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
+  // The open ⋯ menu's entry, when the list draws it: a menu whose entry is not drawn counts as closed.
+  const menuDrawn = menuKey !== null && flat.some((item) => item.key === menuKey);
+  const openMenu = menuDrawn ? menuKey : null;
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -536,14 +543,15 @@ export function App({
     );
 
   // setArchive archives a row or epic, or unarchives it in the Archived view, through Epics.Archive or Epics.Unarchive
-  // with the kind and id the entry names. A pane has no archive kind, so it does nothing. A landed call marks the entry
-  // as the call left it, until the next list answer; a failed call leaves the entry where it was.
+  // with the kind the entry names and the id it archives by: a row's archiveId, which for a pane is its orrery_id, and
+  // an epic's id. A pane with no orrery_id has no archive kind, so it does nothing. A landed call marks the entry as the
+  // call left it, keyed by the entry's key, until the next list answer; a failed call leaves the entry where it was.
   const setArchive = (entry: Row | EpicItem, archived: boolean) => {
     const kind = entry.kind === "epic" ? "epic" : entry.archiveKind;
     if (kind === "none") {
       return;
     }
-    const request = { kind, id: entry.id };
+    const request = { kind, id: entry.kind === "epic" ? entry.id : entry.archiveId };
     void lineWrite(
       () => (archived ? clients.epics.archive(request) : clients.epics.unarchive(request)),
       archiveFailedText,
@@ -558,11 +566,30 @@ export function App({
     );
   };
 
-  // archiveControl is the archive button an entry's line draws: Archive in a default view, Unarchive in the Archived
-  // one.
+  // A menu whose entry leaves the list closes, so it does not reopen when the entry returns. While a menu is open, a
+  // pointerdown anywhere closes it: the ⋯ and the menu stop their own pointerdowns, so only a press outside reaches here.
+  useEffect(() => {
+    if (menuKey !== null && !menuDrawn) {
+      setMenuKey(null);
+    }
+  }, [menuKey, menuDrawn]);
+  useEffect(() => {
+    if (menuKey === null) {
+      return;
+    }
+    const close = () => setMenuKey(null);
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuKey]);
+
+  // archiveControl is the ⋯ menu an entry's line draws. Its one item is Archive in a default view, and Unarchive in the
+  // Archived one. toggle opens the entry's menu, or shuts it when it is the open one, so only one menu is open.
   const archiveControl = (entry: Row | EpicItem): ArchiveControl => ({
     archived: view === "archived",
+    open: openMenu === entry.key,
     run: () => setArchive(entry, view !== "archived"),
+    toggle: () => setMenuKey((current) => (current === entry.key ? null : entry.key)),
+    close: () => setMenuKey(null),
   });
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
@@ -878,6 +905,12 @@ export function App({
       }
       return;
     }
+    // While a drawn entry's ⋯ menu is open, Escape closes it and does nothing else: it takes back and interrupts nothing.
+    if (event.key === "Escape" && openMenu !== null) {
+      setMenuKey(null);
+      event.preventDefault();
+      return;
+    }
     const input = inputRef.current;
     if (input !== null && document.activeElement === input) {
       if (event.key === "Enter") {
@@ -943,7 +976,7 @@ export function App({
         setView("archived");
         break;
       case "A":
-        // A pane has no archive kind, and a step is never archived, so the key does nothing on either.
+        // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
         if (cursorItem !== null && cursorItem.kind !== "step") {
           setArchive(cursorItem, true);
         }
@@ -1117,12 +1150,14 @@ export function App({
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
         handover={Handover({ detail })}
+        rows={rows}
         actions={
           <Talk
             key={entry.id}
             epic={entry.id}
             sessions={detail.sessions}
             repository={detail.repository}
+            rows={rows}
             start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
             onOpen={openTalk}
           />
@@ -1301,19 +1336,13 @@ export function App({
                         {item.state === stateWaiting && (
                           <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
                         )}
-                        <span class="label">{item.label}</span>
-                        <span class="proj">{lastPathElement(item.project)}</span>
+                        <TitleParts dir={item.project} line={item.label} />
                         <span class="age">{ageText(item.changed, now)}</span>
-                        {item.archiveKind !== "none" && <ArchiveButton control={archiveControl(item)} />}
+                        {item.archiveKind !== "none" && <RowMenu control={archiveControl(item)} />}
                       </div>
                       <div class={item.unseen ? "l2" : "l2 one"}>
-                        <ReplyText text={item.state === stateWaiting ? rowNeed(item).text : item.summary} />
+                        <ReplyText text={replyText(item)} />
                       </div>
-                      {item.state === stateWaiting && item.summary !== "" && (
-                        <div class="l2 one why">
-                          <ReplyText text={item.summary} />
-                        </div>
-                      )}
                       <RowOptions
                         row={item}
                         conversation={heldConversation(item.key)}
@@ -1351,7 +1380,8 @@ export function App({
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
             <ConversationHead
-              label={cursorRow.label}
+              dir={cursorRow.project}
+              line={cursorRow.label}
               state={headState(cursorRow, cursorConversation?.state?.pane)}
               onBack={focusCursorRow}
               onGoList={focusCursorRow}
@@ -1391,7 +1421,7 @@ export function App({
             {composerRows(visited, cursorRow).map((row) => (
               <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
                 <Composer
-                  label={row.label}
+                  label={rowName(row)}
                   state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
@@ -1399,6 +1429,7 @@ export function App({
                   register={(handle) => registerHandle(composerHandles, row.key, handle)}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
+                  items={row.key === cursorRowKey ? cursorConversation?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1437,7 +1468,8 @@ export function App({
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && (
             <ConversationHead
-              label={pinned.label}
+              dir={pinned.project}
+              line={pinned.label}
               state={headState(pinned, pinnedConversation?.state?.pane)}
               onBack={closePin}
               onGoList={focusCursorRow}
@@ -1459,7 +1491,7 @@ export function App({
             {composerRows(pinnedRows, pinned).map((row) => (
               <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
                 <Composer
-                  label={row.label}
+                  label={rowName(row)}
                   state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
@@ -1467,6 +1499,7 @@ export function App({
                   register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
                   held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
+                  items={row.key === pinnedKey ? pinnedConversation?.items : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1496,6 +1529,7 @@ export function App({
           {docked !== null && (
             <TalkDock
               clients={clients}
+              rows={rows}
               target={docked.target}
               onClose={() => setTalkDock(null)}
               openEpic={openEpic}
@@ -1507,6 +1541,7 @@ export function App({
       {pickerOpen && (
         <PickerPalette
           clients={clients}
+          rows={rows}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });
@@ -1732,6 +1767,21 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
 // own state.
 function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
+}
+
+// replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
+// title's line, so a pane that is not waiting has no second line.
+function replyText(row: Row): string {
+  if (row.state === stateWaiting) {
+    return rowNeed(row).text;
+  }
+  return row.kind === "session" ? row.summary : "";
+}
+
+// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
+// directory.
+function rowName(row: Row): string {
+  return lastPathElement(row.project) || row.label;
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
@@ -1988,11 +2038,6 @@ function stepWhere(step: StepItem): string {
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
 function pageClasses(move: EpicPageState["move"], docked: boolean): string {
   return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
-}
-
-function lastPathElement(path: string): string {
-  const parts = path.split("/").filter((part) => part !== "");
-  return parts[parts.length - 1] ?? "";
 }
 
 function ageText(changed: number, now: number): string {

@@ -28,7 +28,7 @@ const labelPromptRunes = 40
 const summaryRunes = 300
 
 // ListHeadless answers the headless engine sessions with an event in the last store.EventRetention, in id order.
-// Each row's label and summary are derived when it is read. Store detail never reaches the client.
+// Each row's label, headline and summary are derived when it is read. Store detail never reaches the client.
 func (s sessionsServer) ListHeadless(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.ListHeadlessRequest],
@@ -77,6 +77,7 @@ func headlessMessage(row store.HeadlessRow) (*orreryv1.HeadlessSession, error) {
 		Id:          row.ID,
 		Dir:         row.Dir,
 		Label:       sessionLabel(row.Dir, row.Title, row.FirstPrompt),
+		Headline:    headlineOf(row),
 		State:       row.State,
 		Changed:     changed,
 		Seen:        seen,
@@ -106,11 +107,28 @@ func sessionLabel(dir, title, firstPrompt string) string {
 		return trimmed
 	}
 	base := filepath.Base(dir)
-	words := strings.Join(strings.Fields(firstPrompt), " ")
+	words := promptWords(firstPrompt)
 	if words == "" {
 		return base
 	}
 	return base + " · " + cutRunes(words, labelPromptRunes)
+}
+
+// headlineOf is a headless row's headline: its stored headline once one is written, else its title, else the first
+// words of its first prompt cut to labelPromptRunes runes, else "". The directory is never part of it.
+func headlineOf(row store.HeadlessRow) string {
+	if stored := strings.TrimSpace(row.Headline); stored != "" {
+		return stored
+	}
+	if title := strings.TrimSpace(row.Title); title != "" {
+		return title
+	}
+	return cutRunes(promptWords(row.FirstPrompt), labelPromptRunes)
+}
+
+// promptWords is the words of a prompt joined by single spaces, so a prompt's line breaks become spaces.
+func promptWords(prompt string) string {
+	return strings.Join(strings.Fields(prompt), " ")
 }
 
 // headlessSummary is the question while the session waits on one, else the reason of a failed or interrupted

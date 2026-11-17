@@ -8,8 +8,10 @@ import { JustHappened, NextRows, NowRows } from "./happenings";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
 import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
+import type { Row } from "./rows";
 import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
 import { type TalkTarget, talkTarget } from "./talk";
+import { listedTitle, TitleParts } from "./titleparts";
 import { TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
 
@@ -69,7 +71,8 @@ const landingTargets: Partial<Record<string, string>> = {
 // line to the session that created the epic, the now sentence and blocker, the red proof, the implementation (the
 // orrery, Now, Next, Just happened and the workflow), the green proof, the handover when given, the release proof and
 // the report. A section the epic has not reached is dim. The commands are the ones controlsOf shows for the epic. Each
-// phase click reaches onOpenPhase. The Conversation line reaches onOpenSession with the creator's target. A landing
+// phase click reaches onOpenPhase. The Conversation line draws the creator's title as Talk's menu does, its listed row's
+// directory and line from rows through TitleParts, and reaches onOpenSession with the creator's target. A landing
 // brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
 // the open question.
 export function EpicPage(props: {
@@ -86,6 +89,7 @@ export function EpicPage(props: {
   actions?: ComponentChildren;
   handover?: ComponentChildren;
   landing?: Landing;
+  rows?: Row[];
 }): JSX.Element {
   const {
     detail,
@@ -101,6 +105,7 @@ export function EpicPage(props: {
     actions,
     handover,
     landing,
+    rows = [],
   } = props;
   const { epic, contract, requirements, steps, nodes, releaseSteps, report, sessions } = detail;
   const wedges = wedgesOf(detail);
@@ -109,6 +114,8 @@ export function EpicPage(props: {
   const controls = controlsOf(detail);
   const creator = creatorOf(sessions);
   const creatorTarget = creator === undefined ? undefined : talkTarget(creator);
+  const creatorTitle =
+    creatorTarget === undefined ? undefined : listedTitle(rows, creatorTarget.kind, creatorTarget.id, creatorTarget.label);
   const released = epic !== undefined && epic.outcome.startsWith("released");
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -154,9 +161,10 @@ export function EpicPage(props: {
           {detail.summary !== "" ? detail.summary : contract.title}
         </button>
       )}
-      {creatorTarget !== undefined && (
+      {creatorTarget !== undefined && creatorTitle !== undefined && (
         <button type="button" class="summary conversation" onClick={() => onOpenSession(creatorTarget)}>
-          {`Conversation · ${creatorTarget.label}`}
+          {"Conversation · "}
+          <TitleParts dir={creatorTitle.dir} line={creatorTitle.line} />
         </button>
       )}
       {epic !== undefined && epic.problem !== "" && <p class="problem error">{epic.problem}</p>}
