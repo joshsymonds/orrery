@@ -3355,7 +3355,9 @@ type StoredEpic struct {
 	// The epic's release steps, each with the state its release runs give it, in contract order.
 	ReleaseProof []*EpicReleaseProof `protobuf:"bytes,25,rep,name=release_proof,json=releaseProof,proto3" json:"release_proof,omitempty"`
 	// When the owner last saw the epic, in unix seconds, from its latest SeeEpic; 0 when the owner has not seen it.
-	Seen          int64 `protobuf:"varint,26,opt,name=seen,proto3" json:"seen,omitempty"`
+	Seen int64 `protobuf:"varint,26,opt,name=seen,proto3" json:"seen,omitempty"`
+	// The class of the epic's park, which says who answers it. Empty when the epic is not parked.
+	ParkClass     string `protobuf:"bytes,27,opt,name=park_class,json=parkClass,proto3" json:"park_class,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3570,6 +3572,13 @@ func (x *StoredEpic) GetSeen() int64 {
 		return x.Seen
 	}
 	return 0
+}
+
+func (x *StoredEpic) GetParkClass() string {
+	if x != nil {
+		return x.ParkClass
+	}
+	return ""
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.
@@ -5918,7 +5927,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05round\x18\x01 \x01(\x03R\x05round\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x14\n" +
 	"\x05tasks\x18\x03 \x03(\x03R\x05tasks\x12\x18\n" +
-	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\xe0\b\n" +
+	"\aoutcome\x18\x04 \x01(\tR\aoutcome\"\xff\b\n" +
 	"\n" +
 	"StoredEpic\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12\x14\n" +
@@ -5947,7 +5956,9 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\bphase_at\x18\x17 \x01(\x03R\aphaseAt\x124\n" +
 	"\x06report\x18\x18 \x01(\v2\x1c.orrery.engine.v1.EpicReportR\x06report\x12G\n" +
 	"\rrelease_proof\x18\x19 \x03(\v2\".orrery.engine.v1.EpicReleaseProofR\freleaseProof\x12\x12\n" +
-	"\x04seen\x18\x1a \x01(\x03R\x04seen\"\xa0\x02\n" +
+	"\x04seen\x18\x1a \x01(\x03R\x04seen\x12\x1d\n" +
+	"\n" +
+	"park_class\x18\x1b \x01(\tR\tparkClass\"\xa0\x02\n" +
 	"\x0eEpicReleaseRun\x12\x12\n" +
 	"\x04part\x18\x01 \x01(\tR\x04part\x12\x1a\n" +
 	"\bposition\x18\x02 \x01(\x03R\bposition\x12\x18\n" +

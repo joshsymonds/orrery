@@ -757,6 +757,7 @@ func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
 		Paused:    row.Paused,
 		Parked:    row.Parked,
+		ParkClass: string(row.ParkClass),
 		Turns:     epicMap(row.Turns, turnMessage),
 		Tasks:     tasks,
 		Questions: epicMap(row.Questions, questionMessage),

@@ -942,6 +942,9 @@ message StoredEpic {
 
   // When the owner last saw the epic, in unix seconds, from its latest SeeEpic; 0 when the owner has not seen it.
   int64 seen = 26;
+
+  // The class of the epic's park, which says who answers it. Empty when the epic is not parked.
+  string park_class = 27;
 }
 
 // EpicReleaseRun is one release run of an epic: the candidate it starts from, a release step, a named step, or the judge.

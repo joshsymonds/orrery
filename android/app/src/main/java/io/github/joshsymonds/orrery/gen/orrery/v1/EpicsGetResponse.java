@@ -2186,6 +2186,47 @@ public  final class EpicsGetResponse extends
     bitField0_ = (bitField0_ & ~0x00000004);
   }
 
+  public static final int PLANNER_PARKED_FIELD_NUMBER = 20;
+  private boolean plannerParked_;
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+   * @return The plannerParked.
+   */
+  @java.lang.Override
+  public boolean getPlannerParked() {
+    return plannerParked_;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+   * @param value The plannerParked to set.
+   */
+  private void setPlannerParked(boolean value) {
+    
+    plannerParked_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+   */
+  private void clearPlannerParked() {
+
+    plannerParked_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -4605,6 +4646,49 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+     * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+     * @return The plannerParked.
+     */
+    @java.lang.Override
+    public boolean getPlannerParked() {
+      return instance.getPlannerParked();
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+     * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+     * @param value The plannerParked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlannerParked(boolean value) {
+      copyOnWrite();
+      instance.setPlannerParked(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+     * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlannerParked() {
+      copyOnWrite();
+      instance.clearPlannerParked();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -4653,12 +4737,13 @@ public  final class EpicsGetResponse extends
             "releaseSteps_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof.class,
             "report_",
+            "plannerParked_",
           };
           java.lang.String info =
-              "\u0000\u0013\u0000\u0001\u0001\u0013\u0013\u0000\f\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0014\u0000\u0001\u0001\u0014\u0014\u0000\f\u0000\u0001\u1009\u0000\u0002" +
               "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
               "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
-              "\u0208\u0012\u001b\u0013\u1009\u0002";
+              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -112,7 +112,8 @@ func (e epicsServer) List(
 // the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its ledger
 // findings with their closures, its review verdicts in ledger order, its release runs in the order the stored epic
 // lists them, its release steps in the order of its release proof, its report, its open questions, its contract with
-// its acceptance time, its summary, whether it is paused and why it is parked, its repository, its sessions newest
+// its acceptance time, its summary, whether it is paused, why it is parked and whether the planner holds the park, its
+// repository, its sessions newest
 // call first, and the tasks of its record when one exists. An id that neither the database nor the record root lists
 // answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
@@ -181,6 +182,7 @@ func (e epicsServer) Get(
 		resp.Summary = stored.GetSummary()
 		resp.Paused = stored.GetPaused()
 		resp.Parked = stored.GetParked()
+		resp.PlannerParked = stored.GetParked() != "" && !store.ParkClass(stored.GetParkClass()).OwnerHeld()
 	} else {
 		resp.Epic = epicMessage(rec, tasks, taskProblems, labeled, e.now())
 	}

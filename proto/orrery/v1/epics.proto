@@ -129,6 +129,10 @@ message EpicsGetResponse {
 
   // The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
   EpicReport report = 19;
+
+  // Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+  // is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+  bool planner_parked = 20;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
