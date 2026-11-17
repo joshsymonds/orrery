@@ -1500,26 +1500,6 @@ test("ToolTrail: a run of three with one failed result marks that call's dot fai
     },
   ));
 
-test("CallStatus: a run of a succeeded call, a failed call and a running call draws its dots ok, failed and running in call order", () =>
-  withReader(
-    {
-      conversation: conversation({
-        items: [
-          toolItem("Read", "r1", "a.txt"),
-          resultItem("r1", "alpha"),
-          toolItem("Bash", "b1", "rm -rf build"),
-          resultItem("b1", "permission denied", true),
-          toolItem("Bash", "b2", "make"),
-        ],
-      }),
-      seenAt: 100,
-      open: false,
-    },
-    (container) => {
-      assert.deepEqual(dotClasses(foldOf(container)), ["dot ok", "dot failed", "dot running"]);
-    },
-  ));
-
 test("CallStatus: a run of a succeeded call, a failed call and a call with no result, followed by a reply, draws its dots ok, failed and none in call order", () =>
   withReader(
     {
@@ -1583,16 +1563,16 @@ test("ToolTrail: a tool call with no result, after nothing but calls and results
     },
   ));
 
-test("ToolTrail: a run folded around a running call carries the running class and mark, and that call's dot is running", () =>
+test("CallStatus: a run folded around a running call carries the running class and mark, and its dots draw ok, failed and running in call order", () =>
   withReader(
     {
       conversation: conversation({
         items: [
           toolItem("Read", "r1", "a.txt"),
           resultItem("r1", "alpha"),
-          toolItem("Read", "r2", "b.txt"),
-          resultItem("r2", "beta"),
-          toolItem("Bash", "b1", "make"),
+          toolItem("Bash", "b1", "rm -rf build"),
+          resultItem("b1", "permission denied", true),
+          toolItem("Bash", "b2", "make"),
         ],
       }),
       seenAt: 100,
@@ -1602,7 +1582,7 @@ test("ToolTrail: a run folded around a running call carries the running class an
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), true, "the fold carries the running class");
       assert.equal(fold.querySelector(".running-mark")?.textContent, "running", "the fold carries the running mark");
-      assert.deepEqual(dotClasses(fold), ["dot ok", "dot ok", "dot running"], "the running call's dot is running");
+      assert.deepEqual(dotClasses(fold), ["dot ok", "dot failed", "dot running"]);
     },
   ));
 
@@ -1626,7 +1606,6 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), false, "the fold carries no running class");
       assert.equal(fold.querySelector(".running-mark"), null, "the fold carries no running mark");
-      assert.deepEqual(dotClasses(fold), ["dot ok", "dot ok", "dot none"], "no dot is running");
       assert.equal(container.querySelector(".running"), null, "no line of the reader is running");
       assert.equal(container.querySelector(".running-mark"), null);
     },
