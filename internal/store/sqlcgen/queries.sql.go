@@ -2712,6 +2712,38 @@ func (q *Queries) LastTurnEnds(ctx context.Context) ([]LastTurnEndsRow, error) {
 	return items, nil
 }
 
+const listArchivedRows = `-- name: ListArchivedRows :many
+SELECT kind, id, archived_at, unarchived_at FROM archived_rows ORDER BY kind, id
+`
+
+func (q *Queries) ListArchivedRows(ctx context.Context) ([]ArchivedRow, error) {
+	rows, err := q.db.QueryContext(ctx, listArchivedRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ArchivedRow
+	for rows.Next() {
+		var i ArchivedRow
+		if err := rows.Scan(
+			&i.Kind,
+			&i.ID,
+			&i.ArchivedAt,
+			&i.UnarchivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBuildEpics = `-- name: ListBuildEpics :many
 SELECT epics.id FROM epics
 WHERE epics.base <> '' AND epics.phase NOT IN ('met_at_base', 'clean', 'ended_with_gaps', 'released', 'done', 'stopped')
@@ -6929,6 +6961,22 @@ func (q *Queries) UpdateStepWatch(ctx context.Context, arg UpdateStepWatchParams
 	return err
 }
 
+const upsertArchivedRow = `-- name: UpsertArchivedRow :exec
+INSERT INTO archived_rows (kind, id, archived_at, unarchived_at) VALUES (?, ?, ?, 0)
+ON CONFLICT (kind, id) DO UPDATE SET archived_at = excluded.archived_at, unarchived_at = 0
+`
+
+type UpsertArchivedRowParams struct {
+	Kind       string
+	ID         string
+	ArchivedAt int64
+}
+
+func (q *Queries) UpsertArchivedRow(ctx context.Context, arg UpsertArchivedRowParams) error {
+	_, err := q.db.ExecContext(ctx, upsertArchivedRow, arg.Kind, arg.ID, arg.ArchivedAt)
+	return err
+}
+
 const upsertEngineRateLimit = `-- name: UpsertEngineRateLimit :exec
 INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (session_id)
@@ -7123,5 +7171,21 @@ type UpsertPushedNoticeParams struct {
 
 func (q *Queries) UpsertPushedNotice(ctx context.Context, arg UpsertPushedNoticeParams) error {
 	_, err := q.db.ExecContext(ctx, upsertPushedNotice, arg.Pane, arg.Session, arg.Time)
+	return err
+}
+
+const upsertUnarchivedRow = `-- name: UpsertUnarchivedRow :exec
+INSERT INTO archived_rows (kind, id, archived_at, unarchived_at) VALUES (?, ?, 0, ?)
+ON CONFLICT (kind, id) DO UPDATE SET archived_at = 0, unarchived_at = excluded.unarchived_at
+`
+
+type UpsertUnarchivedRowParams struct {
+	Kind         string
+	ID           string
+	UnarchivedAt int64
+}
+
+func (q *Queries) UpsertUnarchivedRow(ctx context.Context, arg UpsertUnarchivedRowParams) error {
+	_, err := q.db.ExecContext(ctx, upsertUnarchivedRow, arg.Kind, arg.ID, arg.UnarchivedAt)
 	return err
 }
