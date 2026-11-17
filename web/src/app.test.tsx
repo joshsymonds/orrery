@@ -2884,16 +2884,15 @@ test("a click on an epic need's sentence moves the cursor to that epic's entry",
   });
 });
 
-test("a click on the need of a folded epic opens the folded line and moves the cursor to that epic", (t) => {
+test("a click on the seventh quiet epic's need moves the cursor to it, which draws with the quiet ones", (t) => {
   const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic(widgetsRepo, slug));
   const seventh = quiet[6];
   const detail = create(EpicsGetResponseSchema, { epic: seventh, questions: [{ id: "Q1", text: "Which way?" }] });
   const epics = epicsView(quiet, new Map([[seventh.id, detail]]));
   return withApp(t.signal, { epics }, async (container) => {
-    assert.equal(rowKeys(container).includes(epicKey(seventh)), false, "the folded line starts closed");
+    assert.equal(rowKeys(container).includes(epicKey(seventh)), true, "the seventh quiet epic draws");
     await clickNeed(container, "g asks: Which way?");
     assert.equal(cursorKey(container), epicKey(seventh));
-    assert.equal(rowKeys(container).includes(epicKey(seventh)), true, "the folded line opened");
   });
 });
 
@@ -2918,16 +2917,17 @@ test("an epic with an open question draws its blocker in the list, with the time
   });
 });
 
-test("the Epics head counts every live epic, drawn or folded, and a seventh quiet epic folds", (t) => {
+test("the Epics head counts every live epic, and a seventh quiet epic draws a line of its own", (t) => {
   const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic(widgetsRepo, slug));
   const epics = epicsView(quiet, new Map());
   return withApp(t.signal, { epics }, (container) => {
     const section = sectionOf(container, "Epics");
     assert.equal(section.querySelector(".b-sec i")?.textContent, "7", "the head counts the seven live epics");
-    assert.equal(section.querySelectorAll(".b-row.epic").length, 6, "six quiet epics draw one line each");
+    assert.equal(section.querySelectorAll(".b-row.epic").length, 7, "all seven quiet epics draw one line each");
     assert.deepEqual(
       [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
-      ["1 folded"],
+      [],
+      "no line folds any of them",
     );
   });
 });
@@ -2963,27 +2963,21 @@ test("accepted, waiting epics fold into one line that opens to their names, and 
   });
 });
 
-test("an epic shows four running steps with the held one marked, then its more, tail and folded lines", (t) => {
+test("an epic shows four running steps with the held one marked, then its more and tail lines alone", (t) => {
   const steps = ["one", "two", "three", "four", "five"].map((name) => makeStep(name, { held: name === "two" }));
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: steps, endedSteps: 3 });
-  const folded = [makeEpic(widgetsRepo, "old", { live: false }), makeEpic(gadgetsRepo, "older", { live: false })];
-  const epics = epicsView([busy, ...folded], new Map());
+  const ended = [makeEpic(widgetsRepo, "old", { live: false }), makeEpic(gadgetsRepo, "older", { live: false })];
+  const epics = epicsView([busy, ...ended], new Map());
   return withApp(t.signal, { epics }, (container) => {
     const section = sectionOf(container, "Epics");
-    assert.equal(section.querySelector(".b-sec i")?.textContent, "1", "the head counts the live epic, not the folded ones");
+    assert.equal(
+      section.querySelector(".b-sec i")?.textContent,
+      "1",
+      "the head counts the live epic, not the ended ones",
+    );
     assert.deepEqual(
       [...section.children].map((child) => child.className),
-      [
-        "b-sec",
-        "b-row epic",
-        "b-row step",
-        "b-row step held",
-        "b-row step",
-        "b-row step",
-        "b-more",
-        "b-more",
-        "b-more",
-      ],
+      ["b-sec", "b-row epic", "b-row step", "b-row step held", "b-row step", "b-row step", "b-more", "b-more"],
     );
     const entries = [...section.querySelectorAll(".b-row.step")];
     assert.deepEqual(
@@ -2996,12 +2990,17 @@ test("an epic shows four running steps with the held one marked, then its more, 
     );
     assert.deepEqual(
       [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
-      ["1 more", "3 steps ended", "2 folded"],
+      ["1 more", "3 steps ended"],
+    );
+    assert.deepEqual(
+      moreLines(sectionOf(container, "Just ended")),
+      ["2 ended earlier ›"],
+      "the ended epics sit behind their ended earlier line",
     );
   });
 });
 
-test("a folded epic opens from its line, and its page draws the handover its one Epics.Get answers", (t) => {
+test("an ended epic opens from its ended earlier line, and its page draws the handover its Epics.Get answers", (t) => {
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const released = makeEpic(gadgetsRepo, "shipped", { live: false, outcome: "released" });
   // The poll loaded the live epic's detail, so only the released epic is asked for.
@@ -3013,17 +3012,13 @@ test("a folded epic opens from its line, and its page draws the handover its one
         ledger: [{ id: "reviewer-one-1", reviewer: "reviewer-one", claim: "the ledger claim", result: "holds" }],
       },
     ]);
-    const foldedLine = () =>
-      [...sectionOf(container, "Epics").querySelectorAll<HTMLElement>(".b-more")].find(
-        (line) => line.textContent === "1 folded",
-      );
     const handoverText = () =>
       container.querySelector('section.page[aria-label="epic"] section.handover')?.textContent ?? "";
-    assert.ok(foldedLine(), "the Epics group folds the released epic into a line");
+    assert.ok(endedLine(container), "the Just ended section folds the released epic into an ended earlier line");
     assert.equal(container.querySelector(`[data-key="${epicKey(released)}"]`), null, "the line starts closed");
 
     await act(() => {
-      foldedLine()?.dispatchEvent(clickEvent());
+      endedLine(container)?.dispatchEvent(clickEvent());
     });
     assert.equal(
       rowElement(container, epicKey(released)).querySelector(".label")?.textContent,
@@ -3048,31 +3043,27 @@ test("a folded epic opens from its line, and its page draws the handover its one
   });
 });
 
-test("the folded epics draw in list order after the rows, and keys reach them while the line is open", (t) => {
+test("the ended earlier epics draw in list order once their line opens, and keys reach them while it is open", (t) => {
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
   const older = makeEpic(gadgetsRepo, "older", { live: false });
   const newer = makeEpic(gadgetsRepo, "newer", { live: false });
   const epics = epicsView([busy, older, newer], new Map());
   return withApp(t.signal, { rows: [], epics }, async (container) => {
-    const foldedLine = () =>
-      [...sectionOf(container, "Epics").querySelectorAll<HTMLElement>(".b-more")].find(
-        (line) => line.textContent === "2 folded",
-      );
-    assert.deepEqual(rowKeys(container), [epicKey(busy), "step:s1"], "closed, the folded epics are not drawn");
+    assert.deepEqual(rowKeys(container), [epicKey(busy), "step:s1"], "closed, the ended earlier epics are not drawn");
 
     await act(() => {
-      foldedLine()?.dispatchEvent(clickEvent());
+      endedLine(container)?.dispatchEvent(clickEvent());
     });
     assert.deepEqual(
       rowKeys(container),
       [epicKey(busy), "step:s1", epicKey(older), epicKey(newer)],
-      "opened, the folded epics draw in list order",
+      "opened, the ended earlier epics draw in list order",
     );
     assert.equal(cursorKey(container), epicKey(busy));
     await pressEach(["j", "j"]);
-    assert.equal(cursorKey(container), epicKey(older), "the cursor reaches the first folded epic by keys");
+    assert.equal(cursorKey(container), epicKey(older), "the cursor reaches the first ended earlier epic by keys");
     await press("j");
-    assert.equal(cursorKey(container), epicKey(newer), "the cursor reaches the last folded epic by keys");
+    assert.equal(cursorKey(container), epicKey(newer), "the cursor reaches the last ended earlier epic by keys");
   });
 });
 
@@ -3167,7 +3158,7 @@ test("with the ended earlier line open the cursor walks every seen epic in their
   });
 });
 
-test("a record epic that goes quiet under the cursor folds into the Epics group, not Just ended", (t) => {
+test("a record epic that goes quiet under the cursor stays under Just ended while the cursor rests on it", (t) => {
   const live = makeEpic(widgetsRepo, "quiet", { source: "record" });
   return withApp(t.signal, { rows: [], now: endedNow, epics: epicsView([live], new Map()) }, async (container, fake) => {
     assert.equal(cursorKey(container), epicKey(live), "the cursor rests on the live record epic");
@@ -3180,8 +3171,9 @@ test("a record epic that goes quiet under the cursor folds into the Epics group,
       seen: fake.seen,
       epics: epicsView([makeEpic(widgetsRepo, "quiet", { source: "record", live: false })], new Map()),
     });
-    assert.deepEqual(sectionTitles(container), ["Epics"], "the quiet epic stays in the Epics group");
-    assert.deepEqual(moreLines(container), ["1 folded"], "the quiet epic folds into the Epics group's line");
+    assert.deepEqual(sectionTitles(container), ["Just ended"], "the quiet epic moves to Just ended");
+    assert.deepEqual(rowKeys(container), [epicKey(live)], "the quiet epic draws under Just ended");
+    assert.equal(cursorKey(container), epicKey(live), "the cursor stays on the quiet epic");
   });
 });
 

@@ -218,8 +218,6 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // Whether the accepted, waiting epics are open under their line. They start closed.
   const [waitingOpen, setWaitingOpen] = useState(false);
-  // Whether the folded epics are open under their line. They start closed.
-  const [foldedOpen, setFoldedOpen] = useState(false);
   // Whether the seen ended epics are open under their ended earlier line. They start closed.
   const [endedOpen, setEndedOpen] = useState(false);
   // The detail each epic the poll did not load answers with when its page opens. An epic is asked for once, so the
@@ -281,7 +279,7 @@ export function App({
     view === "attention"
       ? withEpicsGroup(withNeedsSection(byAttention(matching), needs.length > 0), kept)
       : placeEpics(byProject(matching), kept.blocks);
-  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, foldedOpen, endedOpen));
+  const flat = sections.flatMap((section) => entriesOf(section, waitingOpen, endedOpen));
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
   // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
@@ -647,14 +645,11 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
-  // openEpic moves the cursor to an epic's entry, first opening the accepted, folded or ended earlier line that holds
-  // it when that line is shut. The entry is then in the list, so the cursor rests on it.
+  // openEpic moves the cursor to an epic's entry, first opening the accepted or ended earlier line that holds it when
+  // that line is shut. The entry is then in the list, so the cursor rests on it.
   const openEpic = (id: string) => {
     if (epics.waiting.some((item) => item.id === id)) {
       setWaitingOpen(true);
-    }
-    if (epics.folded.some((item) => item.id === id)) {
-      setFoldedOpen(true);
     }
     if (kept.endedEarlier.some((item) => item.id === id)) {
       setEndedOpen(true);
@@ -1109,22 +1104,6 @@ export function App({
                       onOpen={() => openEpic(need.epic)}
                     />
                   ))}
-                {section.folded.length > 0 && (
-                  <div class="b-more" onClick={() => setFoldedOpen((value) => !value)}>
-                    {`${section.folded.length} folded`}
-                  </div>
-                )}
-                {foldedOpen &&
-                  section.folded.map((epic) => (
-                    <EpicLine
-                      key={epic.key}
-                      epic={epic}
-                      full={false}
-                      current={epic.key === cursorKey}
-                      now={now}
-                      onSelect={selectItem}
-                    />
-                  ))}
               </div>
             ))}
           </div>
@@ -1490,7 +1469,6 @@ function listsEpic(view: EpicsView, id: string): boolean {
   const held = [
     ...view.blocks.map((block) => block.epic),
     ...view.waiting,
-    ...view.folded,
     ...view.justEnded,
     ...view.endedEarlier,
   ];
@@ -1533,16 +1511,14 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
 }
 
 // entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the just-ended epics,
-// then the seen ones while their line is open, then the waiting epics while their line is open, then the rows, then the
-// folded epics while their line is open.
-function entriesOf(section: EpicSection, waitingOpen: boolean, foldedOpen: boolean, endedOpen: boolean): Item[] {
+// then the seen ones while their line is open, then the waiting epics while their line is open, then the rows.
+function entriesOf(section: EpicSection, waitingOpen: boolean, endedOpen: boolean): Item[] {
   return [
     ...section.epics.flatMap((block) => [block.epic, ...block.steps]),
     ...section.justEnded,
     ...(endedOpen ? section.endedEarlier : []),
     ...(waitingOpen ? section.waiting : []),
     ...section.rows,
-    ...(foldedOpen ? section.folded : []),
   ];
 }
 
