@@ -60,8 +60,9 @@ type verifierResult struct {
 
 // decideGreen returns the action for the green unit of a task: its evidence run at the commit, once it has ended. A
 // test item's unit first decides its reproduction at the commit, and starts the run only once the reproduction's exit
-// holds. A run that is not captured or not met spends the attempt, and a run that gave no verdict reruns or parks the
-// task. A met run is kept as the green run and goes to the review gates; with none, decideReview accepts it unreviewed.
+// holds. A run that exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. A run that is
+// not captured otherwise or not met spends the attempt, and a run that gave no verdict reruns or parks the task. A met
+// run is kept as the green run and goes to the review gates; with none, decideReview accepts it unreviewed.
 func decideGreen(view View) Action {
 	build := view.Task.Build
 	run := view.Run
@@ -81,6 +82,9 @@ func decideGreen(view View) Action {
 	}
 	if run.Ended.IsZero() {
 		return Action{Kind: ActNone}
+	}
+	if run.NotCaptured == store.NotCapturedEnvironment {
+		return environmentRerun(view, StageGreen+" capture")
 	}
 	if run.NotCaptured != "" {
 		return spend(view, "green not captured: "+run.NotCaptured)
@@ -102,9 +106,10 @@ func decideGreen(view View) Action {
 
 // decideRepro returns the action for the reproduction of a test item's green unit, once the unit has no run. A
 // reproduction not yet started is started at the commit, and one that has not ended waits. One lost at a restart
-// reruns the unit, and one that did not run spends the attempt with its reason. One that exited 0 and did not time
-// out spends it as a disagreement with the judge, who judged red fails. It reports false when the reproduction's exit
-// holds, so the green run starts.
+// reruns the unit, and one that did not run spends the attempt with its reason. One that exited
+// store.EnvironmentExit without timing out reruns or parks the unit as environmentRerun decides. One that exited 0 and
+// did not time out spends it as a disagreement with the judge, who judged red fails. It reports false when the
+// reproduction's exit holds, so the green run starts.
 func decideRepro(view View) (Action, bool) {
 	build := view.Task.Build
 	repro := view.Repro
@@ -122,6 +127,9 @@ func decideRepro(view View) (Action, bool) {
 	}
 	if repro.NotRun != "" {
 		return spend(view, "green not captured: reproduction did not run: "+repro.NotRun), true
+	}
+	if store.EnvironmentExited(repro.Exit, repro.TimedOut) {
+		return environmentRerun(view, "reproduction"), true
 	}
 	if repro.Exit == 0 && !repro.TimedOut {
 		return spend(view, fmt.Sprintf(

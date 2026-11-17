@@ -10,8 +10,14 @@ import (
 	"sync"
 )
 
-// refusalMessage is the error a refused request is answered with.
+// refusalMessage is the error a refused request that is not a question is answered with.
 const refusalMessage = "orrery does not answer this request"
+
+// UnanswerableQuestionMessage is the denial a refused question is answered with: the owner can answer only one
+// single-select question with options, so the agent asks again in that shape or in plain text.
+const UnanswerableQuestionMessage = "orrery cannot show this question to the owner: it answers only one question " +
+	"that is not multiSelect and has options. Ask again as one single-choice question, or ask in plain text and " +
+	"end your turn."
 
 // ErrNoPendingRequest reports a command for a request that is not open.
 var ErrNoPendingRequest = errors.New("session: no open request with that id")
@@ -102,7 +108,8 @@ func (s *Session) observeCancel(canceled RequestCancelled) RequestCancelled {
 	return canceled
 }
 
-// observeRequest opens every request the host has not answered and refuses a request the package cannot answer. A
+// observeRequest opens every request the host has not answered and refuses a request the package cannot answer: a
+// refused question is denied with UnanswerableQuestionMessage, and any other refused request gets an error response. A
 // request the host already answered is neither opened nor refused, so it is never answered twice. A replayed request
 // is not refused: the session writes nothing for a replayed line. A refusal that cannot be written leaves the request
 // unrefused, so the host still sees it.
@@ -119,6 +126,9 @@ func (s *Session) observeRequest(request Request) Request {
 		return request
 	}
 	err := s.write(request.WriteID, func() error {
+		if request.Kind == RequestQuestion {
+			return s.transport.SendPermissionDeny(request.RequestID, UnanswerableQuestionMessage)
+		}
 		return s.transport.SendControlError(request.RequestID, refusalMessage)
 	})
 	if err != nil {
@@ -177,6 +187,29 @@ type askOption struct {
 	Label string `json:"label"`
 }
 
+// answerableQuestion returns the one question of an AskUserQuestion input when it has the recorded shape the host can
+// answer: exactly one question, not multiSelect, with at least one option. Any other input returns an error wrapping
+// ErrUnverifiedAnswer.
+func answerableQuestion(input json.RawMessage) (askQuestion, error) {
+	var fields struct {
+		Questions []askQuestion `json:"questions"`
+	}
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return askQuestion{}, fmt.Errorf("%w: decode questions: %w", ErrUnverifiedAnswer, err)
+	}
+	if len(fields.Questions) != 1 {
+		return askQuestion{}, fmt.Errorf("%w: %d questions, want one", ErrUnverifiedAnswer, len(fields.Questions))
+	}
+	question := fields.Questions[0]
+	if question.MultiSelect {
+		return askQuestion{}, fmt.Errorf("%w: question allows several answers", ErrUnverifiedAnswer)
+	}
+	if len(question.Options) == 0 {
+		return askQuestion{}, fmt.Errorf("%w: question has no options", ErrUnverifiedAnswer)
+	}
+	return question, nil
+}
+
 // recordedAnswer returns the updated input that answers the one question in input with label. The
 // answers object, keyed by the question text and valued by the label, is added beside the original keys.
 func recordedAnswer(input json.RawMessage, label string) (json.RawMessage, error) {
@@ -184,16 +217,9 @@ func recordedAnswer(input json.RawMessage, label string) (json.RawMessage, error
 	if err := json.Unmarshal(input, &fields); err != nil {
 		return nil, fmt.Errorf("%w: decode question input: %w", ErrUnverifiedAnswer, err)
 	}
-	var questions []askQuestion
-	if err := json.Unmarshal(fields["questions"], &questions); err != nil {
-		return nil, fmt.Errorf("%w: decode questions: %w", ErrUnverifiedAnswer, err)
-	}
-	if len(questions) != 1 {
-		return nil, fmt.Errorf("%w: %d questions, want one", ErrUnverifiedAnswer, len(questions))
-	}
-	question := questions[0]
-	if question.MultiSelect {
-		return nil, fmt.Errorf("%w: question allows several answers", ErrUnverifiedAnswer)
+	question, err := answerableQuestion(input)
+	if err != nil {
+		return nil, err
 	}
 	if !slices.ContainsFunc(question.Options, func(option askOption) bool { return option.Label == label }) {
 		return nil, fmt.Errorf("%w: %q is not an option", ErrUnverifiedAnswer, label)

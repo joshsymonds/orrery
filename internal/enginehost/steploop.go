@@ -770,7 +770,9 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	result, err := r.runDoneGate(ctx, round)
 	r.endGate()
 	if err != nil {
-		return checks, "", fmt.Errorf("run gate of step %s: %w", r.id, err)
+		// A failed run returns the zero gateResult, except a gate that exited store.EnvironmentExit on its last run, whose
+		// holder is cleared with the step's end.
+		return checks, result.Holder, fmt.Errorf("run gate of step %s: %w", r.id, err)
 	}
 	// The gate has ended, so the return's checks are what runs next, and the stage moves back to checks.
 	r.setStage(store.StepStageChecks)
@@ -849,13 +851,55 @@ func (r *stepRun) writingChecks(ctx context.Context, round int, commit string,
 	return checks, gateDir, true
 }
 
-// runDoneGate runs the gate of round. A gate the restored row stores as running in round is re-adopted from its grant
-// and holder, and its exit is the result, so the gate is not run again. Any other gate runs once under a new grant, and
-// Started stores that grant and holder, with the gate stage, before the gate launches.
+// runDoneGate runs the gate of round. A gate that exits store.EnvironmentExit without timing out runs again, up to
+// store.EnvironmentReruns times, and a gate that exits so on its last run returns its result with an error that names it.
+// Each attempt runs under its own session (see stepGateSession), so the holder a restored row stores says which attempt
+// it is, and a restart carries on from there. A gate the restored row stores as running in round is re-adopted from its
+// grant and holder, and its exit is the result, so that gate is not run again.
 func (r *stepRun) runDoneGate(ctx context.Context, round int) (gateResult, error) {
+	attempt, err := r.gateAttemptOf(round)
+	if err != nil {
+		return gateResult{}, err
+	}
+	prev := ""
+	for {
+		result, runErr := r.runGateAttempt(ctx, round, attempt, prev)
+		if runErr != nil || !store.EnvironmentExited(result.Exit, result.TimedOut) {
+			return result, runErr
+		}
+		if attempt == store.EnvironmentReruns {
+			return result, fmt.Errorf("gate %s exited %d on its last run: an environment result, not a verdict",
+				r.gateName, store.EnvironmentExit)
+		}
+		attempt++
+		prev = result.Holder
+	}
+}
+
+// gateAttemptOf returns the attempt of the gate of round that the restored row stores as running, from the session of its
+// holder. It is 0 when no gate of round is stored as running, so the first attempt runs.
+func (r *stepRun) gateAttemptOf(round int) (int, error) {
+	restored := r.resumeGate
+	if restored.Holder == "" || restored.Round != round {
+		return 0, nil
+	}
+	session := filepath.Base(restored.Holder)
+	for attempt := 0; attempt <= store.EnvironmentReruns; attempt++ {
+		if stepGateSession(r.id, attempt) == session {
+			return attempt, nil
+		}
+	}
+	return 0, fmt.Errorf("gate holder %s of step %s is not a session its gate runs under", session, r.id)
+}
+
+// runGateAttempt runs attempt of the gate of round. A restored gate that is stored as running in this round is re-adopted
+// as the attempt its holder names. Any other attempt runs under a new grant, and its Started stores that grant, holder and
+// the gate stage before the gate launches. The holder of the attempt before it, prev, is cleared once that is stored, so
+// the row never names a holder that is gone.
+func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev string) (gateResult, error) {
 	run := gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: r.id + "-gate", StateDir: r.stateDir, Scope: r.scope, Tail: stepGateLogTail,
+		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, Tail: stepGateLogTail,
 	}
 	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {
 		r.resumeGate = store.StepGate{}
@@ -867,9 +911,21 @@ func (r *stepRun) runDoneGate(ctx context.Context, round int) (gateResult, error
 	run.Started = func(ctx context.Context, grantID, dir string) error {
 		r.setStage(store.StepStageGate)
 		gate := store.StepGate{ID: r.id, Grant: grantID, Holder: dir, Round: round}
-		return r.writer.Commit(ctx, r.id, gate, r.loopState())
+		if err := r.writer.Commit(ctx, r.id, gate, r.loopState()); err != nil {
+			return err
+		}
+		return gateClear(ctx, prev)
 	}
 	return runGrantedGate(ctx, r.pools, r.grant, run)
+}
+
+// stepGateSession returns the session the gate of the step with id runs under on attempt. The first attempt's session is
+// the id with "-gate" added, as it always was, and each rerun's adds its attempt number.
+func stepGateSession(id string, attempt int) string {
+	if attempt == 0 {
+		return id + "-gate"
+	}
+	return fmt.Sprintf("%s-gate-%d", id, attempt)
 }
 
 // stepGateRecord returns the record a granted gate's check detail opens with: the gate's name and the file it resolved

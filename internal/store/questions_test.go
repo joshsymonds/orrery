@@ -460,7 +460,10 @@ func TestParkAgainReplacesTheOpenParkQuestion(t *testing.T) {
 	}
 }
 
-func TestParkNodeFinalOpensAFinalParkQuestionOnlyWhenItParks(t *testing.T) {
+// TestParkNodeMetAtBaseOpensThreeChoiceQuestionOnlyWhenItParks checks that ParkNodeMetAtBase opens its park question
+// only when it parks a run. R4: the park used to open a final question that declared no choice, with the phase set to
+// met_at_base. It now opens the question of the three choices and leaves the phase as it was.
+func TestParkNodeMetAtBaseOpensThreeChoiceQuestionOnlyWhenItParks(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -470,27 +473,27 @@ func TestParkNodeFinalOpensAFinalParkQuestionOnlyWhenItParks(t *testing.T) {
 		t.Fatalf("StartNodes: %v", err)
 	}
 
-	if err := s.ParkNodeFinal(ctx, claimEpic, "red", 2, "failed", "wrong attempt", "parked for good",
-		completedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal at another attempt: %v", err)
+	if err := s.ParkNodeMetAtBase(ctx, claimEpic, "red", 2, "failed", "wrong attempt", metAtBaseParkReason,
+		[]string{"R1"}, completedAt()); err != nil {
+		t.Fatalf("ParkNodeMetAtBase at another attempt: %v", err)
 	}
 	if got := questionsOf(t, s); len(got) != 0 {
-		t.Errorf("questions after a ParkNodeFinal that parks nothing = %+v, want none", got)
+		t.Errorf("questions after a ParkNodeMetAtBase that parks nothing = %+v, want none", got)
 	}
 
-	if err := s.ParkNodeFinal(ctx, claimEpic, "red", 1, "failed", "R1 met", "parked for good",
-		completedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal: %v", err)
+	if err := s.ParkNodeMetAtBase(ctx, claimEpic, "red", 1, "failed", "R1 red: failed", metAtBaseParkReason,
+		[]string{"R1"}, completedAt()); err != nil {
+		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
-	want := []EpicQuestion{finalParkQuestionOf(1, "parked for good")}
+	want := []EpicQuestion{metAtBaseQuestionR1()}
 	if got := questionsOf(t, s); !reflect.DeepEqual(got, want) {
-		t.Errorf("questions after ParkNodeFinal = %+v, want %+v", got, want)
+		t.Errorf("questions after ParkNodeMetAtBase = %+v, want %+v", got, want)
 	}
 	head, err := sqlcgen.New(s.db).GetEpic(ctx, claimEpic)
 	if err != nil {
 		t.Fatalf("GetEpic: %v", err)
 	}
-	if head.Phase != phaseMetAtBase {
-		t.Errorf("phase after ParkNodeFinal = %q, want %q", head.Phase, phaseMetAtBase)
+	if head.Phase != "accepted" {
+		t.Errorf("phase after ParkNodeMetAtBase = %q, want accepted", head.Phase)
 	}
 }

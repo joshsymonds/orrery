@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -457,7 +458,8 @@ func (s *epicService) StopEpic(
 }
 
 // RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused. When the
-// request names a node, the node's parked run reruns under its next attempt instead, and the epic is unparked with it.
+// request names a node, the node reruns under its next attempt instead, and the epic is unparked with it: its parked
+// runs, or its latest integrate run when that run ended failed (store.Store.RetryNode).
 func (s *epicService) RetryEpic(
 	ctx context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -532,8 +534,9 @@ func (s *epicService) SeeEpic(
 	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
 }
 
-// retryPark ends the park of epic when node is empty, and otherwise reruns node's parked run. The store refuses a node
-// of an unknown epic as it refuses an unparked node, so the epic is read first to make an unknown epic ErrNoEpic.
+// retryPark ends the park of epic when node is empty, and otherwise reruns node: its parked runs, or its latest integrate
+// run when that run ended failed. The store refuses a node with nothing to rerun, which a node of an unknown epic also
+// is, so the epic is read first to make an unknown epic ErrNoEpic.
 func (s *epicService) retryPark(ctx context.Context, epic, node string) error {
 	if node == "" {
 		if err := s.epics.RetryEpic(ctx, epic); err != nil {
@@ -853,12 +856,13 @@ func planRows(epic store.EpicRow, mark int64) ([]int64, []int64) {
 	return turns, tasks
 }
 
-// evidenceRunIDs returns the ids of the evidence runs stored for run's attempt, one per Requirement in the contract's
-// order. An id is derived from run's id, its attempt and the Requirement's id, so only that attempt's runs match.
+// evidenceRunIDs returns, for run's attempt, the id of the evidence run that decides each Requirement, in the contract's
+// order: the first run, or the rerun a store.EnvironmentExit started, as kinds.EvidenceRunID walks them. A Requirement
+// with no stored run at that attempt is left out.
 func evidenceRunIDs(flow store.EpicFlow, run store.NodeRun) []string {
 	var ids []string
 	for _, requirement := range flow.Epic.Requirements {
-		id := store.NodeWorkID(run.ID, run.Attempt, requirement.ID)
+		id := kinds.EvidenceRunID(run, flow.Evidence, requirement.ID)
 		if slices.ContainsFunc(flow.Evidence, func(stored store.EvidenceRun) bool { return stored.ID == id }) {
 			ids = append(ids, id)
 		}

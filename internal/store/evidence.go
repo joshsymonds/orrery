@@ -17,6 +17,10 @@ var ErrNoEvidenceRun = errors.New("no evidence run")
 // ErrEvidenceState reports that a write does not fit the state its evidence run is in.
 var ErrEvidenceState = errors.New("evidence run is in another state")
 
+// NotCapturedEnvironment is the NotCaptured of a capture that exited EnvironmentExit. Its gate ran, but nothing it left is
+// judged, and the kinds that read its exit run it again.
+const NotCapturedEnvironment = "exited 75 for its environment"
+
 // The states an evidence run moves through in order: capturing, then judging, then ended.
 const (
 	runCapturing = "capturing"

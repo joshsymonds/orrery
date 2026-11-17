@@ -114,7 +114,8 @@ const (
 )
 
 // Request is a control request the session waits on its host to answer. Refused reports a request the
-// package cannot answer: the session declines it itself, so the host must not answer it. WriteID is the
+// package cannot answer, including a question of a shape the host cannot answer: the session declines it
+// itself, so the host must not answer it. WriteID is the
 // write id of the request's event, "event:" plus the Start of its line and the event's index in the line,
 // which a write the session makes for the request carries. Answered reports a request the host answered
 // before the session was re-adopted, so the host must not answer it again.

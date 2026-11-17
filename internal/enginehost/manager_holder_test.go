@@ -26,9 +26,9 @@ func fakeSystemdRunPath(t *testing.T) string {
 	return holdertest.FakeScope(t)
 }
 
-// scopeArgs returns the arguments that put the holder of session id in its own user scope, before the holder's argv.
-func scopeArgs(id string) []string {
-	return []string{"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", "orrery-hold-" + id}
+// scopeArgs returns the arguments that put a holder in its own user scope named unit, before the holder's argv.
+func scopeArgs(unit string) []string {
+	return []string{"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit}
 }
 
 // shortRoot creates a temporary directory whose path is short enough for a socket path. A t.TempDir path carries the
@@ -154,9 +154,14 @@ func TestStartWithHolderScopeRunsSessionUnderScopedHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session command: %v", err)
 	}
-	want := append(scopeArgs(id), orrery, "holder", "--session", id, "--state-dir", root, "--", child.Path)
+	got := recordedArgs(t, record)
+	units := launchedScopeUnits(t, got, id)
+	if len(units) != 1 {
+		t.Fatalf("launched scopes %q, want one", units)
+	}
+	want := append(scopeArgs(units[0]), orrery, "holder", "--session", id, "--state-dir", root, "--", child.Path)
 	want = append(want, child.Args...)
-	if got := recordedArgs(t, record); !slices.Equal(got, want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("systemd-run argv %q, want %q", got, want)
 	}
 }

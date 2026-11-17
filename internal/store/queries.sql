@@ -422,6 +422,9 @@ INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item) V
 -- name: ListEpicRequirements :many
 SELECT * FROM epic_requirements WHERE epic = ? ORDER BY position;
 
+-- name: DropEpicRequirement :exec
+UPDATE epic_requirements SET dropped_by = sqlc.arg(decision) WHERE epic = sqlc.arg(epic) AND id = sqlc.arg(id);
+
 -- name: InsertEpicPremise :exec
 INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?);
 
@@ -511,6 +514,10 @@ UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ? WH
 UPDATE epic_node_runs SET revision = ?, refs = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
 
+-- name: ClearEpicNodeRevision :execrows
+UPDATE epic_node_runs SET revision = '', result = ''
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
+
 -- name: RecordEpicNodeResult :exec
 UPDATE epic_node_runs SET result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
@@ -541,6 +548,10 @@ SELECT CAST(COUNT(*) AS INTEGER) FROM epic_node_runs WHERE epic = ? AND path = ?
 UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
     refs = '', refs_checked = 0, result = '', ended = 0
 WHERE epic = ? AND node = ? AND kind <> 'loop' AND state = 'parked';
+
+-- name: RetryFailedEpicIntegrateRun :execrows
+UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', refs_checked = 0, ended = 0
+WHERE epic = ? AND path = ? AND kind = 'integrate' AND state = 'ended' AND outcome = 'failed';
 
 -- name: MoveEpicLoopRound :exec
 UPDATE epic_node_runs SET loop_round = loop_round + 1
@@ -770,6 +781,12 @@ SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq;
 
 -- name: GetEpicQuestion :one
 SELECT * FROM epic_questions WHERE epic = ? AND seq = ?;
+
+-- name: InsertEpicMetAtBase :exec
+INSERT INTO epic_met_at_base (epic, question, path, attempt, requirements) VALUES (?, ?, ?, ?, ?);
+
+-- name: GetEpicMetAtBase :one
+SELECT * FROM epic_met_at_base WHERE epic = ? AND question = ?;
 
 -- name: SetEpicQuestionAnswered :exec
 UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq = ?;

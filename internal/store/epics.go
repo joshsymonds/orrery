@@ -124,13 +124,15 @@ type EpicAddition struct {
 }
 
 // EpicRequirement is one thing that will be true when the epic is done, and the evidence item that shows it. The
-// item is the zero Item when the Requirement names none.
+// item is the zero Item when the Requirement names none. DroppedBy is the seq of the owner's decision that dropped the
+// Requirement as already met at the epic's base, and 0 while it is not dropped.
 type EpicRequirement struct {
-	ID       string
-	Text     string
-	Evidence string
-	Kind     string
-	Item     evidence.Item
+	ID        string
+	Text      string
+	Evidence  string
+	Kind      string
+	Item      evidence.Item
+	DroppedBy int64
 }
 
 // EpicGate is one named gate of an epic: a command it runs, or an agent it asks, and what each must and must not do.
@@ -720,7 +722,8 @@ func (s *Store) AnswerQuestion(
 
 // recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
 // becomes answered with choice, a pending trigger `answer:<id>` is added, and the decision is appended tied to the
-// question. An answered park question that is not final ends the park in the same write.
+// question. An answer to a park question for a red run judged holding at base carries out its choice, as
+// answerMetAtBase gives. An answered park question that is not final ends the park in the same write.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -744,15 +747,75 @@ func recordQuestionAnswer(
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
 	}
+	decision, err := appendDecision(ctx, queries, epic, id, text, question, at)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	err = answerMetAtBase(ctx, queries, epic, question, choice, decision.Seq, at)
+	if err != nil {
+		return EpicDecision{}, err
+	}
 	err = endParkByAnswer(ctx, queries, epic, answered)
 	if err != nil {
 		return EpicDecision{}, err
 	}
-	return appendDecision(ctx, queries, epic, id, text, question, at)
+	return decision, nil
+}
+
+// answerMetAtBase carries out choice, answered to the park question with seq question as decision seq, in the caller's
+// write, when the question is the park of an evidence run that judged Requirements holding at base. retry reruns the
+// parked run at its next attempt. drop marks each Requirement the park found met as dropped by the decision, then reruns
+// the run. end sets the phase of epic to met_at_base and leaves the park in place, so the epic stays parked. Any other
+// question, and any other choice, changes nothing here.
+func answerMetAtBase(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	question int64,
+	choice string,
+	decision int64,
+	at time.Time,
+) error {
+	met, err := queries.GetEpicMetAtBase(ctx, sqlcgen.GetEpicMetAtBaseParams{Epic: epic, Question: question})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read park question %d of epic %s: %w", question, epic, err)
+	}
+	switch choice {
+	case ChoiceRetry:
+		return rerunParkedRun(ctx, queries, epic, met.Path)
+	case ChoiceDrop:
+		return dropMetAtBase(ctx, queries, epic, met, decision)
+	case ChoiceEnd:
+		return setEpicPhase(ctx, queries, epic, phaseMetAtBase, at)
+	default:
+		return nil
+	}
+}
+
+// dropMetAtBase marks each Requirement that met names as dropped by the decision with seq decision, then reruns the
+// parked run met names at its next attempt, in the caller's write.
+func dropMetAtBase(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, met sqlcgen.EpicMetAtBase, decision int64,
+) error {
+	ids, err := decodeList[string](met.Requirements)
+	if err != nil {
+		return fmt.Errorf("requirements of park question %d of epic %s: %w", met.Question, epic, err)
+	}
+	for _, id := range ids {
+		if err = queries.DropEpicRequirement(ctx, sqlcgen.DropEpicRequirementParams{
+			Decision: decision, Epic: epic, ID: id,
+		}); err != nil {
+			return fmt.Errorf("drop requirement %s of epic %s: %w", id, epic, err)
+		}
+	}
+	return rerunParkedRun(ctx, queries, epic, met.Path)
 }
 
 // endParkByAnswer ends the park of epic in the caller's write when answered, the question an answer has just closed, is
-// a park question and epic is not met_at_base. A final park is left as it is.
+// a park question and epic is not met_at_base. An epic in met_at_base is left parked, as an end leaves it.
 func endParkByAnswer(ctx context.Context, queries *sqlcgen.Queries, epic string, answered sqlcgen.EpicQuestion) error {
 	if answered.Turn != 0 || answered.Label != ParkLabel {
 		return nil
@@ -991,6 +1054,7 @@ func requirementOf(stored sqlcgen.EpicRequirement) (EpicRequirement, error) {
 	}
 	return EpicRequirement{
 		ID: stored.ID, Text: stored.Text, Evidence: stored.Evidence, Kind: stored.Kind, Item: item,
+		DroppedBy: stored.DroppedBy,
 	}, nil
 }
 

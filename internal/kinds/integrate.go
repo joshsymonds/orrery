@@ -118,35 +118,30 @@ func doneGates(run store.NodeRun, rows Rows) (string, Action, bool) {
 	return "", Action{}, true
 }
 
-// gateCheck returns the check that decides Done gate i of the run: its check, or the rerun of a check lost at a restart.
-// It returns decided false, with the action the gate asks for, while that check is not decided.
+// gateCheck returns the check that decides Done gate i of the run: its check, or the last rerun of it the walk over its
+// reruns reaches. It returns decided false, with the action the gate asks for, while that check is not decided, and
+// with a park when the gate's last rerun was lost at a restart or exited store.EnvironmentExit.
 func gateCheck(run store.NodeRun, i int, gate string, checks []store.NodeCheck) (store.NodeCheck, Action, bool) {
 	part := fmt.Sprintf("done %d", i+1)
-	id := store.NodeWorkID(run.ID, run.Attempt, part)
-	check, ok := checkByID(checks, id)
-	if !ok {
+	check, id, outcome := checkChain(run, checks, part, true)
+	switch outcome {
+	case chainNone:
 		return store.NodeCheck{}, Action{Kind: ActStart, IDs: []string{id}, Items: []string{gate}}, false
-	}
-	if check.State == store.NodeRunning {
+	case chainRunning:
 		return store.NodeCheck{}, Action{Kind: ActNone}, false
-	}
-	if check.NotRun != store.LostAtRestart {
-		return check, Action{}, true
-	}
-	rerunID := store.NodeWorkID(run.ID, run.Attempt, rerunWork(part))
-	rerun, ok := checkByID(checks, rerunID)
-	switch {
-	case !ok:
-		return store.NodeCheck{}, Action{Kind: ActStart, IDs: []string{rerunID}, Items: []string{gate}}, false
-	case rerun.State == store.NodeRunning:
-		return store.NodeCheck{}, Action{Kind: ActNone}, false
-	case rerun.NotRun == store.LostAtRestart:
+	case chainLost:
 		return store.NodeCheck{}, Action{
 			Kind:   ActPark,
 			Output: fmt.Sprintf("integrate %s: Done gate %s lost at a restart twice", run.Path, gate),
 		}, false
+	case chainEnvironment:
+		return store.NodeCheck{}, Action{
+			Kind: ActPark, Output: fmt.Sprintf("integrate %s: %s", run.Path, environmentPark("Done gate "+gate)),
+		}, false
+	case chainEnded:
+		return check, Action{}, true
 	}
-	return rerun, Action{}, true
+	return check, Action{}, true
 }
 
 // checkPassed reports whether a check ran, exited 0 and did not time out.
@@ -155,23 +150,26 @@ func checkPassed(check store.NodeCheck) bool {
 }
 
 // captures decides the captures of the Requirements that name an evidence item. A capture with no run starts, and one
-// lost at a restart is started again as its rerun. A capture still running makes it wait, and a rerun lost at a restart
-// parks the run. Once every capture has ended, it returns the capture each Requirement ended with.
+// lost at a restart or that exited store.EnvironmentExit is started again as its rerun. A capture still running makes it
+// wait. A rerun lost at a restart parks the run, and so does a capture whose last rerun exits store.EnvironmentExit. Once
+// every capture has ended, it returns the capture each Requirement ended with.
 func captures(run store.NodeRun, rows Rows) (map[string]store.EvidenceRun, Action, bool) {
 	captured := make(map[string]store.EvidenceRun)
-	var ids, items, lost []string
+	var ids, items, lost, environment []string
 	running := false
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
-		capture, work, ok := captureFor(rows.Evidence, run, requirement.ID)
-		switch {
-		case !ok:
+		capture, work, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
+		switch outcome {
+		case chainNone:
 			ids = append(ids, work)
 			items = append(items, requirement.ID)
-		case capture.State != runEnded:
+		case chainRunning:
 			running = true
-		case capture.NotCaptured == store.LostAtRestart:
+		case chainLost:
 			lost = append(lost, requirement.ID)
-		default:
+		case chainEnvironment:
+			environment = append(environment, requirement.ID)
+		case chainEnded:
 			captured[requirement.ID] = capture
 		}
 	}
@@ -185,20 +183,13 @@ func captures(run store.NodeRun, rows Rows) (map[string]store.EvidenceRun, Actio
 			Kind:   ActPark,
 			Output: fmt.Sprintf("integrate %s: capture %s lost at a restart twice", run.Path, lost[0]),
 		}, false
+	case len(environment) > 0:
+		return nil, Action{
+			Kind:   ActPark,
+			Output: fmt.Sprintf("integrate %s: %s", run.Path, environmentPark("capture "+environment[0])),
+		}, false
 	}
 	return captured, Action{}, true
-}
-
-// captureFor returns the capture of Requirement id that the integrate run decides on, and its work id. That is the
-// capture, or its rerun once the capture was lost at a restart. ok is false when the run has not started it.
-func captureFor(runs []store.EvidenceRun, run store.NodeRun, id string) (store.EvidenceRun, string, bool) {
-	work := store.NodeWorkID(run.ID, run.Attempt, captureWork(id))
-	capture, ok := evidenceByID(runs, work)
-	if ok && capture.NotCaptured == store.LostAtRestart {
-		work = store.NodeWorkID(run.ID, run.Attempt, rerunWork(captureWork(id)))
-		capture, ok = evidenceByID(runs, work)
-	}
-	return capture, work, ok
 }
 
 // reproductions decides the reproductions of the Requirements that name a test item, once the captures have settled. A
@@ -305,7 +296,8 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 			continue
 		}
 		for _, requirement := range itemRequirements(rows.Epic.Requirements) {
-			if capture, _, ok := captureFor(rows.Evidence, run, requirement.ID); ok && capture.Passed {
+			capture, _, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
+			if outcome != chainNone && capture.Passed {
 				green[requirement.ID] = true
 			}
 		}
@@ -316,21 +308,23 @@ func GreenAt(rows Rows, revision string) map[string]bool {
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
 // evidence item, it has no passed red run at the epic's base, or it is not green at the stored base. A test item that is
 // green at the stored base also lacks it when its reproduction at the epic's base disagrees with its red, or did not run.
-// It returns nil when every Requirement has its proof.
+// A Requirement dropped as already met at the base has no red run or reproduction at the base to name, so it lacks the
+// proof only when it is not green at the stored base. It returns nil when every Requirement has its proof.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range rows.Epic.Requirements {
+		dropped := droppedAsMet(requirement)
 		switch {
 		case !hasItem(requirement):
 			lines = append(lines, requirement.ID+" names no evidence item")
-		case !hasRedAtBase(rows, requirement.ID):
+		case !dropped && !hasRedAtBase(rows, requirement.ID):
 			lines = append(lines, fmt.Sprintf("%s has no red at the epic's base %s", requirement.ID, rows.Epic.Base))
 		case !green[requirement.ID]:
 			lines = append(lines, fmt.Sprintf(
 				"%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
 			))
-		case isTestItem(requirement):
+		case !dropped && isTestItem(requirement):
 			line := Disagreement(rows, requirement.ID)
 			if line == "" {
 				line = noReproduction(rows, requirement.ID)
@@ -406,14 +400,14 @@ func baseReproductions(rows Rows, id string) []store.NodeCheck {
 }
 
 // hasRedAtBase reports whether an evidence node run that ended passed has a passed red run of Requirement id at the
-// epic's base, at the run's attempt.
+// epic's base, at the run's attempt. That red run is the one the run's rerun chain decides on, as Evidence.Decide reads it.
 func hasRedAtBase(rows Rows, id string) bool {
 	for _, run := range rows.Runs {
 		if run.Kind != kindEvidence || run.Outcome != outcomePassed {
 			continue
 		}
-		red, ok := evidenceByID(rows.Evidence, store.NodeWorkID(run.ID, run.Attempt, id))
-		if ok && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed {
+		red, _, outcome := evidenceChain(run, rows.Evidence, id, false)
+		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Revision == rows.Epic.Base && red.Passed {
 			return true
 		}
 	}
@@ -421,12 +415,16 @@ func hasRedAtBase(rows Rows, id string) bool {
 }
 
 // MetAtBase returns the Requirements whose red run at the attempt of the node run was judged met, so their conclusion
-// already holds at the base. They are in contract order.
+// already holds at the base. That red run is the one the rerun chain decides on, as Evidence.Decide reads it. They are in
+// contract order. A Requirement dropped as already met has no red run to judge, so it is never named.
 func MetAtBase(node Node, rows Rows) []string {
 	var met []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
-		red, ok := evidenceByID(rows.Evidence, store.NodeWorkID(node.Run.ID, node.Run.Attempt, requirement.ID))
-		if ok && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
+		if droppedAsMet(requirement) {
+			continue
+		}
+		red, _, outcome := evidenceChain(node.Run, rows.Evidence, requirement.ID, false)
+		if outcome != chainNone && red.Phase == evidence.PhaseRed && red.Verdict == evidence.VerdictHolds {
 			met = append(met, requirement.ID)
 		}
 	}
@@ -436,6 +434,12 @@ func MetAtBase(node Node, rows Rows) []string {
 // hasItem reports whether a Requirement names an evidence item.
 func hasItem(requirement store.EpicRequirement) bool {
 	return !reflect.ValueOf(requirement.Item).IsZero()
+}
+
+// droppedAsMet reports whether the owner dropped a Requirement as already met at the epic's base: its DroppedBy is the
+// seq of that decision.
+func droppedAsMet(requirement store.EpicRequirement) bool {
+	return requirement.DroppedBy != 0
 }
 
 // isTestItem reports whether a Requirement names a test item.
@@ -466,6 +470,15 @@ func reproWork(id string) string {
 
 func rerunWork(part string) string {
 	return part + " rerun"
+}
+
+// runWork returns the work of the k-th run of part: part itself for the first run, and each rerun adds a rerun to the work
+// before it.
+func runWork(part string, k int) string {
+	for range k {
+		part = rerunWork(part)
+	}
+	return part
 }
 
 // checkByID returns the check with id among checks.

@@ -19,6 +19,8 @@ const (
 	SocketName = "holder.sock"
 	// ExitName is the record a holder writes when its child exits.
 	ExitName = "exit.json"
+	// scopeNonceName is the file a scoped holder's launch writes its scope's nonce to, so a reattach can name that scope.
+	scopeNonceName = "scope.nonce"
 
 	holdersName = "holders"
 	// maxSocketPath is the sun_path size in bytes, including its terminating NUL.

@@ -111,6 +111,16 @@ func fetchOrigin(ctx context.Context, epic store.EpicRow) (string, error) {
 	return strings.TrimSpace(commit), nil
 }
 
+// candidateContainsOrigin reports whether origin's current main is in candidate, which is to say an ancestor of it or the
+// commit itself. It fetches origin first, as a prepare does, so the answer is for origin as it is now.
+func candidateContainsOrigin(ctx context.Context, epic store.EpicRow, candidate string) (bool, error) {
+	origin, err := fetchOrigin(ctx, epic)
+	if err != nil {
+		return false, err
+	}
+	return isAncestor(ctx, epic.Repository, origin, candidate)
+}
+
 // defaultBranch returns the branch that origin's HEAD names, read from the output of ls-remote --symref.
 func defaultBranch(listing string) (string, error) {
 	for _, line := range strings.Split(listing, "\n") {

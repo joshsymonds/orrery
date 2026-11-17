@@ -90,9 +90,9 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 	return nil
 }
 
-// recordCandidate stores the candidate of the run's attempt as passed. Its Start is the tip the candidate was made from
-// and its Head the candidate. Its Commits name the candidate when it is behind the target, since then the candidate is
-// the merge the release made.
+// recordCandidate stores the candidate of the run's attempt as passed, after the one it replaces when it was prepared
+// again. Its Start is the tip the candidate was made from and its Head the candidate. Its Commits name the candidate when
+// it is behind the target, since then the candidate is the merge the release made.
 func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
@@ -105,10 +105,35 @@ func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Ac
 	if result.Behind {
 		run.Commits = []string{act.Run.Revision}
 	}
-	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
+	if err = r.store.RecordCandidate(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record candidate of epic %s: %w", epic.ID, err)
 	}
 	return nil
+}
+
+// verifyCandidate checks that origin's current main is in candidate head, the candidate that the release run act names
+// reuses from an earlier attempt, before the run's first step starts from it. It returns true when origin's main is in
+// it. When it is not, the candidate is marked stale at act's attempt, so the run prepares a new candidate, and it returns
+// false. A check that cannot be made stops the release with its error, and returns false.
+func (r *Runner) verifyCandidate(
+	ctx context.Context, epic store.EpicRow, act Action, head string, at time.Time,
+) (bool, error) {
+	contained, err := candidateContainsOrigin(ctx, epic, head)
+	if err != nil {
+		reason := fmt.Sprintf("candidate %s could not be checked against origin's main: %v", head, err)
+		if stopErr := r.store.StopRelease(ctx, epic.ID, act.Path, act.Run.Attempt, reason, at); stopErr != nil {
+			return false, fmt.Errorf("stop release of epic %s: %w", epic.ID, stopErr)
+		}
+		return false, nil
+	}
+	if contained {
+		return true, nil
+	}
+	reason := fmt.Sprintf("origin's main is not in candidate %s, so the candidate is prepared again", head)
+	if err = r.store.MarkCandidateStale(ctx, epic.ID, act.Path, act.Run.Attempt, head, reason, at); err != nil {
+		return false, fmt.Errorf("mark candidate %s of epic %s stale: %w", head, epic.ID, err)
+	}
+	return false, nil
 }
 
 // releaseRefused is the error of release work the executor does not carry out.

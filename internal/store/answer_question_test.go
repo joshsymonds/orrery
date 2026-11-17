@@ -417,6 +417,9 @@ func TestAnswerRetryToParkQuestionEndsThePark(t *testing.T) {
 	}
 }
 
+// TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked checks that an answer of other to a final park question keeps
+// its words and leaves the park in place. A final park is one on an epic already in met_at_base, so the epic is ended as
+// met at base first. R4: the park of a red run no longer sets met_at_base, so the owner's end answer does it here.
 func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -427,13 +430,20 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 	if err := s.StartNodes(ctx, id, runs, nil, claimedAt()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	const reason = "parked for good"
-	if err := s.ParkNodeFinal(ctx, id, "red", 1, "failed", "R1 met", reason, completedAt()); err != nil {
-		t.Fatalf("ParkNodeFinal: %v", err)
+	if err := s.ParkNodeMetAtBase(ctx, id, "red", 1, "failed", "R1 red: failed", metAtBaseParkReason, []string{"R1"},
+		completedAt()); err != nil {
+		t.Fatalf("ParkNodeMetAtBase: %v", err)
+	}
+	if _, err := s.AnswerQuestion(ctx, id, "D3", "", 1, ChoiceEnd, claimedAt()); err != nil {
+		t.Fatalf("AnswerQuestion end: %v", err)
+	}
+	const reason = "credit ran out"
+	if err := s.ParkEpic(ctx, id, reason, completedAt()); err != nil {
+		t.Fatalf("ParkEpic on the epic ended at base: %v", err)
 	}
 	before := answerRowsOf(t, s)
 
-	if _, err := s.AnswerQuestion(ctx, id, "D3", "Keep the words", 1, ChoiceRetry, claimedAt()); !errors.Is(
+	if _, err := s.AnswerQuestion(ctx, id, "D4", "Keep the words", 2, ChoiceRetry, claimedAt()); !errors.Is(
 		err, ErrNoChoice,
 	) {
 		t.Fatalf("AnswerQuestion of a final park with retry err = %v, want ErrNoChoice", err)
@@ -443,11 +453,11 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 	}
 
 	at := time.Unix(1700000600, 0)
-	got, err := s.AnswerQuestion(ctx, id, "D3", "Keep the words", 1, ChoiceOther, at)
+	got, err := s.AnswerQuestion(ctx, id, "D4", "Keep the words", 2, ChoiceOther, at)
 	if err != nil {
 		t.Fatalf("AnswerQuestion of a final park with other: %v", err)
 	}
-	if want := (EpicDecision{Seq: 3, ID: "D3", Text: "Keep the words", Time: at, Question: 1}); !reflect.DeepEqual(
+	if want := (EpicDecision{Seq: 4, ID: "D4", Text: "Keep the words", Time: at, Question: 2}); !reflect.DeepEqual(
 		got, want,
 	) {
 		t.Errorf("AnswerQuestion = %+v, want %+v", got, want)
@@ -455,9 +465,11 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 	if _, parked := epicFlags(t, s); parked != reason {
 		t.Errorf("parked after the other answer = %q, want %q: a final park stays", parked, reason)
 	}
-	answered := finalParkQuestionOf(1, reason)
-	answered.State, answered.Choice = QuestionAnswered, ChoiceOther
-	if want := []EpicQuestion{answered}; !reflect.DeepEqual(questionsOf(t, s), want) {
+	answeredPark := metAtBaseQuestionR1()
+	answeredPark.State, answeredPark.Choice = QuestionAnswered, ChoiceEnd
+	answeredFinal := finalParkQuestionOf(2, reason)
+	answeredFinal.State, answeredFinal.Choice = QuestionAnswered, ChoiceOther
+	if want := []EpicQuestion{answeredPark, answeredFinal}; !reflect.DeepEqual(questionsOf(t, s), want) {
 		t.Errorf("questions = %+v, want %+v", questionsOf(t, s), want)
 	}
 }

@@ -71,14 +71,15 @@ func TestHolderCommandGateLimitIsItsWholeSecondsBeforeTheSeparator(t *testing.T)
 			cfg := LaunchConfig{Session: testSession, Child: child, GateLimit: tc.limit}
 			want := gateHolderArgv(root, child, tc.seconds)
 
-			prog, argv := holderCommand(cfg, orrery, root)
+			prog, argv := holderCommand(cfg, orrery, root, "")
 			if prog != orrery || !slices.Equal(argv, want) {
 				t.Fatalf("plain holder command = %q %q, want %q %q", prog, argv, orrery, want)
 			}
 
 			cfg.Scope = fakeSystemdRunPath(t)
-			prog, argv = holderCommand(cfg, orrery, root)
-			wantScoped := append(scopeArgs(), orrery)
+			unit := scopeUnit(testSession, testScopeNonce)
+			prog, argv = holderCommand(cfg, orrery, root, unit)
+			wantScoped := append(scopeArgs(unit), orrery)
 			wantScoped = append(wantScoped, want...)
 			if prog != cfg.Scope || !slices.Equal(argv, wantScoped) {
 				t.Fatalf("scoped holder command = %q %q, want %q %q", prog, argv, cfg.Scope, wantScoped)

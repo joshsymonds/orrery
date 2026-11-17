@@ -189,8 +189,11 @@ func (c evidenceCapture) end(
 		holder = result.Holder
 		capture.Exit = result.Exit
 		capture.TimedOut = result.TimedOut
-		if result.TimedOut {
+		switch {
+		case result.TimedOut:
 			capture.NotCaptured = evidenceCaptureKilled
+		case result.Exit == store.EnvironmentExit:
+			capture.NotCaptured = store.NotCapturedEnvironment
 		}
 		var logErr, stderrErr, artifactErr error
 		capture.LogHash, capture.LogBytes, logErr = c.keepLog(result.Stdout)

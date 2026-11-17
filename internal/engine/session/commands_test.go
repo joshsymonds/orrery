@@ -278,27 +278,52 @@ func TestAnswerQuestionOnPermissionRequestIsNotQuestion(t *testing.T) {
 	requireStdin(t, process, writeAllowOwn)
 }
 
-func TestUnverifiedAnswersWriteNothing(t *testing.T) {
+func TestUnverifiedAnswerLabelWritesNothing(t *testing.T) {
+	t.Parallel()
+	session, process := startSession(t)
+	emit(t, process, canUseTool("req_label", "AskUserQuestion", "toolu_req_label", colorInput))
+	requireRequest(t, session, RequestQuestion, "req_label")
+	requireError(t, session.AnswerQuestion("req_label", "Green"), ErrUnverifiedAnswer)
+	requireStdin(t, process)
+}
+
+// questionDenial returns the deny response the session writes for requestID with message.
+func questionDenial(t *testing.T, requestID, message string) string {
+	t.Helper()
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("encode message: %v", err)
+	}
+	return `{"type":"control_response","response":{"subtype":"success","request_id":"` + requestID +
+		`","response":{"behavior":"deny","message":` + string(encoded) + `}}}`
+}
+
+func TestUnanswerableQuestionIsDeniedOnArrival(t *testing.T) {
 	t.Parallel()
 	session, process := startSession(t)
 	cases := []struct {
 		requestID string
 		input     string
-		label     string
 	}{
-		{"req_two", twoQuestionsInput, "Red"},
-		{"req_multi", multiSelectInput, "Red"},
-		{"req_label", colorInput, "Green"},
-		{"req_empty", `{"questions":[]}`, "Red"},
+		{"req_two", twoQuestionsInput},
+		{"req_multi", multiSelectInput},
+		{"req_empty", `{"questions":[]}`},
+		{"req_none", `{"questions":[{"question":"Free text?","header":"Free","multiSelect":false,"options":[]}]}`},
 	}
+	denials := make([]string, 0, 4)
 	for _, tc := range cases {
 		emit(t, process, canUseTool(tc.requestID, "AskUserQuestion", "toolu_"+tc.requestID, tc.input))
-		requireRequest(t, session, RequestQuestion, tc.requestID)
+		request := requireRequest(t, session, RequestQuestion, tc.requestID)
+		if !request.Refused {
+			t.Errorf("%s: Refused = false, want a question the host cannot answer delivered refused", tc.requestID)
+		}
+		denials = append(denials, questionDenial(t, tc.requestID, UnanswerableQuestionMessage))
 	}
+	requireStdin(t, process, denials...)
 	for _, tc := range cases {
-		requireError(t, session.AnswerQuestion(tc.requestID, tc.label), ErrUnverifiedAnswer)
+		requireError(t, session.AnswerQuestion(tc.requestID, "Red"), ErrNoPendingRequest)
 	}
-	requireStdin(t, process)
+	requireStdin(t, process, denials...)
 }
 
 func TestUnverifiedAnswerLeavesRequestAnswerable(t *testing.T) {

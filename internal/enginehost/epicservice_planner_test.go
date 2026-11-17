@@ -231,7 +231,10 @@ func parkQuestionMessage(id, text string) *v1.EpicQuestion {
 	}
 }
 
-func TestEpicGetShowsFinalParkQuestionWithNoChoiceOrRecommendation(t *testing.T) {
+// TestEpicGetShowsMetAtBaseQuestionWithItsThreeChoices checks that a red run judged holding at base parks the epic with
+// a park question that offers retry, drop and end over the Requirement it found met, and recommends retry. R4: the park
+// used to be final, with no choice and no recommendation, and set the phase to met_at_base.
+func TestEpicGetShowsMetAtBaseQuestionWithItsThreeChoices(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
@@ -241,17 +244,29 @@ func TestEpicGetShowsFinalParkQuestionWithNoChoiceOrRecommendation(t *testing.T)
 	if err := st.StartNodes(ctx, epicServiceID, runs, nil, time.Unix(turnStarted, 0)); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if err := st.ParkNodeFinal(ctx, epicServiceID, "red", 1, "failed", "R1 met", "parked for good",
-		time.Unix(turnFreed, 0)); err != nil {
-		t.Fatalf("ParkNodeFinal: %v", err)
+	const reason = "workflow node red: R1 met at the base; you can retry, drop or end"
+	if err := st.ParkNodeMetAtBase(ctx, epicServiceID, "red", 1, "failed", "R1 red: failed", reason,
+		[]string{"R1"}, time.Unix(turnFreed, 0)); err != nil {
+		t.Fatalf("ParkNodeMetAtBase: %v", err)
 	}
 
 	got := getEpicOK(t, client)
-	if got.GetParked() != "parked for good" {
-		t.Fatalf("parked = %q, want %q", got.GetParked(), "parked for good")
+	if got.GetParked() != reason || got.GetPhase() != "accepted" {
+		t.Fatalf("parked and phase = %q and %q, want %q and accepted", got.GetParked(), got.GetPhase(), reason)
 	}
 	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{{
-		Id: "Q1", Turn: 0, Text: "parked for good", State: "open", Label: "park",
+		Id: "Q1", Turn: 0, Text: reason, State: "open", Label: "park",
+		Choices: []*v1.EpicQuestionChoice{
+			{Id: "retry", Does: "run the red check of R1 again with a fresh judge"},
+			{Id: "drop", Does: "drop R1 as already met, recorded as your decision, and go on without their red"},
+			{Id: "end", Does: "end the epic"},
+		},
+		Recommendation: &v1.EpicRecommendation{
+			Choice: "retry",
+			Why: "the judge read the conclusion as already holding at the base, " +
+				"and a fresh judge checks that reading before anything is dropped",
+			Confidence: "medium",
+		},
 	}})
 }
 

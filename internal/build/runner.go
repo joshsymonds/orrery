@@ -219,18 +219,41 @@ func (r *Runner) park(ctx context.Context, epic, reason string) error {
 // view returns the View of task, which is open in epic, with the epic's branch at tip and the epic's candidate. It
 // reads the evidence run or step of the task's current unit by its derived id, and the reproduction check of a test
 // item's green unit. The run is kept only while its spec is current with the task's evidence item, as the store reads
-// a task's runs, so a run whose item has changed reads missing. For an ended implementer step it reads the HEAD of the
-// step's worktree, and when the step's refs snapshot is set, the ref moves since it.
+// a task's runs, so a run whose item has changed reads missing. It also counts the earlier reruns of a red or green
+// unit that exited store.EnvironmentExit in a row, so Decide knows how many runs of the unit have done so. For an
+// ended implementer step it reads the HEAD of the step's worktree, and when the step's refs snapshot is set, the ref
+// moves since it.
 func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTask, tip string) (View, error) {
 	view := View{
 		Epic: epic.ID, Paused: epic.Paused, Parked: epic.Parked != "", ReviewGates: epic.ReviewGates,
 		NoVerify: noVerify(epic, task), Task: task, Branch: tip, Candidate: epic.Candidate,
 	}
+	if err := r.readUnit(ctx, epic, task, &view); err != nil {
+		return View{}, err
+	}
+	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
+		return view, nil
+	}
+	_, stepID := unitIDs(epic.ID, task.Seq, task.Build)
+	view.Head = r.head(ctx, filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), stepID))
+	if task.Build.Refs != "" {
+		moves, err := r.refMoves(ctx, epic, task.Build.Refs, task.Build.Base, view.Head)
+		if err != nil {
+			return View{}, err
+		}
+		view.RefMoves = moves
+	}
+	return view, nil
+}
+
+// readUnit sets the parts of view that describe task's current unit: its evidence run or step by the derived id of the
+// unit, the reproduction check of a test item's green unit, and how many environment reruns ran just before it.
+func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
 	runID, stepID := unitIDs(epic.ID, task.Seq, task.Build)
 	if runID != "" {
 		run, ok, err := r.evidenceRun(ctx, runID)
 		if err != nil {
-			return View{}, err
+			return err
 		}
 		if ok && evidence.Current(run.Spec, task.Evidence) {
 			view.Run = &run
@@ -239,31 +262,21 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 	if stepID != "" {
 		row, ok, err := r.stepRow(ctx, stepID)
 		if err != nil {
-			return View{}, err
+			return err
 		}
 		if ok {
 			view.Step = &row
 		}
 	}
-	repro, found, reproErr := r.reproOf(ctx, epic, task)
-	if reproErr != nil {
-		return View{}, reproErr
+	repro, found, err := r.reproOf(ctx, epic, task)
+	if err != nil {
+		return err
 	}
 	if found {
 		view.Repro = &repro
 	}
-	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
-		return view, nil
-	}
-	view.Head = r.head(ctx, filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), stepID))
-	if task.Build.Refs != "" {
-		moves, err := r.refMoves(ctx, epic, task.Build.Refs)
-		if err != nil {
-			return View{}, err
-		}
-		view.RefMoves = moves
-	}
-	return view, nil
+	view.EnvironmentBefore, err = r.environmentBefore(ctx, epic, task)
+	return err
 }
 
 // noVerify reports whether the task-stage reviewer at task's gate position has verify off. The gate positions are the
@@ -338,6 +351,53 @@ func (r *Runner) nodeCheck(ctx context.Context, id string) (store.NodeCheck, boo
 	return check, true, nil
 }
 
+// environmentBefore returns how many runs of the unit task's build is on exited store.EnvironmentExit without timing out
+// in a row just before its current rerun, up to store.EnvironmentReruns. The runs are the stored ones, so a restart keeps
+// the count. Only a red or green unit reruns on an environment exit, so any other unit counts none.
+func (r *Runner) environmentBefore(ctx context.Context, epic store.EpicRow, task store.EpicTask) (int64, error) {
+	build := task.Build
+	if build.Stage != StageRed && build.Stage != StageGreen {
+		return 0, nil
+	}
+	var before int64
+	for rerun := build.Rerun - 1; rerun >= 0 && before < store.EnvironmentReruns; rerun-- {
+		exited, err := r.environmentAt(ctx, epic, task, rerun)
+		if err != nil {
+			return 0, err
+		}
+		if !exited {
+			break
+		}
+		before++
+	}
+	return before, nil
+}
+
+// environmentAt reports whether the red or green unit of task's build exited store.EnvironmentExit without timing out at
+// rerun of its attempt. A test item's green unit counts as exited that way when its reproduction did, or else when its
+// capture did. Each run is read under its derived id, and a capture only while its spec is current, as view reads the
+// current run.
+func (r *Runner) environmentAt(
+	ctx context.Context, epic store.EpicRow, task store.EpicTask, rerun int64,
+) (bool, error) {
+	build := task.Build
+	if build.Stage == StageGreen && task.Evidence.Kind == evidence.KindTest {
+		check, found, err := r.nodeCheck(ctx, RunID(epic.ID, task.Seq, unitRepro, build.Attempt, rerun))
+		if err != nil {
+			return false, err
+		}
+		if found && check.NotRun == "" && store.EnvironmentExited(check.Exit, check.TimedOut) {
+			return true, nil
+		}
+	}
+	runID, _ := unitIDs(epic.ID, task.Seq, store.TaskBuild{Stage: build.Stage, Attempt: build.Attempt, Rerun: rerun})
+	run, ok, err := r.evidenceRun(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	return ok && evidence.Current(run.Spec, task.Evidence) && run.NotCaptured == store.NotCapturedEnvironment, nil
+}
+
 // head returns the commit HEAD names in the worktree at dir. A worktree that cannot be read has no head: the error is
 // logged and "" is returned, so the implementer's return must then name its commit.
 func (r *Runner) head(ctx context.Context, dir string) string {
@@ -349,8 +409,11 @@ func (r *Runner) head(ctx context.Context, dir string) string {
 	return head
 }
 
-// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now.
-func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before string) ([]RefMove, error) {
+// refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now. The implementer's
+// commits are those between base, the commit its step started at, and head, the HEAD of its worktree. A move of main or
+// of HEAD onto a commit that origin's main reaches, and that holds none of those commits, is told rather than parked.
+// Without origin's main, or without a head to read the commits from, every move parks as Compare reports it.
+func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base, head string) ([]RefMove, error) {
 	after, err := snapshotOf(ctx, r.store, epic)
 	if err != nil {
 		return nil, err
@@ -358,6 +421,21 @@ func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before string
 	moves, err := Compare(before, after)
 	if err != nil {
 		return nil, fmt.Errorf("compare refs of epic %s: %w", epic.ID, err)
+	}
+	origin, ok, err := originMain(ctx, epic.Repository)
+	if err != nil {
+		return nil, fmt.Errorf("read origin main of epic %s: %w", epic.ID, err)
+	}
+	if !ok || head == "" {
+		return moves, nil
+	}
+	steps, err := stepCommits(ctx, epic.Repository, base, head)
+	if err != nil {
+		return nil, fmt.Errorf("read implementer commits of epic %s: %w", epic.ID, err)
+	}
+	moves, err = originTells(ctx, epic.Repository, moves, origin, steps)
+	if err != nil {
+		return nil, fmt.Errorf("check ref moves of epic %s against origin: %w", epic.ID, err)
 	}
 	return moves, nil
 }

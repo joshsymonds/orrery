@@ -802,18 +802,26 @@ func failedInARow(states []string) bool {
 }
 
 // setParked sets the park reason of epic to reason, cut to TurnReasonMax bytes, and opens the park question of epic for
-// it in the caller's write. The question is final when the epic's phase is met_at_base, which a final park sets before
-// it parks. setParked returns the seq of the question. An unknown epic is ErrNoEpic.
+// it in the caller's write. The question is final when the epic's phase is met_at_base, so a park of an epic the owner
+// ended declares no choice. setParked returns the seq of the question. An unknown epic is ErrNoEpic.
 func setParked(ctx context.Context, queries *sqlcgen.Queries, epic, reason string) (int64, error) {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return 0, err
 	}
 	park := capTurnText(reason)
-	if _, err = queries.SetEpicParked(ctx, sqlcgen.SetEpicParkedParams{Parked: park, ID: epic}); err != nil {
+	return openPark(ctx, queries, epic, park, parkQuestion(park, head.Phase == phaseMetAtBase))
+}
+
+// openPark sets the park reason of epic to park and opens question as its park question, in the caller's write. It
+// returns the seq of the question.
+func openPark(
+	ctx context.Context, queries *sqlcgen.Queries, epic, park string, question EpicQuestionInput,
+) (int64, error) {
+	if _, err := queries.SetEpicParked(ctx, sqlcgen.SetEpicParkedParams{Parked: park, ID: epic}); err != nil {
 		return 0, fmt.Errorf("park epic %s: %w", epic, err)
 	}
-	return insertParkQuestion(ctx, queries, epic, parkQuestion(park, head.Phase == phaseMetAtBase))
+	return insertParkQuestion(ctx, queries, epic, question)
 }
 
 // capTurnText cuts text to at most TurnReasonMax bytes at a UTF-8 rune start.

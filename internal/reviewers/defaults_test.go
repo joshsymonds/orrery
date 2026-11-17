@@ -39,7 +39,7 @@ func checkRoleText(t *testing.T, name, prompt string) {
 
 func TestDefaultsMerge(t *testing.T) {
 	t.Parallel()
-	readOnly := []string{"Read", "Grep", "Glob", "Bash"}
+	readOnly := []string{"Read", "Bash"}
 	got := mergedDefaults(t)
 	want := []Reviewer{
 		{

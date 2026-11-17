@@ -157,6 +157,14 @@ type EpicLedger struct {
 	Reason     string
 }
 
+type EpicMetAtBase struct {
+	Epic         string
+	Question     int64
+	Path         string
+	Attempt      int64
+	Requirements string
+}
+
 type EpicNodeCheck struct {
 	ID           string
 	Epic         string
@@ -254,13 +262,14 @@ type EpicReleaseStep struct {
 }
 
 type EpicRequirement struct {
-	Epic     string
-	Position int64
-	ID       string
-	Text     string
-	Evidence string
-	Kind     string
-	Item     string
+	Epic      string
+	Position  int64
+	ID        string
+	Text      string
+	Evidence  string
+	Kind      string
+	Item      string
+	DroppedBy int64
 }
 
 type EpicReview struct {

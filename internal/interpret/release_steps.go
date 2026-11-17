@@ -91,8 +91,10 @@ func (r *Runner) releaseStepDir(id string) (string, error) {
 }
 
 // startReleaseStep starts the release step act names, at the start revision act names, as an unowned writing step in a
-// worktree of its own, detached at that commit. Its role, worktree or start refused for good records the step as failed
-// at once, and the release stops at it on its next decision.
+// worktree of its own, detached at that commit. The first step starts only once origin's main is verified to be in its
+// candidate, whether the candidate was passed at an earlier attempt or recorded at this one, since origin's main may have
+// moved past it while its Done gates ran. Its role, worktree or start refused for good records the step as failed at
+// once, and the release stops at it on its next decision.
 func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -103,6 +105,12 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 		return err
 	}
 	id, start := act.IDs[0], act.Items[1]
+	if position == 1 {
+		current, verifyErr := r.verifyCandidate(ctx, epic, act, start, at)
+		if verifyErr != nil || !current {
+			return verifyErr
+		}
+	}
 	dir, err := r.releaseStepDir(id)
 	if err != nil {
 		return err

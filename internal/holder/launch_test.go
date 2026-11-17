@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,11 +88,65 @@ func fakeSystemdRunPath(t *testing.T) string {
 	return holdertest.FakeScope(t)
 }
 
-// scopeArgs returns the arguments that put a holder of testSession in its own user scope, before the holder's argv.
-func scopeArgs() []string {
-	return []string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", "orrery-hold-" + testSession,
+// testScopeNonce is the nonce the launch tests give a scope when they name one themselves.
+const testScopeNonce = "0123456789abcdef"
+
+// scopeGlobStopLine is the line the fake systemctl records for the stop a launch makes of every loaded scope of
+// testSession, whatever its nonce.
+const scopeGlobStopLine = "--user stop orrery-hold-" + testSession + "-????????????????.scope"
+
+// scopeUnitPattern matches the unit name of a launch's scope of testSession, as --unit takes it: no .scope suffix, and a
+// nonce of hex digits.
+var scopeUnitPattern = regexp.MustCompile("^" + regexp.QuoteMeta(scopeUnitPrefix+testSession) + "-[0-9a-f]{16}$")
+
+// scopeArgs returns the arguments that put a holder of testSession in its own user scope named unit, before the holder's
+// argv.
+func scopeArgs(unit string) []string {
+	return []string{"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit}
+}
+
+// scopeUnitArg returns the unit name argv gives --unit, and fails the test unless it is a launch's scope name of
+// testSession.
+func scopeUnitArg(t *testing.T, argv []string) string {
+	t.Helper()
+	i := slices.Index(argv, "--unit")
+	if i < 0 || i+1 >= len(argv) {
+		t.Fatalf("systemd-run argv %q has no --unit", argv)
 	}
+	unit := argv[i+1]
+	if !scopeUnitPattern.MatchString(unit) {
+		t.Fatalf("scope unit %q, want %s with a 16-digit hex nonce", unit, scopeUnitPrefix+testSession)
+	}
+	return unit
+}
+
+// recordSystemdRun points the fake systemd-run's record at a fresh file and returns its path.
+func recordSystemdRun(t *testing.T) string {
+	t.Helper()
+	record := filepath.Join(t.TempDir(), "systemd-run")
+	t.Setenv("FAKE_SYSTEMD_RUN_ARGS", record)
+	return record
+}
+
+// launchedScopes returns the .scope name of the scope each launch the fake systemd-run recorded in record started, in
+// launch order. systemd-run names a scope by its --unit with the .scope suffix added.
+func launchedScopes(t *testing.T, record string) []string {
+	t.Helper()
+	data, err := os.ReadFile(record)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read the fake systemd-run's record: %v", err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	var scopes []string
+	for i, arg := range args {
+		if arg == "--unit" && i+1 < len(args) {
+			scopes = append(scopes, args[i+1]+scopeUnitSuffix)
+		}
+	}
+	return scopes
 }
 
 // holderArgv returns the argv a launch runs its holder with: orrery holder, then the child's path and arguments after
@@ -233,7 +288,7 @@ func TestLaunchScopeRunsTheHolderBehindTheScopeArgs(t *testing.T) {
 		t.Fatalf("read the fake systemd-run's record: %v", err)
 	}
 	got := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-	want := append(scopeArgs(), holderArgv(orreryPath(t), root, child)...)
+	want := append(scopeArgs(scopeUnitArg(t, got)), holderArgv(orreryPath(t), root, child)...)
 	if !slices.Equal(got, want) {
 		t.Fatalf("systemd-run argv %q, want %q", got, want)
 	}

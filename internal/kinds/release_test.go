@@ -55,9 +55,9 @@ func releasingEpic(steps ...store.EpicReleaseStep) store.EpicRow {
 	return store.EpicRow{ID: releaseEpicID, Phase: store.PhaseReleasing, ReleaseSteps: steps}
 }
 
-// candidateRun returns a candidate run of attempt that passed or not, at head.
-func candidateRun(attempt int64, passed bool, head string) store.ReleaseRun {
-	return store.ReleaseRun{Part: store.ReleasePartCandidate, Attempt: attempt, Head: head, Passed: passed}
+// candidateRun returns a candidate run of attempt that passed, at head.
+func candidateRun(attempt int64, head string) store.ReleaseRun {
+	return store.ReleaseRun{Part: store.ReleasePartCandidate, Attempt: attempt, Head: head, Passed: true}
 }
 
 // judgeRun returns a judge run of the first attempt that passed or not, for reason.
@@ -175,8 +175,9 @@ func TestReleasePhases(t *testing.T) {
 	checkDecisions(t, Release{}, cases)
 }
 
-// TestReleaseCandidate checks how the candidate is decided: a passed candidate of any attempt is the candidate, a
-// failed one of this attempt stops, and otherwise the candidate is prepared, recorded, or held by its done gates.
+// TestReleaseCandidate checks how the candidate is decided: a passed candidate of any attempt is the candidate, unless
+// this attempt found origin's main not in it, a failed one of this attempt stops, and otherwise the candidate is
+// prepared, recorded, or held by its done gates.
 func TestReleaseCandidate(t *testing.T) {
 	t.Parallel()
 	steps := []store.EpicReleaseStep{releaseStep("tag the release", "rollback")}
@@ -185,12 +186,14 @@ func TestReleaseCandidate(t *testing.T) {
 	}
 	cases := []decideCase{
 		{
-			"passed candidate of an earlier attempt starts the first step from its head",
+			// The interpreter checks that origin's main is in a candidate of an earlier attempt before its first step starts
+			// from it, and marks the candidate when it is not. So the reuse holds while no mark of this attempt names it.
+			"passed candidate of an earlier attempt that origin's main is in starts the first step from its head",
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
 				Slot:     releaseEpicID,
-				Releases: []store.ReleaseRun{candidateRun(1, true, "cand-1")},
+				Releases: []store.ReleaseRun{candidateRun(1, "cand-1")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
 		},
@@ -364,7 +367,7 @@ func TestReleaseSteps(t *testing.T) {
 		releaseStep("push the tag", "rollback"),
 	}
 	undoNone := []store.EpicReleaseStep{releaseStep("build the image", "none")}
-	candidate := candidateRun(1, true, "cand-1")
+	candidate := candidateRun(1, "cand-1")
 	failedFirst := store.ReleaseRun{
 		Part: store.ReleasePartStep, Position: 1, Attempt: 1, Reason: "push rejected",
 	}
@@ -582,7 +585,7 @@ func TestReleaseSteps(t *testing.T) {
 func TestReleaseJudge(t *testing.T) {
 	t.Parallel()
 	epic := releasingEpic(releaseStep("build the image", "rollback"))
-	candidate := candidateRun(1, true, "cand-1")
+	candidate := candidateRun(1, "cand-1")
 	passedStep := store.ReleaseRun{Part: store.ReleasePartStep, Position: 1, Attempt: 1, Head: "step-1", Passed: true}
 	cases := []decideCase{
 		{

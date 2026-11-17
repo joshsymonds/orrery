@@ -360,10 +360,11 @@ type waitResult struct {
 	Steps []stepJSON `json:"steps"`
 }
 
-// waitSteps waits on ids for timeout seconds from now. When orreryd is unavailable mid-wait, it waits again for the
-// time the request has left, and gives up only at the request's deadline. Each request asks for that time rounded up
-// to whole seconds, so a retry never ends before the deadline.
-func waitSteps(
+// WaitSteps waits on ids for timeout seconds from now. It returns the answer of Steps.WaitSteps, which names the step
+// that ended, if any. When orreryd is unavailable mid-wait, it waits again for the time the request has left, and gives
+// up only at the request's deadline. Each request asks for that time rounded up to whole seconds, so a retry never ends
+// before the deadline. step_wait and orrery step wait both wait through it.
+func WaitSteps(
 	ctx context.Context,
 	steps enginev1connect.StepsClient,
 	clock rpcretry.Clock,
@@ -416,7 +417,7 @@ func waitHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolHa
 		if err != nil {
 			return ToolResult{}, err
 		}
-		waited, err := waitSteps(ctx, steps, clock, args.IDs, timeout)
+		waited, err := WaitSteps(ctx, steps, clock, args.IDs, timeout)
 		if err != nil {
 			return toolFailure(err), nil
 		}
@@ -495,6 +496,16 @@ func stepFromProto(step *v1.Step) stepJSON {
 		LimitKind:   step.GetLimitKind(),
 		LimitResets: step.GetLimitResets(),
 	}
+}
+
+// StepObject returns step as the step object that step_status and step_wait report it as, with no trailing newline.
+// orrery step status and orrery step wait print through it, so their output cannot drift from the tools'.
+func StepObject(step *v1.Step) ([]byte, error) {
+	text, err := json.Marshal(stepFromProto(step))
+	if err != nil {
+		return nil, fmt.Errorf("encode step: %w", err)
+	}
+	return text, nil
 }
 
 // textResult returns value as the JSON text of a single text content block.

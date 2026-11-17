@@ -53,10 +53,11 @@ type LaunchConfig struct {
 }
 
 // Launch starts the session's child under orrery holder and returns the child as a Process. When cfg.Scope is set, the
-// holder runs in its own user scope, and a scope that fails fails the launch with its reason, with no plain start in
-// its place. A scope left loaded under the session's name is stopped before the holder starts, and the Process stops
-// the holder's scope once the holder has ended, so nothing the child started outlives its holder. Launch returns once the holder serves its socket and the attach at offset 0 succeeds. A holder that ends
-// before it serves fails the launch with its status and stderr.
+// holder runs in its own user scope, named for this launch, and a scope that fails fails the launch with its reason,
+// with no plain start in its place. Every scope still loaded for the session, whatever its nonce, is stopped before the
+// holder starts, and the Process stops the holder's scope once the holder has ended, so nothing the child started
+// outlives its holder. Launch returns once the holder serves its socket and the attach at offset 0 succeeds. A holder
+// that ends before it serves fails the launch with its status and stderr.
 func Launch(ctx context.Context, cfg LaunchConfig) (*Process, error) {
 	if cfg.GateLimit > 0 && cfg.StateDir == "" {
 		return nil, errors.New("holder: a gate launch needs a state directory")
@@ -97,14 +98,27 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 	if clearErr := Clear(ctx, dir); clearErr != nil {
 		return nil, clearErr
 	}
-	// Clear has stopped any holder of the session, so a scope still loaded under the session's name holds only what an
-	// ended holder's child left running, such as a daemon it forked. systemd-run refuses a scope name that is loaded, so
-	// that scope is stopped first.
-	scope := newScopeStopper(cfg.Scope, cfg.Session)
-	if stopErr := scope.stop(ctx); stopErr != nil {
+	// Clear has stopped any holder of the session, so a scope still loaded for it holds only what an ended holder's child
+	// left running, such as a daemon it forked. Its nonce is not this launch's, so every loaded scope of the session is
+	// stopped, whatever its nonce, before this launch starts.
+	if stopErr := newScopeStopper(cfg.Scope, scopeGlob(cfg.Session)).stop(ctx); stopErr != nil {
 		return nil, stopErr
 	}
-	path, args := holderCommand(cfg, orrery, stateDir)
+	var scope scopeStopper
+	var unit string
+	if cfg.Scope != "" {
+		nonce, nonceErr := newScopeNonce()
+		if nonceErr != nil {
+			return nil, nonceErr
+		}
+		// The nonce is recorded before the holder starts, so a reattach to this holder can name its scope.
+		if writeErr := writeScopeNonce(dir, nonce); writeErr != nil {
+			return nil, writeErr
+		}
+		unit = scopeUnit(cfg.Session, nonce)
+		scope = newScopeStopper(cfg.Scope, unit)
+	}
+	path, args := holderCommand(cfg, orrery, stateDir, unit)
 	held, err := proc.Start(proc.Config{
 		Path:        path,
 		Args:        args,
@@ -140,9 +154,9 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 
 // holderCommand returns the program and argument vector that start the holder: orrery holder, with the session, the
 // state directory, a positive gate limit as --gate-limit with a positive gate tail as --gate-tail, and the child's path
-// and arguments after the separator. When cfg.Scope is set, the program is the scope, and orrery's argv follows the
-// scope's arguments.
-func holderCommand(cfg LaunchConfig, orrery, stateDir string) (string, []string) {
+// and arguments after the separator. When cfg.Scope is set, the program is the scope, named unit, and orrery's argv
+// follows the scope's arguments.
+func holderCommand(cfg LaunchConfig, orrery, stateDir, unit string) (string, []string) {
 	argv := []string{"holder", "--session", cfg.Session, "--state-dir", stateDir}
 	if cfg.GateLimit > 0 {
 		argv = append(argv, "--gate-limit", strconv.FormatInt(gateSeconds(cfg.GateLimit), 10))
@@ -156,7 +170,7 @@ func holderCommand(cfg LaunchConfig, orrery, stateDir string) (string, []string)
 		return orrery, argv
 	}
 	scoped := append([]string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", scopeName(cfg.Session), orrery,
+		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit, orrery,
 	}, argv...)
 	return cfg.Scope, scoped
 }

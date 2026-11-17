@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -47,21 +48,23 @@ const noVerdictLimit = 2
 // View is what Decide reads of one open task: the epic and whether it is paused or parked, its review gates, whether
 // the reviewer at its gate position has verify off, the task, its branch, the epic's candidate, the step and evidence
 // run of its current unit when they exist, the reproduction check of a test item's green unit when it exists, the
-// primary checkout's HEAD, and the ref moves the implementer's step made.
+// primary checkout's HEAD, the ref moves the implementer's step made, and EnvironmentBefore, how many runs of the
+// current unit just before its current rerun exited store.EnvironmentExit in a row, up to store.EnvironmentReruns.
 type View struct {
-	Epic        string
-	Paused      bool
-	Parked      bool
-	ReviewGates []string
-	NoVerify    bool
-	Task        store.EpicTask
-	Branch      string
-	Candidate   string
-	Step        *store.StepRow
-	Run         *store.EvidenceRun
-	Repro       *store.NodeCheck
-	Head        string
-	RefMoves    []RefMove
+	Epic              string
+	Paused            bool
+	Parked            bool
+	ReviewGates       []string
+	NoVerify          bool
+	Task              store.EpicTask
+	Branch            string
+	Candidate         string
+	Step              *store.StepRow
+	Run               *store.EvidenceRun
+	Repro             *store.NodeCheck
+	Head              string
+	RefMoves          []RefMove
+	EnvironmentBefore int64
 }
 
 // ActionKind is what a pass does for a task.
@@ -141,6 +144,28 @@ func noVerdict(view View, unit, reason string) Action {
 		Kind:   ActPark,
 		Next:   next,
 		Reason: fmt.Sprintf("%s %s gave no verdict twice: %s", taskLabel(view.Task.Seq), unit, reason),
+	}
+}
+
+// environmentRerun returns the action for a run of unit, a red capture, a green capture or a reproduction, that exited
+// store.EnvironmentExit without timing out. A run that is the first or second of its environment exits in a row reruns
+// the unit under its next rerun. The third parks the task held parked, as noVerdict does, with a reason that names the
+// task's capture and says the exit was an environment result.
+func environmentRerun(view View, unit string) Action {
+	next := view.Task.Build
+	if view.EnvironmentBefore < store.EnvironmentReruns {
+		next.Rerun++
+		return Action{Kind: ActMove, Next: next}
+	}
+	next.Held = HeldParked
+	return Action{
+		Kind: ActPark,
+		Next: next,
+		Reason: fmt.Sprintf(
+			"%s %s %s exited %d in %d runs in a row: an environment result, not a verdict",
+			taskLabel(view.Task.Seq), unit, strings.Join(view.Task.Evidence.Capture, " "),
+			store.EnvironmentExit, store.EnvironmentReruns+1,
+		),
 	}
 }
 
