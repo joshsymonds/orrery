@@ -25,6 +25,7 @@ import {
   type EpicBlock,
   type EpicItem,
   type EpicLine,
+  type StripTone,
 } from "./epics";
 import type { Row, Section } from "./rows";
 
@@ -57,16 +58,18 @@ function detailWith(epic: Epic, statuses: string[]): EpicsGetResponse {
   });
 }
 
-// A Get response whose tasks are the given slugs and statuses, and whose slices are given as they are.
+// A Get response whose tasks are the given slugs and statuses, and whose slices and steps are given as they are.
 function detailOfTasks(
   epic: Epic,
   tasks: { slug: string; status: string }[],
   slices: MessageInitShape<typeof EpicSliceSchema>[],
+  steps: EpicStep[] = [],
 ): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
     tasks: tasks.map((task) => ({ effort: 1, subject: task.slug, ...task })),
     slices,
+    steps,
   });
 }
 
@@ -137,13 +140,28 @@ test("an epic with no detail carries none, and its counts read zero", () => {
   assert.deepEqual(block.epic.strip, []);
 });
 
-test("the strip gives each record task its tone in record order, matched by slug, none when no slice matches", () => {
+test("the strip gives each record task its tone in record order, matched by slug, none when no step matches", () => {
   const epic = makeEpic({});
-  const details = new Map([[epic.id, detailOfTasks(epic, sevenTasks, sevenSlices)]]);
+  const tasks = [
+    { slug: "t0", status: "done" },
+    { slug: "t1", status: "pending" },
+    { slug: "t2", status: "pending" },
+    { slug: "t3", status: "pending" },
+    { slug: "t4", status: "pending" },
+    { slug: "t5", status: "pending" },
+    { slug: "t6", status: "pending" },
+  ];
+  const steps = [
+    makeStep({ id: "s1", task: "t1", end: "goal_unmet" }),
+    makeStep({ id: "s2", task: "t2" }),
+    makeStep({ id: "s3", task: "t3", held: true }),
+    makeStep({ id: "s4", task: "t5", end: "done" }),
+  ];
+  const details = new Map([[epic.id, detailOfTasks(epic, tasks, [], steps)]]);
 
   const block = epicsView([epic], details).blocks[0];
 
-  assert.deepEqual(block.epic.strip, ["passed", "errored", "now", "held", "none", "none", "passed"]);
+  assert.deepEqual(block.epic.strip, ["passed", "errored", "now", "held", "none", "accepted", "none"]);
 });
 
 test("a step's pips are the five cells of its slice, and five track without one", () => {
@@ -172,9 +190,94 @@ test("a held step carries its reason", () => {
 
 test("a full block's tail reads its gaps, its not-started tasks and its ended steps", () => {
   const epic = makeEpic({ runningSteps: [makeStep({ id: "s1", task: "t2" })], endedSteps: 9 });
-  const details = new Map([[epic.id, detailOfTasks(epic, sevenTasks, sevenSlices)]]);
+  const tasks = [
+    { slug: "t0", status: "pending" },
+    { slug: "t1", status: "pending" },
+    { slug: "t2", status: "pending" },
+    { slug: "t3", status: "pending" },
+  ];
+  const steps = [makeStep({ id: "s2", task: "t0", end: "goal_unmet" }), makeStep({ id: "s3", task: "t3" })];
+  const details = new Map([[epic.id, detailOfTasks(epic, tasks, [], steps)]]);
 
   assert.equal(epicsView([epic], details).blocks[0].tail, "1 gap · 2 not started · 9 steps ended");
+});
+
+// The strip of an epic whose one record task, t0, has the given status and steps.
+function stripOfOne(status: string, steps: EpicStep[]): StripTone[] {
+  const epic = makeEpic({});
+  const details = new Map([[epic.id, detailOfTasks(epic, [{ slug: "t0", status }], [], steps)]]);
+  return epicsView([epic], details).blocks[0].epic.strip;
+}
+
+test("StripAgreesOrrery: a done record task whose latest writing step ended returned or goal_unmet is passed", () => {
+  for (const end of ["returned", "goal_unmet"]) {
+    assert.deepEqual(stripOfOne("done", [makeStep({ id: "s1", task: "t0", end })]), ["passed"], end);
+  }
+});
+
+test("StripAgreesOrrery: an integrated record task whose latest writing step ended returned or goal_unmet is passed", () => {
+  for (const end of ["returned", "goal_unmet"]) {
+    assert.deepEqual(stripOfOne("integrated", [makeStep({ id: "s1", task: "t0", end })]), ["passed"], end);
+  }
+});
+
+test("StripAgreesOrrery: a not-done record task whose writing step ended returned, and whose later read-only step ended done, is accepted, not errored", () => {
+  const steps = [
+    makeStep({ id: "s1", task: "t0", end: "returned" }),
+    makeStep({ id: "s2", task: "t0", end: "done", readOnly: true }),
+  ];
+
+  assert.deepEqual(stripOfOne("pending", steps), ["accepted"]);
+});
+
+test("StripAgreesOrrery: a not-done record task whose latest step ended goal_unmet is errored", () => {
+  assert.deepEqual(stripOfOne("pending", [makeStep({ id: "s1", task: "t0", end: "goal_unmet" })]), ["errored"]);
+});
+
+test("StripAgreesOrrery: a running step is now", () => {
+  assert.deepEqual(stripOfOne("pending", [makeStep({ id: "s1", task: "t0" })]), ["now"]);
+});
+
+test("StripAgreesOrrery: a held step is held", () => {
+  assert.deepEqual(stripOfOne("pending", [makeStep({ id: "s1", task: "t0", held: true })]), ["held"]);
+});
+
+test("StripAgreesOrrery: an untouched task is none", () => {
+  assert.deepEqual(stripOfOne("pending", []), ["none"]);
+});
+
+test("StripAgreesOrrery: on an epic whose wedges are its record tasks the tail's gap count equals the errored segments", () => {
+  const epic = makeEpic({ runningSteps: [makeStep({ id: "run" })] });
+  const tasks = [
+    { slug: "t0", status: "pending" },
+    { slug: "t1", status: "pending" },
+    { slug: "t2", status: "pending" },
+    { slug: "t3", status: "done" },
+    { slug: "t4", status: "pending" },
+  ];
+  const steps = [
+    makeStep({ id: "s1", task: "t0", end: "goal_unmet" }),
+    makeStep({ id: "s2", task: "t1", end: "returned" }),
+    makeStep({ id: "s3", task: "t1", end: "done", readOnly: true }),
+    makeStep({ id: "s4", task: "t2", end: "checks_failed" }),
+  ];
+  const details = new Map([[epic.id, detailOfTasks(epic, tasks, [], steps)]]);
+
+  const block = epicsView([epic], details).blocks[0];
+
+  assert.equal(block.epic.strip.filter((tone) => tone === "errored").length, 2);
+  assert.equal(block.tail, "2 gap · 1 not started");
+});
+
+test("StripAgreesOrrery: an epic with no record tasks and one failed build task reads '1 gap'", () => {
+  const epic = makeEpic({ runningSteps: [makeStep({ id: "run" })] });
+  const detail = create(EpicsGetResponseSchema, {
+    epic,
+    buildTasks: [{ id: "T1", title: "Parser", status: "open", stage: "implement", requirements: ["R1"] }],
+    steps: [makeStep({ id: "s1", task: "T1", end: "goal_unmet" })],
+  });
+
+  assert.equal(epicsView([epic], new Map([[epic.id, detail]])).blocks[0].tail, "1 gap");
 });
 
 test("a tail leaves out each part at zero, and is empty when no part is left", () => {

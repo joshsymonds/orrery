@@ -263,10 +263,11 @@ button, input, textarea, select { font-family: var(--mono); }
 .pips { display: inline-flex; gap: 2px; vertical-align: middle; }
 .pips i { width: 9px; height: 5px; border-radius: 1px; background: var(--surface1); }
 .k-passed { --k: var(--green); }
+.k-accepted { --k: var(--teal); }
 .k-now { --k: var(--yellow); }
 .k-held { --k: var(--peach); }
 .k-errored { --k: var(--red); }
-.strip i.k-passed, .strip i.k-now, .strip i.k-held, .strip i.k-errored,
+.strip i.k-passed, .strip i.k-accepted, .strip i.k-now, .strip i.k-held, .strip i.k-errored,
 .pips i.k-passed, .pips i.k-now, .pips i.k-held, .pips i.k-errored { background: var(--k); }
 .strip i.k-now, .pips i.k-now {
   box-shadow: 0 0 5px color-mix(in srgb, var(--yellow) 70%, transparent); animation: now-glow 1.8s ease-in-out infinite;

@@ -3373,24 +3373,22 @@ test("an epic with no outcome reads building and its count, and epic unavailable
 });
 
 test("a full epic draws a strip with one segment per record task, in each task's tone", (t) => {
-  const slices = [
-    { task: "task-0", hue: "done" },
-    { task: "task-1", hue: "done" },
-    { task: "task-2", hue: "gap", errorAt: 3 },
-    { task: "task-3", hue: "dispatched", at: 2 },
-    { task: "task-4", hue: "dispatched", at: 1 },
-    { task: "task-5", hue: "dispatched", at: 4, held: true },
+  const steps = [
+    makeStep("a", { task: "task-0", end: "done" }),
+    makeStep("b", { task: "task-1", end: "goal_unmet" }),
+    makeStep("c", { task: "task-2" }),
+    makeStep("d", { task: "task-3", held: true }),
   ];
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")] });
-  const statuses = Array.from({ length: 7 }, () => "pending");
-  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, statuses, [], slices)]]));
+  const statuses = ["pending", "pending", "pending", "pending", "pending", "done", "integrated"];
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, statuses, steps)]]));
   return withApp(t.signal, { epics }, (container) => {
     const strip = sectionOf(container, "Epics").querySelector(".strip");
     assert.ok(strip !== null, "the full epic draws its strip");
     assert.equal(strip.className, "strip", "seven segments are not dense");
     assert.deepEqual(
       [...strip.children].map((segment) => segment.className),
-      ["k-passed", "k-passed", "k-errored", "k-now", "k-now", "k-held", "k-none"],
+      ["k-accepted", "k-errored", "k-now", "k-held", "k-none", "k-passed", "k-passed"],
     );
   });
 });

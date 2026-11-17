@@ -571,6 +571,11 @@ test("the four kinds fill the strip's and the pips' cells: passed green, now yel
   }
 });
 
+test("StripAgreesOrrery: the accepted kind fills the strip's cells teal, as the orrery's accepted wedge is drawn", () => {
+  assert.match(declarationsFor(css, ".k-accepted"), /--k:\s*var\(--teal\);/);
+  assert.match(declarationsFor(css, ".strip i.k-accepted"), /background:\s*var\(--k\);/);
+});
+
 test("a now cell pulses on a 1.8s glow, and reduced motion holds it still", () => {
   for (const cell of [".strip i.k-now", ".pips i.k-now"]) {
     assert.match(declarationsFor(css, cell), /animation:\s*now-glow 1\.8s ease-in-out infinite;/, cell);
