@@ -32,6 +32,19 @@ func WakePaneWithClock(
 	return wakePaneWithClock(ctx, clock, server, pane, text)
 }
 
+// PaneWakeText is paneWakeText, the text that WakePane types for a text, so the cli_test package checks it directly.
+func PaneWakeText(pane, text string) string {
+	return paneWakeText(pane, text)
+}
+
+// PaneWakeCutLine is the line that holds where a cut text lost its middle.
+const PaneWakeCutLine = paneWakeCutLine
+
+// SendTypeable is sendTypeable, so the cli_test package checks that a text types exactly into pane.
+func SendTypeable(pane, text string) bool {
+	return sendTypeable(pane, text)
+}
+
 // PullQueuedWithClock is PullQueued with clock timing the wait for the popAll records, so the cli_test package
 // decides when that wait ends.
 func PullQueuedWithClock(
