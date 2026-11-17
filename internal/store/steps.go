@@ -58,7 +58,9 @@ type StepNeed struct {
 // StepAdd inserts a step row, started now. The row is never pruned. Epic and Task are optional labels; a step with
 // an empty Epic is never listed by LabelledSteps. Gate and GateLimit are the resolved argv and limit of the gate the
 // step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
-// Agents is the JSON object of the inline agent definitions the step is started with, empty when it has none.
+// Agents is the JSON object of the inline agent definitions the step is started with, empty when it has none. Caller is
+// the session or pane that started the step. It resolves to its sessions row in the same write as the step's row, and
+// the row stores that row's id, or "" when no row resolves.
 type StepAdd struct {
 	ID           string
 	Agent        string
@@ -82,6 +84,7 @@ type StepAdd struct {
 	ModelLimit   time.Duration
 	Epic         string
 	Task         string
+	Caller       EpicCaller
 }
 
 // StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
@@ -154,7 +157,7 @@ type StepTurnEnd struct {
 
 // StepRow is a step row. Ended is zero while End is empty, LoopLimitResets is zero when the limit's reset is unknown,
 // LoopGateFrom is zero unless an agent gate step was resumed from a usage limit, and LoopStageFrom is zero when the
-// stage was stored with no start.
+// stage was stored with no start. Caller is the id of the sessions row that started the step, "" when none resolved.
 type StepRow struct {
 	ID              string
 	Agent           string
@@ -204,6 +207,7 @@ type StepRow struct {
 	LoopGateFrom    time.Time
 	LoopStage       string
 	LoopStageFrom   time.Time
+	Caller          string
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -219,6 +223,10 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	if err != nil {
 		return fmt.Errorf("encode gate needs of step %s: %w", op.ID, err)
 	}
+	caller, err := resolveEpicCaller(ctx, queries, op.Caller)
+	if err != nil {
+		return fmt.Errorf("resolve caller of step %s: %w", op.ID, err)
+	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
@@ -226,7 +234,7 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		Owned: string(owned), Unowned: boolInt(op.Unowned), Gate: string(gate), GateName: op.GateName,
 		GateSource: op.GateSource, GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
-		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents,
+		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents, Caller: caller,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -508,6 +516,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		LoopGateFrom:    gateFrom,
 		LoopStage:       row.LoopStage,
 		LoopStageFrom:   stageFrom,
+		Caller:          row.Caller,
 	}, nil
 }
 

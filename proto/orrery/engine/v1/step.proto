@@ -208,6 +208,10 @@ message Step {
 
   // The verdicts the step's monitor and judge gave, in the order they were recorded.
   repeated StepVerdict verdicts = 25;
+
+  // The id of the sessions row of the session that started the step. Empty when the start named no caller, or when the
+  // caller had no row.
+  string caller = 26;
 }
 
 // ListStepsRequest asks for the labelled steps.

@@ -578,7 +578,10 @@ type Step struct {
 	// The most seconds the step's gate may run, in whole seconds.
 	GateLimitSeconds int64 `protobuf:"varint,24,opt,name=gate_limit_seconds,json=gateLimitSeconds,proto3" json:"gate_limit_seconds,omitempty"`
 	// The verdicts the step's monitor and judge gave, in the order they were recorded.
-	Verdicts      []*StepVerdict `protobuf:"bytes,25,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	Verdicts []*StepVerdict `protobuf:"bytes,25,rep,name=verdicts,proto3" json:"verdicts,omitempty"`
+	// The id of the sessions row of the session that started the step. Empty when the start named no caller, or when the
+	// caller had no row.
+	Caller        string `protobuf:"bytes,26,opt,name=caller,proto3" json:"caller,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -786,6 +789,13 @@ func (x *Step) GetVerdicts() []*StepVerdict {
 		return x.Verdicts
 	}
 	return nil
+}
+
+func (x *Step) GetCaller() string {
+	if x != nil {
+		return x.Caller
+	}
+	return ""
 }
 
 // ListStepsRequest asks for the labelled steps.
@@ -1360,7 +1370,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x02 \x01(\rR\x0etimeoutSeconds\"o\n" +
 	"\x11WaitStepsResponse\x12,\n" +
 	"\x05ended\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x05ended\x12,\n" +
-	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xcd\x05\n" +
+	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xe5\x05\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -1388,7 +1398,8 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\rstage_started\x18\x16 \x01(\x03R\fstageStarted\x12\x1b\n" +
 	"\tgate_name\x18\x17 \x01(\tR\bgateName\x12,\n" +
 	"\x12gate_limit_seconds\x18\x18 \x01(\x03R\x10gateLimitSeconds\x129\n" +
-	"\bverdicts\x18\x19 \x03(\v2\x1d.orrery.engine.v1.StepVerdictR\bverdicts\":\n" +
+	"\bverdicts\x18\x19 \x03(\v2\x1d.orrery.engine.v1.StepVerdictR\bverdicts\x12\x16\n" +
+	"\x06caller\x18\x1a \x01(\tR\x06caller\":\n" +
 	"\x10ListStepsRequest\x12\x12\n" +
 	"\x04epic\x18\x01 \x01(\tR\x04epic\x12\x12\n" +
 	"\x04task\x18\x02 \x01(\tR\x04task\"A\n" +

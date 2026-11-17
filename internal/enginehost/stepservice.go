@@ -71,6 +71,8 @@ func (s *stepService) StartStep(
 		return nil, stepCommandError(fmt.Errorf(
 			"%w: a step names its gate with gate_name and gates_file, not gate or gate_limit_seconds", ErrBadGate))
 	}
+	// A call with no caller header has the zero caller, which resolves to no row.
+	caller, _ := epicCallerOf(req.Header())
 	id, err := s.steps.Start(ctx, StepStart{
 		Agent:      req.Msg.GetAgent(),
 		Prompt:     req.Msg.GetPrompt(),
@@ -85,6 +87,7 @@ func (s *stepService) StartStep(
 		DoneValue:  req.Msg.GetDoneValue(),
 		Epic:       req.Msg.GetEpic(),
 		Task:       req.Msg.GetTask(),
+		Caller:     caller,
 	})
 	if err != nil {
 		return nil, stepCommandError(err)
@@ -277,6 +280,7 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 		GateName:         row.GateName,
 		GateLimitSeconds: int64(row.GateLimit / time.Second),
 		Verdicts:         verdicts,
+		Caller:           row.Caller,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()
