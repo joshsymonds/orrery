@@ -24,7 +24,7 @@ import {
 } from "./epics";
 import { FindBar, findMatches } from "./find";
 import { type Followed, follow } from "./follow";
-import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
@@ -34,6 +34,7 @@ import { NeedEntry } from "./needentry";
 import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
+import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
@@ -135,6 +136,13 @@ interface EpicHistory {
 interface TalkDockState {
   epic: string;
   target: TalkTarget;
+}
+
+// A step a card opened: the epic that holds it and the step's id. The page opens on the step once the epic's detail holds
+// the step.
+interface SteppedTo {
+  epic: string;
+  step: string;
 }
 
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
@@ -304,6 +312,8 @@ export function App({
   const [epicPage, setEpicPage] = useState<EpicPageState>(openEpicPage);
   // The landing the last opened notice names. Each notice makes its own, so its effect applies it once.
   const [landing, setLanding] = useState<Landing | null>(null);
+  // The step a card opened, whose page lands once the epic's detail holds it.
+  const [steppedTo, setSteppedTo] = useState<SteppedTo | null>(null);
   // The worker session the page shows, held under the step it belongs to.
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The conversation Talk docked beside the epic page, with the epic it opened on.
@@ -872,6 +882,27 @@ export function App({
     setEpicPage({ ...openEpicPage, landing });
   }, [landing]);
 
+  // A step a card opened lands the epic page on the step's worker session, over the epic page, as the epic page's step
+  // link does. It is declared after the cursor's reset above, so the commit where the cursor moves to the epic leaves the
+  // session page, not the epic page the reset sets. It waits until the epic's detail holds the step.
+  useLayoutEffect(() => {
+    if (steppedTo === null) {
+      return;
+    }
+    const detail = epics.details.get(steppedTo.epic) ?? askedDetails.get(steppedTo.epic);
+    const step = detail?.steps.find((candidate) => candidate.id === steppedTo.step);
+    if (detail === undefined || step === undefined) {
+      return;
+    }
+    setSteppedTo(null);
+    setEpicPage({
+      page: { kind: "session", task: step.task, phase: phaseOfStep(detail, step), step: step.id },
+      below: [{ page: epicPageView, scroll: 0 }],
+      move: "drill",
+      closed: false,
+    });
+  }, [steppedTo, epics, askedDetails]);
+
   const moveTo = (target: number) => {
     if (flat.length === 0) {
       return;
@@ -912,6 +943,12 @@ export function App({
       setEndedOpen(true);
     }
     setCursor({ key: `epic:${id}`, index: shownIndex });
+  };
+
+  // openEpicStep opens a step of an epic: the epic's entry, and the page of the step's worker session over the epic page.
+  const openEpicStep = (epic: string, step: string) => {
+    openEpic(epic);
+    setSteppedTo({ epic, step });
   };
 
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
@@ -1167,8 +1204,8 @@ export function App({
   }, []);
 
   // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
-  // epic again on each poll tick and opens the epic through openEpic.
-  const epicCalls = epicCallsOf(clients, openEpic, now);
+  // epic again on each poll tick and opens the epic through openEpic; a step card opens its step through openEpicStep.
+  const epicCalls = epicCallsOf(clients, openEpic, openEpicStep, now);
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1707,6 +1744,7 @@ export function App({
               target={docked.target}
               onClose={() => setTalkDock(null)}
               openEpic={openEpic}
+              openStep={openEpicStep}
               tick={now}
             />
           )}
@@ -2027,6 +2065,13 @@ function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[
     return kept;
   }
   return [...kept, shown];
+}
+
+// phaseOfStep is the phase a step's session page names: the phase whose row opens the step, as the epic page's phase rows
+// open it, or else reviewing for a read-only step and implementing for any other step.
+function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
+  const row = phaseOutputOf(detail, step.task)?.rows.find((candidate) => candidate.session === step.id);
+  return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
 }
 
 // stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,

@@ -34,13 +34,15 @@ function plainTitle(title: { dir: string; line: string }): string {
 // its turn; a refusal shows its message under the reader. The reader's "since you looked" rule marks what arrives after
 // the dock opened on the target. A message sent to the target shows in its reader as sending until its stored prompt
 // arrives, and above the box as queued while the target is working or holds it. The reader draws an epic a call created
-// as its card, through the opener openEpic and the clock tick that the app hands the dock.
+// as its card, through the openers openEpic and openStep and the clock tick that the app hands the dock; the reader holds
+// epic calls only when it is given both openers.
 export function TalkDock({
   clients,
   rows,
   target,
   onClose,
   openEpic,
+  openStep,
   tick = 0,
 }: {
   clients: Clients;
@@ -48,6 +50,7 @@ export function TalkDock({
   target: TalkTarget;
   onClose: () => void;
   openEpic?: (id: string) => void;
+  openStep?: (epic: string, step: string) => void;
   tick?: number;
 }): JSX.Element {
   const title = listedTitle(rows, target.kind, target.id, target.label);
@@ -117,7 +120,9 @@ export function TalkDock({
         open={false}
         onOlder={() => olderPage.current()}
         sending={unsentEntries(sending, conversation, target.kind)}
-        epicCalls={openEpic === undefined ? undefined : epicCallsOf(clients, openEpic, tick)}
+        epicCalls={
+          openEpic === undefined || openStep === undefined ? undefined : epicCallsOf(clients, openEpic, openStep, tick)
+        }
       />
       {interrupted && (
         <button type="button" class="act" onClick={() => void resume()}>

@@ -546,6 +546,23 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .event-ring .ring-slug { flex: none; color: var(--blue); }
 .reader .event-ring .settled { margin: 0; color: var(--overlay1); }
 .reader .event-ring .answer .question { margin: 0; padding: 0; font: 700 14px/1.45 var(--mono); }
+/* A step's end an event sent its caller: its agent, end, status and reason on the head, and the first line of its summary
+   under it. A click opens the step's page, or else expands the card to its whole summary. */
+.reader .step-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 9px 12px 10px; border-radius: 3px 10px 10px 3px;
+  background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); font: 12px/18px var(--mono); color: var(--subtext0);
+}
+.reader .step-card button.step-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; width: 100%; margin: 0; padding: 0; border: 0;
+  background: none; color: inherit; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.reader .step-card .step-agent { color: var(--text); }
+.reader .step-card .step-reason { min-width: 0; overflow-wrap: anywhere; color: var(--overlay1); }
+.reader .step-card .step-summary { margin: 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+/* A caller event the session holds and has not taken draws dimmed, until its prompt arrives or the session takes it. */
+.reader .step-card.waiting, .reader .event-ring.waiting { opacity: .55; }
+.reader .event-ring.waiting .ring-line { cursor: default; }
+.reader .wait-label { display: block; font: 11px/16px var(--mono); color: var(--overlay1); }
 
 /* The send foot's queue docks onto the composer under it: the queue's top corners and the composer's bottom corners are
    rounded, so the two read as one box. The head counts the rows quietly. A queued message is a ghost of the owner's

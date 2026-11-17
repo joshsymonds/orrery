@@ -8,14 +8,16 @@ import { provenOf, type Wedge, wedgesOf } from "./phases";
 import { controlsOf, trackPart, trackParts } from "./status";
 
 // EpicCalls are the epic calls the reader's epic card makes. get reads an epic, pause and resume command it, and answer
-// sends the owner's choice to its open question, resolving to "" once it lands. openEpic opens the epic's page. tick is
-// the poll's clock: the card reads its epic again each time tick changes.
+// sends the owner's choice to its open question, resolving to "" once it lands. openEpic opens the epic's page, and
+// openStep opens the page of a step the epic holds, on the step's worker session. tick is the poll's clock: the card
+// reads its epic again each time tick changes.
 export interface EpicCalls {
   get: (id: string) => Promise<EpicsGetResponse>;
   pause: (id: string) => Promise<unknown>;
   resume: (id: string) => Promise<unknown>;
   answer: (id: string, question: string, choice: string, text: string) => Promise<string>;
   openEpic: (id: string) => void;
+  openStep: (epic: string, step: string) => void;
   tick: number;
 }
 
@@ -23,8 +25,13 @@ export interface EpicCalls {
 const commandFailedText = "epic command failed";
 const answerFailedText = "no answer was sent";
 
-// epicCallsOf makes the epic calls over the clients, with the app's opener and clock.
-export function epicCallsOf(clients: Clients, openEpic: (id: string) => void, tick: number): EpicCalls {
+// epicCallsOf makes the epic calls over the clients, with the app's openers and clock.
+export function epicCallsOf(
+  clients: Clients,
+  openEpic: (id: string) => void,
+  openStep: (epic: string, step: string) => void,
+  tick: number,
+): EpicCalls {
   return {
     get: (id) => clients.epics.get({ id }),
     pause: (id) => clients.epics.pause({ id }),
@@ -35,6 +42,7 @@ export function epicCallsOf(clients: Clients, openEpic: (id: string) => void, ti
         () => answerFailedText,
       ),
     openEpic,
+    openStep,
     tick,
   };
 }

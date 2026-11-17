@@ -88,6 +88,7 @@ class FakeEpics {
       openEpic: (id) => {
         this.opened.push(id);
       },
+      openStep: () => {},
       tick,
     };
   }

@@ -737,6 +737,7 @@ function ringCalls(): EpicCalls {
     resume: () => Promise.resolve(),
     answer: async () => "",
     openEpic: () => {},
+    openStep: () => {},
     tick: 1,
   };
 }

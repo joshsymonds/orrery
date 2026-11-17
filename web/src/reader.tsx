@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/
 import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
 import type { Match } from "./find";
-import { EventRing, epicEventOf } from "./eventring";
+import { EventRing, epicEventOf, StepCard, stepEventOf, WaitingCard } from "./eventring";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
@@ -43,9 +43,10 @@ export interface ReaderHandle {
 // its place.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. Any
-// other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
-// With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
+// a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. An
+// event prompt whose text is a step's end block draws as its step card, and never as an EVENT row; each such prompt draws
+// its own card. Any other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step
+// prompt. With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
 // reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
@@ -55,13 +56,15 @@ export interface ReaderHandle {
 // conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, and a notice. Compaction, check cards, epic cards and event rings, live text, thinking, the
-// question card, sending rows and event lines are not searched. The current match, find.current's index in
-// find.matches, is the mark with class current: it is scrolled into view as it arrives, and the fold, call or run that
-// holds it opens. A fold opens when the current match moves into it, and the owner can close it; it opens again only
-// when the current match moves into it once more.
-// The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
-// they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
+// call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards, waiting cards,
+// live text, thinking, the question card, sending rows and event lines are not searched. The current match,
+// find.current's index in find.matches, is the mark with class current: it is scrolled into view as it arrives, and the
+// fold, call or run that holds it opens. A fold opens when the current match moves into it, and the owner can close it;
+// it opens again only when the current match moves into it once more.
+// After the items and live text, the reader draws a waiting card for each caller event the conversation holds pending,
+// oldest first, except one whose id an event prompt already drawn holds. The sending entries draw after them, each as a
+// dimmed prompt row marked sending. They are not items: they keep no key and no place in the scroll place, and a reader
+// at its bottom keeps it as a new row arrives.
 export function Reader({
   conversation,
   seenAt,
@@ -268,11 +271,27 @@ export function Reader({
   });
   const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
   const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
+  // A pending event whose prompt is drawn is an ordinary card now, so it draws no waiting card, even before the next
+  // poll takes it out of the pending list.
+  const drawnEvents = new Set(
+    items.filter((item) => item.kind === "prompt" && item.sender === "event").map((item) => item.promptId),
+  );
+  const waiting = (conversation.state?.pending ?? [])
+    .filter((event) => !drawnEvents.has(event.id))
+    .map((event) => (
+      <div key={`waiting/${event.id}`} class="t waiting-row">
+        <span class="gut" />
+        <div class="body">
+          <WaitingCard event={event} calls={rowCalls} />
+        </div>
+      </div>
+    ));
   return (
     <div class="reader" ref={root} onScroll={followScroll}>
       {rows}
       {questionCard}
       {live}
+      {waiting}
       {sendingRows}
     </div>
   );
@@ -472,12 +491,12 @@ function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
   );
 }
 
-// readsEpicCalls is whether a row of item draws from the epic calls: a prompt whose text is an epic's event block, which
-// draws as the event's ring, or a call that creates an epic, which draws its epic's card. Every other row reads nothing
-// of them, so the calls it is given do not change it.
+// readsEpicCalls is whether a row of item draws from the epic calls: an event prompt whose text is an epic's event block,
+// which draws as the event's ring, or a step's end, which draws as a card that opens the step; or a call that creates an
+// epic, which draws its epic's card. Every other row reads nothing of them, so the calls it is given do not change it.
 function readsEpicCalls(item: ConversationItem): boolean {
   if (item.kind === "prompt") {
-    return epicEventOf(item.text) !== null;
+    return epicEventOf(item.text) !== null || (item.sender === "event" && stepEventOf(item.text) !== null);
   }
   return (item.kind === "tool" || item.kind === "question") && item.epic !== "";
 }
@@ -492,6 +511,7 @@ function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): E
     resume: (id) => current().resume(id),
     answer: (id, question, choice, text) => current().answer(id, question, choice, text),
     openEpic: (id) => current().openEpic(id),
+    openStep: (epic, step) => current().openStep(epic, step),
     tick: made.tick,
   };
 }
@@ -547,7 +567,13 @@ function ItemBody({
   epicCalls?: EpicCalls;
 }) {
   switch (item.kind) {
-    case "prompt":
+    case "prompt": {
+      if (item.sender === "event") {
+        const stepEnd = stepEventOf(item.text);
+        if (stepEnd !== null) {
+          return <StepCard event={stepEnd} calls={epicCalls} />;
+        }
+      }
       if (epicCalls !== undefined) {
         const event = epicEventOf(item.text);
         if (event !== null) {
@@ -571,6 +597,7 @@ function ItemBody({
           <ReplyMarkdown text={item.text} query={query} current={current} />
         </div>
       );
+    }
     case "tool":
     case "question": {
       // An epic call whose result is not an error draws its epic's card in place of its row, when the reader holds
