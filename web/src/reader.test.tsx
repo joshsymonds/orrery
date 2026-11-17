@@ -15,6 +15,7 @@ import {
   type EngineText,
 } from "./gen/orrery/v1/orrery_pb";
 import type { Conversation } from "./conversation";
+import { findMatches, type Match } from "./find";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
@@ -64,6 +65,7 @@ interface Props {
   onOlder?: () => void;
   register?: (handle: ReaderHandle | null) => void;
   sending?: Sending[];
+  find?: { query: string; matches: Match[]; current: number };
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -2040,3 +2042,217 @@ test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, di
       assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
     },
   ));
+
+// findProps is the find prop of a reader searching query over items, with current as the index of the match it marks.
+function findProps(items: ConversationItem[], query: string, current: number): Props["find"] {
+  return { query, matches: findMatches(items, query), current };
+}
+
+// recordScrolls replaces scrollIntoView on the test window's elements with one that records the element it is called
+// on: happy-dom has no layout, so its own does nothing. The record holds the elements in the order they were scrolled.
+function recordScrolls(t: TestContext): Element[] {
+  const scrolled: Element[] = [];
+  t.mock.method(HTMLElement.prototype, "scrollIntoView", function (this: Element) {
+    scrolled.push(this);
+  });
+  return scrolled;
+}
+
+// currentMarkIndex returns the index, among the reader's marks in document order, of the one mark with class current.
+// It fails unless exactly one mark is current.
+function currentMarkIndex(container: HTMLElement): number {
+  const current = [...container.querySelectorAll("mark")].filter((mark) => mark.classList.contains("current"));
+  assert.equal(current.length, 1, "exactly one mark is current");
+  return [...container.querySelectorAll("mark")].indexOf(current[0]);
+}
+
+test("TranscriptSearch: a find marks each case-insensitive occurrence in a reply, a prompt, a call's input and a notice, and no Markdown syntax", () => {
+  const items = [
+    item({
+      kind: "reply",
+      time: 100n,
+      text: "Build the **build**, `BUILD` and [build log](https://example.test/build)",
+    }),
+    item({ kind: "prompt", time: 200n, sender: "owner", text: "run the build" }),
+    callItem("c1", "make build", 300n),
+    item({ kind: "notice", time: 400n, notice: "build", text: "" }),
+  ];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "build", -1) },
+    (container) => {
+      const marks = [...container.querySelectorAll("mark")].map((mark) => mark.textContent);
+      assert.deepEqual(marks, ["Build", "build", "BUILD", "build", "build", "build", "build"]);
+      assert.ok(container.querySelector("strong mark") !== null, "a mark inside bold draws within the bold text");
+      assert.ok(container.querySelector(".you mark") !== null, "the owner's prompt is marked as YOU");
+      assert.equal(container.querySelector(".in mark")?.textContent, "build", "the call's input is marked");
+    },
+  );
+});
+
+test("TranscriptSearch: exactly one mark is current, and the current mark moves and is scrolled into view as current changes", async (t) => {
+  const items = [item({ kind: "reply", time: 100n, text: "one build, two build, three build" })];
+  const props: Props = {
+    conversation: conversation({ items }),
+    seenAt: 1000,
+    open: false,
+    find: findProps(items, "build", 0),
+  };
+  await withScrollingReader(props, async (container, rerender) => {
+    const scrolled = recordScrolls(t);
+    assert.equal(container.querySelectorAll("mark").length, 3);
+    assert.equal(currentMarkIndex(container), 0, "the first mark is current");
+
+    await rerender({ ...props, find: findProps(items, "build", 2) });
+    assert.equal(currentMarkIndex(container), 2, "the third mark is current, and the first is no longer");
+    assert.equal(
+      scrolled.at(-1),
+      container.querySelector("mark.current"),
+      "the mark that became current is scrolled to",
+    );
+  });
+});
+
+test("TranscriptSearch: a current match in a call's hidden result opens the call and marks the match, and a match in a closed result has no mark", async () => {
+  const items = [callItem("c1", "make"), resultItem("c1", "built output")];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "output", -1) }, async (container, rerender) => {
+    assert.equal(container.querySelector("mark"), null, "the result is hidden, so its match is not marked");
+    assert.equal(container.querySelector(".result"), null, "the result is folded");
+
+    await rerender({ ...props, find: findProps(items, "output", 0) });
+    const shown = container.querySelector(".result mark.current");
+    assert.equal(shown?.textContent, "output", "the call opens and marks the match");
+  });
+});
+
+test("TranscriptSearch: the owner can close a fold a find opened, and the find opens it again once the match moves back in", async () => {
+  const items = [callItem("c1", "make"), resultItem("c1", "built output")];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "output", 0) }, async (container, rerender) => {
+    assert.ok(container.querySelector(".result mark.current") !== null, "the find opens the call");
+
+    await clickControl(foldLine(container));
+    assert.equal(container.querySelector(".result"), null, "the owner closes the result");
+
+    await rerender({ ...props, find: findProps(items, "output", 0) });
+    assert.equal(container.querySelector(".result"), null, "the match is still current, and the result stays closed");
+
+    await rerender({ ...props, find: findProps(items, "output", -1) });
+    await rerender({ ...props, find: findProps(items, "output", 0) });
+    assert.ok(container.querySelector(".result mark.current") !== null, "the match moving back in opens the result");
+  });
+});
+
+test("TranscriptSearch: a step's fold line is drawn as written and never marked, and the engine fold's text is marked once it opens", async () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, sender: "brief", text: "Goal: export the rota" }),
+    item({ kind: "prompt", time: 200n, sender: "engine", text: "watchdog: the engine stalled\nsecond line" }),
+  ];
+  const props: Props = {
+    conversation: conversation({ items }),
+    seenAt: 10_000,
+    open: false,
+    step: stepWith([]),
+    find: findProps(items, "engine", -1),
+  };
+  await withScrollingReader(props, async (container, rerender) => {
+    assert.equal(container.querySelector(".fold-text"), null, "both folds are closed");
+    assert.equal(
+      container.querySelector(".fold.engine .names")?.textContent,
+      "watchdog: the engine stalled",
+      "the engine line is drawn as written",
+    );
+    assert.equal(container.querySelector("mark"), null, "a match in a closed fold is not marked, and no line is");
+
+    await rerender({ ...props, find: findProps(items, "engine", 0) });
+    assert.equal(container.querySelector(".fold.engine .names mark"), null, "the engine line is not marked");
+    assert.equal(
+      container.querySelector(".fold-text mark.current")?.textContent,
+      "engine",
+      "the engine fold opens and marks its match",
+    );
+    assert.equal(container.querySelectorAll("mark").length, 1, "the match in the fold's text is the only mark");
+    assert.equal(container.querySelector(".fold.brief mark"), null, "the brief's line is not marked");
+  });
+});
+
+test("TranscriptSearch: a current match in a call inside a folded tool run opens the run and marks the call's match", async () => {
+  const items = [
+    toolItem("Read", "r1", "a.txt"),
+    resultItem("r1", "alpha"),
+    toolItem("Read", "r2", "b.txt"),
+    resultItem("r2", "beta"),
+    toolItem("Bash", "b1", "make"),
+    resultItem("b1", "built"),
+  ];
+  const props: Props = { conversation: conversation({ items }), seenAt: 1000, open: false };
+  await withScrollingReader({ ...props, find: findProps(items, "make", -1) }, async (container, rerender) => {
+    assert.equal(container.querySelector("div.calls"), null, "the run is folded");
+
+    await rerender({ ...props, find: findProps(items, "make", 0) });
+    assert.equal(container.querySelector("div.calls mark.current")?.textContent, "make", "the run opens and marks it");
+    assert.equal(container.querySelector("div.calls .result"), null, "the call of the match stays folded");
+  });
+});
+
+test("TranscriptSearch: a compaction's summary is not marked, though the query occurs in it", () => {
+  const items = [
+    item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto", tokens: 611000n }),
+    item({ kind: "reply", time: 200n, text: "a summary of the work" }),
+  ];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: true, find: findProps(items, "summary", 0) },
+    (container) => {
+      const summary = container.querySelector(".summary")?.textContent;
+      assert.ok(summary?.includes("Synthetic summary text."), "the summary is drawn");
+      assert.equal(container.querySelector(".summary mark"), null, "the summary has no mark");
+      assert.equal(container.querySelectorAll("mark").length, 1, "only the reply's occurrence is marked");
+      assert.equal(container.querySelector(".reply mark.current")?.textContent, "summary");
+    },
+  );
+});
+
+test("TranscriptSearch: a current match after a list and a table is the mark at its place in the drawn text", async () => {
+  const text = "- first item\n- second item\n\n| a | b |\n| --- | --- |\n| build | x |\n\nlast line build";
+  const items = [item({ kind: "reply", time: 100n, text })];
+  const matches = findMatches(items, "build");
+  assert.equal(matches.length, 2, "the table's cell and the last line each hold a match");
+  for (const [current, parent] of [
+    [0, "TD"],
+    [1, "P"],
+  ] as const) {
+    const find = { query: "build", matches, current };
+    await withReader({ conversation: conversation({ items }), seenAt: 1000, open: false, find }, (container) => {
+      assert.equal(container.querySelectorAll("mark").length, 2);
+      const marked = container.querySelector("mark.current")?.parentElement?.tagName;
+      assert.equal(marked, parent, `match ${current} is the current one`);
+    });
+  }
+});
+
+test("TranscriptSearch: a match that Markdown splits across elements is marked on each part, and only the first part is current", () => {
+  const items = [item({ kind: "reply", time: 100n, text: "a *foo*bar" })];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "foobar", 0) },
+    (container) => {
+      const marks = [...container.querySelectorAll("mark")];
+      assert.deepEqual(marks.map((mark) => mark.textContent), ["foo", "bar"]);
+      const emphasized = container.querySelector("em mark.current");
+      assert.equal(emphasized?.textContent, "foo", "the part inside the emphasis is current");
+      assert.equal(marks[1].classList.contains("current"), false, "the part after it is not");
+    },
+  );
+});
+
+test("TranscriptSearch: a reader drawn without a find, or with an empty query, has no mark", async () => {
+  const items = [item({ kind: "reply", time: 100n, text: "build it" }), callItem("c1", "make build")];
+  await withReader({ conversation: conversation({ items }), seenAt: 1000, open: false }, (container) => {
+    assert.equal(container.querySelector("mark"), null, "a reader without find marks nothing");
+  });
+  await withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: { query: "", matches: [], current: -1 } },
+    (container) => {
+      assert.equal(container.querySelector("mark"), null, "a reader with an empty query marks nothing");
+    },
+  );
+});

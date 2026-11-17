@@ -3,6 +3,7 @@ import { useEffect, useRef } from "preact/hooks";
 
 import type { ConversationItem } from "./gen/orrery/v1/orrery_pb";
 import { drawnText } from "./markdown";
+import { occurrences } from "./text";
 
 // Match is one occurrence of a query in a conversation's drawn text: item is the index of the item it is drawn in, and
 // start is its offset in that item's searched text. A call's result is searched as part of its call, so a match in the
@@ -17,15 +18,11 @@ export interface Match {
 // text of the result that answers it, and a notice by its kind and text. Compaction, a send-back of a check round (it
 // draws as a card), and a result that answers no call are not searched. An empty query matches nothing.
 export function findMatches(items: ConversationItem[], query: string): Match[] {
-  if (query === "") {
-    return [];
-  }
-  const pattern = new RegExp(escapeRegExp(query), "gi");
   const answers = resultsByCall(items);
   const matches: Match[] = [];
   items.forEach((item, index) => {
-    for (const found of searchedText(item, answers.get(index)).matchAll(pattern)) {
-      matches.push({ item: index, start: found.index });
+    for (const [start] of occurrences(searchedText(item, answers.get(index)), query)) {
+      matches.push({ item: index, start });
     }
   });
   return matches;
@@ -74,10 +71,6 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
     }
   });
   return results;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // FindBar is the find field over the transcript: a focused input for the query, then the current match as n of N, or

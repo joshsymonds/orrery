@@ -2,13 +2,14 @@ import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
+import type { Match } from "./find";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
-import { ReplyText } from "./text";
+import { MarkedText, ReplyText } from "./text";
 import { TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
@@ -47,6 +48,11 @@ export interface ReaderHandle {
 // the reader keeps the rows on screen where they were. Once it sits within nearTopPixels of its top while the
 // conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
 // screen at a time through the handle register gets.
+// With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
+// call's input and result, and a notice. Compaction, check cards, live text, thinking, the question card and sending
+// rows are not searched. The current match, find.current's index in find.matches, is the mark with class current: it is
+// scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current match
+// moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
 // The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
 // they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -60,6 +66,7 @@ export function Reader({
   onOlder,
   register,
   sending = [],
+  find,
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -71,6 +78,7 @@ export function Reader({
   onOlder?: () => void;
   register?: (handle: ReaderHandle | null) => void; // gets the handle while mounted, and null once unmounted
   sending?: Sending[];
+  find?: { query: string; matches: Match[]; current: number };
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -79,6 +87,12 @@ export function Reader({
   // it: a render or a size change moves the content under the reader without the owner, so it does not.
   const pinned = useRef(true);
   const keys = conversation === null ? [] : itemKeys(conversation.items);
+  // query is what the reader marks, and focus is the current match, when there is a query and a current one.
+  const query = find?.query ?? "";
+  const focus = find !== undefined && query !== "" && find.current >= 0 ? find.matches[find.current] : undefined;
+  const focusItem = focus?.item ?? -1;
+  const focusStart = focus?.start ?? -1;
+  const currentAt = (index: number): number => (index === focusItem ? focusStart : -1);
   // The position is read before this render changes the DOM, so it is where the reader sat before the new items. A size
   // change the observer has not reported yet is not in that reading, so the observer follows it.
   const element = root.current;
@@ -190,8 +204,9 @@ export function Reader({
         item: items[index],
         result: results.get(index),
         running: running.has(index),
+        current: currentAt(index),
       }));
-      rows.push(<ToolRun key={keys[first]} calls={calls} />);
+      rows.push(<ToolRun key={keys[first]} calls={calls} query={query} />);
       return;
     }
     rows.push(
@@ -203,6 +218,8 @@ export function Reader({
         open={open}
         step={step}
         onToggleOpen={onToggleOpen}
+        query={query}
+        current={currentAt(first)}
       />,
     );
   });
@@ -348,6 +365,8 @@ function SendingRow({ text }: { text: string }) {
   );
 }
 
+// ItemRow draws an item's row. query is the find's query, and current is the offset in the item's searched text where
+// the current match starts, or -1 when the current match is not in this item.
 function ItemRow({
   item,
   result,
@@ -355,6 +374,8 @@ function ItemRow({
   open,
   step,
   onToggleOpen,
+  query,
+  current,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -362,13 +383,24 @@ function ItemRow({
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  query: string;
+  current: number;
 }) {
   // Its row carries the owner-turn class, which sets the gap above it.
   return (
     <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
-        <ItemBody item={item} result={result} running={running} open={open} step={step} onToggleOpen={onToggleOpen} />
+        <ItemBody
+          item={item}
+          result={result}
+          running={running}
+          open={open}
+          step={step}
+          onToggleOpen={onToggleOpen}
+          query={query}
+          current={current}
+        />
       </div>
     </div>
   );
@@ -381,6 +413,8 @@ function ItemBody({
   open,
   step,
   onToggleOpen,
+  query,
+  current,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -388,6 +422,8 @@ function ItemBody({
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  query: string;
+  current: number;
 }) {
   switch (item.kind) {
     case "prompt":
@@ -395,34 +431,49 @@ function ItemBody({
         return (
           <div class="event">
             <small>EVENT</small>
-            <ReplyMarkdown text={item.text} />
+            <ReplyMarkdown text={item.text} query={query} current={current} />
           </div>
         );
       }
       if (step !== undefined && !ownersTurn(item, step)) {
-        return <StepPrompt item={item} checks={step.checks} />;
+        return <StepPrompt item={item} checks={step.checks} query={query} current={current} />;
       }
       return (
         <div class="you">
           <small>YOU</small>
-          <ReplyMarkdown text={item.text} />
+          <ReplyMarkdown text={item.text} query={query} current={current} />
         </div>
       );
     case "tool":
     case "question":
-      return <CallRow item={item} result={result} running={running} />;
+      return <CallRow item={item} result={result} running={running} query={query} current={current} />;
     case "notice":
       return (
         <div class={item.error ? "notice err" : "notice"}>
-          <span class="notice-kind">{item.notice}</span>
-          {item.text !== "" && <ReplyText text={item.text} />}
+          <span class="notice-kind">
+            <MarkedText text={item.notice} query={query} current={partCurrent(current, 0, item.notice.length)} />
+          </span>
+          {item.text !== "" && (
+            <ReplyText
+              text={item.text}
+              query={query}
+              current={partCurrent(current, item.notice.length + 1, item.text.length)}
+            />
+          )}
         </div>
       );
     case "compaction":
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     default:
-      return <ReplyMarkdown text={item.text} />;
+      return <ReplyMarkdown text={item.text} query={query} current={current} />;
   }
+}
+
+// partCurrent is the offset within a part of an item's searched text where the current match starts, when it starts in
+// that part, and -1 when it does not. The part starts at start in the item's searched text, where findMatches joins the
+// item's parts one to a line, so the part after a newline starts one past the part before it.
+function partCurrent(current: number, start: number, length: number): number {
+  return current >= start && current < start + length ? current - start : -1;
 }
 
 // ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
@@ -432,34 +483,75 @@ function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
-// hang from.
-function ReplyMarkdown({ text }: { text: string }) {
+// hang from. Its query and current are the item's, as ItemRow's are, and its text is all of the item's searched text.
+function ReplyMarkdown({ text, query = "", current = -1 }: { text: string; query?: string; current?: number }) {
   return (
     <div class="reply">
-      <Markdown text={text} />
+      <Markdown text={text} query={query} current={current} />
     </div>
   );
 }
 
 // StepPrompt draws a prompt a step's engine sent, by its sender and round: the brief as a fold, a send-back of a check
 // round as a card of that round's checks, and any other prompt, unmarked ones included, as an engine fold.
-function StepPrompt({ item, checks }: { item: ConversationItem; checks: EpicStepCheck[] }) {
+function StepPrompt({
+  item,
+  checks,
+  query,
+  current,
+}: {
+  item: ConversationItem;
+  checks: EpicStepCheck[];
+  query: string;
+  current: number;
+}) {
   if (item.sender === "brief") {
-    return <Fold className="fold brief" title="Brief" names="from the engine" text={item.text} />;
+    return (
+      <Fold
+        className="fold brief"
+        title="Brief"
+        names="from the engine"
+        text={item.text}
+        query={query}
+        current={current}
+      />
+    );
   }
   if (item.sender === "engine" && item.round >= 1) {
     return <CheckCard text={item.text} round={item.round} checks={checks} />;
   }
   const [first] = item.text.split("\n");
-  return <Fold className="fold engine" title="Engine" names={first} text={item.text} />;
+  return (
+    <Fold className="fold engine" title="Engine" names={first} text={item.text} query={query} current={current} />
+  );
 }
 
-// Fold draws a line of a step's prompt: its title and names on the line, and a click shows the whole text under it.
-function Fold({ className, title, names, text }: { className: string; title: string; names: string; text: string }) {
+// Fold draws a line of a step's prompt: its title and names on the line, and a click shows the whole text under it. The
+// line is drawn as written and is not marked. The fold's text is marked, and the fold opens when the current match is in
+// that text.
+function Fold({
+  className,
+  title,
+  names,
+  text,
+  query,
+  current,
+}: {
+  className: string;
+  title: string;
+  names: string;
+  text: string;
+  query: string;
+  current: number;
+}) {
   return (
-    <Disclosure className={className} label={<><b>{title}</b><span class="names">{names}</span></>}>
+    <Disclosure
+      className={className}
+      label={<><b>{title}</b><span class="names">{names}</span></>}
+      revealed={current >= 0}
+    >
       <div class="fold-text">
-        <ReplyMarkdown text={text} />
+        <ReplyMarkdown text={text} query={query} current={current} />
       </div>
     </Disclosure>
   );
@@ -500,19 +592,34 @@ function CheckCard({ text, round, checks }: { text: string; round: number; check
   );
 }
 
+// useReveal opens a fold when revealed turns true, which is when a find's current match moves into it. The owner can
+// close the fold after that, and it opens again only when revealed turns true once more. The fold opens in a layout
+// effect, so the current mark it holds mounts in the render that follows and scrolls itself into view.
+function useReveal(revealed: boolean, setShown: (shown: boolean) => void): void {
+  useLayoutEffect(() => {
+    if (revealed) {
+      setShown(true);
+    }
+  }, [revealed]);
+}
+
 // Disclosure is a button that flashes on each use and shows its children under it: a click shows them, and a second
-// click folds them again. Its label is drawn as text, so a link never sits inside it.
+// click folds them again. Its label is drawn as text, so a link never sits inside it. A revealed disclosure opens, as
+// useReveal says.
 function Disclosure({
   className,
   label,
+  revealed = false,
   children,
 }: {
   className: string;
   label: ComponentChildren;
+  revealed?: boolean;
   children: ComponentChildren;
 }) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
+  useReveal(revealed, setShown);
   return (
     <>
       <button
@@ -532,23 +639,33 @@ function Disclosure({
 
 // CallRow draws a tool or question item as one line of its tool and its input or question. A call with a result is a
 // button: a click shows the result under the line, and a second click folds it again. A failed result marks the line
-// with ✗. A running call's line carries the running class, which draws its rail, and the running mark.
+// with ✗. A running call's line carries the running class, which draws its rail, and the running mark. The result
+// opens when the current match moves into it, and then its match is marked. query and current are as ItemRow's are.
 function CallRow({
   item,
   result,
   running,
+  query,
+  current,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
   running: boolean;
+  query: string;
+  current: number;
 }) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
+  const called = item.kind === "question" ? item.text : item.input;
+  const resultCurrent = result === undefined ? -1 : partCurrent(current, called.length + 1, result.text.length);
+  useReveal(resultCurrent >= 0, setShown);
   const className = `call${running ? " running" : ""}${flashing ? " flash" : ""}`;
   const line = (
     <>
       <b>{item.tool}</b>
-      <span class="in">{item.kind === "question" ? item.text : item.input}</span>
+      <span class="in">
+        <MarkedText text={called} query={query} current={partCurrent(current, 0, called.length)} />
+      </span>
       {result?.error && <span class="fail">✗</span>}
       {running && <span class="running-mark">running</span>}
     </>
@@ -568,20 +685,32 @@ function CallRow({
       >
         {line}
       </button>
-      {shown && <div class={result.error ? "result err" : "result"}>{result.text}</div>}
+      {shown && (
+        <div class={result.error ? "result err" : "result"}>
+          <MarkedText text={result.text} query={query} current={resultCurrent} />
+        </div>
+      )}
     </>
   );
 }
 
-type RunCall = { key: string; item: ConversationItem; result: ConversationItem | undefined; running: boolean };
+type RunCall = {
+  key: string;
+  item: ConversationItem;
+  result: ConversationItem | undefined;
+  running: boolean;
+  current: number;
+};
 
 // ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and a trail of
 // one dot per call in call order. Each dot carries its call's status: ok, failed, running, or none for a call with no
 // result that is not running. A run holding a running call carries the running class and mark too. A click shows a
-// line per call under it, each folding its own result, and a second click folds them again.
-function ToolRun({ calls }: { calls: RunCall[] }) {
+// line per call under it, each folding its own result, and a second click folds them again. The run opens when the
+// current match moves into one of its calls.
+function ToolRun({ calls, query }: { calls: RunCall[]; query: string }) {
   const [shown, setShown] = useState(false);
   const running = calls.some((call) => call.running);
+  useReveal(calls.some((call) => call.current >= 0), setShown);
   return (
     <div class="t">
       <span class="gut" />
@@ -603,7 +732,14 @@ function ToolRun({ calls }: { calls: RunCall[] }) {
         {shown && (
           <div class="calls">
             {calls.map((call) => (
-              <CallRow key={call.key} item={call.item} result={call.result} running={call.running} />
+              <CallRow
+                key={call.key}
+                item={call.item}
+                result={call.result}
+                running={call.running}
+                query={query}
+                current={call.current}
+              />
             ))}
           </div>
         )}
