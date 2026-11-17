@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -203,13 +204,20 @@ func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) {
 	}
 }
 
-// stepEndBody returns the body of the event of step's end: the step, its end, status and reason, the start of its
-// result, and where its full result is read.
+// stepEndBody returns the body of the event of step's end: the step, its end, status and reason, its agent, the epic
+// that holds it when one does, the start of its result, and where its full result is read.
 func stepEndBody(step store.StepRow) string {
-	return fmt.Sprintf(
-		"Step %s ended: end %s, status %s, reason %s.\nSummary: %s\nstep_status gives the full result.",
-		step.ID, step.End, step.Status, step.Reason, capped(step.Result, stepSummaryCap),
-	)
+	lines := []string{
+		fmt.Sprintf("Step %s ended: end %s, status %s, reason %s.", step.ID, step.End, step.Status, step.Reason),
+		"Agent: " + step.Agent,
+	}
+	if step.Epic != "" {
+		lines = append(lines, "Epic: "+step.Epic)
+	}
+	return strings.Join(append(lines,
+		"Summary: "+capped(step.Result, stepSummaryCap),
+		"step_status gives the full result.",
+	), "\n")
 }
 
 // capped returns the first n runes of s, or s whole when it has no more than n. A result cut short ends with "...".

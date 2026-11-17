@@ -32,25 +32,63 @@ const (
 // addEndedCallerStep starts the step callerStepID under caller with result, and ends it done, passed for gate green.
 func addEndedCallerStep(t *testing.T, s *store.Store, caller store.EpicCaller, result string) {
 	t.Helper()
+	endCallerStep(t, s, store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it", Caller: caller}, result)
+}
+
+// endCallerStep starts the step add, sets its result to result, and ends it done, passed for gate green.
+func endCallerStep(t *testing.T, s *store.Store, add store.StepAdd, result string) {
+	t.Helper()
 	ops := []store.EngineOp{
-		store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it", Caller: caller},
-		store.StepReturn{ID: callerStepID, Result: result},
-		store.StepEnd{ID: callerStepID, End: "done", Status: "passed", Reason: "gate green"},
+		add,
+		store.StepReturn{ID: add.ID, Result: result},
+		store.StepEnd{ID: add.ID, End: "done", Status: "passed", Reason: "gate green"},
 	}
 	for _, op := range ops {
 		if err := s.ApplyEngine(t.Context(), []store.EngineOp{op}, fixedClock()); err != nil {
-			t.Fatalf("ApplyEngine %T of step %s: %v", op, callerStepID, err)
+			t.Fatalf("ApplyEngine %T of step %s: %v", op, add.ID, err)
 		}
 	}
 }
 
-// wantStepEndBlock returns the block the end of step-1 sends a caller whose result is summary.
+// wantStepEndBlock returns the block the end of step-1 sends a caller whose result is summary, for a step of the
+// implementer agent that no epic holds.
 func wantStepEndBlock(summary string) string {
 	return "<orrery-event kind=\"step_end\" id=\"step:step-1\">\n" +
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
+		"Agent: implementer\n" +
 		"Summary: " + summary + "\n" +
 		"step_status gives the full result.\n" +
 		"</orrery-event>"
+}
+
+// stepEndTextToPane starts the step add under a pane, ends it with the result all green, and returns the text a pass
+// sends that pane, which is idle to take it. The pane takes the text as keys, so the test runs no headless session.
+func stepEndTextToPane(t *testing.T, s *store.Store, add store.StepAdd) string {
+	t.Helper()
+	const server, pane = "-S /tmp/tmux-1000/orrery", "%7"
+	if err := s.SyncPane(t.Context(), server, store.Pane{ID: "orrery-1", Pane: pane}, fixedClock()); err != nil {
+		t.Fatalf("SyncPane: %v", err)
+	}
+	add.Caller = store.EpicCaller{Server: server, Pane: pane}
+	endCallerStep(t, s, add, "all green")
+	var woken []string
+	sender := NewCallerSender(CallerSenderConfig{
+		Deliver: func(context.Context, DeliverRequest) error {
+			t.Error("a pane caller received a headless delivery")
+			return nil
+		},
+		WakePane: func(_ context.Context, _, _, text string) (bool, error) {
+			woken = append(woken, text)
+			return true, nil
+		},
+		Store: s,
+		Now:   fixedClock,
+	})
+	stepEndPass(sender, s).Pass(t.Context())
+	if len(woken) != 1 {
+		t.Fatalf("wakes = %d, want 1 for the step end", len(woken))
+	}
+	return woken[0]
 }
 
 // eventMarked reports whether the end of the caller step is marked delivered to session in s.
@@ -356,5 +394,38 @@ func TestPaneWakeStepHeldUntilKeysSentThenMarked(t *testing.T) {
 	pass.Pass(t.Context())
 	if len(woken) != 2 {
 		t.Fatalf("wakes after the mark = %d, want still 2", len(woken))
+	}
+}
+
+func TestStepEventCardNamesAgentWithoutEpicLine(t *testing.T) {
+	t.Parallel()
+	s, _ := openStore(t)
+	got := stepEndTextToPane(t, s, store.StepAdd{ID: callerStepID, Agent: "reviewer", Prompt: "check it"})
+	want := "<orrery-event kind=\"step_end\" id=\"step:step-1\">\n" +
+		"Step step-1 ended: end done, status passed, reason gate green.\n" +
+		"Agent: reviewer\n" +
+		"Summary: all green\n" +
+		"step_status gives the full result.\n" +
+		"</orrery-event>"
+	if got != want {
+		t.Fatalf("step end text = %q, want %q", got, want)
+	}
+}
+
+func TestStepEventCardNamesEpicOfEpicHeldStep(t *testing.T) {
+	t.Parallel()
+	s, _ := openStore(t)
+	got := stepEndTextToPane(t, s, store.StepAdd{
+		ID: callerStepID, Agent: "implementer", Prompt: "do it", Epic: "epic-1",
+	})
+	want := "<orrery-event kind=\"step_end\" id=\"step:step-1\">\n" +
+		"Step step-1 ended: end done, status passed, reason gate green.\n" +
+		"Agent: implementer\n" +
+		"Epic: epic-1\n" +
+		"Summary: all green\n" +
+		"step_status gives the full result.\n" +
+		"</orrery-event>"
+	if got != want {
+		t.Fatalf("step end text = %q, want %q", got, want)
 	}
 }
