@@ -14,7 +14,7 @@ import {
   type WaitingMessage,
 } from "./gen/orrery/v1/orrery_pb";
 import type { SentText } from "./sending";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof Composer>[0];
 
@@ -647,7 +647,7 @@ test("GhostQueued: one queue head carries the count of every docked row, cancele
     const heads = container.querySelectorAll(".queue .queue-head");
     assert.equal(heads.length, 1, "the queue draws one head");
     assert.equal(heads[0]?.textContent, "3 queued", "the head counts all three rows");
-    assert.equal(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
+    assertSame(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
     assert.equal(container.querySelectorAll("li.queued").length, 3, "the head is not drawn as a row");
   });
 });
@@ -757,7 +757,7 @@ for (const { kind, pull } of [
         assert.deepEqual(edgesOf(container), ["edge-working"]);
         await rerender({ state: "idle" });
         assert.deepEqual(queuedRows(container), [], "the message leaves when the turn ends");
-        assert.equal(container.querySelector(".queue"), null);
+        assertNone(container.querySelector(".queue"));
       },
     );
   });

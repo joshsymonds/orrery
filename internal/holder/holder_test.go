@@ -92,10 +92,12 @@ func newHolderConfig(t *testing.T) Config {
 	if err != nil {
 		t.Fatalf("SessionDir: %v", err)
 	}
+	// The holder reads no real cgroup: the test may run in a holder scope, whose kills are not the test's.
 	return Config{
 		Dir:     dir,
 		Session: testSession,
 		Child:   ChildConfig{Path: fakeClaudePath(t), Dir: t.TempDir()},
+		memory:  memoryCap{self: filepath.Join(t.TempDir(), "no-cgroup"), root: t.TempDir()},
 	}
 }
 

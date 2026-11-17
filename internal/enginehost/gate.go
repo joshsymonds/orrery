@@ -34,34 +34,37 @@ var errGateNoCommand = errors.New("enginehost: gate names no command")
 // gateRun describes one gate: the command, where it runs, how long it may run, and the complete environment it runs in.
 // Name is the session the gate's holder serves, and a fresh session when empty. StateDir is the state directory the holder
 // directory lives under, and a directory under os.TempDir when empty. Scope, when set, is the systemd-run scope the holder
-// runs in. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
+// runs in, and ScopeMemory its memory cap in bytes, zero for holder.DefaultScopeMemory. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
 // launches; its error releases the grant and launches nothing. Tail is the number of newest bytes the gate keeps of each
 // of its stdout and stderr, and zero keeps gateTailDefault.
 type gateRun struct {
-	Argv     []string
-	Dir      string
-	Limit    time.Duration
-	Environ  []string
-	Name     string
-	StateDir string
-	Scope    string
-	Started  func(ctx context.Context, grantID, dir string) error
-	Tail     int
+	Argv        []string
+	Dir         string
+	Limit       time.Duration
+	Environ     []string
+	Name        string
+	StateDir    string
+	Scope       string
+	ScopeMemory int64
+	Started     func(ctx context.Context, grantID, dir string) error
+	Tail        int
 	// launched is a test seam: when set, it runs once Launch has attached the gate's holder, just before the gate is
 	// watched, so a test acts on the watched gate. Production leaves it nil.
 	launched func()
 }
 
-// gateResult is how a gate ended: its exit status, whether Limit killed it, the last bytes it printed on stdout and on
-// stderr, the members of the grant the attempt that produced it held, and the gate's holder directory. The holder
-// directory keeps the gate's exit record until its caller clears it.
+// gateResult is how a gate ended: its exit status, whether Limit killed it, how many of its processes its scope's memory
+// cap killed, the last bytes it printed on stdout and on stderr, the members of the grant the attempt that produced it
+// held, and the gate's holder directory. The holder directory keeps the gate's exit record until its caller clears it.
+// A cap's kills are also the last line of Stderr, as the holder records them.
 type gateResult struct {
-	Exit     int
-	TimedOut bool
-	Stdout   string
-	Stderr   string
-	Members  []grants.Member
-	Holder   string
+	Exit        int
+	TimedOut    bool
+	MemoryKills int
+	Stdout      string
+	Stderr      string
+	Members     []grants.Member
+	Holder      string
 }
 
 // errGateNoPools reports a granted gate with no pool commands to queue it with.
@@ -281,12 +284,13 @@ func gateHeld(
 	})
 	defer stopLaunch()
 	process, err := holder.Launch(launchCtx, holder.LaunchConfig{
-		Scope:     run.Scope,
-		StateDir:  plan.stateDir,
-		Session:   plan.session,
-		Child:     proc.Config{Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ)},
-		GateLimit: run.Limit,
-		GateTail:  plan.tail,
+		Scope:       run.Scope,
+		ScopeMemory: run.ScopeMemory,
+		StateDir:    plan.stateDir,
+		Session:     plan.session,
+		Child:       proc.Config{Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ)},
+		GateLimit:   run.Limit,
+		GateTail:    plan.tail,
 	})
 	if err != nil {
 		exit, ended := gateLaunchExit(plan.dir)
@@ -517,12 +521,13 @@ func gateEndedOnItsOwn(exit holder.Exit) bool {
 // shown, judged or sent back from the gate holds a listed credential.
 func gateExitResult(held grants.Grant, plan gatePlan, exit holder.Exit) gateResult {
 	return gateResult{
-		Exit:     exit.Code,
-		TimedOut: exit.Reason == holder.ReasonLimit,
-		Stdout:   gateRedactTail(exit.Stdout, plan.tail),
-		Stderr:   gateRedactTail(exit.Stderr, plan.tail),
-		Members:  held.Members,
-		Holder:   plan.dir,
+		Exit:        exit.Code,
+		TimedOut:    exit.Reason == holder.ReasonLimit,
+		MemoryKills: exit.MemoryKills,
+		Stdout:      gateRedactTail(exit.Stdout, plan.tail),
+		Stderr:      gateRedactTail(exit.Stderr, plan.tail),
+		Members:     held.Members,
+		Holder:      plan.dir,
 	}
 }
 

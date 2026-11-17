@@ -55,19 +55,20 @@ type EvidenceSteps interface {
 	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
 }
 
-// EvidenceConfig configures an Evidence. Store records the runs, Steps runs the judges, and Pools, Environ, GateStateDir and
-// GateScope run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees. A nil
+// EvidenceConfig configures an Evidence. Store records the runs, Steps runs the judges, and Pools, Environ, GateStateDir,
+// GateScope and GateScopeMemory run each captured item's gate as a capture does. StateDir holds the blobs and the capture worktrees. A nil
 // Now is time.Now, and a nil Logger discards.
 type EvidenceConfig struct {
-	Store        EvidenceStore
-	Steps        EvidenceSteps
-	Pools        PoolCommands
-	Environ      []string
-	StateDir     string
-	GateStateDir string
-	GateScope    string
-	Now          func() time.Time
-	Logger       *slog.Logger
+	Store           EvidenceStore
+	Steps           EvidenceSteps
+	Pools           PoolCommands
+	Environ         []string
+	StateDir        string
+	GateStateDir    string
+	GateScope       string
+	GateScopeMemory int64
+	Now             func() time.Time
+	Logger          *slog.Logger
 }
 
 // Evidence runs evidence items. Each run is stored, captured or read, judged, and recorded once, by a drive that Run starts
@@ -104,12 +105,13 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 		store: cfg.Store,
 		steps: cfg.Steps,
 		captures: evidenceCapture{
-			pools:        cfg.Pools,
-			environ:      cfg.Environ,
-			worktrees:    filepath.Join(cfg.StateDir, "evidence-worktrees"),
-			gateStateDir: cfg.GateStateDir,
-			gateScope:    cfg.GateScope,
-			blobs:        blobs,
+			pools:           cfg.Pools,
+			environ:         cfg.Environ,
+			worktrees:       filepath.Join(cfg.StateDir, "evidence-worktrees"),
+			gateStateDir:    cfg.GateStateDir,
+			gateScope:       cfg.GateScope,
+			gateScopeMemory: cfg.GateScopeMemory,
+			blobs:           blobs,
 		},
 		blobs:   blobs,
 		now:     now,

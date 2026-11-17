@@ -24,7 +24,7 @@ import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/
 import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { pause, turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -1644,8 +1644,8 @@ test("a message sent to a working session draws above the box as queued, and lea
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     assert.equal(container.querySelector('[aria-label="reader"] .send .queue .queue-head')?.textContent, "1 queued");
     const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
-    assert.equal(queued?.querySelector(".tag"), null, "a waiting row carries no per-row tag, since the head names it");
-    assert.equal(queued?.querySelector(".words"), null, "a waiting row carries no note on when it sends");
+    assertNone(queued?.querySelector(".tag"), "a waiting row carries no per-row tag, since the head names it");
+    assertNone(queued?.querySelector(".words"), "a waiting row carries no note on when it sends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],
       error: "",
@@ -1667,9 +1667,8 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     await pressIn(composer(container), "Enter");
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
-    assert.equal(
+    assertNone(
       container.querySelector('[aria-label="reader"] .send .queue li.queued .words'),
-      null,
       "a waiting row carries no note on when it sends",
     );
 
@@ -2281,11 +2280,11 @@ test("‹ and the orrery crumb on the cursor's title row move focus to the list'
     await press("i");
     assert.equal(document.activeElement === composer(container), true, "the reply box has focus");
     await clickButton(container, 'section[aria-label="reader"] .title-row', "‹");
-    assert.equal(document.activeElement, current(), "‹ moves focus to the current row");
+    assertSame(document.activeElement, current(), "‹ moves focus to the current row");
     await press("i");
     assert.equal(document.activeElement === composer(container), true, "the reply box has focus again");
     await clickButton(container, 'section[aria-label="reader"] .title-row', "orrery");
-    assert.equal(document.activeElement, current(), "the orrery crumb moves focus to the current row");
+    assertSame(document.activeElement, current(), "the orrery crumb moves focus to the current row");
   }));
 
 test("‹ on the pinned title row closes the pin, as | does", (t) =>
@@ -2955,7 +2954,7 @@ test("TitleParts: a waiting pane with no question says in its second line that i
     (container) => {
       const element = rowElement(container, "w");
       assert.equal(element.querySelector(".l2")?.textContent, "waits on you");
-      assert.equal(element.querySelector(".why"), null, "no second summary line");
+      assertNone(element.querySelector(".why"), "no second summary line");
       assert.equal(element.querySelectorAll(".title-dir").length, 1, "the directory is drawn once");
       assert.equal(element.textContent?.split("build green").length, 2, "the summary is drawn once");
     },
@@ -3019,7 +3018,7 @@ test("TitleParts: a pane with no summary and a session with an empty headline ea
     (container) => {
       assert.equal(rowElement(container, "p").querySelector(".title-dir")?.textContent, "api");
       assert.equal(rowElement(container, "s").querySelector(".title-dir")?.textContent, "app");
-      assert.equal(container.querySelector(".title-line"), null, "no row draws a line");
+      assertNone(container.querySelector(".title-line"), "no row draws a line");
     },
   ));
 
@@ -3030,7 +3029,7 @@ test("TitleParts: a Sessions.List row with no label shows the word session as it
     (container) => {
       const element = rowElement(container, "n");
       assert.equal(element.querySelector(".title-line")?.textContent, "session");
-      assert.equal(element.querySelector(".title-dir"), null, "a Sessions.List row has no directory");
+      assertNone(element.querySelector(".title-dir"), "a Sessions.List row has no directory");
     },
   ));
 
@@ -3163,7 +3162,7 @@ test("an ended epic opens from its ended earlier line, and its page draws the ha
     const handoverText = () =>
       container.querySelector('section.page[aria-label="epic"] section.handover')?.textContent ?? "";
     assert.ok(endedLine(container), "the Just ended section folds the released epic into an ended earlier line");
-    assert.equal(container.querySelector(`[data-key="${epicKey(released)}"]`), null, "the line starts closed");
+    assertNone(container.querySelector(`[data-key="${epicKey(released)}"]`), "the line starts closed");
 
     await act(() => {
       endedLine(container)?.dispatchEvent(clickEvent());

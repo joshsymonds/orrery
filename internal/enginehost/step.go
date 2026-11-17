@@ -136,7 +136,8 @@ type StepStore interface {
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
 // time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
 // GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
-// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. With GateScope set, Close
+// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. GateScopeMemory is that
+// scope's memory cap in bytes, and zero takes holder.DefaultScopeMemory. With GateScope set, Close
 // leaves a running gate under its holder for a restarted Steps to re-adopt; without it, Close kills the gate.
 // ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
 // it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
@@ -145,20 +146,21 @@ type StepStore interface {
 // row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
 // that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
 type StepsConfig struct {
-	Sessions     stepSessions
-	Store        StepStore
-	Writer       *Writer
-	Pools        PoolCommands
-	Worktrees    string
-	Environ      []string
-	Logger       *slog.Logger
-	Haiku        *Haiku
-	Now          func() time.Time
-	WatchTick    time.Duration
-	GateStateDir string
-	GateScope    string
-	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	Sessions        stepSessions
+	Store           StepStore
+	Writer          *Writer
+	Pools           PoolCommands
+	Worktrees       string
+	Environ         []string
+	Logger          *slog.Logger
+	Haiku           *Haiku
+	Now             func() time.Time
+	WatchTick       time.Duration
+	GateStateDir    string
+	GateScope       string
+	GateScopeMemory int64
+	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -174,20 +176,21 @@ type StepAdopter interface {
 // and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it. starting holds the
 // caller-given id of each start in flight, so a second start under that id is refused until the first returns.
 type Steps struct {
-	sessions     stepSessions
-	store        StepStore
-	writer       *Writer
-	pools        PoolCommands
-	worktrees    string
-	environ      []string
-	logger       *slog.Logger
-	haiku        *Haiku
-	now          func() time.Time
-	tick         time.Duration
-	gateStateDir string
-	gateScope    string
-	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	sessions        stepSessions
+	store           StepStore
+	writer          *Writer
+	pools           PoolCommands
+	worktrees       string
+	environ         []string
+	logger          *slog.Logger
+	haiku           *Haiku
+	now             func() time.Time
+	tick            time.Duration
+	gateStateDir    string
+	gateScope       string
+	gateScopeMemory int64
+	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -215,25 +218,26 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		tick = stepDefaultWatchTick
 	}
 	steps := &Steps{
-		sessions:     cfg.Sessions,
-		store:        cfg.Store,
-		writer:       cfg.Writer,
-		pools:        cfg.Pools,
-		worktrees:    cfg.Worktrees,
-		environ:      cfg.Environ,
-		logger:       logger,
-		haiku:        cfg.Haiku,
-		now:          cfg.Now,
-		tick:         tick,
-		gateStateDir: cfg.GateStateDir,
-		gateScope:    cfg.GateScope,
-		readoptCheck: cfg.ReadoptCheck,
-		readoptGate:  cfg.ReadoptGate,
-		loops:        map[string]context.CancelFunc{},
-		causes:       map[string]context.CancelCauseFunc{},
-		runs:         map[string]*stepRun{},
-		adopted:      map[string]*stepRun{},
-		starting:     map[string]bool{},
+		sessions:        cfg.Sessions,
+		store:           cfg.Store,
+		writer:          cfg.Writer,
+		pools:           cfg.Pools,
+		worktrees:       cfg.Worktrees,
+		environ:         cfg.Environ,
+		logger:          logger,
+		haiku:           cfg.Haiku,
+		now:             cfg.Now,
+		tick:            tick,
+		gateStateDir:    cfg.GateStateDir,
+		gateScope:       cfg.GateScope,
+		gateScopeMemory: cfg.GateScopeMemory,
+		readoptCheck:    cfg.ReadoptCheck,
+		readoptGate:     cfg.ReadoptGate,
+		loops:           map[string]context.CancelFunc{},
+		causes:          map[string]context.CancelCauseFunc{},
+		runs:            map[string]*stepRun{},
+		adopted:         map[string]*stepRun{},
+		starting:        map[string]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps, nil
@@ -301,7 +305,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
-		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,
+		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,

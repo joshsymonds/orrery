@@ -20,7 +20,7 @@ import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
 import type { Sending } from "./sending";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import { turn } from "./testwait";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
@@ -1697,9 +1697,9 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
     (container) => {
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), false, "the fold carries no running class");
-      assert.equal(fold.querySelector(".running-mark"), null, "the fold carries no running mark");
-      assert.equal(container.querySelector(".running"), null, "no line of the reader is running");
-      assert.equal(container.querySelector(".running-mark"), null);
+      assertNone(fold.querySelector(".running-mark"), "the fold carries no running mark");
+      assertNone(container.querySelector(".running"), "no line of the reader is running");
+      assertNone(container.querySelector(".running-mark"));
     },
   ));
 
@@ -2005,7 +2005,7 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
       assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
       assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
       assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
-      assert.equal(container.querySelector(".gut.sending"), null, "nothing is marked sending");
+      assertNone(container.querySelector(".gut.sending"), "nothing is marked sending");
     },
   );
 });
@@ -2022,7 +2022,7 @@ test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its
       assert.ok(row !== null, "the reply is a row of the reader");
       assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
       assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
-      assert.equal(row.querySelector(".you, .card, .question-card, .fold, .summary"), null, "no surface inside");
+      assertNone(row.querySelector(".you, .card, .question-card, .fold, .summary"), "no surface inside");
       assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
     },
   ));
@@ -2067,7 +2067,7 @@ test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, di
       const since = container.querySelector(".rule.new")?.closest(".t");
       assert.ok(compaction !== null && compaction !== undefined, "the compaction rule is in a row");
       assert.ok(since !== null && since !== undefined, "the since-you-looked rule is in a row");
-      assert.equal(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
-      assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
+      assertSame(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
+      assertSame(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
     },
   ));

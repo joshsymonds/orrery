@@ -7,7 +7,7 @@ import { act } from "preact/test-utils";
 import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
 import { TalkDock } from "./talkdock";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { turn, until } from "./testwait";
 
 type Props = Parameters<typeof TalkDock>[0];
@@ -340,7 +340,7 @@ test("TitleParts: with no listed row the head falls back to the served label, wi
   const server = new FakeServer();
   await withDock(server, { rows: [] }, async (container) => {
     assert.equal(textOf(container, "h1"), "api");
-    assert.equal(container.querySelector("h1 .title-dir"), null, "no directory is drawn");
+    assertNone(container.querySelector("h1 .title-dir"), "no directory is drawn");
     assert.equal(container.querySelector("textarea")?.getAttribute("placeholder"), "Reply to api");
   });
 });

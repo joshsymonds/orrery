@@ -95,7 +95,8 @@ const apiErrorRateLimit = "rate_limit"
 // with commitChecks against start and owned in dir, without its owned check when unowned, and with gate when every
 // commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
-// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under. A read-only
+// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under, and
+// scopeMemory is the scope's memory cap in bytes, zero for holder.DefaultScopeMemory. A read-only
 // step runs in dir too, and each of its returns is compared with checkout, the state its checkout was in at its start; a
 // moved checkout ends it checks_failed. A read-only step's done return passes on its schema check alone. A nil cleanup
 // has nothing to run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model
@@ -122,21 +123,22 @@ type stepRunConfig struct {
 	agentGate   *gates.Gate
 	returnCheck func(value json.RawMessage) []string
 
-	writing    bool
-	dir        string
-	checkout   stepCheckout
-	start      string
-	owned      []string
-	unowned    bool
-	gate       []string
-	gateLimit  time.Duration
-	environ    []string
-	pools      PoolCommands
-	grant      grants.Request
-	gateName   string
-	gateSource string
-	stateDir   string
-	scope      string
+	writing     bool
+	dir         string
+	checkout    stepCheckout
+	start       string
+	owned       []string
+	unowned     bool
+	gate        []string
+	gateLimit   time.Duration
+	environ     []string
+	pools       PoolCommands
+	grant       grants.Request
+	gateName    string
+	gateSource  string
+	stateDir    string
+	scope       string
+	scopeMemory int64
 
 	// restore, when set, is the state a re-adopted step resumes from. run takes it up before it takes any return or
 	// exit.
@@ -940,7 +942,8 @@ func (r *stepRun) gateAttemptOf(round int) (int, error) {
 func (r *stepRun) runGateAttempt(ctx context.Context, round, attempt int, prev string) (gateResult, error) {
 	run := gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, Tail: stepGateLogTail,
+		Name: stepGateSession(r.id, attempt), StateDir: r.stateDir, Scope: r.scope, ScopeMemory: r.scopeMemory,
+		Tail: stepGateLogTail,
 	}
 	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {
 		r.resumeGate = store.StepGate{}
@@ -1004,7 +1007,8 @@ func stepLoopRecord(round int, c stepCheck) store.StepCheck {
 }
 
 // stepLoopGateCheck returns the gate check of round for result. It passes when the gate exits 0 without passing limit.
-// Its detail gives the exit status, or the limit when the gate was killed for it. Its Stdout and Stderr keep the newest
+// Its detail gives the exit status, or the limit when the gate was killed for it, and then the processes its scope's
+// memory cap killed, when it killed any. Its Stdout and Stderr keep the newest
 // stepGateCheckTail bytes of the gate's two streams apart (see stepCheckTail).
 func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.StepCheck {
 	check := store.StepCheck{
@@ -1018,6 +1022,9 @@ func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.
 		check.Detail = fmt.Sprintf("gate ran past its limit of %s and was killed", limit)
 	} else {
 		check.Detail = fmt.Sprintf("gate exited %d", result.Exit)
+	}
+	if result.MemoryKills > 0 {
+		check.Detail += fmt.Sprintf("; its scope's memory cap killed %d of its processes", result.MemoryKills)
 	}
 	return check
 }

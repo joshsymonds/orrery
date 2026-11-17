@@ -11,7 +11,7 @@ import { type EpicsView, epicsView } from "./epics";
 import { type Epic, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { PaneSchema, SessionSchema } from "./gen/orrery/v1/orrery_pb";
 import { rowsFrom, type Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -372,7 +372,7 @@ test("ArchiveView: an archived live epic's needs leave Needs you", (t) => {
 
 test("ArchivePaneRow: a pane with no orrery_id draws no archive control, and A on it sends nothing", (t) =>
   withArchive(t.signal, { rows: [row({ key: "p", label: "pane", archiveId: "" })] }, async (container, fake) => {
-    assert.equal(lineOf(container, "p")?.querySelector("button"), null, "the pane row draws no button");
+    assertNone(lineOf(container, "p")?.querySelector("button"), "the pane row draws no button");
     await press("A");
     await flush();
     assert.deepEqual(archiveCalls(fake), []);
