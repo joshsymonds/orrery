@@ -409,7 +409,7 @@ func OrchestratorCheck(task store.EpicTask, peers []Peer) func(json.RawMessage) 
 		if len(refusals) > 0 {
 			return refusals
 		}
-		return stateRefusals(ret, task, peers)
+		return stateRefusals(ret, task, peers, false)
 	}
 }
 
@@ -512,14 +512,15 @@ func emptyFields(decision string, fields ...field) []string {
 // task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one, or a
 // task named twice; and a granted file that planner.FileRefusal refuses, that is already the task's, that is named
 // twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task. Any
-// other decision has none.
-func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer) []string {
+// other decision has none. With integrated set, an after_tasks entry a batch has integrated since the step started is
+// not refused, since the wait for it is already over.
+func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, integrated bool) []string {
 	if ret.Decision != decisionRerun && ret.Decision != decisionGrant {
 		return nil
 	}
 	var refusals []string
 	for i, seq := range ret.AfterTasks {
-		if reason := afterRefusal(seq, task.Seq, peers, ret.AfterTasks[:i]); reason != "" {
+		if reason := afterRefusal(seq, task.Seq, peers, ret.AfterTasks[:i], integrated); reason != "" {
 			refusals = append(refusals, fmt.Sprintf("after_tasks[%d]: %s", i, reason))
 		}
 	}
@@ -531,8 +532,9 @@ func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer) []
 	return refusals
 }
 
-// afterRefusal returns why task self may not wait for task seq, given the entries before it, or "" when it may.
-func afterRefusal(seq, self int64, peers []Peer, before []int64) string {
+// afterRefusal returns why task self may not wait for task seq, given the entries before it, or "" when it may. With
+// integrated set, an integrated task may be waited for.
+func afterRefusal(seq, self int64, peers []Peer, before []int64, integrated bool) string {
 	label := taskLabel(seq)
 	peer, ok := peerOf(peers, seq)
 	switch {
@@ -542,6 +544,8 @@ func afterRefusal(seq, self int64, peers []Peer, before []int64) string {
 		return label + " is not a task of this epic"
 	case slices.Contains(before, seq):
 		return label + " is named twice"
+	case peer.State == Integrated && integrated:
+		return ""
 	case peer.State != Pending:
 		return label + " is neither open nor accepted and waiting to be integrated"
 	case waitsOn(peers, seq, self):
@@ -666,7 +670,7 @@ func decideOrchestrate(view View) Action {
 // failure, held waiting when it names tasks to wait for, and a grant adds its files. A fail fails the task with its
 // failure and needs_files. An ask holds the build until the owner answers its question.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
-	if refusals := stateRefusals(ret, view.Task, view.Peers); len(refusals) > 0 {
+	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
 	}
 	seq := view.Task.Seq

@@ -358,6 +358,8 @@ func TestDecideOrchestrate(t *testing.T) {
 	rerun.Failure = "your work is kept; b.go:3 is the caller"
 	waiting := rerun
 	waiting.Held, waiting.After = HeldWaiting, "4,5"
+	waitingOnFour := rerun
+	waitingOnFour.Held, waitingOnFour.After = HeldWaiting, "4"
 	asked := orchBuild(0)
 	asked.Held, asked.Decisions = HeldAsked, 1
 	restarted := orchBuild(1)
@@ -462,6 +464,27 @@ func TestDecideOrchestrate(t *testing.T) {
 				Kind: ActFail, NeedsFiles: []string{"b.go"},
 				Reason: "returned needs_context: the spec is short; orreryd refused the orchestrator's rerun: " +
 					"after_tasks[0]: T8 waits on this task",
+			},
+		},
+		{
+			name: "a wait for a task integrated while the step ran is carried out, and resolves on the next pass",
+			view: orchView(0, orchDone(orchReturn(t, map[string]any{
+				"decision": "rerun", "note": "your work is kept; b.go:3 is the caller", "after_tasks": []int64{4},
+			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskDone}, State: Integrated, Composed: "c4"}),
+			want: Action{
+				Kind: ActDecide, Next: waitingOnFour, Behind: []int64{4}, Fallback: &fallback, NeedsFiles: []string{},
+				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 rerun after T4: the code says so"},
+			},
+		},
+		{
+			name: "a wait for a task that failed while the step ran settles as before, naming the refusal",
+			view: orchView(0, orchDone(orchReturn(t, map[string]any{
+				"decision": "rerun", "note": "n", "after_tasks": []int64{4},
+			})), Peer{Task: store.EpicTask{Seq: 4, Status: taskFailed}, State: Lost, Why: "failed"}),
+			want: Action{
+				Kind: ActFail, NeedsFiles: []string{"b.go"},
+				Reason: "returned needs_context: the spec is short; orreryd refused the orchestrator's rerun: " +
+					"after_tasks[0]: T4 is neither open nor accepted and waiting to be integrated",
 			},
 		},
 		{
