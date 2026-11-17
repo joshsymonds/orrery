@@ -25,24 +25,14 @@ func failedTaskEpic(failure string, needsFiles []string) store.EpicRow {
 
 func TestFailedTaskContextShowsTheFailureReasonUnderItsLine(t *testing.T) {
 	t.Parallel()
-	epic := failedTaskEpic("returned blocked: the gate is broken", nil)
-	prompt := promptOf(t, epic, 2, syntheticTriggers())
-	inOrder(t, prompt,
-		"- T2 [failed] a failed task\n",
-		"  evidence: ",
-		"\n  failure: returned blocked: the gate is broken\n",
-		"  files the next task may need: None.\n",
-	)
-}
-
-func TestFailedTaskContextOwnedCheckFailureShowsTheRefusedPaths(t *testing.T) {
-	t.Parallel()
 	failure := "checks_failed: owned: changed paths outside owned: internal/other/x.go, internal/other/y.go"
 	epic := failedTaskEpic(failure, nil)
 	prompt := promptOf(t, epic, 2, syntheticTriggers())
 	inOrder(t, prompt,
 		"- T2 [failed] a failed task\n",
+		"  evidence: ",
 		"\n  failure: "+failure+"\n",
+		"  files the next task may need: None.\n",
 	)
 }
 

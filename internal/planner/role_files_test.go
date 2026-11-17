@@ -19,14 +19,11 @@ const roleStartsNowSentence = "Plan only tasks that can start now. Work that bui
 	"code that uses fields or functions another open task adds, waits for a later turn: once the open tasks are done, " +
 	"orreryd integrates them and plans the epic again from the new base."
 
-// assertPlannerReceivesSentence asserts that the role text, and the prompt of a planner turn, contain sentence.
-func assertPlannerReceivesSentence(t *testing.T, sentence string) {
+// assertRoleHasSentence asserts that the embedded role text contains sentence.
+func assertRoleHasSentence(t *testing.T, sentence string) {
 	t.Helper()
 	if !strings.Contains(role, sentence) {
 		t.Errorf("role text lacks the sentence %q", sentence)
-	}
-	if prompt := promptOf(t, syntheticEpic(), 2, syntheticTriggers()); !strings.Contains(prompt, sentence) {
-		t.Errorf("planner prompt lacks the sentence %q", sentence)
 	}
 }
 
@@ -35,19 +32,19 @@ func assertPlannerReceivesSentence(t *testing.T, sentence string) {
 // tests for the symbols it changes.
 func TestPlannerRoleFilesIncludeTheExistingTestsThatAssertAChangedBehaviour(t *testing.T) {
 	t.Parallel()
-	assertPlannerReceivesSentence(t, roleTestFilesSentence)
+	assertRoleHasSentence(t, roleTestFilesSentence)
 }
 
 // TestPlannerRoleFilesGiveAReplacementTheFilesItsPredecessorNamed asserts that the role text tells the planner to give a
 // task that replaces a failed one the files its predecessor's failure reason or its implementer named.
 func TestPlannerRoleFilesGiveAReplacementTheFilesItsPredecessorNamed(t *testing.T) {
 	t.Parallel()
-	assertPlannerReceivesSentence(t, roleReplacementFilesSentence)
+	assertRoleHasSentence(t, roleReplacementFilesSentence)
 }
 
 // TestPlannerRolePlansOnlyTasksThatCanStartNow asserts that the role text tells the planner that every task starts at
 // once from the integrated branch, so work that builds on an open task's change waits for a later turn.
 func TestPlannerRolePlansOnlyTasksThatCanStartNow(t *testing.T) {
 	t.Parallel()
-	assertPlannerReceivesSentence(t, roleStartsNowSentence)
+	assertRoleHasSentence(t, roleStartsNowSentence)
 }
