@@ -135,6 +135,8 @@ The `check-changed` budget counts from the start of the run and covers every che
 
 A package the baseline lists but the run did not test is not mentioned.
 
+The check also writes these lines to `test-artifacts/test-budget.lines` (`scripts/test-budget.sh check --lines`), and the gates print them again as their last output. `just check` prints the file after its last check, and `check-changed` prints its budget lines again, followed by its `check-changed: OK after …` or `check-changed: exceeded …` line, after the checks that follow its Go tests. A gate keeps only the tail of each output stream, 4 KiB for a node check and 8 KiB for a step gate, and the checks after `cover` print far more than that. The `test_parsimony` reviewer reads the budget lines from that tail.
+
 The baseline is measured on the gate box, where an epic's `check` and `check-changed` run. The same tests take more CPU time on some machines than on others. A 32-core workstation measured 20% to 80% more per package than the 64-core box, about 40% in total, so a full `cover` or `check-changed` there reports the largest packages over budget without failing.
 
 When a change makes a package's tests cost more on purpose, or after the tests got cheaper, re-measure with `just remote-test-budget-update` and commit the new `testdata/test-budget.json` with the change. It runs `just test-budget-update` on the gate box, takes the baseline from the run's output, and writes it here. `just test-budget-update` runs `cover`'s `go test` twice, keeps each package's lower figure, and writes the file, one package per line, sorted, to one decimal. It measures the machine it runs on, so run it directly only when no box can come up. A run that fails or passes the 360-second budget writes nothing.

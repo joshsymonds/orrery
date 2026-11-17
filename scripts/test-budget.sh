@@ -6,7 +6,7 @@
 # `go test -count=1 -race ./...`.
 #
 # Usage:
-#   scripts/test-budget.sh check RECORD [BASELINE]
+#   scripts/test-budget.sh check [--lines LINES] RECORD [BASELINE]
 #       Compares the packages in RECORD, one go test run, with BASELINE (default testdata/test-budget.json), and prints
 #       one line per package over its budget, where the budget is the baseline plus the larger of 15% and 5 CPU
 #       seconds:
@@ -15,7 +15,9 @@
 #       check. A package with no baseline gets "test-budget: internal/new 12 cpu-s, no baseline" and does not fail it.
 #       A baseline package missing from RECORD is not mentioned: a run may test only some packages. The last line
 #       counts the packages checked. Exits 0 when nothing failed, 3 when a package is over twice its baseline, and 1 on
-#       a malformed RECORD or BASELINE.
+#       a malformed RECORD or BASELINE. With --lines, the lines printed are written to LINES too (it is emptied first),
+#       so a gate that runs more checks afterwards can print them again as its last output: a gate's output is kept
+#       only as a tail, and the budget lines are what the test_parsimony reviewer reads of it.
 #   scripts/test-budget.sh update BASELINE RECORD...
 #       Writes BASELINE from one or more RECORDs, each one run: each package gets the lowest of its runs' CPU seconds,
 #       to one decimal, and a package that no RECORD has is dropped. Exits 1 on a malformed RECORD.
@@ -29,7 +31,7 @@ export LC_ALL=C
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
-    echo "usage: scripts/test-budget.sh check RECORD [BASELINE] | update BASELINE RECORD..." >&2
+    echo "usage: scripts/test-budget.sh check [--lines LINES] RECORD [BASELINE] | update BASELINE RECORD..." >&2
     exit 1
 }
 
@@ -125,8 +127,17 @@ update() {
 
 case "${1:-}" in
     check)
-        [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
-        check "$2" "${3:-$root/testdata/test-budget.json}"
+        shift
+        if [ "${1:-}" = --lines ]; then
+            [ "$#" -ge 2 ] || usage
+            lines="$2"
+            shift 2
+            [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+            check "$1" "${2:-$root/testdata/test-budget.json}" | tee "$lines"
+        else
+            [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+            check "$1" "${2:-$root/testdata/test-budget.json}"
+        fi
         ;;
     update)
         [ "$#" -ge 3 ] || usage

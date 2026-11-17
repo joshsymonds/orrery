@@ -2,7 +2,7 @@
 #
 # Tests scripts/test-budget.sh with synthetic records and baselines, so no Go runs: which packages are reported and how
 # the line reads, the 15% and 5 cpu-s allowances, failing (exit 3) only past twice the baseline, a package with no
-# baseline, malformed input, and `update` keeping each package's lowest run.
+# baseline, malformed input, --lines writing the printed lines to a file, and `update` keeping each package's lowest run.
 #
 # Usage: scripts/test-budget-test.sh   (exits 0 when every case passes)
 
@@ -97,6 +97,33 @@ done
 rc=0
 "$budget" check >/dev/null 2>&1 || rc=$?
 check "no record is a usage error" "$rc" 1
+rc=0
+"$budget" check --lines "$root/x.lines" >/dev/null 2>&1 || rc=$?
+check "--lines with no record is a usage error" "$rc" 1
+
+# lines NAME RECORD-LINES: checks RECORD-LINES against $root/base.json with --lines, setting out (stdout only), rc and
+# written (the lines file).
+lines() {
+    printf '%s' "$2" >"$root/$1.record"
+    printf 'stale\n' >"$root/$1.lines"
+    rc=0
+    out=$("$budget" check --lines "$root/$1.lines" "$root/$1.record" "$root/base.json" 2>/dev/null) || rc=$?
+    written=$(cat "$root/$1.lines")
+}
+
+lines lines-pass $'internal/store 212.3\ninternal/new 3\n'
+check "--lines prints what check prints and exits 0" "$rc:$out" "0:test-budget: internal/new 3 cpu-s, no baseline
+test-budget: internal/store 212 cpu-s > 160 (+33%)
+test-budget: 2 packages checked, none over twice its baseline"
+check "--lines writes the lines printed, replacing the file" "$written" "$out"
+
+lines lines-fail $'internal/store 330\n'
+check "--lines keeps exit 3 for a package over twice its baseline" "$rc" 3
+check "--lines writes the lines of a failing check" "$written" "test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline
+test-budget: 1 of 1 packages over twice their baseline"
+
+lines lines-malformed $'internal/store\n'
+check "--lines keeps exit 1 for a malformed record and writes no line" "$rc:$written" "1:"
 
 printf 'internal/store 150.04\ninternal/server 90\ncmd/orreryd 3\n' >"$root/run1"
 printf 'internal/store 140.26\ninternal/server 95\ninternal/server 1\ninternal/new 7.77\n' >"$root/run2"
