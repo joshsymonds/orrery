@@ -51,7 +51,7 @@ func epicTableColumns() map[string][]string {
 		"epic_tasks": {
 			"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence", "stage", "base", "attempt",
 			"rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision", "failure", "review", "refs",
-			"gate_pos", "finding_pos", "batch", "guard", "needs_files",
+			"gate_pos", "finding_pos", "batch", "guard", "needs_files", "decisions", "after_tasks", "question",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -509,10 +509,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00046_session_titles.sql is the newest. R4: the
+	// Open applies 00014_epics.sql and every migration after it: 00047_task_requests.sql is the newest. R4: the
 	// migration was 00043_epic_seen.sql before the met-at-base park question added 00044.
-	if version != 46 {
-		t.Fatalf("store version after Open = %d, want 46", version)
+	if version != 47 {
+		t.Fatalf("store version after Open = %d, want 47", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

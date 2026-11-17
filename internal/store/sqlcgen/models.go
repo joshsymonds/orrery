@@ -356,6 +356,9 @@ type EpicTask struct {
 	Batch       string
 	Guard       string
 	NeedsFiles  string
+	Decisions   int64
+	AfterTasks  string
+	Question    int64
 }
 
 type EpicTaskContribute struct {

@@ -76,6 +76,13 @@ func needsFilesView(status, result string) View {
 	}
 }
 
+// exhausted returns view with its build past the orchestrator's decision limit, so a request is settled as it was
+// before the orchestrator.
+func exhausted(view View) View {
+	view.Task.Build.Decisions = decisionLimit
+	return view
+}
+
 // atRerun returns view with its build at rerun.
 func atRerun(view View, rerun int64) View {
 	view.Task.Build.Rerun = rerun
@@ -92,33 +99,33 @@ func TestNeedsFilesDecideCarriesThePathsOfANeedsContextReturn(t *testing.T) {
 	t.Parallel()
 	runDecideCases(t, Decide, []decideCase{
 		{
-			name: "needs_context past the grant limit fails carrying the paths it names",
-			view: atRerun(needsFilesView(
+			name: "needs_context past the grant and decision limits fails carrying the paths it names",
+			view: exhausted(atRerun(needsFilesView(
 				"needs_context",
 				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go","b/c.go"]}`,
-			), grantLimit),
+			), grantLimit)),
 			want: Action{
 				Kind: ActFail, Reason: "returned needs_context: the spec is short",
 				NeedsFiles: []string{"a.go", "b/c.go"},
 			},
 		},
 		{
-			name: "needs_context naming a path inside .git fails carrying the paths it names",
-			view: needsFilesView(
+			name: "needs_context naming a path inside .git with no decisions left fails carrying the paths it names",
+			view: exhausted(needsFilesView(
 				"needs_context",
 				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go",".git/config"]}`,
-			),
+			)),
 			want: Action{
 				Kind: ActFail, Reason: "returned needs_context: the spec is short",
 				NeedsFiles: []string{"a.go", ".git/config"},
 			},
 		},
 		{
-			name: "needs_context naming only files the task owns fails carrying them",
-			view: owning(needsFilesView(
+			name: "needs_context naming only files the task owns with no decisions left fails carrying them",
+			view: exhausted(owning(needsFilesView(
 				"needs_context",
 				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go"]}`,
-			), "a.go"),
+			), "a.go")),
 			want: Action{
 				Kind: ActFail, Reason: "returned needs_context: the spec is short", NeedsFiles: []string{"a.go"},
 			},
@@ -139,16 +146,16 @@ func TestNeedsFilesDecideCarriesThePathsOfANeedsContextReturn(t *testing.T) {
 			},
 		},
 		{
-			name: "needs_context without needs_files fails as it did before the field",
-			view: needsFilesView("needs_context", `{"status":"needs_context","summary":"the spec is short"}`),
+			name: "needs_context without needs_files and no decisions left fails as it did before the field",
+			view: exhausted(needsFilesView("needs_context", `{"status":"needs_context","summary":"the spec is short"}`)),
 			want: Action{Kind: ActFail, Reason: "returned needs_context: the spec is short"},
 		},
 		{
-			name: "blocked carries no paths even when its return names some",
-			view: needsFilesView(
+			name: "blocked with no decisions left carries no paths even when its return names some",
+			view: exhausted(needsFilesView(
 				"blocked",
 				`{"status":"blocked","summary":"the gate is broken","needs_files":["a.go"]}`,
-			),
+			)),
 			want: Action{Kind: ActFail, Reason: "returned blocked: the gate is broken"},
 		},
 	})
@@ -190,7 +197,8 @@ func newOwnerFixture(t *testing.T, file string) *passFixture {
 }
 
 // TestNeedsFilesPassStoresThePathsWithTheFailedTask covers R3: an implementer that returns needs_context with
-// needs_files that cannot be granted, since another open task owns one, fails the task with the paths stored under it.
+// needs_files that cannot be granted, since another open task owns one, on a task with no orchestrator decisions left,
+// fails the task with the paths stored under it.
 func TestNeedsFilesPassStoresThePathsWithTheFailedTask(t *testing.T) {
 	t.Parallel()
 	f := newOwnerFixture(t, "internal/other/a.go")
@@ -198,6 +206,9 @@ func TestNeedsFilesPassStoresThePathsWithTheFailedTask(t *testing.T) {
 	f.runner.PassTasks(f.ctx, passEpic, first)
 	f.addRun(RunID(passEpic, 1, StageRed, 0, 0), evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
 	f.runner.PassTasks(f.ctx, passEpic, first)
+	spent := f.task().Build
+	spent.Decisions = decisionLimit
+	f.setBuild(spent)
 	f.steps.rows[passStep(StageImplement, 1, 0)] = store.StepRow{
 		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "needs_context",
 		Result: `{"status":"needs_context","summary":"stuck","needs_files":["internal/other/a.go"]}`,
@@ -213,12 +224,15 @@ func TestNeedsFilesPassStoresThePathsWithTheFailedTask(t *testing.T) {
 	}
 }
 
-// TestNeedsFilesPassStoresNoPathsForABlockedReturn covers R3: a blocked return fails the task with no paths, even
-// when it names some.
+// TestNeedsFilesPassStoresNoPathsForABlockedReturn covers R3: a blocked return on a task with no orchestrator
+// decisions left fails the task with no paths, even when it names some.
 func TestNeedsFilesPassStoresNoPathsForABlockedReturn(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
 	guardStartImplementer(f)
+	spent := f.task().Build
+	spent.Decisions = decisionLimit
+	f.setBuild(spent)
 	f.steps.rows[passStep(StageImplement, 1, 0)] = store.StepRow{
 		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "blocked",
 		Result: `{"status":"blocked","summary":"the gate is broken","needs_files":["internal/other/a.go"]}`,

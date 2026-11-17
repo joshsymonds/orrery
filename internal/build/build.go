@@ -13,23 +13,29 @@ import (
 )
 
 // The units a task's build runs, in order: red at its base, one implementer, green at its commit, then the review
-// gates and the verification of their findings.
+// gates and the verification of their findings. StageOrchestrate is the unit an implementer's request runs between
+// implement and the decision on it: one orchestrator step.
 const (
-	StageRed       = "red"
-	StageImplement = "implement"
-	StageGreen     = "green"
-	StageReview    = "review"
-	StageVerify    = "verify"
+	StageRed         = "red"
+	StageImplement   = "implement"
+	StageOrchestrate = "orchestrate"
+	StageGreen       = "green"
+	StageReview      = "review"
+	StageVerify      = "verify"
 )
 
 // unitRepro is the unit a test item's green stage runs first: its reproduction at the commit, under the derived id of
 // the unit.
 const unitRepro = "repro"
 
-// HeldStopped is a build the owner stopped, and HeldParked one that parked for the owner to answer.
+// HeldStopped is a build the owner stopped, and HeldParked one that parked for the owner to answer. HeldWaiting is a
+// build an orchestrator's decision holds until an integrate batch has taken each task it waits for, and HeldAsked one
+// that waits on the owner's answer to the orchestrator's question.
 const (
 	HeldStopped = "stopped"
 	HeldParked  = "parked"
+	HeldWaiting = "waiting"
+	HeldAsked   = "asked"
 )
 
 // ReviewUnreviewed is an accepted task whose review gates did not run, and ReviewReviewed one whose gates passed.
@@ -50,6 +56,10 @@ const noVerdictLimit = 2
 // run of its current unit when they exist, the reproduction check of a test item's green unit when it exists, the
 // primary checkout's HEAD, the ref moves the implementer's step made, and EnvironmentBefore, how many runs of the
 // current unit just before its current rerun exited store.EnvironmentExit in a row, up to store.EnvironmentReruns.
+// Returned is the implementer step whose end an orchestrate unit decides. Peers are the epic's tasks as a request reads
+// them, read for an orchestrate unit whose step ended and for a waiting build. NewBase is the commit the next integrate
+// batch composes on, which a waiting build moves onto, and Answered is whether the question a build asked is no longer
+// open.
 type View struct {
 	Epic              string
 	Paused            bool
@@ -65,6 +75,10 @@ type View struct {
 	Head              string
 	RefMoves          []RefMove
 	EnvironmentBefore int64
+	Returned          *store.StepRow
+	Peers             []Peer
+	NewBase           string
+	Answered          bool
 }
 
 // ActionKind is what a pass does for a task.
@@ -75,7 +89,9 @@ type ActionKind string
 // step is checked against, and ActRefs checks the step's ref moves. ActStartRun starts the evidence run of Phase, and
 // ActStartStep the step of Unit. ActRepro starts the reproduction check of a test item's green unit under ID at
 // Revision. ActFail, ActAccept, ActPause and ActPark end the task's build. ActReview stores a review and ActFinding a
-// finding's verification.
+// finding's verification. ActGrant grants an implementer the files it asked for. ActDecide carries out an
+// orchestrator's rerun or grant, and ActAsk its question to the owner. ActResume moves a waiting build's worktree onto
+// Revision, the new base, before Next is stored.
 const (
 	ActNone      ActionKind = "none"
 	ActMove      ActionKind = "move"
@@ -92,13 +108,19 @@ const (
 	ActReview    ActionKind = "review"
 	ActFinding   ActionKind = "finding"
 	ActGrant     ActionKind = "grant"
+	ActDecide    ActionKind = "decide"
+	ActAsk       ActionKind = "ask"
+	ActResume    ActionKind = "resume"
 )
 
 // Action is one thing a pass does for a task. Next is the build the task moves to. Reason is what a fail or a park
 // carries, the text of a parking move, or the review an accept stores. NeedsFiles is what a fail carries as the files
 // a later task may need: the paths an implementer that returned needs_context named. Phase and ID name the evidence
 // run or step to start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a
-// review or finding action stores, and Tells are the texts the owner is told.
+// review or finding action stores, and Tells are the texts the owner is told. Decision is the epic decision that
+// records an orchestrator's decision, written with the action. Behind is the tasks a decided build waits for, whose
+// ownership of a granted file does not refuse it. Question is the owner question an ask opens, with Reason as the tell
+// that carries it. Fallback is what a decided grant does instead when the store refuses one of its files.
 type Action struct {
 	Kind       ActionKind
 	Next       store.TaskBuild
@@ -111,6 +133,10 @@ type Action struct {
 	Review     store.TaskReview
 	Finding    store.TaskFindingResult
 	Tells      []string
+	Decision   *store.TaskDecision
+	Behind     []int64
+	Question   *store.EpicQuestionInput
+	Fallback   *Action
 }
 
 // spend returns the action for a unit of the build that failed with failure. The first attempt moves the build to the
@@ -187,7 +213,21 @@ type Store interface {
 		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
 		at time.Time,
 	) error
+	FailTaskDecided(
+		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
+		decision store.TaskDecision, at time.Time,
+	) error
 	GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string) error
+	RerunTask(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string, behind []int64,
+		decision store.TaskDecision, at time.Time,
+	) error
+	AskTask(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, question store.EpicQuestionInput,
+		tell string, decision store.TaskDecision, at time.Time,
+	) error
+	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
+	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error
 	StopTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	ParkTask(
@@ -219,12 +259,13 @@ type Checks interface {
 	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
 }
 
-// Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add
-// and the removal of a task's worktrees.
+// Git makes the writes a Runner makes to a repository: the epic's branch create, a pin of a ref, a task worktree add,
+// the move of a task's worktree onto a new base, and the removal of a task's worktrees.
 type Git interface {
 	CreateBranch(ctx context.Context, repo, epic, base string) error
 	Pin(ctx context.Context, repo, ref, commit string) error
 	AddWorktree(ctx context.Context, repo, path, base string) error
+	MoveWorktree(ctx context.Context, path, from, to string) error
 	RemoveWorktrees(ctx context.Context, repo, dir string) error
 }
 
@@ -241,6 +282,10 @@ func (packageGit) Pin(ctx context.Context, repo, ref, commit string) error {
 
 func (packageGit) AddWorktree(ctx context.Context, repo, path, base string) error {
 	return AddWorktree(ctx, repo, path, base)
+}
+
+func (packageGit) MoveWorktree(ctx context.Context, path, from, to string) error {
+	return MoveWorktree(ctx, path, from, to)
 }
 
 func (packageGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"time"
-	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -833,12 +832,5 @@ func openPark(
 
 // capTurnText cuts text to at most TurnReasonMax bytes at a UTF-8 rune start.
 func capTurnText(text string) string {
-	if len(text) <= TurnReasonMax {
-		return text
-	}
-	cut := TurnReasonMax
-	for cut > 0 && !utf8.RuneStart(text[cut]) {
-		cut--
-	}
-	return text[:cut]
+	return capText(text, TurnReasonMax)
 }

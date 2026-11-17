@@ -26,26 +26,40 @@ func (s *Store) FailTask(
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		stored := capTurnText(reason)
-		to := from
-		to.Failure = stored
-		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
-			return err
-		}
-		if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
-			return err
-		}
-		if err := setTaskNeedsFiles(ctx, queries, epic, seq, needsFiles); err != nil {
-			return err
-		}
-		if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-			Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, stored),
-			State: triggerPending, Turn: 0, Created: at.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert failure trigger of task %d of epic %s: %w", seq, epic, err)
-		}
-		return nil
+		return failTask(ctx, queries, epic, seq, from, capTurnText(reason), needsFiles, at)
 	})
+}
+
+// failTask fails task seq of epic with failure, as it is to be stored, in the caller's write, when its stored build is
+// from, as FailTask gives.
+func failTask(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	from TaskBuild,
+	failure string,
+	needsFiles []string,
+	at time.Time,
+) error {
+	to := from
+	to.Failure = failure
+	if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+		return err
+	}
+	if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
+		return err
+	}
+	if err := setTaskNeedsFiles(ctx, queries, epic, seq, needsFiles); err != nil {
+		return err
+	}
+	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, failure),
+		State: triggerPending, Turn: 0, Created: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert failure trigger of task %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
 }
 
 // AcceptTask marks task seq of epic done with review in one write, when its stored build is from. A task that is not
@@ -77,32 +91,48 @@ func (e FileOwnedError) Error() string {
 // task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to TaskBuild, files []string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		next, err := grantPosition(ctx, queries, epic, seq, files)
-		if err != nil {
-			return err
-		}
-		if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
-			return moveErr
-		}
-		for i, file := range files {
-			if insertErr := queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
-				Epic: epic, Task: seq, Position: next + int64(i), Path: file,
-			}); insertErr != nil {
-				return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, insertErr)
-			}
-		}
-		return nil
+		return grantFiles(ctx, queries, epic, seq, from, to, files, nil)
 	})
 }
 
+// grantFiles adds files, in order, after the files of task seq of epic and stores to as its build, in the caller's
+// write, when its stored build is from. A file an open task of the epic other than seq owns is a FileOwnedError,
+// unless that task is among behind.
+func grantFiles(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	files []string,
+	behind []int64,
+) error {
+	next, err := grantPosition(ctx, queries, epic, seq, files, behind)
+	if err != nil {
+		return err
+	}
+	if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+		return moveErr
+	}
+	for i, file := range files {
+		if insertErr := queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
+			Epic: epic, Task: seq, Position: next + int64(i), Path: file,
+		}); insertErr != nil {
+			return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, insertErr)
+		}
+	}
+	return nil
+}
+
 // grantPosition returns the position after the last file of task seq of epic, where granted files go. A file in files
-// that another open task of the epic owns is a FileOwnedError.
+// that another open task of the epic owns is a FileOwnedError, unless that task is among behind.
 func grantPosition(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	seq int64,
 	files []string,
+	behind []int64,
 ) (int64, error) {
 	tasks, err := queries.ListEpicTasks(ctx, epic)
 	if err != nil {
@@ -114,7 +144,7 @@ func grantPosition(
 	}
 	open := map[int64]bool{}
 	for _, task := range tasks {
-		open[task.Seq] = task.Status == "open"
+		open[task.Seq] = task.Status == "open" && !slices.Contains(behind, task.Seq)
 	}
 	var next int64
 	for _, row := range rows {

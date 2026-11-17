@@ -20,7 +20,10 @@ var ErrTaskMoved = errors.New("task moved")
 // is the revision the current unit runs at. Failure is the reason of the last failed unit. Review is whether the
 // review gates have run, and Refs is the refs snapshot the implementer's step is checked against. GatePos and
 // FindingPos are the review gate and the finding the build is on. Guard is the text of the guard's last refusal of the
-// task's build, empty when it refused nothing.
+// task's build, empty when it refused nothing. Decisions counts the orchestrator decisions carried out on the task.
+// After is the seqs of the tasks the build waits for an integrate batch to take, joined with commas, while it is held
+// waiting, and the tasks it last waited for once that hold ends; it is empty for a build that never waited. Question
+// is the seq of the owner question the build waits on, 0 while it waits on none.
 type TaskBuild struct {
 	Stage, Base                            string
 	Attempt, Rerun, NoVerdict              int64
@@ -28,6 +31,9 @@ type TaskBuild struct {
 	Failure, Review, Refs                  string
 	GatePos, FindingPos                    int64
 	Guard                                  string
+	Decisions                              int64
+	After                                  string
+	Question                               int64
 }
 
 // TaskFinding is one finding a review raised: its position among the review's findings, its id, the claim it makes,
@@ -73,6 +79,7 @@ func buildOf(stored sqlcgen.EpicTask) TaskBuild {
 		NoVerdict: stored.NoVerdict, Held: stored.Held, Step: stored.Step, RedRun: stored.RedRun,
 		GreenRun: stored.GreenRun, Revision: stored.Revision, Failure: stored.Failure, Review: stored.Review,
 		Refs: stored.Refs, GatePos: stored.GatePos, FindingPos: stored.FindingPos, Guard: stored.Guard,
+		Decisions: stored.Decisions, After: stored.AfterTasks, Question: stored.Question,
 	}
 }
 
@@ -111,12 +118,13 @@ func setEpicTaskBuildParams(epic string, seq int64, from, to TaskBuild) sqlcgen.
 		ToNoVerdict: to.NoVerdict, ToHeld: to.Held, ToStep: to.Step, ToRedRun: to.RedRun,
 		ToGreenRun: to.GreenRun, ToRevision: to.Revision, ToFailure: to.Failure, ToReview: to.Review,
 		ToRefs: to.Refs, ToGatePos: to.GatePos, ToFindingPos: to.FindingPos, ToGuard: to.Guard,
+		ToDecisions: to.Decisions, ToAfterTasks: to.After, ToQuestion: to.Question,
 		Epic: epic, Seq: seq,
 		FromStage: from.Stage, FromBase: from.Base, FromAttempt: from.Attempt, FromRerun: from.Rerun,
 		FromNoVerdict: from.NoVerdict, FromHeld: from.Held, FromStep: from.Step, FromRedRun: from.RedRun,
 		FromGreenRun: from.GreenRun, FromRevision: from.Revision, FromFailure: from.Failure,
 		FromReview: from.Review, FromRefs: from.Refs, FromGatePos: from.GatePos, FromFindingPos: from.FindingPos,
-		FromGuard: from.Guard,
+		FromGuard: from.Guard, FromDecisions: from.Decisions, FromAfterTasks: from.After, FromQuestion: from.Question,
 	}
 }
 

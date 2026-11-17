@@ -28,11 +28,16 @@ type implementerReturn struct {
 	NeedsFiles []string `json:"-"`
 }
 
-// Decide returns the next action for an open task from its view. A held build waits until the owner releases it. A
-// fresh task starts at red, and every other build is decided by its stage.
+// Decide returns the next action for an open task from its view. A stopped or parked build waits until the owner
+// releases it, a waiting build until the tasks it waits for are integrated (decideWait), and an asked build until its
+// question is answered (decideAsked). A fresh task starts at red, and every other build is decided by its stage.
 func Decide(view View) Action {
 	build := view.Task.Build
 	switch build.Held {
+	case HeldWaiting:
+		return decideWait(view)
+	case HeldAsked:
+		return decideAsked(view)
 	case HeldStopped:
 		if view.Paused || view.Parked {
 			return Action{Kind: ActNone}
@@ -52,6 +57,8 @@ func Decide(view View) Action {
 		return decideRed(view)
 	case StageImplement:
 		return decideImplement(view)
+	case StageOrchestrate:
+		return decideOrchestrate(view)
 	case StageGreen:
 		return decideGreen(view)
 	case StageReview:
@@ -63,13 +70,16 @@ func Decide(view View) Action {
 }
 
 // DecideStartError returns the action for a unit whose start the engine refused with err. A red unit fails, a green
-// unit spends its attempt as a capture that failed does, and any other unit fails.
+// unit spends its attempt as a capture that failed does, an orchestrate unit settles its request as it was settled
+// before the orchestrator (requestFallback), and any other unit fails.
 func DecideStartError(view View, err error) Action {
 	switch view.Task.Build.Stage {
 	case StageRed:
 		return Action{Kind: ActFail, Reason: fmt.Sprintf("red not captured: %v", err)}
 	case StageGreen:
 		return spend(view, fmt.Sprintf("green not captured: %v", err))
+	case StageOrchestrate:
+		return withNote(requestFallback(view), fmt.Sprintf("orchestrate did not start: %v", err))
 	}
 	return Action{Kind: ActFail, Reason: fmt.Sprintf("%s did not start: %v", view.Task.Build.Stage, err)}
 }
@@ -137,7 +147,9 @@ func decideRed(view View) Action {
 
 // decideImplement returns the action for the implement unit. Without a step, the refs are snapshotted and then the
 // implementer starts. An ended step first checks the ref moves it made, and then its end: a finished return guards its
-// commit before the build moves to green there, and any other end spends the attempt, pauses or reruns the unit.
+// commit before the build moves to green there, and any other end spends the attempt, pauses or reruns the unit. A
+// returned end that grantOrFail cannot grant, and a checks_failed end whose only failed check is owned, are requests:
+// the orchestrator decides them (request), with what the build did before it as the fallback.
 func decideImplement(view View) Action {
 	build := view.Task.Build
 	step := view.Step
@@ -181,12 +193,17 @@ func decideImplement(view View) Action {
 		if !ok {
 			return noVerdict(view, StageImplement, endText(step))
 		}
-		fail := Action{Kind: ActFail, Reason: fmt.Sprintf("returned %s: %s", step.Status, ret.Summary)}
+		fail := returnedFail(step, ret)
 		if step.Status == statusNeedsContext {
-			fail.NeedsFiles = ret.NeedsFiles
-			return grantOrFail(build, view.Task.Files, fail)
+			if grant := grantOrFail(build, view.Task.Files, fail); grant.Kind == ActGrant {
+				return grant
+			}
 		}
-		return fail
+		return request(view, fail)
+	case endChecksFailed:
+		if onlyOwnedFailed(step) {
+			return request(view, spend(view, endText(step)))
+		}
 	case endStopped:
 		return holdStopped(build)
 	case endEngineRestarted:
@@ -239,8 +256,8 @@ const grantLimit = 3
 // grantOrFail returns the action for an implementer that returned needs_context naming the files fail carries. When
 // it names a file the task does not own, every such file can be a task's file (planner.FileRefusal), and the build has
 // reruns left under grantLimit, the task is granted those files and its implementer runs again in the same worktree,
-// with a note naming them. The store refuses a file another open task owns, and the task then fails as fail says.
-// Otherwise the task fails as fail says.
+// with a note naming them. The store refuses a file another open task owns, and the request then goes to the
+// orchestrator as one the grant could not settle. Otherwise the task fails as fail says.
 func grantOrFail(build store.TaskBuild, owned []string, fail Action) Action {
 	var grant []string
 	for _, file := range fail.NeedsFiles {

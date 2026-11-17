@@ -455,6 +455,12 @@ func (g crashGit) AddWorktree(ctx context.Context, repo, path, base string) erro
 	})
 }
 
+func (g crashGit) MoveWorktree(ctx context.Context, path, from, to string) error {
+	return g.w.act("git worktree move", func() error {
+		return wrapErr("move worktree", MoveWorktree(ctx, path, from, to))
+	})
+}
+
 func (g crashGit) RemoveWorktrees(ctx context.Context, repo, dir string) error {
 	return g.w.act("git worktree remove", func() error {
 		return wrapErr("remove worktrees", RemoveWorktrees(ctx, repo, dir))
@@ -617,6 +623,33 @@ func (s crashStore) GrantTaskFiles(
 ) error {
 	return s.w.act("GrantTaskFiles", func() error {
 		return wrapErr("grant files", s.Store.GrantTaskFiles(ctx, epic, seq, from, to, files))
+	})
+}
+
+func (s crashStore) FailTaskDecided(
+	ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
+	decision store.TaskDecision, at time.Time,
+) error {
+	return s.w.act("FailTaskDecided", func() error {
+		return wrapErr("fail task", s.Store.FailTaskDecided(ctx, epic, seq, from, reason, needsFiles, decision, at))
+	})
+}
+
+func (s crashStore) RerunTask(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string, behind []int64,
+	decision store.TaskDecision, at time.Time,
+) error {
+	return s.w.act("RerunTask", func() error {
+		return wrapErr("rerun task", s.Store.RerunTask(ctx, epic, seq, from, to, files, behind, decision, at))
+	})
+}
+
+func (s crashStore) AskTask(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, question store.EpicQuestionInput,
+	tell string, decision store.TaskDecision, at time.Time,
+) error {
+	return s.w.act("AskTask", func() error {
+		return wrapErr("ask task", s.Store.AskTask(ctx, epic, seq, from, to, question, tell, decision, at))
 	})
 }
 

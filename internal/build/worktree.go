@@ -69,6 +69,66 @@ func AddWorktree(ctx context.Context, repo, path, base string) error {
 	return nil
 }
 
+// MoveWorktree moves the worktree at path, whose work was built on from, onto to, keeping that work. A path that does
+// not exist holds no work, and a worktree whose HEAD to already reaches was moved before, so neither changes. A HEAD
+// at from carries any uncommitted work onto to with `git checkout --detach`. Commits on from are replayed onto to with
+// `git rebase --onto to from`, with uncommitted work stashed, untracked files included, before the rebase and popped
+// after it. A checkout, stash, rebase or pop git refuses is the error; a refused rebase is aborted first.
+func MoveWorktree(ctx context.Context, path, from, to string) error {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	head, err := runGit(ctx, path, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("read worktree head: %w", err)
+	}
+	moved, err := isAncestor(ctx, path, to, head)
+	if err != nil {
+		return err
+	}
+	if moved {
+		return nil
+	}
+	start, err := runGit(ctx, path, "rev-parse", from+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("resolve old base: %w", err)
+	}
+	if head == start {
+		if _, err = runGit(ctx, path, "checkout", "--detach", to); err != nil {
+			return fmt.Errorf("move uncommitted work: %w", err)
+		}
+		return nil
+	}
+	return rebaseWorktree(ctx, path, from, to)
+}
+
+// rebaseWorktree replays the commits of the worktree at path from from onto to, stashing its uncommitted work, untracked
+// files included, around the rebase. A rebase git refuses is aborted, and the stash is left for the worktree's removal.
+func rebaseWorktree(ctx context.Context, path, from, to string) error {
+	dirty, err := runGit(ctx, path, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("read worktree status: %w", err)
+	}
+	if dirty != "" {
+		if _, err = runGit(ctx, path, "stash", "push", "--include-untracked", "--message", "orreryd move"); err != nil {
+			return fmt.Errorf("stash uncommitted work: %w", err)
+		}
+	}
+	if _, err = runGit(ctx, path, "rebase", "--onto", to, from); err != nil {
+		if _, abortErr := runGit(ctx, path, "rebase", "--abort"); abortErr != nil {
+			return fmt.Errorf("move commits: %w; abort: %w", err, abortErr)
+		}
+		return fmt.Errorf("move commits: %w", err)
+	}
+	if dirty == "" {
+		return nil
+	}
+	if _, err = runGit(ctx, path, "stash", "pop"); err != nil {
+		return fmt.Errorf("restore uncommitted work: %w", err)
+	}
+	return nil
+}
+
 // RemoveWorktrees removes every worktree whose path is an entry of dir, then removes dir. A missing dir is nil. An
 // entry that is not a worktree makes git refuse it, so nothing that is not a worktree is deleted.
 func RemoveWorktrees(ctx context.Context, repo, dir string) error {

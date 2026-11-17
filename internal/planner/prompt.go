@@ -29,7 +29,7 @@ func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follow
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
 	last, found := lastTurn(epic.Turns, turn)
-	contract, err := contractLines(epic)
+	contract, err := ContractLines(epic)
 	if err != nil {
 		return "", fmt.Errorf("contract section: %w", err)
 	}
@@ -71,11 +71,11 @@ func lastTurn(turns []store.EpicTurn, turn int64) (store.EpicTurn, bool) {
 	return last, found
 }
 
-// contractLines returns the contract in its order: each text section as `Label: text`, each list as its label and its
+// ContractLines returns the contract in its order: each text section as `Label: text`, each list as its label and its
 // items, or as `Label: None.` when it has none. The gates follow the Requirements: the epic's gates, then the names of
 // its done gates and its review gates. It returns an error when a gate or a Requirement's evidence item cannot be
 // encoded.
-func contractLines(epic store.EpicRow) ([]string, error) {
+func ContractLines(epic store.EpicRow) ([]string, error) {
 	lines := []string{"Title: " + epic.Title, "Approved: " + epic.Approved, "Intent: " + epic.Intent}
 	lines = append(lines, ListLines("Failures", failureItems(epic.Failures))...)
 	lines = append(lines, "Care: "+epic.Care)

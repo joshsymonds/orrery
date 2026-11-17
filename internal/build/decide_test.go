@@ -225,6 +225,11 @@ func TestDecideImplement(t *testing.T) {
 	secondAttempt.Attempt = 2
 	unverdicted := implement
 	unverdicted.NoVerdict = 0
+	exhaustedImplement := implement
+	exhaustedImplement.Decisions = decisionLimit
+	orchestrating := implement
+	orchestrating.Stage = StageOrchestrate
+	orchestrating.NoVerdict = 0
 	// implementStep is the implementer's step as ended: its end, status, kept return and reason.
 	implementStep := func(end, status, result, reason string) *store.StepRow {
 		return &store.StepRow{ID: "impl-step", End: end, Status: status, Result: result, Reason: reason}
@@ -334,7 +339,18 @@ func TestDecideImplement(t *testing.T) {
 			}},
 		},
 		{
-			name: "returned fails with the return's status and summary",
+			name: "returned with no orchestrator decisions left fails with the return's status and summary",
+			view: View{
+				Epic: decideEpic,
+				Step: implementStep(
+					"returned", "needs_context", `{"status":"needs_context","summary":"the spec is short"}`, "",
+				),
+				Task: store.EpicTask{Seq: 3, Build: exhaustedImplement},
+			},
+			want: Action{Kind: ActFail, Reason: "returned needs_context: the spec is short"},
+		},
+		{
+			name: "returned with decisions left moves to orchestrate keeping the implementer's step",
 			view: View{
 				Epic: decideEpic,
 				Step: implementStep(
@@ -342,7 +358,7 @@ func TestDecideImplement(t *testing.T) {
 				),
 				Task: store.EpicTask{Seq: 3, Build: implement},
 			},
-			want: Action{Kind: ActFail, Reason: "returned needs_context: the spec is short"},
+			want: Action{Kind: ActMove, Next: orchestrating},
 		},
 		{
 			name: "stopped pauses with the build held stopped",

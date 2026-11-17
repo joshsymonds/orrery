@@ -3963,7 +3963,7 @@ func (q *Queries) ListEpicTaskTestChanges(ctx context.Context, epic string) ([]E
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard, needs_files, decisions, after_tasks, question FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -4002,6 +4002,9 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Batch,
 			&i.Guard,
 			&i.NeedsFiles,
+			&i.Decisions,
+			&i.AfterTasks,
+			&i.Question,
 		); err != nil {
 			return nil, err
 		}
@@ -6350,14 +6353,16 @@ SET stage = ?1, base = ?2, attempt = ?3,
     step = ?7, red_run = ?8, green_run = ?9,
     revision = ?10, failure = ?11, review = ?12,
     refs = ?13, gate_pos = ?14, finding_pos = ?15,
-    guard = ?16
-WHERE epic = ?17 AND seq = ?18 AND status = 'open'
-  AND stage = ?19 AND base = ?20 AND attempt = ?21
-  AND rerun = ?22 AND no_verdict = ?23 AND held = ?24
-  AND step = ?25 AND red_run = ?26 AND green_run = ?27
-  AND revision = ?28 AND failure = ?29 AND review = ?30
-  AND refs = ?31 AND gate_pos = ?32 AND finding_pos = ?33
-  AND guard = ?34
+    guard = ?16, decisions = ?17, after_tasks = ?18,
+    question = ?19
+WHERE epic = ?20 AND seq = ?21 AND status = 'open'
+  AND stage = ?22 AND base = ?23 AND attempt = ?24
+  AND rerun = ?25 AND no_verdict = ?26 AND held = ?27
+  AND step = ?28 AND red_run = ?29 AND green_run = ?30
+  AND revision = ?31 AND failure = ?32 AND review = ?33
+  AND refs = ?34 AND gate_pos = ?35 AND finding_pos = ?36
+  AND guard = ?37 AND decisions = ?38
+  AND after_tasks = ?39 AND question = ?40
 `
 
 type SetEpicTaskBuildParams struct {
@@ -6377,6 +6382,9 @@ type SetEpicTaskBuildParams struct {
 	ToGatePos      int64
 	ToFindingPos   int64
 	ToGuard        string
+	ToDecisions    int64
+	ToAfterTasks   string
+	ToQuestion     int64
 	Epic           string
 	Seq            int64
 	FromStage      string
@@ -6395,6 +6403,9 @@ type SetEpicTaskBuildParams struct {
 	FromGatePos    int64
 	FromFindingPos int64
 	FromGuard      string
+	FromDecisions  int64
+	FromAfterTasks string
+	FromQuestion   int64
 }
 
 func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildParams) (int64, error) {
@@ -6415,6 +6426,9 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 		arg.ToGatePos,
 		arg.ToFindingPos,
 		arg.ToGuard,
+		arg.ToDecisions,
+		arg.ToAfterTasks,
+		arg.ToQuestion,
 		arg.Epic,
 		arg.Seq,
 		arg.FromStage,
@@ -6433,6 +6447,9 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 		arg.FromGatePos,
 		arg.FromFindingPos,
 		arg.FromGuard,
+		arg.FromDecisions,
+		arg.FromAfterTasks,
+		arg.FromQuestion,
 	)
 	if err != nil {
 		return 0, err

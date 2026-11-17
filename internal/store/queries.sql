@@ -679,14 +679,16 @@ SET stage = sqlc.arg(to_stage), base = sqlc.arg(to_base), attempt = sqlc.arg(to_
     step = sqlc.arg(to_step), red_run = sqlc.arg(to_red_run), green_run = sqlc.arg(to_green_run),
     revision = sqlc.arg(to_revision), failure = sqlc.arg(to_failure), review = sqlc.arg(to_review),
     refs = sqlc.arg(to_refs), gate_pos = sqlc.arg(to_gate_pos), finding_pos = sqlc.arg(to_finding_pos),
-    guard = sqlc.arg(to_guard)
+    guard = sqlc.arg(to_guard), decisions = sqlc.arg(to_decisions), after_tasks = sqlc.arg(to_after_tasks),
+    question = sqlc.arg(to_question)
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
   AND stage = sqlc.arg(from_stage) AND base = sqlc.arg(from_base) AND attempt = sqlc.arg(from_attempt)
   AND rerun = sqlc.arg(from_rerun) AND no_verdict = sqlc.arg(from_no_verdict) AND held = sqlc.arg(from_held)
   AND step = sqlc.arg(from_step) AND red_run = sqlc.arg(from_red_run) AND green_run = sqlc.arg(from_green_run)
   AND revision = sqlc.arg(from_revision) AND failure = sqlc.arg(from_failure) AND review = sqlc.arg(from_review)
   AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos)
-  AND guard = sqlc.arg(from_guard);
+  AND guard = sqlc.arg(from_guard) AND decisions = sqlc.arg(from_decisions)
+  AND after_tasks = sqlc.arg(from_after_tasks) AND question = sqlc.arg(from_question);
 
 -- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);

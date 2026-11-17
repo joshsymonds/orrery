@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -30,6 +31,12 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 		return r.fail(ctx, epic, view, action)
 	case ActGrant:
 		return r.grant(ctx, epic, view, action)
+	case ActDecide:
+		return r.decide(ctx, epic, view, action)
+	case ActAsk:
+		return r.ask(ctx, epic, view, action)
+	case ActResume:
+		return r.resume(ctx, epic, view, action)
 	case ActAccept:
 		return r.accept(ctx, epic, view, action)
 	default:
@@ -98,14 +105,17 @@ func (r *Runner) startRun(ctx context.Context, epic store.EpicRow, view View, ac
 	return r.written(ctx, epic.ID, seq, "start evidence run", err)
 }
 
-// startUnit starts the step action names and records its id as the build's step. A start the cap refuses changes
-// nothing, so the next pass retries it. A role error parks the task held parked. Any other start error is handled as
-// DecideStartError decides.
+// startUnit starts the step action names and records its id as the build's step. An orchestrate unit records nothing,
+// since its build's step is the implementer step it decides, and its own step is found by its derived id. A start the
+// cap refuses changes nothing, so the next pass retries it. A role error parks the task held parked. Any other start
+// error is handled as DecideStartError decides.
 func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	id, err := r.startStep(ctx, epic, view, action)
 	var roleErr RoleError
 	switch {
+	case err == nil && action.Unit == StageOrchestrate:
+		return true
 	case err == nil:
 		next := from
 		next.Step = id
@@ -122,10 +132,18 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 	}
 }
 
-// fail fails the task with action's reason and the files action names as needed, then removes its worktrees.
+// fail fails the task with action's reason and the files action names as needed, then removes its worktrees. A fail an
+// orchestrator decided records its decision in the same write, and keeps a longer reason (store.FailTaskDecided).
 func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
-	err := r.store.FailTask(ctx, epic.ID, seq, view.Task.Build, action.Reason, action.NeedsFiles, r.now())
+	var err error
+	if action.Decision != nil {
+		err = r.store.FailTaskDecided(
+			ctx, epic.ID, seq, view.Task.Build, action.Reason, action.NeedsFiles, *action.Decision, r.now(),
+		)
+	} else {
+		err = r.store.FailTask(ctx, epic.ID, seq, view.Task.Build, action.Reason, action.NeedsFiles, r.now())
+	}
 	if !r.written(ctx, epic.ID, seq, "fail task", err) {
 		return false
 	}
@@ -134,17 +152,61 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 }
 
 // grant gives the task the files action names and stores action's build, which runs its implementer again in the same
-// worktree. When another open task owns one of the files, the store writes nothing and the task fails with action's
-// reason and the files it named, as an implementer's needs_context return does.
+// worktree. When another open task owns one of the files, the store writes nothing, and the return is a request the
+// grant could not settle: it goes to the orchestrator (request), and fails the task with action's reason and the
+// refusal, carrying the files it named, when the task has no decisions left.
 func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.GrantTaskFiles(ctx, epic.ID, seq, view.Task.Build, action.Next, action.NeedsFiles)
 	var owned store.FileOwnedError
 	if errors.As(err, &owned) {
 		reason := action.Reason + "; " + owned.Error()
-		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason, NeedsFiles: action.NeedsFiles})
+		return r.execute(ctx, epic, view, request(view, Action{Kind: ActFail, Reason: reason, NeedsFiles: action.NeedsFiles}))
 	}
 	return r.written(ctx, epic.ID, seq, "grant files", err)
+}
+
+// decide carries out an orchestrator's rerun or grant: in one write the task gets the files action names, its build
+// moves to action's, and the decision is recorded (store.Store.RerunTask). When an open task the build does not wait
+// for owns one of the files, the store writes nothing, and the request is settled as action's fallback, with the
+// refusal added.
+func (r *Runner) decide(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
+	seq := view.Task.Seq
+	err := r.store.RerunTask(
+		ctx, epic.ID, seq, view.Task.Build, action.Next, action.NeedsFiles, action.Behind, *action.Decision, r.now(),
+	)
+	var owned store.FileOwnedError
+	if errors.As(err, &owned) && action.Fallback != nil {
+		return r.execute(ctx, epic, view, refused(*action.Fallback, decisionGrant, []string{owned.Error()}))
+	}
+	return r.written(ctx, epic.ID, seq, "carry out decision", err)
+}
+
+// ask opens the owner question an orchestrator's ask names, with the tell that carries it, holds the build on it and
+// records the decision, in one write (store.Store.AskTask). A question the store refuses is settled as action's
+// fallback, with the refusal added.
+func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
+	seq := view.Task.Seq
+	err := r.store.AskTask(
+		ctx, epic.ID, seq, view.Task.Build, action.Next, *action.Question, action.Reason, *action.Decision, r.now(),
+	)
+	if errors.Is(err, store.ErrBadQuestion) && action.Fallback != nil {
+		return r.execute(ctx, epic, view, refused(*action.Fallback, decisionAsk, []string{err.Error()}))
+	}
+	return r.written(ctx, epic.ID, seq, "ask owner", err)
+}
+
+// resume moves a waiting build's implement worktree from its base onto action's revision, keeping its work
+// (MoveWorktree), then stores action's build. A move git refuses fails the task with
+// `T<seq> could not move onto the new base <base>: <error>`.
+func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
+	seq, from := view.Task.Seq, view.Task.Build
+	path := ImplementWorktree(r.stateDir, epic.ID, seq)
+	if err := r.git.MoveWorktree(ctx, path, from.Base, action.Revision); err != nil {
+		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
+		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})
+	}
+	return r.written(ctx, epic.ID, seq, "resume build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
 }
 
 // accept pins the task's revision under refs/orrery, accepts the task with its review, then removes its worktrees.
