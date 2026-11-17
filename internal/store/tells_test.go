@@ -95,7 +95,7 @@ func TestAttentionCarriesTheQuestionOfAParkTellAndNoQuestionForAPlainTell(t *tes
 	ctx := context.Background()
 	s, _ := openBuildStore(ctx, t)
 	tellBuildEpic(ctx, t, s, "plain tell", writtenAt())
-	if err := s.ParkEpic(ctx, buildEpic, "credit ran out", writtenAt()); err != nil {
+	if err := s.ParkEpic(ctx, buildEpic, store.ParkClassBranch, "credit ran out", writtenAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 

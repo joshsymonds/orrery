@@ -4,6 +4,9 @@
 package kinds
 
 import (
+	"slices"
+	"time"
+
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -15,20 +18,27 @@ type Node struct {
 }
 
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
-// checks, its evidence runs and its agent steps, how many of its triggers are pending, its end-of-epic review, the
-// epic-stage reviewers enabled for it in merged order, its release runs, and the epic that holds the release slot of
-// its repository, which is "" when the slot is free.
+// checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, how
+// many of the actions its planner returned are pending, its end-of-epic review, the epic-stage reviewers enabled for it
+// in merged order, its release runs, and the epic that holds the release slot of its repository, which is "" when the
+// slot is free. Now is the time of the runner's clock the rows are decided at, which the age of the epic's last read of
+// origin's main is measured to.
 type Rows struct {
-	Epic      store.EpicRow
-	Runs      []store.NodeRun
-	Checks    []store.NodeCheck
-	Evidence  []store.EvidenceRun
-	Steps     []store.StepRow
-	Pending   int
-	Review    store.Review
-	Reviewers []Reviewer
-	Releases  []store.ReleaseRun
-	Slot      string
+	Epic     store.EpicRow
+	Runs     []store.NodeRun
+	Checks   []store.NodeCheck
+	Evidence []store.EvidenceRun
+	Steps    []store.StepRow
+	Pending  int
+	// AmendActions counts the epic's amend_evidence actions that are still pending, and Actions every planner action
+	// of the epic that is still pending, those among it.
+	AmendActions int
+	Actions      int
+	Review       store.Review
+	Reviewers    []Reviewer
+	Releases     []store.ReleaseRun
+	Slot         string
+	Now          time.Time
 }
 
 // Reviewer is an enabled epic-stage reviewer: its name and whether its findings are verified.
@@ -71,7 +81,9 @@ const (
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
 // Phase are what a review, closure or conclusion ends with. Revision, when set, is the revision the work runs at in
 // place of the run's own: a release run walks the Done gates and captures of a merge the release integrator committed,
-// and records it as the candidate, at that commit.
+// and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the epic is no longer at the
+// quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports whether its output is
+// told to the owner.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -86,6 +98,8 @@ type Action struct {
 	Closures []store.Closure
 	Phase    string
 	Revision string
+	Reason   string
+	Tell     bool
 }
 
 // Kind decides what happens next to a node run.
@@ -129,9 +143,11 @@ func (Plan) Decide(node Node, rows Rows) Action {
 }
 
 // planComplete reports whether a plan run started after turn mark may end complete. The epic's highest-seq turn must be
-// above mark, succeeded and complete. No turn may be running, no task open and no trigger pending.
+// above mark, succeeded and complete. No turn may be running, no task open and no trigger pending. No evidence amendment
+// may be under way either, neither an amend_evidence action still pending nor an amendment checking or capturing, since
+// its end decides what the plan has built and wakes the planner.
 func planComplete(mark int64, rows Rows) bool {
-	if rows.Pending != 0 || anyTaskOpen(rows.Epic.Tasks) {
+	if rows.Pending != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
 		return false
 	}
 	var last store.EpicTurn
@@ -146,6 +162,20 @@ func planComplete(mark int64, rows Rows) bool {
 		}
 	}
 	return found && last.Seq > mark && last.State == turnSucceeded && last.Outcome == outcomeComplete
+}
+
+// amending reports whether an evidence amendment of the epic is under way: an amend_evidence action still pending, or an
+// amendment checking or capturing.
+func amending(rows Rows) bool {
+	if rows.AmendActions > 0 {
+		return true
+	}
+	return slices.ContainsFunc(rows.Epic.Amendments, amendmentUnderWay)
+}
+
+// amendmentUnderWay reports whether amended is under way: checking its red, or capturing its green.
+func amendmentUnderWay(amended store.EvidenceAmendment) bool {
+	return amended.State == store.AmendmentChecking || amended.State == store.AmendmentCapturing
 }
 
 // anyTaskOpen reports whether any of tasks is open.
@@ -180,11 +210,12 @@ func isOpenTask(tasks []store.EpicTask, seq int64) bool {
 	return false
 }
 
-// Ended reports whether phase is a phase an epic ends in. Every other phase, the empty one included, is not ended.
+// Ended reports whether phase is a phase an epic ends in: the ended phases, and the closed phases a close ends an epic
+// in. Every other phase, the empty one included, is not ended.
 func Ended(phase string) bool {
 	switch phase {
 	case phaseMetAtBase, phaseClean, phaseEndedWithGaps, phaseReleased, phaseDone, phaseStopped:
 		return true
 	}
-	return false
+	return store.IsClosedPhase(phase)
 }

@@ -415,7 +415,7 @@ func TestParkEpicOpensAParkQuestionAndItsTellCarriesItsSeq(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
-	if err := s.ParkEpic(ctx, claimEpic, "credit ran out", completedAt()); err != nil {
+	if err := s.ParkEpic(ctx, claimEpic, ParkClassBranch, "credit ran out", completedAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 
@@ -437,10 +437,10 @@ func TestParkAgainReplacesTheOpenParkQuestion(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
-	if err := s.ParkEpic(ctx, claimEpic, "credit ran out", completedAt()); err != nil {
+	if err := s.ParkEpic(ctx, claimEpic, ParkClassBranch, "credit ran out", completedAt()); err != nil {
 		t.Fatalf("first ParkEpic: %v", err)
 	}
-	if err := s.ParkEpic(ctx, claimEpic, "needs a human", completedAt().Add(time.Minute)); err != nil {
+	if err := s.ParkEpic(ctx, claimEpic, ParkClassBranch, "needs a human", completedAt().Add(time.Minute)); err != nil {
 		t.Fatalf("second ParkEpic: %v", err)
 	}
 

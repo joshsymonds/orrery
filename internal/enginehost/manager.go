@@ -61,6 +61,14 @@ var ErrNotHeld = errors.New("no held message has that prompt id")
 // and delivers once more.
 var errSessionEnded = errors.New("session ended before the message was delivered")
 
+// ErrSessionBusy reports a Deliver to a live session that has a turn running, a request open, a background task or a
+// hand-off. Deliver stores and sends nothing for it.
+var ErrSessionBusy = errors.New("session is busy")
+
+// ErrCallerStopped reports a Deliver to a session whose row is stopped, as the owner's Stop leaves it. Deliver resumes
+// nothing and sends nothing to it.
+var ErrCallerStopped = errors.New("session was stopped")
+
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
 
@@ -575,14 +583,14 @@ func (m *Manager) promptRecorded(ctx context.Context, id, promptID string) (bool
 func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	live, err := m.live(req.ID)
 	if errors.Is(err, ErrNoSession) {
-		live, err = m.resumeSession(ctx, req.ID)
+		live, err = m.resumeSession(ctx, req.ID, nil)
 	}
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", req.ID, err)
 	}
 	err = m.deliver(ctx, live, req)
 	if errors.Is(err, errSessionEnded) {
-		if live, err = m.resumeSession(ctx, req.ID); err == nil {
+		if live, err = m.resumeSession(ctx, req.ID, nil); err == nil {
 			err = m.deliver(ctx, live, req)
 		}
 	}
@@ -763,9 +771,103 @@ func (m *Manager) Resume(ctx context.Context, id string) error {
 	return m.Say(ctx, SayRequest{ID: id, Text: resumePrompt})
 }
 
+// DeliverRequest is what Deliver needs: the session ID, the text of the event's prompt, and the PromptID that the
+// prompt is deduplicated by. An empty PromptID is not deduplicated.
+type DeliverRequest struct {
+	ID       string
+	Text     string
+	PromptID string
+}
+
+// Deliver sends req.Text to the headless session req.ID as its next prompt, stored with the sender event and
+// req.PromptID. Unlike Say, it never answers, denies or declines a request the session has open. A live session that
+// is busy, with a turn running, a request open, a background task or a hand-off, returns ErrSessionBusy and stores and
+// sends nothing, so the caller delivers the text once the session is not busy. A session that is not live is resumed
+// from its row, as Say resumes one, unless its row is stopped, which returns ErrCallerStopped. A step session returns
+// an error naming it. A non-empty req.PromptID that an engine_prompt of the session already carries makes Deliver
+// return nil and do nothing else, also after a restart. It returns ErrEmptyPrompt for empty text. A non-empty
+// req.PromptID runs as one attempt per session and prompt id, as Say's does (see keyed).
+func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
+	defer m.calls.enter()()
+	if req.Text == "" {
+		return ErrEmptyPrompt
+	}
+	if req.PromptID == "" {
+		return m.deliverEvent(ctx, req)
+	}
+	_, err := m.keyed(
+		ctx,
+		attemptKey{session: req.ID, prompt: req.PromptID},
+		func(ctx context.Context) (string, error) {
+			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
+			if err != nil {
+				return "", fmt.Errorf("check prompt %s of session %s: %w", req.PromptID, req.ID, err)
+			}
+			if sent {
+				return "", nil
+			}
+			return "", m.deliverEvent(ctx, req)
+		},
+		func(ctx context.Context) bool {
+			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
+			return sent || err != nil
+		},
+	)
+	return err
+}
+
+// deliverEvent sends req as Deliver does, without the check of its prompt id. The session is claimed only when it is
+// not busy, and a session that is not live is resumed from its row first, so a busy or stopped session is left as it is.
+func (m *Manager) deliverEvent(ctx context.Context, req DeliverRequest) error {
+	live, err := m.claimFree(req.ID)
+	if errors.Is(err, ErrNoSession) {
+		if _, err = m.resumeSession(ctx, req.ID, refuseStopped); err == nil {
+			live, err = m.claimFree(req.ID)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("deliver to session %s: %w", req.ID, err)
+	}
+	return m.send(ctx, live, store.EnginePrompt{
+		ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderEvent,
+	})
+}
+
+// refuseStopped returns ErrCallerStopped for a row the owner's Stop recorded stopped, so a delivery resumes nothing for
+// it. Any other row is admitted.
+func refuseStopped(row store.EngineRow) error {
+	if row.State == stateStopped {
+		return ErrCallerStopped
+	}
+	return nil
+}
+
+// claimFree returns the live session id with its turn marked running and a send begun, as markSending does, but only
+// while the session is not busy. The check and the claim are one step under the lock, so a delivery that claims the
+// session leaves every other delivery to find it busy. It returns ErrNoSession when no session with that id is live, or
+// when it is closing or its exit is recorded, ErrSessionBusy when it is busy, and an error naming it when it is a step.
+func (m *Manager) claimFree(id string) (*liveSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live, ok := m.sessions[id]
+	if !ok || live.closing || live.exited {
+		return nil, ErrNoSession
+	}
+	if live.step {
+		return nil, fmt.Errorf("session %s is a step session, which takes no event", id)
+	}
+	if live.busy() {
+		return nil, ErrSessionBusy
+	}
+	live.turning = true
+	live.sending++
+	m.updateIdleLocked(live)
+	return live, nil
+}
+
 // send records prompt as the next prompt of live, with the working state and the ops with it, in one write, and then sends
-// its text (see record, transmit and failSend). live must have its turn marked running and a send begun, as markSending or claimStep
-// or markSending leaves it, and the send ends when send returns (see endSend).
+// its text (see record, transmit and failSend). live must have its turn marked running and a send begun, as markSending,
+// claimStep or claimFree leaves it, and the send ends when send returns (see endSend).
 func (m *Manager) send(
 	ctx context.Context,
 	live *liveSession,
@@ -1091,8 +1193,11 @@ func (m *Manager) Live() []string {
 // end (see awaitStopping), then reserves a slot under the cap before it reads the directory, so a full cap refuses the
 // resume before anything is recorded. A directory that is missing or not a directory records the session failed and
 // returns an error wrapping ErrBadDir. resumeMu makes concurrent calls for one id start a single process: each call after
-// the first finds the session live.
-func (m *Manager) resumeSession(ctx context.Context, id string) (*liveSession, error) {
+// the first finds the session live. A non-nil admit sees the row under resumeMu before the process starts, and an error
+// it returns refuses the resume.
+func (m *Manager) resumeSession(
+	ctx context.Context, id string, admit func(store.EngineRow) error,
+) (*liveSession, error) {
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	if live, err := m.live(id); err == nil {
@@ -1107,6 +1212,12 @@ func (m *Manager) resumeSession(ctx context.Context, id string) (*liveSession, e
 	}
 	if row.Kind == store.KindStep {
 		return nil, fmt.Errorf("%w: %s is a step session", ErrNoSession, id)
+	}
+	if admit != nil {
+		err = admit(row)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return m.resume(ctx, row)
 }

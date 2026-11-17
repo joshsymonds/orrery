@@ -221,6 +221,20 @@ func (r *buildRig) tells(t *testing.T) []string {
 	return texts
 }
 
+// triggerCauses returns the causes of the triggers the rig's epic holds, in any state.
+func (r *buildRig) triggerCauses(t *testing.T) []string {
+	t.Helper()
+	var causes []string
+	r.readStore(t, func(q *sqlcgen.Queries) error {
+		triggers, err := q.ListEpicTriggers(t.Context(), buildRigEpic)
+		for _, trigger := range triggers {
+			causes = append(causes, trigger.Cause)
+		}
+		return err
+	})
+	return causes
+}
+
 // readStore runs read against a read-only handle on the rig's store. The handle is closed at once, so orreryd keeps the
 // file it writes.
 func (r *buildRig) readStore(t *testing.T, read func(q *sqlcgen.Queries) error) {
@@ -308,7 +322,8 @@ func TestIntegrateKillDoneGateReadoptedOnce(t *testing.T) {
 
 // TestIntegrateKillLostDoneGateRerunsOnceThenParks proves that a Done gate whose holder is cleared while orreryd is down
 // ends lost at the restart and runs once more as its rerun. When the rerun is lost too, the integrate node parks, and the
-// epic parks with a tell that names the gate. The gate runs twice in all: once for the check and once for the rerun.
+// epic parks for the planner: a trigger names the gate, and no tell does. The gate runs twice in all: once for the check
+// and once for the rerun.
 func TestIntegrateKillLostDoneGateRerunsOnceThenParks(t *testing.T) {
 	t.Parallel()
 	r := newNodesRig(t)
@@ -349,12 +364,14 @@ func TestIntegrateKillLostDoneGateRerunsOnceThenParks(t *testing.T) {
 	if run := r.integrateRun(t); run.State != store.NodeParked || run.Outcome != "failed" {
 		t.Fatalf("integrate run %q with outcome %q, want parked failed; output %q", run.State, run.Outcome, run.Output)
 	}
-	if parked := r.storedEpic(t).Parked; !strings.Contains(parked, integrateKillLostReason) {
-		t.Fatalf("epic parked with %q, want the reason to name %q", parked, integrateKillLostReason)
+	if causes := r.triggerCauses(t); !slices.ContainsFunc(causes, func(cause string) bool {
+		return strings.Contains(cause, integrateKillLostReason)
+	}) {
+		t.Fatalf("triggers %q do not name %q", causes, integrateKillLostReason)
 	}
 	tells := r.tells(t)
-	if !slices.ContainsFunc(tells, func(text string) bool { return strings.Contains(text, integrateKillLostReason) }) {
-		t.Fatalf("tells %q do not name %q", tells, integrateKillLostReason)
+	if slices.ContainsFunc(tells, func(text string) bool { return strings.Contains(text, integrateKillLostReason) }) {
+		t.Fatalf("tells %q name %q, want none: the planner answers this park", tells, integrateKillLostReason)
 	}
 	if n := gateRunCount(t, lines); n != 2 {
 		t.Fatalf("gate lines after the rerun was lost = %d, want 2", n)

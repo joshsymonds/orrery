@@ -207,9 +207,9 @@ func (r *Runner) markCreated(ctx context.Context, epic, tip string) (string, err
 	return tip, nil
 }
 
-// park parks epic with reason, which the owner is told.
+// park parks epic with reason as a branch park, which the owner is told.
 func (r *Runner) park(ctx context.Context, epic, reason string) error {
-	if err := r.store.ParkEpic(ctx, epic, reason, r.now()); err != nil {
+	if err := r.store.ParkEpic(ctx, epic, store.ParkClassBranch, reason, r.now()); err != nil {
 		return fmt.Errorf("park epic %s: %w", epic, err)
 	}
 	return nil

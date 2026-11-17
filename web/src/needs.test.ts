@@ -22,6 +22,8 @@ function makeRow(init: Partial<Row>): Row {
     changed: 0,
     seen: 0,
     unseen: false,
+    archived: false,
+    archiveKind: "none",
     ...init,
   };
 }
@@ -162,4 +164,16 @@ test("an epic that is not live, or has no detail, gives no need", () => {
   const ended = makeEpic({ live: false, outcome: "released", source: "orreryd" });
   assert.deepEqual(needsFor({ questions: [{ id: "Q1", text: "Use Postgres?" }] }, ended), []);
   assert.deepEqual(epicNeeds([makeEpic({})], new Map()), []);
+});
+
+test("OrchestratorPark: a planner-parked epic with a park and a failed release step raises only its open question's need", () => {
+  const needs = needsFor({
+    questions: [{ id: "Q1", text: "Use Postgres?" }],
+    parked: "release step 2 (publish) failed",
+    plannerParked: true,
+    releaseSteps: [{ position: 2n, step: "publish", state: "failed", reason: "registry 503" }],
+  });
+  assert.deepEqual(needs, [
+    { kind: "question", text: "alpha asks: Use Postgres?", summary: "", epic: "repo-a/alpha", question: "Q1" },
+  ]);
 });

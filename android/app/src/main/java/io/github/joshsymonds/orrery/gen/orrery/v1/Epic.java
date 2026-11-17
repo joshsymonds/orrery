@@ -874,6 +874,44 @@ public  final class Epic extends
     seen_ = 0L;
   }
 
+  public static final int ARCHIVED_FIELD_NUMBER = 15;
+  private boolean archived_;
+  /**
+   * <pre>
+   * True while the epic is archived: the owner archived it and has not unarchived it since.
+   * </pre>
+   *
+   * <code>bool archived = 15 [json_name = "archived"];</code>
+   * @return The archived.
+   */
+  @java.lang.Override
+  public boolean getArchived() {
+    return archived_;
+  }
+  /**
+   * <pre>
+   * True while the epic is archived: the owner archived it and has not unarchived it since.
+   * </pre>
+   *
+   * <code>bool archived = 15 [json_name = "archived"];</code>
+   * @param value The archived to set.
+   */
+  private void setArchived(boolean value) {
+    
+    archived_ = value;
+  }
+  /**
+   * <pre>
+   * True while the epic is archived: the owner archived it and has not unarchived it since.
+   * </pre>
+   *
+   * <code>bool archived = 15 [json_name = "archived"];</code>
+   */
+  private void clearArchived() {
+
+    archived_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1859,6 +1897,46 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * True while the epic is archived: the owner archived it and has not unarchived it since.
+     * </pre>
+     *
+     * <code>bool archived = 15 [json_name = "archived"];</code>
+     * @return The archived.
+     */
+    @java.lang.Override
+    public boolean getArchived() {
+      return instance.getArchived();
+    }
+    /**
+     * <pre>
+     * True while the epic is archived: the owner archived it and has not unarchived it since.
+     * </pre>
+     *
+     * <code>bool archived = 15 [json_name = "archived"];</code>
+     * @param value The archived to set.
+     * @return This builder for chaining.
+     */
+    public Builder setArchived(boolean value) {
+      copyOnWrite();
+      instance.setArchived(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * True while the epic is archived: the owner archived it and has not unarchived it since.
+     * </pre>
+     *
+     * <code>bool archived = 15 [json_name = "archived"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearArchived() {
+      copyOnWrite();
+      instance.clearArchived();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -1890,11 +1968,12 @@ public  final class Epic extends
             "waiting_",
             "phaseAt_",
             "seen_",
+            "archived_",
           };
           java.lang.String info =
-              "\u0000\u000e\u0000\u0000\u0001\u000e\u000e\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u000f\u0000\u0000\u0001\u000f\u000f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208" +
-              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002";
+              "\u000b\u0208\f\u0007\r\u0002\u000e\u0002\u000f\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

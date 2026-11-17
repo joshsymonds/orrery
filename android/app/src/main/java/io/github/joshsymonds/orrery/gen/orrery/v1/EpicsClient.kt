@@ -166,4 +166,34 @@ public class EpicsClient(
     ),
   )
 
+
+  /**
+   *  Archive archives the named list row, so the lists hide it. kind is epic, session or headless.
+   */
+  override suspend fun archive(request: EpicsArchiveRequest, headers: Headers): ResponseMessage<EpicsArchiveResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Archive",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsArchiveResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Unarchive clears the archive mark of the named list row, so the lists show it again.
+   */
+  override suspend fun unarchive(request: EpicsUnarchiveRequest, headers: Headers): ResponseMessage<EpicsUnarchiveResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Unarchive",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsUnarchiveRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsUnarchiveResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

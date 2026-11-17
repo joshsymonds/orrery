@@ -164,4 +164,14 @@ public interface HeadlessSessionOrBuilder extends
    * @return The newestReply.
    */
   long getNewestReply();
+
+  /**
+   * <pre>
+   * True while the headless session is archived: the owner archived it and has not unarchived it since.
+   * </pre>
+   *
+   * <code>bool archived = 10 [json_name = "archived"];</code>
+   * @return The archived.
+   */
+  boolean getArchived();
 }

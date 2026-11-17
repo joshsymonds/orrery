@@ -368,11 +368,15 @@ func (c *carryLog) ParkEpicWaking(
 	return nil
 }
 
-// ParkNode logs the park of a node run.
+// ParkNode logs the park of a node run and its class.
 func (c *carryLog) ParkNode(
-	_ context.Context, epic, path string, attempt int64, outcome, output, reason string, _ time.Time,
+	_ context.Context, epic, path string, attempt int64, outcome, output string, class store.ParkClass, reason string,
+	_ time.Time,
 ) error {
-	c.writes = append(c.writes, fmt.Sprintf("ParkNode %s %s %d %s %q %q", epic, path, attempt, outcome, output, reason))
+	c.writes = append(
+		c.writes,
+		fmt.Sprintf("ParkNode %s %s %d %s %q %s %q", epic, path, attempt, outcome, output, class, reason),
+	)
 	return nil
 }
 
@@ -427,7 +431,7 @@ func TestRunnerCarriesBatchActions(t *testing.T) {
 		fmt.Sprintf("EndBatch %s %s 1 passed %q <nil>", decideEpic, batchPath, "no accepted task to integrate"),
 		fmt.Sprintf("ParkEpicWaking %s %q %+v", decideEpic, unbuilt.Cause, *unbuilt),
 		fmt.Sprintf("ParkNodeMetAtBase %s red 2 failed %q %q [R1]", decideEpic, "R1 red: failed", "met"),
-		fmt.Sprintf("ParkNode %s red 2 failed %q %q", decideEpic, "R1 red: failed", "plain"),
+		fmt.Sprintf("ParkNode %s red 2 failed %q %s %q", decideEpic, "R1 red: failed", store.ParkClassNode, "plain"),
 		fmt.Sprintf("EndPlanBuilt %s %+v", decideEpic, []store.NodeEnd{{Path: "plan", Outcome: "complete"}}),
 	}
 	if !reflect.DeepEqual(recorded.writes, want) {

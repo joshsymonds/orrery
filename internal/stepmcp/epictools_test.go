@@ -33,6 +33,7 @@ type fakeEpics struct {
 	retries      []*v1.RetryEpicRequest
 	kicks        []*v1.KickEpicRequest
 	releases     []*v1.ReleaseEpicRequest
+	amends       []*v1.AmendEvidenceRequest
 	follows      []*v1.FollowEpicsRequest
 	createReply  *v1.CreateEpicResponse
 	getReply     *v1.GetEpicResponse
@@ -44,6 +45,7 @@ type fakeEpics struct {
 	retryReply   *v1.RetryEpicResponse
 	kickReply    *v1.KickEpicResponse
 	releaseReply *v1.ReleaseEpicResponse
+	amendReply   *v1.AmendEvidenceResponse
 	followReply  *v1.FollowEpicsResponse
 	err          error
 }
@@ -139,6 +141,28 @@ func (f *fakeEpics) StopEpic(
 	return connect.NewResponse(f.stopReply), nil
 }
 
+// CloseEpic is not faked: no test in this package closes an epic through fakeEpics. The close tool's request is compared
+// with the CLI's in cmd/orrery, which fakes the call itself.
+func (f *fakeEpics) CloseEpic(
+	_ context.Context,
+	_ *connect.Request[v1.CloseEpicRequest],
+) (*connect.Response[v1.CloseEpicResponse], error) {
+	return nil, errors.New("fakeEpics: CloseEpic is not faked")
+}
+
+func (f *fakeEpics) AmendEvidence(
+	_ context.Context,
+	req *connect.Request[v1.AmendEvidenceRequest],
+) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.amends = append(f.amends, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.amendReply), nil
+}
+
 func (f *fakeEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -196,6 +220,20 @@ func (f *fakeEpics) SeeEpic(
 	_ *connect.Request[v1.SeeEpicRequest],
 ) (*connect.Response[v1.SeeEpicResponse], error) {
 	return connect.NewResponse(&v1.SeeEpicResponse{}), nil
+}
+
+func (f *fakeEpics) ArchiveRow(
+	_ context.Context,
+	_ *connect.Request[v1.ArchiveRowRequest],
+) (*connect.Response[v1.ArchiveRowResponse], error) {
+	return connect.NewResponse(&v1.ArchiveRowResponse{}), nil
+}
+
+func (f *fakeEpics) UnarchiveRow(
+	_ context.Context,
+	_ *connect.Request[v1.UnarchiveRowRequest],
+) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	return connect.NewResponse(&v1.UnarchiveRowResponse{}), nil
 }
 
 // epicCalls is a copy of the requests the fake received.
@@ -404,7 +442,7 @@ func unmarshalResult(t *testing.T, text string, msg proto.Message) {
 	}
 }
 
-func TestToolsListNamesTheNineEpicTools(t *testing.T) {
+func TestToolsListNamesTheTenEpicTools(t *testing.T) {
 	p := newPeer(t, nil, &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
@@ -423,7 +461,7 @@ func TestToolsListNamesTheNineEpicTools(t *testing.T) {
 	}
 	names := []string{
 		"epic_create", "epic_get", "epic_list", "epic_answer", "epic_follow", "epic_pause", "epic_resume",
-		"epic_stop", "epic_retry", "epic_release",
+		"epic_stop", "epic_retry", "epic_release", "epic_close",
 	}
 	for _, name := range names {
 		schema, ok := schemas[name]

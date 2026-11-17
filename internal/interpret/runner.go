@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -27,9 +28,10 @@ type Store interface {
 	) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
 	ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error
-	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
+	ParkEpic(ctx context.Context, epic string, class store.ParkClass, reason string, at time.Time) error
 	ParkNode(
-		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+		ctx context.Context, epic, path string, attempt int64, outcome, output string, class store.ParkClass,
+		reason string, at time.Time,
 	) error
 	ParkNodeMetAtBase(
 		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string,
@@ -42,6 +44,11 @@ type Store interface {
 		ctx context.Context, epic, path string, attempt int64, outcome, output string, trigger *store.NodeTrigger,
 		at time.Time,
 	) error
+	PrepareSync(
+		ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
+	) error
+	EndSync(ctx context.Context, epic string, end store.SyncEnd, at time.Time) error
+	RecordOriginRead(ctx context.Context, epic string, read store.OriginRead) error
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
@@ -67,6 +74,10 @@ type Store interface {
 		closures []store.Closure, at time.Time,
 	) error
 	HoldReviewStep(ctx context.Context, epic, step, reason string, at time.Time) error
+	OpenAmendments(ctx context.Context) ([]store.EvidenceAmendment, error)
+	SettleAmendment(ctx context.Context, epic string, seq int64, at time.Time) error
+	StopAmendment(ctx context.Context, epic string, seq int64, reason string, at time.Time) error
+	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -74,9 +85,13 @@ type Checks interface {
 	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
 }
 
-// Evidence runs the evidence item of a Requirement once per id. *enginehost.Evidence satisfies it.
+// Evidence runs the evidence item of a Requirement, or the item an evidence amendment asks a Requirement to hold, once per
+// id. *enginehost.Evidence satisfies it.
 type Evidence interface {
 	RunItem(ctx context.Context, id, epic, item, revision, phase string) (store.EvidenceRun, error)
+	RunAmendment(
+		ctx context.Context, id, epic, requirement string, spec evidence.Item, revision, phase string,
+	) (store.EvidenceRun, error)
 }
 
 // Steps starts the read-only step of an agent node run. *enginehost.Steps satisfies it.
@@ -138,24 +153,28 @@ type Config struct {
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
-// hands build runs to the builder and passes the planner for the epics whose plan run is running.
+// hands build runs to the builder and passes the planner for the epics whose plan run is running. readLimit bounds each
+// git ls-remote a sync runs against origin, syncReadLimit unless a test sets it, and fetchLimit a sync's fetch of
+// origin's main, syncFetchLimit unless a test sets it.
 type Runner struct {
-	store     Store
-	planner   Planner
-	builder   Builder
-	checks    Checks
-	evidence  Evidence
-	steps     Steps
-	reviewers Reviewers
-	ending    Ending
-	stateDir  string
-	getenv    func(string) string
-	tick      time.Duration
-	ticks     <-chan time.Time
-	now       func() time.Time
-	logger    *slog.Logger
-	passed    func()
-	kinds     map[string]kinds.Kind
+	store      Store
+	planner    Planner
+	builder    Builder
+	checks     Checks
+	evidence   Evidence
+	steps      Steps
+	reviewers  Reviewers
+	ending     Ending
+	stateDir   string
+	getenv     func(string) string
+	tick       time.Duration
+	ticks      <-chan time.Time
+	now        func() time.Time
+	logger     *slog.Logger
+	passed     func()
+	kinds      map[string]kinds.Kind
+	readLimit  time.Duration
+	fetchLimit time.Duration
 }
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
@@ -168,17 +187,18 @@ const maxSteps = 16
 // builtinEpic is the workflow an epic with no pinned text runs.
 const builtinEpic = "epic"
 
-// New returns a Runner for cfg, with the plan and build kinds registered, and the review, closure and conclude kinds too
-// when cfg has both Reviewers and Ending.
+// New returns a Runner for cfg, with the plan, build, check, integrate, sync and release kinds registered, and the
+// review, closure and conclude kinds too when cfg has both Reviewers and Ending.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, getenv: cfg.Getenv,
 		tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
+		readLimit: syncReadLimit, fetchLimit: syncFetchLimit,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
-			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{},
+			kindIntegrate: kinds.Integrate{}, kindRelease: kinds.Release{}, kindSync: kinds.Sync{},
 		},
 	}
 	if cfg.Reviewers != nil && cfg.Ending != nil {
@@ -226,36 +246,43 @@ func (r *Runner) Run(ctx context.Context) {
 	}
 }
 
-// Pass runs each epic's flow once, and then passes the planner once for the epics whose plan run was given its turn.
-// An epic whose flow does not load is parked once, if it is not parked already.
+// Pass drives each open evidence amendment once (see passAmendments), runs each epic's flow once, and then passes the
+// planner once for the epics whose plan run was given its turn. An epic whose flow does not load is parked once, if it
+// is not parked already.
 func (r *Runner) Pass(ctx context.Context) {
 	epics, err := r.store.Epics(ctx)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "list epics", "err", err)
 		return
 	}
+	r.passAmendments(ctx, epics)
 	planned := make(map[string]bool)
 	for _, epic := range epics {
+		if store.IsClosedPhase(epic.Phase) {
+			continue
+		}
 		flow, loadErr := loadFlow(epic)
 		if loadErr != nil {
 			r.parkUnloaded(ctx, epic, loadErr)
 			continue
 		}
-		if r.passFlow(ctx, epic, flow) {
+		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
+		plannerParked := epic.Parked != "" && !epic.ParkClass.OwnerHeld()
+		if r.passFlow(ctx, epic, flow) || plannerParked {
 			planned[epic.ID] = true
 		}
 	}
 	r.planner.PassOnly(ctx, func(epic string) bool { return planned[epic] })
 }
 
-// parkUnloaded parks epic with the reason its flow did not load, unless it is parked already, so a broken pinned text
-// parks its epic once.
+// parkUnloaded parks epic as an orchestrator park with the reason its flow did not load, unless it is parked already, so
+// a broken pinned text parks its epic once.
 func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause error) {
 	if epic.Parked != "" {
 		return
 	}
 	reason := cause.Error()
-	if err := r.store.ParkEpic(ctx, epic.ID, reason, r.now()); err != nil {
+	if err := r.store.ParkEpic(ctx, epic.ID, store.ParkClassOrchestrator, reason, r.now()); err != nil {
 		r.logger.ErrorContext(ctx, "park epic with unloadable workflow", "epic", epic.ID, "err", err)
 		return
 	}
@@ -264,12 +291,17 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 
 // passFlow carries out the actions flow asks for on epic, and reports whether epic's plan run was given its turn. Each
 // structural action is carried out and the rows read again, at most maxSteps times. Once a decision has no structural
-// action, its build runs go to the builder.
+// action, its build runs go to the builder. An epic that the rows show closed is left with nothing carried out: a close
+// that lands while the pass carries out an action, such as a sync's prepare, ends the epic's running runs, and the walk
+// would read the plan run it ended as a node that ended and start the node after it.
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
 	for range maxSteps {
 		row, acts, err := r.decide(ctx, epic.ID, flow)
 		if err != nil {
 			r.logger.ErrorContext(ctx, "decide epic", "epic", epic.ID, "err", err)
+			return false
+		}
+		if store.IsClosedPhase(row.Phase) {
 			return false
 		}
 		act, structural := firstStructural(acts)
@@ -286,20 +318,26 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 }
 
 // decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
-// the actions flow asks for on the rows.
+// the actions flow asks for on the rows, decided at the runner's clock.
 func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
 		return store.EpicRow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
-	rows := kinds.Rows{
-		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
-	}
+	rows := flowRows(read)
+	rows.Now = r.now()
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
 	return read.Epic, Decide(flow, rows, r.kinds), nil
+}
+
+// flowRows returns the rows a kind reads of the epic read holds, with no reviewers and no clock.
+func flowRows(read store.EpicFlow) kinds.Rows {
+	return kinds.Rows{
+		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
+		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
+	}
 }
 
 // firstStructural returns the first action that changes a node run, and whether acts has one. A run action only hands
@@ -340,12 +378,16 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, act.Met, at,
 			)
 		} else {
-			err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+			err = r.store.ParkNode(
+				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
+			)
 		}
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
 	case ActBatch:
 		err = r.store.EndBatch(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Trigger, at)
+	case ActSync, ActReadOrigin:
+		err = r.carrySync(ctx, epic, act, at)
 	case ActHold, ActReview, ActClosure, ActConclude:
 		return r.carryReview(ctx, epic.ID, act, at)
 	case ActWork:
@@ -355,6 +397,20 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 	}
 	if err != nil {
 		return fmt.Errorf("%s of epic %s: %w", act.Kind, epic.ID, err)
+	}
+	return nil
+}
+
+// carrySync carries out one sync action of epic at at: the end of a sync run, or the read of origin's main a sync is
+// due to start from.
+func (r *Runner) carrySync(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	if act.Kind == ActReadOrigin {
+		return r.readOrigin(ctx, epic, at)
+	}
+	if err := r.store.EndSync(ctx, epic.ID, store.SyncEnd{
+		Path: act.Path, Attempt: act.Attempt, Outcome: act.Outcome, Output: act.Output, Tell: act.Reason,
+	}, at); err != nil {
+		return fmt.Errorf("end sync %s: %w", act.Path, err)
 	}
 	return nil
 }

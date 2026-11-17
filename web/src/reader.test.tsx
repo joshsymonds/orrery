@@ -671,6 +671,46 @@ test("without a step every prompt draws as YOU, whatever its sender and round", 
     },
   ));
 
+test("a CallerEvent prompt in a session draws as an EVENT row with its text, and not as YOU", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", text: "**orrery** step finished" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const event = container.querySelector<HTMLElement>(".t > .body > .event");
+      assert.ok(event !== null, "the event is an event row");
+      assert.equal(event.querySelector("small")?.textContent, "EVENT");
+      assert.equal(event.querySelector(".reply > p > strong")?.textContent, "orrery", "the text draws as Markdown");
+      assert.equal(event.textContent?.includes("step finished"), true, "the whole text is shown");
+      assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
+    },
+  ));
+
+test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt or YOU", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", round: 1, text: "step finished: gate passed" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([{ round: 1, name: "gate", ok: false }]),
+    },
+    (container) => {
+      const event = container.querySelector<HTMLElement>(".t > .body > .event");
+      assert.ok(event !== null, "the event is an event row");
+      assert.equal(event.querySelector("small")?.textContent, "EVENT");
+      assert.equal(event.textContent?.includes("step finished: gate passed"), true, "the whole text is shown");
+      assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
+      assert.equal(container.querySelector("button.fold") === null, true, "the event is not an engine fold");
+      assert.equal(container.querySelector(".card") === null, true, "the event is not a send-back card");
+    },
+  ));
+
 test("live text draws its markdown as elements inside .reply, before its caret", () =>
   withReader(
     { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },
@@ -1370,6 +1410,12 @@ function openedCalls(container: HTMLElement): string[] {
   );
 }
 
+// dotClasses returns the class of each dot in a run's fold, in call order: "dot" for a call that succeeded, with
+// "failed" or "running" added when its result failed or it has none yet.
+function dotClasses(fold: HTMLElement): string[] {
+  return [...fold.querySelectorAll<HTMLElement>(".trail .dot")].map((dot) => dot.className);
+}
+
 test("two tool calls in a row draw two call lines and no run fold", () =>
   withReader(
     {
@@ -1390,7 +1436,7 @@ test("two tool calls in a row draw two call lines and no run fold", () =>
     },
   ));
 
-test("three tool calls fold to one line that opens to a line per call and folds again", () =>
+test("ToolTrail: three tool calls fold to one line with a dot per call, which opens to a line per call and folds again", () =>
   withReader(
     {
       conversation: conversation({
@@ -1411,8 +1457,8 @@ test("three tool calls fold to one line that opens to a line per call and folds 
       assert.equal(rowTexts(container).length, 1, "the run is one row");
       assert.equal(fold.querySelector("b")?.textContent, "3 tool calls");
       assert.equal(fold.querySelector(".names")?.textContent, "Read ×2, Bash");
-      assert.equal(fold.querySelector(".ok")?.textContent, "✓");
-      assert.equal(fold.querySelector(".bad") === null, true, "a run that succeeded has no ✗");
+      assert.deepEqual(dotClasses(fold), ["dot", "dot", "dot"], "one dot per call, none marked, as all succeeded");
+      assert.doesNotMatch(fold.textContent ?? "", /[✓✗]/, "the fold draws no ✓ or ✗ of its own");
       assert.equal(container.querySelectorAll(".call").length, 0, "no call line until the fold is clicked");
 
       await clickControl(fold);
@@ -1430,7 +1476,7 @@ test("three tool calls fold to one line that opens to a line per call and folds 
     },
   ));
 
-test("a run of three with one failed result shows ✗ in its fold and no ✓", () =>
+test("ToolTrail: a run of three with one failed result marks that call's dot failed, and its fold draws no ✓ or ✗", () =>
   withReader(
     {
       conversation: conversation({
@@ -1448,9 +1494,100 @@ test("a run of three with one failed result shows ✗ in its fold and no ✓", (
     },
     (container) => {
       const fold = foldOf(container);
-      assert.equal(fold.querySelector(".bad")?.textContent, "✗");
-      assert.equal(fold.querySelector(".ok") === null, true, "a run with a failure has no ✓");
+      assert.deepEqual(dotClasses(fold), ["dot failed", "dot", "dot"], "the failed call's dot is marked failed");
+      assert.doesNotMatch(fold.textContent ?? "", /[✓✗]/, "the fold draws no ✓ or ✗ of its own");
       assert.equal(container.textContent?.includes("permission denied"), false, "the failure stays folded");
+    },
+  ));
+
+test("ToolTrail: a click opens a failed run to a line per call, and the failed call's line keeps its ✗", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Bash", "b1", "rm -rf build"),
+          resultItem("b1", "permission denied", true),
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Bash", "b2", "make"),
+          resultItem("b2", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      await clickControl(foldOf(container));
+      assert.deepEqual(openedCalls(container), ["Bash rm -rf build", "Read a.txt", "Bash make"], "a line per call");
+      const lines = [...container.querySelectorAll<HTMLElement>("div.calls .call")];
+      assert.equal(lines[0].querySelector(".fail")?.textContent, "✗", "the failed call's line keeps its ✗");
+      assert.equal(container.querySelectorAll("div.calls .fail").length, 1, "only the failed line is marked");
+    },
+  ));
+
+test("ToolTrail: a tool call with no result, after nothing but calls and results, draws running with its rail and mark", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [toolItem("Read", "r1", "a.txt"), resultItem("r1", "alpha"), toolItem("Bash", "b1", "make")],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      const line = rowWith(container, "make").querySelector<HTMLElement>(".call");
+      assert.ok(line !== null, "the call draws a line");
+      assert.equal(line.classList.contains("running"), true, "the line carries the running class");
+      assert.equal(line.querySelector(".running-mark")?.textContent, "running", "the line carries the running mark");
+    },
+  ));
+
+test("ToolTrail: a run folded around a running call carries the running class and mark, and that call's dot is running", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          toolItem("Bash", "b1", "make"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      const fold = foldOf(container);
+      assert.equal(fold.classList.contains("running"), true, "the fold carries the running class");
+      assert.equal(fold.querySelector(".running-mark")?.textContent, "running", "the fold carries the running mark");
+      assert.deepEqual(dotClasses(fold), ["dot", "dot", "dot running"], "the running call's dot is running");
+    },
+  ));
+
+test("ToolTrail: the same items drawn with a question carry no running class or mark", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          toolItem("Bash", "b1", "make"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+      question: { title: "Run the make?", options: [] },
+    },
+    (container) => {
+      const fold = foldOf(container);
+      assert.equal(fold.classList.contains("running"), false, "the fold carries no running class");
+      assert.equal(fold.querySelector(".running-mark"), null, "the fold carries no running mark");
+      assert.deepEqual(dotClasses(fold), ["dot", "dot", "dot"], "no dot is running");
+      assert.equal(container.querySelector(".running"), null, "no line of the reader is running");
+      assert.equal(container.querySelector(".running-mark"), null);
     },
   ));
 
@@ -1727,3 +1864,65 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
     },
   );
 });
+
+test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its body or inside them", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "a reply" })] }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const row = container.querySelector<HTMLElement>(".reader > .t");
+      assert.ok(row !== null, "the reply is a row of the reader");
+      assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
+      assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
+      assert.equal(row.querySelector(".you, .card, .question-card, .fold, .summary"), null, "no surface inside");
+      assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
+    },
+  ));
+
+test("TurnRhythm: an owner prompt's row carries owner-turn, and an engine prompt's row in a step does not", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "prompt", time: 100n, sender: "owner", text: "fix it" }),
+          item({ kind: "prompt", time: 200n, sender: "engine", round: 0, text: "engine text" }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    (container) => {
+      const [owner, engine] = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.ok(owner !== undefined && engine !== undefined, "both prompts are rows of the reader");
+      assert.equal(owner.classList.contains("owner-turn"), true, "the owner's row carries owner-turn");
+      assert.ok(owner.querySelector(".you") !== null, "the owner's row draws YOU");
+      assert.equal(engine.className, "t", "the engine's row carries no owner-turn class");
+    },
+  ));
+
+test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, direct children of .reader", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "compaction", time: 100n, text: "Synthetic summary.", trigger: "auto", tokens: 611000n }),
+          item({ kind: "reply", time: 200n, text: "after the rules" }),
+        ],
+      }),
+      seenAt: 150,
+      open: false,
+    },
+    (container) => {
+      const reader = readerOf(container);
+      const compaction = container.querySelector(".compaction")?.closest(".t");
+      const since = container.querySelector(".rule.new")?.closest(".t");
+      assert.ok(compaction !== null && compaction !== undefined, "the compaction rule is in a row");
+      assert.ok(since !== null && since !== undefined, "the since-you-looked rule is in a row");
+      assert.equal(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
+      assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
+    },
+  ));

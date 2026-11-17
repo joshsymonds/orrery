@@ -44,6 +44,7 @@ func integrateFlow() workflow.Workflow {
 type integrateOptions struct {
 	pin       store.EpicWorkflow
 	viaRunner bool
+	repo      func(t *testing.T) (string, string)
 }
 
 // integrateOption sets one of integrateOptions before the test epic is stored.
@@ -52,6 +53,11 @@ type integrateOption func(*integrateOptions)
 // pinnedTo pins the test epic to pin, the workflow it runs.
 func pinnedTo(pin store.EpicWorkflow) integrateOption {
 	return func(o *integrateOptions) { o.pin = pin }
+}
+
+// madeBy makes the world's scratch repository and the epic's base with repo, in place of nodeRepo.
+func madeBy(repo func(t *testing.T) (string, string)) integrateOption {
+	return func(o *integrateOptions) { o.repo = repo }
 }
 
 // viaRunnerPass makes each pass of the world go through Runner.Pass, which loads the epic's pinned workflow, rather than
@@ -84,7 +90,11 @@ func newIntegrateWorld(t *testing.T, opts ...integrateOption) *integrateWorld {
 		opt(&o)
 	}
 	s, path := openNodeStore(t)
-	repo, base := nodeRepo(t)
+	makeRepo := nodeRepo
+	if o.repo != nil {
+		makeRepo = o.repo
+	}
+	repo, base := makeRepo(t)
 	nodeGit(t, repo, "update-ref", integrateBranch, base)
 	if err := s.CreateEpic(context.Background(), store.EpicRow{
 		ID: runEpic, Repository: repo, Base: base, Title: "Integrate the batches", Phase: runPhase,

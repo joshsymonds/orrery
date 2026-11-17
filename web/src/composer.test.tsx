@@ -121,7 +121,8 @@ function queuedMessage(text: string, canceled = false): WaitingMessage {
   return create(WaitingMessageSchema, { text, canceled });
 }
 
-// queuedRows reads each drawn queued message as its tag, its words, its text and whether it is marked canceled.
+// queuedRows reads each drawn queued message as its tag (empty when it has none), its words, its text and whether it is
+// marked canceled.
 function queuedRows(container: HTMLElement): { tag: string; words: string; text: string; canceled: boolean }[] {
   return Array.from(container.querySelectorAll("li.queued"), (row) => ({
     tag: row.querySelector(".tag")?.textContent ?? "",
@@ -623,17 +624,28 @@ test("a click on the send button with a blank box sends nothing", async () => {
   });
 });
 
-test("queued messages draw above the input in the given order, each tagged, a canceled one marked", async () => {
+test("GhostQueued: queued messages draw below one head in the given order, no waiting row tagged, a canceled one marked", async () => {
   const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
   await withComposer({ queued }, async (_box, container) => {
     assert.deepEqual(queuedRows(container), [
-      { tag: "queued", words: queuedWords, text: "first", canceled: false },
+      { tag: "", words: queuedWords, text: "first", canceled: false },
       { tag: "canceled", words: "", text: "second", canceled: true },
-      { tag: "queued", words: queuedWords, text: "third", canceled: false },
+      { tag: "", words: queuedWords, text: "third", canceled: false },
     ]);
     const root = container.querySelector(".compose");
     assert.ok(root, "the composer renders its root");
     assert.deepEqual(Array.from(root.children, (child) => child.className), ["queue", "composer edge-idle"]);
+  });
+});
+
+test("GhostQueued: one queue head carries the count of every docked row, canceled ones included", async () => {
+  const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
+  await withComposer({ queued }, async (_box, container) => {
+    const heads = container.querySelectorAll(".queue .queue-head");
+    assert.equal(heads.length, 1, "the queue draws one head");
+    assert.equal(heads[0]?.textContent, "3 queued", "the head counts all three rows");
+    assert.equal(heads[0], container.querySelector(".queue")?.firstElementChild, "the head opens the queue");
+    assert.equal(container.querySelectorAll("li.queued").length, 3, "the head is not drawn as a row");
   });
 });
 
@@ -735,9 +747,7 @@ for (const { kind, pull } of [
         await type(box, "hello");
         await press(box, "Enter");
         await settleSends();
-        assert.deepEqual(queuedRows(container), [
-          { tag: "queued", words: queuedWords, text: "hello", canceled: false },
-        ]);
+        assert.deepEqual(queuedRows(container), [{ tag: "", words: queuedWords, text: "hello", canceled: false }]);
         const root = container.querySelector(".compose");
         assert.ok(root, "the composer renders its root");
         assert.equal(root.children[0]?.className, "queue", "the queue sits above the box");
@@ -758,13 +768,13 @@ test("a pane's queued message with the text a send drew above the box is drawn o
       await press(box, "Enter");
       await settleSends();
       await rerender({ queued: [queuedMessage("hello")] });
-      assert.deepEqual(queuedRows(container), [{ tag: "queued", words: queuedWords, text: "hello", canceled: false }]);
+      assert.deepEqual(queuedRows(container), [{ tag: "", words: queuedWords, text: "hello", canceled: false }]);
       await rerender({ queued: [queuedMessage("hello", true)] });
       assert.deepEqual(
         queuedRows(container).map((row) => [row.tag, row.text]),
         [
           ["canceled", "hello"],
-          ["queued", "hello"],
+          ["", "hello"],
         ],
         "a canceled message with the same text does not stand for the sent one",
       );
@@ -781,7 +791,7 @@ test("a held message draws one queued row, and the local entry the held set carr
       await settleSends();
       assert.equal(queuedRows(container).length, 1, "the sent message is queued");
       await rerender({ held: [create(HeldMessageSchema, { promptId: "p1", text: "hello" })] });
-      assert.deepEqual(queuedRows(container), [{ tag: "queued", words: queuedWords, text: "hello", canceled: false }]);
+      assert.deepEqual(queuedRows(container), [{ tag: "", words: queuedWords, text: "hello", canceled: false }]);
     },
   );
 });

@@ -80,7 +80,7 @@ func TestAttentionReportsParkPauseOpenQuestionsAndTheLatestEndedTurn(t *testing.
 		t.Fatalf("PauseEpic: %v", err)
 	}
 	parkedAt := completedAt().Add(2 * time.Minute)
-	if err := s.ParkEpic(ctx, id, "credit ran out", parkedAt); err != nil {
+	if err := s.ParkEpic(ctx, id, ParkClassBranch, "credit ran out", parkedAt); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 

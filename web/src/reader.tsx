@@ -21,11 +21,13 @@ const toolRunMinimum = 3;
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
-// fold into one run line that opens to a line per call.
+// fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
+// it and no question drawn, carries the running rail and mark, and so does a run that holds one.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
-// round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
+// a button. A prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
+// With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
+// round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
 // reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
 // that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
@@ -138,6 +140,9 @@ export function Reader({
   const newIndex = conversation.items.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt);
   const results = resultsByCall(conversation.items);
   const items = conversation.items;
+  const liveBlocks = conversation.unfinished.filter((block) => block.kind === "text" || block.kind === "thinking");
+  // A question or live text drawn after the items ends the calls, so none of them is running.
+  const running = runningCalls(items, results, question !== null || liveBlocks.length > 0);
   const rows: JSX.Element[] = [];
   groupRows(items, newIndex).forEach((group) => {
     const [first] = group;
@@ -145,7 +150,12 @@ export function Reader({
       rows.push(<NewRule key="new-rule" />);
     }
     if (group.length >= toolRunMinimum) {
-      const calls = group.map((index) => ({ key: keys[index], item: items[index], result: results.get(index) }));
+      const calls = group.map((index) => ({
+        key: keys[index],
+        item: items[index],
+        result: results.get(index),
+        running: running.has(index),
+      }));
       rows.push(<ToolRun key={keys[first]} calls={calls} />);
       return;
     }
@@ -154,6 +164,7 @@ export function Reader({
         key={keys[first]}
         item={items[first]}
         result={results.get(first)}
+        running={running.has(first)}
         open={open}
         step={step}
         onToggleOpen={onToggleOpen}
@@ -161,9 +172,7 @@ export function Reader({
     );
   });
   const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
-  const live = conversation.unfinished
-    .filter((block) => block.kind === "text" || block.kind === "thinking")
-    .map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
+  const live = liveBlocks.map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
   return (
     <div class="reader" ref={root} onScroll={followScroll}>
       {rows}
@@ -292,7 +301,7 @@ function OptionButton({
 // a mark reading sending. Its text draws through Markdown, as a prompt's does.
 function SendingRow({ text }: { text: string }) {
   return (
-    <div class="t sending-row">
+    <div class="t owner-turn sending-row">
       <span class="gut sending">sending</span>
       <div class="body">
         <div class="you">
@@ -307,21 +316,24 @@ function SendingRow({ text }: { text: string }) {
 function ItemRow({
   item,
   result,
+  running,
   open,
   step,
   onToggleOpen,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
+  running: boolean;
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
 }) {
+  // Its row carries the owner-turn class, which sets the gap above it.
   return (
-    <div class="t">
+    <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
-        <ItemBody item={item} result={result} open={open} step={step} onToggleOpen={onToggleOpen} />
+        <ItemBody item={item} result={result} running={running} open={open} step={step} onToggleOpen={onToggleOpen} />
       </div>
     </div>
   );
@@ -330,30 +342,40 @@ function ItemRow({
 function ItemBody({
   item,
   result,
+  running,
   open,
   step,
   onToggleOpen,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
+  running: boolean;
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
 }) {
   switch (item.kind) {
     case "prompt":
-      if (step === undefined || item.sender === "owner") {
+      if (item.sender === "event") {
         return (
-          <div class="you">
-            <small>YOU</small>
+          <div class="event">
+            <small>EVENT</small>
             <ReplyMarkdown text={item.text} />
           </div>
         );
       }
-      return <StepPrompt item={item} checks={step.checks} />;
+      if (step !== undefined && !ownersTurn(item, step)) {
+        return <StepPrompt item={item} checks={step.checks} />;
+      }
+      return (
+        <div class="you">
+          <small>YOU</small>
+          <ReplyMarkdown text={item.text} />
+        </div>
+      );
     case "tool":
     case "question":
-      return <CallRow item={item} result={result} />;
+      return <CallRow item={item} result={result} running={running} />;
     case "notice":
       return (
         <div class={item.error ? "notice err" : "notice"}>
@@ -366,6 +388,12 @@ function ItemBody({
     default:
       return <ReplyMarkdown text={item.text} />;
   }
+}
+
+// ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
+// an event did not send. Its row carries the owner-turn class, and its body draws as YOU.
+function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
+  return item.kind === "prompt" && item.sender !== "event" && (step === undefined || item.sender === "owner");
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
@@ -468,16 +496,26 @@ function Disclosure({
 }
 
 // CallRow draws a tool or question item as one line of its tool and its input or question. A call with a result is a
-// button: a click shows the result under the line, and a second click folds it again. A failed result marks the line.
-function CallRow({ item, result }: { item: ConversationItem; result: ConversationItem | undefined }) {
+// button: a click shows the result under the line, and a second click folds it again. A failed result marks the line
+// with ✗. A running call's line carries the running class, which draws its rail, and the running mark.
+function CallRow({
+  item,
+  result,
+  running,
+}: {
+  item: ConversationItem;
+  result: ConversationItem | undefined;
+  running: boolean;
+}) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
-  const className = `call${item.kind === "question" ? " question" : ""}${flashing ? " flash" : ""}`;
+  const className = `call${running ? " running" : ""}${flashing ? " flash" : ""}`;
   const line = (
     <>
       <b>{item.tool}</b>
       <span class="in">{item.kind === "question" ? item.text : item.input}</span>
       {result?.error && <span class="fail">✗</span>}
+      {running && <span class="running-mark">running</span>}
     </>
   );
   if (result === undefined) {
@@ -500,27 +538,37 @@ function CallRow({ item, result }: { item: ConversationItem; result: Conversatio
   );
 }
 
-type RunCall = { key: string; item: ConversationItem; result: ConversationItem | undefined };
+type RunCall = { key: string; item: ConversationItem; result: ConversationItem | undefined; running: boolean };
 
-// ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and ✗ when any
-// call's result failed, else ✓. A click shows a line per call under it, each folding its own result, and a second click
-// folds them again.
+// ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and a trail of
+// one dot per call in call order. A failed call's dot is marked failed, and a running call's dot is marked running; a run
+// holding a running call carries the running class and mark too. A click shows a line per call under it, each folding
+// its own result, and a second click folds them again.
 function ToolRun({ calls }: { calls: RunCall[] }) {
   const [shown, setShown] = useState(false);
-  const failed = calls.some((call) => call.result?.error === true);
+  const running = calls.some((call) => call.running);
   return (
     <div class="t">
       <span class="gut" />
       <div class="body">
-        <button type="button" class="fold calls" onClick={() => setShown((value) => !value)}>
+        <button
+          type="button"
+          class={running ? "fold calls running" : "fold calls"}
+          onClick={() => setShown((value) => !value)}
+        >
           <b>{`${calls.length} tool calls`}</b>
           <span class="names">{toolCounts(calls)}</span>
-          {failed ? <span class="bad">✗</span> : <span class="ok">✓</span>}
+          {running && <span class="running-mark">running</span>}
+          <span class="trail">
+            {calls.map((call) => (
+              <span key={call.key} class={dotClass(call)} />
+            ))}
+          </span>
         </button>
         {shown && (
           <div class="calls">
             {calls.map((call) => (
-              <CallRow key={call.key} item={call.item} result={call.result} />
+              <CallRow key={call.key} item={call.item} result={call.result} running={call.running} />
             ))}
           </div>
         )}
@@ -536,6 +584,15 @@ function toolCounts(calls: RunCall[]): string {
     counts.set(call.item.tool, (counts.get(call.item.tool) ?? 0) + 1);
   }
   return [...counts].map(([tool, count]) => (count > 1 ? `${tool} ×${count}` : tool)).join(", ");
+}
+
+// dotClass is the class of a call's dot in a run's trail: running while the call has no result, failed when its result
+// failed, and plain when it succeeded.
+function dotClass(call: RunCall): string {
+  if (call.running) {
+    return "dot running";
+  }
+  return call.result?.error === true ? "dot failed" : "dot";
 }
 
 // LiveRow draws one unfinished block: a text block as it streams, a thinking block as a folded row.
@@ -675,6 +732,29 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
   });
   endRun();
   return rows;
+}
+
+// runningCalls returns the indices of the tool calls that are running: each has no result and is followed by nothing
+// but tool calls and results. When something follows the items, a question or live text, no call is running.
+function runningCalls(
+  items: ConversationItem[],
+  results: Map<number, ConversationItem>,
+  somethingFollows: boolean,
+): Set<number> {
+  const running = new Set<number>();
+  if (somethingFollows) {
+    return running;
+  }
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const { kind } = items[index];
+    if (kind !== "tool" && kind !== "result") {
+      break;
+    }
+    if (kind === "tool" && !results.has(index)) {
+      running.add(index);
+    }
+  }
+  return running;
 }
 
 // itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top or prepends

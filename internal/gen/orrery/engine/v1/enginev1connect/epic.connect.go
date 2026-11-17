@@ -57,8 +57,16 @@ const (
 	EpicsFollowEpicsProcedure = "/orrery.engine.v1.Epics/FollowEpics"
 	// EpicsReleaseEpicProcedure is the fully-qualified name of the Epics's ReleaseEpic RPC.
 	EpicsReleaseEpicProcedure = "/orrery.engine.v1.Epics/ReleaseEpic"
+	// EpicsCloseEpicProcedure is the fully-qualified name of the Epics's CloseEpic RPC.
+	EpicsCloseEpicProcedure = "/orrery.engine.v1.Epics/CloseEpic"
+	// EpicsAmendEvidenceProcedure is the fully-qualified name of the Epics's AmendEvidence RPC.
+	EpicsAmendEvidenceProcedure = "/orrery.engine.v1.Epics/AmendEvidence"
 	// EpicsSeeEpicProcedure is the fully-qualified name of the Epics's SeeEpic RPC.
 	EpicsSeeEpicProcedure = "/orrery.engine.v1.Epics/SeeEpic"
+	// EpicsArchiveRowProcedure is the fully-qualified name of the Epics's ArchiveRow RPC.
+	EpicsArchiveRowProcedure = "/orrery.engine.v1.Epics/ArchiveRow"
+	// EpicsUnarchiveRowProcedure is the fully-qualified name of the Epics's UnarchiveRow RPC.
+	EpicsUnarchiveRowProcedure = "/orrery.engine.v1.Epics/UnarchiveRow"
 	// EvidenceRunEvidenceProcedure is the fully-qualified name of the Evidence's RunEvidence RPC.
 	EvidenceRunEvidenceProcedure = "/orrery.engine.v1.Evidence/RunEvidence"
 	// EvidenceListEvidenceProcedure is the fully-qualified name of the Evidence's ListEvidence RPC.
@@ -95,8 +103,24 @@ type EpicsClient interface {
 	// undo-none release steps it names. An epic that ended with gaps is released on the owner's word, logged as the
 	// owner's decision, and names no undo-none step. It returns the stored epic.
 	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
+	// CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
+	// its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
+	// planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+	CloseEpic(context.Context, *connect.Request[v1.CloseEpicRequest]) (*connect.Response[v1.CloseEpicResponse], error)
+	// AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
+	// created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
+	// of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
+	// amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
+	// change the conclusion; any other call amends as the owner, who may.
+	AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error)
 	// SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
 	SeeEpic(context.Context, *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error)
+	// ArchiveRow marks the list row of kind and id archived, at the time of the call, and answers an empty reply. kind is
+	// epic, session or headless. A row needs no table of its own: an epic with only a record is archived by its id.
+	ArchiveRow(context.Context, *connect.Request[v1.ArchiveRowRequest]) (*connect.Response[v1.ArchiveRowResponse], error)
+	// UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
+	// those of ArchiveRow.
+	UnarchiveRow(context.Context, *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.engine.v1.Epics service. By default, it uses
@@ -176,10 +200,34 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("ReleaseEpic")),
 			connect.WithClientOptions(opts...),
 		),
+		closeEpic: connect.NewClient[v1.CloseEpicRequest, v1.CloseEpicResponse](
+			httpClient,
+			baseURL+EpicsCloseEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("CloseEpic")),
+			connect.WithClientOptions(opts...),
+		),
+		amendEvidence: connect.NewClient[v1.AmendEvidenceRequest, v1.AmendEvidenceResponse](
+			httpClient,
+			baseURL+EpicsAmendEvidenceProcedure,
+			connect.WithSchema(epicsMethods.ByName("AmendEvidence")),
+			connect.WithClientOptions(opts...),
+		),
 		seeEpic: connect.NewClient[v1.SeeEpicRequest, v1.SeeEpicResponse](
 			httpClient,
 			baseURL+EpicsSeeEpicProcedure,
 			connect.WithSchema(epicsMethods.ByName("SeeEpic")),
+			connect.WithClientOptions(opts...),
+		),
+		archiveRow: connect.NewClient[v1.ArchiveRowRequest, v1.ArchiveRowResponse](
+			httpClient,
+			baseURL+EpicsArchiveRowProcedure,
+			connect.WithSchema(epicsMethods.ByName("ArchiveRow")),
+			connect.WithClientOptions(opts...),
+		),
+		unarchiveRow: connect.NewClient[v1.UnarchiveRowRequest, v1.UnarchiveRowResponse](
+			httpClient,
+			baseURL+EpicsUnarchiveRowProcedure,
+			connect.WithSchema(epicsMethods.ByName("UnarchiveRow")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -187,18 +235,22 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 
 // epicsClient implements EpicsClient.
 type epicsClient struct {
-	createEpic  *connect.Client[v1.CreateEpicRequest, v1.CreateEpicResponse]
-	getEpic     *connect.Client[v1.GetEpicRequest, v1.GetEpicResponse]
-	listEpics   *connect.Client[v1.ListEpicsRequest, v1.ListEpicsResponse]
-	answerEpic  *connect.Client[v1.AnswerEpicRequest, v1.AnswerEpicResponse]
-	pauseEpic   *connect.Client[v1.PauseEpicRequest, v1.PauseEpicResponse]
-	resumeEpic  *connect.Client[v1.ResumeEpicRequest, v1.ResumeEpicResponse]
-	stopEpic    *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
-	retryEpic   *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
-	kickEpic    *connect.Client[v1.KickEpicRequest, v1.KickEpicResponse]
-	followEpics *connect.Client[v1.FollowEpicsRequest, v1.FollowEpicsResponse]
-	releaseEpic *connect.Client[v1.ReleaseEpicRequest, v1.ReleaseEpicResponse]
-	seeEpic     *connect.Client[v1.SeeEpicRequest, v1.SeeEpicResponse]
+	createEpic    *connect.Client[v1.CreateEpicRequest, v1.CreateEpicResponse]
+	getEpic       *connect.Client[v1.GetEpicRequest, v1.GetEpicResponse]
+	listEpics     *connect.Client[v1.ListEpicsRequest, v1.ListEpicsResponse]
+	answerEpic    *connect.Client[v1.AnswerEpicRequest, v1.AnswerEpicResponse]
+	pauseEpic     *connect.Client[v1.PauseEpicRequest, v1.PauseEpicResponse]
+	resumeEpic    *connect.Client[v1.ResumeEpicRequest, v1.ResumeEpicResponse]
+	stopEpic      *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
+	retryEpic     *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
+	kickEpic      *connect.Client[v1.KickEpicRequest, v1.KickEpicResponse]
+	followEpics   *connect.Client[v1.FollowEpicsRequest, v1.FollowEpicsResponse]
+	releaseEpic   *connect.Client[v1.ReleaseEpicRequest, v1.ReleaseEpicResponse]
+	closeEpic     *connect.Client[v1.CloseEpicRequest, v1.CloseEpicResponse]
+	amendEvidence *connect.Client[v1.AmendEvidenceRequest, v1.AmendEvidenceResponse]
+	seeEpic       *connect.Client[v1.SeeEpicRequest, v1.SeeEpicResponse]
+	archiveRow    *connect.Client[v1.ArchiveRowRequest, v1.ArchiveRowResponse]
+	unarchiveRow  *connect.Client[v1.UnarchiveRowRequest, v1.UnarchiveRowResponse]
 }
 
 // CreateEpic calls orrery.engine.v1.Epics.CreateEpic.
@@ -256,9 +308,29 @@ func (c *epicsClient) ReleaseEpic(ctx context.Context, req *connect.Request[v1.R
 	return c.releaseEpic.CallUnary(ctx, req)
 }
 
+// CloseEpic calls orrery.engine.v1.Epics.CloseEpic.
+func (c *epicsClient) CloseEpic(ctx context.Context, req *connect.Request[v1.CloseEpicRequest]) (*connect.Response[v1.CloseEpicResponse], error) {
+	return c.closeEpic.CallUnary(ctx, req)
+}
+
+// AmendEvidence calls orrery.engine.v1.Epics.AmendEvidence.
+func (c *epicsClient) AmendEvidence(ctx context.Context, req *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	return c.amendEvidence.CallUnary(ctx, req)
+}
+
 // SeeEpic calls orrery.engine.v1.Epics.SeeEpic.
 func (c *epicsClient) SeeEpic(ctx context.Context, req *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error) {
 	return c.seeEpic.CallUnary(ctx, req)
+}
+
+// ArchiveRow calls orrery.engine.v1.Epics.ArchiveRow.
+func (c *epicsClient) ArchiveRow(ctx context.Context, req *connect.Request[v1.ArchiveRowRequest]) (*connect.Response[v1.ArchiveRowResponse], error) {
+	return c.archiveRow.CallUnary(ctx, req)
+}
+
+// UnarchiveRow calls orrery.engine.v1.Epics.UnarchiveRow.
+func (c *epicsClient) UnarchiveRow(ctx context.Context, req *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	return c.unarchiveRow.CallUnary(ctx, req)
 }
 
 // EpicsHandler is an implementation of the orrery.engine.v1.Epics service.
@@ -288,8 +360,24 @@ type EpicsHandler interface {
 	// undo-none release steps it names. An epic that ended with gaps is released on the owner's word, logged as the
 	// owner's decision, and names no undo-none step. It returns the stored epic.
 	ReleaseEpic(context.Context, *connect.Request[v1.ReleaseEpicRequest]) (*connect.Response[v1.ReleaseEpicResponse], error)
+	// CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
+	// its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
+	// planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+	CloseEpic(context.Context, *connect.Request[v1.CloseEpicRequest]) (*connect.Response[v1.CloseEpicResponse], error)
+	// AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
+	// created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
+	// of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
+	// amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
+	// change the conclusion; any other call amends as the owner, who may.
+	AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error)
 	// SeeEpic records that the owner saw the stored epic, so its seen mark is the time of this call.
 	SeeEpic(context.Context, *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error)
+	// ArchiveRow marks the list row of kind and id archived, at the time of the call, and answers an empty reply. kind is
+	// epic, session or headless. A row needs no table of its own: an epic with only a record is archived by its id.
+	ArchiveRow(context.Context, *connect.Request[v1.ArchiveRowRequest]) (*connect.Response[v1.ArchiveRowResponse], error)
+	// UnarchiveRow clears the archive mark of the list row of kind and id, and answers an empty reply. The refusals are
+	// those of ArchiveRow.
+	UnarchiveRow(context.Context, *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -365,10 +453,34 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("ReleaseEpic")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsCloseEpicHandler := connect.NewUnaryHandler(
+		EpicsCloseEpicProcedure,
+		svc.CloseEpic,
+		connect.WithSchema(epicsMethods.ByName("CloseEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsAmendEvidenceHandler := connect.NewUnaryHandler(
+		EpicsAmendEvidenceProcedure,
+		svc.AmendEvidence,
+		connect.WithSchema(epicsMethods.ByName("AmendEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
 	epicsSeeEpicHandler := connect.NewUnaryHandler(
 		EpicsSeeEpicProcedure,
 		svc.SeeEpic,
 		connect.WithSchema(epicsMethods.ByName("SeeEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsArchiveRowHandler := connect.NewUnaryHandler(
+		EpicsArchiveRowProcedure,
+		svc.ArchiveRow,
+		connect.WithSchema(epicsMethods.ByName("ArchiveRow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsUnarchiveRowHandler := connect.NewUnaryHandler(
+		EpicsUnarchiveRowProcedure,
+		svc.UnarchiveRow,
+		connect.WithSchema(epicsMethods.ByName("UnarchiveRow")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/orrery.engine.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -395,8 +507,16 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsFollowEpicsHandler.ServeHTTP(w, r)
 		case EpicsReleaseEpicProcedure:
 			epicsReleaseEpicHandler.ServeHTTP(w, r)
+		case EpicsCloseEpicProcedure:
+			epicsCloseEpicHandler.ServeHTTP(w, r)
+		case EpicsAmendEvidenceProcedure:
+			epicsAmendEvidenceHandler.ServeHTTP(w, r)
 		case EpicsSeeEpicProcedure:
 			epicsSeeEpicHandler.ServeHTTP(w, r)
+		case EpicsArchiveRowProcedure:
+			epicsArchiveRowHandler.ServeHTTP(w, r)
+		case EpicsUnarchiveRowProcedure:
+			epicsUnarchiveRowHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -450,8 +570,24 @@ func (UnimplementedEpicsHandler) ReleaseEpic(context.Context, *connect.Request[v
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.ReleaseEpic is not implemented"))
 }
 
+func (UnimplementedEpicsHandler) CloseEpic(context.Context, *connect.Request[v1.CloseEpicRequest]) (*connect.Response[v1.CloseEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.CloseEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) AmendEvidence(context.Context, *connect.Request[v1.AmendEvidenceRequest]) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.AmendEvidence is not implemented"))
+}
+
 func (UnimplementedEpicsHandler) SeeEpic(context.Context, *connect.Request[v1.SeeEpicRequest]) (*connect.Response[v1.SeeEpicResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.SeeEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) ArchiveRow(context.Context, *connect.Request[v1.ArchiveRowRequest]) (*connect.Response[v1.ArchiveRowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.ArchiveRow is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) UnarchiveRow(context.Context, *connect.Request[v1.UnarchiveRowRequest]) (*connect.Response[v1.UnarchiveRowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.UnarchiveRow is not implemented"))
 }
 
 // EvidenceClient is a client for the orrery.engine.v1.Evidence service.

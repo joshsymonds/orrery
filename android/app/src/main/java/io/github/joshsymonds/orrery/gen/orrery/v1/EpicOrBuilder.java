@@ -239,4 +239,14 @@ public interface EpicOrBuilder extends
    * @return The seen.
    */
   long getSeen();
+
+  /**
+   * <pre>
+   * True while the epic is archived: the owner archived it and has not unarchived it since.
+   * </pre>
+   *
+   * <code>bool archived = 15 [json_name = "archived"];</code>
+   * @return The archived.
+   */
+  boolean getArchived();
 }

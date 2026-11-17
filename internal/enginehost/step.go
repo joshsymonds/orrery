@@ -53,6 +53,8 @@ const stepDefaultWatchTick = 5 * time.Second
 // a detached worktree at Revision, which is removed when the step ends. Revision names the start commit and empty means
 // HEAD. DoneValue empty means "done", and ModelLimit zero means 60 minutes, the model-time limit the step is stored
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
+// Caller is the session or pane that started the step, which the step is stored with once it resolves to a sessions row
+// (see store.StepAdd).
 //
 // ID, when set, is the step's id in place of a fresh one. It must be 32 lowercase hex digits, the form a fresh id has,
 // or the start is refused with ErrBadStepID. A start under an id that a stored step already has, or that another start
@@ -107,19 +109,21 @@ type StepStart struct {
 	DoneValue   string
 	Epic        string
 	Task        string
+	Caller      store.EpicCaller
 	AgentGate   *gates.Gate
 	CommandGate *gates.Gate
 	ReturnCheck func(value json.RawMessage) []string
 }
 
 // StepStore reads the step rows Steps reports, the turn ends their sessions stored and the rate limits their sessions were
-// rejected with. *store.Store satisfies it.
+// rejected with, and marks an ended step read by its caller. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
 	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
+	MarkStepRead(ctx context.Context, id string, caller store.EpicCaller) (bool, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -286,6 +290,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
 		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
 		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
+		Caller: start.Caller,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,

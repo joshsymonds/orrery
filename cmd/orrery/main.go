@@ -131,6 +131,12 @@ subcommands:
                                                 release an epic that ended with gaps on your word, logged as your
                                                 decision (no --undo-none); each N runs that undo-none release step
                                                 (1-based) again
+  epic close ID --as superseded|shipped|abandoned [--by EPIC]
+                                                close an epic as superseded by EPIC (required), shipped by hand
+                                                or abandoned; its open questions are answered by the close
+  epic amend ID R<n> --item JSON [--reason TEXT]
+                                                amend R<n>'s evidence item to JSON; it applies only once the new
+                                                item's red at the epic's base is judged not to hold there
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
@@ -464,7 +470,8 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 		return fmt.Errorf("mcp: %w", err)
 	}
 	sessionSocket := protocol.SessionSocketPath(socket)
-	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)

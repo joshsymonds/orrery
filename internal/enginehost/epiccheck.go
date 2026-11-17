@@ -63,7 +63,10 @@ func checkEpic(ctx context.Context, req *v1.CreateEpicRequest, getenv func(strin
 	if err := checkEpicSections(contract); err != nil {
 		return err
 	}
-	return checkEpicDecisions(req.GetDecisions())
+	if err := checkEpicDecisions(req.GetDecisions()); err != nil {
+		return err
+	}
+	return checkContractLint(ctx, contract)
 }
 
 // checkEpicGateDefs refuses the contract's gates, then the done gates that name them and a contract that sets review

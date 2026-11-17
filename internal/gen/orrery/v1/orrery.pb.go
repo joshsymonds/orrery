@@ -141,7 +141,9 @@ type Session struct {
 	// The pane's @orrery_claude_session option.
 	ClaudeSession string `protobuf:"bytes,12,opt,name=claude_session,json=claudeSession,proto3" json:"claude_session,omitempty"`
 	// The pane's @orrery_transcript option.
-	Transcript    string `protobuf:"bytes,13,opt,name=transcript,proto3" json:"transcript,omitempty"`
+	Transcript string `protobuf:"bytes,13,opt,name=transcript,proto3" json:"transcript,omitempty"`
+	// True while the session is archived: the owner archived it and has not unarchived it since.
+	Archived      bool `protobuf:"varint,14,opt,name=archived,proto3" json:"archived,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -267,6 +269,13 @@ func (x *Session) GetTranscript() string {
 	return ""
 }
 
+func (x *Session) GetArchived() bool {
+	if x != nil {
+		return x.Archived
+	}
+	return false
+}
+
 // ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
 type ListHeadlessRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -374,7 +383,9 @@ type HeadlessSession struct {
 	Question string `protobuf:"bytes,8,opt,name=question,proto3" json:"question,omitempty"`
 	// The unix seconds of the newest main-conversation reply or unrefused request, or 0 when it has none. Unset in a
 	// ConversationState.
-	NewestReply   int64 `protobuf:"varint,9,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	NewestReply int64 `protobuf:"varint,9,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	// True while the headless session is archived: the owner archived it and has not unarchived it since.
+	Archived      bool `protobuf:"varint,10,opt,name=archived,proto3" json:"archived,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -470,6 +481,13 @@ func (x *HeadlessSession) GetNewestReply() int64 {
 		return x.NewestReply
 	}
 	return 0
+}
+
+func (x *HeadlessSession) GetArchived() bool {
+	if x != nil {
+		return x.Archived
+	}
+	return false
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -2349,7 +2367,7 @@ type EnginePrompt struct {
 	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	// The client-chosen prompt id, or empty when none was given.
 	PromptId string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
-	// Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+	// Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
 	Sender string `protobuf:"bytes,3,opt,name=sender,proto3" json:"sender,omitempty"`
 	// The check round a send-back returns, or 0 otherwise.
 	Round         uint32 `protobuf:"varint,4,opt,name=round,proto3" json:"round,omitempty"`
@@ -3445,7 +3463,7 @@ type ConversationItem struct {
 	Trigger string `protobuf:"bytes,9,opt,name=trigger,proto3" json:"trigger,omitempty"`
 	// The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
 	Tokens int64 `protobuf:"varint,10,opt,name=tokens,proto3" json:"tokens,omitempty"`
-	// Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+	// Who sent a prompt item's prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
 	Sender string `protobuf:"bytes,11,opt,name=sender,proto3" json:"sender,omitempty"`
 	// The check round a send-back returns on a prompt item, or 0 otherwise.
 	Round uint32 `protobuf:"varint,12,opt,name=round,proto3" json:"round,omitempty"`
@@ -5898,7 +5916,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\vListRequest\"P\n" +
 	"\fListResponse\x12.\n" +
 	"\bsessions\x18\x01 \x03(\v2\x12.orrery.v1.SessionR\bsessions\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xca\x02\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xe6\x02\n" +
 	"\aSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06server\x18\x02 \x01(\tR\x06server\x12\x12\n" +
@@ -5915,10 +5933,11 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x0eclaude_session\x18\f \x01(\tR\rclaudeSession\x12\x1e\n" +
 	"\n" +
 	"transcript\x18\r \x01(\tR\n" +
-	"transcript\"\x15\n" +
+	"transcript\x12\x1a\n" +
+	"\barchived\x18\x0e \x01(\bR\barchived\"\x15\n" +
 	"\x13ListHeadlessRequest\"N\n" +
 	"\x14ListHeadlessResponse\x126\n" +
-	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\xe6\x01\n" +
+	"\bsessions\x18\x01 \x03(\v2\x1a.orrery.v1.HeadlessSessionR\bsessions\"\x82\x02\n" +
 	"\x0fHeadlessSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x14\n" +
@@ -5928,7 +5947,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04seen\x18\x06 \x01(\x03R\x04seen\x12\x18\n" +
 	"\asummary\x18\a \x01(\tR\asummary\x12\x1a\n" +
 	"\bquestion\x18\b \x01(\tR\bquestion\x12!\n" +
-	"\fnewest_reply\x18\t \x01(\x03R\vnewestReply\"^\n" +
+	"\fnewest_reply\x18\t \x01(\x03R\vnewestReply\x12\x1a\n" +
+	"\barchived\x18\n" +
+	" \x01(\bR\barchived\"^\n" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +

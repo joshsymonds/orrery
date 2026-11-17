@@ -72,6 +72,7 @@ type EngineSet struct {
 const (
 	PromptSenderBrief  = "brief"
 	PromptSenderEngine = "engine"
+	PromptSenderEvent  = "event"
 	PromptSenderOwner  = "owner"
 )
 

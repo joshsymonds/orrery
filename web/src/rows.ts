@@ -1,5 +1,9 @@
 import type { HeadlessSession, Pane, Session } from "./gen/orrery/v1/orrery_pb";
 
+// The kind Epics.Archive takes to archive a row: session for a Sessions.List row, headless for a headless session, and
+// none for a pane, which is never archived.
+export type ArchiveKind = "session" | "headless" | "none";
+
 // One line of the list: a pane, or a headless session that names no pane.
 export interface Row {
   key: string;
@@ -17,6 +21,9 @@ export interface Row {
   changed: number;
   seen: number;
   unseen: boolean;
+  // Whether the owner archived the row. A pane is never archived.
+  archived: boolean;
+  archiveKind: ArchiveKind;
 }
 
 // A titled run of rows, in display order.
@@ -67,6 +74,8 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       changed,
       seen,
       unseen: isUnseen(pane.state, changed, seen),
+      archived: false,
+      archiveKind: "none",
     });
   }
   for (const session of sessions) {
@@ -89,6 +98,8 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),
+      archived: session.archived,
+      archiveKind: "session",
     });
   }
   for (const session of headless) {
@@ -108,9 +119,19 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),
+      archived: session.archived,
+      archiveKind: "headless",
     });
   }
   return rows;
+}
+
+// Splits rows into the rows the default views draw, which are not archived, and the archived rows, each in input order.
+export function splitArchived(rows: Row[]): { rows: Row[]; archived: Row[] } {
+  return {
+    rows: rows.filter((row) => !row.archived),
+    archived: rows.filter((row) => row.archived),
+  };
 }
 
 // Arranges rows into sections by attention, newest first within each section.

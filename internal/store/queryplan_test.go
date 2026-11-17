@@ -38,6 +38,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"Dirs":               {"ListKnownDirs"},
 		"EpicSessions":       {"ListEpicSessions"},
 		"HeldPrompts":        {"ListHeldPrompts"},
+		"ArchivedRows":       {"ListArchivedRows"},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 

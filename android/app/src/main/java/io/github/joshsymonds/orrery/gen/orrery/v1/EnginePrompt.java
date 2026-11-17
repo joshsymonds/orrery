@@ -161,7 +161,7 @@ public  final class EnginePrompt extends
   private java.lang.String sender_;
   /**
    * <pre>
-   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 3 [json_name = "sender"];</code>
@@ -173,7 +173,7 @@ public  final class EnginePrompt extends
   }
   /**
    * <pre>
-   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 3 [json_name = "sender"];</code>
@@ -186,7 +186,7 @@ public  final class EnginePrompt extends
   }
   /**
    * <pre>
-   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 3 [json_name = "sender"];</code>
@@ -200,7 +200,7 @@ public  final class EnginePrompt extends
   }
   /**
    * <pre>
-   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 3 [json_name = "sender"];</code>
@@ -211,7 +211,7 @@ public  final class EnginePrompt extends
   }
   /**
    * <pre>
-   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 3 [json_name = "sender"];</code>
@@ -503,7 +503,7 @@ public  final class EnginePrompt extends
 
     /**
      * <pre>
-     * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
      * </pre>
      *
      * <code>string sender = 3 [json_name = "sender"];</code>
@@ -515,7 +515,7 @@ public  final class EnginePrompt extends
     }
     /**
      * <pre>
-     * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
      * </pre>
      *
      * <code>string sender = 3 [json_name = "sender"];</code>
@@ -528,7 +528,7 @@ public  final class EnginePrompt extends
     }
     /**
      * <pre>
-     * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
      * </pre>
      *
      * <code>string sender = 3 [json_name = "sender"];</code>
@@ -543,7 +543,7 @@ public  final class EnginePrompt extends
     }
     /**
      * <pre>
-     * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
      * </pre>
      *
      * <code>string sender = 3 [json_name = "sender"];</code>
@@ -556,7 +556,7 @@ public  final class EnginePrompt extends
     }
     /**
      * <pre>
-     * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
      * </pre>
      *
      * <code>string sender = 3 [json_name = "sender"];</code>
