@@ -1098,7 +1098,7 @@ SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, se
            WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
            ORDER BY events.seq LIMIT 1
        ), '') AS TEXT) AS first_prompt,
-       epic_sessions.call, epic_sessions.at
+       epic_sessions.call, epic_sessions.at, epic_sessions.creator
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?

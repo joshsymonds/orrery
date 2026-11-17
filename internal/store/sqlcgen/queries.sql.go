@@ -4564,7 +4564,7 @@ SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, se
            WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
            ORDER BY events.seq LIMIT 1
        ), '') AS TEXT) AS first_prompt,
-       epic_sessions.call, epic_sessions.at
+       epic_sessions.call, epic_sessions.at, epic_sessions.creator
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?
@@ -4582,6 +4582,7 @@ type ListEpicSessionsRow struct {
 	FirstPrompt string
 	Call        string
 	At          int64
+	Creator     int64
 }
 
 func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpicSessionsRow, error) {
@@ -4604,6 +4605,7 @@ func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpic
 			&i.FirstPrompt,
 			&i.Call,
 			&i.At,
+			&i.Creator,
 		); err != nil {
 			return nil, err
 		}

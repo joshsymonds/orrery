@@ -161,6 +161,10 @@ message EpicSession {
 
   // When the session's newest epic call was made, in unix seconds.
   int64 at = 5;
+
+  // Whether the session created the epic: its epic_create call created it. A session that called later is not the
+  // creator.
+  bool creator = 6;
 }
 
 // EpicQuestion is one open question a planner turn of an orreryd epic asked.
