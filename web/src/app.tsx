@@ -1,5 +1,5 @@
 import { Fragment } from "preact";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
@@ -21,6 +21,7 @@ import {
   type StepItem,
   withEpicsGroup,
 } from "./epics";
+import { FindBar, findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
@@ -67,6 +68,14 @@ interface EscapeTarget {
 interface BoxOpen {
   column: "cursor" | "pinned";
   key: string;
+}
+
+// A column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an index into
+// the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
+interface FindState {
+  key: string;
+  query: string;
+  current: number;
 }
 
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
@@ -247,6 +256,9 @@ export function App({
   const [pinStream, setPinStream] = useState<Stream | null>(null);
   const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
   const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The find bars of the cursor's and the pinned column, each open on the row it was opened on. null is a shut bar.
+  const [cursorFind, setCursorFind] = useState<FindState | null>(null);
+  const [pinnedFind, setPinnedFind] = useState<FindState | null>(null);
   // The reply box an opening asks to focus: a click or Enter on a row, or | on a row. The layout effect takes it once the
   // render that draws the box has run.
   const [boxOpened, setBoxOpened] = useState<BoxOpen | null>(null);
@@ -472,6 +484,14 @@ export function App({
     setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
   }, [rows]);
 
+  // A find bar closes when its column's row changes: the cursor moves to another entry, or the pin closes or moves.
+  useEffect(() => {
+    setCursorFind((previous) => (previous !== null && previous.key !== cursorRowKey ? null : previous));
+  }, [cursorRowKey]);
+  useEffect(() => {
+    setPinnedFind((previous) => (previous !== null && previous.key !== pinnedKey ? null : previous));
+  }, [pinnedKey]);
+
   // The history is read page by page for the epic entry the cursor rests on. A read that ends after the cursor has
   // moved on is dropped.
   useEffect(() => {
@@ -683,6 +703,20 @@ export function App({
   // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+  // A column's find bar shows only while its row is the column's. Its matches are the query's over the column's
+  // conversation, and its current match is clamped to them where it is read.
+  const cursorFinding = cursorFind !== null && cursorFind.key === cursorRowKey ? cursorFind : null;
+  const cursorMatches = useMemo(
+    () => findMatches(cursorConversation?.items ?? [], cursorFinding?.query ?? ""),
+    [cursorConversation, cursorFinding?.query],
+  );
+  const cursorCurrent = cursorFinding === null ? -1 : findCurrent(cursorFinding.current, cursorMatches.length);
+  const pinnedFinding = pinnedFind !== null && pinnedFind.key === pinnedKey ? pinnedFind : null;
+  const pinnedMatches = useMemo(
+    () => findMatches(pinnedConversation?.items ?? [], pinnedFinding?.query ?? ""),
+    [pinnedConversation, pinnedFinding?.query],
+  );
+  const pinnedCurrent = pinnedFinding === null ? -1 : findCurrent(pinnedFinding.current, pinnedMatches.length);
   // The messages each reader shows as sending: its row's entries the conversation it holds has not sent yet.
   const cursorSending =
     cursorRow === null ? [] : unsentEntries(sendingByRow.get(cursorRow.key) ?? [], cursorConversation, cursorRow.kind);
@@ -1423,6 +1457,30 @@ export function App({
               <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
             </ConversationHead>
           )}
+          {cursorFinding !== null && (
+            <FindBar
+              query={cursorFinding.query}
+              matches={cursorMatches.length}
+              current={cursorCurrent}
+              onQuery={(query) => setCursorFind({ key: cursorFinding.key, query, current: 0 })}
+              onNext={() =>
+                setCursorFind({
+                  ...cursorFinding,
+                  current: stepCurrent(cursorCurrent, cursorMatches.length, 1),
+                })
+              }
+              onPrevious={() =>
+                setCursorFind({
+                  ...cursorFinding,
+                  current: stepCurrent(cursorCurrent, cursorMatches.length, -1),
+                })
+              }
+              onClose={() => {
+                setCursorFind(null);
+                composerInputs.current.get(cursorRowKey)?.focus();
+              }}
+            />
+          )}
           {cursorStep !== null && (
             <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
               <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
@@ -1441,6 +1499,11 @@ export function App({
                 cursorReader.current = handle;
               }}
               sending={cursorSending}
+              find={
+                cursorFinding === null
+                  ? undefined
+                  : { query: cursorFinding.query, matches: cursorMatches, current: cursorCurrent }
+              }
             />
           )}
           {cursorStep !== null && (
@@ -1467,6 +1530,7 @@ export function App({
                   newPromptId={actions.newPromptId}
                   register={(handle) => registerHandle(composerHandles, row.key, handle)}
                   onPage={(direction) => cursorReader.current?.page(direction) ?? false}
+                  onFind={() => setCursorFind({ key: row.key, query: "", current: 0 })}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
@@ -1515,6 +1579,30 @@ export function App({
               <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
             </ConversationHead>
           )}
+          {pinnedFinding !== null && (
+            <FindBar
+              query={pinnedFinding.query}
+              matches={pinnedMatches.length}
+              current={pinnedCurrent}
+              onQuery={(query) => setPinnedFind({ key: pinnedFinding.key, query, current: 0 })}
+              onNext={() =>
+                setPinnedFind({
+                  ...pinnedFinding,
+                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, 1),
+                })
+              }
+              onPrevious={() =>
+                setPinnedFind({
+                  ...pinnedFinding,
+                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, -1),
+                })
+              }
+              onClose={() => {
+                setPinnedFind(null);
+                pinnedInputs.current.get(pinnedKey)?.focus();
+              }}
+            />
+          )}
           {pinned !== null && (
             <Reader
               conversation={pinnedConversation}
@@ -1525,6 +1613,11 @@ export function App({
                 pinnedReader.current = handle;
               }}
               sending={pinnedSending}
+              find={
+                pinnedFinding === null
+                  ? undefined
+                  : { query: pinnedFinding.query, matches: pinnedMatches, current: pinnedCurrent }
+              }
             />
           )}
           <div class="send">
@@ -1538,6 +1631,7 @@ export function App({
                   newPromptId={actions.newPromptId}
                   register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
                   onPage={(direction) => pinnedReader.current?.page(direction) ?? false}
+                  onFind={() => setPinnedFind({ key: row.key, query: "", current: 0 })}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
                   held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
@@ -2018,6 +2112,16 @@ function isLinkClick(event: Event): boolean {
 
 function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
+}
+
+// findCurrent is the match a find bar shows: the stored one, clamped into the matches, and -1 when none match.
+function findCurrent(stored: number, matches: number): number {
+  return matches === 0 ? -1 : clamp(stored, matches);
+}
+
+// stepCurrent moves the current match by step, wrapping past either end. With no matches there is no match to move to.
+function stepCurrent(current: number, matches: number, step: number): number {
+  return matches === 0 ? -1 : (((current + step) % matches) + matches) % matches;
 }
 
 function sectionTitle(section: EpicSection): string {

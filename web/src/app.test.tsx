@@ -1757,7 +1757,11 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     assert.equal(cursorKey(container), "a");
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     assert.equal(document.activeElement === filterInput(container), false);
-    assert.equal(document.activeElement === box, true);
+    const bar = container.querySelector<HTMLInputElement>(".find input");
+    assert.ok(bar, "/ in the empty box opens the find bar");
+    assert.equal(document.activeElement === bar, true, "the find bar's input has focus");
+    await pressIn(bar, "Escape");
+    assert.equal(document.activeElement === box, true, "Escape in the find bar gives the empty box its focus back");
     await pressIn(box, "Escape");
     await until(t.signal, () => document.activeElement !== box, "the blur after the pull");
     assert.equal(document.activeElement === box, false);

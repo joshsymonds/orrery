@@ -5,9 +5,13 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
+import { App } from "./app";
+import { createClients, createTransport } from "./client";
 import { FindBar, findMatches } from "./find";
 import { ConversationItemSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
-import { installTestDom, removeTestDom } from "./testdom";
+import type { Row } from "./rows";
+import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { turn, until as waitUntil } from "./testwait";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -107,11 +111,14 @@ async function withFindBar(
   }
 }
 
-// press dispatches a keydown on target inside act, as the browser does: it bubbles from the element to the document.
-async function press(target: Element, key: string, init: KeyboardEventInit = {}): Promise<void> {
+// press dispatches a keydown on target inside act, as the browser does: it bubbles from the element to the document. It
+// returns the event, so a test can read whether a listener prevented it.
+async function press(target: Element, key: string, init: KeyboardEventInit = {}): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   await act(() => {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
+    target.dispatchEvent(event);
   });
+  return event;
 }
 
 // keysAtDocument records the key of each keydown that reaches the document, the page's own keydown listener's view.
@@ -166,3 +173,335 @@ test("TranscriptSearch: Escape calls close and does not reach a document keydown
     assert.deepEqual(reached, ["a"], "Escape does not reach the document");
   });
 });
+
+// The App tests below render the App over a fake server, as escape.test.tsx does, and drive its find bar over a
+// session's transcript. Each test's name carries the token TranscriptSearch.
+
+const now = 1000;
+const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
+const withdrawPath = "/orrery.v1.Control/Withdraw";
+const interruptPath = "/orrery.v1.Control/Interrupt";
+
+// One request the fake server received. A stream call has a controller until it ends.
+interface Call {
+  path: string;
+  controller: ReadableStreamDefaultController<Uint8Array> | null;
+}
+
+// FakeServer answers the App's calls on the Connect wire: unary calls with an empty JSON body, and WatchConversation
+// with a stream the test feeds through emit. Every call is recorded.
+class FakeServer {
+  readonly calls: Call[] = [];
+
+  readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    // A call's signal is the one the transport passed, so a stream that the App stops is not fed afterwards.
+    const signal = init?.signal ?? request.signal;
+    const path = new URL(request.url).pathname;
+    if (!path.endsWith("/WatchConversation")) {
+      this.calls.push({ path, controller: null });
+      return json({});
+    }
+    const call: Call = { path, controller: null };
+    this.calls.push(call);
+    signal.addEventListener("abort", () => {
+      call.controller = null;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        call.controller = controller;
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
+  };
+
+  readonly clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: this.fetch }));
+
+  callsTo(path: string): Call[] {
+    return this.calls.filter((call) => call.path === path);
+  }
+
+  emit(call: Call, message: object): void {
+    if (call.controller === null) {
+      throw new Error(`the stream to ${call.path} has ended`);
+    }
+    call.controller.enqueue(envelope(0, message));
+  }
+
+  closeStreams(): void {
+    for (const call of this.calls) {
+      if (call.controller !== null) {
+        call.controller.enqueue(envelope(2, {}));
+        call.controller.close();
+        call.controller = null;
+      }
+    }
+  }
+}
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function envelope(flag: number, message: object): Uint8Array {
+  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const bytes = new Uint8Array(5 + payload.byteLength);
+  bytes[0] = flag;
+  new DataView(bytes.buffer).setUint32(1, payload.byteLength);
+  bytes.set(payload, 5);
+  return bytes;
+}
+
+// row is a synthetic row over the given fields. Its changed and seen times are equal, so it reads as seen and arms no
+// seen dwell.
+function row(init: Partial<Row> & Pick<Row, "key">): Row {
+  return {
+    id: init.key,
+    kind: "pane",
+    label: init.key,
+    project: "/work/app",
+    host: "box",
+    state: "working",
+    summary: "",
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    archiveKind: "none",
+    ...init,
+  };
+}
+
+const paneRow = row({ key: "a", label: "api", state: "working", changed: 300, seen: 300 });
+const sessionRow = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  project: "",
+  host: "",
+  state: "working",
+  changed: 30,
+  seen: 30,
+});
+
+// transcript is the session's first page. The query "build" finds three matches: the reply's and the owner's prompt's
+// are drawn, and the third sits in the call of a run of three calls, which stays folded until the match moves into it.
+const transcript = [
+  { kind: "reply", text: "The **Build** passed." },
+  { kind: "prompt", sender: "owner", text: "rerun the BUILD" },
+  { kind: "tool", tool: "Read", id: "r1", input: "a.txt" },
+  { kind: "result", id: "r1", text: "alpha" },
+  { kind: "tool", tool: "Read", id: "r2", input: "b.txt" },
+  { kind: "result", id: "r2", text: "beta" },
+  { kind: "tool", tool: "Bash", id: "b1", input: "make build" },
+  { kind: "result", id: "b1", text: "ok" },
+  { kind: "reply", text: "all done" },
+];
+
+// until waits as escape.test.tsx's does: each round steps by turn inside act, so the renders it lets through apply. It
+// reads no clock and arms no timer.
+function until(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
+  return waitUntil(signal, check, what, { step: () => act(turn) });
+}
+
+// settle lets the work a call starts run, so a call the test expects to be absent has time to be made.
+async function settle(): Promise<void> {
+  for (let round = 0; round < 10; round++) {
+    await act(turn);
+  }
+}
+
+// withApp mounts the App over the rows and a fake server in a fresh DOM and runs check. The App is unmounted, its
+// streams closed and the DOM removed when the test ends, or as soon as the test's signal aborts first.
+async function withApp(
+  signal: AbortSignal,
+  rows: Row[],
+  check: (container: HTMLElement, fake: FakeServer) => Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const fake = new FakeServer();
+  const teardown = teardownOnce(signal, async () => {
+    await act(() => {
+      render(null, container);
+    });
+    fake.closeStreams();
+    container.remove();
+    await removeTestDom(window);
+  });
+  try {
+    await act(() => {
+      render(<App rows={rows} error="" now={now} clients={fake.clients} />, container);
+    });
+    await check(container, fake);
+  } finally {
+    await teardown();
+  }
+}
+
+// typeInto sets a field's text and fires its input event, as typing does.
+async function typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
+  await act(() => {
+    field.value = text;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// clickRow clicks the list's row with the key, as a pointer click on it does.
+async function clickRow(container: HTMLElement, key: string): Promise<void> {
+  const element = container.querySelector(`[data-row][data-key="${key}"]`);
+  assert.ok(element, `the list draws the row ${key}`);
+  await act(() => {
+    element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+  });
+}
+
+// composer is the cursor row's reply box, the one that is drawn.
+function composer(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  assert.ok(box, "the cursor's row has a reply box");
+  return box;
+}
+
+function findBar(container: HTMLElement): Element | null {
+  return container.querySelector(".find");
+}
+
+function findInput(container: HTMLElement): HTMLInputElement {
+  const input = container.querySelector<HTMLInputElement>(".find input");
+  assert.ok(input, "the find bar is open");
+  return input;
+}
+
+function countText(container: HTMLElement): string | null {
+  return container.querySelector(".find .count")?.textContent ?? null;
+}
+
+// markTexts is the text of each mark the reader draws, in document order.
+function markTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[aria-label="reader"] mark')].map((mark) => mark.textContent ?? "");
+}
+
+// openTranscript waits for the cursor's session stream to open, then sends the transcript as its first page, and waits
+// until the reader draws it.
+async function openTranscript(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
+  await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+  fake.emit(fake.callsTo(sessionWatchPath)[0], { transcript: "s1.jsonl", seq: "1", reset: true, items: transcript });
+  await until(
+    signal,
+    () => container.querySelector('[aria-label="reader"]')?.textContent?.includes("all done") === true,
+    "the transcript",
+  );
+}
+
+// openFind focuses the cursor row's reply box, which is empty, and presses / in it: the find bar opens over the
+// transcript.
+async function openFind(container: HTMLElement): Promise<HTMLInputElement> {
+  await act(() => {
+    composer(container).focus();
+  });
+  await press(composer(container), "/");
+  return findInput(container);
+}
+
+test("TranscriptSearch: after a click on a session row, / in its focused empty reply box opens the find bar, the bar's input takes focus, and the box stays empty", (t) =>
+  withApp(t.signal, [paneRow, sessionRow], async (container) => {
+    await clickRow(container, sessionRow.key);
+    assert.equal(document.activeElement, composer(container), "the click focuses the row's reply box");
+    const event = await press(composer(container), "/");
+    assert.equal(event.defaultPrevented, true, "the slash is not typed");
+    assert.equal(document.activeElement, findInput(container), "the find bar's input has focus");
+    assert.equal(composer(container).value, "", "the reply box stays empty");
+  }));
+
+test("TranscriptSearch: a query marks the case-insensitive matches in a reply, a prompt and a call's input, and the bar counts a match in a closed fold", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    const input = await openFind(container);
+    await typeInto(input, "build");
+    assert.deepEqual(markTexts(container), ["Build", "BUILD"], "the reply's and the prompt's matches are marked");
+    assert.equal(
+      container.querySelector('[aria-label="reader"] mark.current')?.textContent,
+      "Build",
+      "the first match is current",
+    );
+    assert.equal(container.querySelector("div.calls"), null, "the run holding the third match stays folded");
+    assert.equal(countText(container), "1 of 3", "the match in the closed run is counted");
+  }));
+
+test("TranscriptSearch: Enter moves the current match to the next one and Shift+Enter to the previous, and both wrap at their ends", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    const input = await openFind(container);
+    await typeInto(input, "build");
+    assert.equal(countText(container), "1 of 3");
+    await press(input, "Enter");
+    assert.equal(countText(container), "2 of 3", "Enter goes to the next match");
+    await press(input, "Enter");
+    assert.equal(countText(container), "3 of 3");
+    await press(input, "Enter");
+    assert.equal(countText(container), "1 of 3", "Enter on the last match wraps to the first");
+    await press(input, "Enter", { shiftKey: true });
+    assert.equal(countText(container), "3 of 3", "Shift+Enter on the first match wraps to the last");
+    await press(input, "Enter", { shiftKey: true });
+    assert.equal(countText(container), "2 of 3", "Shift+Enter goes to the previous match");
+    assert.equal(document.activeElement, input, "the bar keeps its focus");
+  }));
+
+test("TranscriptSearch: a current match in a call inside a folded tool run opens the run", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    const input = await openFind(container);
+    await typeInto(input, "build");
+    assert.equal(container.querySelector("div.calls"), null, "the run is folded");
+    await press(input, "Enter");
+    await press(input, "Enter");
+    assert.equal(countText(container), "3 of 3");
+    assert.equal(
+      container.querySelector('[aria-label="reader"] div.calls mark.current')?.textContent,
+      "build",
+      "the run opens and marks the call's match",
+    );
+  }));
+
+test("TranscriptSearch: on a working session, Escape in the find bar closes it, removes every mark, focuses the empty reply box, and calls neither Control.Interrupt nor Control.Withdraw", (t) =>
+  withApp(t.signal, [sessionRow], async (container, fake) => {
+    await openTranscript(t.signal, container, fake);
+    const input = await openFind(container);
+    await typeInto(input, "build");
+    assert.equal(markTexts(container).length, 2, "the query is marked before Escape");
+    await press(input, "Escape");
+    assert.equal(findBar(container), null, "the bar closes");
+    assert.deepEqual(markTexts(container), [], "no mark is left");
+    assert.equal(document.activeElement, composer(container), "the empty reply box has focus");
+    assert.equal(composer(container).value, "", "the reply box stays empty");
+    await settle();
+    assert.equal(fake.callsTo(withdrawPath).length, 0, "Escape takes no queued message back");
+    assert.equal(fake.callsTo(interruptPath).length, 0, "Escape interrupts nothing");
+  }));
+
+test("TranscriptSearch: / in a reply box with text is typed, so its keydown is not prevented and no find bar opens", (t) =>
+  withApp(t.signal, [sessionRow], async (container) => {
+    await act(() => {
+      composer(container).focus();
+    });
+    await typeInto(composer(container), "draft");
+    const event = await press(composer(container), "/");
+    assert.equal(event.defaultPrevented, false, "the slash is left to be typed");
+    assert.equal(findBar(container), null, "no find bar opens");
+    assert.equal(composer(container).value, "draft", "the box keeps its text");
+  }));
+
+test("TranscriptSearch: a find bar closes when the cursor moves to another row, and does not reopen when the cursor returns", (t) =>
+  withApp(t.signal, [paneRow, sessionRow], async (container) => {
+    await clickRow(container, sessionRow.key);
+    await openFind(container);
+    await clickRow(container, paneRow.key);
+    assert.equal(findBar(container), null, "the bar closes when the cursor leaves its row");
+    await clickRow(container, sessionRow.key);
+    assert.equal(findBar(container), null, "the bar does not reopen when the cursor returns to the row");
+  }));
