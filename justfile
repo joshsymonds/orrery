@@ -222,6 +222,14 @@ visual-report: _visual-build
 visual-check *PAGES: _visual-build
     node web/build/visual-tool/visual/check-main.mjs "$@"
 
+# Self-test of the visual check: serves synthetic page pairs from memory, one that matches and one per planted defect, and
+# runs each through the same measurement and pass/fail decision visual-check uses. It prints one line per case and exits 0
+# only when every case came out as expected. It writes no report and no screenshot, and it is not part of check. It runs
+# under the visual devenv profile, as visual-check does. The entry point is web/src/visual/selftest-main.ts.
+[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
+visual-selftest: _visual-build
+    node web/build/visual-tool/visual/selftest-main.mjs
+
 # The build the visual recipes share: the page under test in web/build/page, and the node tools compiled from
 # web/src/visual into web/build/visual-tool with playwright-core left external. It runs under the visual devenv profile.
 [script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]

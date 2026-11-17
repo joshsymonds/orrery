@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright-core";
 
-import { type Fixture, startFixture } from "./fixture";
+import { startFixture } from "./fixture";
 import {
   type FailedRequest,
   type FaultRecord,
@@ -112,11 +112,32 @@ export interface Report {
   readonly liveOnly: readonly LiveOnlyRecord[];
 }
 
-// RunOptions locate the repository and receive the screenshots and progress lines as they are taken.
-export interface RunOptions {
-  readonly repoRoot: string;
+// Output receives the screenshots and the progress lines as they are taken. Both are optional: the self-test takes neither.
+export interface Output {
   readonly shot?: (name: string, png: Uint8Array) => Promise<void>;
   readonly log?: (line: string) => void;
+}
+
+// RunOptions locate the repository the report driver reads and receive its output.
+export interface RunOptions extends Output {
+  readonly repoRoot: string;
+}
+
+// SideSetup is how one side is opened: the navigation the scenario performs on it, and the epoch its clock starts at and
+// is paused on.
+export interface SideSetup {
+  readonly epoch: string;
+  readonly navigate: (page: Page, scenario: Scenario) => Promise<Navigation>;
+}
+
+// RunSpec is what one run captures: the map's pages, the origin whose requests are allowed (every other origin is
+// aborted), and how each side is opened. The caller owns the browser.
+export interface RunSpec extends Output {
+  readonly browser: Browser;
+  readonly map: VisualMap;
+  readonly pages: readonly string[];
+  readonly origin: string;
+  readonly sides: Record<Side, SideSetup>;
 }
 
 // Probe asks one side for a selector's match count and, when it matches one element, the listed computed values.
@@ -472,41 +493,34 @@ interface SideCapture {
   readonly faults: readonly FaultRecord[];
 }
 
-async function captureSide(
-  browser: Browser,
-  fixture: Fixture,
-  map: VisualMap,
-  scenario: Scenario,
-  width: number,
-  side: Side,
-  options: RunOptions,
-): Promise<SideCapture> {
-  const components = map.components.filter((component) => component.scenario === scenario.id);
-  const liveOnlyEntries = side === "live" ? map.liveOnly.filter((entry) => entry.page === scenario.page) : [];
+async function captureSide(spec: RunSpec, scenario: Scenario, width: number, side: Side): Promise<SideCapture> {
+  const components = spec.map.components.filter((component) => component.scenario === scenario.id);
+  const liveOnlyEntries = side === "live" ? spec.map.liveOnly.filter((entry) => entry.page === scenario.page) : [];
   const name = `${scenario.id}-${side}-${width}.png`;
+  const setup = spec.sides[side];
   let context: BrowserContext | undefined;
   try {
-    context = await browser.newContext({
+    context = await spec.browser.newContext({
       viewport: { width, height: viewportHeight },
       timezoneId: "UTC",
       locale: "en-US",
     });
-    // Every request off the fixture origin is aborted: the wireframe's Google Fonts link fails, and its prose face
+    // Every request off the allowed origin is aborted: the wireframe's Google Fonts link fails, and its prose face
     // comes from fontconfig.
-    const fixtureOrigin = fixture.origin;
+    const allowedOrigin = spec.origin;
     await context.route("**/*", (route) =>
-      new URL(route.request().url()).origin === fixtureOrigin ? route.continue() : route.abort(),
+      new URL(route.request().url()).origin === allowedOrigin ? route.continue() : route.abort(),
     );
     const page = await context.newPage();
     page.setDefaultTimeout(stepTimeoutMs);
     // The requests that fail from here to the measurement point: the page's requestfailed events, which include the
-    // off-origin aborts, and the fixture's responses that answer 400 or more.
+    // off-origin aborts, and the allowed origin's responses that answer 400 or more.
     const failed: FailedRequest[] = [];
     page.on("requestfailed", (request) => {
       failed.push({ method: request.method(), url: request.url(), failure: request.failure()?.errorText ?? "failed" });
     });
     page.on("response", (response) => {
-      if (new URL(response.url()).origin === fixtureOrigin && response.status() >= 400) {
+      if (new URL(response.url()).origin === allowedOrigin && response.status() >= 400) {
         failed.push({
           method: response.request().method(),
           url: response.url(),
@@ -527,15 +541,12 @@ async function captureSide(
         install();
       }
     }, freezeCss);
-    // The clock starts at the scenario's epoch and is paused there, so every Date.now() the page reads is that instant
+    // The clock starts at the side's epoch and is paused there, so every Date.now() the page reads is that instant
     // until the navigation advances it.
-    const epoch = side === "wireframe" ? wireframeEpoch : liveEpoch;
-    await page.clock.install({ time: new Date(epoch) });
-    await page.clock.pauseAt(new Date(epoch));
+    await page.clock.install({ time: new Date(setup.epoch) });
+    await page.clock.pauseAt(new Date(setup.epoch));
 
-    const navigation = side === "wireframe"
-      ? await navigateWireframe(page, fixture, scenario)
-      : await navigateLive(page, fixture, scenario);
+    const navigation = await setup.navigate(page, scenario);
 
     const probes: Probe[] = components.map((component) => ({
       selector: side === "wireframe" ? component.wireframe : component.live,
@@ -546,21 +557,21 @@ async function captureSide(
     const liveOnly = await measure(page, liveOnlyProbes);
     const layout = await page.evaluate(measurePage, [...failed]);
 
-    if (options.shot !== undefined) {
+    if (spec.shot !== undefined) {
       const png = side === "wireframe"
         ? await page.locator(".mock.b").first().screenshot({ animations: "disabled", caret: "hide" }).catch(() =>
           page.screenshot({ animations: "disabled", caret: "hide" }))
         : await page.screenshot({ animations: "disabled", caret: "hide" });
-      await options.shot(name, png);
+      await spec.shot(name, png);
     }
-    options.log?.(`${name}: navigation ${navigation.completed ? "completed" : `incomplete (${navigation.error})`}`);
+    spec.log?.(`${name}: navigation ${navigation.completed ? "completed" : `incomplete (${navigation.error})`}`);
     const faults = faultsOf({ scenario: scenario.id, side, width }, layout);
     return { navigation, components: measured, liveOnly, faults };
   } catch (error) {
     // A side that cannot open is recorded as an incomplete navigation whose selectors were not measured, so the other
     // sides of the run still reach the report. It records no faults: its navigation already says why.
     const message = error instanceof Error ? (error.message.split("\n")[0] ?? "") : String(error);
-    options.log?.(`${name}: not captured (${message})`);
+    spec.log?.(`${name}: not captured (${message})`);
     const unmeasured = (matches: number): Probed[] => Array.from({ length: matches }, () => ({ matches: -1, error: message }));
     return {
       navigation: { completed: false, error: message },
@@ -573,20 +584,21 @@ async function captureSide(
   }
 }
 
-// runReport runs the pages' scenarios of the map on both sides at each of the map's widths and returns the report.
-export async function runReport(pages: readonly string[], options: RunOptions): Promise<Report> {
-  const map = await loadMap(options.repoRoot);
-  const scenarios = map.scenarios.filter((scenario) => pages.includes(scenario.page));
-  const fixture = await startFixture({
-    bundleDir: join(options.repoRoot, "web/build/page"),
-    wireframeDir: join(options.repoRoot, "web/visual/wireframe/round4"),
-  });
+// launchChromium starts the Chromium at ORRERY_VISUAL_CHROMIUM, the nixpkgs browser the visual profile sets. playwright-core
+// drives that browser and never downloads one.
+export async function launchChromium(): Promise<Browser> {
   const executablePath = process.env.ORRERY_VISUAL_CHROMIUM;
   if (executablePath === undefined || executablePath === "") {
-    await fixture.close();
     throw new Error("ORRERY_VISUAL_CHROMIUM is not set: run the check under the visual devenv profile");
   }
-  const browser = await chromium.launch({ executablePath, args: chromiumArgs });
+  return chromium.launch({ executablePath, args: chromiumArgs });
+}
+
+// run captures the pages' scenarios of the map on both sides at each of the map's widths and returns the report. It starts
+// nothing: the caller owns the browser, the origin's server and the navigation each side performs.
+export async function run(spec: RunSpec): Promise<Report> {
+  const { map, pages } = spec;
+  const scenarios = map.scenarios.filter((scenario) => pages.includes(scenario.page));
 
   const navigation: NavigationRecord[] = [];
   const components: ComponentRecord[] = [];
@@ -594,55 +606,84 @@ export async function runReport(pages: readonly string[], options: RunOptions): 
   const liveOnly: LiveOnlyRecord[] = map.liveOnly
     .filter((entry) => pages.includes(entry.page))
     .map((entry) => ({ page: entry.page, live: entry.live, note: entry.note, counts: [] }));
-  try {
-    for (const scenario of scenarios) {
-      for (const width of map.widths) {
-        const wireframe = await captureSide(browser, fixture, map, scenario, width, "wireframe", options);
-        const live = await captureSide(browser, fixture, map, scenario, width, "live", options);
-        navigation.push(
-          { scenario: scenario.id, side: "wireframe", width, ...wireframe.navigation },
-          { scenario: scenario.id, side: "live", width, ...live.navigation },
-        );
-        faults.push(...wireframe.faults, ...live.faults);
-        const compared = map.components.filter((component) => component.scenario === scenario.id);
-        compared.forEach((component, index) => {
-          const left = wireframe.components[index];
-          const right = live.components[index];
-          const properties = bothSingle(left, right)
-            ? component.props.map((name, at) => ({
-              name,
-              wireframe: left.values?.[at] ?? "",
-              live: right.values?.[at] ?? "",
-              equal: left.values?.[at] === right.values?.[at],
-            }))
-            : null;
-          components.push({
-            scenario: scenario.id,
-            page: component.page,
-            name: component.name,
-            grade: component.grade,
-            width,
-            wireframe: sideMatch(component.wireframe, left),
-            live: sideMatch(component.live, right),
-            properties,
-          });
+  for (const scenario of scenarios) {
+    for (const width of map.widths) {
+      const wireframe = await captureSide(spec, scenario, width, "wireframe");
+      const live = await captureSide(spec, scenario, width, "live");
+      navigation.push(
+        { scenario: scenario.id, side: "wireframe", width, ...wireframe.navigation },
+        { scenario: scenario.id, side: "live", width, ...live.navigation },
+      );
+      faults.push(...wireframe.faults, ...live.faults);
+      const compared = map.components.filter((component) => component.scenario === scenario.id);
+      compared.forEach((component, index) => {
+        const left = wireframe.components[index];
+        const right = live.components[index];
+        const properties = bothSingle(left, right)
+          ? component.props.map((name, at) => ({
+            name,
+            wireframe: left.values?.[at] ?? "",
+            live: right.values?.[at] ?? "",
+            equal: left.values?.[at] === right.values?.[at],
+          }))
+          : null;
+        components.push({
+          scenario: scenario.id,
+          page: component.page,
+          name: component.name,
+          grade: component.grade,
+          width,
+          wireframe: sideMatch(component.wireframe, left),
+          live: sideMatch(component.live, right),
+          properties,
         });
-        const entries = map.liveOnly.filter((entry) => entry.page === scenario.page);
-        entries.forEach((entry, index) => {
-          const record = liveOnly.find((candidate) => candidate.page === entry.page && candidate.live === entry.live);
-          const counted = live.liveOnly[index];
-          if (record !== undefined && counted !== undefined) {
-            record.counts.push({ scenario: scenario.id, width, matches: counted.matches, ...errorOf(counted) });
-          }
-        });
-      }
+      });
+      const entries = map.liveOnly.filter((entry) => entry.page === scenario.page);
+      entries.forEach((entry, index) => {
+        const record = liveOnly.find((candidate) => candidate.page === entry.page && candidate.live === entry.live);
+        const counted = live.liveOnly[index];
+        if (record !== undefined && counted !== undefined) {
+          record.counts.push({ scenario: scenario.id, width, matches: counted.matches, ...errorOf(counted) });
+        }
+      });
     }
+  }
+
+  return { version: 1, pages, widths: map.widths, navigation, components, faults, liveOnly };
+}
+
+// runReport runs the pages' scenarios of the map on both sides at each of the map's widths and returns the report. It
+// starts the fixture that serves the built bundle, the wireframe and the Connect answers, and one Chromium for the run.
+export async function runReport(pages: readonly string[], options: RunOptions): Promise<Report> {
+  const map = await loadMap(options.repoRoot);
+  const fixture = await startFixture({
+    bundleDir: join(options.repoRoot, "web/build/page"),
+    wireframeDir: join(options.repoRoot, "web/visual/wireframe/round4"),
+  });
+  let browser: Browser;
+  try {
+    browser = await launchChromium();
+  } catch (error) {
+    await fixture.close();
+    throw error;
+  }
+  try {
+    return await run({
+      browser,
+      map,
+      pages,
+      origin: fixture.origin,
+      sides: {
+        wireframe: { epoch: wireframeEpoch, navigate: (page, scenario) => navigateWireframe(page, fixture, scenario) },
+        live: { epoch: liveEpoch, navigate: (page, scenario) => navigateLive(page, fixture, scenario) },
+      },
+      shot: options.shot,
+      log: options.log,
+    });
   } finally {
     await browser.close();
     await fixture.close();
   }
-
-  return { version: 1, pages, widths: map.widths, navigation, components, faults, liveOnly };
 }
 
 // bothSingle is true when both sides matched exactly one element and recorded its values.
