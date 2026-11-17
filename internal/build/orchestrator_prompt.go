@@ -50,7 +50,11 @@ func (r *Runner) orchestratorPrompt(ctx context.Context, epic store.EpicRow, vie
 		ret, _ := parseImplementerReturn(view.Returned.Result)
 		asked = ret.NeedsFiles
 	}
-	planner.WriteSection(&out, "Requested files", requestedLines(ctx, epic.Repository, task, asked, tree.changed, peers))
+	planner.WriteSection(
+		&out,
+		"Requested files",
+		requestedLines(ctx, epic.Repository, task, asked, tree.changed, peers),
+	)
 	planner.WriteSection(&out, "Tasks", peerLines(ctx, epic.Repository, task, peers))
 	planner.WriteSection(&out, "Return", returnLines(view.Returned))
 	planner.WriteSection(&out, "Gate", r.gateLines(ctx, task, view.Returned))
@@ -148,7 +152,9 @@ func (tree worktreeState) lines() []string {
 	lines = append(lines, "HEAD: "+tree.head)
 	lines = append(lines, planner.ListLines("Status (git status --short)", tree.status)...)
 	lines = append(lines, planner.ListLines("Commits since the base (git log --oneline)", tree.log)...)
-	lines = append(lines, planner.ListLines("Diff stat from the base, uncommitted work included", splitLines(tree.stat))...)
+	lines = append(
+		lines,
+		planner.ListLines("Diff stat from the base, uncommitted work included", splitLines(tree.stat))...)
 	lines = append(lines, planner.ListLines("Diff from the base, uncommitted work included; untracked files are only "+
 		"in the status", splitLines(cutMiddle(tree.diff, promptDiffLimit)))...)
 	if tree.missing != "" {
@@ -157,13 +163,16 @@ func (tree worktreeState) lines() []string {
 	return lines
 }
 
+// halves is how many parts cutMiddle keeps of a text it cuts: its head and its tail.
+const halves = 2
+
 // cutMiddle returns text, or, when it is longer than limit bytes, its first and last halves of limit with a line that
 // says how many bytes were cut between them.
 func cutMiddle(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
-	half := limit / 2
+	half := limit / halves
 	head, tail := text[:half], text[len(text)-half:]
 	return fmt.Sprintf("%s\n[%d bytes cut]\n%s", head, len(text)-2*half, tail)
 }
@@ -259,7 +268,6 @@ func returnLines(step *store.StepRow) []string {
 	if step.Reason != "" {
 		end += ": " + step.Reason
 	}
-	lines := []string{end, "Status: " + step.Status, "Kept return: " + step.Result}
 	var sent []string
 	for _, check := range step.Checks {
 		if check.OK {
@@ -274,7 +282,8 @@ func returnLines(step *store.StepRow) []string {
 			sent = append(sent, fmt.Sprintf("- round %d, judge %s: %s", verdict.Round, verdict.Verdict, verdict.Detail))
 		}
 	}
-	return append(lines, planner.ListLines("Send-backs", sent)...)
+	return append([]string{end, "Status: " + step.Status, "Kept return: " + step.Result},
+		planner.ListLines("Send-backs", sent)...)
 }
 
 // The kind of a judge verdict on a step, and the action of one that sent the step back.
@@ -341,15 +350,21 @@ func (r *Runner) gateLines(ctx context.Context, task store.EpicTask, step *store
 // gateCheck is the name of the check a writing step's gate run is stored under.
 const gateCheck = "gate"
 
-// historyLines returns the History section: each earlier orchestrator step of task that ended with a return, in the
-// order they started, with its decision, note or failure and reason, and how the implementer's next run ended; then how
-// many decisions are left before orreryd settles the request without one. A store read that fails leaves the earlier
-// steps out.
+// historyLines returns the History section of task from the steps of epic labeled with the task (historyOf). A store
+// read that fails is logged and leaves the earlier steps out.
 func (r *Runner) historyLines(ctx context.Context, epic string, task store.EpicTask) []string {
 	rows, err := r.store.LabelledSteps(ctx, epic, taskLabel(task.Seq))
 	if err != nil {
 		r.logger.WarnContext(ctx, "read task steps", "epic", epic, "task", task.Seq, "err", err)
 	}
+	return historyOf(rows, task)
+}
+
+// historyOf returns the History section of task from rows, its steps in the order they started: each earlier
+// orchestrator step that ended, with its decision, its note or question and reason, and how the implementer's next run
+// ended, or that it reached no decision; then how many decisions are left before orreryd settles the request without
+// one.
+func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 	var lines []string
 	for i, row := range rows {
 		if row.Schema != OrchestratorSchema || row.End == "" {

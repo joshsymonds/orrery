@@ -245,8 +245,10 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 }
 
 // latestIntegrateRun returns the integrate run of node that sits in the newest settle walk, and whether there is one.
-// A settle walk is numbered by the seq of the task it settles, and a later task has a higher seq, so the run with the
-// highest seq is the latest.
+// A walk starts only once the walks before it have ended, so the newest is the one whose run started last. A settle walk
+// is numbered by the seq of the task it settles, and a later task has a higher seq, so between runs that started in the
+// same second the one with the highest seq is the latest. A late walk, which integrates a task that waited on others,
+// starts after the settle walk it follows, whatever the seq of its task.
 func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
 	var latest NodeRun
 	var newest uint64
@@ -256,22 +258,29 @@ func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
 			continue
 		}
 		seq, ok := settleSeq(run.Path)
-		if ok && (!found || seq > newest) {
+		if !ok {
+			continue
+		}
+		if !found || run.Started.After(latest.Started) || (run.Started.Equal(latest.Started) && seq > newest) {
 			latest, newest, found = run, seq, true
 		}
 	}
 	return latest, found
 }
 
-// settleSeq returns the seq of the settle walk that holds the node run at path: the N of the S<N> segment just above the
-// run's own node. It returns false when path sits in no settle walk.
+// settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N> or L<N>
+// segment just above the run's own node. It returns false when path sits in no such walk.
 func settleSeq(path string) (uint64, bool) {
 	i := strings.LastIndex(path, "/")
 	if i < 0 {
 		return 0, false
 	}
 	parent := path[:i]
-	walk, found := strings.CutPrefix(parent[strings.LastIndex(parent, "/")+1:], "S")
+	segment := parent[strings.LastIndex(parent, "/")+1:]
+	walk, found := strings.CutPrefix(segment, "S")
+	if !found {
+		walk, found = strings.CutPrefix(segment, "L")
+	}
 	if !found {
 		return 0, false
 	}

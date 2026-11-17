@@ -58,7 +58,16 @@ func (s *Store) FailTaskDecided(
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := failTask(ctx, queries, epic, seq, from, capText(reason, TaskDecisionMax), needsFiles, at); err != nil {
+		if err := failTask(
+			ctx,
+			queries,
+			epic,
+			seq,
+			from,
+			capText(reason, TaskDecisionMax),
+			needsFiles,
+			at,
+		); err != nil {
 			return err
 		}
 		_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
@@ -94,11 +103,11 @@ func (s *Store) AskTask(
 			return fmt.Errorf("read question count of epic %s: %w", epic, err)
 		}
 		to.Question = asked
-		if err = moveTask(ctx, queries, epic, seq, from, to); err != nil {
-			return err
+		if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+			return moveErr
 		}
-		if err = insertQuestionTell(ctx, queries, epic, tell, asked, at); err != nil {
-			return err
+		if tellErr := insertQuestionTell(ctx, queries, epic, tell, asked, at); tellErr != nil {
+			return tellErr
 		}
 		_, err = appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, at)
 		return err

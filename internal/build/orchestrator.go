@@ -51,8 +51,24 @@ const statusBlocked = "blocked"
 // taskDone is the status of an accepted task.
 const taskDone = "done"
 
-// catastrophes are the classes of catastrophe an orchestrator's question to the owner names one of.
-var catastrophes = []string{"irreversible-step", "contract-cannot-hold", "premise-false", "cannot-proceed"}
+// catastrophesText names the classes of catastrophe an orchestrator's question to the owner names one of.
+const catastrophesText = "irreversible-step, contract-cannot-hold, premise-false, cannot-proceed"
+
+// isCatastrophe reports whether class is one of the classes catastrophesText names.
+func isCatastrophe(class string) bool {
+	switch class {
+	case "irreversible-step", "contract-cannot-hold", "premise-false", "cannot-proceed":
+		return true
+	}
+	return false
+}
+
+// The keys of an orchestrator's return that its decoder reads apart, and the field the shape rules name most.
+const (
+	keyAfterTasks = "after_tasks"
+	keyNeedsFiles = "needs_files"
+	fieldFiles    = "files"
+)
 
 // OrchestratorSchema is the schema an orchestrator step's return must match: one flat object, every field required and
 // left empty when its decision does not use it.
@@ -118,27 +134,49 @@ func (q orchestratorQuestion) empty() bool {
 		q.Confidence == "" && q.Catastrophe == ""
 }
 
-// orchestratorReturn is an orchestrator step's return, as OrchestratorSchema gives it.
+// orchestratorReturn is an orchestrator step's return, as OrchestratorSchema gives it. AfterTasks and NeedsFiles are
+// read apart from their keys, after_tasks and needs_files (decodeOrchestratorReturn).
 type orchestratorReturn struct {
 	Status     string               `json:"status"`
 	Evidence   string               `json:"evidence"`
 	Decision   string               `json:"decision"`
 	Note       string               `json:"note"`
 	Files      []string             `json:"files"`
-	AfterTasks []int64              `json:"after_tasks"`
+	AfterTasks []int64              `json:"-"`
 	Failure    string               `json:"failure"`
-	NeedsFiles []string             `json:"needs_files"`
+	NeedsFiles []string             `json:"-"`
 	Question   orchestratorQuestion `json:"question"`
 	Reason     string               `json:"reason"`
 }
 
+// decodeOrchestratorReturn decodes an orchestrator's return from raw JSON, with after_tasks and needs_files read from
+// their keys when the return has them. A return that is not a JSON object of the schema's types is an error.
+func decodeOrchestratorReturn(raw []byte) (orchestratorReturn, error) {
+	var ret orchestratorReturn
+	if err := json.Unmarshal(raw, &ret); err != nil {
+		return orchestratorReturn{}, fmt.Errorf("orchestrator return: %w", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return orchestratorReturn{}, fmt.Errorf("orchestrator return: %w", err)
+	}
+	if value, ok := fields[keyAfterTasks]; ok {
+		if err := json.Unmarshal(value, &ret.AfterTasks); err != nil {
+			return orchestratorReturn{}, fmt.Errorf("orchestrator return: %s: %w", keyAfterTasks, err)
+		}
+	}
+	if value, ok := fields[keyNeedsFiles]; ok {
+		if err := json.Unmarshal(value, &ret.NeedsFiles); err != nil {
+			return orchestratorReturn{}, fmt.Errorf("orchestrator return: %s: %w", keyNeedsFiles, err)
+		}
+	}
+	return ret, nil
+}
+
 // parseOrchestratorReturn decodes an orchestrator step's kept return, and reports false when it does not decode.
 func parseOrchestratorReturn(result string) (orchestratorReturn, bool) {
-	var ret orchestratorReturn
-	if err := json.Unmarshal([]byte(result), &ret); err != nil {
-		return orchestratorReturn{}, false
-	}
-	return ret, true
+	ret, err := decodeOrchestratorReturn([]byte(result))
+	return ret, err == nil
 }
 
 // Integration is how far a task of the epic is from the commit later tasks build on.
@@ -363,9 +401,9 @@ func unitOf(task store.EpicTask) string {
 // does not decode is refused with its decode error.
 func OrchestratorCheck(task store.EpicTask, peers []Peer) func(json.RawMessage) []string {
 	return func(value json.RawMessage) []string {
-		var ret orchestratorReturn
-		if err := json.Unmarshal(value, &ret); err != nil {
-			return []string{"orchestrator return: " + err.Error()}
+		ret, err := decodeOrchestratorReturn(value)
+		if err != nil {
+			return []string{err.Error()}
 		}
 		refusals := shapeRefusals(ret)
 		if len(refusals) > 0 {
@@ -400,15 +438,15 @@ func shapeRefusals(ret orchestratorReturn) []string {
 	case decisionFail:
 		refusals = append(refusals, nonEmpty("failure", ret.Failure)...)
 		refusals = append(refusals, emptyFields(ret.Decision,
-			field{"note", ret.Note != ""}, field{"files", len(ret.Files) > 0},
-			field{"after_tasks", len(ret.AfterTasks) > 0}, field{"question", !ret.Question.empty()},
+			field{"note", ret.Note != ""}, field{fieldFiles, len(ret.Files) > 0},
+			field{keyAfterTasks, len(ret.AfterTasks) > 0}, field{"question", !ret.Question.empty()},
 		)...)
 	case decisionAsk:
 		refusals = append(refusals, askShape(ret.Question)...)
 		refusals = append(refusals, emptyFields(ret.Decision,
-			field{"note", ret.Note != ""}, field{"files", len(ret.Files) > 0},
-			field{"after_tasks", len(ret.AfterTasks) > 0}, field{"failure", ret.Failure != ""},
-			field{"needs_files", len(ret.NeedsFiles) > 0},
+			field{"note", ret.Note != ""}, field{fieldFiles, len(ret.Files) > 0},
+			field{keyAfterTasks, len(ret.AfterTasks) > 0}, field{"failure", ret.Failure != ""},
+			field{keyNeedsFiles, len(ret.NeedsFiles) > 0},
 		)...)
 	default:
 		refusals = append(refusals, "decision: empty on a done return")
@@ -424,8 +462,8 @@ func rerunShape(ret orchestratorReturn) []string {
 		refusals = append(refusals, "files: empty on a grant")
 	}
 	return append(refusals, emptyFields(ret.Decision,
-		field{"files", ret.Decision == decisionRerun && len(ret.Files) > 0}, field{"failure", ret.Failure != ""},
-		field{"needs_files", len(ret.NeedsFiles) > 0}, field{"question", !ret.Question.empty()},
+		field{fieldFiles, ret.Decision == decisionRerun && len(ret.Files) > 0}, field{"failure", ret.Failure != ""},
+		field{keyNeedsFiles, len(ret.NeedsFiles) > 0}, field{"question", !ret.Question.empty()},
 	)...)
 }
 
@@ -433,8 +471,8 @@ func rerunShape(ret orchestratorReturn) []string {
 // store.QuestionRefusals gives a planner's question.
 func askShape(question orchestratorQuestion) []string {
 	var refusals []string
-	if !slices.Contains(catastrophes, question.Catastrophe) {
-		refusals = append(refusals, "question.catastrophe: not "+strings.Join(catastrophes, ", "))
+	if !isCatastrophe(question.Catastrophe) {
+		refusals = append(refusals, "question.catastrophe: not "+catastrophesText)
 	}
 	for _, line := range store.QuestionRefusals(store.EpicQuestionInput{
 		Label: question.Label, Text: question.Text, Choices: question.Choices, Recommended: question.Recommended,
@@ -574,7 +612,10 @@ func onlyOwnedFailed(step *store.StepRow) bool {
 func requestFallback(view View) Action {
 	step := view.Returned
 	if step == nil {
-		return Action{Kind: ActFail, Reason: "orchestrate: the implementer's step " + view.Task.Build.Step + " is not stored"}
+		return Action{
+			Kind:   ActFail,
+			Reason: "orchestrate: the implementer's step " + view.Task.Build.Step + " is not stored",
+		}
 	}
 	if step.End == endChecksFailed {
 		return spend(view, endText(step))
@@ -639,13 +680,13 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 		return Action{Kind: ActFail, Reason: ret.Failure, NeedsFiles: ret.NeedsFiles, Decision: decision}
 	case decisionAsk:
 		next.Held = HeldAsked
-		q := ret.Question
-		text := fmt.Sprintf("%s (%s): %s", taskLabel(seq), q.Catastrophe, q.Text)
+		question := ret.Question
+		text := fmt.Sprintf("%s (%s): %s", taskLabel(seq), question.Catastrophe, question.Text)
 		return Action{
 			Kind: ActAsk, Next: next, Reason: text, Decision: decision, Fallback: &fallback,
 			Question: &store.EpicQuestionInput{
-				Label: q.Label, Text: text, Choices: q.Choices, Recommended: q.Recommended, Why: q.Why,
-				Confidence: q.Confidence,
+				Label: question.Label, Text: text, Choices: question.Choices, Recommended: question.Recommended,
+				Why: question.Why, Confidence: question.Confidence,
 			},
 		}
 	}
@@ -666,7 +707,10 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 
 // refused returns fallback with the refusal of the orchestrator's decision added to what it records (withNote).
 func refused(fallback Action, decision string, refusals []string) Action {
-	return withNote(fallback, fmt.Sprintf("orreryd refused the orchestrator's %s: %s", decision, strings.Join(refusals, "; ")))
+	return withNote(
+		fallback,
+		fmt.Sprintf("orreryd refused the orchestrator's %s: %s", decision, strings.Join(refusals, "; ")),
+	)
 }
 
 // withNote returns fallback with text added to what it records: to the reason of a fail, and to the failure of a spent
@@ -677,6 +721,7 @@ func withNote(fallback Action, text string) Action {
 		fallback.Reason += "; " + text
 	case ActMove:
 		fallback.Next.Failure += "; " + text
+	default:
 	}
 	return fallback
 }
@@ -718,7 +763,10 @@ func decideWait(view View) Action {
 			return Action{Kind: ActFail, Reason: fmt.Sprintf(
 				"%s waited on %s, which is not a task of the epic", label, taskLabel(seq))}
 		case peer.State == Lost:
-			return Action{Kind: ActFail, Reason: fmt.Sprintf("%s waited on %s, which %s", label, taskLabel(seq), peer.Why)}
+			return Action{
+				Kind:   ActFail,
+				Reason: fmt.Sprintf("%s waited on %s, which %s", label, taskLabel(seq), peer.Why),
+			}
 		case peer.State == Pending:
 			return Action{Kind: ActNone}
 		}

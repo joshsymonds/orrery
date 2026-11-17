@@ -189,17 +189,7 @@ func decideImplement(view View) Action {
 		build.Step = ""
 		return Action{Kind: ActGuard, Next: build}
 	case endReturned:
-		ret, ok := parseImplementerReturn(step.Result)
-		if !ok {
-			return noVerdict(view, StageImplement, endText(step))
-		}
-		fail := returnedFail(step, ret)
-		if step.Status == statusNeedsContext {
-			if grant := grantOrFail(build, view.Task.Files, fail); grant.Kind == ActGrant {
-				return grant
-			}
-		}
-		return request(view, fail)
+		return decideReturned(view, step)
 	case endChecksFailed:
 		if onlyOwnedFailed(step) {
 			return request(view, spend(view, endText(step)))
@@ -210,6 +200,23 @@ func decideImplement(view View) Action {
 		return restartUnit(build)
 	}
 	return spend(view, endText(step))
+}
+
+// decideReturned returns the action for an implementer step that ended returned. A return that does not parse gives no
+// verdict. A needs_context return that grantOrFail grants is granted. Any other return is a request (request), with the
+// failure returnedFail gives as its fallback.
+func decideReturned(view View, step *store.StepRow) Action {
+	ret, ok := parseImplementerReturn(step.Result)
+	if !ok {
+		return noVerdict(view, StageImplement, endText(step))
+	}
+	fail := returnedFail(step, ret)
+	if step.Status == statusNeedsContext {
+		if grant := grantOrFail(view.Task.Build, view.Task.Files, fail); grant.Kind == ActGrant {
+			return grant
+		}
+	}
+	return request(view, fail)
 }
 
 // implementerMoves returns what the implementer's ref moves do. Reason is the text of the first move that parks, empty

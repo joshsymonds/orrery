@@ -147,7 +147,9 @@ func TestNeedsFilesDecideCarriesThePathsOfANeedsContextReturn(t *testing.T) {
 		},
 		{
 			name: "needs_context without needs_files and no decisions left fails as it did before the field",
-			view: exhausted(needsFilesView("needs_context", `{"status":"needs_context","summary":"the spec is short"}`)),
+			view: exhausted(
+				needsFilesView("needs_context", `{"status":"needs_context","summary":"the spec is short"}`),
+			),
 			want: Action{Kind: ActFail, Reason: "returned needs_context: the spec is short"},
 		},
 		{

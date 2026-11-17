@@ -133,7 +133,11 @@ func TestOrchestratorCheckShape(t *testing.T) {
 		ret  string
 		want []string
 	}{
-		{"a rerun with a note and a reason passes", orchReturn(t, map[string]any{"decision": "rerun", "note": "n"}), nil},
+		{
+			"a rerun with a note and a reason passes",
+			orchReturn(t, map[string]any{"decision": "rerun", "note": "n"}),
+			nil,
+		},
 		{
 			"a rerun with no note, files and a failure is refused per field",
 			orchReturn(t, map[string]any{"decision": "rerun", "files": []string{"b.go"}, "failure": "f"}),
@@ -294,14 +298,24 @@ func TestDecideRoutesRequestsToTheOrchestrator(t *testing.T) {
 	orchestrating := implement
 	orchestrating.Stage = StageOrchestrate
 	orchestrating.NoVerdict = 0
-	ownedOnly := &store.StepRow{ID: orchImplStep, End: endChecksFailed, Reason: "owned: b.go is not owned", Checks: []store.StepCheck{
-		{Round: 3, Name: "gate", OK: false},
-		{Round: 4, Name: "head", OK: true}, {Round: 4, Name: "clean", OK: true},
-		{Round: 4, Name: checkOwned, OK: false, Detail: "b.go is not owned"},
-	}}
-	ownedAndClean := &store.StepRow{ID: orchImplStep, End: endChecksFailed, Reason: "owned; clean", Checks: []store.StepCheck{
-		{Round: 4, Name: "clean", OK: false}, {Round: 4, Name: checkOwned, OK: false},
-	}}
+	ownedOnly := &store.StepRow{
+		ID:     orchImplStep,
+		End:    endChecksFailed,
+		Reason: "owned: b.go is not owned",
+		Checks: []store.StepCheck{
+			{Round: 3, Name: "gate", OK: false},
+			{Round: 4, Name: "head", OK: true}, {Round: 4, Name: "clean", OK: true},
+			{Round: 4, Name: checkOwned, OK: false, Detail: "b.go is not owned"},
+		},
+	}
+	ownedAndClean := &store.StepRow{
+		ID:     orchImplStep,
+		End:    endChecksFailed,
+		Reason: "owned; clean",
+		Checks: []store.StepCheck{
+			{Round: 4, Name: "clean", OK: false}, {Round: 4, Name: checkOwned, OK: false},
+		},
+	}
 	spentOwned := implement
 	spentOwned.Attempt, spentOwned.Rerun, spentOwned.NoVerdict, spentOwned.Step = 2, 0, 0, ""
 	spentOwned.Failure = "checks_failed: owned: b.go is not owned"
@@ -430,8 +444,15 @@ func TestDecideOrchestrate(t *testing.T) {
 			name: "ask holds the build asked with the question naming its catastrophe",
 			view: orchView(0, orchDone(askRet)),
 			want: Action{
-				Kind: ActAsk, Next: asked, Reason: question.Text, Question: &question, Fallback: &fallback,
-				Decision: &store.TaskDecision{ID: "T3-request-1", Text: "T3 ask (contract-cannot-hold): the code says so"},
+				Kind:     ActAsk,
+				Next:     asked,
+				Reason:   question.Text,
+				Question: &question,
+				Fallback: &fallback,
+				Decision: &store.TaskDecision{
+					ID:   "T3-request-1",
+					Text: "T3 ask (contract-cannot-hold): the code says so",
+				},
 			},
 		},
 		{
@@ -523,7 +544,11 @@ func TestDecideWaitAndAsked(t *testing.T) {
 	released := asked
 	released.Held, released.Question = "", 0
 	runDecideCases(t, Decide, []decideCase{
-		{name: "a task waited for still open waits", view: wait(openPeer(4), integrated(5)), want: Action{Kind: ActNone}},
+		{
+			name: "a task waited for still open waits",
+			view: wait(openPeer(4), integrated(5)),
+			want: Action{Kind: ActNone},
+		},
 		{
 			name: "a task waited for that is accepted and not yet integrated waits",
 			view: wait(integrated(4), acceptedPeer(5)), want: Action{Kind: ActNone},

@@ -161,7 +161,12 @@ func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, actio
 	var owned store.FileOwnedError
 	if errors.As(err, &owned) {
 		reason := action.Reason + "; " + owned.Error()
-		return r.execute(ctx, epic, view, request(view, Action{Kind: ActFail, Reason: reason, NeedsFiles: action.NeedsFiles}))
+		return r.execute(
+			ctx,
+			epic,
+			view,
+			request(view, Action{Kind: ActFail, Reason: reason, NeedsFiles: action.NeedsFiles}),
+		)
 	}
 	return r.written(ctx, epic.ID, seq, "grant files", err)
 }
