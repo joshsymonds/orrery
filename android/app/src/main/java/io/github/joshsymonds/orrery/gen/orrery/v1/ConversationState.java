@@ -22,6 +22,8 @@ public  final class ConversationState extends
     origin_ = "";
     goal_ = "";
     waiting_ = emptyProtobufList();
+    pending_ = emptyProtobufList();
+    background_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int ORIGIN_FIELD_NUMBER = 1;
@@ -567,6 +569,323 @@ public  final class ConversationState extends
   private void clearRequest() {
     request_ = null;
     bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
+  public static final int INTERRUPTING_FIELD_NUMBER = 8;
+  private boolean interrupting_;
+  /**
+   * <pre>
+   * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+   * never set it.
+   * </pre>
+   *
+   * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+   * @return The interrupting.
+   */
+  @java.lang.Override
+  public boolean getInterrupting() {
+    return interrupting_;
+  }
+  /**
+   * <pre>
+   * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+   * never set it.
+   * </pre>
+   *
+   * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+   * @param value The interrupting to set.
+   */
+  private void setInterrupting(boolean value) {
+    
+    interrupting_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+   * never set it.
+   * </pre>
+   *
+   * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+   */
+  private void clearInterrupting() {
+
+    interrupting_ = false;
+  }
+
+  public static final int PENDING_FIELD_NUMBER = 9;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> pending_;
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> getPendingList() {
+    return pending_;
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.PendingEventOrBuilder> 
+      getPendingOrBuilderList() {
+    return pending_;
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  @java.lang.Override
+  public int getPendingCount() {
+    return pending_.size();
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent getPending(int index) {
+    return pending_.get(index);
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.PendingEventOrBuilder getPendingOrBuilder(
+      int index) {
+    return pending_.get(index);
+  }
+  private void ensurePendingIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> tmp = pending_;
+    if (!tmp.isModifiable()) {
+      pending_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  private void setPending(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent value) {
+    java.util.Objects.requireNonNull(value);
+    ensurePendingIsMutable();
+    pending_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  private void addPending(io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent value) {
+    java.util.Objects.requireNonNull(value);
+    ensurePendingIsMutable();
+    pending_.add(value);
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  private void addPending(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent value) {
+    java.util.Objects.requireNonNull(value);
+    ensurePendingIsMutable();
+    pending_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  private void addAllPending(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> values) {
+    ensurePendingIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, pending_);
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  private void clearPending() {
+    pending_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  private void removePending(int index) {
+    ensurePendingIsMutable();
+    pending_.remove(index);
+  }
+
+  public static final int BACKGROUND_FIELD_NUMBER = 10;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> background_;
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> getBackgroundList() {
+    return background_;
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTaskOrBuilder> 
+      getBackgroundOrBuilderList() {
+    return background_;
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  @java.lang.Override
+  public int getBackgroundCount() {
+    return background_.size();
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask getBackground(int index) {
+    return background_.get(index);
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTaskOrBuilder getBackgroundOrBuilder(
+      int index) {
+    return background_.get(index);
+  }
+  private void ensureBackgroundIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> tmp = background_;
+    if (!tmp.isModifiable()) {
+      background_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  private void setBackground(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask value) {
+    java.util.Objects.requireNonNull(value);
+    ensureBackgroundIsMutable();
+    background_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  private void addBackground(io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask value) {
+    java.util.Objects.requireNonNull(value);
+    ensureBackgroundIsMutable();
+    background_.add(value);
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  private void addBackground(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask value) {
+    java.util.Objects.requireNonNull(value);
+    ensureBackgroundIsMutable();
+    background_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  private void addAllBackground(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> values) {
+    ensureBackgroundIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, background_);
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  private void clearBackground() {
+    background_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  private void removeBackground(int index) {
+    ensureBackgroundIsMutable();
+    background_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState parseFrom(
@@ -1248,6 +1567,349 @@ public  final class ConversationState extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+     * never set it.
+     * </pre>
+     *
+     * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+     * @return The interrupting.
+     */
+    @java.lang.Override
+    public boolean getInterrupting() {
+      return instance.getInterrupting();
+    }
+    /**
+     * <pre>
+     * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+     * never set it.
+     * </pre>
+     *
+     * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+     * @param value The interrupting to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInterrupting(boolean value) {
+      copyOnWrite();
+      instance.setInterrupting(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+     * never set it.
+     * </pre>
+     *
+     * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearInterrupting() {
+      copyOnWrite();
+      instance.clearInterrupting();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> getPendingList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getPendingList());
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    @java.lang.Override
+    public int getPendingCount() {
+      return instance.getPendingCount();
+    }/**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent getPending(int index) {
+      return instance.getPending(index);
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder setPending(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent value) {
+      copyOnWrite();
+      instance.setPending(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder setPending(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPending(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder addPending(io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent value) {
+      copyOnWrite();
+      instance.addPending(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder addPending(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent value) {
+      copyOnWrite();
+      instance.addPending(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder addPending(
+        io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent.Builder builderForValue) {
+      copyOnWrite();
+      instance.addPending(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder addPending(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent.Builder builderForValue) {
+      copyOnWrite();
+      instance.addPending(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder addAllPending(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> values) {
+      copyOnWrite();
+      instance.addAllPending(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder clearPending() {
+      copyOnWrite();
+      instance.clearPending();
+      return this;
+    }
+    /**
+     * <pre>
+     * The caller events held for the headless session, oldest first. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+     */
+    public Builder removePending(int index) {
+      copyOnWrite();
+      instance.removePending(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> getBackgroundList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getBackgroundList());
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    @java.lang.Override
+    public int getBackgroundCount() {
+      return instance.getBackgroundCount();
+    }/**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask getBackground(int index) {
+      return instance.getBackground(index);
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder setBackground(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask value) {
+      copyOnWrite();
+      instance.setBackground(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder setBackground(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.setBackground(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder addBackground(io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask value) {
+      copyOnWrite();
+      instance.addBackground(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder addBackground(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask value) {
+      copyOnWrite();
+      instance.addBackground(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder addBackground(
+        io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.addBackground(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder addBackground(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.addBackground(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder addAllBackground(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> values) {
+      copyOnWrite();
+      instance.addAllBackground(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder clearBackground() {
+      copyOnWrite();
+      instance.clearBackground();
+      return this;
+    }
+    /**
+     * <pre>
+     * The background tasks the headless session reported. Pane streams never set it.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+     */
+    public Builder removeBackground(int index) {
+      copyOnWrite();
+      instance.removeBackground(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationState)
   }
   @java.lang.Override
@@ -1273,11 +1935,16 @@ public  final class ConversationState extends
             "pane_",
             "session_",
             "request_",
+            "interrupting_",
+            "pending_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent.class,
+            "background_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask.class,
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u001b\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003" +
-              "";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0003\u0000\u0001\u0208\u0002\u0208\u0003\u001b" +
+              "\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003\b\u0007" +
+              "\t\u001b\n\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

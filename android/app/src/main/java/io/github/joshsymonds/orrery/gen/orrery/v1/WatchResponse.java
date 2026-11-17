@@ -36,6 +36,8 @@ public  final class WatchResponse extends
     ENGINE_REQUEST_CANCELED(12),
     ENGINE_TURN_ENDED(13),
     ENGINE_TEXT(14),
+    ENGINE_INTERRUPT(15),
+    ENGINE_TASK(16),
     EVENT_NOT_SET(0);
     private final int value;
     private EventCase(int value) {
@@ -62,6 +64,8 @@ public  final class WatchResponse extends
         case 12: return ENGINE_REQUEST_CANCELED;
         case 13: return ENGINE_TURN_ENDED;
         case 14: return ENGINE_TEXT;
+        case 15: return ENGINE_INTERRUPT;
+        case 16: return ENGINE_TASK;
         case 0: return EVENT_NOT_SET;
         default: return null;
       }
@@ -991,6 +995,146 @@ public  final class WatchResponse extends
    */
   private void clearEngineText() {
     if (eventCase_ == 14) {
+      eventCase_ = 0;
+      event_ = null;
+    }
+  }
+
+  public static final int ENGINE_INTERRUPT_FIELD_NUMBER = 15;
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   */
+  @java.lang.Override
+  public boolean hasEngineInterrupt() {
+    return eventCase_ == 15;
+  }
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt getEngineInterrupt() {
+    if (eventCase_ == 15) {
+       return (io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt) event_;
+    }
+    return io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   */
+  private void setEngineInterrupt(io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt value) {
+    java.util.Objects.requireNonNull(value);
+    event_ = value;
+    eventCase_ = 15;
+  }
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   */
+  private void mergeEngineInterrupt(io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt value) {
+    java.util.Objects.requireNonNull(value);
+    if (eventCase_ == 15 &&
+        event_ != io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt.getDefaultInstance()) {
+      event_ = io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt.newBuilder((io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt) event_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      event_ = value;
+    }
+    eventCase_ = 15;
+  }
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   */
+  private void clearEngineInterrupt() {
+    if (eventCase_ == 15) {
+      eventCase_ = 0;
+      event_ = null;
+    }
+  }
+
+  public static final int ENGINE_TASK_FIELD_NUMBER = 16;
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   */
+  @java.lang.Override
+  public boolean hasEngineTask() {
+    return eventCase_ == 16;
+  }
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask getEngineTask() {
+    if (eventCase_ == 16) {
+       return (io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask) event_;
+    }
+    return io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   */
+  private void setEngineTask(io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask value) {
+    java.util.Objects.requireNonNull(value);
+    event_ = value;
+    eventCase_ = 16;
+  }
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   */
+  private void mergeEngineTask(io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask value) {
+    java.util.Objects.requireNonNull(value);
+    if (eventCase_ == 16 &&
+        event_ != io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask.getDefaultInstance()) {
+      event_ = io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask.newBuilder((io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask) event_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      event_ = value;
+    }
+    eventCase_ = 16;
+  }
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   */
+  private void clearEngineTask() {
+    if (eventCase_ == 16) {
       eventCase_ = 0;
       event_ = null;
     }
@@ -2050,6 +2194,150 @@ public  final class WatchResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The owner's Interrupt of a headless session.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+     */
+    @java.lang.Override
+    public boolean hasEngineInterrupt() {
+      return instance.hasEngineInterrupt();
+    }
+    /**
+     * <pre>
+     * The owner's Interrupt of a headless session.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt getEngineInterrupt() {
+      return instance.getEngineInterrupt();
+    }
+    /**
+     * <pre>
+     * The owner's Interrupt of a headless session.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+     */
+    public Builder setEngineInterrupt(io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt value) {
+      copyOnWrite();
+      instance.setEngineInterrupt(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's Interrupt of a headless session.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+     */
+    public Builder setEngineInterrupt(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt.Builder builderForValue) {
+      copyOnWrite();
+      instance.setEngineInterrupt(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's Interrupt of a headless session.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+     */
+    public Builder mergeEngineInterrupt(io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt value) {
+      copyOnWrite();
+      instance.mergeEngineInterrupt(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The owner's Interrupt of a headless session.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+     */
+    public Builder clearEngineInterrupt() {
+      copyOnWrite();
+      instance.clearEngineInterrupt();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A background task that a headless session reported.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+     */
+    @java.lang.Override
+    public boolean hasEngineTask() {
+      return instance.hasEngineTask();
+    }
+    /**
+     * <pre>
+     * A background task that a headless session reported.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask getEngineTask() {
+      return instance.getEngineTask();
+    }
+    /**
+     * <pre>
+     * A background task that a headless session reported.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+     */
+    public Builder setEngineTask(io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask value) {
+      copyOnWrite();
+      instance.setEngineTask(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A background task that a headless session reported.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+     */
+    public Builder setEngineTask(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask.Builder builderForValue) {
+      copyOnWrite();
+      instance.setEngineTask(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A background task that a headless session reported.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+     */
+    public Builder mergeEngineTask(io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask value) {
+      copyOnWrite();
+      instance.mergeEngineTask(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A background task that a headless session reported.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+     */
+    public Builder clearEngineTask() {
+      copyOnWrite();
+      instance.clearEngineTask();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.WatchResponse)
   }
   @java.lang.Override
@@ -2082,11 +2370,13 @@ public  final class WatchResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EngineRequestCanceled.class,
             io.github.joshsymonds.orrery.gen.orrery.v1.EngineTurnEnded.class,
             io.github.joshsymonds.orrery.gen.orrery.v1.EngineText.class,
+            io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt.class,
+            io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask.class,
           };
           java.lang.String info =
-              "\u0000\u000e\u0001\u0000\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
+              "\u0000\u0010\u0001\u0000\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
               "\u0003\u0002\u0004<\u0000\u0005<\u0000\u0006<\u0000\u0007<\u0000\b<\u0000\t<\u0000" +
-              "\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000";
+              "\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

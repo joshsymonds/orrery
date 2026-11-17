@@ -99,4 +99,14 @@ public interface EngineTurnEndedOrBuilder extends
    */
   com.google.protobuf.ByteString
       getOriginBytes();
+
+  /**
+   * <pre>
+   * Whether the owner's Interrupt ended the turn.
+   * </pre>
+   *
+   * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+   * @return The ownerInterrupted.
+   */
+  boolean getOwnerInterrupted();
 }

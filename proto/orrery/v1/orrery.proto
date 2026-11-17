@@ -308,6 +308,12 @@ message WatchResponse {
 
     // The text so far of one unfinished content block of a headless session.
     EngineText engine_text = 14;
+
+    // The owner's Interrupt of a headless session.
+    EngineInterrupt engine_interrupt = 15;
+
+    // A background task that a headless session reported.
+    EngineTask engine_task = 16;
   }
 }
 
@@ -588,6 +594,42 @@ message EngineTurnEnded {
 
   // Where the turn's end came from.
   string origin = 5;
+
+  // Whether the owner's Interrupt ended the turn.
+  bool owner_interrupted = 6;
+}
+
+// EngineInterrupt records the owner's Interrupt of a headless session.
+message EngineInterrupt {
+  // Whether a turn ran when the interrupt was recorded.
+  bool turning = 1;
+}
+
+// EngineTask carries one background task that a headless session reported.
+message EngineTask {
+  // The background task's id.
+  string task_id = 1;
+
+  // The tool use that started the task.
+  string tool_use_id = 2;
+
+  // The task's description.
+  string description = 3;
+
+  // The task's type: agent or shell.
+  string type = 4;
+
+  // The sub-agent type the task runs, or empty.
+  string subagent_type = 5;
+
+  // The task's status: running, done, failed or stopped.
+  string status = 6;
+
+  // The last tool the task used.
+  string last_tool = 7;
+
+  // The task's summary.
+  string summary = 8;
 }
 
 // EngineText is the text so far of one unfinished content block of a headless session. It is not a stored event: its
@@ -981,6 +1023,83 @@ message ConversationState {
 
   // The request the headless session waits on, unset when none is open. Pane streams never set it.
   OpenRequest request = 7;
+
+  // Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+  // never set it.
+  bool interrupting = 8;
+
+  // The caller events held for the headless session, oldest first. Pane streams never set it.
+  repeated PendingEvent pending = 9;
+
+  // The background tasks the headless session reported. Pane streams never set it.
+  repeated BackgroundTask background = 10;
+}
+
+// PendingEvent is a caller event held for a headless session: one that the session has not yet taken, or that waits
+// for the owner.
+message PendingEvent {
+  // The event's id, which names its delivery mark.
+  string id = 1;
+
+  // The event's kind: step_end, question, park, release or end.
+  string kind = 2;
+
+  // The step the event is about, for a step_end.
+  string step = 3;
+
+  // The agent that ran the step, for a step_end.
+  string agent = 4;
+
+  // The step's end, for a step_end.
+  string end = 5;
+
+  // The step's status, for a step_end.
+  string status = 6;
+
+  // The step's reason, for a step_end.
+  string reason = 7;
+
+  // The first line of the step's result, for a step_end.
+  string summary = 8;
+
+  // The epic that holds the step, for a step_end an epic holds, or the epic of an epic event.
+  string epic = 9;
+
+  // The epic's title, for an epic event.
+  string title = 10;
+
+  // How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
+  string waits = 11;
+}
+
+// BackgroundTask is a background task that a headless session reported, with the times it started and ended.
+message BackgroundTask {
+  // The background task's id.
+  string id = 1;
+
+  // The tool use that started the task.
+  string tool_use_id = 2;
+
+  // The task's description.
+  string description = 3;
+
+  // The task's type: agent or shell.
+  string type = 4;
+
+  // The sub-agent type the task runs, or empty.
+  string subagent_type = 5;
+
+  // The task's status: running, done, failed or stopped.
+  string status = 6;
+
+  // The task's last tool or summary.
+  string activity = 7;
+
+  // When the task started, in unix seconds.
+  int64 started = 8;
+
+  // When the task ended, in unix seconds, or 0 while it runs.
+  int64 ended = 9;
 }
 
 // SendTextRequest asks for text to be sent to one pane.

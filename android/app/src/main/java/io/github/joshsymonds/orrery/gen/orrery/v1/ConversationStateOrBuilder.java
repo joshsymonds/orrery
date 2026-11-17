@@ -153,4 +153,67 @@ public interface ConversationStateOrBuilder extends
    * @return The request.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest getRequest();
+
+  /**
+   * <pre>
+   * Whether the owner's Interrupt of the headless session is recorded and the session is still working. Pane streams
+   * never set it.
+   * </pre>
+   *
+   * <code>bool interrupting = 8 [json_name = "interrupting"];</code>
+   * @return The interrupting.
+   */
+  boolean getInterrupting();
+
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent> 
+      getPendingList();
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent getPending(int index);
+  /**
+   * <pre>
+   * The caller events held for the headless session, oldest first. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.PendingEvent pending = 9 [json_name = "pending"];</code>
+   */
+  int getPendingCount();
+
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask> 
+      getBackgroundList();
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask getBackground(int index);
+  /**
+   * <pre>
+   * The background tasks the headless session reported. Pane streams never set it.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.BackgroundTask background = 10 [json_name = "background"];</code>
+   */
+  int getBackgroundCount();
 }

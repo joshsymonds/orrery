@@ -259,5 +259,43 @@ public interface WatchResponseOrBuilder extends
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.EngineText getEngineText();
 
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   * @return Whether the engineInterrupt field is set.
+   */
+  boolean hasEngineInterrupt();
+  /**
+   * <pre>
+   * The owner's Interrupt of a headless session.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineInterrupt engine_interrupt = 15 [json_name = "engineInterrupt"];</code>
+   * @return The engineInterrupt.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EngineInterrupt getEngineInterrupt();
+
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   * @return Whether the engineTask field is set.
+   */
+  boolean hasEngineTask();
+  /**
+   * <pre>
+   * A background task that a headless session reported.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineTask engine_task = 16 [json_name = "engineTask"];</code>
+   * @return The engineTask.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EngineTask getEngineTask();
+
   public io.github.joshsymonds.orrery.gen.orrery.v1.WatchResponse.EventCase getEventCase();
 }

@@ -330,6 +330,44 @@ public  final class EngineTurnEnded extends
 
   }
 
+  public static final int OWNER_INTERRUPTED_FIELD_NUMBER = 6;
+  private boolean ownerInterrupted_;
+  /**
+   * <pre>
+   * Whether the owner's Interrupt ended the turn.
+   * </pre>
+   *
+   * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+   * @return The ownerInterrupted.
+   */
+  @java.lang.Override
+  public boolean getOwnerInterrupted() {
+    return ownerInterrupted_;
+  }
+  /**
+   * <pre>
+   * Whether the owner's Interrupt ended the turn.
+   * </pre>
+   *
+   * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+   * @param value The ownerInterrupted to set.
+   */
+  private void setOwnerInterrupted(boolean value) {
+    
+    ownerInterrupted_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the owner's Interrupt ended the turn.
+   * </pre>
+   *
+   * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+   */
+  private void clearOwnerInterrupted() {
+
+    ownerInterrupted_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EngineTurnEnded parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -747,6 +785,46 @@ public  final class EngineTurnEnded extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether the owner's Interrupt ended the turn.
+     * </pre>
+     *
+     * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+     * @return The ownerInterrupted.
+     */
+    @java.lang.Override
+    public boolean getOwnerInterrupted() {
+      return instance.getOwnerInterrupted();
+    }
+    /**
+     * <pre>
+     * Whether the owner's Interrupt ended the turn.
+     * </pre>
+     *
+     * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+     * @param value The ownerInterrupted to set.
+     * @return This builder for chaining.
+     */
+    public Builder setOwnerInterrupted(boolean value) {
+      copyOnWrite();
+      instance.setOwnerInterrupted(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the owner's Interrupt ended the turn.
+     * </pre>
+     *
+     * <code>bool owner_interrupted = 6 [json_name = "ownerInterrupted"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearOwnerInterrupted() {
+      copyOnWrite();
+      instance.clearOwnerInterrupted();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EngineTurnEnded)
   }
   @java.lang.Override
@@ -768,10 +846,11 @@ public  final class EngineTurnEnded extends
             "terminalReason_",
             "result_",
             "origin_",
+            "ownerInterrupted_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

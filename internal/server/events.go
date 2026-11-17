@@ -361,6 +361,28 @@ func setEngineEvent(msg *orreryv1.WatchResponse, event store.Event) error {
 		}
 		msg.Event = &orreryv1.WatchResponse_EngineTurnEnded{EngineTurnEnded: body}
 	default:
+		return setEngineActivityEvent(msg, event)
+	}
+	return nil
+}
+
+// setEngineActivityEvent sets the typed payload of msg from the stored payload of an engine_interrupt or engine_task
+// event. The payload must decode exactly into its message, as setEngineEvent requires.
+func setEngineActivityEvent(msg *orreryv1.WatchResponse, event store.Event) error {
+	switch event.Kind {
+	case store.EventEngineInterrupt:
+		body := &orreryv1.EngineInterrupt{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineInterrupt{EngineInterrupt: body}
+	case store.EventEngineTask:
+		body := &orreryv1.EngineTask{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineTask{EngineTask: body}
+	default:
 		return fmt.Errorf("event %d has unknown kind %q", event.Seq, event.Kind)
 	}
 	return nil

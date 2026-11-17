@@ -29,6 +29,8 @@ const (
 	EventEngineRequest          = "engine_request"
 	EventEngineRequestCancelled = "engine_request_canceled"
 	EventEngineTurnEnded        = "engine_turn_ended"
+	EventEngineInterrupt        = "engine_interrupt"
+	EventEngineTask             = "engine_task"
 )
 
 // EngineTextCap is the most bytes of block text, tool input and tool content the store keeps.
@@ -175,15 +177,37 @@ type EngineRequestCancelled struct {
 }
 
 // EngineTurnEnded appends engine_turn_ended when a turn ends. Answered lists the uuids of the user messages the turn
-// answered, in the order its result listed them.
+// answered, in the order its result listed them. OwnerInterrupted is whether the owner's Interrupt ended the turn,
+// stored as ownerInterrupted only when true.
 type EngineTurnEnded struct {
-	ID             string
-	Subtype        string
-	IsError        bool
-	TerminalReason string
-	Result         string
-	Origin         string
-	Answered       []string
+	ID               string
+	Subtype          string
+	IsError          bool
+	TerminalReason   string
+	Result           string
+	Origin           string
+	Answered         []string
+	OwnerInterrupted bool
+}
+
+// EngineInterrupt appends engine_interrupt when the owner's Interrupt of a session is recorded. Turning is whether a
+// turn ran when it was recorded.
+type EngineInterrupt struct {
+	ID      string
+	Turning bool
+}
+
+// EngineTask appends engine_task for one background task a session reported.
+type EngineTask struct {
+	ID           string
+	TaskID       string
+	ToolUseID    string
+	Description  string
+	Type         string
+	SubagentType string
+	Status       string
+	LastTool     string
+	Summary      string
 }
 
 // EngineText upserts the unfinished row of one streaming block.
@@ -255,11 +279,27 @@ type engineRequestCancelledPayload struct {
 }
 
 type engineTurnEndedPayload struct {
-	Subtype        string `json:"subtype"`
-	IsError        bool   `json:"isError"`
-	TerminalReason string `json:"terminalReason"`
-	Result         string `json:"result"`
-	Origin         string `json:"origin"`
+	Subtype          string `json:"subtype"`
+	IsError          bool   `json:"isError"`
+	TerminalReason   string `json:"terminalReason"`
+	Result           string `json:"result"`
+	Origin           string `json:"origin"`
+	OwnerInterrupted bool   `json:"ownerInterrupted,omitempty"`
+}
+
+type engineInterruptPayload struct {
+	Turning bool `json:"turning"`
+}
+
+type engineTaskPayload struct {
+	TaskID       string `json:"taskId"`
+	ToolUseID    string `json:"toolUseId"`
+	Description  string `json:"description"`
+	Type         string `json:"type"`
+	SubagentType string `json:"subagentType"`
+	Status       string `json:"status"`
+	LastTool     string `json:"lastTool"`
+	Summary      string `json:"summary"`
 }
 
 // EngineOpError reports that the op at Index in an ApplyEngine batch failed. The whole batch was rolled back. It
@@ -450,7 +490,7 @@ func (op EngineRequestCancelled) applyEngine(ctx context.Context, queries *sqlcg
 func (op EngineTurnEnded) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
 	payload, err := encodeEnginePayload(EventEngineTurnEnded, engineTurnEndedPayload{
 		Subtype: op.Subtype, IsError: op.IsError, TerminalReason: op.TerminalReason,
-		Result: op.Result, Origin: op.Origin,
+		Result: op.Result, Origin: op.Origin, OwnerInterrupted: op.OwnerInterrupted,
 	})
 	if err != nil {
 		return err
@@ -469,6 +509,18 @@ func (op EngineTurnEnded) applyEngine(ctx context.Context, queries *sqlcgen.Quer
 		return fmt.Errorf("append %s for session %s: %w", EventEngineTurnEnded, op.ID, err)
 	}
 	return nil
+}
+
+func (op EngineInterrupt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
+	return appendEnginePayload(ctx, queries, op.ID, EventEngineInterrupt,
+		engineInterruptPayload{Turning: op.Turning}, now)
+}
+
+func (op EngineTask) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
+	return appendEnginePayload(ctx, queries, op.ID, EventEngineTask, engineTaskPayload{
+		TaskID: op.TaskID, ToolUseID: op.ToolUseID, Description: op.Description, Type: op.Type,
+		SubagentType: op.SubagentType, Status: op.Status, LastTool: op.LastTool, Summary: op.Summary,
+	}, now)
 }
 
 func (op EngineText) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
