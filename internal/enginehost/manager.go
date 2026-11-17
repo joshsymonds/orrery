@@ -69,6 +69,10 @@ var ErrSessionBusy = errors.New("session is busy")
 // nothing and sends nothing to it.
 var ErrCallerStopped = errors.New("session was stopped")
 
+// ErrCallerQuiet reports a Deliver to a live session that the owner interrupted and has said nothing to since (see
+// liveSession). Deliver stores and sends nothing for it.
+var ErrCallerQuiet = errors.New("session was interrupted by its owner")
+
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
 
@@ -170,7 +174,10 @@ type Config struct {
 // once no turn, request or background task runs and it owes no answer, and retired is set once it has. stopped is closed
 // once the stop of a retired session returns, which is once its holder has ended and its directory is removed. sending
 // counts the sends of a prompt that markSending or claimStep began and send has not ended, so a draining session
-// is not retired between the start of a send and its end.
+// is not retired between the start of a send and its end. quiet is set by the owner's Interrupt and cleared by the owner's
+// next Say, and while it is set no caller event starts a turn (see claimFree). An interrupt that a Say's preempt sends
+// (see interruptFor) does not set it. The manager's lock guards it. It lives in the live session only, so a session that
+// stops, by the idle check or a restart of orreryd, and is resumed is not quiet.
 type liveSession struct {
 	id           string
 	dir          string
@@ -185,6 +192,7 @@ type liveSession struct {
 	exited       bool
 	turning      bool
 	interrupting bool
+	quiet        bool
 	starter      turnStarter
 	closing      bool
 	draining     bool
@@ -630,7 +638,8 @@ func nothingToSend() error {
 }
 
 // decide makes the delivery decision for req on live under live's order lock, so it is made against the session's turn
-// and held messages as the pump leaves them. A request the session has open is declined first (see declineLocked). A
+// and held messages as the pump leaves them. A request the session has open is declined first (see declineLocked). The
+// owner's message clears the quiet that his Interrupt set, so caller events are delivered again (see claimFree). A
 // step's message, and a message after such a decline, is written at once, since a decline leaves the turn running with
 // the message as its next prompt. A message is also written at once when the session is idle and holds no message. A
 // turn that a caller event or claude itself started does not hold the owner's message: that turn is interrupted, and
@@ -661,6 +670,7 @@ func (m *Manager) decide(ctx context.Context, live *liveSession, req SayRequest)
 		return nil, fmt.Errorf("read held prompts of session %s: %w", live.id, err)
 	}
 	m.mu.Lock()
+	live.quiet = false
 	turning := live.turning
 	preempt := turning && live.starter != ownerTurn
 	m.mu.Unlock()
@@ -745,7 +755,7 @@ func (m *Manager) preemptLocked(
 
 // interruptFor interrupts the running turn of live for the owner's message, as Interrupt does, unless an interrupt of it is
 // already pending, since a second could reach claude after that turn ended and interrupt the owner's. That turn's end
-// sends no notice. A failed interrupt is logged, and the owner's message then follows the turn once it ends.
+// sends no notice. Unlike Interrupt, it leaves the session open to caller events, since the owner's message follows. A failed interrupt is logged, and the owner's message then follows the turn once it ends.
 func (m *Manager) interruptFor(ctx context.Context, live *liveSession) {
 	m.mu.Lock()
 	pending := live.interrupting
@@ -875,7 +885,9 @@ type DeliverRequest struct {
 // Deliver sends req.Text to the headless session req.ID as its next prompt, stored with the sender event and
 // req.PromptID. Unlike Say, it never answers, denies or declines a request the session has open. A live session that
 // is busy, with a turn running, a request open, a background task or a hand-off, returns ErrSessionBusy and stores and
-// sends nothing, so the caller delivers the text once the session is not busy. A session that is not live is resumed
+// sends nothing, so the caller delivers the text once the session is not busy. A live session that the owner
+// interrupted and has said nothing to since returns ErrCallerQuiet and stores and sends nothing, so the caller delivers
+// the text once the owner has spoken. A session that is not live is resumed
 // from its row, as Say resumes one, unless its row is stopped, which returns ErrCallerStopped. A step session returns
 // an error naming it. A non-empty req.PromptID that an engine_prompt of the session already carries makes Deliver
 // return nil and do nothing else, also after a restart. It returns ErrEmptyPrompt for empty text. A non-empty
@@ -936,10 +948,10 @@ func refuseStopped(row store.EngineRow) error {
 }
 
 // claimFree returns the live session id with its turn marked running, started by a caller event, and a send begun, as
-// markSending does, but only while the session is not busy. The check and the claim are one step under the lock, so a
-// delivery that claims the session leaves every other delivery to find it busy. It returns ErrNoSession when no session
-// with that id is live, or when it is closing or its exit is recorded, ErrSessionBusy when it is busy, and an error
-// naming it when it is a step.
+// markSending does, but only while the session is not busy and not quiet. The check and the claim are one step under the
+// lock, so a delivery that claims the session leaves every other delivery to find it busy. It returns ErrNoSession when no
+// session with that id is live, or when it is closing or its exit is recorded, ErrSessionBusy when it is busy,
+// ErrCallerQuiet when the owner's Interrupt left it quiet, and an error naming it when it is a step.
 func (m *Manager) claimFree(id string) (*liveSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -952,6 +964,9 @@ func (m *Manager) claimFree(id string) (*liveSession, error) {
 	}
 	if live.busy() {
 		return nil, ErrSessionBusy
+	}
+	if live.quiet {
+		return nil, ErrCallerQuiet
 	}
 	live.turning = true
 	live.starter = eventTurn
@@ -1202,13 +1217,19 @@ func answerPermission(sess *session.Session, requestID, answer string) error {
 
 // Interrupt asks the live session id to end the turn in progress, first denying any request it has open (see
 // declineOpen), since a session waiting on a request does not read an interrupt. The turn's end is recorded when the session reports
-// it, and that end sends no notice. It returns an error wrapping ErrNoSession when id is not live.
+// it, and that end sends no notice. The session is left quiet, with or without a turn running, so no caller event starts
+// a turn in it until the owner's next Say (see claimFree and decide). The quiet is set before anything is sent and stays
+// set when the interrupt fails, since the owner asked for the session to stop. It returns an error wrapping ErrNoSession
+// when id is not live.
 func (m *Manager) Interrupt(ctx context.Context, id string) error {
 	defer m.calls.enter()()
 	live, err := m.live(id)
 	if err != nil {
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}
+	m.mu.Lock()
+	live.quiet = true
+	m.mu.Unlock()
 	if err = m.declineOpen(context.WithoutCancel(ctx), live); err != nil {
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}

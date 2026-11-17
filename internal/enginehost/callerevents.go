@@ -71,7 +71,8 @@ func NewCallerSender(cfg CallerSenderConfig) *CallerSender {
 
 // Send sends text, the block of event, to caller, and reports whether the event is finished: it has been marked. A
 // step caller receives nothing, and its event is marked. A headless caller receives text as a prompt whose PromptID is
-// event. A caller that is busy or stopped holds the event, with no error and no mark, until a later send. A pane caller
+// event. A caller that is busy, stopped, or quiet since the owner interrupted it holds the event, with no error and no
+// mark, until a later send. A pane caller
 // receives text as keys, which WakePane holds while the pane is not idle, and the event is marked after the keys are
 // sent. Any other error is returned with no mark.
 func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, event, text string) (bool, error) {
@@ -80,7 +81,7 @@ func (s *CallerSender) Send(ctx context.Context, caller store.CallerSession, eve
 		return s.mark(ctx, caller.ID, event)
 	case store.KindEngine:
 		err := s.deliver(ctx, DeliverRequest{ID: caller.ID, Text: text, PromptID: event})
-		if errors.Is(err, ErrSessionBusy) || errors.Is(err, ErrCallerStopped) {
+		if errors.Is(err, ErrSessionBusy) || errors.Is(err, ErrCallerStopped) || errors.Is(err, ErrCallerQuiet) {
 			return false, nil
 		}
 		if err != nil {
