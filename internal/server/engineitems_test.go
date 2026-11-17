@@ -26,12 +26,6 @@ func TestSessionItemEpicWidgetNamesTheCreatedEpic(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "mcp epic_create names its contract id",
-			tool:  "mcp__orrery__epic_create",
-			input: `{"contract":{"id":"demo-0a1b2c3/epic-login"}}`,
-			want:  "demo-0a1b2c3/epic-login",
-		},
-		{
 			name:  "mcp epic_create names a contract id past the input clip",
 			tool:  "mcp__orrery__epic_create",
 			input: longInput,

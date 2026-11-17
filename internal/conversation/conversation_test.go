@@ -1189,8 +1189,8 @@ func TestReadEpicWidgetNamesTheCreatedEpic(t *testing.T) {
 	}
 }
 
-// TestEpicWidgetCreatedEpicByToolName checks which tool names create an epic, and that an input naming no contract
-// id, or one that does not decode, names no epic.
+// TestEpicWidgetCreatedEpicByToolName checks that only an MCP server's epic_create call names an epic, and that an
+// input naming no contract id, or one that does not decode, names no epic.
 func TestEpicWidgetCreatedEpicByToolName(t *testing.T) {
 	input := json.RawMessage(`{"contract":{"id":"demo-0a1b2c3/epic-login"}}`)
 	tests := []struct {
@@ -1199,14 +1199,18 @@ func TestEpicWidgetCreatedEpicByToolName(t *testing.T) {
 		input json.RawMessage
 		want  string
 	}{
-		{"bare epic_create", "epic_create", input, "demo-0a1b2c3/epic-login"},
-		{"mcp epic_create", "mcp__orrery__epic_create", input, "demo-0a1b2c3/epic-login"},
-		{"mcp server name with separators", "mcp__my__server__epic_create", input, "demo-0a1b2c3/epic-login"},
+		{"bare epic_create names no epic", "epic_create", input, ""},
+		{"mcp epic_create names its contract id", "mcp__orrery__epic_create", input, "demo-0a1b2c3/epic-login"},
+		{
+			"mcp server name with separators names its contract id",
+			"mcp__my__server__epic_create",
+			input,
+			"demo-0a1b2c3/epic-login",
+		},
 		{"mcp name with no server", "mcp__epic_create", input, ""},
 		{"mcp epic_get", "mcp__orrery__epic_get", input, ""},
-		{"Bash", "Bash", input, ""},
-		{"epic_create with no contract id", "epic_create", json.RawMessage(`{"contract":{}}`), ""},
-		{"epic_create with input that does not decode", "epic_create", json.RawMessage(`not json`), ""},
+		{"epic_create with no contract id", "mcp__orrery__epic_create", json.RawMessage(`{"contract":{}}`), ""},
+		{"epic_create with input that does not decode", "mcp__orrery__epic_create", json.RawMessage(`not json`), ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -59,7 +59,7 @@ const (
 // askUserQuestionTool is the tool whose tool_use items are questions.
 const askUserQuestionTool = "AskUserQuestion"
 
-// epicCreateTool is the epic tool that creates an epic. An MCP server names it mcp__<server>__epic_create.
+// epicCreateTool is the name of the epic tool that creates an epic, behind an MCP server: mcp__<server>__epic_create.
 const epicCreateTool = "epic_create"
 
 const (
@@ -300,7 +300,7 @@ func toolItem(block contentBlock, ts int64) Item {
 }
 
 // CreatedEpic returns the id of the epic a tool call creates: the contract id in the call's full input when the
-// call is an epic_create call, named epic_create or mcp__<server>__epic_create. It returns "" for any other call,
+// call is an MCP server's epic_create call, named mcp__<server>__epic_create. It returns "" for any other call,
 // and for an input that does not decode or names no contract id. input is the whole input, not its display text.
 func CreatedEpic(name string, input json.RawMessage) string {
 	if !isEpicCreate(name) {
@@ -320,11 +320,9 @@ type epicCreateInput struct {
 	} `json:"contract"`
 }
 
-// isEpicCreate reports whether a tool name is the epic_create tool, bare or behind an MCP server.
+// isEpicCreate reports whether a tool name is an MCP server's epic_create tool, mcp__<server>__epic_create. A bare
+// epic_create is not one.
 func isEpicCreate(name string) bool {
-	if name == epicCreateTool {
-		return true
-	}
 	rest, ok := strings.CutPrefix(name, "mcp__")
 	if !ok {
 		return false
