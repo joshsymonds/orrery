@@ -12,10 +12,16 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
+// The status of a background task that runs, and the type of an agent task, as engine_task events carry them.
+const (
+	taskRunning = "running"
+	taskAgent   = "agent"
+)
+
 // sessionItem maps one engine event of a headless session's main thread to the conversation item it shows, stamped
 // with the event's time. It returns false when the event makes no item: a sub-agent block, a thinking block, a text
-// block that is not the assistant's, a turn end that the owner's interrupt did not end, and every event kind that is
-// not a prompt, a block or a turn end.
+// block that is not the assistant's, a turn end that the owner's interrupt did not end, an engine_task that does not
+// end an agent task (see finishedTaskStatus), and every event kind that is not a prompt, a block, a turn end or a task.
 func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, error) {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -71,8 +77,49 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 		default:
 			return nil, false, nil
 		}
+	case store.EventEngineTask:
+		return taskItem(event)
 	default:
 		return nil, false, nil
+	}
+}
+
+// taskItem maps an engine_task event to the agent_finished item it shows: the end of an agent task, stamped with the
+// event's time. It returns false when the event does not end an agent task.
+func taskItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, error) {
+	body, err := sessionTask(event)
+	if err != nil {
+		return nil, false, err
+	}
+	if body.Type != taskAgent || !finishedTaskStatus(body.Status) {
+		return nil, false, nil
+	}
+	return &orreryv1.ConversationItem{
+		Kind:   "agent_finished",
+		Time:   event.At,
+		Text:   body.Description,
+		Id:     body.ToolUseId,
+		Tool:   body.SubagentType,
+		Notice: body.Status,
+	}, true, nil
+}
+
+// sessionTask decodes the payload of an engine_task event.
+func sessionTask(event store.EngineEvent) (*orreryv1.EngineTask, error) {
+	body := &orreryv1.EngineTask{}
+	if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+		return nil, fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+	}
+	return body, nil
+}
+
+// finishedTaskStatus reports whether status ends a background task: done, failed or stopped.
+func finishedTaskStatus(status string) bool {
+	switch status {
+	case epicEndDone, "failed", "stopped":
+		return true
+	default:
+		return false
 	}
 }
 

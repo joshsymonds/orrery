@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -45,6 +46,7 @@ func (s sessionsServer) WatchConversation(
 		reader: s.reader,
 		home:   s.home,
 		steps:  s.steps,
+		now:    s.now,
 		id:     req.Msg.GetId(),
 		limit:  limit,
 		after:  req.Msg.GetAfter(),
@@ -120,6 +122,11 @@ type sessionWatch struct {
 	interruptTurning bool
 	turnEndSeq       int64
 	ownerPromptSeq   int64
+	// now is the clock the background window is read against. tasks holds each background task the stream has folded, by
+	// task id, and taskOrder holds the same tasks in the order the stream first saw them (see foldTask).
+	now       func() time.Time
+	tasks     map[string]*backgroundTask
+	taskOrder []*backgroundTask
 	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished and sentHeld are the
 	// unfinished and held sets it last sent.
 	sent           *orreryv1.ConversationState
@@ -257,6 +264,109 @@ func (w *sessionWatch) interrupting(state string) bool {
 	return state == string(protocol.StateWorking) && w.interruptTurning && w.turnEndSeq < w.interruptSeq
 }
 
+// backgroundWindow is how many seconds an ended background task stays in the state after its end, either side of the
+// clock.
+const backgroundWindow = 60
+
+// backgroundTask is one background task as the stream has folded its engine_task events (see foldTask). ended is 0
+// while the task runs.
+type backgroundTask struct {
+	id           string
+	toolUseID    string
+	description  string
+	taskType     string
+	subagentType string
+	status       string
+	lastTool     string
+	summary      string
+	started      int64
+	ended        int64
+}
+
+// foldTask folds one engine_task event into the background task its task id names, creating the task at its first
+// event. The task's started time is that event's time, and its ended time is the time of the first event whose status
+// is not running. Its status, tool use id, type and subagent type come from each event, and its description, last tool
+// and summary keep the newest non-empty value of each.
+func (w *sessionWatch) foldTask(event store.EngineEvent) error {
+	body, err := sessionTask(event)
+	if err != nil {
+		return err
+	}
+	if w.tasks == nil {
+		w.tasks = make(map[string]*backgroundTask)
+	}
+	task, ok := w.tasks[body.TaskId]
+	if !ok {
+		task = &backgroundTask{id: body.TaskId, started: event.At}
+		w.tasks[body.TaskId] = task
+		w.taskOrder = append(w.taskOrder, task)
+	}
+	if task.ended == 0 && body.Status != taskRunning {
+		task.ended = event.At
+	}
+	task.toolUseID = body.ToolUseId
+	task.taskType = body.Type
+	task.subagentType = body.SubagentType
+	task.status = body.Status
+	if body.Description != "" {
+		task.description = body.Description
+	}
+	if body.LastTool != "" {
+		task.lastTool = body.LastTool
+	}
+	if body.Summary != "" {
+		task.summary = body.Summary
+	}
+	return nil
+}
+
+// shows reports whether the state carries the task at now: a running task always, and an ended task while its end is
+// within backgroundWindow seconds of now.
+func (t *backgroundTask) shows(now int64) bool {
+	if t.ended == 0 {
+		return true
+	}
+	age := now - t.ended
+	return age >= -backgroundWindow && age <= backgroundWindow
+}
+
+// row returns the task as a BackgroundTask. Its activity is the newest non-empty last tool, or else the newest non-empty
+// summary.
+func (t *backgroundTask) row() *orreryv1.BackgroundTask {
+	activity := t.summary
+	if t.lastTool != "" {
+		activity = t.lastTool
+	}
+	return &orreryv1.BackgroundTask{
+		Id:           t.id,
+		ToolUseId:    t.toolUseID,
+		Description:  t.description,
+		Type:         t.taskType,
+		SubagentType: t.subagentType,
+		Status:       t.status,
+		Activity:     activity,
+		Started:      t.started,
+		Ended:        t.ended,
+	}
+}
+
+// backgroundRows returns the background tasks the state carries at now, oldest start first: each task that shows at now
+// (see shows).
+func (w *sessionWatch) backgroundRows(now int64) []*orreryv1.BackgroundTask {
+	shown := make([]*backgroundTask, 0, len(w.taskOrder))
+	for _, task := range w.taskOrder {
+		if task.shows(now) {
+			shown = append(shown, task)
+		}
+	}
+	slices.SortStableFunc(shown, func(a, b *backgroundTask) int { return cmp.Compare(a.started, b.started) })
+	rows := make([]*orreryv1.BackgroundTask, 0, len(shown))
+	for _, task := range shown {
+		rows = append(rows, task.row())
+	}
+	return rows
+}
+
 // keptItem is a main-thread item a read keeps, with the seq of the event it came from.
 type keptItem struct {
 	seq  int64
@@ -380,8 +490,9 @@ func (w *sessionWatch) collect(
 }
 
 // track records what an event sets for the stream: the origin, from the session's first prompt; the request, from each
-// unrefused request; and the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended and
-// owner prompt. item and ok are sessionItem's result for event. It returns the decode error of a request or interrupt.
+// unrefused request; the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended and
+// owner prompt; and the background task, from each engine_task (see foldTask). item and ok are sessionItem's result for
+// event. It returns the decode error of a request, interrupt or task.
 func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.ConversationItem, ok bool) error {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -408,13 +519,16 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 		if open {
 			w.request = req
 		}
+	case store.EventEngineTask:
+		return w.foldTask(event)
 	}
 	return nil
 }
 
 // state returns the state of the session as history reads it: its origin, its headless session without the summary
 // and newest reply, its context figure when its transcript is read, whether the owner's interrupt is running (see
-// interrupting), the caller events it is owed (pending), and the open request while the session waits on one.
+// interrupting), the caller events it is owed (pending), the background tasks it carries at the clock's time (see
+// backgroundRows), and the open request while the session waits on one.
 func (w *sessionWatch) state(
 	history store.EngineHistory,
 	pending []*orreryv1.PendingEvent,
@@ -440,6 +554,7 @@ func (w *sessionWatch) state(
 		},
 		Interrupting: w.interrupting(history.State),
 		Pending:      pending,
+		Background:   w.backgroundRows(w.now().Unix()),
 	}
 	if w.transcript != "" {
 		state.Context = &orreryv1.ConversationContext{Tokens: w.figure.Tokens, Window: w.figure.Window}
