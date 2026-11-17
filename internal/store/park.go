@@ -60,3 +60,11 @@ func ownedPark(reason, class string) string {
 	}
 	return reason
 }
+
+// plannerPark returns reason when the planner answers a park of class, and "" otherwise: the park ownedPark leaves out.
+func plannerPark(reason, class string) string {
+	if ParkClass(class).OwnerHeld() {
+		return ""
+	}
+	return reason
+}
