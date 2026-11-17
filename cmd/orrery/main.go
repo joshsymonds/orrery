@@ -122,6 +122,9 @@ subcommands:
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
                                                 holding its repository's release slot frees the slot and stops
                                                 its open release step instead, and is not paused
+  epic kick ID TEXT                             record TEXT as your decision on an idle epic and wake its planner
+                                                with it at the epic's next plan run; refused for a paused, parked
+                                                or ended epic
   epic retry ID [NODE]                          end an epic's park, or rerun NODE's parked runs or its failed
                                                 latest integrate run
   epic release ID [--undo-none N]...            resume a stopped release at its first unfinished step, or

@@ -25,6 +25,10 @@ service Epics {
   // Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
   rpc Retry(EpicsRetryRequest) returns (EpicsRetryResponse);
 
+  // Kick records the owner's text on the named orreryd epic as a decision and wakes its planner with it at the epic's
+  // next plan run.
+  rpc Kick(EpicsKickRequest) returns (EpicsKickResponse);
+
   // Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
   rpc Answer(EpicsAnswerRequest) returns (EpicsAnswerResponse);
 
@@ -455,6 +459,18 @@ message EpicsRetryRequest {
 
 // EpicsRetryResponse confirms a retried epic.
 message EpicsRetryResponse {}
+
+// EpicsKickRequest records the owner's text on one orreryd epic.
+message EpicsKickRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The owner's words, which the planner reads at the epic's next plan run.
+  string text = 2;
+}
+
+// EpicsKickResponse confirms a kicked epic.
+message EpicsKickResponse {}
 
 // EpicsAnswerRequest records the owner's answer on one orreryd epic.
 message EpicsAnswerRequest {

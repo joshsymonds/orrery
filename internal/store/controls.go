@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -217,6 +218,54 @@ func closeParkQuestions(ctx context.Context, queries *sqlcgen.Queries, epic stri
 		}
 	}
 	return nil
+}
+
+// endedPhase reports whether phase is one an epic ends in, which a kick is refused for. The store keeps its own list,
+// since the kinds package that reads the phases imports the store.
+func endedPhase(phase string) bool {
+	switch phase {
+	case "met_at_base", "clean", "ended_with_gaps", "released", "done", "stopped":
+		return true
+	}
+	return false
+}
+
+// KickEpic records text on epic as the owner's decision and adds a pending trigger whose cause carries text, in one
+// write. The decision's id is `owner-kick:<seq>` for the decision's seq, which the store assigns, and the trigger has
+// the same id, so the planner claims it at the epic's next plan run and its turn prompt shows text. An unknown epic is
+// ErrNoEpic. An epic in an ended phase, a paused epic and a parked epic are refused and write nothing; the refusal for
+// a parked epic names orrery epic retry, which ends the park.
+func (s *Store) KickEpic(ctx context.Context, epic, text string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		head, err := epicHead(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
+		switch {
+		case endedPhase(head.Phase):
+			return RefusalError(fmt.Sprintf("epic %s is %s, an ended phase, and takes no kick", epic, head.Phase))
+		case head.Paused != 0:
+			return RefusalError(fmt.Sprintf("epic %s is paused; resume it before kicking it", epic))
+		case head.Parked != "":
+			return RefusalError(fmt.Sprintf(
+				"epic %s is parked; orrery epic retry %s ends the park before a kick", epic, epic,
+			))
+		}
+		next, err := queries.MaxEpicDecisionSeq(ctx, epic)
+		if err != nil {
+			return fmt.Errorf("read decision count of epic %s: %w", epic, err)
+		}
+		id := fmt.Sprintf("owner-kick:%d", next+1)
+		if _, err = appendDecision(ctx, queries, epic, id, text, 0, at); err != nil {
+			return err
+		}
+		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+			Epic: epic, ID: id, Cause: "owner kick: " + text, State: triggerPending, Turn: 0, Created: at.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert trigger of kick %s on epic %s: %w", id, epic, err)
+		}
+		return nil
+	})
 }
 
 // TurnStopped reports whether turn seq of epic was flagged to stop. A turn that does not exist is an error matching

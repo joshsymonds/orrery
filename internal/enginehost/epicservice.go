@@ -46,6 +46,7 @@ type EpicCommands interface {
 	StopEpic(ctx context.Context, epic string) (string, error)
 	RetryEpic(ctx context.Context, epic string) error
 	RetryNode(ctx context.Context, epic, node string) error
+	KickEpic(ctx context.Context, epic, text string, at time.Time) error
 	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
 }
@@ -479,6 +480,33 @@ func (s *epicService) RetryEpic(
 		return nil, epicStoreError(err)
 	}
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
+}
+
+// KickEpic records the owner's text on the epic as a decision and wakes its planner with the text at the epic's next
+// plan run, and returns the epic read back. An empty id, and text that is blank, are refused before the store is asked.
+// The store refuses an unknown epic, a paused or parked epic, and an ended one, as the other controls do.
+func (s *epicService) KickEpic(
+	ctx context.Context,
+	req *connect.Request[v1.KickEpicRequest],
+) (*connect.Response[v1.KickEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if isBlank(req.Msg.GetText()) {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "text: empty")
+	}
+	if err := s.epics.KickEpic(ctx, id, req.Msg.GetText(), time.Now()); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	message, err := s.storedEpic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.KickEpicResponse{Epic: message}), nil
 }
 
 // ReleaseEpic releases the epic. It resumes the stopped release at its first unfinished step, running again the

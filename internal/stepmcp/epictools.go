@@ -49,6 +49,13 @@ type epicRetryArgs struct {
 	Node string `json:"node,omitempty" jsonschema:"the workflow node id whose parked run reruns under its next attempt; omit to end the epic's park"`
 }
 
+// epicKickArgs is the arguments of epic_kick, described for its input schema. Text is the owner's words, which the
+// planner reads at the epic's next plan run.
+type epicKickArgs struct {
+	ID   string `json:"id"`
+	Text string `json:"text" jsonschema:"the owner's words, which the planner reads at the epic's next plan run"`
+}
+
 // epicReleaseArgs is the arguments of epic_release, described for its input schema. UndoNone names the 1-based positions
 // of the undo-none release steps to run again; omitted, none runs again.
 type epicReleaseArgs struct {
@@ -58,7 +65,7 @@ type epicReleaseArgs struct {
 
 // epicInputs holds the input schema of each epic tool, by the arguments it takes.
 type epicInputs struct {
-	create, id, list, answer, follow, retry, release json.RawMessage
+	create, id, list, answer, follow, retry, kick, release json.RawMessage
 }
 
 // epicToolInputs returns the input schemas of the epic tools.
@@ -81,6 +88,9 @@ func epicToolInputs() (epicInputs, error) {
 		return epicInputs{}, err
 	}
 	if in.retry, err = argumentSchema[epicRetryArgs](nil); err != nil {
+		return epicInputs{}, err
+	}
+	if in.kick, err = argumentSchema[epicKickArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
 	if in.release, err = argumentSchema[epicReleaseArgs](nil); err != nil {
@@ -169,6 +179,14 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 				"that is not parked is refused.",
 			InputSchema: in.retry,
 			Handler:     epicRetryHandler(epics),
+		},
+		{
+			Name: "epic_kick",
+			Description: "Kick an epic by id: record text as the owner's decision and wake the epic's planner with it " +
+				"at the epic's next plan run. Refused for a paused epic, for a parked epic (epic_retry ends the park " +
+				"first), and for an epic in an ended phase, which takes no kick. Returns the stored epic.",
+			InputSchema: in.kick,
+			Handler:     epicKickHandler(epics),
 		},
 		{
 			Name: "epic_release",
@@ -343,6 +361,20 @@ func epicRetryHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(retried.Msg.GetEpic())
+	}
+}
+
+func epicKickHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.KickEpicRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		kicked, err := epics.KickEpic(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(kicked.Msg.GetEpic())
 	}
 }
 

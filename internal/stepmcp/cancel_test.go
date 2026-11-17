@@ -146,6 +146,15 @@ func (d *heldDaemon) RetryEpic(
 	return connect.NewResponse(&v1.RetryEpicResponse{Epic: &v1.StoredEpic{}}), nil
 }
 
+func (d *heldDaemon) KickEpic(
+	ctx context.Context, _ *connect.Request[v1.KickEpicRequest],
+) (*connect.Response[v1.KickEpicResponse], error) {
+	if err := d.hold(ctx, "KickEpic"); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.KickEpicResponse{Epic: &v1.StoredEpic{}}), nil
+}
+
 func (d *heldDaemon) FollowEpics(
 	ctx context.Context, _ *connect.Request[v1.FollowEpicsRequest],
 ) (*connect.Response[v1.FollowEpicsResponse], error) {
@@ -296,6 +305,7 @@ func TestCancelLeavesAMutatingCallRunning(t *testing.T) {
 		{tool: "epic_resume", arguments: `{"id":"` + epicID + `"}`},
 		{tool: "epic_stop", arguments: `{"id":"` + epicID + `"}`},
 		{tool: "epic_retry", arguments: `{"id":"` + epicID + `"}`},
+		{tool: "epic_kick", arguments: `{"id":"` + epicID + `","text":"Try again."}`},
 		{
 			tool: "evidence_run",
 			arguments: `{"epic":"` + epicID + `","item":"R1",` +

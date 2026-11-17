@@ -81,6 +81,16 @@ func (f *epicCommandsFake) RetryEpic(
 	return connect.NewResponse(&enginev1.RetryEpicResponse{}), nil
 }
 
+func (f *epicCommandsFake) KickEpic(
+	_ context.Context,
+	req *connect.Request[enginev1.KickEpicRequest],
+) (*connect.Response[enginev1.KickEpicResponse], error) {
+	if err := f.record(req.Msg); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&enginev1.KickEpicResponse{}), nil
+}
+
 func (f *epicCommandsFake) AnswerEpic(
 	_ context.Context,
 	req *connect.Request[enginev1.AnswerEpicRequest],

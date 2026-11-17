@@ -51,6 +51,8 @@ const (
 	EpicsStopProcedure = "/orrery.v1.Epics/Stop"
 	// EpicsRetryProcedure is the fully-qualified name of the Epics's Retry RPC.
 	EpicsRetryProcedure = "/orrery.v1.Epics/Retry"
+	// EpicsKickProcedure is the fully-qualified name of the Epics's Kick RPC.
+	EpicsKickProcedure = "/orrery.v1.Epics/Kick"
 	// EpicsAnswerProcedure is the fully-qualified name of the Epics's Answer RPC.
 	EpicsAnswerProcedure = "/orrery.v1.Epics/Answer"
 	// EpicsSeenProcedure is the fully-qualified name of the Epics's Seen RPC.
@@ -81,6 +83,9 @@ type EpicsClient interface {
 	Stop(context.Context, *connect.Request[v1.EpicsStopRequest]) (*connect.Response[v1.EpicsStopResponse], error)
 	// Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
 	Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error)
+	// Kick records the owner's text on the named orreryd epic as a decision and wakes its planner with it at the epic's
+	// next plan run.
+	Kick(context.Context, *connect.Request[v1.EpicsKickRequest]) (*connect.Response[v1.EpicsKickResponse], error)
 	// Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
 	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
 	// Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
@@ -140,6 +145,12 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("Retry")),
 			connect.WithClientOptions(opts...),
 		),
+		kick: connect.NewClient[v1.EpicsKickRequest, v1.EpicsKickResponse](
+			httpClient,
+			baseURL+EpicsKickProcedure,
+			connect.WithSchema(epicsMethods.ByName("Kick")),
+			connect.WithClientOptions(opts...),
+		),
 		answer: connect.NewClient[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse](
 			httpClient,
 			baseURL+EpicsAnswerProcedure,
@@ -164,6 +175,7 @@ type epicsClient struct {
 	resume  *connect.Client[v1.EpicsResumeRequest, v1.EpicsResumeResponse]
 	stop    *connect.Client[v1.EpicsStopRequest, v1.EpicsStopResponse]
 	retry   *connect.Client[v1.EpicsRetryRequest, v1.EpicsRetryResponse]
+	kick    *connect.Client[v1.EpicsKickRequest, v1.EpicsKickResponse]
 	answer  *connect.Client[v1.EpicsAnswerRequest, v1.EpicsAnswerResponse]
 	seen    *connect.Client[v1.EpicsSeenRequest, v1.EpicsSeenResponse]
 }
@@ -203,6 +215,11 @@ func (c *epicsClient) Retry(ctx context.Context, req *connect.Request[v1.EpicsRe
 	return c.retry.CallUnary(ctx, req)
 }
 
+// Kick calls orrery.v1.Epics.Kick.
+func (c *epicsClient) Kick(ctx context.Context, req *connect.Request[v1.EpicsKickRequest]) (*connect.Response[v1.EpicsKickResponse], error) {
+	return c.kick.CallUnary(ctx, req)
+}
+
 // Answer calls orrery.v1.Epics.Answer.
 func (c *epicsClient) Answer(ctx context.Context, req *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error) {
 	return c.answer.CallUnary(ctx, req)
@@ -229,6 +246,9 @@ type EpicsHandler interface {
 	Stop(context.Context, *connect.Request[v1.EpicsStopRequest]) (*connect.Response[v1.EpicsStopResponse], error)
 	// Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
 	Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error)
+	// Kick records the owner's text on the named orreryd epic as a decision and wakes its planner with it at the epic's
+	// next plan run.
+	Kick(context.Context, *connect.Request[v1.EpicsKickRequest]) (*connect.Response[v1.EpicsKickResponse], error)
 	// Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
 	Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error)
 	// Seen records that the owner saw the named orreryd epic, so its seen mark is the time of this call.
@@ -284,6 +304,12 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("Retry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsKickHandler := connect.NewUnaryHandler(
+		EpicsKickProcedure,
+		svc.Kick,
+		connect.WithSchema(epicsMethods.ByName("Kick")),
+		connect.WithHandlerOptions(opts...),
+	)
 	epicsAnswerHandler := connect.NewUnaryHandler(
 		EpicsAnswerProcedure,
 		svc.Answer,
@@ -312,6 +338,8 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsStopHandler.ServeHTTP(w, r)
 		case EpicsRetryProcedure:
 			epicsRetryHandler.ServeHTTP(w, r)
+		case EpicsKickProcedure:
+			epicsKickHandler.ServeHTTP(w, r)
 		case EpicsAnswerProcedure:
 			epicsAnswerHandler.ServeHTTP(w, r)
 		case EpicsSeenProcedure:
@@ -351,6 +379,10 @@ func (UnimplementedEpicsHandler) Stop(context.Context, *connect.Request[v1.Epics
 
 func (UnimplementedEpicsHandler) Retry(context.Context, *connect.Request[v1.EpicsRetryRequest]) (*connect.Response[v1.EpicsRetryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Retry is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) Kick(context.Context, *connect.Request[v1.EpicsKickRequest]) (*connect.Response[v1.EpicsKickResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Epics.Kick is not implemented"))
 }
 
 func (UnimplementedEpicsHandler) Answer(context.Context, *connect.Request[v1.EpicsAnswerRequest]) (*connect.Response[v1.EpicsAnswerResponse], error) {

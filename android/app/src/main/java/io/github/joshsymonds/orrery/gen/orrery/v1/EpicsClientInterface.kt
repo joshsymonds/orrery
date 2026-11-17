@@ -47,6 +47,12 @@ public interface EpicsClientInterface {
   public suspend fun retry(request: EpicsRetryRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsRetryResponse>
 
   /**
+   *  Kick records the owner's text on the named orreryd epic as a decision and wakes its planner with it at the epic's
+   *  next plan run.
+   */
+  public suspend fun kick(request: EpicsKickRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsKickResponse>
+
+  /**
    *  Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
    */
   public suspend fun answer(request: EpicsAnswerRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsAnswerResponse>

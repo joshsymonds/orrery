@@ -19,6 +19,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/stepmcp"
 )
 
+// epicKickForm names the form of `orrery epic kick`.
+const epicKickForm = "kick ID TEXT"
+
 // epicRetryForm names the form of `orrery epic retry`.
 const epicRetryForm = "retry ID [NODE]"
 
@@ -27,7 +30,7 @@ const epicReleaseForm = "release ID [--undo-none N]..."
 
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
 const epicForms = "create FILE|-, get ID, list, follow, answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
-	"pause ID, resume ID, stop ID, " + epicRetryForm + ", " + epicReleaseForm
+	"pause ID, resume ID, stop ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
 const epicAnswerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
@@ -44,6 +47,12 @@ type epicIDArgs struct {
 type epicRetryArgs struct {
 	ID   string `json:"id"`
 	Node string `json:"node,omitempty"`
+}
+
+// epicKickArgs is the arguments of epic_kick: the epic's id and the owner's text.
+type epicKickArgs struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
 }
 
 // epicReleaseArgs is the arguments of epic_release. UndoNone is omitted when the form names no position.
@@ -92,6 +101,8 @@ func epicCommand(
 			return epicForm(verb + " ID")
 		}
 		return epicInvoke(ctx, epics, "epic_"+verb, epicIDArgs{ID: rest[0]}, stdout)
+	case "kick":
+		return epicKick(ctx, epics, rest, stdout)
 	case "retry":
 		return epicRetry(ctx, epics, rest, stdout)
 	case "release":
@@ -99,6 +110,14 @@ func epicCommand(
 	default:
 		return epicForm(epicForms)
 	}
+}
+
+// epicKick implements `kick ID TEXT`. TEXT is the owner's words, which the planner reads at the epic's next plan run.
+func epicKick(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
+	if len(rest) != 2 {
+		return epicForm(epicKickForm)
+	}
+	return epicInvoke(ctx, epics, "epic_kick", epicKickArgs{ID: rest[0], Text: rest[1]}, stdout)
 }
 
 // epicRetry implements `retry ID [NODE]`. With NODE, that node reruns: its parked runs, or its latest integrate run when
