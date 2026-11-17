@@ -561,23 +561,23 @@ test("RenderOnce: a keepalive delta calls no onChange, and the next reconnect re
     held.schedule,
   );
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "one" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     // The keepalive is sent, then the stream fails: the stream delivers its messages in order, so the keepalive is
     // folded before the failure is seen, and the retry wait is armed only after it.
     fake.emit(0, { transcript: "t1", seq: "4" });
     fake.fail(0);
-    await until(t.signal, () => held.waits.length === 1, "the retry wait after the keepalive");
+    await until(t.signal, () => held.waits.length === 1, "the retry wait after the keepalive", { step: turn });
     assert.equal(seen.length, 1, "the keepalive reached no onChange");
     assert.equal(fake.served.length, 1, "a request went out before the retry wait ended");
     held.end(0);
-    await until(t.signal, () => fake.served.length === 2, "the reconnect after the keepalive");
+    await until(t.signal, () => fake.served.length === 2, "the reconnect after the keepalive", { step: turn });
     assert.equal(Number(fake.served[1].body.after), 4, "the keepalive's seq is held: the reconnect resumes after it");
 
     fake.emit(1, { transcript: "t1", seq: "5", items: [{ kind: "assistant", text: "two" }] });
-    await until(t.signal, () => seen.length === 2, "the delta with an item");
+    await until(t.signal, () => seen.length === 2, "the delta with an item", { step: turn });
     assert.deepEqual(texts(seen[1]), ["one", "two"], "the next onChange holds every item, none lost to the keepalive");
     assert.equal(seen[1].seq, 5n);
   } finally {
@@ -595,13 +595,13 @@ test("a delta with no items reaches onChange when it changes the unfinished set,
     retryMs,
   );
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "s-t", seq: "7", reset: true, items: [{ kind: "assistant", text: "notes" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     const typing = { messageId: "m1", index: 0, text: "typing", kind: "text" };
     fake.emit(0, { transcript: "s-t", seq: "8", unfinished: [typing] });
-    await until(t.signal, () => seen.length === 2, "the unfinished change");
+    await until(t.signal, () => seen.length === 2, "the unfinished change", { step: turn });
     assert.deepEqual(
       seen[1].unfinished.map((block) => block.text),
       ["typing"],
@@ -610,7 +610,7 @@ test("a delta with no items reaches onChange when it changes the unfinished set,
     assert.equal(seen[1].items, seen[0].items, "a delta with no items keeps the held items array");
 
     fake.emit(0, { transcript: "s-t", seq: "9", unfinished: [typing], state: { goal: "ship it" } });
-    await until(t.signal, () => seen.length === 3, "the state change");
+    await until(t.signal, () => seen.length === 3, "the state change", { step: turn });
     assert.equal(seen[2].state?.goal, "ship it", "the state change reaches onChange");
 
     fake.emit(0, {
@@ -620,7 +620,7 @@ test("a delta with no items reaches onChange when it changes the unfinished set,
       state: { goal: "ship it" },
       held: [{ promptId: "p1", text: "queued" }],
     });
-    await until(t.signal, () => seen.length === 4, "the held change");
+    await until(t.signal, () => seen.length === 4, "the held change", { step: turn });
     assert.deepEqual(
       seen[3].held.map((message) => message.text),
       ["queued"],
