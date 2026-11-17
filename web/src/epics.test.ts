@@ -96,6 +96,8 @@ function makeRow(key: string, project: string): Row {
     changed: 0,
     seen: 0,
     unseen: false,
+    archived: false,
+    archiveKind: "none",
   };
 }
 
@@ -388,7 +390,15 @@ test("ArchiveView: epicsView builds no folded field, and the Epics group carries
   const view = epicsView(epics, new Map());
   const [group] = withEpicsGroup([], view);
 
-  assert.deepEqual(Object.keys(view).sort(), ["blocks", "details", "endedEarlier", "justEnded", "live", "waiting"]);
+  assert.deepEqual(Object.keys(view).sort(), [
+    "archived",
+    "blocks",
+    "details",
+    "endedEarlier",
+    "justEnded",
+    "live",
+    "waiting",
+  ]);
   assert.deepEqual(Object.keys(group).sort(), [
     "count",
     "endedEarlier",
@@ -427,6 +437,79 @@ test("ArchiveView: a non-live record epic is listed among the ended, and the Epi
   assert.equal(result[0].count, 1, "the Epics group counts the live epic alone");
   assert.deepEqual(itemIds(result[1].endedEarlier), ["gadgets-0e1f2a3/quiet"]);
   assert.equal(result[1].count, 0, "a record epic is never unseen, so none is counted");
+});
+
+test("ArchiveView: archived epics, live or ended, leave every default list and the live count, and are listed as archived in input order", () => {
+  const view = epicsView(
+    [
+      makeEpic({ id: "widgets-5d0c1a7/archived-live", slug: "archived-live", archived: true }),
+      makeEpic({ id: "widgets-5d0c1a7/first" }),
+      makeEpic({
+        id: "gadgets-0e1f2a3/archived-waiting",
+        repository: "gadgets-0e1f2a3",
+        slug: "archived-waiting",
+        waiting: true,
+        archived: true,
+      }),
+      makeEpic({
+        id: "gadgets-0e1f2a3/quiet",
+        repository: "gadgets-0e1f2a3",
+        slug: "quiet",
+        live: false,
+      }),
+      makeEpic({
+        id: "widgets-5d0c1a7/archived-ended",
+        slug: "archived-ended",
+        source: "orreryd",
+        live: false,
+        phaseAt: 2000n,
+        seen: 0n,
+        archived: true,
+      }),
+    ],
+    new Map(),
+  );
+
+  assert.deepEqual(blockIds(view.blocks), ["widgets-5d0c1a7/first"]);
+  assert.deepEqual(view.waiting, []);
+  assert.deepEqual(view.justEnded, [], "the archived ended epic is not unseen in Just ended");
+  assert.deepEqual(itemIds(view.endedEarlier), ["gadgets-0e1f2a3/quiet"]);
+  assert.equal(view.live, 1);
+  assert.deepEqual(itemIds(view.archived), [
+    "widgets-5d0c1a7/archived-live",
+    "gadgets-0e1f2a3/archived-waiting",
+    "widgets-5d0c1a7/archived-ended",
+  ]);
+  assert.deepEqual(
+    view.archived.map((item) => item.archived),
+    [true, true, true],
+  );
+  assert.equal(view.blocks[0].epic.archived, false);
+});
+
+test("ArchiveView: every live unarchived epic is listed, busy, quiet or waiting, and the archived one between them is not", () => {
+  const view = epicsView(
+    [
+      makeEpic({ id: "widgets-5d0c1a7/a", slug: "a" }),
+      makeEpic({ id: "widgets-5d0c1a7/hidden", slug: "hidden", archived: true }),
+      makeEpic({
+        id: "gadgets-0e1f2a3/b",
+        repository: "gadgets-0e1f2a3",
+        slug: "b",
+        runningSteps: [makeStep({ id: "s1" })],
+      }),
+      makeEpic({ id: "widgets-5d0c1a7/c", slug: "c", waiting: true }),
+      makeEpic({ id: "widgets-5d0c1a7/d", slug: "d" }),
+    ],
+    new Map(),
+  );
+
+  assert.deepEqual(blockIds(view.blocks), ["gadgets-0e1f2a3/b", "widgets-5d0c1a7/a", "widgets-5d0c1a7/d"]);
+  assert.deepEqual(
+    view.waiting.map((item) => item.slug),
+    ["c"],
+  );
+  assert.equal(view.live, 4);
 });
 
 // An orreryd epic that is not live, ended at phaseAt and last seen at seen, unix seconds.
@@ -612,6 +695,7 @@ test("a section's count is its rows and the epics atop it, and the Epics group c
 test("no epics is an empty view", () => {
   assert.deepEqual(noEpics.blocks, []);
   assert.deepEqual(noEpics.waiting, []);
+  assert.deepEqual(noEpics.archived, []);
   assert.equal(noEpics.details.size, 0);
 });
 

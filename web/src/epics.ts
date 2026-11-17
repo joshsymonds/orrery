@@ -20,6 +20,8 @@ export interface EpicItem {
   done: number;
   total: number;
   strip: StripTone[];
+  // Whether the owner archived the epic. An archived epic is set aside in EpicsView.archived, never drawn.
+  archived: boolean;
   detail: EpicsGetResponse | undefined;
 }
 
@@ -61,6 +63,8 @@ export interface EpicsView {
   live: number;
   justEnded: EpicItem[];
   endedEarlier: EpicItem[];
+  // The archived epics, live or not, in input order.
+  archived: EpicItem[];
   details: Map<string, EpicsGetResponse>;
 }
 
@@ -93,21 +97,28 @@ export const noEpics: EpicsView = {
   live: 0,
   justEnded: [],
   endedEarlier: [],
+  archived: [],
   details: new Map(),
 };
 
 // Blocks every live epic that is not waiting, busy ones first and each group in input order, and collects the live
 // epics waiting to start in input order. Each epic that is not live has ended: it sorts into justEnded while it is
 // unseen, else into endedEarlier, both newest ending first. A record epic has no phase time, so it is never unseen. An
-// epic with no detail carries no detail, and its counts read zero.
+// archived epic, live or not, goes into archived in input order and into none of the other lists, nor the live count.
+// An epic with no detail carries no detail, and its counts read zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
   const waiting: EpicItem[] = [];
   const justEnded: EpicItem[] = [];
   const endedEarlier: EpicItem[] = [];
+  const archived: EpicItem[] = [];
   let live = 0;
   for (const epic of epics) {
+    if (epic.archived) {
+      archived.push(itemOf(epic, details.get(epic.id)));
+      continue;
+    }
     if (!epic.live) {
       const item = itemOf(epic, details.get(epic.id));
       if (epic.seen < epic.phaseAt) {
@@ -133,6 +144,7 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
     live,
     justEnded: newestFirst(justEnded),
     endedEarlier: newestFirst(endedEarlier),
+    archived,
     details,
   };
 }
@@ -189,6 +201,7 @@ function itemOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicItem {
     done: doneOf(tasks),
     total: tasks.length,
     strip: stripOf(tasks, detail?.slices ?? []),
+    archived: epic.archived,
     detail,
   };
 }
