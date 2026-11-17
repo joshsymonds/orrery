@@ -1949,6 +1949,84 @@ test("ComposerFocus: the keys help says Enter opens the row into its reply box, 
     assert.match(described("/"), /in an empty reply box, find in the transcript/);
   }));
 
+// The stubbed reader is a box 400 px tall over 2000 px of content, and a page moves it the box less the 40 px it keeps on
+// screen. pagingWidth is the narrowest window a reader pages at, the width its paging query starts at.
+const readerBoxPixels = 400;
+const readerContentPixels = 2000;
+const pageOverlapPixels = 40;
+const pageScreenPixels = readerBoxPixels - pageOverlapPixels;
+const pagingWidth = 760;
+
+// stubReaderBox gives a reader the box and content heights a browser would lay out, which happy-dom does not.
+function stubReaderBox(reader: HTMLElement): void {
+  Object.defineProperties(reader, {
+    clientHeight: { configurable: true, get: () => readerBoxPixels },
+    scrollHeight: { configurable: true, get: () => readerContentPixels },
+  });
+}
+
+// cursorReaderOf is the conversation root of the cursor's reader, and pinnedReaderOf of the pinned reader.
+function cursorReaderOf(container: HTMLElement): HTMLElement {
+  const reader = container.querySelector<HTMLElement>('section[aria-label="reader"] > .reader');
+  assert.ok(reader !== null, "the cursor's reader is drawn");
+  return reader;
+}
+
+function pinnedReaderOf(container: HTMLElement): HTMLElement {
+  const reader = container.querySelector<HTMLElement>('section[aria-label="pinned reader"] > .reader');
+  assert.ok(reader !== null, "the pinned reader is drawn");
+  return reader;
+}
+
+test("ReaderPaging: Page Down and Page Up in a session's empty reply box page the cursor's reader a screen, and are prevented", (t) =>
+  withApp(t.signal, { rows: [paneRow, sessionRow] }, async (container) => {
+    window.innerWidth = pagingWidth;
+    await clickRow(container, "s1");
+    const box = composer(container);
+    assert.equal(document.activeElement === box, true, "the session's reply box has focus");
+    const reader = cursorReaderOf(container);
+    stubReaderBox(reader);
+
+    const down = await pressIn(box, "PageDown");
+    assert.equal(down.defaultPrevented, true, "Page Down is prevented");
+    assert.equal(reader.scrollTop, pageScreenPixels, "Page Down moves the cursor's reader down a page");
+
+    const up = await pressIn(box, "PageUp");
+    assert.equal(up.defaultPrevented, true, "Page Up is prevented");
+    assert.equal(reader.scrollTop, 0, "Page Up moves the cursor's reader back up a page");
+  }));
+
+test("ReaderPaging: with text in a session's reply box, Page Down leaves the cursor's reader alone and is not prevented", (t) =>
+  withApp(t.signal, { rows: [paneRow, sessionRow] }, async (container) => {
+    window.innerWidth = pagingWidth;
+    await clickRow(container, "s1");
+    const box = composer(container);
+    const reader = cursorReaderOf(container);
+    stubReaderBox(reader);
+    await typeInto(box, "half a thought");
+
+    const event = await pressIn(box, "PageDown");
+    assert.equal(event.defaultPrevented, false, "Page Down in a box with text is left to the box");
+    assert.equal(reader.scrollTop, 0, "the cursor's reader does not scroll");
+  }));
+
+test("ReaderPaging: Page Down in the pinned column's empty reply box pages the pinned reader, and not the cursor's", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    window.innerWidth = pagingWidth;
+    await press("|");
+    const box = pinnedComposer(container);
+    assert.equal(document.activeElement === box, true, "the pinned reply box has focus");
+    const cursor = cursorReaderOf(container);
+    const pinned = pinnedReaderOf(container);
+    stubReaderBox(cursor);
+    stubReaderBox(pinned);
+
+    const event = await pressIn(box, "PageDown");
+    assert.equal(event.defaultPrevented, true, "Page Down is prevented");
+    assert.equal(pinned.scrollTop, pageScreenPixels, "the pinned reader pages down a screen");
+    assert.equal(cursor.scrollTop, 0, "the cursor's reader stays where it was");
+  }));
+
 test("Enter on the list writes Panes.MarkSeen for the cursor's pane row", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await press("Enter");

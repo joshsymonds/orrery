@@ -36,7 +36,7 @@ import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
@@ -238,6 +238,9 @@ export function App({
   // The handles of the cursor's and the pinned row's composers, by row key, which an Escape calls.
   const composerHandles = useRef(new Map<string, ComposerHandle>());
   const pinnedHandles = useRef(new Map<string, ComposerHandle>());
+  // The handles of the cursor's and the pinned column's readers. An empty reply box's Page Up and Page Down page them.
+  const cursorReader = useRef<ReaderHandle | null>(null);
+  const pinnedReader = useRef<ReaderHandle | null>(null);
   // The row | pinned beside the list, with its own stream. The rows that have been pinned each keep a composer, as the
   // visited rows do, so a draft or a failed send survives the pin's close and its reopening on that row.
   const [pinned, setPinned] = useState<Row | null>(null);
@@ -1434,6 +1437,9 @@ export function App({
               onAnswer={answerCursor}
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
+              register={(handle) => {
+                cursorReader.current = handle;
+              }}
               sending={cursorSending}
             />
           )}
@@ -1445,6 +1451,9 @@ export function App({
               step={cursorStep.step}
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
+              register={(handle) => {
+                cursorReader.current = handle;
+              }}
             />
           )}
           <div class="send">
@@ -1457,6 +1466,7 @@ export function App({
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   register={(handle) => registerHandle(composerHandles, row.key, handle)}
+                  onPage={(direction) => cursorReader.current?.page(direction) ?? false}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
@@ -1511,6 +1521,9 @@ export function App({
               seenAt={pinned.seen}
               open={false}
               onOlder={() => pinnedOlder.current()}
+              register={(handle) => {
+                pinnedReader.current = handle;
+              }}
               sending={pinnedSending}
             />
           )}
@@ -1524,6 +1537,7 @@ export function App({
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
+                  onPage={(direction) => pinnedReader.current?.page(direction) ?? false}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
                   held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
