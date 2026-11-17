@@ -21,7 +21,10 @@ public  final class EpicQuestion extends
   private EpicQuestion() {
     id_ = "";
     text_ = "";
+    label_ = "";
+    choices_ = emptyProtobufList();
   }
+  private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
   /**
@@ -230,6 +233,278 @@ public  final class EpicQuestion extends
   private void clearAsked() {
 
     asked_ = 0L;
+  }
+
+  public static final int LABEL_FIELD_NUMBER = 5;
+  private java.lang.String label_;
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The label.
+   */
+  @java.lang.Override
+  public java.lang.String getLabel() {
+    return label_;
+  }
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The bytes for label.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getLabelBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(label_);
+  }
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @param value The label to set.
+   */
+  private void setLabel(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    label_ = value;
+  }
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   */
+  private void clearLabel() {
+
+    label_ = getDefaultInstance().getLabel();
+  }
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @param value The bytes for label to set.
+   */
+  private void setLabelBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    label_ = value.toStringUtf8();
+
+  }
+
+  public static final int CHOICES_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> choices_;
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> getChoicesList() {
+    return choices_;
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoiceOrBuilder> 
+      getChoicesOrBuilderList() {
+    return choices_;
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  @java.lang.Override
+  public int getChoicesCount() {
+    return choices_.size();
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice getChoices(int index) {
+    return choices_.get(index);
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoiceOrBuilder getChoicesOrBuilder(
+      int index) {
+    return choices_.get(index);
+  }
+  private void ensureChoicesIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> tmp = choices_;
+    if (!tmp.isModifiable()) {
+      choices_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  private void setChoices(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice value) {
+    java.util.Objects.requireNonNull(value);
+    ensureChoicesIsMutable();
+    choices_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  private void addChoices(io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice value) {
+    java.util.Objects.requireNonNull(value);
+    ensureChoicesIsMutable();
+    choices_.add(value);
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  private void addChoices(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice value) {
+    java.util.Objects.requireNonNull(value);
+    ensureChoicesIsMutable();
+    choices_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  private void addAllChoices(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> values) {
+    ensureChoicesIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, choices_);
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  private void clearChoices() {
+    choices_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  private void removeChoices(int index) {
+    ensureChoicesIsMutable();
+    choices_.remove(index);
+  }
+
+  public static final int RECOMMENDATION_FIELD_NUMBER = 7;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation recommendation_;
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   */
+  @java.lang.Override
+  public boolean hasRecommendation() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation getRecommendation() {
+    return recommendation_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation.getDefaultInstance() : recommendation_;
+  }
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   */
+  private void setRecommendation(io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation value) {
+    java.util.Objects.requireNonNull(value);
+    recommendation_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeRecommendation(io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation value) {
+    java.util.Objects.requireNonNull(value);
+    if (recommendation_ != null &&
+        recommendation_ != io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation.getDefaultInstance()) {
+      recommendation_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation.newBuilder(recommendation_).mergeFrom(value).buildPartial();
+    } else {
+      recommendation_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   */
+  private void clearRecommendation() {
+    recommendation_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion parseFrom(
@@ -551,6 +826,296 @@ public  final class EpicQuestion extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @return The label.
+     */
+    @java.lang.Override
+    public java.lang.String getLabel() {
+      return instance.getLabel();
+    }
+    /**
+     * <pre>
+     * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @return The bytes for label.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getLabelBytes() {
+      return instance.getLabelBytes();
+    }
+    /**
+     * <pre>
+     * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @param value The label to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLabel(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setLabel(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLabel() {
+      copyOnWrite();
+      instance.clearLabel();
+      return this;
+    }
+    /**
+     * <pre>
+     * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @param value The bytes for label to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLabelBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setLabelBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> getChoicesList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getChoicesList());
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    @java.lang.Override
+    public int getChoicesCount() {
+      return instance.getChoicesCount();
+    }/**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice getChoices(int index) {
+      return instance.getChoices(index);
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder setChoices(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice value) {
+      copyOnWrite();
+      instance.setChoices(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder setChoices(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice.Builder builderForValue) {
+      copyOnWrite();
+      instance.setChoices(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder addChoices(io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice value) {
+      copyOnWrite();
+      instance.addChoices(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder addChoices(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice value) {
+      copyOnWrite();
+      instance.addChoices(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder addChoices(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice.Builder builderForValue) {
+      copyOnWrite();
+      instance.addChoices(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder addChoices(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice.Builder builderForValue) {
+      copyOnWrite();
+      instance.addChoices(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder addAllChoices(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> values) {
+      copyOnWrite();
+      instance.addAllChoices(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder clearChoices() {
+      copyOnWrite();
+      instance.clearChoices();
+      return this;
+    }
+    /**
+     * <pre>
+     * The choices the question declares. The owner may also answer with other, which every question offers.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+     */
+    public Builder removeChoices(int index) {
+      copyOnWrite();
+      instance.removeChoices(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+     */
+    @java.lang.Override
+    public boolean hasRecommendation() {
+      return instance.hasRecommendation();
+    }
+    /**
+     * <pre>
+     * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation getRecommendation() {
+      return instance.getRecommendation();
+    }
+    /**
+     * <pre>
+     * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+     */
+    public Builder setRecommendation(io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation value) {
+      copyOnWrite();
+      instance.setRecommendation(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+     */
+    public Builder setRecommendation(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRecommendation(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+     */
+    public Builder mergeRecommendation(io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation value) {
+      copyOnWrite();
+      instance.mergeRecommendation(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+     */
+    public Builder clearRecommendation() {  copyOnWrite();
+      instance.clearRecommendation();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicQuestion)
   }
   @java.lang.Override
@@ -567,14 +1132,19 @@ public  final class EpicQuestion extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "id_",
             "text_",
             "turn_",
             "asked_",
+            "label_",
+            "choices_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice.class,
+            "recommendation_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0002\u0004\u0002";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0002\u0004\u0002\u0005\u0208\u0006\u001b\u0007\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

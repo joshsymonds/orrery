@@ -103,8 +103,8 @@ func (e epicsServer) Kick(
 	return connect.NewResponse(&orreryv1.EpicsKickResponse{}), nil
 }
 
-// Answer forwards the owner's answer to orreryd with the decision id, text and question the request names, and answers
-// the decision orreryd recorded with any warning it gave.
+// Answer forwards the owner's answer to orreryd with the decision id, text, question and choice the request names, and
+// answers the decision orreryd recorded with any warning it gave.
 func (e epicsServer) Answer(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsAnswerRequest],
@@ -115,6 +115,7 @@ func (e epicsServer) Answer(
 		var err error
 		reply, err = commands.AnswerEpic(ctx, connect.NewRequest(&enginev1.AnswerEpicRequest{
 			EpicId: msg.GetEpicId(), Id: msg.GetId(), Text: msg.GetText(), Question: msg.GetQuestion(),
+			Choice: msg.GetChoice(),
 		}))
 		return wrapEngine("answer", err)
 	})

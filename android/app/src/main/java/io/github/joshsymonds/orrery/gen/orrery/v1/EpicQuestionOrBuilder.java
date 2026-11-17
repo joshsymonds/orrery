@@ -69,4 +69,69 @@ public interface EpicQuestionOrBuilder extends
    * @return The asked.
    */
   long getAsked();
+
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The label.
+   */
+  java.lang.String getLabel();
+  /**
+   * <pre>
+   * The label the question is filed under, kebab-case. Empty for a question stored before labels.
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The bytes for label.
+   */
+  com.google.protobuf.ByteString
+      getLabelBytes();
+
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice> 
+      getChoicesList();
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionChoice getChoices(int index);
+  /**
+   * <pre>
+   * The choices the question declares. The owner may also answer with other, which every question offers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestionChoice choices = 6 [json_name = "choices"];</code>
+   */
+  int getChoicesCount();
+
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   * @return Whether the recommendation field is set.
+   */
+  boolean hasRecommendation();
+  /**
+   * <pre>
+   * The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicRecommendation recommendation = 7 [json_name = "recommendation"];</code>
+   * @return The recommendation.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicRecommendation getRecommendation();
 }

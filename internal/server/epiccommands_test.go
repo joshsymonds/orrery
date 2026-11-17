@@ -429,3 +429,36 @@ func TestEpicsAnswerRepeatedIDReturnsFirstDecisionFromEngine(t *testing.T) {
 		t.Fatalf("repeated decision = %v, want the first decision %v", second, first)
 	}
 }
+
+func TestEpicsAnswerOptionsForwardsQuestionAndChoice(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		choice string
+		text   string
+	}{
+		{name: "declared choice", choice: "sqlite", text: "Synthetic answer."},
+		{name: "other with text", choice: "other", text: "Synthetic own words."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			decision := &enginev1.EpicDecision{Seq: 2, Id: "A1", Text: tc.text, Time: 1_700_000_000, Question: "Q1"}
+			fake := &epicCommandsFake{decision: decision}
+			client := epicCommandServe(t, fake)
+			reply, err := client.Answer(t.Context(), connect.NewRequest(&orreryv1.EpicsAnswerRequest{
+				EpicId: syntheticEpicID, Id: "A1", Text: tc.text, Question: "Q1", Choice: tc.choice,
+			}))
+			if err != nil {
+				t.Fatalf("Answer: %v", err)
+			}
+			assertForwarded(t, fake.recorded(), &enginev1.AnswerEpicRequest{
+				EpicId: syntheticEpicID, Id: "A1", Text: tc.text, Question: "Q1", Choice: tc.choice,
+			})
+			want := &orreryv1.EpicDecision{Seq: 2, Id: "A1", Text: tc.text, Time: 1_700_000_000, Question: "Q1"}
+			if !proto.Equal(reply.Msg.GetDecision(), want) {
+				t.Fatalf("decision = %v, want %v", reply.Msg.GetDecision(), want)
+			}
+		})
+	}
+}

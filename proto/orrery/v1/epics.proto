@@ -166,6 +166,36 @@ message EpicQuestion {
 
   // When the question was asked: the end of the turn that asked it, in unix seconds.
   int64 asked = 4;
+
+  // The label the question is filed under, kebab-case. Empty for a question stored before labels.
+  string label = 5;
+
+  // The choices the question declares. The owner may also answer with other, which every question offers.
+  repeated EpicQuestionChoice choices = 6;
+
+  // The choice the question recommends, with why and how sure the planner is. Unset when it recommends none.
+  EpicRecommendation recommendation = 7;
+}
+
+// EpicQuestionChoice is one choice a planner question declares.
+message EpicQuestionChoice {
+  // The choice's id, the answer the owner gives to choose it.
+  string id = 1;
+
+  // What the choice does.
+  string does = 2;
+}
+
+// EpicRecommendation is the choice a planner question recommends, why, and how sure the planner is of it.
+message EpicRecommendation {
+  // The recommended choice's id.
+  string choice = 1;
+
+  // Why the planner recommends the choice.
+  string why = 2;
+
+  // How sure the planner is: low, medium or high.
+  string confidence = 3;
 }
 
 // EpicContract is an orreryd epic's accepted contract, its sections in the contract's order, without its Requirements.
@@ -485,6 +515,9 @@ message EpicsAnswerRequest {
 
   // The question, Q<n>, the answer names; empty for a note.
   string question = 4;
+
+  // The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+  string choice = 5;
 }
 
 // EpicsAnswerResponse carries the recorded decision.

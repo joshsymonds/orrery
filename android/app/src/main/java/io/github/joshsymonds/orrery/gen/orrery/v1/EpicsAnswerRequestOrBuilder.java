@@ -89,4 +89,24 @@ public interface EpicsAnswerRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getQuestionBytes();
+
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   * @return The choice.
+   */
+  java.lang.String getChoice();
+  /**
+   * <pre>
+   * The choice the answer gives to the question: a declared choice's id, or other. Empty for a note.
+   * </pre>
+   *
+   * <code>string choice = 5 [json_name = "choice"];</code>
+   * @return The bytes for choice.
+   */
+  com.google.protobuf.ByteString
+      getChoiceBytes();
 }
