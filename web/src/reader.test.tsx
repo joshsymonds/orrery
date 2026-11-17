@@ -17,7 +17,7 @@ import {
 import type { Conversation } from "./conversation";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead } from "./reader";
+import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -62,6 +62,7 @@ interface Props {
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  register?: (handle: ReaderHandle | null) => void;
   sending?: Sending[];
 }
 
@@ -1222,6 +1223,99 @@ test("a window of 50 that drops its oldest item for a new one keeps a held row's
     assert.equal(readerOf(container).querySelectorAll(".reader > .t").length, 50);
     assert.ok(rowWith(container, "held-25") === held, "the held row keeps its DOM node");
   }));
+
+// pagedProps is props whose reader keeps its handle in holder while it is mounted, as the page does.
+function pagedProps(props: Props, holder: { handle: ReaderHandle | null }): Props {
+  return {
+    ...props,
+    register: (handle) => {
+      holder.handle = handle;
+    },
+  };
+}
+
+// handleOf returns the handle the reader holds, which the test asserts is held while the reader is mounted.
+function handleOf(holder: { handle: ReaderHandle | null }): ReaderHandle {
+  const { handle } = holder;
+  assert.ok(handle !== null, "the reader holds its handle while mounted");
+  return handle;
+}
+
+// pageOverlap is the overlap reader.tsx's pageOverlapPixels keeps, so a page moves the reader by the box less this.
+const pageOverlap = 40;
+
+test("ReaderPaging: a page moves scrollTop by the box's height less the overlap in each direction, and holds at the top and bottom", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  return withScrollingReader(pagedProps(readerProps(heldItems(1, 20)), holder), (container) => {
+    const reader = readerOf(container);
+    const screen = viewportPixels - pageOverlap;
+    reader.scrollTop = 0;
+
+    assert.equal(handleOf(holder).page("down"), true);
+    assert.equal(reader.scrollTop, screen, "a page down moves the reader by the box less the overlap");
+    assert.equal(handleOf(holder).page("down"), true);
+    assert.equal(reader.scrollTop, 2 * screen, "a second page down moves it the same again");
+    assert.equal(handleOf(holder).page("up"), true);
+    assert.equal(reader.scrollTop, screen, "a page up moves the reader back by the same");
+
+    handleOf(holder).page("up");
+    handleOf(holder).page("up");
+    assert.equal(reader.scrollTop, 0, "a page up past the top stops at the top");
+
+    reader.scrollTop = reader.scrollHeight - viewportPixels;
+    handleOf(holder).page("down");
+    assert.equal(distanceFromBottom(container), 0, "a page down past the bottom stops at the bottom");
+  });
+});
+
+test("ReaderPaging: paging up from the bottom unpins the reader, so a later render and a size change keep its place", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  return withScrollingReader(pagedProps(readerProps(heldItems(1, 20)), holder), async (container, rerender, layout) => {
+    const reader = readerOf(container);
+    assert.equal(distanceFromBottom(container), 0, "the reader starts at its bottom");
+
+    assert.equal(handleOf(holder).page("up"), true);
+    const placed = reader.scrollTop;
+    const bottom = reader.scrollHeight - viewportPixels;
+    assert.equal(placed, bottom - (viewportPixels - pageOverlap), "the page moved the reader up from the bottom");
+
+    await rerender(pagedProps(readerProps(heldItems(1, 21)), holder));
+    assert.equal(reader.scrollTop, placed, "a render with a new item keeps the reader where the page left it");
+
+    layout.resizeBox(200);
+    layout.report();
+    assert.equal(reader.scrollTop, placed, "a size change keeps it there too, since the page unpinned the reader");
+  });
+});
+
+test("ReaderPaging: paging up to the top calls onOlder when older items exist", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  const asked = { count: 0 };
+  return withScrollingReader(pagedProps(withOlder(heldItems(1, 20), asked), holder), (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = viewportPixels;
+
+    assert.equal(handleOf(holder).page("up"), true);
+    assert.equal(asked.count, 0, "a page that stops short of the top asks for nothing");
+
+    assert.equal(handleOf(holder).page("up"), true);
+    assert.equal(reader.scrollTop, 0, "the second page reaches the top");
+    assert.equal(asked.count, 1, "the reader at its top asks for the page before its oldest item");
+  });
+});
+
+test("ReaderPaging: under 760 px a page does nothing and returns false, leaving scrollTop alone", () => {
+  const holder: { handle: ReaderHandle | null } = { handle: null };
+  return withScrollingReader(pagedProps(readerProps(heldItems(1, 20)), holder), (container) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 900;
+    window.innerWidth = 759;
+
+    assert.equal(handleOf(holder).page("up"), false, "a page up under 760 px is left to the browser");
+    assert.equal(handleOf(holder).page("down"), false, "a page down under 760 px is left to the browser");
+    assert.equal(reader.scrollTop, 900, "neither page moved the reader");
+  });
+});
 
 // foldLine returns the call line that is a button, the line that folds a held result.
 function foldLine(container: HTMLElement): HTMLButtonElement {

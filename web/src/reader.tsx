@@ -17,6 +17,18 @@ const answerChoices = [1, 2, 3] as const;
 const nearBottomPixels = 4;
 const nearTopPixels = 4;
 const toolRunMinimum = 3;
+// pageOverlapPixels is how much of the last screen a page keeps on screen, so the owner keeps his place across a page.
+const pageOverlapPixels = 40;
+// pagingQuery is the width from which a reader pages by its handle. Under it the reader does not scroll on its own, and
+// the keys that page it are left to the browser.
+const pagingQuery = "(min-width: 760px)";
+
+// ReaderHandle is what the page calls on a reader to page its transcript by a screen. page moves the reader one screen
+// up or down, less pageOverlapPixels, clamped to its top and bottom, and returns true. Where the reader does not scroll
+// on its own, under pagingQuery, page does nothing and returns false.
+export interface ReaderHandle {
+  page: (direction: "up" | "down") => boolean;
+}
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
@@ -33,7 +45,8 @@ const toolRunMinimum = 3;
 // that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
 // below it does. A reader the owner scrolled up keeps its place. When items are drawn above the first row shown before,
 // the reader keeps the rows on screen where they were. Once it sits within nearTopPixels of its top while the
-// conversation has older items, it calls onOlder, which loads the page before its oldest item.
+// conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
+// screen at a time through the handle register gets.
 // The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
 // they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -45,6 +58,7 @@ export function Reader({
   onAnswer,
   onToggleOpen,
   onOlder,
+  register,
   sending = [],
 }: {
   conversation: Conversation | null;
@@ -55,6 +69,7 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  register?: (handle: ReaderHandle | null) => void; // gets the handle while mounted, and null once unmounted
   sending?: Sending[];
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
@@ -83,6 +98,20 @@ export function Reader({
       pinned.current = distanceFromBottom(reader) <= nearBottomPixels;
     }
     askOlder();
+  };
+  // page moves the reader a screen less pageOverlapPixels, clamped to its top and bottom, then reads its place as an
+  // owner's scroll does, so a page up from the bottom unpins the reader.
+  const page = (direction: "up" | "down"): boolean => {
+    const reader = root.current;
+    if (reader === null || !window.matchMedia(pagingQuery).matches) {
+      return false;
+    }
+    const screen = reader.clientHeight - pageOverlapPixels;
+    const furthest = Math.max(0, reader.scrollHeight - reader.clientHeight);
+    const target = direction === "down" ? reader.scrollTop + screen : reader.scrollTop - screen;
+    reader.scrollTop = Math.min(Math.max(target, 0), furthest);
+    followScroll();
+    return true;
   };
   useLayoutEffect(() => {
     const previous = shownKeys.current;
@@ -127,6 +156,12 @@ export function Reader({
     return () => {
       sizes.disconnect();
     };
+  });
+  // The page holds the handle while the reader is mounted. It is made again on each render, so page asks with the
+  // older-items flag and callback that render drew, and null is passed before each new handle and once unmounted.
+  useLayoutEffect(() => {
+    register?.({ page });
+    return () => register?.(null);
   });
   const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
