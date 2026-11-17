@@ -6641,6 +6641,46 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 	return items, nil
 }
 
+const listStepBlocks = `-- name: ListStepBlocks :many
+SELECT at, payload FROM events
+WHERE session_id = ?1 AND kind = 'engine_block'
+ORDER BY seq DESC
+LIMIT ?2
+`
+
+type ListStepBlocksParams struct {
+	ID    string
+	Count int64
+}
+
+type ListStepBlocksRow struct {
+	At      int64
+	Payload string
+}
+
+func (q *Queries) ListStepBlocks(ctx context.Context, arg ListStepBlocksParams) ([]ListStepBlocksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listStepBlocks, arg.ID, arg.Count)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStepBlocksRow
+	for rows.Next() {
+		var i ListStepBlocksRow
+		if err := rows.Scan(&i.At, &i.Payload); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listToldLimitSteps = `-- name: ListToldLimitSteps :many
 SELECT limit_key, step FROM told_limit_steps ORDER BY limit_key, step
 `

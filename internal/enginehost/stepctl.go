@@ -149,11 +149,13 @@ func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
 }
 
 // readoptRun rebuilds the run of an open step row as Start builds the run of a started step, restoring it from the turn
-// end its session last stored. An agent gate step's gate is rebuilt by readoptAgentGate, and its run keeps the start its
-// row stores. A named gate's grant is requested from the pools of the row's workspace, and a read-only step's worktree
-// is removed when the step ends. It returns an error matching errStepAgentGateRestarted for an agent gate step that is
-// not re-adopted, and an error when the turn end cannot be read, when the return check cannot be restored, or when the
-// run's grant or haiku caller cannot be bound.
+// end its session last stored. Its watch keeps the newest finished blocks the session stored, as the recent lines a
+// live watch would have kept, so the monitor is never asked to judge a re-adopted step from an empty window. An agent
+// gate step's gate is rebuilt by readoptAgentGate, and its run keeps the start its row stores. A named gate's grant is
+// requested from the pools of the row's workspace, and a read-only step's worktree is removed when the step ends. It
+// returns an error matching errStepAgentGateRestarted for an agent gate step that is not re-adopted, and an error when
+// the turn end or the blocks cannot be read, when the return check cannot be restored, or when the run's grant or haiku
+// caller cannot be bound.
 func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, error) {
 	var agent *gates.Gate
 	var err error
@@ -228,7 +230,12 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 	if err != nil {
 		return nil, err
 	}
+	blocks, err := s.store.StepBlocks(ctx, row.ID, watchRecentLen)
+	if err != nil {
+		return nil, fmt.Errorf("read recent blocks of step %s: %w", row.ID, err)
+	}
 	run := newStepRun(cfg)
+	run.watch.seed(blocks)
 	if agent != nil {
 		// An agent gate's limit counts wall time from the step's start, which the row stores, so the run keeps it.
 		run.started = row.Started

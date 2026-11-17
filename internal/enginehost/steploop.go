@@ -144,7 +144,8 @@ type stepRunConfig struct {
 }
 
 // stepRestore is the state a re-adopted step resumes from: its row as the store holds it, and the turn end its session
-// last ended after its last prompt. Turn is that turn end when Found is set, and Found is what store.StepTurn returns.
+// last ended after its last prompt. Turn is that turn end when Found is set, and Found is what store.StepTurn returns:
+// unset means the turn the last prompt started is still running.
 type stepRestore struct {
 	Row   store.StepRow
 	Turn  store.StepTurnEnd
@@ -359,8 +360,10 @@ func (r *stepRun) tick(ctx context.Context) bool {
 
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
 // when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
-// end its latest return covers goes to resumeReturn. Any other turn end is handled as one the session has just given. It
-// reports whether the run goes on.
+// end its latest return covers goes to resumeReturn. A turn end stored while a background task is listed is a return
+// only when it has the done value, as Manager.noteEvent hands one, so any other such turn end is left unread and the
+// step waits with no turn running, as a live step does. Any other turn end is handled as one the session has just
+// given. It reports whether the run goes on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -377,6 +380,7 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	if row.GateHolder != "" {
 		r.resumeGate = store.StepGate{ID: r.id, Grant: row.GateGrant, Holder: row.GateHolder, Round: row.GateRound}
 	}
+	ended := session.TurnEnded{IsError: restore.Turn.IsError, StructuredOutput: json.RawMessage(restore.Turn.Output)}
 	switch {
 	case row.LoopLimited:
 		r.limited = true
@@ -386,10 +390,10 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 		return true
 	case restore.Turn.Returned:
 		return r.resumeReturn(ctx, row)
+	case restore.Turn.Background && !r.Done(ended):
+		return true
 	}
-	return r.turnEnded(ctx, session.TurnEnded{
-		IsError: restore.Turn.IsError, StructuredOutput: json.RawMessage(restore.Turn.Output),
-	})
+	return r.turnEnded(ctx, ended)
 }
 
 // resumeReturn takes up a step whose latest return is stored and covered by its turn end, so nothing has been sent
