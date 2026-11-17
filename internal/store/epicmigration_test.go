@@ -19,8 +19,8 @@ import (
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043 and 00044 create, and of the columns those
-// migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044 and 00045 add to
-// epic tables.
+// migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045 and 00049
+// add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -94,7 +94,7 @@ func epicTableColumns() map[string][]string {
 		"epic_review_rounds": {"epic", "round", "revision", "tasks", "outcome"},
 		"epic_closures":      {"epic", "round", "finding", "step", "result", "reason"},
 		"epic_review_holds":  {"epic", "step"},
-		"epic_sessions":      {"epic", "session", "call", "at"},
+		"epic_sessions":      {"epic", "session", "call", "at", "creator"},
 		"epic_seen":          {"epic", "at"},
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
 		"epic_met_at_base":   {"epic", "question", "path", "attempt", "requirements"},
@@ -509,10 +509,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00048_step_caller.sql is the newest. R4: the
+	// Open applies 00014_epics.sql and every migration after it: 00049_caller_events.sql is the newest. R4: the
 	// migration was 00043_epic_seen.sql before the met-at-base park question added 00044.
-	if version != 48 {
-		t.Fatalf("store version after Open = %d, want 48", version)
+	if version != 49 {
+		t.Fatalf("store version after Open = %d, want 49", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

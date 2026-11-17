@@ -8,6 +8,12 @@ import (
 	"database/sql"
 )
 
+type CallerEvent struct {
+	Event   string
+	Session string
+	At      int64
+}
+
 type DueResume struct {
 	ID     string
 	Kind   string
@@ -327,6 +333,7 @@ type EpicSession struct {
 	Session string
 	Call    string
 	At      int64
+	Creator int64
 }
 
 type EpicTask struct {
@@ -654,6 +661,7 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
+	CallerRead      int64
 }
 
 type ToldLimitStep struct {

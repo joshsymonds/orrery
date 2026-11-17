@@ -245,6 +245,21 @@ ORDER BY started, id;
 -- name: ListLimitedSteps :many
 SELECT * FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id;
 
+-- name: ListCallerSteps :many
+SELECT sqlc.embed(steps), sessions.id AS caller_id, sessions.kind AS caller_kind, sessions.server AS caller_server,
+       sessions.pane AS caller_pane, sessions.state AS caller_state
+FROM steps
+JOIN sessions ON sessions.id = steps.caller
+WHERE steps.end_value <> '' AND steps.caller <> '' AND steps.caller_read = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM caller_events
+      WHERE caller_events.event = 'step:' || steps.id AND caller_events.session = steps.caller
+  )
+ORDER BY steps.ended, steps.id;
+
+-- name: MarkStepRead :execrows
+UPDATE steps SET caller_read = 1 WHERE id = ? AND end_value <> '' AND caller = ?;
+
 -- name: UpdateStepReturn :exec
 UPDATE steps
 SET result = ?, checks = ?,
@@ -1019,8 +1034,17 @@ WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision =
 SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? ORDER BY id LIMIT 1;
 
 -- name: UpsertEpicSession :exec
-INSERT INTO epic_sessions (epic, session, call, at) VALUES (?, ?, ?, ?)
-ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at;
+INSERT INTO epic_sessions (epic, session, call, at, creator) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (epic, session) DO UPDATE SET call = excluded.call, at = excluded.at,
+    creator = MAX(epic_sessions.creator, excluded.creator);
+
+-- name: GetEpicCreator :one
+SELECT sessions.id, sessions.kind, sessions.server, sessions.pane, sessions.state
+FROM epic_sessions
+JOIN sessions ON sessions.id = epic_sessions.session
+WHERE epic_sessions.epic = ? AND epic_sessions.creator = 1
+ORDER BY epic_sessions.at DESC, epic_sessions.session
+LIMIT 1;
 
 -- name: ListEpicSessions :many
 SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
@@ -1034,6 +1058,13 @@ FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?
 ORDER BY epic_sessions.at DESC, epic_sessions.session;
+
+-- name: InsertCallerEvent :exec
+INSERT INTO caller_events (event, session, at) VALUES (?, ?, ?)
+ON CONFLICT (event, session) DO NOTHING;
+
+-- name: CountCallerEvent :one
+SELECT COUNT(*) FROM caller_events WHERE event = ? AND session = ?;
 
 -- name: UpsertEpicSeen :exec
 INSERT INTO epic_seen (epic, at) VALUES (?, ?)

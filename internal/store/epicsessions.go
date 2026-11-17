@@ -14,9 +14,13 @@ import (
 // Otherwise the caller is a tmux pane, and Server and Pane name its row.
 type EpicCaller struct{ Session, Server, Pane string }
 
+// epicCreateCall is the call that creates an epic. The session that makes it is the epic's creator.
+const epicCreateCall = "epic_create"
+
 // RecordEpicCall records call, made at at, as the newest call of epic by the session that made it, in one write. The
 // caller resolves to its sessions row, and that session's row for epic takes the new call and time, so a later call by
-// the same session replaces the earlier one. It reports false and writes nothing when no row resolves.
+// the same session replaces the earlier one. A call of epic_create marks that session the epic's creator, and no later
+// call clears the mark. It reports false and writes nothing when no row resolves.
 func (s *Store) RecordEpicCall(
 	ctx context.Context, epic string, caller EpicCaller, call string, at time.Time,
 ) (bool, error) {
@@ -30,7 +34,7 @@ func (s *Store) RecordEpicCall(
 			return nil
 		}
 		err = queries.UpsertEpicSession(ctx, sqlcgen.UpsertEpicSessionParams{
-			Epic: epic, Session: session, Call: call, At: at.Unix(),
+			Epic: epic, Session: session, Call: call, At: at.Unix(), Creator: boolInt(call == epicCreateCall),
 		})
 		if err != nil {
 			return fmt.Errorf("record call of epic %s by session %s: %w", epic, session, err)
@@ -65,6 +69,20 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 		return "", fmt.Errorf("read pane %s of server %q: %w", caller.Pane, caller.Server, err)
 	}
 	return id, nil
+}
+
+// EpicCreator returns the sessions row of the session marked the creator of epic, and true. It returns false, and no
+// error, when no row of epic is marked creator or when the marked session's row is gone. When more than one row is
+// marked, it returns the one of the newest call.
+func (s *Store) EpicCreator(ctx context.Context, epic string) (CallerSession, bool, error) {
+	row, err := sqlcgen.New(s.db).GetEpicCreator(ctx, epic)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CallerSession{}, false, nil
+	}
+	if err != nil {
+		return CallerSession{}, false, fmt.Errorf("read creator of epic %s: %w", epic, err)
+	}
+	return CallerSession{ID: row.ID, Kind: row.Kind, Server: row.Server, Pane: row.Pane, State: row.State}, true, nil
 }
 
 // EpicSessionRow is one session that made a call of an epic: its newest call of the epic, the unix second it was made

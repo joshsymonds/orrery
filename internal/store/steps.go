@@ -398,6 +398,31 @@ func (s *Store) LimitedSteps(ctx context.Context) ([]StepRow, error) {
 	return toStepRows(rows)
 }
 
+// MarkStepRead sets the read mark of the step id, in one write, when the step has ended and caller resolves to the row
+// that started it. It reports true when it set the mark. Otherwise it writes nothing and reports false.
+func (s *Store) MarkStepRead(ctx context.Context, id string, caller EpicCaller) (bool, error) {
+	var marked bool
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		session, err := resolveEpicCaller(ctx, queries, caller)
+		if err != nil {
+			return fmt.Errorf("resolve caller of step %s: %w", id, err)
+		}
+		if session == "" {
+			return nil
+		}
+		rows, err := queries.MarkStepRead(ctx, sqlcgen.MarkStepReadParams{ID: id, Caller: session})
+		if err != nil {
+			return fmt.Errorf("mark step %s read: %w", id, err)
+		}
+		marked = rows > 0
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return marked, nil
+}
+
 // LabelledSteps returns the step rows with a non-empty epic, narrowed to rows whose epic is epic when epic is not
 // empty and to rows whose task is task when task is not empty, ordered by start time then id.
 func (s *Store) LabelledSteps(ctx context.Context, epic, task string) ([]StepRow, error) {
