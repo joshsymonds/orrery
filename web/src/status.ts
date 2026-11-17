@@ -7,10 +7,14 @@ export type Blocker =
   | { kind: "parked"; text: string; since: number }
   | { kind: "held"; text: string; since: number; step: EpicStep };
 
+// The parts of an orreryd epic's track, in order. Contract is always passed: no phase of an epic reads as contract.
+export const trackParts = ["contract", "planning", "building", "releasing", "report"] as const;
+export type TrackPart = (typeof trackParts)[number];
+
 // The state word of an epic. An orreryd epic, whose outcome is its phase, reads paused, parked, waiting, then the part
-// of its track its phase is in, and the phase as written off the track. A record epic reads its outcome as written,
-// then paused, parked, waiting, then planning or building while it is live. A missing epic and an epic with no state
-// give the empty string.
+// of its track its phase is in while the phase is a track phase, and the phase as written otherwise. A record epic
+// reads its outcome as written, then paused, parked, waiting, then planning or building while it is live. A missing
+// epic and an epic with no state give the empty string.
 export function stateOf(detail: EpicsGetResponse): string {
   const epic = detail.epic;
   if (!epic) {
@@ -37,7 +41,14 @@ export function stateOf(detail: EpicsGetResponse): string {
   return "";
 }
 
-// orrerydStateOf is the state word of an orreryd epic: paused, parked, waiting, then its track part or its phase.
+// trackPart is the part of the track an orreryd epic's phase is in, or undefined for a phase the track does not name.
+// It is the phase mapping the state word uses, for every phase the track names.
+export function trackPart(detail: EpicsGetResponse): TrackPart | undefined {
+  return partOf(detail, detail.epic?.outcome ?? "");
+}
+
+// orrerydStateOf is the state word of an orreryd epic: paused, parked, waiting, then its track part for a track phase,
+// or its phase as written.
 function orrerydStateOf(detail: EpicsGetResponse, epic: Epic): string {
   if (detail.paused) {
     return "paused";
@@ -48,12 +59,18 @@ function orrerydStateOf(detail: EpicsGetResponse, epic: Epic): string {
   if (epic.waiting) {
     return "waiting";
   }
-  return trackWord(detail, epic.outcome) ?? epic.outcome;
+  const part = partOf(detail, epic.outcome);
+  return part !== undefined && trackPhases.has(epic.outcome) ? part : epic.outcome;
 }
 
-// trackWord is the track part of an orreryd epic in its phase: planning or building while accepted, building while
-// built, reviewing or correcting, releasing while clean or releasing. Undefined for a phase off the track.
-function trackWord(detail: EpicsGetResponse, phase: string): string | undefined {
+// The phases an orreryd epic reads as its track part, and can be stopped in: its track before stopped, which reads as
+// written.
+const trackPhases = new Set(["accepted", "built", "reviewing", "correcting", "clean", "releasing"]);
+
+// partOf is the track part of an orreryd epic in its phase: planning or building while accepted, building while built,
+// reviewing or correcting, releasing while clean, releasing or stopped, and report once released, done, met_at_base,
+// ended_with_gaps or closed. Undefined for any other phase.
+function partOf(detail: EpicsGetResponse, phase: string): TrackPart | undefined {
   switch (phase) {
     case "accepted":
       return planningOrBuilding(detail);
@@ -63,14 +80,23 @@ function trackWord(detail: EpicsGetResponse, phase: string): string | undefined 
       return "building";
     case "clean":
     case "releasing":
+    case "stopped":
       return "releasing";
+    case "released":
+    case "done":
+    case "met_at_base":
+    case "ended_with_gaps":
+    case "closed_superseded":
+    case "closed_shipped":
+    case "closed_abandoned":
+      return "report";
     default:
       return undefined;
   }
 }
 
 // planningOrBuilding is planning while the epic has no task, and building once it has one.
-function planningOrBuilding(detail: EpicsGetResponse): string {
+function planningOrBuilding(detail: EpicsGetResponse): "planning" | "building" {
   return detail.tasks.length === 0 && detail.buildTasks.length === 0 ? "planning" : "building";
 }
 
@@ -96,7 +122,7 @@ export function controlsOf(detail: EpicsGetResponse): Controls {
     return {
       pause: !detail.paused && pausablePhases.has(epic.outcome),
       resume: detail.paused,
-      stop: trackWord(detail, epic.outcome) !== undefined,
+      stop: trackPhases.has(epic.outcome),
     };
   }
   const open = epic.outcome === "";

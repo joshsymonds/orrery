@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preac
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { epicCallsOf } from "./card";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
@@ -1036,6 +1037,10 @@ export function App({
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
+  // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
+  // epic again on each poll tick and opens the epic through openEpic.
+  const epicCalls = epicCallsOf(clients, openEpic, now);
+
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
   const pageNode = (entry: EpicItem, detail: EpicsGetResponse) => {
@@ -1367,6 +1372,7 @@ export function App({
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
               sending={cursorSending}
+              epicCalls={epicCalls}
             />
           )}
           {cursorStep !== null && (
@@ -1444,6 +1450,7 @@ export function App({
               open={false}
               onOlder={() => pinnedOlder.current()}
               sending={pinnedSending}
+              epicCalls={epicCalls}
             />
           )}
           <div class="send">
@@ -1485,7 +1492,13 @@ export function App({
               pageNode(epicEntry, epicDetail)
             ))}
           {docked !== null && (
-            <TalkDock clients={clients} target={docked.target} onClose={() => setTalkDock(null)} />
+            <TalkDock
+              clients={clients}
+              target={docked.target}
+              onClose={() => setTalkDock(null)}
+              openEpic={openEpic}
+              tick={now}
+            />
           )}
         </section>
       </div>

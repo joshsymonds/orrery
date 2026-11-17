@@ -1,6 +1,7 @@
 import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
+import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
@@ -22,7 +23,9 @@ const toolRunMinimum = 3;
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
 // fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
-// it and no question drawn, carries the running rail and mark, and so does a run that holds one.
+// it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
+// epic is never in a run: once its result is not an error, and the reader is given epic calls, the epic's card draws in
+// its place.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
 // a button. A prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
@@ -46,6 +49,7 @@ export function Reader({
   onToggleOpen,
   onOlder,
   sending = [],
+  epicCalls,
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -56,6 +60,7 @@ export function Reader({
   onToggleOpen?: () => void;
   onOlder?: () => void;
   sending?: Sending[];
+  epicCalls?: EpicCalls;
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -168,6 +173,7 @@ export function Reader({
         open={open}
         step={step}
         onToggleOpen={onToggleOpen}
+        epicCalls={epicCalls}
       />,
     );
   });
@@ -320,6 +326,7 @@ function ItemRow({
   open,
   step,
   onToggleOpen,
+  epicCalls,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -327,13 +334,22 @@ function ItemRow({
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  epicCalls?: EpicCalls;
 }) {
   // Its row carries the owner-turn class, which sets the gap above it.
   return (
     <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
-        <ItemBody item={item} result={result} running={running} open={open} step={step} onToggleOpen={onToggleOpen} />
+        <ItemBody
+          item={item}
+          result={result}
+          running={running}
+          open={open}
+          step={step}
+          onToggleOpen={onToggleOpen}
+          epicCalls={epicCalls}
+        />
       </div>
     </div>
   );
@@ -346,6 +362,7 @@ function ItemBody({
   open,
   step,
   onToggleOpen,
+  epicCalls,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -353,6 +370,7 @@ function ItemBody({
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  epicCalls?: EpicCalls;
 }) {
   switch (item.kind) {
     case "prompt":
@@ -374,8 +392,14 @@ function ItemBody({
         </div>
       );
     case "tool":
-    case "question":
+    case "question": {
+      // An epic call whose result is not an error draws its epic's card in place of its row, when the reader holds
+      // epic calls.
+      if (item.epic !== "" && epicCalls !== undefined && result !== undefined && !result.error) {
+        return <EpicWidget epic={item.epic} calls={epicCalls} />;
+      }
       return <CallRow item={item} result={result} running={running} />;
+    }
     case "notice":
       return (
         <div class={item.error ? "notice err" : "notice"}>
@@ -705,7 +729,8 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
 
 // groupRows lists the rows a reader draws as the indices of their items, in order. A run of toolRunMinimum or more tool
 // calls with only results between them is one row; every other item is a row of its own, and a result is in none. A
-// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex.
+// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex. A
+// tool call that creates an epic is never in a run: it is a row of its own, and the calls either side of it fold apart.
 function groupRows(items: ConversationItem[], newIndex: number): number[][] {
   const rows: number[][] = [];
   let run: number[] = [];
@@ -717,14 +742,15 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
     }
     run = [];
   };
+  const foldable = (item: ConversationItem) => item.kind === "tool" && item.epic === "";
   items.forEach((item, index) => {
     if (item.kind === "result") {
       return;
     }
-    if (index === newIndex || item.kind !== "tool") {
+    if (index === newIndex || !foldable(item)) {
       endRun();
     }
-    if (item.kind === "tool") {
+    if (foldable(item)) {
       run.push(index);
     } else {
       rows.push([index]);

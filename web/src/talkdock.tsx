@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { type Clients, newPromptId } from "./actions";
+import { epicCallsOf } from "./card";
 import { Composer } from "./composer";
 import type { Conversation } from "./conversation";
 import { follow } from "./follow";
@@ -23,15 +24,20 @@ const millisPerSecond = 1000;
 // conversation as the pinned reader does. While the session is interrupted, Resume resumes its turn; a refusal shows
 // its message under the reader. The reader's "since you looked" rule marks what arrives after the dock opened on the
 // target. A message sent to the target shows in its reader as sending until its stored prompt arrives, and above the box
-// as queued while the target is working or holds it.
+// as queued while the target is working or holds it. The reader draws an epic a call created as its card, through the
+// opener openEpic and the clock tick that the app hands the dock.
 export function TalkDock({
   clients,
   target,
   onClose,
+  openEpic,
+  tick = 0,
 }: {
   clients: Clients;
   target: TalkTarget;
   onClose: () => void;
+  openEpic?: (id: string) => void;
+  tick?: number;
 }): JSX.Element {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [seenAt, setSeenAt] = useState(0);
@@ -99,6 +105,7 @@ export function TalkDock({
         open={false}
         onOlder={() => olderPage.current()}
         sending={unsentEntries(sending, conversation, target.kind)}
+        epicCalls={openEpic === undefined ? undefined : epicCallsOf(clients, openEpic, tick)}
       />
       {interrupted && (
         <button type="button" class="act" onClick={() => void resume()}>
