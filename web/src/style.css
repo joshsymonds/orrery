@@ -685,6 +685,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 }
 .epic-page .tail-label { color: var(--overlay1); }
 .epic-page .end { flex: none; color: var(--overlay1); }
+/* A commit's mark sits in its row's meta text: handover, evidence runs and the contract's accepted line. */
+.commit-mark { flex: none; color: var(--overlay1); }
 /* The contract page's checks keep their line breaks, as the machines wrote them. */
 .contract .checks { white-space: pre-wrap; }
 

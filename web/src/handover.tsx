@@ -1,5 +1,6 @@
 import type { JSX } from "preact";
 
+import { CommitMark } from "./commitmark";
 import type {
   EpicClosure,
   EpicLedgerFinding,
@@ -141,9 +142,9 @@ function RunRow(props: { run: EpicReleaseRun }): JSX.Element {
       <span>{`attempt ${run.attempt}`}</span>
       {run.end !== "" && <span class="end">{run.end}</span>}
       <span class="state">{run.passed ? "passed" : "failed"}</span>
-      {run.head !== "" && <span>{`head ${run.head}`}</span>}
+      {run.head !== "" && <CommitMark hash={run.head} />}
       {run.commits.map((commit, index) => (
-        <span key={index}>{`commit ${commit}`}</span>
+        <CommitMark key={index} hash={commit} />
       ))}
       {run.reason !== "" && <p>{run.reason}</p>}
       {run.evidence !== "" && <pre class="log">{run.evidence}</pre>}
