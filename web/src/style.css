@@ -268,12 +268,16 @@ button, input, textarea, select { font-family: var(--mono); }
 .k-errored { --k: var(--red); }
 .strip i.k-passed, .strip i.k-now, .strip i.k-held, .strip i.k-errored,
 .pips i.k-passed, .pips i.k-now, .pips i.k-held, .pips i.k-errored { background: var(--k); }
-.strip i.k-now, .pips i.k-now {
-  box-shadow: 0 0 5px color-mix(in srgb, var(--yellow) 70%, transparent); animation: now-glow 1.8s ease-in-out infinite;
+.strip i.k-now, .pips i.k-now { position: relative; }
+/* The glow is a static shadow on the cell's ::before; now-glow animates only that pseudo-element's opacity, so the
+   compositor carries it without repainting the cell. */
+.strip i.k-now::before, .pips i.k-now::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--yellow) 75%, transparent); animation: now-glow 1.8s ease-in-out infinite;
 }
 @keyframes now-glow {
-  0%, 100% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--yellow) 75%, transparent); }
-  50% { box-shadow: 0 0 2px 0 color-mix(in srgb, var(--yellow) 20%, transparent); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
 }
 
 /* A step's line under its epic, indented from it: its mark or spinner, its label, its pips, then its doing, or a held
@@ -784,6 +788,6 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
   :root { --move-press: 100ms linear; --move-state: 100ms linear; --move-layout: 100ms linear; --move-drill: 100ms linear; --move-leave: 100ms linear; }
   section.page.drill { animation: move-fade var(--move-drill); }
   section.page.leave { animation: move-fade var(--move-leave); }
-  .pill .g-working, .b-row .g-working, .strip i.k-now, .pips i.k-now { animation: none; }
+  .pill .g-working, .b-row .g-working, .strip i.k-now::before, .pips i.k-now::before { animation: none; }
   .orrery .glow { animation: none; opacity: .5; }
 }

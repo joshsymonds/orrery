@@ -571,14 +571,67 @@ test("the four kinds fill the strip's and the pips' cells: passed green, now yel
   }
 });
 
+// The now cells glow from a pseudo-element, so the glow's animation sits on the ::before rule, not the cell.
+const nowCells = [".strip i.k-now", ".pips i.k-now"];
+
+// propertyNames lists the properties a declaration block sets, in the order written.
+function propertyNames(declarations: string): string[] {
+  return [...declarations.matchAll(/([\w-]+)\s*:/g)].map((match) => match[1]);
+}
+
 test("a now cell pulses on a 1.8s glow, and reduced motion holds it still", () => {
-  for (const cell of [".strip i.k-now", ".pips i.k-now"]) {
-    assert.match(declarationsFor(css, cell), /animation:\s*now-glow 1\.8s ease-in-out infinite;/, cell);
+  for (const cell of nowCells) {
+    assert.match(declarationsFor(css, cell), /(?<![-\w])position:\s*relative;/, `${cell} positions its glow`);
+    assert.match(
+      declarationsFor(css, `${cell}::before`),
+      /animation:\s*now-glow 1\.8s ease-in-out infinite;/,
+      `${cell}::before pulses`,
+    );
   }
   assert.match(css, /@keyframes now-glow\s*\{/);
   const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
-  for (const cell of [".strip i.k-now", ".pips i.k-now"]) {
-    assert.match(declarationsFor(reduced, cell), /animation:\s*none;/, `${cell} holds still under reduced motion`);
+  for (const cell of nowCells) {
+    assert.match(declarationsFor(reduced, `${cell}::before`), /animation:\s*none;/, `${cell}::before holds still under reduced motion`);
+  }
+});
+
+test("CompositorGlow: the now-cell glow's keyframes change only opacity on a pseudo-element of .strip i.k-now and .pips i.k-now", () => {
+  for (const cell of nowCells) {
+    const pseudo = `${declarationsFor(css, `${cell}::before`)};${declarationsFor(css, `${cell}::after`)}`;
+    assert.match(pseudo, /animation:\s*now-glow 1\.8s ease-in-out infinite;/, `${cell}'s pseudo-element names now-glow`);
+    assert.doesNotMatch(declarationsFor(css, cell), /animation:|box-shadow:/, `${cell} itself animates no box-shadow`);
+  }
+  const steps = rulesIn(mediaBlock(css, "@keyframes now-glow {"));
+  assert.ok(steps.length > 0, "now-glow has steps");
+  for (const step of steps) {
+    assert.deepEqual(propertyNames(step.declarations), ["opacity"], `now-glow step ${step.selectors.join(", ")} sets only opacity`);
+  }
+});
+
+test("CompositorGlow: every @keyframes used by an infinite animation in style.css changes only opacity or transform", () => {
+  const keyframeNames = new Set([...css.matchAll(/@keyframes\s+([\w-]+)\s*\{/g)].map((match) => match[1]));
+  const infinite = [...css.matchAll(/animation:\s*([^;{}]*\binfinite\b[^;{}]*);/g)].map((match) => match[1]);
+  assert.ok(infinite.length > 0, "style.css has infinite animations");
+  for (const value of infinite) {
+    const name = value.split(/\s+/).find((token: string) => keyframeNames.has(token));
+    assert.ok(name, `${value} names a @keyframes`);
+    const steps = rulesIn(mediaBlock(css, `@keyframes ${name} {`));
+    assert.ok(steps.length > 0, `@keyframes ${name} has steps`);
+    for (const step of steps) {
+      for (const property of propertyNames(step.declarations)) {
+        assert.ok(
+          property === "opacity" || property === "transform",
+          `@keyframes ${name} step ${step.selectors.join(", ")} sets ${property}, not only opacity or transform`,
+        );
+      }
+    }
+  }
+});
+
+test("CompositorGlow: under prefers-reduced-motion the now-cell glow of .strip i.k-now and .pips i.k-now does not animate", () => {
+  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
+  for (const cell of nowCells) {
+    assert.match(declarationsFor(reduced, `${cell}::before`), /animation:\s*none;/, `${cell}::before does not animate under reduced motion`);
   }
 });
 
