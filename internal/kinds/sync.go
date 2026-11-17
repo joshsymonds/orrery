@@ -237,10 +237,12 @@ func SyncMoved(rows Rows, result SyncResult) string {
 }
 
 // Busy returns why the work of the epic of rows is not at rest, "" when it is: the epic has a candidate, a planner turn
-// is running, an action a planner turn returned is pending, a task is open, a task is accepted and no batch has claimed
-// it, or an integrate or release run runs or is parked. A sync of origin's main starts, and advances, only while it is
-// at rest. A pending action is carried out by the planner's next pass, and may rerun a node, fail a task, resume a
-// release or close the epic, so the epic is not at rest until it has been.
+// is running, an action a planner turn returned is pending, an evidence amendment is checking or capturing, a task is
+// open, a task is accepted and no batch has claimed it, or an integrate or release run runs or is parked. A sync of
+// origin's main starts, and advances, only while it is at rest. A pending action is carried out by the planner's next
+// pass, and may rerun a node, fail a task, resume a release, amend a Requirement's evidence or close the epic, so the
+// epic is not at rest until it has been. An amendment under way decides a Requirement's item and the green of that item
+// at the stored base it captures at, which a sync would move, so the epic is not at rest until it has settled.
 func Busy(rows Rows) string {
 	epic := rows.Epic
 	if epic.Candidate != "" {
@@ -254,6 +256,9 @@ func Busy(rows Rows) string {
 		return "a planner action is pending"
 	case rows.Actions > 1:
 		return fmt.Sprintf("%d planner actions are pending", rows.Actions)
+	}
+	if i := slices.IndexFunc(epic.Amendments, amendmentUnderWay); i >= 0 {
+		return fmt.Sprintf("evidence amendment A%d is %s", epic.Amendments[i].Seq, epic.Amendments[i].State)
 	}
 	for _, task := range epic.Tasks {
 		switch {

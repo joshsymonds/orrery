@@ -170,9 +170,12 @@ func amending(rows Rows) bool {
 	if rows.AmendActions > 0 {
 		return true
 	}
-	return slices.ContainsFunc(rows.Epic.Amendments, func(amended store.EvidenceAmendment) bool {
-		return amended.State == store.AmendmentChecking || amended.State == store.AmendmentCapturing
-	})
+	return slices.ContainsFunc(rows.Epic.Amendments, amendmentUnderWay)
+}
+
+// amendmentUnderWay reports whether amended is under way: checking its red, or capturing its green.
+func amendmentUnderWay(amended store.EvidenceAmendment) bool {
+	return amended.State == store.AmendmentChecking || amended.State == store.AmendmentCapturing
 }
 
 // anyTaskOpen reports whether any of tasks is open.

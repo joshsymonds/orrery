@@ -455,8 +455,9 @@ func TestSettleAmendmentRerunsARedLostAtARestart(t *testing.T) {
 }
 
 // TestSettleAmendmentWaitsForEvidenceWorkUnderWay checks that an amendment whose red passed is not applied while a node
-// run that captures the Requirement under its own ids is under way: an integrate run with its revision, or a release run,
-// whose release integrator captures too. It is applied once that run has ended.
+// run that captures the Requirement under its own ids is under way: an integrate run with its revision, a sync run of
+// origin's main with its merge, whose checks capture as an integrate run's do, or a release run, whose release
+// integrator captures too. It is applied once that run has ended.
 func TestSettleAmendmentWaitsForEvidenceWorkUnderWay(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -472,6 +473,11 @@ func TestSettleAmendmentWaitsForEvidenceWorkUnderWay(t *testing.T) {
 		{
 			name: "a release run",
 			run:  NodeRun{Path: "release", ID: "release-run", Node: "release", Kind: "release"},
+		},
+		{
+			name:     "a sync run of origin's main with its merge",
+			run:      NodeRun{Path: "plan/M1", ID: "sync-run", Node: "sync", Kind: "sync"},
+			revision: "merge-1",
 		},
 	}
 	for _, tc := range cases {

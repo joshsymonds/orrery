@@ -46,10 +46,11 @@ const amendmentNamespace = "orrery-amendment"
 // exited for its environment: store.EnvironmentReruns, as the integrate kind's captures rerun.
 const amendmentReruns = EnvironmentReruns
 
-// ErrAmendmentDeferred reports that an amendment whose red run passed is not applied yet, because an evidence or integrate
-// node run of its epic has its work under way. That work captures the Requirement's item under ids the item does not
-// name, so the item stays as it is until the work ends, and the amendment is settled again on a later pass.
-var ErrAmendmentDeferred = errors.New("amendment waits for an evidence or integrate run under way")
+// ErrAmendmentDeferred reports that an amendment whose red run passed is not applied yet, because an evidence,
+// integrate, sync or release node run of its epic has its work under way. That work captures the Requirement's item
+// under ids the item does not name, so the item stays as it is until the work ends, and the amendment is settled again
+// on a later pass.
+var ErrAmendmentDeferred = errors.New("amendment waits for an evidence, integrate, sync or release run under way")
 
 // Amendment is what an amendment asks for: the Requirement it amends, by its id, the evidence item it asks the
 // Requirement to hold, and why.
@@ -299,10 +300,10 @@ func (s *Store) OpenAmendments(ctx context.Context) ([]EvidenceAmendment, error)
 // not stored yet.
 //
 // A checking amendment is settled by its red run. A red run that a restart lost, or that exited for its environment, is
-// run again under the next attempt, at most amendmentReruns times. A red run that passed, which is a red judged fails at
-// the epic's base, applies the amendment (see applyAmendment), unless an evidence or integrate node run of the epic has
-// work under way: then nothing is written and the error matches ErrAmendmentDeferred. Any other red run refuses it (see
-// refuseAmendment).
+// run again under the next attempt, at most amendmentReruns times. A red run that passed, which is a red judged fails
+// at the epic's base, applies the amendment (see applyAmendment), unless an evidence, integrate, sync or release node
+// run of the epic has work under way: then nothing is written and the error matches ErrAmendmentDeferred. Any other red
+// run refuses it (see refuseAmendment).
 //
 // A capturing amendment is settled once its green run, and its reproduction check when it has one, have ended. A run or
 // check that a restart lost, or that exited for its environment, runs both again under the next attempt, at most
@@ -407,12 +408,12 @@ func redRefusal(amendment EvidenceAmendment, run EvidenceRun) string {
 	return where + " gave no verdict: " + run.JudgeReason
 }
 
-// applyAmendment applies amendment, whose red run passed, in the caller's write. It returns ErrAmendmentDeferred, having
-// written nothing, while an evidence or integrate node run of the epic has a revision and is running. Otherwise the
-// Requirement takes the new item, a decision records the amendment, and a planner action that asked for it is marked
-// taken. When the epic's stored base has moved past its base, the amendment moves to capturing, with its green run and,
-// for a test item, its reproduction named at the stored base. Otherwise it is applied at once, and the next integrate
-// captures the new item at its candidate.
+// applyAmendment applies amendment, whose red run passed, in the caller's write. It returns ErrAmendmentDeferred,
+// having written nothing, while an evidence, integrate or sync node run of the epic has a revision and is running, or a
+// release node run of it is running. Otherwise the Requirement takes the new item, a decision records the amendment,
+// and a planner action that asked for it is marked taken. When the epic's stored base has moved past its base, the
+// amendment moves to capturing, with its green run and, for a test item, its reproduction named at the stored base.
+// Otherwise it is applied at once, and the next integrate captures the new item at its candidate.
 func applyAmendment(
 	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, red EvidenceRun, at time.Time,
 ) error {

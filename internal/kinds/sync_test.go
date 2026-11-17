@@ -270,6 +270,13 @@ func TestSyncAdvanceNamesWhyTheEpicMoved(t *testing.T) {
 			advance("the epic is paused"),
 		},
 		{
+			"an amendment under way is the advance's reason", node,
+			moved(func(rows *Rows) {
+				rows.Epic.Amendments = []store.EvidenceAmendment{{Seq: 1, State: store.AmendmentChecking}}
+			}),
+			advance("evidence amendment A1 is checking"),
+		},
+		{
 			"a park is the advance's reason", node,
 			moved(func(rows *Rows) { rows.Epic.Parked, rows.Epic.ParkClass = "held", store.ParkClassOrchestrator }),
 			advance("the epic is parked"),
@@ -303,6 +310,15 @@ func TestBusy(t *testing.T) {
 			"planner turn 3 is running"},
 		{"a pending planner action", Rows{Actions: 1}, "a planner action is pending"},
 		{"pending planner actions", Rows{Actions: 3}, "3 planner actions are pending"},
+		{"an amendment checking", Rows{Epic: store.EpicRow{Amendments: []store.EvidenceAmendment{
+			{Seq: 1, State: store.AmendmentApplied}, {Seq: 2, State: store.AmendmentChecking},
+		}}}, "evidence amendment A2 is checking"},
+		{"an amendment capturing", Rows{Epic: store.EpicRow{Amendments: []store.EvidenceAmendment{
+			{Seq: 3, State: store.AmendmentCapturing},
+		}}}, "evidence amendment A3 is capturing"},
+		{"settled amendments", Rows{Epic: store.EpicRow{Amendments: []store.EvidenceAmendment{
+			{Seq: 1, State: store.AmendmentApplied}, {Seq: 2, State: store.AmendmentRefused},
+		}}}, ""},
 		{"an open task", Rows{Epic: store.EpicRow{Tasks: []store.EpicTask{{Seq: 4, Status: taskOpen}}}},
 			"task T4 is open"},
 		{"an unbatched task", Rows{Epic: store.EpicRow{Tasks: []store.EpicTask{{Seq: 5, Status: taskDone}}}},

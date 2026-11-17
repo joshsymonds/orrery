@@ -419,7 +419,7 @@ func (q *Queries) CountRunningEpicTurns(ctx context.Context, epic string) (int64
 const countWorkingEvidenceNodeRuns = `-- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs
 WHERE epic = ? AND state = 'running'
-  AND ((kind IN ('evidence', 'integrate') AND revision != '') OR kind = 'release')
+  AND ((kind IN ('evidence', 'integrate', 'sync') AND revision != '') OR kind = 'release')
 `
 
 func (q *Queries) CountWorkingEvidenceNodeRuns(ctx context.Context, epic string) (int64, error) {
