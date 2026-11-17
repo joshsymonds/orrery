@@ -26,12 +26,12 @@ const toolRunMinimum = 3;
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
 // a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
-// The reader is its own scroll container: a conversation that replaces a null one opens at its bottom. A reader pinned
-// to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render that draws items
-// or live text, and whenever its own box or a row's box changes size, as the composer area above or below it does. A
-// reader the owner scrolled up keeps its place. When items are drawn above the first row shown before, the reader keeps
-// the rows on screen where they were. Once it sits within nearTopPixels of its top while the conversation has older
-// items, it calls onOlder, which loads the page before its oldest item.
+// The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
+// reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
+// that draws items or live text, and whenever its own box or a row's box changes size, as the composer area above or
+// below it does. A reader the owner scrolled up keeps its place. When items are drawn above the first row shown before,
+// the reader keeps the rows on screen where they were. Once it sits within nearTopPixels of its top while the
+// conversation has older items, it calls onOlder, which loads the page before its oldest item.
 // The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
 // they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -89,6 +89,10 @@ export function Reader({
     const reader = root.current;
     if (reader === null) {
       return;
+    }
+    // A conversation that opens starts pinned at its bottom, whatever the owner did to the one shown before it.
+    if (opening) {
+      pinned.current = true;
     }
     // A render that draws items above the first row shown before keeps that row where it was: the reader moves by
     // how much its content grew above it.

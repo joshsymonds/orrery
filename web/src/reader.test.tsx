@@ -1081,6 +1081,22 @@ test("PinnedScroll: the reader's observers are disconnected when the reader unmo
     );
   }));
 
+test("PinnedScroll: a conversation that opens after a null one follows its items, though the owner scrolled the one before up", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+
+    await rerender({ ...readerProps([]), conversation: null });
+    await rerender(readerProps(heldItems(1, 2)));
+    await rerender(readerProps(heldItems(1, 6)));
+    assert.equal(
+      distanceFromBottom(container),
+      0,
+      "the row that opened follows its items as they outgrow the viewport",
+    );
+  }));
+
 // olderItems are count replies older than heldItems, each with its own text, so a page of them is drawn above the held
 // rows.
 function olderItems(count: number): ConversationItem[] {
