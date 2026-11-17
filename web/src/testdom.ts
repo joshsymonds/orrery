@@ -1,6 +1,15 @@
 import { Window } from "happy-dom";
 
-const globalNames = ["window", "document", "Node", "Element", "HTMLElement", "Event", "KeyboardEvent"] as const;
+const globalNames = [
+  "window",
+  "document",
+  "Node",
+  "Element",
+  "HTMLElement",
+  "Event",
+  "KeyboardEvent",
+  "ResizeObserver",
+] as const;
 
 // installTestDom makes a fresh happy-dom window the global DOM for a component test and returns it.
 export function installTestDom(): Window {
@@ -13,6 +22,7 @@ export function installTestDom(): Window {
   target.HTMLElement = window.HTMLElement;
   target.Event = window.Event;
   target.KeyboardEvent = window.KeyboardEvent;
+  target.ResizeObserver = window.ResizeObserver;
   return window;
 }
 

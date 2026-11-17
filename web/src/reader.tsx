@@ -26,10 +26,12 @@ const toolRunMinimum = 3;
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
 // a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
-// The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
-// other render keeps the bottom only for a reader that sat within nearBottomPixels of it. When items are drawn above
-// the first row shown before, the reader keeps the rows on screen where they were. Once it sits within nearTopPixels
-// of its top while the conversation has older items, it calls onOlder, which loads the page before its oldest item.
+// The reader is its own scroll container: a conversation that replaces a null one opens at its bottom. A reader pinned
+// to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render that draws items
+// or live text, and whenever its own box or a row's box changes size, as the composer area above or below it does. A
+// reader the owner scrolled up keeps its place. When items are drawn above the first row shown before, the reader keeps
+// the rows on screen where they were. Once it sits within nearTopPixels of its top while the conversation has older
+// items, it calls onOlder, which loads the page before its oldest item.
 // The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
 // they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -56,10 +58,14 @@ export function Reader({
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
   const shownKeys = useRef<string[]>([]);
+  // pinned is whether the owner last left the reader within nearBottomPixels of its bottom. Only the owner's scrolls set
+  // it: a render or a size change moves the content under the reader without the owner, so it does not.
+  const pinned = useRef(true);
   const keys = conversation === null ? [] : itemKeys(conversation.items);
-  // The position is read before this render changes the DOM, so it is where the reader sat before the new items.
+  // The position is read before this render changes the DOM, so it is where the reader sat before the new items. A size
+  // change the observer has not reported yet is not in that reading, so the observer follows it.
   const element = root.current;
-  const atBottom = element !== null && distanceFromBottom(element) <= nearBottomPixels;
+  const followRender = pinned.current && element !== null && distanceFromBottom(element) <= nearBottomPixels;
   const before = element === null ? null : { top: element.scrollTop, height: element.scrollHeight };
   const opening = conversation !== null && !drewConversation.current;
   const more = conversation?.more ?? false;
@@ -68,6 +74,13 @@ export function Reader({
     if (more && reader !== null && reader.scrollTop <= nearTopPixels) {
       onOlder?.();
     }
+  };
+  const followScroll = (): void => {
+    const reader = root.current;
+    if (reader !== null) {
+      pinned.current = distanceFromBottom(reader) <= nearBottomPixels;
+    }
+    askOlder();
   };
   useLayoutEffect(() => {
     const previous = shownKeys.current;
@@ -82,10 +95,32 @@ export function Reader({
     const prepended = previous.length > 0 && keys.indexOf(previous[0]) > 0;
     if (before !== null && prepended) {
       reader.scrollTop = before.top + (reader.scrollHeight - before.height);
-    } else if (opening || atBottom) {
+    } else if (opening || followRender) {
       reader.scrollTop = reader.scrollHeight;
     }
     askOlder();
+  });
+  // A size change that no render reports moves the bottom too: the composer area above or below the reader changes the
+  // reader's own box, and a row grows as its content does, when a fold opens in it. The observer watches what this
+  // render drew, so it is made again on each render, and the previous one is disconnected before the next is made and
+  // when the reader unmounts.
+  useLayoutEffect(() => {
+    const reader = root.current;
+    if (reader === null) {
+      return;
+    }
+    const sizes = new ResizeObserver(() => {
+      if (pinned.current) {
+        reader.scrollTop = reader.scrollHeight;
+      }
+    });
+    sizes.observe(reader);
+    for (const row of reader.children) {
+      sizes.observe(row);
+    }
+    return () => {
+      sizes.disconnect();
+    };
   });
   const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
@@ -126,7 +161,7 @@ export function Reader({
     .filter((block) => block.kind === "text" || block.kind === "thinking")
     .map((block) => <LiveRow key={`${block.messageId}/${block.index}`} block={block} />);
   return (
-    <div class="reader" ref={root} onScroll={askOlder}>
+    <div class="reader" ref={root} onScroll={followScroll}>
       {rows}
       {questionCard}
       {live}

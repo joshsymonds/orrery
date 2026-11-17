@@ -109,14 +109,28 @@ function readerOf(container: HTMLElement): HTMLElement {
   return reader;
 }
 
-// stubLayout gives the reader the layout a browser would: each row is rowPixels tall, the viewport is viewportPixels
-// tall, and scrollTop clamps to the content. happy-dom has no layout, so the stub reads the rows the DOM holds.
-function stubLayout(reader: HTMLElement): void {
+// ReaderLayout moves the stubbed layout the way a browser's would: the reader's box takes a new height, or a row takes
+// one. report delivers those changes to the observers the reader made, which a browser does after a size change.
+interface ReaderLayout {
+  resizeBox(height: number): void;
+  resizeRow(row: Element, height: number): void;
+  report(): void;
+}
+
+// stubLayout gives the reader the layout a browser would: each row is rowPixels tall unless resizeRow says otherwise,
+// the box is viewportPixels tall unless resizeBox says otherwise, and scrollTop clamps to the content. happy-dom has no
+// layout, so the stub reads the rows the DOM holds.
+function stubLayout(reader: HTMLElement): ReaderLayout {
   let top = 0;
-  const furthest = () => Math.max(0, reader.scrollHeight - viewportPixels);
+  let box = viewportPixels;
+  const rowHeights = new Map<Element, number>();
+  const furthest = () => Math.max(0, reader.scrollHeight - box);
   Object.defineProperties(reader, {
-    scrollHeight: { configurable: true, get: () => reader.children.length * rowPixels },
-    clientHeight: { configurable: true, value: viewportPixels },
+    scrollHeight: {
+      configurable: true,
+      get: () => [...reader.children].reduce((sum, row) => sum + (rowHeights.get(row) ?? rowPixels), 0),
+    },
+    clientHeight: { configurable: true, get: () => box },
     scrollTop: {
       configurable: true,
       get: () => Math.min(top, furthest()),
@@ -125,15 +139,62 @@ function stubLayout(reader: HTMLElement): void {
       },
     },
   });
+  return {
+    resizeBox: (height) => {
+      box = height;
+    },
+    resizeRow: (row, height) => {
+      rowHeights.set(row, height);
+    },
+    report: () => {
+      FakeResizeObserver.report();
+    },
+  };
+}
+
+// FakeResizeObserver stands in for the browser's ResizeObserver, which happy-dom stubs to report nothing. It keeps each
+// observer the reader makes with the elements that observer watches, and report calls the callback of each one still
+// connected.
+class FakeResizeObserver {
+  static made: FakeResizeObserver[] = [];
+
+  readonly watching = new Set<Element>();
+  connected = true;
+  readonly callback: () => void;
+
+  constructor(callback: () => void) {
+    this.callback = callback;
+    FakeResizeObserver.made.push(this);
+  }
+
+  observe(target: Element): void {
+    this.watching.add(target);
+  }
+
+  disconnect(): void {
+    this.watching.clear();
+    this.connected = false;
+  }
+
+  static report(): void {
+    for (const observer of FakeResizeObserver.made) {
+      if (observer.connected) {
+        observer.callback();
+      }
+    }
+  }
 }
 
 // withScrollingReader mounts a reader the way the app does, from a null conversation to its conversation, with its
-// layout stubbed. The check gets the container and a rerender that draws new props into the same mounted reader.
+// layout stubbed and its observers faked. The check gets the container, a rerender that draws new props into the same
+// mounted reader, and the layout.
 async function withScrollingReader(
   props: Props,
-  check: (container: HTMLElement, rerender: (next: Props) => Promise<void>) => void | Promise<void>,
+  check: (container: HTMLElement, rerender: (next: Props) => Promise<void>, layout: ReaderLayout) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
+  (globalThis as unknown as Record<string, unknown>).ResizeObserver = FakeResizeObserver;
+  FakeResizeObserver.made = [];
   const container = document.createElement("div");
   const rerender = (next: Props) =>
     act(() => {
@@ -141,9 +202,9 @@ async function withScrollingReader(
     });
   try {
     render(<Reader {...props} conversation={null} />, container);
-    stubLayout(readerOf(container));
+    const layout = stubLayout(readerOf(container));
     await rerender(props);
-    await check(container, rerender);
+    await check(container, rerender, layout);
   } finally {
     render(null, container);
     await removeTestDom(window);
@@ -938,6 +999,85 @@ test("a new item while the reader is scrolled up leaves its scroll place alone",
 
     await rerender(readerProps(heldItems(1, 21)));
     assert.equal(reader.scrollTop, 500);
+  }));
+
+test("PinnedScroll: a reader at its bottom stays at its bottom as items arrive and as a sending row appears and goes", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender) => {
+    const items = heldItems(1, 21);
+    const sending: Sending[] = [{ promptId: "p1", text: "fix the build", after: items[19] }];
+
+    await rerender({ ...readerProps(heldItems(1, 20)), sending });
+    assert.equal(distanceFromBottom(container), 0, "a sending row that appears keeps the reader at its bottom");
+
+    await rerender({ ...readerProps(items), sending });
+    assert.equal(distanceFromBottom(container), 0, "a new item that arrives keeps the reader at its bottom");
+
+    await rerender(readerProps(items));
+    assert.equal(distanceFromBottom(container), 0, "a sending row that goes keeps the reader at its bottom");
+  }));
+
+test("PinnedScroll: a reader at its bottom stays at its bottom when the composer area above it grows", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), (container, _rerender, layout) => {
+    const reader = readerOf(container);
+    assert.equal(distanceFromBottom(container), 0, "the reader starts at its bottom");
+
+    layout.resizeBox(200);
+    assert.equal(distanceFromBottom(container), 100, "the box shrank, so the bottom sits below the box");
+    layout.report();
+
+    assert.equal(distanceFromBottom(container), 0, "the observer returns the reader to its bottom");
+    assert.equal(
+      FakeResizeObserver.made.some((observer) => observer.connected && observer.watching.has(reader)),
+      true,
+      "the observer watches the reader's own box",
+    );
+  }));
+
+test("PinnedScroll: a reader at its bottom stays at its bottom when a row grows without a render", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), (container, _rerender, layout) => {
+    const row = rowWith(container, "held-20");
+
+    layout.resizeRow(row, rowPixels + 60);
+    assert.equal(distanceFromBottom(container), 60, "the grown row moved the bottom below the box");
+    layout.report();
+
+    assert.equal(distanceFromBottom(container), 0, "the observer returns the reader to its bottom");
+  }));
+
+test("PinnedScroll: a reader the owner scrolled up stays put as its box changes, and follows again once the owner scrolls back to the bottom", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender, layout) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+    reader.dispatchEvent(new Event("scroll"));
+
+    layout.resizeBox(200);
+    layout.report();
+    assert.equal(reader.scrollTop, 500, "a size change leaves a reader the owner scrolled up where it is");
+
+    await rerender(readerProps(heldItems(1, 21)));
+    assert.equal(reader.scrollTop, 500, "new items leave it where it is too");
+
+    reader.scrollTop = reader.scrollHeight;
+    reader.dispatchEvent(new Event("scroll"));
+    layout.resizeBox(150);
+    layout.report();
+    assert.equal(distanceFromBottom(container), 0, "back at the bottom, the reader follows its box again");
+  }));
+
+test("PinnedScroll: the reader's observers are disconnected when the reader unmounts", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), (container) => {
+    assert.equal(
+      FakeResizeObserver.made.some((observer) => observer.connected),
+      true,
+      "the reader holds a connected observer",
+    );
+
+    render(null, container);
+    assert.equal(
+      FakeResizeObserver.made.some((observer) => observer.connected),
+      false,
+      "no observer is left connected",
+    );
   }));
 
 // olderItems are count replies older than heldItems, each with its own text, so a page of them is drawn above the held
