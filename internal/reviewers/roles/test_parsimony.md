@@ -11,7 +11,7 @@
    - Android tests live under android/, web tests under web/src.
 2. **Colocated with its kind.** It sits beside existing tests of the same kind: the same file, or the package's existing test files for that area, with the package's existing naming. A new test file is justified only when no fitting one exists.
 3. **Reuses existing resources.**
-   - Databases: storetest.Seed, or the package's migrated image, with storetest.NoSync. Never a fresh migration, unless the test is about migrations.
+   - Databases: storetest.Seed, or the package's migrated image, with storetest.NoSync. Never a fresh migration. A migration test may migrate what it tests; it may not replay the whole migration chain per test.
    - External programs: the existing fake claude, the shared tmux -L server helpers (tmuxtest), and existing git fixture helpers.
    - External APIs: existing fakes and servers.
    - It does not start a second real process, server or repository where an existing helper or a shared fixture serves the assertion.
@@ -24,7 +24,8 @@
 5. **Parallel and cheap.**
    - It calls t.Parallel where its fixtures allow, and never t.Setenv in a parallel test.
    - It does no needless work: no repeated full setup, no oversized loops.
-   - The `-race` run of its package doesn't grow out of proportion to what it adds.
+   - The `-race` run of its package doesn't grow out of proportion to what it adds. Read the prompt's Test cost section: the budget lines of the gate run the change passed. At task stage that is the task's gate, `just check-changed`: a `test-budget: <package> <n> cpu-s > <baseline> (+<pct>%)` line for each package over its CPU budget, a count of the packages checked, and `check-changed: OK after <n>s of its 240s budget`, or `exceeded`. At epic stage it is the Done gates, `just check` and its `cover`. "no budget lines" means the kept end of the gate output held none, so judge from the diff alone.
+   - A package over its budget, or a test whose own run takes seconds rather than milliseconds, is a finding unless the task states why the cost is needed.
 6. **Tests something useful.** The test fails when the behaviour it names breaks, and passes only because that behaviour holds. Not admissible:
    - tautologies: asserting a value the test itself just set, a mock returning what it was told, or a type the compiler already guarantees;
    - assertions that cannot fail;
@@ -46,7 +47,7 @@
 
 ## Findings
 A finding names the test, the rule it breaks, `file` plus symbol, and the concrete fix: move it to X, use helper Y, or replace the sleep with Z.
-- **Admissible as a Quality Bar defect:** a test added by the change that uses real waits or clocks, starts its own real resource where a shared one exists, sits where unrelated changes will select it, is redundant or tautological (rule 6), adds an unjustified golden suite (rule 7), or asserts wall-clock timing (rule 8), or checks model output deterministically (rule 9).
+- **Admissible as a Quality Bar defect:** a test added by the change that uses real waits or clocks, starts its own real resource where a shared one exists, sits where unrelated changes will select it, is redundant or tautological (rule 6), adds an unjustified golden suite (rule 7), asserts wall-clock timing (rule 8), or checks model output deterministically (rule 9); and added or changed tests that push a package over its test CPU budget (a test-budget line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5).
 - **Observations:** the same patterns in tests the change did not touch. These are recorded, with no correction task.
 
 Report your findings in the gate's verdict schema. Give each declared assertion one result: holds, fails, or undetermined. Each fails result adds one finding that cites the assertion, with the test, the rule it breaks, its file and symbol, and the concrete fix. Put the observations in observations, with the reason each is not a finding.

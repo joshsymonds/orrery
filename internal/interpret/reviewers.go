@@ -38,10 +38,11 @@ func (EpicReviewers) Epic(epic store.EpicRow) []kinds.Reviewer {
 
 // Start returns the read-only step of the epic-stage reviewer name, run at revision of epic's repository over the
 // change from base. The step carries the reviewer's agent gate and its inline agents, and its prompt is the epic review
-// prompt, headed by the reviewer's own prompt when it is an agent reviewer that sets one. A name that is not an enabled
-// epic-stage reviewer of epic is an error.
+// prompt, headed by the reviewer's own prompt when it is an agent reviewer that sets one. The test_parsimony reviewer's
+// prompt ends with the Test cost section of doneGates, the checks of the Done gates that ran at revision. A name that is
+// not an enabled epic-stage reviewer of epic is an error.
 func (EpicReviewers) Start(
-	_ context.Context, epic store.EpicRow, name, base, revision string,
+	_ context.Context, epic store.EpicRow, name, base, revision string, doneGates []store.NodeCheck,
 ) (enginehost.StepStart, error) {
 	stage := reviewers.ForStage(epic.Reviewers, reviewers.StageEpic)
 	i := slices.IndexFunc(stage, func(rev reviewers.Reviewer) bool { return rev.Name == name })
@@ -56,6 +57,9 @@ func (EpicReviewers) Start(
 	}
 	gate := rev.Gate()
 	prompt := epicStageReviewPrompt(epic, base, revision)
+	if name == reviewers.TestParsimony {
+		prompt += "\n" + strings.Join(reviewers.TestCost(checkOutputs(doneGates)...), "\n")
+	}
 	if rev.Agent != "" && rev.Prompt != "" {
 		prompt = rev.Prompt + "\n\n" + prompt
 	}
@@ -93,6 +97,15 @@ func epicStageReviewPrompt(epic store.EpicRow, base, revision string) string {
 		amendments,
 		[]string{change},
 	), "\n")
+}
+
+// checkOutputs returns the kept stdout and then stderr of each of checks, in order.
+func checkOutputs(checks []store.NodeCheck) []string {
+	outputs := make([]string, 0, 2*len(checks))
+	for _, check := range checks {
+		outputs = append(outputs, check.Stdout, check.Stderr)
+	}
+	return outputs
 }
 
 // amendmentBullets returns one line per amendment of a Requirement's evidence item, so a reviewer reads how the evidence

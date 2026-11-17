@@ -240,7 +240,7 @@ func TestBriefWithoutRedStderrPrintsNoStderrBlock(t *testing.T) {
 
 func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	t.Parallel()
-	got := ReviewPrompt(briefEpic(), briefTask(), "base1", "rev1")
+	got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{})
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Files:\n" +
@@ -259,7 +259,7 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{ID: "repo/epic-x", Title: "Build the task"}
 	task := store.EpicTask{Seq: 4, Title: "Render brief", Deliverable: "brief.go"}
-	got := ReviewPrompt(epic, task, "base1", "rev1")
+	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Files:\n" +
@@ -269,6 +269,77 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 		"The change under review is base1..rev1; this worktree is checked out at rev1. Inspect it with `git diff base1 rev1`."
 	if got != want {
 		t.Fatalf("review prompt\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestReviewPromptEndsTestParsimonyWithTheGatesTestCost: the test_parsimony reviewer's prompt ends with the Test cost
+// section, holding the budget lines of the gate check's stdout and stderr in order, or "no budget lines" when the check
+// holds none or the task has no gate check.
+func TestReviewPromptEndsTestParsimonyWithTheGatesTestCost(t *testing.T) {
+	t.Parallel()
+	gateOutput := store.StepCheck{
+		Name: "gate", OK: true, Detail: "gate exited 0",
+		Stdout: "check-changed: base 212dc29, 3 changed files\n" +
+			"ok  \tgithub.com/joshsymonds/orrery/internal/store\t41.2s\n" +
+			"test-budget: internal/store 212 cpu-s > 160 (+33%)\n" +
+			"test-budget: internal/new 12 cpu-s, no baseline\n" +
+			"test-budget: 2 packages checked, none over twice its baseline\n" +
+			"check-changed: Android untouched; android-test skipped\n" +
+			"check-changed: OK after 97s of its 240s budget\n",
+		Stderr: "golangci-lint: 0 issues\n",
+	}
+	exceeded := store.StepCheck{
+		Name: "gate", Detail: "gate exited 124",
+		Stderr: "check-changed: exceeded 240s budget (Go tests was running)\n",
+	}
+	cases := []struct {
+		name string
+		gate store.StepCheck
+		want []string
+	}{
+		{
+			name: "passed gate",
+			gate: gateOutput,
+			want: []string{
+				"- test-budget: internal/store 212 cpu-s > 160 (+33%)",
+				"- test-budget: internal/new 12 cpu-s, no baseline",
+				"- test-budget: 2 packages checked, none over twice its baseline",
+				"- check-changed: OK after 97s of its 240s budget",
+			},
+		},
+		{
+			name: "exceeded budget on stderr",
+			gate: exceeded,
+			want: []string{"- check-changed: exceeded 240s budget (Go tests was running)"},
+		},
+		{
+			name: "output without budget lines",
+			gate: store.StepCheck{Name: "gate", OK: true, Stdout: "all good\n"},
+			want: []string{"- no budget lines"},
+		},
+		{name: "no gate check", want: []string{"- no budget lines"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := ReviewPrompt(briefEpic(), briefTask(), reviewers.TestParsimony, "base1", "rev1", tc.gate)
+			plain := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", tc.gate)
+			want := strings.Join(append([]string{plain, reviewers.TestCostHeading}, tc.want...), "\n")
+			if got != want {
+				t.Fatalf("review prompt\n got:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+}
+
+// TestReviewPromptGivesNoOtherReviewerTheTestCost: a reviewer other than test_parsimony gets no Test cost section, even
+// when the gate check holds budget lines.
+func TestReviewPromptGivesNoOtherReviewerTheTestCost(t *testing.T) {
+	t.Parallel()
+	gate := store.StepCheck{Name: "gate", OK: true, Stdout: "test-budget: internal/store 212 cpu-s > 160 (+33%)\n"}
+	got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", gate)
+	if strings.Contains(got, "Test cost") || strings.Contains(got, "test-budget") {
+		t.Fatalf("floor review prompt carries the Test cost section:\n%s", got)
 	}
 }
 

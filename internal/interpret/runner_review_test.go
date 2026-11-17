@@ -65,7 +65,7 @@ func (r runnerReviewers) Epic(store.EpicRow) []kinds.Reviewer {
 
 // Start fails: the review tests start no reviewer step.
 func (runnerReviewers) Start(
-	context.Context, store.EpicRow, string, string, string,
+	context.Context, store.EpicRow, string, string, string, []store.NodeCheck,
 ) (enginehost.StepStart, error) {
 	return enginehost.StepStart{}, errors.New("runnerReviewers: no step is started in these tests")
 }
