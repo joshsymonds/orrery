@@ -1148,6 +1148,7 @@ export function App({
             epic={entry.id}
             sessions={detail.sessions}
             repository={detail.repository}
+            rows={rows}
             start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
             onOpen={(target) => setTalkDock({ epic: entry.id, target })}
           />
@@ -1513,13 +1514,14 @@ export function App({
               pageNode(epicEntry, epicDetail)
             ))}
           {docked !== null && (
-            <TalkDock clients={clients} target={docked.target} onClose={() => setTalkDock(null)} />
+            <TalkDock clients={clients} rows={rows} target={docked.target} onClose={() => setTalkDock(null)} />
           )}
         </section>
       </div>
       {pickerOpen && (
         <PickerPalette
           clients={clients}
+          rows={rows}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });

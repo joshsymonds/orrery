@@ -5,6 +5,7 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { clock } from "./reader";
+import type { Row } from "./rows";
 import { Talk, type TalkSession, type TalkTarget, talkPrompt } from "./talk";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -13,7 +14,8 @@ type Props = Parameters<typeof Talk>[0];
 const epic = "style-b2";
 const repositoryPath = "/synthetic/orrery";
 
-// paned is a session with a pane and a label, so it opens by its pane and reads by its label.
+// paned is a session with a pane and a served label, so it opens by its pane and reads by its label when no listed row
+// names it.
 const paned: TalkSession = {
   id: "0f3a9c21d4e56b78a0f3a9c21d4e56b7",
   pane: "%7",
@@ -22,7 +24,7 @@ const paned: TalkSession = {
   at: 1768000000n,
 };
 
-// headless is a session with neither a pane nor a label, so it opens by its id and reads by the first eight of it.
+// headless is a session with neither a pane nor a served label, so it opens by its id and reads as the word session.
 const headless: TalkSession = {
   id: "9b2c4e6f80a1b3c5d7e9f0a2b4c6d8e0",
   pane: "",
@@ -32,13 +34,36 @@ const headless: TalkSession = {
 };
 
 const panedLine = `api · epic_get · ${clock(paned.at)}`;
-const headlessLine = `9b2c4e6f · trace · ${clock(headless.at)}`;
+const headlessLine = `session · trace · ${clock(headless.at)}`;
+
+// listed is a row Talk titles its lines from. Only the fields a title reads are set; the rest are empty.
+function listed(init: Pick<Row, "kind" | "id" | "project" | "label">): Row {
+  return {
+    key: `${init.kind}:${init.id}`,
+    host: "",
+    state: "",
+    summary: "",
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    archived: false,
+    archiveKind: "none",
+    ...init,
+  };
+}
+
+// The listed rows of the two sessions: the pane's row and the headless session's row.
+const panedRow = listed({ kind: "pane", id: "%7", project: "/synthetic/api", label: "wire the webhook retries" });
+const headlessRow = listed({ kind: "session", id: headless.id, project: "/synthetic/orrery", label: "plan the release cut" });
 
 function baseProps(init: Partial<Props>): Props {
   return {
     epic,
     sessions: [paned, headless],
     repository: "",
+    rows: [],
     start: () => Promise.reject(new Error("start was not expected")),
     onOpen: () => undefined,
     ...init,
@@ -117,9 +142,49 @@ test("a session with a pane opens its pane, and one without opens its session, e
     assert.equal(container.querySelector("ul.talk") === null, true, "opening a session closes the list");
     assert.deepEqual(opened, [
       { kind: "pane", id: "%7", label: "api" },
-      { kind: "session", id: "9b2c4e6f80a1b3c5d7e9f0a2b4c6d8e0", label: "9b2c4e6f" },
+      { kind: "session", id: "9b2c4e6f80a1b3c5d7e9f0a2b4c6d8e0", label: "" },
     ]);
   });
+});
+
+test("TitleParts: a pane session's and a headless session's lines draw their listed rows' directory and line", async () => {
+  await withTalk({ rows: [panedRow, headlessRow] }, async (container) => {
+    assert.equal(await click(container, "Talk"), true);
+    assert.deepEqual(textsOf(container, "ul.talk li .title-dir"), ["api", "orrery"]);
+    assert.deepEqual(textsOf(container, "ul.talk li .title-line"), ["wire the webhook retries", "plan the release cut"]);
+    assert.deepEqual(textsOf(container, "ul.talk li button"), [
+      `api wire the webhook retries · epic_get · ${clock(paned.at)}`,
+      `orrery plan the release cut · trace · ${clock(headless.at)}`,
+    ]);
+  });
+});
+
+test("TitleParts: an unlisted session draws its served label as its line, with no directory", async () => {
+  await withTalk({ rows: [] }, async (container) => {
+    assert.equal(await click(container, "Talk"), true);
+    assert.deepEqual(textsOf(container, "ul.talk li .title-dir"), []);
+    assert.deepEqual(textsOf(container, "ul.talk li .title-line"), ["api", "session"]);
+    assert.deepEqual(textsOf(container, "ul.talk li button"), [panedLine, headlessLine]);
+  });
+});
+
+test("TitleParts: a session with no label and no listed row reads session as its line", async () => {
+  await withTalk({ sessions: [headless], rows: [] }, async (container) => {
+    assert.equal(await click(container, "Talk"), true);
+    assert.deepEqual(textsOf(container, "ul.talk li button"), [headlessLine]);
+  });
+});
+
+test("TitleParts: no line shows a session id or a pane id, listed or not", async () => {
+  for (const rows of [[], [panedRow, headlessRow]]) {
+    await withTalk({ rows }, async (container) => {
+      assert.equal(await click(container, "Talk"), true);
+      const shown = textsOf(container, "ul.talk").join("\n");
+      for (const id of [paned.id, headless.id, paned.pane, "9b2c4e6f"]) {
+        assert.equal(shown.includes(id), false, `a line shows ${id}`);
+      }
+    });
+  }
 });
 
 test("New session in the repository starts the epic's prompt there, then opens the returned id", async () => {

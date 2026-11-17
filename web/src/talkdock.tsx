@@ -6,10 +6,12 @@ import { Composer } from "./composer";
 import type { Conversation } from "./conversation";
 import { follow } from "./follow";
 import { Reader, ReaderHead } from "./reader";
+import type { Row } from "./rows";
 import { type Sending, sendingEntry, unsentEntries } from "./sending";
 import { outcomeOf } from "./stepbox";
+import { lastPathElement, listedTitle, TitleParts } from "./titleparts";
 
-// The conversation Talk opens: a pane or a headless session by its id, named by its label.
+// The conversation Talk opens: a pane or a headless session by its id, named by its served label when no listed row does.
 interface TalkTarget {
   kind: "pane" | "session";
   id: string;
@@ -18,21 +20,31 @@ interface TalkTarget {
 
 const millisPerSecond = 1000;
 
+// plainTitle is a title as text, for the composer's placeholder: its directory's last element, then its line, or
+// whichever is not empty.
+function plainTitle(title: { dir: string; line: string }): string {
+  return [lastPathElement(title.dir), title.line].filter((part) => part !== "").join(" ");
+}
+
 // TalkDock draws the conversation Talk opened as a panel beside the epic page. It follows the target's conversation
-// until it unmounts or the target changes, and names it with a × that calls onClose. Its reader and composer draw the
-// conversation as the pinned reader does. While the session is interrupted, Resume resumes its turn; a refusal shows
-// its message under the reader. The reader's "since you looked" rule marks what arrives after the dock opened on the
-// target. A message sent to the target shows in its reader as sending until its stored prompt arrives, and above the box
-// as queued while the target is working or holds it.
+// until it unmounts or the target changes, and names it with a × that calls onClose. Its head draws the target's listed
+// title through TitleParts, joined at each render, so a headline that refreshes while the dock is open shows at once. Its
+// reader and composer draw the conversation as the pinned reader does. While the session is interrupted, Resume resumes
+// its turn; a refusal shows its message under the reader. The reader's "since you looked" rule marks what arrives after
+// the dock opened on the target. A message sent to the target shows in its reader as sending until its stored prompt
+// arrives, and above the box as queued while the target is working or holds it.
 export function TalkDock({
   clients,
+  rows,
   target,
   onClose,
 }: {
   clients: Clients;
+  rows: Row[];
   target: TalkTarget;
   onClose: () => void;
 }): JSX.Element {
+  const title = listedTitle(rows, target.kind, target.id, target.label);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [seenAt, setSeenAt] = useState(0);
   const [refusal, setRefusal] = useState("");
@@ -88,7 +100,7 @@ export function TalkDock({
 
   return (
     <aside class="dock" aria-label="talk">
-      <ReaderHead label={target.label} where="">
+      <ReaderHead label={<TitleParts dir={title.dir} line={title.line} />} where="">
         <button type="button" class="close" aria-label="close" onClick={onClose}>
           ×
         </button>
@@ -107,7 +119,7 @@ export function TalkDock({
       )}
       {refusal !== "" && <p class="error">{refusal}</p>}
       <Composer
-        label={target.label}
+        label={plainTitle(title)}
         state={state}
         send={send}
         pull={target.kind === "pane" ? pull : null}

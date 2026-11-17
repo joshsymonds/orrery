@@ -4795,6 +4795,27 @@ test("choosing a session in Talk docks its conversation beside the epic page, an
     assert.equal(fake.callsTo(sessionWatchPath)[0].signal.aborted, true, "× stops the session's stream");
   }));
 
+test("TitleParts: a session chosen in Talk docks with a head drawn from its listed row", (t) =>
+  withApp(
+    t.signal,
+    {
+      epics: pageEpic({ repository: talkRepository, sessions: [talkSession] }),
+      rows: [...fixture(), row({ key: "sess-1", kind: "session", label: "auth refresh", project: "/work/api" })],
+    },
+    async (container) => {
+      await press("j");
+      await clickButton(container, ".epic-page .title-row .acts", "Talk");
+      await chooseTalkLine(container, "api auth refresh");
+      assert.equal(dockShown(container), true, "the session's conversation docks beside the epic page");
+      assert.equal(
+        container.querySelector('aside.dock[aria-label="talk"] h1 .title-dir')?.textContent,
+        "api",
+        "the head draws the listed row's directory",
+      );
+      assert.equal(dockLabel(container), "api auth refresh", "the head reads the listed row's directory and line");
+    },
+  ));
+
 test("New session in the repository starts a session there with the first prompt, and docks it", (t) =>
   withApp(t.signal, { epics: pageEpic({ repository: talkRepository }) }, async (container, fake) => {
     fake.replies.set(startSessionPath, [{ id: "sess-new" }]);

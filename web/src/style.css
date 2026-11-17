@@ -197,6 +197,8 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row .title-dir { flex: none; font: 11.5px/20px var(--mono); }
 .b-row .title-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 400 13px/20px var(--mono); color: var(--subtext0); }
 .b-row[data-unseen] .title-line { font-weight: 700; color: var(--text); }
+/* A dock head's title: its directory in mauve, then its line in regular weight, in the head's mono. */
+.head h1 .title-line { font-weight: 400; }
 .b-row .age { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--overlay0); }
 .b-row[data-unseen] .age { color: var(--lavender); }
 /* A list line's ⋯ sits at the line's end, dim until its row is hovered or under the cursor. Its menu hangs under it, right

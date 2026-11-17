@@ -184,14 +184,14 @@ export function Reader({
   );
 }
 
-// ReaderHead names the conversation the reader draws and what it is doing: its label as the heading, its where line
-// when there is one, and the children after it, the pill the app passes in.
+// ReaderHead names the conversation the reader draws and what it is doing: its label as the heading, which is text or a
+// title a caller draws, its where line when there is one, and the children after it, the pill the app passes in.
 export function ReaderHead({
   label,
   where,
   children,
 }: {
-  label: string;
+  label: ComponentChildren;
   where: string;
   children?: ComponentChildren;
 }): JSX.Element {
