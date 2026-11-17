@@ -367,6 +367,7 @@ func validQuestion(label string) Question {
 		},
 		Recommended: "first",
 		Why:         "a why for " + label,
+		Catastrophe: "irreversible-step",
 		Confidence:  "low",
 		Replaces:    "",
 	}

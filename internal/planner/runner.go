@@ -587,15 +587,21 @@ func planOf(ret Return) store.EpicPlan {
 	}
 }
 
-// questionInputOf returns the store's input for a question of a planner return.
+// questionInputOf returns the store's input for a question of a planner return. A non-empty why is stored as "Catastrophe
+// <kind>: <why>", so the owner reads which catastrophe the question names. An empty why stays empty, which the store
+// refuses.
 func questionInputOf(question Question) store.EpicQuestionInput {
 	choices := make([]store.EpicChoice, 0, len(question.Choices))
 	for _, choice := range question.Choices {
 		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does})
 	}
+	why := question.Why
+	if why != "" {
+		why = "Catastrophe " + question.Catastrophe + ": " + why
+	}
 	return store.EpicQuestionInput{
 		Label: question.Label, Text: question.Text, Choices: choices, Recommended: question.Recommended,
-		Why: question.Why, Confidence: question.Confidence, Replaces: question.Replaces,
+		Why: why, Confidence: question.Confidence, Replaces: question.Replaces,
 	}
 }
 

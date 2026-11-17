@@ -70,10 +70,11 @@ const Schema = `{
 					},
 					"recommended": {"type": "string"},
 					"why": {"type": "string"},
+					"catastrophe": {"type": "string", "enum": ["irreversible-step", "contract-cannot-hold", "premise-false", "cannot-proceed"]},
 					"confidence": {"type": "string", "enum": ["low", "medium", "high"]},
 					"replaces": {"type": "string"}
 				},
-				"required": ["label", "text", "choices", "recommended", "why", "confidence", "replaces"],
+				"required": ["label", "text", "choices", "recommended", "why", "catastrophe", "confidence", "replaces"],
 				"additionalProperties": false
 			}
 		},
@@ -94,13 +95,15 @@ type Return struct {
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it
-// recommends with why and how confidently, and the question it replaces, "" or Q<n>.
+// recommends with why and how confidently, the catastrophe it names, one of the four kinds check.go lists, and the
+// question it replaces, "" or Q<n>.
 type Question struct {
 	Label       string   `json:"label"`
 	Text        string   `json:"text"`
 	Choices     []Choice `json:"choices"`
 	Recommended string   `json:"recommended"`
 	Why         string   `json:"why"`
+	Catastrophe string   `json:"catastrophe"`
 	Confidence  string   `json:"confidence"`
 	Replaces    string   `json:"replaces"`
 }

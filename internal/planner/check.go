@@ -101,11 +101,22 @@ func testChangeRefusals(prefix string, task Task) []string {
 	return refusals
 }
 
-// checkQuestion returns the refusals of one question, in the order store.QuestionRefusals states its rules. Each line
-// names the question by index and label, so the planner sees the same rules the store applies when it writes the turn.
+// catastropheKinds returns the four kinds of catastrophe a planner question names: the only grounds on which a question
+// asks the owner. The schema's catastrophe enum lists the same four.
+func catastropheKinds() []string {
+	return []string{"irreversible-step", "contract-cannot-hold", "premise-false", "cannot-proceed"}
+}
+
+// checkQuestion returns the refusals of one question, in the order store.QuestionRefusals states its rules, then the
+// catastrophe refusal, which the store does not state. Each line names the question by index and label, so the planner
+// sees the same rules the store applies when it writes the turn.
 func checkQuestion(i int, question Question) []string {
 	prefix := fmt.Sprintf(`questions[%d] "%s"`, i, question.Label)
 	lines := store.QuestionRefusals(questionInputOf(question))
+	kinds := catastropheKinds()
+	if !slices.Contains(kinds, question.Catastrophe) {
+		lines = append(lines, "catastrophe: not one of "+strings.Join(kinds, ", "))
+	}
 	refusals := make([]string, 0, len(lines))
 	for _, line := range lines {
 		refusals = append(refusals, prefix+" "+line)
