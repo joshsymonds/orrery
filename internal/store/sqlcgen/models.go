@@ -682,6 +682,8 @@ type Session struct {
 	TurnOutput    string
 	PromptsFrom   int64
 	Title         string
+	Headline      string
+	HeadlineAt    int64
 }
 
 type Step struct {

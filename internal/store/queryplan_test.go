@@ -101,6 +101,25 @@ func TestHolderPromptQueryPlans(t *testing.T) {
 	}
 }
 
+// TestSessionHeadlineQueryPlans fails when a headline query scans events without a partial index. The headline pass
+// lists the due sessions on every pass and reads each due session's recent turns, so each of these must search events
+// by session rather than read the whole table. A search of events is not a scan and passes.
+func TestSessionHeadlineQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	partial := partialIndexesOf(t, s.db.DB, "events")
+	for _, name := range []string{"ListHeadlineDueSessions", "ListRecentTurns", "SetSessionHeadline"} {
+		text, ok := texts[name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
+		}
+		for _, detail := range unpartitionedEventsScans(t, s.db.DB, partial, name, text) {
+			t.Errorf("query %s: plan row %q scans events without a partial index", name, detail)
+		}
+	}
+}
+
 // TestToldLimitQueryPlans checks the told-limit queries against told_limit_steps. Deleting a limit's marks searches its
 // primary key. Listing reads every mark, as the check at start needs them all, so it may scan, but only in primary-key
 // order: a bare scan of the table or a temporary sort would mean the key no longer serves the query.

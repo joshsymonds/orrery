@@ -155,6 +155,10 @@ message HeadlessSession {
 
   // True while the headless session is archived: the owner archived it and has not unarchived it since.
   bool archived = 10;
+
+  // The session's headline: the stored headline once one is written, else the title, else the first words of the first
+  // prompt. It never holds the directory, which a client shows beside it.
+  string headline = 11;
 }
 
 // SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
@@ -757,6 +761,9 @@ message Pane {
 
   // The unix seconds the pane's last turn ended, or 0 when unknown.
   int64 last_turn_end = 20;
+
+  // The pane's @orrery_id option, which is the id its Session row carries, or empty when unset.
+  string orrery_id = 21;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape

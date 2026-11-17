@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import type { PickerRow } from "./gen/orrery/v1/orrery_pb";
+import type { Row } from "./rows";
+import { listedTitle, TitleParts } from "./titleparts";
 
 // The one line a refused or failed Ask or Run leaves. It never shows the server's text.
 const pickerFailedText = "the picker failed";
@@ -10,17 +12,27 @@ const pickerFailedText = "the picker failed";
 // The kinds of row that name a folder. Choosing one opens the start form for its directory.
 const folderKinds = ["pane", "fresh"];
 
+// pickerTitle is the title a picker row draws. A row with a pane takes its listed pane row's directory and summary when a
+// listed pane row matches it. Any other row takes its own directory and served label.
+function pickerTitle(row: PickerRow, rows: Row[]): { dir: string; line: string } {
+  const listed = row.pane !== "" && rows.some((candidate) => candidate.kind === "pane" && candidate.id === row.pane);
+  return listed ? listedTitle(rows, "pane", row.pane, row.label) : { dir: row.dir, line: row.label };
+}
+
 // PickerPalette is the palette over the page. Enter in its text box sends the words, as typed, to Picker.Ask, and the
-// rows that come back are listed with their label and note. Choosing a row that is not a folder sends its token to
-// Picker.Run and reports the pane the run answered to onRun. Choosing a folder row opens PickerStartForm in place of
-// the list, and the session the form starts is reported to onStart. Escape closes the palette through onClose.
+// rows that come back are listed with their title, drawn through TitleParts from the listed rows, and their note. Choosing
+// a row that is not a folder sends its token to Picker.Run and reports the pane the run answered to onRun. Choosing a
+// folder row opens PickerStartForm in place of the list, and the session the form starts is reported to onStart. Escape
+// closes the palette through onClose.
 export function PickerPalette({
   clients,
+  rows,
   onRun,
   onStart,
   onClose,
 }: {
   clients: Clients;
+  rows: Row[];
   onRun: (pane: string) => void;
   onStart: (session: string) => void;
   onClose: () => void;
@@ -28,7 +40,7 @@ export function PickerPalette({
   const [words, setWords] = useState("");
   // The words the palette last sent to Picker.Ask, which a prompt row's start form starts with.
   const [asked, setAsked] = useState("");
-  const [rows, setRows] = useState<PickerRow[]>([]);
+  const [found, setFound] = useState<PickerRow[]>([]);
   // The folder row whose start form is open, if one is.
   const [folder, setFolder] = useState<PickerRow | null>(null);
   const [error, setError] = useState("");
@@ -41,7 +53,7 @@ export function PickerPalette({
   const ask = () => {
     setError("");
     setAsked(words);
-    void actions.ask(clients, words).then(setRows, () => setError(pickerFailedText));
+    void actions.ask(clients, words).then(setFound, () => setError(pickerFailedText));
   };
 
   const choose = (row: PickerRow) => {
@@ -85,12 +97,17 @@ export function PickerPalette({
         <PickerStartForm key={folder.token} clients={clients} folder={folder} asked={asked} onStarted={onStart} />
       ) : (
         <div class="picker-rows">
-          {rows.map((row) => (
-            <button key={row.token} type="button" class="picker-row" onClick={() => choose(row)}>
-              <span class="picker-label">{row.label}</span>
-              <span class="picker-note">{row.note}</span>
-            </button>
-          ))}
+          {found.map((row) => {
+            const title = pickerTitle(row, rows);
+            return (
+              <button key={row.token} type="button" class="picker-row" onClick={() => choose(row)}>
+                <span class="picker-label">
+                  <TitleParts dir={title.dir} line={title.line} />
+                </span>
+                <span class="picker-note">{row.note}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>

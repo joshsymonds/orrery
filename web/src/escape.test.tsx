@@ -139,6 +139,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    archiveId: "",
     ...init,
   };
 }
@@ -147,6 +148,7 @@ const paneRow = row({ key: "a", label: "api", state: "working", changed: 300, se
 const sessionRow = row({
   key: "s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   label: "notes",
   project: "",

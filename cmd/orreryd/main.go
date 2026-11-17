@@ -98,7 +98,7 @@ const (
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
 	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass, the
-	// epic summaries, the session titles and the epic reports run.
+	// epic summaries, the session titles, the session headlines and the epic reports run.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -800,6 +800,8 @@ type sessionHost struct {
 	summariesDone chan struct{}
 	stopTitles    context.CancelFunc
 	titlesDone    chan struct{}
+	stopHeadlines context.CancelFunc
+	headlinesDone chan struct{}
 	stopReports   context.CancelFunc
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
@@ -826,6 +828,22 @@ func stateDirOf(getenv func(string) string) (string, error) {
 	return stateDir, nil
 }
 
+// newSessionHost returns the sessionHost that startSessions fills, with the done channels of the loops and the writer
+// already made, and logger logging each shutdown phase.
+func newSessionHost(logger *slog.Logger) *sessionHost {
+	return &sessionHost{
+		logger:        logger,
+		writerDone:    make(chan struct{}),
+		idleDone:      make(chan struct{}),
+		flowDone:      make(chan struct{}),
+		limitsDone:    make(chan struct{}),
+		dueDone:       make(chan struct{}),
+		summariesDone: make(chan struct{}),
+		reportsDone:   make(chan struct{}),
+		serveDone:     make(chan error, 1),
+	}
+}
+
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
 // services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
 // notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
@@ -839,12 +857,13 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
 // passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
 // limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
-// until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's caller when the
-// step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents). A readopt,
-// reconcile, restore or resume failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
-// unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
-// unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic records its
-// session in st.
+// until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
+// every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's
+// caller when the step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents).
+// A readopt, reconcile, restore or resume failure is logged and serving goes on; a failed restore serves no Pools,
+// which refuse as unavailable, and the gates fail for want of pools. The Notices service on it answers from notices,
+// and refuses as unavailable when notices is nil. With st open, each call of the Epics service on it that names an epic
+// records its session in st.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -855,17 +874,7 @@ func startSessions(
 	logger *slog.Logger,
 	getenv func(string) string,
 ) (*sessionHost, error) {
-	host := &sessionHost{
-		logger:        logger,
-		writerDone:    make(chan struct{}),
-		idleDone:      make(chan struct{}),
-		flowDone:      make(chan struct{}),
-		limitsDone:    make(chan struct{}),
-		dueDone:       make(chan struct{}),
-		summariesDone: make(chan struct{}),
-		reportsDone:   make(chan struct{}),
-		serveDone:     make(chan error, 1),
-	}
+	host := newSessionHost(logger)
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
 	var epics enginehost.EpicCommands
@@ -930,6 +939,7 @@ func startSessions(
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startSummaries(ctx, st, haiku, logger)
 		host.startTitles(ctx, st, haiku, logger)
+		host.startHeadlines(ctx, st, haiku, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
@@ -1443,6 +1453,32 @@ func (h *sessionHost) startTitles(
 	}()
 }
 
+// startHeadlines refreshes the headline of each headless session whose turns have ended since its last headline, from
+// its first prompt and recent turns through haiku, checking st every limitTick until stop. The first check runs at
+// start.
+func (h *sessionHost) startHeadlines(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	headlines := enginehost.NewSessionHeadlines(enginehost.SessionHeadlinesConfig{
+		Store:  st,
+		Haiku:  haiku,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var headlinesCtx context.Context
+	headlinesCtx, h.stopHeadlines = context.WithCancel(ctx)
+	h.headlinesDone = make(chan struct{})
+	go func() {
+		defer close(h.headlinesDone)
+		defer ticker.Stop()
+		headlines.Run(headlinesCtx)
+	}()
+}
+
 // startReports writes the report of each ended epic that has none, through haiku, checking st every limitTick until
 // stop. The first check runs at start.
 func (h *sessionHost) startReports(
@@ -1469,10 +1505,10 @@ func (h *sessionHost) startReports(
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries, the session titles and the epic reports to return, stops the caller-event passes and waits for each to
-// return, closes the node checks and the evidence runner and waits for their drives, ends every step loop, stops every
-// live session, and ends the writer after its last flush. The notices the sessions started are waited on in serve.
-// Without a broker, manager and writer it does nothing.
+// summaries, the session titles, the session headlines and the epic reports to return, stops the caller-event passes
+// and waits for each to return, closes the node checks and the evidence runner and waits for their drives, ends every
+// step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
+// waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -1504,6 +1540,10 @@ func (h *sessionHost) shutdown() {
 		h.phase("session titles", func() {
 			h.stopTitles()
 			<-h.titlesDone
+		})
+		h.phase("session headlines", func() {
+			h.stopHeadlines()
+			<-h.headlinesDone
 		})
 		h.phase("epic reports", func() {
 			h.stopReports()

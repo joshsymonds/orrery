@@ -85,6 +85,7 @@ function makeRow(key: string, project: string): Row {
   return {
     key,
     id: key,
+    archiveId: "",
     kind: "pane",
     label: key,
     project,

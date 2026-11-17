@@ -192,6 +192,13 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 400 13px/20px var(--mono); color: var(--subtext0); }
 .b-row[data-unseen] .label { font-weight: 700; color: var(--text); }
 .b-row .proj { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11.5px/20px var(--mono); color: var(--overlay0); }
+/* A session's or pane's title: its directory's last element, mauve, then its line. The directory is never hidden. */
+.title-dir { color: var(--mauve); }
+.b-row .title-dir { flex: none; font: 11.5px/20px var(--mono); }
+.b-row .title-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 400 13px/20px var(--mono); color: var(--subtext0); }
+.b-row[data-unseen] .title-line { font-weight: 700; color: var(--text); }
+/* A dock head's title: its directory in mauve, then its line in regular weight, in the head's mono. */
+.head h1 .title-line { font-weight: 400; }
 .b-row .age { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--overlay0); }
 .b-row[data-unseen] .age { color: var(--lavender); }
 /* A list line's ⋯ sits at the line's end, dim until its row is hovered or under the cursor. Its menu hangs under it, right
@@ -705,6 +712,8 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 }
 .epic-page .tail-label { color: var(--overlay1); }
 .epic-page .end { flex: none; color: var(--overlay1); }
+/* A commit's mark sits in its row's meta text: handover, evidence runs and the contract's accepted line. */
+.commit-mark { flex: none; color: var(--overlay1); }
 /* The contract page's checks keep their line breaks, as the machines wrote them. */
 .contract .checks { white-space: pre-wrap; }
 
