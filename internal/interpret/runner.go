@@ -27,9 +27,10 @@ type Store interface {
 	) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
 	ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error
-	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
+	ParkEpic(ctx context.Context, epic string, class store.ParkClass, reason string, at time.Time) error
 	ParkNode(
-		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+		ctx context.Context, epic, path string, attempt int64, outcome, output string, class store.ParkClass,
+		reason string, at time.Time,
 	) error
 	ParkNodeMetAtBase(
 		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string,
@@ -236,26 +237,31 @@ func (r *Runner) Pass(ctx context.Context) {
 	}
 	planned := make(map[string]bool)
 	for _, epic := range epics {
+		if store.IsClosedPhase(epic.Phase) {
+			continue
+		}
 		flow, loadErr := loadFlow(epic)
 		if loadErr != nil {
 			r.parkUnloaded(ctx, epic, loadErr)
 			continue
 		}
-		if r.passFlow(ctx, epic, flow) {
+		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
+		plannerParked := epic.Parked != "" && !epic.ParkClass.OwnerHeld()
+		if r.passFlow(ctx, epic, flow) || plannerParked {
 			planned[epic.ID] = true
 		}
 	}
 	r.planner.PassOnly(ctx, func(epic string) bool { return planned[epic] })
 }
 
-// parkUnloaded parks epic with the reason its flow did not load, unless it is parked already, so a broken pinned text
-// parks its epic once.
+// parkUnloaded parks epic as an orchestrator park with the reason its flow did not load, unless it is parked already, so
+// a broken pinned text parks its epic once.
 func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause error) {
 	if epic.Parked != "" {
 		return
 	}
 	reason := cause.Error()
-	if err := r.store.ParkEpic(ctx, epic.ID, reason, r.now()); err != nil {
+	if err := r.store.ParkEpic(ctx, epic.ID, store.ParkClassOrchestrator, reason, r.now()); err != nil {
 		r.logger.ErrorContext(ctx, "park epic with unloadable workflow", "epic", epic.ID, "err", err)
 		return
 	}
@@ -340,7 +346,9 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, act.Met, at,
 			)
 		} else {
-			err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+			err = r.store.ParkNode(
+				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
+			)
 		}
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)

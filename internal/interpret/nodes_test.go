@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -453,6 +454,20 @@ func openNodeStore(t *testing.T) (*store.Store, string) {
 	return s, path
 }
 
+// triggerCausesOf returns the cause of each trigger of epic, in the order the store lists them.
+func triggerCausesOf(t *testing.T, s *store.Store, epic string) []string {
+	t.Helper()
+	history, err := s.EpicHistory(context.Background(), epic)
+	if err != nil {
+		t.Fatalf("EpicHistory of %s: %v", epic, err)
+	}
+	causes := make([]string, 0, len(history.Triggers))
+	for _, trigger := range history.Triggers {
+		causes = append(causes, trigger.Cause)
+	}
+	return causes
+}
+
 // nodeTells returns the tells of the test epic in seq order, read from the store file at path. Attention lists only the
 // epics that have a turn, so the file is read.
 func nodeTells(t *testing.T, path string) []string {
@@ -673,8 +688,11 @@ func TestFailedTopLevelCheckParksAndTells(t *testing.T) {
 	if got := epicOf(t, s).Parked; got != reason {
 		t.Errorf("epic Parked = %q, want %q", got, reason)
 	}
-	if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells = %q, want %q", got, []string{reason})
+	if got := nodeTells(t, dbPath); len(got) != 0 {
+		t.Errorf("tells = %q, want none: a failed node is a planner park", got)
+	}
+	if got := triggerCausesOf(t, s, runEpic); !slices.Contains(got, reason) {
+		t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
 	}
 }
 
@@ -832,8 +850,11 @@ func TestRefusedAgentStartParksAndTells(t *testing.T) {
 			if got := epicOf(t, s).Parked; got != reason {
 				t.Errorf("epic Parked = %q, want %q", got, reason)
 			}
-			if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{reason}) {
-				t.Errorf("tells = %q, want %q", got, []string{reason})
+			if got := nodeTells(t, dbPath); len(got) != 0 {
+				t.Errorf("tells = %q, want none: a refused node is a planner park", got)
+			}
+			if got := triggerCausesOf(t, s, runEpic); !slices.Contains(got, reason) {
+				t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
 			}
 			if got := len(fakes.steps.calls); got != 1 {
 				t.Errorf("step starts = %d, want 1: a refused start is not retried", got)

@@ -113,6 +113,13 @@ func (f *recordingEpics) StopEpic(
 	return respond(f, req.Msg, &v1.StopEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) CloseEpic(
+	_ context.Context,
+	req *connect.Request[v1.CloseEpicRequest],
+) (*connect.Response[v1.CloseEpicResponse], error) {
+	return respond(f, req.Msg, &v1.CloseEpicResponse{Epic: f.epic})
+}
+
 func (f *recordingEpics) ReleaseEpic(
 	_ context.Context,
 	req *connect.Request[v1.ReleaseEpicRequest],

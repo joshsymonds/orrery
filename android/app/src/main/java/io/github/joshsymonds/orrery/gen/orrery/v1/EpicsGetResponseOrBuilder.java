@@ -464,4 +464,15 @@ public interface EpicsGetResponseOrBuilder extends
    * @return The report.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport getReport();
+
+  /**
+   * <pre>
+   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
+   * @return The plannerParked.
+   */
+  boolean getPlannerParked();
 }

@@ -1,0 +1,235 @@
+{
+ "additionalProperties": false,
+ "properties": {
+  "actions": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "args": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "reason": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "args",
+     "reason"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "decisions": {
+   "items": {
+    "type": "string"
+   },
+   "type": "array"
+  },
+  "outcome": {
+   "enum": [
+    "work",
+    "wait",
+    "complete"
+   ],
+   "type": "string"
+  },
+  "outline": {
+   "type": "string"
+  },
+  "questions": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "catastrophe": {
+      "enum": [
+       "irreversible-step",
+       "contract-cannot-hold",
+       "premise-false",
+       "cannot-proceed"
+      ],
+      "type": "string"
+     },
+     "choices": {
+      "items": {
+       "additionalProperties": false,
+       "properties": {
+        "does": {
+         "type": "string"
+        },
+        "id": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "id",
+        "does"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     },
+     "confidence": {
+      "enum": [
+       "low",
+       "medium",
+       "high"
+      ],
+      "type": "string"
+     },
+     "label": {
+      "type": "string"
+     },
+     "recommended": {
+      "type": "string"
+     },
+     "replaces": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "label",
+     "text",
+     "choices",
+     "recommended",
+     "why",
+     "catastrophe",
+     "confidence",
+     "replaces"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "status": {
+   "enum": [
+    "done"
+   ],
+   "type": "string"
+  },
+  "tasks": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "contributes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "deliverable": {
+      "type": "string"
+     },
+     "evidence": {
+      "additionalProperties": false,
+      "properties": {
+       "artifacts": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       "capture": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       "conclusion": {
+        "type": "string"
+       },
+       "judge": {
+        "type": "string"
+       },
+       "kind": {
+        "type": "string"
+       },
+       "limit": {
+        "type": "integer"
+       },
+       "supplied": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       "tests": {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      },
+      "required": [
+       "capture",
+       "limit",
+       "artifacts",
+       "supplied",
+       "conclusion",
+       "judge",
+       "kind",
+       "tests"
+      ],
+      "type": "object"
+     },
+     "files": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "gate": {
+      "type": "string"
+     },
+     "requirements": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "test_changes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "title": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "title",
+     "deliverable",
+     "files",
+     "requirements",
+     "contributes",
+     "test_changes",
+     "gate",
+     "evidence"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  }
+ },
+ "required": [
+  "status",
+  "decisions",
+  "tasks",
+  "outline",
+  "questions",
+  "actions",
+  "outcome"
+ ],
+ "type": "object"
+}

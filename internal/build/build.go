@@ -231,9 +231,10 @@ type Store interface {
 	AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error
 	StopTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	ParkTask(
-		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time, tells ...string,
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, class store.ParkClass, reason string,
+		at time.Time, tells ...string,
 	) error
-	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
+	ParkEpic(ctx context.Context, epic string, class store.ParkClass, reason string, at time.Time) error
 	SetEpicBranch(ctx context.Context, epic, state string) error
 	AddTaskReview(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, review store.TaskReview) error
 	SetFindingResult(

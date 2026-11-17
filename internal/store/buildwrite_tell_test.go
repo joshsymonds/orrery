@@ -145,7 +145,7 @@ func TestParkTaskWithTellsStoresTheParkAndEveryTellInOneWrite(t *testing.T) {
 	tells := []string{"T1 implementer moved refs/heads/feature (c to d)"}
 	at := time.Unix(1700000900, 0)
 
-	if err := s.ParkTask(ctx, claimEpic, 1, TaskBuild{}, to, reason, at, tells...); err != nil {
+	if err := s.ParkTask(ctx, claimEpic, 1, TaskBuild{}, to, ParkClassRefMove, reason, at, tells...); err != nil {
 		t.Fatalf("ParkTask: %v", err)
 	}
 
@@ -175,7 +175,16 @@ func TestParkTaskWithTellsOnAStaleBuildStoresNeitherAndIsErrTaskMoved(t *testing
 	stale := TaskBuild{Stage: "implement", Base: "base-rev", Attempt: 1, Step: "step-1"}
 	to := TaskBuild{Stage: "implement", Base: "base-rev", Attempt: 1, Step: "step-1", Held: "parked"}
 	tells := []string{"T1 implementer moved refs/heads/feature (c to d)"}
-	err := s.ParkTask(ctx, claimEpic, 1, stale, to, "the branch exists", time.Unix(1700000900, 0), tells...)
+	err := s.ParkTask(
+		ctx,
+		claimEpic,
+		1,
+		stale,
+		to,
+		ParkClassRefMove,
+		"the branch exists",
+		time.Unix(1700000900, 0),
+		tells...)
 	if !errors.Is(err, ErrTaskMoved) {
 		t.Fatalf("ParkTask with a stale build err = %v, want ErrTaskMoved", err)
 	}

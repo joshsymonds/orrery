@@ -68,10 +68,17 @@ type EpicRow struct {
 	PhaseAt     time.Time
 	Seen        time.Time
 	Paused      bool
-	Parked      string
-	Summary     string
-	Report      EpicReport
-	Workflow    EpicWorkflow
+	// Parked is the park reason, empty when the epic is not parked, and ParkClass is the class of that park, which says
+	// who answers it.
+	Parked    string
+	ParkClass ParkClass
+	// ClosedBy is the closer the epic was closed by, the owner or the planner, and "" while it is not closed.
+	// SupersededBy is the epic that replaces an epic closed as superseded, and "" otherwise.
+	ClosedBy     string
+	SupersededBy string
+	Summary      string
+	Report       EpicReport
+	Workflow     EpicWorkflow
 
 	Failures     []EpicFailure
 	Additions    []EpicAddition
@@ -981,26 +988,29 @@ func appendDecision(
 // epicHeadOf returns the head fields of a stored epic, with its sections and decisions nil.
 func epicHeadOf(head sqlcgen.Epic) EpicRow {
 	return EpicRow{
-		ID:          head.ID,
-		Repository:  head.Repository,
-		Base:        head.Base,
-		StoredBase:  head.StoredBase,
-		Candidate:   head.Candidate,
-		Branch:      head.Branch,
-		Title:       head.Title,
-		Approved:    head.Approved,
-		Intent:      head.Intent,
-		Care:        head.Care,
-		Approach:    head.Approach,
-		ReleaseThen: head.ReleaseThen,
-		Checks:      head.Checks,
-		Phase:       head.Phase,
-		Created:     time.Unix(head.Created, 0),
-		Changed:     time.Unix(head.Changed, 0),
-		PhaseAt:     time.Unix(head.PhaseAt, 0),
-		Paused:      head.Paused != 0,
-		Parked:      head.Parked,
-		Summary:     head.Summary,
+		ID:           head.ID,
+		Repository:   head.Repository,
+		Base:         head.Base,
+		StoredBase:   head.StoredBase,
+		Candidate:    head.Candidate,
+		Branch:       head.Branch,
+		Title:        head.Title,
+		Approved:     head.Approved,
+		Intent:       head.Intent,
+		Care:         head.Care,
+		Approach:     head.Approach,
+		ReleaseThen:  head.ReleaseThen,
+		Checks:       head.Checks,
+		Phase:        head.Phase,
+		Created:      time.Unix(head.Created, 0),
+		Changed:      time.Unix(head.Changed, 0),
+		PhaseAt:      time.Unix(head.PhaseAt, 0),
+		Paused:       head.Paused != 0,
+		Parked:       head.Parked,
+		ParkClass:    ParkClass(head.ParkClass),
+		ClosedBy:     head.ClosedBy,
+		SupersededBy: head.SupersededBy,
+		Summary:      head.Summary,
 		Workflow: EpicWorkflow{
 			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
 		},

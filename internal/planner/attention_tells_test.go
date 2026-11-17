@@ -219,7 +219,13 @@ func TestAttentionRoutesAParkTellWithTheAdviceOfItsQuestion(t *testing.T) {
 	createRunnerEpic(t, s)
 	// The turn stays running, so the epic has a turn for Attention to list and no ended turn for the park to notify.
 	claimAttentionTurn(t, s)
-	if err := s.ParkEpic(ctx, runnerEpicID, "credit ran out", claimedAt().Add(time.Second)); err != nil {
+	if err := s.ParkEpic(
+		ctx,
+		runnerEpicID,
+		store.ParkClassBranch,
+		"credit ran out",
+		claimedAt().Add(time.Second),
+	); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 	router := &fakeAttentionRouter{}

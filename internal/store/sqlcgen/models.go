@@ -69,6 +69,9 @@ type Epic struct {
 	ReportShipped    string
 	ReportNotShipped string
 	ReportWhy        string
+	ClosedBy         string
+	SupersededBy     string
+	ParkClass        string
 }
 
 type EpicAddition struct {
@@ -206,6 +209,16 @@ type EpicNodeRun struct {
 	RefsChecked int64
 	Result      string
 	Output      string
+}
+
+type EpicPark struct {
+	Epic    string
+	Seq     int64
+	Class   string
+	Subject string
+	Chain   int64
+	Reason  string
+	Created int64
 }
 
 type EpicPremise struct {
@@ -556,6 +569,22 @@ type PendingNotice struct {
 type PendingNoticeID struct {
 	ID   int64
 	High int64
+}
+
+type PlannerAction struct {
+	Epic      string
+	Turn      int64
+	Position  int64
+	Kind      string
+	Node      string
+	Task      int64
+	CloseKind string
+	ByEpic    string
+	UndoNone  string
+	Reason    string
+	State     string
+	Refusal   string
+	Park      int64
 }
 
 type PushedAlertNotice struct {

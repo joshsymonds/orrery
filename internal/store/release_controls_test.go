@@ -149,6 +149,7 @@ func parkOther(t *testing.T, s *store.Store) {
 		1,
 		"failed",
 		"rejected",
+		store.ParkClassReleaseOwnerStop,
 		"other stopped",
 		releaseRunAt(),
 	); err != nil {
@@ -319,6 +320,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 		name          string
 		runs          []store.ReleaseRun
 		undo          []int64
+		stop          []string
 		tell          string
 		wantNamed     []store.ReleaseRun
 		wantDecisions []store.EpicDecision
@@ -342,6 +344,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			name:          "a named undo-none step that failed runs again",
 			runs:          []store.ReleaseRun{releasedStep(1, true), releasedStep(2, false)},
 			undo:          []int64{2},
+			stop:          []string{resumeStopReason},
 			tell:          "release resumed at step 2, publish",
 			wantNamed:     []store.ReleaseRun{namedPublish()},
 			wantDecisions: []store.EpicDecision{namedPublishDecision()},
@@ -350,6 +353,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			name:          "a name repeated in the call is one named run and one decision",
 			runs:          []store.ReleaseRun{releasedStep(1, true), releasedStep(2, false)},
 			undo:          []int64{2, 2},
+			stop:          []string{resumeStopReason},
 			tell:          "release resumed at step 2, publish",
 			wantNamed:     []store.ReleaseRun{namedPublish()},
 			wantDecisions: []store.EpicDecision{namedPublishDecision()},
@@ -370,7 +374,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			if got := parkedOf(t, raw, resumeEpic); got != "" {
 				t.Errorf("parked reason of epic %s after ReleaseEpic = %q, want none", resumeEpic, got)
 			}
-			if want := []string{resumeStopReason, c.tell}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
+			if want := append(slices.Clone(c.stop), c.tell); !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
 				t.Errorf("tells of epic %s = %q, want %q", resumeEpic, tellsOf(t, raw, resumeEpic), want)
 			}
 			requireReleaseRuns(t, s, resumeEpic, inReadOrder(slices.Concat(c.runs, c.wantNamed)))

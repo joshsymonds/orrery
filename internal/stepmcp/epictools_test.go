@@ -139,6 +139,15 @@ func (f *fakeEpics) StopEpic(
 	return connect.NewResponse(f.stopReply), nil
 }
 
+// CloseEpic is not faked: no test in this package closes an epic through fakeEpics. The close tool's request is compared
+// with the CLI's in cmd/orrery, which fakes the call itself.
+func (f *fakeEpics) CloseEpic(
+	_ context.Context,
+	_ *connect.Request[v1.CloseEpicRequest],
+) (*connect.Response[v1.CloseEpicResponse], error) {
+	return nil, errors.New("fakeEpics: CloseEpic is not faked")
+}
+
 func (f *fakeEpics) RetryEpic(
 	_ context.Context,
 	req *connect.Request[v1.RetryEpicRequest],
@@ -404,7 +413,7 @@ func unmarshalResult(t *testing.T, text string, msg proto.Message) {
 	}
 }
 
-func TestToolsListNamesTheNineEpicTools(t *testing.T) {
+func TestToolsListNamesTheTenEpicTools(t *testing.T) {
 	p := newPeer(t, nil, &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
@@ -423,7 +432,7 @@ func TestToolsListNamesTheNineEpicTools(t *testing.T) {
 	}
 	names := []string{
 		"epic_create", "epic_get", "epic_list", "epic_answer", "epic_follow", "epic_pause", "epic_resume",
-		"epic_stop", "epic_retry", "epic_release",
+		"epic_stop", "epic_retry", "epic_release", "epic_close",
 	}
 	for _, name := range names {
 		schema, ok := schemas[name]

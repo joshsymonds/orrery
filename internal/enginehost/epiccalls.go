@@ -67,6 +67,8 @@ func epicNamedBy(msg any) string {
 		return req.GetId()
 	case *v1.ReleaseEpicRequest:
 		return req.GetId()
+	case *v1.CloseEpicRequest:
+		return req.GetId()
 	}
 	return ""
 }

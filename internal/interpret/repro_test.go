@@ -175,8 +175,11 @@ func TestBuiltInReproductionDecidesBuilt(t *testing.T) {
 		if epic.Parked != reason {
 			t.Errorf("epic parked = %q, want %q", epic.Parked, reason)
 		}
-		if tells := nodeTells(t, w.path); !slices.Contains(tells, reason) {
-			t.Errorf("tells = %q, want %q", tells, reason)
+		if tells := nodeTells(t, w.path); len(tells) != 0 {
+			t.Errorf("tells = %q, want none: an epic not built is a planner park", tells)
+		}
+		if got := triggerCausesOf(t, w.s, epic.ID); !slices.Contains(got, reason) {
+			t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
 		}
 		if epic.Phase == "met_at_base" {
 			t.Errorf("epic phase = %q, want it not met at base", epic.Phase)
