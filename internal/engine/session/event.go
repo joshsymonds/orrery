@@ -187,6 +187,43 @@ type BackgroundTasks struct {
 
 func (BackgroundTasks) isEvent() {}
 
+// TaskStarted reports that the session started a task: its task id, the tool call that started it, its
+// description, its task type and the subagent type it runs. TaskType and SubagentType are the values the
+// wire gives, and any field the message omits is empty.
+type TaskStarted struct {
+	TaskID       string
+	ToolUseID    string
+	Description  string
+	TaskType     string
+	SubagentType string
+}
+
+func (TaskStarted) isEvent() {}
+
+// TaskProgress reports a task's current work: its task id, tool call, description and subagent type, the
+// last tool it ran and its summary. Any field the message omits is empty.
+type TaskProgress struct {
+	TaskID       string
+	ToolUseID    string
+	Description  string
+	SubagentType string
+	LastTool     string
+	Summary      string
+}
+
+func (TaskProgress) isEvent() {}
+
+// TaskEnded reports that a task reached a terminal state: its task id, the tool call that started it, the
+// status the wire gives and its summary. Any field the message omits is empty.
+type TaskEnded struct {
+	TaskID    string
+	ToolUseID string
+	Status    string
+	Summary   string
+}
+
+func (TaskEnded) isEvent() {}
+
 // TurnEnded reports that a turn finished: its result subtype, whether it failed, the terminal reason
 // claude gave, the result text of a successful turn, the structured return of a successful turn (nil
 // when the turn gave none), the kind of origin that ended it and the uuids of the user messages the

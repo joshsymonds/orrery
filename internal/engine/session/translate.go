@@ -100,7 +100,7 @@ func (t *translator) variantEvents(variant wire.SDKMessageVariant, line []byte) 
 	}
 }
 
-// reportEvents returns the notice or background task event a declared message reports. The other
+// reportEvents returns the notice, background task or task event a declared message reports. The other
 // declared messages yield none.
 func reportEvents(variant wire.SDKMessageVariant, line []byte) []Event {
 	switch message := variant.(type) {
@@ -116,6 +116,30 @@ func reportEvents(variant wire.SDKMessageVariant, line []byte) []Event {
 		return hookResponseEvents(message, line)
 	case wire.SDKBackgroundTasksChangedMessage:
 		return []Event{backgroundTasks(message.Tasks)}
+	case wire.SDKTaskStartedMessage:
+		return []Event{TaskStarted{
+			TaskID:       message.TaskID,
+			ToolUseID:    derefString(message.ToolUseID),
+			Description:  message.Description,
+			TaskType:     derefString(message.TaskType),
+			SubagentType: derefString(message.SubagentType),
+		}}
+	case wire.SDKTaskProgressMessage:
+		return []Event{TaskProgress{
+			TaskID:       message.TaskID,
+			ToolUseID:    derefString(message.ToolUseID),
+			Description:  message.Description,
+			SubagentType: derefString(message.SubagentType),
+			LastTool:     derefString(message.LastToolName),
+			Summary:      derefString(message.Summary),
+		}}
+	case wire.SDKTaskNotificationMessage:
+		return []Event{TaskEnded{
+			TaskID:    message.TaskID,
+			ToolUseID: derefString(message.ToolUseID),
+			Status:    message.Status,
+			Summary:   message.Summary,
+		}}
 	case wire.SDKRateLimitEvent:
 		return []Event{rateLimitEvent(message.RateLimitInfo)}
 	default:
