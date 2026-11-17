@@ -29,10 +29,11 @@ const (
 // EpicFlow is one epic's rows as the interpreter decides from them: the epic as Epic returns it, its review as
 // EpicReview returns it, its node runs as NodeRuns returns them, its checks as NodeChecks returns them, its evidence
 // runs as EvidenceRuns returns them, less the runs whose kept spec is no longer current with the item now stored under
-// their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, and
-// how many of its triggers and of its amend_evidence actions are pending. Steps holds the steps its agent and release node runs ran under as Step returns
-// them, for the runs that have them, then every step labeled with the epic and the path of one of its review, closure
-// or release node runs, in the order of the runs.
+// their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, how
+// many of its triggers and of its amend_evidence actions are pending, and how many of its planner actions are pending.
+// Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
+// then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
+// of the runs.
 type EpicFlow struct {
 	Epic     EpicRow
 	Review   Review
@@ -43,13 +44,15 @@ type EpicFlow struct {
 	Releases []ReleaseRun
 	Slot     string
 	Pending  int
-	// AmendActions counts the epic's amend_evidence planner actions that are still pending.
+	// AmendActions counts the epic's amend_evidence planner actions that are still pending, and Actions every planner
+	// action of the epic that is still pending, those among it.
 	AmendActions int
+	Actions      int
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
-// release slot holder and its pending trigger count. All of them are read in one read transaction, so they describe one
-// state of the store. It returns an error matching ErrNoEpic when no epic has that id.
+// release slot holder and its pending trigger and planner action counts. All of them are read in one read transaction,
+// so they describe one state of the store. It returns an error matching ErrNoEpic when no epic has that id.
 func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -66,7 +69,7 @@ func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
 }
 
 // readEpicFlow reads the epic with id, its review, node runs, checks, evidence runs, steps, release runs, release slot
-// holder and its pending trigger count with queries.
+// holder and its pending trigger and planner action counts with queries.
 func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicFlow, error) {
 	epic, err := readEpic(ctx, queries, id)
 	if err != nil {
@@ -113,9 +116,13 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending amend actions of epic %s: %w", id, err)
 	}
+	actions, err := queries.CountPendingEpicPlannerActions(ctx, id)
+	if err != nil {
+		return EpicFlow{}, fmt.Errorf("count pending planner actions of epic %s: %w", id, err)
+	}
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
-		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends),
+		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
 	}, nil
 }
 

@@ -52,11 +52,11 @@ func claimBatchTasks(ctx context.Context, queries *sqlcgen.Queries, epic, path s
 	return nil
 }
 
-// EndBatch ends the running run at path of epic at attempt with outcome and output, and settles the epic's bases by
-// the run's revision, in one write. A passed batch moves the stored base to its revision and clears the candidate. A
-// failed batch at a revision other than the stored base sets the candidate to it. A non-nil trigger is added pending
-// unless its id is stored. A run at another attempt and a run that is not running change nothing, so a repeat adds no
-// trigger.
+// EndBatch ends the running run at path of epic at attempt with outcome and output, and settles the epic's bases by the
+// run's revision and result, in one write. A passed batch moves the stored base to its revision and clears the
+// candidate. A failed batch that composed a task sets the candidate to its revision, unless the revision is the stored
+// base (settleBatchBase). A non-nil trigger is added pending unless its id is stored. A run at another attempt and a
+// run that is not running change nothing, so a repeat adds no trigger.
 func (s *Store) EndBatch(
 	ctx context.Context, epic, path string, attempt int64, outcome, output string, trigger *NodeTrigger, at time.Time,
 ) error {
@@ -74,16 +74,17 @@ func (s *Store) EndBatch(
 		if err != nil {
 			return fmt.Errorf("read node run %s of epic %s: %w", path, epic, err)
 		}
-		return settleEndedBatch(ctx, queries, epic, outcome, run.Revision, trigger, at)
+		return settleEndedBatch(ctx, queries, epic, outcome, run, trigger, at)
 	})
 }
 
-// settleEndedBatch settles the bases of epic for a run that ended with outcome at revision, then adds trigger pending
-// when it is not nil, in the caller's write.
+// settleEndedBatch settles the bases of epic for run, an integrate run that ended with outcome (settleBatchBase), then
+// adds trigger pending when it is not nil, in the caller's write.
 func settleEndedBatch(
-	ctx context.Context, queries *sqlcgen.Queries, epic, outcome, revision string, trigger *NodeTrigger, at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, epic, outcome string, run sqlcgen.EpicNodeRun, trigger *NodeTrigger,
+	at time.Time,
 ) error {
-	if err := settleBatchBase(ctx, queries, epic, outcome, revision); err != nil {
+	if err := settleBatchBase(ctx, queries, epic, outcome, run); err != nil {
 		return err
 	}
 	if trigger == nil {
@@ -92,30 +93,52 @@ func settleEndedBatch(
 	return insertNodeTrigger(ctx, queries, epic, *trigger, at)
 }
 
-// settleBatchBase moves the bases of epic for an integrate run that ended with outcome at revision. A passed run moves
-// the stored base to revision and clears the candidate. A failed run sets the candidate to revision unless revision is
-// the stored base. A run with no revision moves nothing.
-func settleBatchBase(ctx context.Context, queries *sqlcgen.Queries, epic, outcome, revision string) error {
-	if revision == "" {
+// batchComposed is what settleBatchBase reads of the result an integrate run claims its batch with: the tasks compose
+// made into commits.
+type batchComposed struct {
+	Composed []json.RawMessage `json:"composed"`
+}
+
+// composedAny reports whether result, the result an integrate run claimed its batch with, names a task compose made
+// into a commit. A result that is not a JSON object names none.
+func composedAny(result string) bool {
+	var batch batchComposed
+	return json.Unmarshal([]byte(result), &batch) == nil && len(batch.Composed) > 0
+}
+
+// settleBatchBase moves the bases of epic for run, an integrate run that ended with outcome, in the caller's write. A
+// passed run moves the stored base to its revision and clears the candidate. A failed run sets the candidate to its
+// revision when it composed a task and the revision is not the stored base. A run that composed none has its batch
+// base as its revision, which is the candidate already or a stored base the epic has held: a sync of origin's main may
+// have moved the stored base past it since, and its retry ends failed again at once, so a candidate set to it would
+// hold the epic behind its stored base, where the next batch composes on it and its advance does not build on the
+// branch. A run with no revision moves nothing.
+func settleBatchBase(
+	ctx context.Context, queries *sqlcgen.Queries, epic, outcome string, run sqlcgen.EpicNodeRun,
+) error {
+	if run.Revision == "" {
 		return nil
 	}
 	switch outcome {
 	case "passed":
 		if err := queries.MoveEpicStoredBase(ctx, sqlcgen.MoveEpicStoredBaseParams{
-			StoredBase: revision, ID: epic,
+			StoredBase: run.Revision, ID: epic,
 		}); err != nil {
 			return fmt.Errorf("move stored base of epic %s: %w", epic, err)
 		}
 	case "failed":
+		if !composedAny(run.Result) {
+			return nil
+		}
 		head, err := epicHead(ctx, queries, epic)
 		if err != nil {
 			return err
 		}
-		if revision == head.StoredBase {
+		if run.Revision == head.StoredBase {
 			return nil
 		}
 		if err = queries.SetEpicCandidate(ctx, sqlcgen.SetEpicCandidateParams{
-			Candidate: revision, ID: epic,
+			Candidate: run.Revision, ID: epic,
 		}); err != nil {
 			return fmt.Errorf("set candidate of epic %s: %w", epic, err)
 		}
@@ -124,8 +147,8 @@ func settleBatchBase(ctx context.Context, queries *sqlcgen.Queries, epic, outcom
 }
 
 // ParkEpicWaking parks epic with reason as the not_built planner class, and adds trigger pending, in one write. The
-// planner class adds no tell, and the trigger is the one park's wake, so no second trigger is added. A trigger whose id is
-// stored in any state changes nothing, so a repeat parks nothing.
+// planner class adds no tell, and the trigger is the one park's wake, so no second trigger is added. A trigger whose id
+// is stored in any state changes nothing, so a repeat parks nothing.
 func (s *Store) ParkEpicWaking(ctx context.Context, epic, reason string, trigger NodeTrigger, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		stored, err := queries.CountEpicTrigger(ctx, sqlcgen.CountEpicTriggerParams{Epic: epic, ID: trigger.ID})

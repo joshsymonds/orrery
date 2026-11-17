@@ -432,6 +432,15 @@ WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> s
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 
+-- name: SyncEpicStoredBase :exec
+UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
+
+-- name: SetEpicOriginRead :exec
+UPDATE epics
+SET origin_read_base = sqlc.arg(base), origin_read_commit = sqlc.arg(commit), origin_read_state = sqlc.arg(state),
+    origin_read_at = sqlc.arg(at)
+WHERE id = sqlc.arg(id);
+
 -- name: SetEpicCandidate :exec
 UPDATE epics SET candidate = ? WHERE id = ?;
 
@@ -570,6 +579,10 @@ WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
 
 -- name: RecordEpicNodeResult :exec
 UPDATE epic_node_runs SET result = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
+
+-- name: PrepareEpicSyncRun :execrows
+UPDATE epic_node_runs SET revision = ?, result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
 
 -- name: CheckEpicNodeRefs :execrows
@@ -1072,6 +1085,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?);
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
 
+-- name: CountPendingEpicPlannerActions :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM planner_actions WHERE state = 'pending' AND epic = ?;
+
 -- name: SetPlannerActionState :execrows
 UPDATE planner_actions SET state = sqlc.arg(state), refusal = sqlc.arg(refusal), park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
@@ -1199,7 +1215,7 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'c
 -- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs
 WHERE epic = ? AND state = 'running'
-  AND ((kind IN ('evidence', 'integrate') AND revision != '') OR kind = 'release');
+  AND ((kind IN ('evidence', 'integrate', 'sync') AND revision != '') OR kind = 'release');
 
 -- name: CountPendingAmendActions :one
 SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';

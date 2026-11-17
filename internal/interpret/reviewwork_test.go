@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -384,5 +385,54 @@ func TestClosureStartWithoutFrozenReviewStartsNothing(t *testing.T) {
 	}
 	if got := len(steps.calls); got != 0 {
 		t.Errorf("step starts = %d, want none", got)
+	}
+}
+
+// TestReviewStartReadsTheChangeFromTheSyncedCommit: an epic whose stored base merged origin's main in a sync is reviewed
+// over the change from origin's commit it synced, not from its base, so the reviewers and verifiers read the epic's own
+// change and not origin's. A closure verifier still runs over the frozen revision.
+func TestReviewStartReadsTheChangeFromTheSyncedCommit(t *testing.T) {
+	t.Parallel()
+	const synced = "synced-origin"
+	ctx := context.Background()
+	s := openRunStore(t)
+	createRunEpic(t, s, store.EpicWorkflow{})
+	run := reviewWorkFrozenRun(t, s)
+	epic := epicOf(t, s)
+	epic.Synced = synced
+	reviewers := &reviewWorkReviewers{}
+	steps := &reviewWorkSteps{fakeSteps: fakeSteps{store: s}}
+	runner := reviewWorkRunner(s, steps, reviewers, reviewWorkGetenv(t))
+	finding := runnerLedger()[0]
+	reviewerID := workID(t, s, "review", "reviewer 1")
+	verifyID := workID(t, s, "review", "verify 1 1")
+	act := Action{
+		Kind: ActWork, Work: kinds.ActStart, Path: "review", NodeKind: reviewNodeKind, Run: run,
+		IDs: []string{reviewerID, verifyID},
+		Units: []kinds.Unit{
+			{ID: reviewerID, Part: "reviewer 1", Reviewer: "security"},
+			{ID: verifyID, Part: "verify 1 1", Reviewer: "security", Finding: finding},
+		},
+	}
+	if err := runner.work(ctx, epic, act, runClock()); err != nil {
+		t.Fatalf("work: %v", err)
+	}
+
+	wantCalls := []reviewWorkCall{{name: "security", base: synced, revision: reviewWorkFrozen}}
+	if !reflect.DeepEqual(reviewers.calls, wantCalls) {
+		t.Errorf("reviewer starts = %+v, want %+v", reviewers.calls, wantCalls)
+	}
+	if len(steps.calls) != 2 {
+		t.Fatalf("step starts = %d, want 2", len(steps.calls))
+	}
+	verify := epicVerifierStart(epic, synced, reviewWorkFrozen, finding, verifyID, reviewWorkVerifierAgent)
+	verify.Task = "review"
+	if got := reviewWorkComparable(steps.calls[1:]); !reflect.DeepEqual(got, reviewWorkComparable(
+		[]enginehost.StepStart{verify},
+	)) {
+		t.Errorf("verifier start = %+v, want it over the change from %s", got, synced)
+	}
+	if !strings.Contains(steps.calls[1].Prompt, synced) {
+		t.Errorf("verifier prompt = %q, want it to name %s", steps.calls[1].Prompt, synced)
 	}
 }

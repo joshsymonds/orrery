@@ -47,13 +47,16 @@ func (e *QuestionReplacedError) Error() string {
 
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
 // contract gave them. Times are stored at whole seconds. Seen is the time of the epic's last SeeEpic mark, zero when
-// none is stored.
+// none is stored. Synced is the commit of origin's main that the stored base last merged in a sync, "" while no sync
+// has passed, and OriginRead the epic's last read of origin's main.
 type EpicRow struct {
 	ID          string
 	Repository  string
 	Base        string
 	StoredBase  string
 	Candidate   string
+	Synced      string
+	OriginRead  OriginRead
 	Branch      string
 	Title       string
 	Approved    string
@@ -999,6 +1002,8 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Base:         head.Base,
 		StoredBase:   head.StoredBase,
 		Candidate:    head.Candidate,
+		Synced:       head.Synced,
+		OriginRead:   originReadOf(head),
 		Branch:       head.Branch,
 		Title:        head.Title,
 		Approved:     head.Approved,
