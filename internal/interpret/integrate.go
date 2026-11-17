@@ -176,7 +176,10 @@ func advanceBlock(ctx context.Context, epic store.EpicRow, tip, candidate string
 
 // parkBatch parks the batch at the run of act, and the epic with it, for reason, which is told.
 func (r *Runner) parkBatch(ctx context.Context, epic store.EpicRow, act Action, reason string, at time.Time) error {
-	if err := r.store.ParkNode(ctx, epic.ID, act.Path, act.Run.Attempt, outcomeFailed, reason, reason, at); err != nil {
+	err := r.store.ParkNode(
+		ctx, epic.ID, act.Path, act.Run.Attempt, outcomeFailed, reason, store.ParkClassBranch, reason, at,
+	)
+	if err != nil {
 		return fmt.Errorf("park batch %s: %w", act.Path, err)
 	}
 	return nil

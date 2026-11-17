@@ -27,6 +27,8 @@ type Store interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
+	PendingActions(ctx context.Context) ([]store.PlannerAction, error)
+	CarryOutAction(ctx context.Context, action store.PlannerAction, at time.Time) ([]string, error)
 	FailTurn(ctx context.Context, epic string, turn int64, reason string, at time.Time) error
 	FreeTurn(ctx context.Context, epic string, turn int64, free store.TurnFree, at time.Time) error
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
@@ -141,13 +143,12 @@ func (r *Runner) Recover(ctx context.Context) {
 	r.recoverTurns(ctx)
 }
 
-// Pass decides each epic with pending triggers once, as Run does on each tick.
+// Pass carries out the pending actions and decides each epic with pending triggers once, as Run does on each tick.
 func (r *Runner) Pass(ctx context.Context) {
 	r.pass(ctx, nil)
 }
 
-// PassOnly decides, as Pass does, only the epics with pending triggers that open reports true for. Every other epic is
-// left as it is.
+// PassOnly does what Pass does, only for the epics that open reports true for. Every other epic is left as it is.
 func (r *Runner) PassOnly(ctx context.Context, open func(epic string) bool) {
 	r.pass(ctx, open)
 }
@@ -157,10 +158,11 @@ func (r *Runner) WaitTurns() {
 	r.turns.Wait()
 }
 
-// pass decides each epic with pending triggers that open reports true for, or each such epic when open is nil. A park
-// action claims a turn for the epic in its own goroutine and frees it with the park reason, and a claim action claims a
-// turn for the epic in its own goroutine. agent is read once per pass.
+// pass carries out every pending action, then decides each epic with pending triggers that open reports true for, or
+// each such epic when open is nil. A park action claims a turn for the epic in its own goroutine and frees it with the
+// park reason, and a claim action claims a turn for the epic in its own goroutine. agent is read once per pass.
 func (r *Runner) pass(ctx context.Context, open func(epic string) bool) {
+	r.carryOutActions(ctx)
 	states, err := r.store.PlanStates(ctx)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "list planner states", "err", err)
@@ -182,6 +184,34 @@ func (r *Runner) pass(ctx context.Context, open func(epic string) bool) {
 			r.turns.Add(1)
 			go r.runTurn(ctx, state.Epic, agent)
 		default:
+		}
+	}
+}
+
+// carryOutActions carries out every pending action in the order the store lists them, and stops each step the carrying
+// out returns. An action whose carrying out fails is logged and left pending, so the next pass carries it out again; an
+// action a restart left pending is carried out the same way.
+func (r *Runner) carryOutActions(ctx context.Context) {
+	actions, err := r.store.PendingActions(ctx)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "list pending planner actions", "err", err)
+		return
+	}
+	for _, action := range actions {
+		if ctx.Err() != nil {
+			return
+		}
+		stop, carryErr := r.store.CarryOutAction(ctx, action, r.now())
+		if carryErr != nil {
+			r.logger.ErrorContext(ctx, "carry out planner action", "epic", action.Epic, "turn", action.Turn,
+				"position", action.Position, "err", carryErr)
+			continue
+		}
+		for _, id := range stop {
+			if stopErr := r.steps.Stop(ctx, id); stopErr != nil {
+				r.logger.ErrorContext(ctx, "stop step of carried out planner action", "epic", action.Epic,
+					"step", id, "err", stopErr)
+			}
 		}
 	}
 }
@@ -582,33 +612,54 @@ func planOf(ret Return) store.EpicPlan {
 	for _, question := range ret.Questions {
 		questions = append(questions, questionInputOf(question))
 	}
+	actions := make([]store.EpicActionInput, 0, len(ret.Actions))
+	for _, action := range ret.Actions {
+		actions = append(actions, store.EpicActionInput{
+			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
+			Requirement: action.Requirement, Item: action.Item, UndoNone: action.UndoNone, Reason: action.Reason,
+		})
+	}
 	return store.EpicPlan{
 		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
+		Actions: actions,
 	}
 }
 
-// questionInputOf returns the store's input for a question of a planner return.
+// questionInputOf returns the store's input for a question of a planner return. A non-empty why is stored as "Catastrophe
+// <kind>: <why>", so the owner reads which catastrophe the question names. An empty why stays empty, which the store
+// refuses.
 func questionInputOf(question Question) store.EpicQuestionInput {
 	choices := make([]store.EpicChoice, 0, len(question.Choices))
 	for _, choice := range question.Choices {
 		choices = append(choices, store.EpicChoice{ID: choice.ID, Does: choice.Does})
 	}
+	why := question.Why
+	if why != "" {
+		why = "Catastrophe " + question.Catastrophe + ": " + why
+	}
 	return store.EpicQuestionInput{
 		Label: question.Label, Text: question.Text, Choices: choices, Recommended: question.Recommended,
-		Why: question.Why, Confidence: question.Confidence, Replaces: question.Replaces,
+		Why: why, Confidence: question.Confidence, Replaces: question.Replaces,
 	}
 }
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks. The gate
-// resolves under ctx without its cancellation, so the turn that started the step ending does not refuse its return.
+// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
+// checkAmendKeeps against the epic's Requirements. When epic holds
+// a planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
+// reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
+// cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
 		requirements = append(requirements, requirement.ID)
 	}
 	owned := openFiles(epic.Tasks)
+	park := ""
+	if !epic.ParkClass.OwnerHeld() {
+		park = epic.Parked
+	}
 	gateCtx := context.WithoutCancel(ctx)
 	gate := func(name string) error { return resolve.Gate(gateCtx, epic, name) }
 	judge := func(name string) error { return resolve.Judge(epic, name) }
@@ -617,7 +668,9 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		if err != nil {
 			return []string{err.Error()}
 		}
-		return append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
+		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
+		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
+		return append(refusals, checkPark(ret, park)...)
 	}
 }
 

@@ -67,6 +67,17 @@ func parkedOf(t *testing.T, raw *sql.DB, epic string) string {
 	return parked
 }
 
+// parkTriggerCauses returns the cause of each pending trigger of epic that a planner park added, read from the table.
+func parkTriggerCauses(t *testing.T, raw *sql.DB, epic string) [][]any {
+	t.Helper()
+	return rawRows(
+		t,
+		raw,
+		`SELECT cause FROM epic_triggers WHERE epic = ? AND state = 'pending' AND id LIKE 'park:%'`,
+		epic,
+	)
+}
+
 // tellsOf returns the text of every tell of epic in seq order.
 func tellsOf(t *testing.T, raw *sql.DB, epic string) []string {
 	t.Helper()
@@ -167,7 +178,8 @@ func TestNextRoundChangesNothingOnEndedParkedOrNonLoopRuns(t *testing.T) {
 }
 
 // TestParkLoopParksTheLoopAndTheEpicWithOneTell checks that ParkLoop parks the running loop at the round asked for,
-// parks its epic with the reason, and adds the reason as one tell, and that the other epic is untouched.
+// parks its epic with the reason as a planner park, which adds no tell and adds one pending trigger with the reason as
+// its cause, and that the other epic is untouched.
 func TestParkLoopParksTheLoopAndTheEpicWithOneTell(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -190,8 +202,11 @@ func TestParkLoopParksTheLoopAndTheEpicWithOneTell(t *testing.T) {
 	if parked := parkedOf(t, raw, loopEpic); parked != reason {
 		t.Errorf("parked of epic %s after ParkLoop = %q, want %q", loopEpic, parked, reason)
 	}
-	if got := tellsOf(t, raw, loopEpic); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells of epic %s after ParkLoop = %q, want one tell %q", loopEpic, got, reason)
+	if got := tellsOf(t, raw, loopEpic); len(got) != 0 {
+		t.Errorf("tells of epic %s after ParkLoop = %q, want none", loopEpic, got)
+	}
+	if got := parkTriggerCauses(t, raw, loopEpic); !reflect.DeepEqual(got, [][]any{{reason}}) {
+		t.Errorf("park triggers of epic %s after ParkLoop = %v, want one with cause %q", loopEpic, got, reason)
 	}
 	if parked := parkedOf(t, raw, loopOther); parked != "" {
 		t.Errorf("parked of epic %s after ParkLoop of %s = %q, want empty", loopOther, loopEpic, parked)
@@ -199,7 +214,7 @@ func TestParkLoopParksTheLoopAndTheEpicWithOneTell(t *testing.T) {
 }
 
 // TestParkLoopAtAnotherRoundOrRepeatChangesNothing checks that ParkLoop at a round other than the loop's changes
-// neither the loop nor the epic, and that a second ParkLoop of a loop already parked adds no tell and keeps the first
+// neither the loop nor the epic, and that a second ParkLoop of a loop already parked adds no trigger and keeps the first
 // reason.
 func TestParkLoopAtAnotherRoundOrRepeatChangesNothing(t *testing.T) {
 	t.Parallel()
@@ -240,8 +255,11 @@ func TestParkLoopAtAnotherRoundOrRepeatChangesNothing(t *testing.T) {
 	if parked := parkedOf(t, raw, loopEpic); parked != first {
 		t.Errorf("parked of epic %s after a repeat = %q, want %q", loopEpic, parked, first)
 	}
-	if got := tellsOf(t, raw, loopEpic); !reflect.DeepEqual(got, []string{first}) {
-		t.Errorf("tells of epic %s after a repeat = %q, want one tell %q", loopEpic, got, first)
+	if got := tellsOf(t, raw, loopEpic); len(got) != 0 {
+		t.Errorf("tells of epic %s after a repeat = %q, want none", loopEpic, got)
+	}
+	if got := parkTriggerCauses(t, raw, loopEpic); !reflect.DeepEqual(got, [][]any{{first}}) {
+		t.Errorf("park triggers of epic %s after a repeat = %v, want one with cause %q", loopEpic, got, first)
 	}
 }
 
@@ -307,7 +325,7 @@ func TestRetryEpicWithoutParkedLoopGrantsNothing(t *testing.T) {
 	if err := s.StartNodes(ctx, loopEpic, []store.NodeRun{loop}, nil, nodeStartedAt()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if err := s.ParkEpic(ctx, loopEpic, "credit ran out", loopParkedAt()); err != nil {
+	if err := s.ParkEpic(ctx, loopEpic, store.ParkClassBranch, "credit ran out", loopParkedAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 

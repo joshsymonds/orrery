@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -27,9 +28,10 @@ type Store interface {
 	) error
 	NextRound(ctx context.Context, epic, path string, from int64) error
 	ParkLoop(ctx context.Context, epic, path string, round int64, reason string, at time.Time) error
-	ParkEpic(ctx context.Context, epic, reason string, at time.Time) error
+	ParkEpic(ctx context.Context, epic string, class store.ParkClass, reason string, at time.Time) error
 	ParkNode(
-		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+		ctx context.Context, epic, path string, attempt int64, outcome, output string, class store.ParkClass,
+		reason string, at time.Time,
 	) error
 	ParkNodeMetAtBase(
 		ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, met []string,
@@ -67,6 +69,10 @@ type Store interface {
 		closures []store.Closure, at time.Time,
 	) error
 	HoldReviewStep(ctx context.Context, epic, step, reason string, at time.Time) error
+	OpenAmendments(ctx context.Context) ([]store.EvidenceAmendment, error)
+	SettleAmendment(ctx context.Context, epic string, seq int64, at time.Time) error
+	StopAmendment(ctx context.Context, epic string, seq int64, reason string, at time.Time) error
+	NodeCheck(ctx context.Context, id string) (store.NodeCheck, error)
 }
 
 // Checks runs the check of a gate or command node run under a holder, once per id. *enginehost.NodeChecks satisfies it.
@@ -74,9 +80,13 @@ type Checks interface {
 	Run(ctx context.Context, check store.NodeCheck) (store.NodeCheck, error)
 }
 
-// Evidence runs the evidence item of a Requirement once per id. *enginehost.Evidence satisfies it.
+// Evidence runs the evidence item of a Requirement, or the item an evidence amendment asks a Requirement to hold, once per
+// id. *enginehost.Evidence satisfies it.
 type Evidence interface {
 	RunItem(ctx context.Context, id, epic, item, revision, phase string) (store.EvidenceRun, error)
+	RunAmendment(
+		ctx context.Context, id, epic, requirement string, spec evidence.Item, revision, phase string,
+	) (store.EvidenceRun, error)
 }
 
 // Steps starts the read-only step of an agent node run. *enginehost.Steps satisfies it.
@@ -226,36 +236,43 @@ func (r *Runner) Run(ctx context.Context) {
 	}
 }
 
-// Pass runs each epic's flow once, and then passes the planner once for the epics whose plan run was given its turn.
-// An epic whose flow does not load is parked once, if it is not parked already.
+// Pass drives each open evidence amendment once (see passAmendments), runs each epic's flow once, and then passes the
+// planner once for the epics whose plan run was given its turn. An epic whose flow does not load is parked once, if it
+// is not parked already.
 func (r *Runner) Pass(ctx context.Context) {
 	epics, err := r.store.Epics(ctx)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "list epics", "err", err)
 		return
 	}
+	r.passAmendments(ctx, epics)
 	planned := make(map[string]bool)
 	for _, epic := range epics {
+		if store.IsClosedPhase(epic.Phase) {
+			continue
+		}
 		flow, loadErr := loadFlow(epic)
 		if loadErr != nil {
 			r.parkUnloaded(ctx, epic, loadErr)
 			continue
 		}
-		if r.passFlow(ctx, epic, flow) {
+		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
+		plannerParked := epic.Parked != "" && !epic.ParkClass.OwnerHeld()
+		if r.passFlow(ctx, epic, flow) || plannerParked {
 			planned[epic.ID] = true
 		}
 	}
 	r.planner.PassOnly(ctx, func(epic string) bool { return planned[epic] })
 }
 
-// parkUnloaded parks epic with the reason its flow did not load, unless it is parked already, so a broken pinned text
-// parks its epic once.
+// parkUnloaded parks epic as an orchestrator park with the reason its flow did not load, unless it is parked already, so
+// a broken pinned text parks its epic once.
 func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause error) {
 	if epic.Parked != "" {
 		return
 	}
 	reason := cause.Error()
-	if err := r.store.ParkEpic(ctx, epic.ID, reason, r.now()); err != nil {
+	if err := r.store.ParkEpic(ctx, epic.ID, store.ParkClassOrchestrator, reason, r.now()); err != nil {
 		r.logger.ErrorContext(ctx, "park epic with unloadable workflow", "epic", epic.ID, "err", err)
 		return
 	}
@@ -294,7 +311,8 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows := kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, Releases: read.Releases, Slot: read.Slot, Review: read.Review,
+		Pending: read.Pending, AmendActions: read.AmendActions, Releases: read.Releases, Slot: read.Slot,
+		Review: read.Review,
 	}
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
@@ -340,7 +358,9 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, act.Met, at,
 			)
 		} else {
-			err = r.store.ParkNode(ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, act.Reason, at)
+			err = r.store.ParkNode(
+				ctx, epic.ID, act.Path, act.Attempt, act.Outcome, act.Output, store.ParkClassNode, act.Reason, at,
+			)
 		}
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)

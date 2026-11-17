@@ -56,6 +56,8 @@ const retryEpicPath = "/orrery.v1.Epics/Retry";
 const answerEpicPath = "/orrery.v1.Epics/Answer";
 const commandFailedText = "epic command failed";
 const startSessionPath = "/orrery.v1.Control/Start";
+const pickerAskPath = "/orrery.v1.Picker/Ask";
+const pickerRunPath = "/orrery.v1.Picker/Run";
 
 type Clients = ReturnType<typeof createClients>;
 
@@ -340,7 +342,7 @@ function fixture(): Row[] {
 // fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
 const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -978,10 +980,9 @@ test("modifier keys leave the cursor alone", (t) =>
     assert.equal(cursorKey(container), "a");
   }));
 
-test("u and N outside the filter change nothing", (t) =>
+test("u outside the filter changes nothing", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
     await press("u");
-    await press("N");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
@@ -1186,7 +1187,7 @@ test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive
 
 test("the brand reads orrery, and its counts stay in place when every count is zero", (t) =>
   withApp(t.signal, { rows: [] }, (container) => {
-    assert.equal(container.querySelector(".brand")?.textContent, "orrery");
+    assert.equal(container.querySelector(".brand")?.textContent, "orrery+ Ask", "the brand row holds the Ask button");
     assert.equal(container.querySelector(".brand .counts") === null, false, "the counts span stays");
     assert.deepEqual(countTexts(container), []);
   }));
@@ -4757,3 +4758,212 @@ test("App reports the cursor's pane, epic, step and session to onViewing as the 
     assert.equal(reported.length, atMount + 3, "each move reports once");
   });
 });
+
+// askButton is the + Ask button in the top bar.
+function askButton(container: HTMLElement): HTMLButtonElement {
+  const found = [...container.querySelectorAll("button")].find((button) => button.textContent === "+ Ask");
+  assert.ok(found, "the top bar has the + Ask button");
+  return found;
+}
+
+// pickerShown is whether the picker palette is open.
+function pickerShown(container: HTMLElement): boolean {
+  return container.querySelector('[aria-label="picker"]') !== null;
+}
+
+// pickerInput is the palette's text box, which is drawn only while the palette is open.
+function pickerInput(container: HTMLElement): HTMLInputElement {
+  const input = container.querySelector<HTMLInputElement>('[aria-label="picker"] input');
+  assert.ok(input, "the palette's text box is drawn");
+  return input;
+}
+
+// typePicker types text into the palette's text box.
+async function typePicker(container: HTMLElement, text: string): Promise<void> {
+  const input = pickerInput(container);
+  await act(() => {
+    input.value = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// pickerRows is the label of each row the palette lists, in order.
+function pickerRows(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".picker-row .picker-label")].map((element) => element.textContent ?? "");
+}
+
+// pickerRow is the button of the palette's row at index, which the palette must list.
+function pickerRow(container: HTMLElement, index: number): HTMLButtonElement {
+  const found = container.querySelectorAll<HTMLButtonElement>(".picker-row")[index];
+  assert.ok(found, `the palette lists row ${index}`);
+  return found;
+}
+
+async function clickElement(element: Element): Promise<void> {
+  await act(() => {
+    element.dispatchEvent(clickEvent());
+  });
+}
+
+test("PickerPalette: the Ask button, ⌘K, Ctrl+K and N open the palette, and ⌘K opens it from a text box", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    assert.equal(pickerShown(container), false);
+    await clickElement(askButton(container));
+    assert.equal(pickerShown(container), true, "the Ask button opens the palette");
+    await pressIn(pickerInput(container), "Escape");
+    assert.equal(pickerShown(container), false, "Escape closes the palette");
+
+    const meta = await press("k", { metaKey: true });
+    assert.equal(pickerShown(container), true, "⌘K opens the palette");
+    assert.equal(meta.defaultPrevented, true, "⌘K is not left to the browser");
+    await pressIn(pickerInput(container), "Escape");
+
+    await press("k", { ctrlKey: true });
+    assert.equal(pickerShown(container), true, "Ctrl+K opens the palette");
+    await pressIn(pickerInput(container), "Escape");
+
+    await press("N");
+    assert.equal(pickerShown(container), true, "N outside a text box opens the palette");
+    await pressIn(pickerInput(container), "Escape");
+
+    await act(() => composer(container).focus());
+    await press("k", { metaKey: true });
+    assert.equal(pickerShown(container), true, "⌘K opens the palette from inside the composer");
+  }));
+
+test("PickerPalette: N typed in the composer or the filter does not open the palette", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    await press("/");
+    await press("N");
+    assert.equal(pickerShown(container), false, "N typed in the filter does not open the palette");
+    assert.equal(filterInput(container).value, "");
+
+    await act(() => composer(container).focus());
+    await press("N");
+    assert.equal(pickerShown(container), false, "N typed in the composer does not open the palette");
+  }));
+
+test("PickerPalette: n still moves the cursor to the next unseen row", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    assert.equal(cursorKey(container), "a");
+    await press("n");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(pickerShown(container), false);
+  }));
+
+test("PickerPalette: the keys help lists ⌘K and N, each with what it opens", (t) =>
+  withApp(t.signal, {}, async (container) => {
+    await press("?");
+    const help = container.querySelector('[aria-label="keys"]');
+    assert.ok(help, "help panel is open");
+    const entryFor = (key: string) =>
+      [...help.querySelectorAll(".key")].find((entry) => entry.querySelector("dt")?.textContent === key);
+    assert.match(entryFor("⌘K")?.querySelector("dd")?.textContent ?? "", /palette/);
+    assert.match(entryFor("N")?.querySelector("dd")?.textContent ?? "", /palette/);
+  }));
+
+test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arrives in a later render", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pickerAskPath, [
+      { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
+    ]);
+    fake.replies.set(pickerRunPath, [{ pane: "%9" }]);
+    await clickElement(askButton(container));
+    await typePicker(container, "deploy");
+    await pressIn(pickerInput(container), "Enter");
+    await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
+    await clickElement(pickerRow(container, 0));
+    await untilTurn(t.signal, () => !pickerShown(container), "the run closes the palette");
+    assert.equal(cursorKey(container), "a", "the pane's row is not in the list yet");
+
+    const deploy = row({ key: "pane:box:%9", id: "%9", label: "deploy", state: "working", changed: 500, seen: 500 });
+    await mount(container, { rows: [...fixture(), deploy], error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(cursorKey(container), "pane:box:%9");
+  }));
+
+test("PickerStartForm: a started session takes the cursor once its row arrives in a later render", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pickerAskPath, [
+      {
+        rows: [
+          {
+            token: "tok-web",
+            kind: "fresh",
+            dir: "/work/web",
+            pane: "",
+            label: "web",
+            note: "start fresh",
+            prompt: false,
+          },
+        ],
+      },
+    ]);
+    fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
+    await clickElement(askButton(container));
+    await typePicker(container, "web");
+    await pressIn(pickerInput(container), "Enter");
+    await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
+    await clickElement(pickerRow(container, 0));
+    await clickButton(container, '[aria-label="picker"]', "Start");
+    await untilTurn(t.signal, () => !pickerShown(container), "the start closes the palette");
+    assert.equal(cursorKey(container), "a", "the started session's row is not in the list yet");
+
+    const started = row({
+      key: "session:sess-new",
+      id: "sess-new",
+      kind: "session",
+      label: "web",
+      state: "working",
+      changed: 500,
+      seen: 500,
+    });
+    await mount(container, { rows: [...fixture(), started], error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(cursorKey(container), "session:sess-new");
+  }));
+
+// letTurnsRun steps through a fixed run of turns inside act, so a write queued by a key has started before a test checks
+// that none did. It reads no clock and arms no timer, unlike settle.
+async function letTurnsRun(): Promise<void> {
+  for (let round = 0; round < 50; round++) {
+    await act(turn);
+  }
+}
+
+// listDeployRow opens the palette, asks for deploy, and waits until the one row the answer holds is listed.
+async function listDeployRow(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
+  fake.replies.set(pickerAskPath, [
+    { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
+  ]);
+  await clickElement(askButton(container));
+  await typePicker(container, "deploy");
+  await pressIn(pickerInput(container), "Enter");
+  await untilTurn(signal, () => pickerRows(container).length === 1, "the answer's row is listed");
+}
+
+test("PickerPalette: Enter on a focused picker row is not defaultPrevented and writes no seen", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await listDeployRow(t.signal, container, fake);
+    await act(() => pickerRow(container, 0).focus());
+    const enter = await pressIn(pickerRow(container, 0), "Enter");
+    assert.equal(enter.defaultPrevented, false, "Enter on a picker row keeps its native activation");
+    await letTurnsRun();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter behind the palette writes no seen");
+  }));
+
+test("PickerPalette: j on a focused picker row leaves the list's cursor where it was", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await listDeployRow(t.signal, container, fake);
+    await act(() => pickerRow(container, 0).focus());
+    assert.equal(cursorKey(container), "a");
+    await pressIn(pickerRow(container, 0), "j");
+    assert.equal(cursorKey(container), "a", "j behind the palette does not move the list's cursor");
+  }));
+
+test("PickerPalette: Enter on the focused + Ask button is not defaultPrevented and writes no seen", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await act(() => askButton(container).focus());
+    const enter = await pressIn(askButton(container), "Enter");
+    assert.equal(enter.defaultPrevented, false, "Enter on + Ask keeps its native activation");
+    await letTurnsRun();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter on + Ask writes no seen");
+  }));

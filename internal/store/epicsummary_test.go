@@ -121,7 +121,7 @@ func TestEpicHistoryReadsTriggersByCreatedThenIDAndTellsBySeq(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertEpicTrigger a-trigger: %v", err)
 	}
-	if err := s.ParkEpic(ctx, epicSummaryID, "Parked for the history test", parkedAt); err != nil {
+	if err := s.ParkEpic(ctx, epicSummaryID, ParkClassBranch, "Parked for the history test", parkedAt); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 

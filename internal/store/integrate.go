@@ -123,8 +123,9 @@ func settleBatchBase(ctx context.Context, queries *sqlcgen.Queries, epic, outcom
 	return nil
 }
 
-// ParkEpicWaking parks epic with reason, adds reason as a tell and adds trigger pending, in one write. A trigger whose id
-// is stored in any state changes nothing, so a repeat parks and tells nothing.
+// ParkEpicWaking parks epic with reason as the not_built planner class, and adds trigger pending, in one write. The
+// planner class adds no tell, and the trigger is the one park's wake, so no second trigger is added. A trigger whose id is
+// stored in any state changes nothing, so a repeat parks nothing.
 func (s *Store) ParkEpicWaking(ctx context.Context, epic, reason string, trigger NodeTrigger, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		stored, err := queries.CountEpicTrigger(ctx, sqlcgen.CountEpicTriggerParams{Epic: epic, ID: trigger.ID})
@@ -134,18 +135,11 @@ func (s *Store) ParkEpicWaking(ctx context.Context, epic, reason string, trigger
 		if stored != 0 {
 			return nil
 		}
-		return parkWithTrigger(ctx, queries, epic, reason, trigger, at)
+		if _, err = setParked(ctx, queries, epic, ParkClassNotBuilt, "", capTurnText(reason), at); err != nil {
+			return err
+		}
+		return insertNodeTrigger(ctx, queries, epic, trigger, at)
 	})
-}
-
-// parkWithTrigger parks epic with reason, adds reason as a tell and adds trigger pending, in the caller's write.
-func parkWithTrigger(
-	ctx context.Context, queries *sqlcgen.Queries, epic, reason string, trigger NodeTrigger, at time.Time,
-) error {
-	if err := parkWithTell(ctx, queries, epic, capTurnText(reason), at); err != nil {
-		return err
-	}
-	return insertNodeTrigger(ctx, queries, epic, trigger, at)
 }
 
 // EndPlanBuilt ends each of ends at its running run, in one write, when the run of the first end is still running. The
@@ -210,7 +204,7 @@ func parkMetAtBase(
 	at time.Time,
 ) error {
 	park := capTurnText(reason)
-	question, err := openPark(ctx, queries, epic, park, metAtBaseQuestion(park, met))
+	question, err := openPark(ctx, queries, epic, park, ParkClassMetAtBase, metAtBaseQuestion(park, met))
 	if err != nil {
 		return err
 	}

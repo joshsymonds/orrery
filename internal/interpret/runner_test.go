@@ -83,9 +83,15 @@ type parkCounter struct {
 	parks []string
 }
 
-func (c *parkCounter) ParkEpic(ctx context.Context, epic, reason string, at time.Time) error {
+func (c *parkCounter) ParkEpic(
+	ctx context.Context,
+	epic string,
+	class store.ParkClass,
+	reason string,
+	at time.Time,
+) error {
 	c.parks = append(c.parks, reason)
-	return c.Store.ParkEpic(ctx, epic, reason, at)
+	return c.Store.ParkEpic(ctx, epic, class, reason, at)
 }
 
 // runClock is the time the runner's clock reads, so every start, end and park is stamped at a known second.

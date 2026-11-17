@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"reflect"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/kinds"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -48,6 +50,13 @@ type EpicCommands interface {
 	RetryNode(ctx context.Context, epic, node string) error
 	KickEpic(ctx context.Context, epic, text string, at time.Time) error
 	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
+	CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error)
+	AmendEvidence(
+		ctx context.Context,
+		epic string,
+		amend store.Amendment,
+		at time.Time,
+	) (store.EvidenceAmendment, error)
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
 }
 
@@ -543,6 +552,90 @@ func (s *epicService) ReleaseEpic(
 	return connect.NewResponse(&v1.ReleaseEpicResponse{Epic: message}), nil
 }
 
+// CloseEpic closes the epic as the kind its request names, superseded, shipped or abandoned, and returns the epic read
+// back. superseded names by, the epic that replaces it. The closer is the planner when the call comes from the step of
+// the epic's running turn, which is the session the planner's own calls run in, and the owner otherwise. After the close
+// is stored, the turn's step and each running step of the epic are stopped. An empty id is refused, an unknown epic is
+// NotFound, and a close the store refuses is FailedPrecondition with its text, and stops nothing.
+func (s *epicService) CloseEpic(
+	ctx context.Context,
+	req *connect.Request[v1.CloseEpicRequest],
+) (*connect.Response[v1.CloseEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	closer, err := s.closerOf(ctx, id, req.Header())
+	if err != nil {
+		return nil, err
+	}
+	step, err := s.epics.CloseEpic(ctx, id, req.Msg.GetKind(), req.Msg.GetBy(), closer, time.Now())
+	if err != nil {
+		return nil, epicControlError(id, err)
+	}
+	err = s.stopClosedSteps(ctx, id, step)
+	if err != nil {
+		return nil, err
+	}
+	message, err := s.storedEpic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.CloseEpicResponse{Epic: message}), nil
+}
+
+// closerOf returns who closes epic for a call whose headers are header: the planner when the session the call runs in is
+// the step of epic's running turn, and the owner otherwise. An unknown epic is NotFound.
+func (s *epicService) closerOf(ctx context.Context, epic string, header http.Header) (string, error) {
+	session := header.Get(protocol.HeaderSession)
+	if session == "" {
+		return store.CloserOwner, nil
+	}
+	row, err := s.epics.Epic(ctx, epic)
+	if errors.Is(err, store.ErrNoEpic) {
+		return "", refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", epic))
+	}
+	if err != nil {
+		return "", epicStoreError(err)
+	}
+	for _, turn := range row.Turns {
+		if turn.State == "running" && turn.Step == session {
+			return store.CloserPlanner, nil
+		}
+	}
+	return store.CloserOwner, nil
+}
+
+// stopClosedSteps stops turnStep, the step of the turn a close ended, and each running step of epic, each once. A step
+// that has ended stops as a no-op, so a step listed as running that ends first is not an error.
+func (s *epicService) stopClosedSteps(ctx context.Context, epic, turnStep string) error {
+	if s.steps == nil {
+		return nil
+	}
+	rows, err := s.steps.List(ctx, epic, "")
+	if err != nil {
+		return epicStoreError(err)
+	}
+	var stop []string
+	if turnStep != "" {
+		stop = append(stop, turnStep)
+	}
+	for _, row := range rows {
+		if row.End == "" && !slices.Contains(stop, row.ID) {
+			stop = append(stop, row.ID)
+		}
+	}
+	for _, id := range stop {
+		if err = s.steps.Stop(ctx, id); err != nil {
+			return epicStoreError(err)
+		}
+	}
+	return nil
+}
+
 // SeeEpic stores the time of this call as the seen mark of the epic, replacing the earlier mark, and answers an empty
 // reply. An empty id is refused, and an unknown epic is NotFound, as PauseEpic refuses them.
 func (s *epicService) SeeEpic(
@@ -680,30 +773,32 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
 // merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
-// its pinned workflow, its phase time, its seen mark and its report. It fails when a task's messages fail.
+// its pinned workflow, its phase time, its seen mark, its report and its evidence amendments in order. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
 		return nil, err
 	}
 	return &v1.StoredEpic{
-		Contract:  contractMessage(row),
-		Summary:   row.Summary,
-		Phase:     row.Phase,
-		Created:   row.Created.Unix(),
-		Changed:   row.Changed.Unix(),
-		PhaseAt:   row.PhaseAt.Unix(),
-		Seen:      unixOrZero(row.Seen),
-		Decisions: epicMap(row.Decisions, decisionMessage),
-		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
-		Paused:    row.Paused,
-		Parked:    row.Parked,
-		Turns:     epicMap(row.Turns, turnMessage),
-		Tasks:     tasks,
-		Questions: epicMap(row.Questions, questionMessage),
-		Branch:    row.Branch,
-		Workflow:  workflowMessage(row.Workflow),
-		Report:    reportMessage(row.Report),
+		Contract:   contractMessage(row),
+		Summary:    row.Summary,
+		Phase:      row.Phase,
+		Created:    row.Created.Unix(),
+		Changed:    row.Changed.Unix(),
+		PhaseAt:    row.PhaseAt.Unix(),
+		Seen:       unixOrZero(row.Seen),
+		Decisions:  epicMap(row.Decisions, decisionMessage),
+		Reviewers:  epicMap(row.Reviewers, epicReviewerMessage),
+		Paused:     row.Paused,
+		Parked:     row.Parked,
+		ParkClass:  string(row.ParkClass),
+		Turns:      epicMap(row.Turns, turnMessage),
+		Tasks:      tasks,
+		Questions:  epicMap(row.Questions, questionMessage),
+		Branch:     row.Branch,
+		Workflow:   workflowMessage(row.Workflow),
+		Report:     reportMessage(row.Report),
+		Amendments: epicMap(row.Amendments, amendmentMessage),
 	}, nil
 }
 

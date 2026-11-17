@@ -4,6 +4,8 @@
 package kinds
 
 import (
+	"slices"
+
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
 )
@@ -15,20 +17,23 @@ type Node struct {
 }
 
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
-// checks, its evidence runs and its agent steps, how many of its triggers are pending, its end-of-epic review, the
+// checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, its
+// end-of-epic review, the
 // epic-stage reviewers enabled for it in merged order, its release runs, and the epic that holds the release slot of
 // its repository, which is "" when the slot is free.
 type Rows struct {
-	Epic      store.EpicRow
-	Runs      []store.NodeRun
-	Checks    []store.NodeCheck
-	Evidence  []store.EvidenceRun
-	Steps     []store.StepRow
-	Pending   int
-	Review    store.Review
-	Reviewers []Reviewer
-	Releases  []store.ReleaseRun
-	Slot      string
+	Epic     store.EpicRow
+	Runs     []store.NodeRun
+	Checks   []store.NodeCheck
+	Evidence []store.EvidenceRun
+	Steps    []store.StepRow
+	Pending  int
+	// AmendActions counts the epic's amend_evidence actions that are still pending.
+	AmendActions int
+	Review       store.Review
+	Reviewers    []Reviewer
+	Releases     []store.ReleaseRun
+	Slot         string
 }
 
 // Reviewer is an enabled epic-stage reviewer: its name and whether its findings are verified.
@@ -129,9 +134,11 @@ func (Plan) Decide(node Node, rows Rows) Action {
 }
 
 // planComplete reports whether a plan run started after turn mark may end complete. The epic's highest-seq turn must be
-// above mark, succeeded and complete. No turn may be running, no task open and no trigger pending.
+// above mark, succeeded and complete. No turn may be running, no task open and no trigger pending. No evidence amendment
+// may be under way either, neither an amend_evidence action still pending nor an amendment checking or capturing, since
+// its end decides what the plan has built and wakes the planner.
 func planComplete(mark int64, rows Rows) bool {
-	if rows.Pending != 0 || anyTaskOpen(rows.Epic.Tasks) {
+	if rows.Pending != 0 || anyTaskOpen(rows.Epic.Tasks) || amending(rows) {
 		return false
 	}
 	var last store.EpicTurn
@@ -146,6 +153,17 @@ func planComplete(mark int64, rows Rows) bool {
 		}
 	}
 	return found && last.Seq > mark && last.State == turnSucceeded && last.Outcome == outcomeComplete
+}
+
+// amending reports whether an evidence amendment of the epic is under way: an amend_evidence action still pending, or an
+// amendment checking or capturing.
+func amending(rows Rows) bool {
+	if rows.AmendActions > 0 {
+		return true
+	}
+	return slices.ContainsFunc(rows.Epic.Amendments, func(amended store.EvidenceAmendment) bool {
+		return amended.State == store.AmendmentChecking || amended.State == store.AmendmentCapturing
+	})
 }
 
 // anyTaskOpen reports whether any of tasks is open.
@@ -180,11 +198,12 @@ func isOpenTask(tasks []store.EpicTask, seq int64) bool {
 	return false
 }
 
-// Ended reports whether phase is a phase an epic ends in. Every other phase, the empty one included, is not ended.
+// Ended reports whether phase is a phase an epic ends in: the ended phases, and the closed phases a close ends an epic
+// in. Every other phase, the empty one included, is not ended.
 func Ended(phase string) bool {
 	switch phase {
 	case phaseMetAtBase, phaseClean, phaseEndedWithGaps, phaseReleased, phaseDone, phaseStopped:
 		return true
 	}
-	return false
+	return store.IsClosedPhase(phase)
 }

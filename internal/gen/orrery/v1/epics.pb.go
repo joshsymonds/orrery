@@ -196,7 +196,10 @@ type EpicsGetResponse struct {
 	// record epic.
 	ReleaseSteps []*EpicReleaseProof `protobuf:"bytes,18,rep,name=release_steps,json=releaseSteps,proto3" json:"release_steps,omitempty"`
 	// The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
-	Report        *EpicReport `protobuf:"bytes,19,opt,name=report,proto3" json:"report,omitempty"`
+	Report *EpicReport `protobuf:"bytes,19,opt,name=report,proto3" json:"report,omitempty"`
+	// Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
+	// is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+	PlannerParked bool `protobuf:"varint,20,opt,name=planner_parked,json=plannerParked,proto3" json:"planner_parked,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -362,6 +365,13 @@ func (x *EpicsGetResponse) GetReport() *EpicReport {
 		return x.Report
 	}
 	return nil
+}
+
+func (x *EpicsGetResponse) GetPlannerParked() bool {
+	if x != nil {
+		return x.PlannerParked
+	}
+	return false
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -5213,7 +5223,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11EpicsListResponse\x12%\n" +
 	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x81\a\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xa8\a\n" +
 	"\x10EpicsGetResponse\x12#\n" +
 	"\x04epic\x18\x01 \x01(\v2\x0f.orrery.v1.EpicR\x04epic\x12)\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x13.orrery.v1.EpicTaskR\x05tasks\x12)\n" +
@@ -5237,7 +5247,8 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"repository\x18\x11 \x01(\tR\n" +
 	"repository\x12@\n" +
 	"\rrelease_steps\x18\x12 \x03(\v2\x1b.orrery.v1.EpicReleaseProofR\freleaseSteps\x12-\n" +
-	"\x06report\x18\x13 \x01(\v2\x15.orrery.v1.EpicReportR\x06report\"k\n" +
+	"\x06report\x18\x13 \x01(\v2\x15.orrery.v1.EpicReportR\x06report\x12%\n" +
+	"\x0eplanner_parked\x18\x14 \x01(\bR\rplannerParked\"k\n" +
 	"\vEpicSession\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04pane\x18\x02 \x01(\tR\x04pane\x12\x14\n" +

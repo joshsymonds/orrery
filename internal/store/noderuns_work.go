@@ -92,34 +92,36 @@ func parkCheckedRun(
 	}); err != nil {
 		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 	}
-	if err := parkWithTell(ctx, queries, epic, capTurnText(park), at); err != nil {
+	if err := parkEpicAs(ctx, queries, epic, ParkClassRefMove, path, park, at); err != nil {
 		return err
 	}
 	return insertTells(ctx, queries, epic, tells, at)
 }
 
-// ParkNode parks the running run at path of epic at attempt with outcome and output, parks epic with reason and adds
-// reason as a tell, in one write. Output is cut to NodeOutputMax bytes and reason to TurnReasonMax. A run at another
-// attempt and a run that is not running change nothing and add no tell, so a repeat is a no-op.
+// ParkNode parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as class,
+// in one write. An owner class adds reason as a tell, and a planner class wakes the planner. Output is cut to
+// NodeOutputMax bytes and reason to TurnReasonMax. A run at another attempt and a run that is not running change nothing
+// and add no tell, so a repeat is a no-op.
 func (s *Store) ParkNode(
-	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+	ctx context.Context, epic, path string, attempt int64, outcome, output string, class ParkClass, reason string,
+	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, reason, at)
+		return parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, class, reason, at)
 	})
 }
 
-// parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason and
-// adds reason as a tell, in the caller's write.
+// parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as
+// class, in the caller's write.
 func parkNodeRun(
-	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output, reason string,
-	at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output string,
+	class ParkClass, reason string, at time.Time,
 ) error {
 	parked, err := parkRunningRun(ctx, queries, epic, path, attempt, outcome, output)
 	if err != nil || !parked {
 		return err
 	}
-	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+	return parkEpicAs(ctx, queries, epic, class, path, reason, at)
 }
 
 // parkRunningRun parks the running run at path of epic at attempt with outcome and output, in the caller's write, and
@@ -164,10 +166,11 @@ func (s *Store) EndNodesWaking(
 }
 
 // integrateKind is the kind of an integrate node, whose node runs batch accepted tasks onto the candidate, and
-// nodeFailedOutcome is the outcome of a node run that ended failed.
+// nodeFailedOutcome and nodePassedOutcome are the outcomes of a node run that ended failed and passed.
 const (
 	integrateKind     = "integrate"
 	nodeFailedOutcome = "failed"
+	nodePassedOutcome = "passed"
 )
 
 // RetryNode reruns node of epic under its next attempt and unparks epic, in one write. Each parked run of node turns
@@ -180,22 +183,27 @@ const (
 // run while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		runs, err := readNodeRuns(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		for _, run := range runs {
-			if run.Node == node && run.Kind == releaseKind {
-				return RefusalError(fmt.Sprintf(
-					"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
-			}
-		}
-		parked, err := retryParkedNode(ctx, queries, epic, node)
-		if err != nil || parked {
-			return err
-		}
-		return retryFailedIntegrate(ctx, queries, epic, node, runs)
+		return rerunNodeIn(ctx, queries, epic, node)
 	})
+}
+
+// rerunNodeIn reruns node of epic in the caller's write, as RetryNode does.
+func rerunNodeIn(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
+	runs, err := readNodeRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.Node == node && run.Kind == releaseKind {
+			return RefusalError(fmt.Sprintf(
+				"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
+		}
+	}
+	parked, err := retryParkedNode(ctx, queries, epic, node)
+	if err != nil || parked {
+		return err
+	}
+	return retryFailedIntegrate(ctx, queries, epic, node, runs)
 }
 
 // retryNode turns the parked run of node in epic running at its next attempt, answers each open park question of epic
@@ -256,17 +264,25 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 // stored is the paths of the node's integrate runs in the order the store wrote them, which is the order they started,
 // since a run is written when it starts. A walk starts only once the walks before it have ended, so the newest is the
 // run written last, whatever the seq of its walk: a late walk, which integrates a task that waited on others, starts
-// after the settle walk it follows.
+// after the settle walk it follows. A run that ended passed with no revision moved nothing, an empty batch, so it does
+// not count: a failed run whose candidate never reached the branch stays the latest behind it. A running run does count.
 func latestIntegrateRun(runs []NodeRun, stored []string) (NodeRun, bool) {
 	for i := len(stored) - 1; i >= 0; i-- {
 		if _, ok := settleSeq(stored[i]); !ok {
 			continue
 		}
-		if j := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == stored[i] }); j >= 0 {
+		if j := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == stored[i] }); j >= 0 &&
+			!emptyPassedBatch(runs[j]) {
 			return runs[j], true
 		}
 	}
 	return NodeRun{}, false
+}
+
+// emptyPassedBatch reports whether run is an integrate run that ended passed with no revision, a batch that had nothing
+// to integrate.
+func emptyPassedBatch(run NodeRun) bool {
+	return run.State == NodeEnded && run.Outcome == nodePassedOutcome && run.Revision == ""
 }
 
 // settleSeq returns the seq of the settle walk or late walk that holds the node run at path: the N of the S<N> or L<N>

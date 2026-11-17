@@ -19,7 +19,17 @@ func parkTestNode(t *testing.T, st *store.Store, node, reason string) {
 	if err := st.StartNodes(ctx, epicServiceID, runs, nil, time.Unix(turnStarted, 0)); err != nil {
 		t.Fatalf("StartNodes %s: %v", node, err)
 	}
-	if err := st.ParkNode(ctx, epicServiceID, node, 1, "failed", "boom", reason, time.Unix(turnFreed, 0)); err != nil {
+	if err := st.ParkNode(
+		ctx,
+		epicServiceID,
+		node,
+		1,
+		"failed",
+		"boom",
+		store.ParkClassNode,
+		reason,
+		time.Unix(turnFreed, 0),
+	); err != nil {
 		t.Fatalf("ParkNode %s: %v", node, err)
 	}
 }

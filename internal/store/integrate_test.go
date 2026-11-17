@@ -411,9 +411,9 @@ func TestEndBatchKeepsStoredTriggerAsItIs(t *testing.T) {
 	}
 }
 
-// TestParkEpicWakingParksOnceWithTellAndTrigger checks that ParkEpicWaking parks the epic with its reason, adds the
-// reason as one tell and adds its trigger pending. A repeat with the trigger's id, past the trigger's claim, parks and
-// tells nothing.
+// TestParkEpicWakingParksOnceWithTellAndTrigger checks that ParkEpicWaking parks the epic with its reason as a planner
+// park, which adds no tell, and adds its trigger pending. A repeat with the trigger's id, past the trigger's claim, parks
+// and tells nothing.
 func TestParkEpicWakingParksOnceWithTellAndTrigger(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -427,8 +427,8 @@ func TestParkEpicWakingParksOnceWithTellAndTrigger(t *testing.T) {
 	if row := integrateEpicRow(t, s); row.Parked != reason {
 		t.Errorf("parked of epic %s after ParkEpicWaking = %q, want %q", integrateEpic, row.Parked, reason)
 	}
-	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells of epic %s after ParkEpicWaking = %q, want one tell %q", integrateEpic, got, reason)
+	if got := integrateTells(t, s); len(got) != 0 {
+		t.Errorf("tells of epic %s after ParkEpicWaking = %q, want none", integrateEpic, got)
 	}
 	if state, cause, ok := integrateTrigger(t, s, trigger.ID); !ok || state != "pending" || cause != trigger.Cause {
 		t.Fatalf("trigger %s after ParkEpicWaking = %q %q stored %t, want pending %q",
@@ -443,8 +443,8 @@ func TestParkEpicWakingParksOnceWithTellAndTrigger(t *testing.T) {
 	if row := integrateEpicRow(t, s); row.Parked != reason {
 		t.Errorf("parked of epic %s after a repeat = %q, want %q", integrateEpic, row.Parked, reason)
 	}
-	if got := integrateTells(t, s); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells of epic %s after a repeat = %q, want one tell %q", integrateEpic, got, reason)
+	if got := integrateTells(t, s); len(got) != 0 {
+		t.Errorf("tells of epic %s after a repeat = %q, want none", integrateEpic, got)
 	}
 	if state, cause, _ := integrateTrigger(t, s, trigger.ID); state != "claimed" || cause != trigger.Cause {
 		t.Errorf("trigger %s after a repeat = %q %q, want claimed %q", trigger.ID, state, cause, trigger.Cause)

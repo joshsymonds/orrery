@@ -181,6 +181,7 @@ func mutatingTool(name string) bool {
 	switch name {
 	case "step_start", "step_stop", "step_resume",
 		"epic_create", "epic_answer", "epic_pause", "epic_resume", "epic_stop", "epic_retry", "epic_kick", "epic_release",
+		"epic_close", "epic_amend",
 		"evidence_run":
 		return true
 	}

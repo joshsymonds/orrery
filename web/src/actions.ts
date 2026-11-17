@@ -1,5 +1,6 @@
 import type { createClients } from "./client";
 import type { Conversation } from "./conversation";
+import type { PickerRow } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 
 export type Clients = ReturnType<typeof createClients>;
@@ -60,7 +61,31 @@ export async function pullQueued(clients: Clients, row: Row): Promise<string> {
   return reply.text;
 }
 
+// ask sends the words to Picker.Ask, exactly as typed, and resolves the rows that match them.
+export async function ask(clients: Clients, words: string): Promise<PickerRow[]> {
+  const reply = await clients.picker.ask({ text: words });
+  return reply.rows;
+}
+
+// run sends a row's token to Picker.Run and resolves the pane the run answered.
+export async function run(clients: Clients, token: string): Promise<string> {
+  const reply = await clients.picker.run({ token });
+  return reply.pane;
+}
+
 // newPromptId returns a fresh random id for a Say, as the phone's UUID.randomUUID() does.
 export function newPromptId(): string {
   return crypto.randomUUID();
+}
+
+// newStartId returns a fresh start id: 32 lowercase hex digits, the UUID with its hyphens removed.
+export function newStartId(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+// start sends the folder, the message and the start id to Control.Start, with no model, and resolves the session id the
+// reply carries.
+export async function start(clients: Clients, dir: string, message: string, id: string): Promise<string> {
+  const reply = await clients.control.start({ dir, prompt: message, id });
+  return reply.id;
 }

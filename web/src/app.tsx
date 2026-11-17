@@ -31,6 +31,7 @@ import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
 import { PhaseOutputPage } from "./phaseoutput";
 import type { Phase } from "./phases";
+import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
@@ -113,6 +114,12 @@ interface TalkDockState {
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
 type Item = Row | EpicItem | StepItem;
 
+// The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
+interface PendingTarget {
+  kind: Row["kind"];
+  id: string;
+}
+
 const stateWaiting = "waiting";
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
@@ -147,6 +154,8 @@ const helpEntries: [string[], string][] = [
   [["p"], "by project"],
   [["w"], "first waiting row"],
   [["n"], "next unseen row, wrapping"],
+  [["N"], "open the palette to ask for a pane or a directory, outside a text box"],
+  [["⌘K"], "open the palette anywhere, a text box included; Ctrl+K does too"],
   [["x", "Enter"], "mark the cursor's row seen"],
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
@@ -188,6 +197,11 @@ export function App({
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
+  // Whether the picker palette is open.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
+  // answered, or the session Control.Start started.
+  const [pending, setPending] = useState<PendingTarget | null>(null);
   const [stream, setStream] = useState<Stream | null>(null);
   // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
   // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
@@ -647,6 +661,23 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
+  // The palette's answered row takes the cursor once the loaded rows hold it, so a row that arrives in a later render
+  // is reached too. A filter that hides the row is accepted: the cursor then stays where it is.
+  useEffect(() => {
+    if (pending === null) {
+      return;
+    }
+    const found = rows.find((row) => row.kind === pending.kind && row.id === pending.id);
+    if (found === undefined) {
+      return;
+    }
+    setPending(null);
+    const target = flat.findIndex((item) => item.key === found.key);
+    if (target >= 0) {
+      moveTo(target);
+    }
+  }, [pending, rows, flat]);
+
   // openEpic moves the cursor to an epic's entry, first opening the accepted, folded or ended earlier line that holds
   // it when that line is shut. The entry is then in the list, so the cursor rests on it.
   const openEpic = (id: string) => {
@@ -709,7 +740,22 @@ export function App({
   };
 
   const handleKey = (event: KeyboardEvent) => {
+    // ⌘K and Ctrl+K open the palette anywhere, a text box included.
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      setPickerOpen(true);
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    // While the palette is open it owns the keys: Escape closes it, and every other key is left to the palette's own
+    // controls, so the list keeps its keys and a focused row or button keeps its native Enter.
+    if (pickerOpen) {
+      if (event.key === "Escape") {
+        setPickerOpen(false);
+        event.preventDefault();
+      }
       return;
     }
     const input = inputRef.current;
@@ -728,6 +774,10 @@ export function App({
       if (event.key === "Escape") {
         focused.blur();
       }
+      return;
+    }
+    // A focused button keeps its own Enter, so + Ask opens the palette and Enter writes no seen.
+    if (event.key === "Enter" && focused instanceof HTMLElement && focused.tagName === "BUTTON") {
       return;
     }
 
@@ -771,6 +821,9 @@ export function App({
       }
       case "n":
         nextUnseen();
+        break;
+      case "N":
+        setPickerOpen(true);
         break;
       case "x":
       case "Enter":
@@ -944,6 +997,9 @@ export function App({
                 {workingCount > 0 && <span class="st-working">{`${workingCount} working`}</span>}
                 {newCount > 0 && <span class="st-new">{`✱ ${newCount} new`}</span>}
               </span>
+              <button type="button" onClick={() => setPickerOpen(true)}>
+                + Ask
+              </button>
             </div>
             <div class="filter">
               <kbd>/</kbd>
@@ -1285,6 +1341,20 @@ export function App({
           )}
         </section>
       </div>
+      {pickerOpen && (
+        <PickerPalette
+          clients={clients}
+          onRun={(pane) => {
+            setPickerOpen(false);
+            setPending({ kind: "pane", id: pane });
+          }}
+          onStart={(session) => {
+            setPickerOpen(false);
+            setPending({ kind: "session", id: session });
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
       {helpOpen && (
         <section class="keys" aria-label="keys">
           <dl>

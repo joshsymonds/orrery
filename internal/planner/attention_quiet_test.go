@@ -182,7 +182,7 @@ func TestQuietImplementerTellWorkflowNodeParkMoveStillRoutes(t *testing.T) {
 	// A workflow node's move that parks writes its reason as a tell that carries the park question, as an implementer's
 	// does, so it routes like one.
 	if err := s.ParkTask(
-		ctx, runnerEpicID, 1, build, build, nodeMoveText, claimedAt().Add(time.Second),
+		ctx, runnerEpicID, 1, build, build, store.ParkClassRefMove, nodeMoveText, claimedAt().Add(time.Second),
 	); err != nil {
 		t.Fatalf("ParkTask: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestQuietParkNeedTellWithItsTurnToldRoutesOneNotice(t *testing.T) {
 	settledRunner(t, s)
 	build := store.TaskBuild{}
 	if err := s.ParkTask(
-		ctx, runnerEpicID, 1, build, build, implementerMoveText, claimedAt().Add(time.Second),
+		ctx, runnerEpicID, 1, build, build, store.ParkClassRefMove, implementerMoveText, claimedAt().Add(time.Second),
 	); err != nil {
 		t.Fatalf("ParkTask: %v", err)
 	}
@@ -260,7 +260,9 @@ func TestQuietParkNeedFinalParkTellLeadsWithItsReason(t *testing.T) {
 		t.Fatalf("EndEpic met_at_base: %v", err)
 	}
 	attentionOver(s, &fakeAttentionRouter{}).pass(ctx)
-	if err := s.ParkEpic(ctx, runnerEpicID, "budget spent", claimedAt().Add(2*time.Second)); err != nil {
+	if err := s.ParkEpic(
+		ctx, runnerEpicID, store.ParkClassBranch, "budget spent", claimedAt().Add(2*time.Second),
+	); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 	router := &fakeAttentionRouter{}
