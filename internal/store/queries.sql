@@ -827,9 +827,10 @@ SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
 -- name: ListEpicTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? ORDER BY created, id;
 
--- name: ListEpicsWithTurns :many
+-- name: ListEpicsWithTurnsOrUntoldTells :many
 SELECT * FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
+   OR EXISTS (SELECT 1 FROM epic_tells WHERE epic_tells.epic = epics.id AND epic_tells.told = 0)
 ORDER BY epics.id;
 
 -- name: GetLatestEndedEpicTurn :one

@@ -30,8 +30,9 @@ type EpicAttention struct {
 	LatestAsked int
 }
 
-// Attention returns one entry per epic with at least one turn, ordered by epic id. Latest is the epic's highest-seq
-// turn that has ended, zero when none has, and LatestAsked counts the questions that turn asked.
+// Attention returns one entry per epic with at least one turn or at least one untold tell, ordered by epic id. An epic
+// with neither has no entry. Latest is the epic's highest-seq turn that has ended, zero when none has, and LatestAsked
+// counts the questions that turn asked.
 func (s *Store) Attention(ctx context.Context) ([]EpicAttention, error) {
 	return s.attention(ctx, func(string) {})
 }
@@ -40,9 +41,9 @@ func (s *Store) Attention(ctx context.Context) ([]EpicAttention, error) {
 // between the reads.
 func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([]EpicAttention, error) {
 	queries := sqlcgen.New(s.db)
-	epics, err := queries.ListEpicsWithTurns(ctx)
+	epics, err := queries.ListEpicsWithTurnsOrUntoldTells(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list epics with turns: %w", err)
+		return nil, fmt.Errorf("list epics with turns or untold tells: %w", err)
 	}
 	var out []EpicAttention
 	for _, epic := range epics {

@@ -4382,14 +4382,15 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 	return items, nil
 }
 
-const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
+const listEpicsWithTurnsOrUntoldTells = `-- name: ListEpicsWithTurnsOrUntoldTells :many
 SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
+   OR EXISTS (SELECT 1 FROM epic_tells WHERE epic_tells.epic = epics.id AND epic_tells.told = 0)
 ORDER BY epics.id
 `
 
-func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
-	rows, err := q.db.QueryContext(ctx, listEpicsWithTurns)
+func (q *Queries) ListEpicsWithTurnsOrUntoldTells(ctx context.Context) ([]Epic, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicsWithTurnsOrUntoldTells)
 	if err != nil {
 		return nil, err
 	}
