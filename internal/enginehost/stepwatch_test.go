@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // watchEpoch is the clock reading at which every watch in these tests starts.
@@ -451,6 +452,42 @@ func TestWatchRecentLabels(t *testing.T) {
 	}, "\n")
 	if got := w.recent(watchAt(0)); got != want {
 		t.Fatalf("recent:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// seed keeps the blocks a re-adopted step's session stored as recent lines at their stored times, labeled as live
+// events are, and live events after it follow them in the same window.
+func TestWatchSeedKeepsStoredBlocksAsRecent(t *testing.T) {
+	t.Parallel()
+	w := watchNewAt(time.Hour)
+	w.seed([]store.StepBlock{
+		{At: watchAt(0), Block: store.EngineBlock{Kind: string(session.BlockThinking), Text: "hmm"}},
+		{At: watchAt(time.Second), Block: store.EngineBlock{
+			Kind: string(session.BlockToolCall), Name: "Bash", Input: `{"command":"ls"}`,
+		}},
+		{At: watchAt(2 * time.Second), Block: store.EngineBlock{
+			Kind: string(session.BlockToolResult), Content: "boom", IsError: true,
+		}},
+	})
+	w.event(watchAt(3*time.Second), session.Block{Kind: session.BlockText, Text: "after the restart"})
+	want := strings.Join([]string{
+		"10s ago thinking: hmm",
+		`9s ago call Bash: {"command":"ls"}`,
+		"8s ago error result: boom",
+		"7s ago text: after the restart",
+	}, "\n")
+	if got := w.recent(watchAt(10 * time.Second)); got != want {
+		t.Fatalf("recent:\n%s\nwant:\n%s", got, want)
+	}
+
+	many := make([]store.StepBlock, watchRecentLen+5)
+	for i := range many {
+		many[i] = store.StepBlock{At: watchAt(0), Block: store.EngineBlock{Kind: "text", Text: fmt.Sprint(i)}}
+	}
+	w = watchNewAt(time.Hour)
+	w.seed(many)
+	if n := strings.Count(w.recent(watchAt(0)), "\n") + 1; n != watchRecentLen {
+		t.Fatalf("seeded recent has %d lines, want the window of %d", n, watchRecentLen)
 	}
 }
 

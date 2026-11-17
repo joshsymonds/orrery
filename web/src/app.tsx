@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preac
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
+import { epicCallsOf } from "./card";
 import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
@@ -1069,6 +1070,10 @@ export function App({
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
+  // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
+  // epic again on each poll tick and opens the epic through openEpic.
+  const epicCalls = epicCallsOf(clients, openEpic, now);
+
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
   const pageNode = (entry: EpicItem, detail: EpicsGetResponse) => {
@@ -1130,6 +1135,7 @@ export function App({
         />
       );
     }
+    const openTalk = (target: TalkTarget) => setTalkDock({ epic: entry.id, target });
     return (
       <EpicPage
         detail={detail}
@@ -1140,9 +1146,11 @@ export function App({
         commands={epicCommands(clients, entry.id, setCommandError)}
         numberKeys={!epicPage.closed}
         onOpenContract={openContract}
+        onOpenSession={openTalk}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
         handover={Handover({ detail })}
+        rows={rows}
         actions={
           <Talk
             key={entry.id}
@@ -1151,7 +1159,7 @@ export function App({
             repository={detail.repository}
             rows={rows}
             start={(dir, prompt) => clients.control.start({ dir, prompt }).then((reply) => reply.id)}
-            onOpen={(target) => setTalkDock({ epic: entry.id, target })}
+            onOpen={openTalk}
           />
         }
       />
@@ -1396,6 +1404,7 @@ export function App({
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
               sending={cursorSending}
+              epicCalls={epicCalls}
             />
           )}
           {cursorStep !== null && (
@@ -1475,6 +1484,7 @@ export function App({
               open={false}
               onOlder={() => pinnedOlder.current()}
               sending={pinnedSending}
+              epicCalls={epicCalls}
             />
           )}
           <div class="send">
@@ -1517,7 +1527,14 @@ export function App({
               pageNode(epicEntry, epicDetail)
             ))}
           {docked !== null && (
-            <TalkDock clients={clients} rows={rows} target={docked.target} onClose={() => setTalkDock(null)} />
+            <TalkDock
+              clients={clients}
+              rows={rows}
+              target={docked.target}
+              onClose={() => setTalkDock(null)}
+              openEpic={openEpic}
+              tick={now}
+            />
           )}
         </section>
       </div>

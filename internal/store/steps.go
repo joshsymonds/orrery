@@ -147,12 +147,21 @@ type StepGate struct {
 
 // StepTurnEnd is the turn a step's session last ended after its last prompt. Seq is the turn end's event seq, IsError
 // whether the turn ended in error, Output the session's turn output, and Returned whether the turn ended at or before
-// the step's latest return.
+// the step's latest return. Background is set while the session's background flag is: a background task was listed
+// when the session was last recorded, so the turn end is a return only when its output is the step's done value.
 type StepTurnEnd struct {
-	Seq      int64
-	IsError  bool
-	Output   string
-	Returned bool
+	Seq        int64
+	IsError    bool
+	Output     string
+	Returned   bool
+	Background bool
+}
+
+// StepBlock is a finished block a step's session stored, with when it was stored. Block holds the block as it was
+// stored, cut to EngineTextCap, and its ID is the step's id.
+type StepBlock struct {
+	At    time.Time
+	Block EngineBlock
 }
 
 // StepRow is a step row. Ended is zero while End is empty, LoopLimitResets is zero when the limit's reset is unknown,
@@ -362,8 +371,8 @@ func (s *Store) Step(ctx context.Context, id string) (StepRow, error) {
 }
 
 // StepTurn returns the last turn end of the step id's session that was stored after the session's last prompt, with
-// its output and whether it is at or before the step's latest return. It returns false, and no error, when there is no
-// such turn end or while the session's background flag is set.
+// its output, whether it is at or before the step's latest return, and whether the session's background flag is set.
+// It returns false, and no error, when there is no such turn end, so the turn the last prompt started is still running.
 func (s *Store) StepTurn(ctx context.Context, id string) (StepTurnEnd, bool, error) {
 	row, err := sqlcgen.New(s.db).GetStepTurnEnd(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -372,12 +381,35 @@ func (s *Store) StepTurn(ctx context.Context, id string) (StepTurnEnd, bool, err
 	if err != nil {
 		return StepTurnEnd{}, false, fmt.Errorf("read turn end of step %s: %w", id, err)
 	}
-	if row.Background {
-		return StepTurnEnd{}, false, nil
-	}
 	return StepTurnEnd{
 		Seq: row.Seq, IsError: row.IsError != 0, Output: row.TurnOutput, Returned: row.Seq <= row.LoopSeq,
+		Background: row.Background,
 	}, true, nil
+}
+
+// StepBlocks returns the newest limit finished blocks the step id's session stored, oldest first. It returns none when
+// the session stored no block, and an error when limit is below 1 or a stored block does not decode.
+func (s *Store) StepBlocks(ctx context.Context, id string, limit int) ([]StepBlock, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("blocks of step %s: limit %d must be at least 1", id, limit)
+	}
+	rows, err := sqlcgen.New(s.db).ListStepBlocks(ctx, sqlcgen.ListStepBlocksParams{ID: id, Count: int64(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("read blocks of step %s: %w", id, err)
+	}
+	blocks := make([]StepBlock, len(rows))
+	for i, row := range rows {
+		var payload engineBlockPayload
+		if err = json.Unmarshal([]byte(row.Payload), &payload); err != nil {
+			return nil, fmt.Errorf("decode block of step %s: %w", id, err)
+		}
+		blocks[len(rows)-1-i] = StepBlock{At: time.Unix(row.At, 0), Block: EngineBlock{
+			ID: id, Kind: payload.Kind, Role: payload.Role, MessageID: payload.MessageID,
+			ParentToolUseID: payload.ParentToolUseID, Text: payload.Text, ToolUseID: payload.ToolUseID,
+			Name: payload.Name, Input: payload.Input, Content: payload.Content, IsError: payload.IsError,
+		}}
+	}
+	return blocks, nil
 }
 
 // OpenSteps returns every step row with no end, ordered by id.

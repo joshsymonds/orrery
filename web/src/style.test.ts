@@ -571,6 +571,11 @@ test("the four kinds fill the strip's and the pips' cells: passed green, now yel
   }
 });
 
+test("StripAgreesOrrery: the accepted kind fills the strip's cells teal, as the orrery's accepted wedge is drawn", () => {
+  assert.match(declarationsFor(css, ".k-accepted"), /--k:\s*var\(--teal\);/);
+  assert.match(declarationsFor(css, ".strip i.k-accepted"), /background:\s*var\(--k\);/);
+});
+
 // The now cells glow from a pseudo-element, so the glow's animation sits on the ::before rule, not the cell.
 const nowCells = [".strip i.k-now", ".pips i.k-now"];
 

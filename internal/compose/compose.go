@@ -80,8 +80,10 @@ func Compose(ctx context.Context, repo, base string, tasks []Task, ref string) (
 	return result, nil
 }
 
-// composeTasks walks tasks in order. A task built on another base is left out, as is one whose changed paths overlap a
-// path an earlier composed task changed. Every other task becomes a commit on the candidate so far.
+// composeTasks walks tasks in order. A task's changed paths are those from the commit it was built on to its revision.
+// A task built on another commit than the batch base is left out, unless that commit is an ancestor of the batch base
+// and none of the task's changed paths was changed between the two (see baseCovers). A task whose changed paths overlap
+// a path an earlier composed task changed is left out too. Every other task becomes a commit on the candidate so far.
 func composeTasks(ctx context.Context, repo, batchBase, index string, tasks []Task) (Result, error) {
 	result := Result{
 		Base:      batchBase,
@@ -91,20 +93,33 @@ func composeTasks(ctx context.Context, repo, batchBase, index string, tasks []Ta
 	}
 	owners := make([]owner, 0)
 	for _, task := range tasks {
-		if task.Base != batchBase {
-			result.LeftOut = append(result.LeftOut, LeftOut{
-				Seq:    task.Seq,
-				Reason: fmt.Sprintf("T%d was built on %s, not on the batch base %s", task.Seq, task.Base, batchBase),
-			})
+		builtOn := LeftOut{
+			Seq:    task.Seq,
+			Reason: fmt.Sprintf("T%d was built on %s, not on the batch base %s", task.Seq, task.Base, batchBase),
+		}
+		base, ok, err := taskBase(ctx, repo, batchBase, task.Base)
+		if err != nil {
+			return Result{}, fmt.Errorf("base of T%d: %w", task.Seq, err)
+		}
+		if !ok {
+			result.LeftOut = append(result.LeftOut, builtOn)
 			continue
 		}
 		revision, err := resolveCommit(ctx, repo, task.Revision)
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve T%d revision: %w", task.Seq, err)
 		}
-		paths, err := changedPaths(ctx, repo, batchBase, revision)
+		paths, err := changedPaths(ctx, repo, base, revision)
 		if err != nil {
 			return Result{}, fmt.Errorf("changed paths of T%d: %w", task.Seq, err)
+		}
+		covers, err := baseCovers(ctx, repo, base, batchBase, paths)
+		if err != nil {
+			return Result{}, fmt.Errorf("paths changed since the base of T%d: %w", task.Seq, err)
+		}
+		if !covers {
+			result.LeftOut = append(result.LeftOut, builtOn)
+			continue
 		}
 		if reason, overlapped := overlapReason(task.Seq, paths, owners); overlapped {
 			result.LeftOut = append(result.LeftOut, LeftOut{Seq: task.Seq, Reason: reason})
@@ -121,6 +136,60 @@ func composeTasks(ctx context.Context, repo, batchBase, index string, tasks []Ta
 		}
 	}
 	return result, nil
+}
+
+// taskBase returns the commit a task built on base takes its changed paths from, and whether that commit can be
+// composed on batchBase at all: batchBase itself, or the commit base names when it is an ancestor of batchBase. A base
+// that names no commit, or a commit that is not an ancestor of batchBase, cannot.
+func taskBase(ctx context.Context, repo, batchBase, base string) (string, bool, error) {
+	if base == batchBase {
+		return batchBase, true, nil
+	}
+	commit, ok := commitOf(ctx, repo, base)
+	if !ok {
+		return "", false, nil
+	}
+	ancestor, err := isAncestor(ctx, repo, commit, batchBase)
+	if err != nil {
+		return "", false, err
+	}
+	return commit, ancestor, nil
+}
+
+// baseCovers reports whether laying paths, a task's changed paths from base, over batchBase keeps every change made
+// between base and batchBase: base is batchBase, or no path changed between the two equals, holds or lies under one of
+// paths.
+func baseCovers(ctx context.Context, repo, base, batchBase string, paths []string) (bool, error) {
+	if base == batchBase {
+		return true, nil
+	}
+	since, err := changedPaths(ctx, repo, base, batchBase)
+	if err != nil {
+		return false, err
+	}
+	for _, path := range paths {
+		for _, changed := range since {
+			if pathsOverlap(path, changed) {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
+
+// isAncestor reports whether ancestor is an ancestor of commit, or commit itself. It returns an error when git fails
+// for another reason than the answer no.
+func isAncestor(ctx context.Context, repo, ancestor, commit string) (bool, error) {
+	_, err := runGit(ctx, repo, nil, nil, "merge-base", "--is-ancestor", ancestor, commit)
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &exitErr) && exitErr.ExitCode() == 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("check that %s is an ancestor of %s: %w", ancestor, commit, err)
+	}
 }
 
 // changedPaths returns the paths that differ between from and to.
@@ -315,6 +384,12 @@ func Advance(ctx context.Context, repo, branchRef, to, from string) error {
 		return fmt.Errorf("advance branch: %w", err)
 	}
 	return nil
+}
+
+// commitOf returns the full id of the commit that value names, and false when value names none.
+func commitOf(ctx context.Context, repo, value string) (string, bool) {
+	commit, err := resolveCommit(ctx, repo, value)
+	return commit, err == nil
 }
 
 // resolveCommit returns the full id of the commit that value names.

@@ -330,6 +330,47 @@ public  final class EpicSession extends
     at_ = 0L;
   }
 
+  public static final int CREATOR_FIELD_NUMBER = 6;
+  private boolean creator_;
+  /**
+   * <pre>
+   * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+   * creator.
+   * </pre>
+   *
+   * <code>bool creator = 6 [json_name = "creator"];</code>
+   * @return The creator.
+   */
+  @java.lang.Override
+  public boolean getCreator() {
+    return creator_;
+  }
+  /**
+   * <pre>
+   * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+   * creator.
+   * </pre>
+   *
+   * <code>bool creator = 6 [json_name = "creator"];</code>
+   * @param value The creator to set.
+   */
+  private void setCreator(boolean value) {
+    
+    creator_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+   * creator.
+   * </pre>
+   *
+   * <code>bool creator = 6 [json_name = "creator"];</code>
+   */
+  private void clearCreator() {
+
+    creator_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicSession parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -747,6 +788,49 @@ public  final class EpicSession extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+     * creator.
+     * </pre>
+     *
+     * <code>bool creator = 6 [json_name = "creator"];</code>
+     * @return The creator.
+     */
+    @java.lang.Override
+    public boolean getCreator() {
+      return instance.getCreator();
+    }
+    /**
+     * <pre>
+     * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+     * creator.
+     * </pre>
+     *
+     * <code>bool creator = 6 [json_name = "creator"];</code>
+     * @param value The creator to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCreator(boolean value) {
+      copyOnWrite();
+      instance.setCreator(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the session created the epic: its epic_create call created it. A session that called later is not the
+     * creator.
+     * </pre>
+     *
+     * <code>bool creator = 6 [json_name = "creator"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCreator() {
+      copyOnWrite();
+      instance.clearCreator();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicSession)
   }
   @java.lang.Override
@@ -768,10 +852,11 @@ public  final class EpicSession extends
             "label_",
             "call_",
             "at_",
+            "creator_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0002";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

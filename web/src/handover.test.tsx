@@ -6,7 +6,7 @@ import { render } from "preact";
 
 import { Handover } from "./handover";
 import { type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 
 function detail(init: MessageInitShape<typeof EpicsGetResponseSchema>): EpicsGetResponse {
   return create(EpicsGetResponseSchema, init);
@@ -135,7 +135,7 @@ test("an epic that ended with gaps draws its phase, its verdicts, and its ledger
       assert.deepEqual(paragraphsOf(verdicts[1]), ["step rv-2"], "a verdict with no reason draws no reason paragraph");
 
       const ledger = sectionOf(container, "LEDGER");
-      assert.equal(ledger?.querySelector("h3.eyebrow > span.sub"), null);
+      assertNone(ledger?.querySelector("h3.eyebrow > span.sub"));
       const findings = itemsOf(ledger);
       assert.equal(findings.length, 2);
       assert.deepEqual(spansOf(findings[0]), ["security-1", "security", "confirmed"]);

@@ -1,7 +1,9 @@
 import { Component, createElement, type ComponentChildren, type JSX } from "preact";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
+import { EventRing, epicEventOf } from "./eventring";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
@@ -23,10 +25,13 @@ const toolRunMinimum = 3;
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
 // fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
-// it and no question drawn, carries the running rail and mark, and so does a run that holds one.
+// it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
+// epic is never in a run: once its result is not an error, and the reader is given epic calls, the epic's card draws in
+// its place.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. A prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
+// a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. Any
+// other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
 // With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
@@ -47,6 +52,7 @@ export function Reader({
   onToggleOpen,
   onOlder,
   sending = [],
+  epicCalls,
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -57,6 +63,7 @@ export function Reader({
   onToggleOpen?: () => void;
   onOlder?: () => void;
   sending?: Sending[];
+  epicCalls?: EpicCalls;
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -89,6 +96,16 @@ export function Reader({
   toggle.current = onToggleOpen;
   const toggleOpen = useCallback(() => toggle.current?.(), []);
   const rowToggle = onToggleOpen === undefined ? undefined : toggleOpen;
+  // The rows reach the epic calls through rowCalls, which carries the tick of the caller's calls and passes each call to
+  // the calls of the latest render. It is made again only when the tick changes or the calls come or go, so a caller's
+  // new calls object at the same tick does not make a card or ring row draw again, while a new tick does, and the card
+  // reads its epic then.
+  const latestCalls = useRef(epicCalls);
+  latestCalls.current = epicCalls;
+  const rowCalls = useMemo(
+    () => (epicCalls === undefined ? undefined : callsAt(latestCalls, epicCalls)),
+    [epicCalls?.tick],
+  );
   // The position is read before this render changes the DOM, so it is where the reader sat before the new items. A size
   // change the observer has not reported yet is not in that reading, so the observer follows it.
   const element = root.current;
@@ -192,6 +209,7 @@ export function Reader({
         open={open && items[first].kind === "compaction"}
         step={step}
         onToggleOpen={rowToggle}
+        epicCalls={rowCalls}
       />,
     );
   });
@@ -351,15 +369,25 @@ interface ItemRowProps {
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  epicCalls?: EpicCalls;
 }
 
-function ItemRow({ item, result, running, open, step, onToggleOpen }: ItemRowProps) {
-  // Its row carries the owner-turn class, which sets the gap above it.
+function ItemRow({ item, result, running, open, step, onToggleOpen, epicCalls }: ItemRowProps) {
+  // Its row carries the owner-turn class, which sets the gap above it, unless the row is an epic's event ring.
+  const ringed = item.kind === "prompt" && epicCalls !== undefined && epicEventOf(item.text) !== null;
   return (
-    <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
+    <div class={ownersTurn(item, step) && !ringed ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
-        <ItemBody item={item} result={result} running={running} open={open} step={step} onToggleOpen={onToggleOpen} />
+        <ItemBody
+          item={item}
+          result={result}
+          running={running}
+          open={open}
+          step={step}
+          onToggleOpen={onToggleOpen}
+          epicCalls={epicCalls}
+        />
       </div>
     </div>
   );
@@ -369,8 +397,8 @@ function ItemRow({ item, result, running, open, step, onToggleOpen }: ItemRowPro
 const MemoItemRow = memo(ItemRow, sameItemRow);
 
 // sameItemRow is whether new props draw the row the old ones drew: the same item, result, running and open state and
-// toggle, and a step that reads the same. An item or result is compared by its object, which the held items keep from
-// one delta to the next.
+// toggle, a step that reads the same, and the same epic calls when the row reads them. An item or result is compared by
+// its object, which the held items keep from one delta to the next.
 function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
   return (
     previous.item === next.item &&
@@ -378,8 +406,33 @@ function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
     previous.running === next.running &&
     previous.open === next.open &&
     previous.onToggleOpen === next.onToggleOpen &&
-    sameStep(previous.step, next.step)
+    sameStep(previous.step, next.step) &&
+    (previous.epicCalls === next.epicCalls || !readsEpicCalls(next.item))
   );
+}
+
+// readsEpicCalls is whether a row of item draws from the epic calls: a prompt whose text is an epic's event block, which
+// draws as the event's ring, or a call that creates an epic, which draws its epic's card. Every other row reads nothing
+// of them, so the calls it is given do not change it.
+function readsEpicCalls(item: ConversationItem): boolean {
+  if (item.kind === "prompt") {
+    return epicEventOf(item.text) !== null;
+  }
+  return (item.kind === "tool" || item.kind === "question") && item.epic !== "";
+}
+
+// callsAt makes epic calls at the tick of made that pass each call to the calls latest holds when the call is made, or to
+// made once latest holds none. A row holding them reaches the caller's latest calls without drawing again.
+function callsAt(latest: { current: EpicCalls | undefined }, made: EpicCalls): EpicCalls {
+  const current = (): EpicCalls => latest.current ?? made;
+  return {
+    get: (id) => current().get(id),
+    pause: (id) => current().pause(id),
+    resume: (id) => current().resume(id),
+    answer: (id, question, choice, text) => current().answer(id, question, choice, text),
+    openEpic: (id) => current().openEpic(id),
+    tick: made.tick,
+  };
 }
 
 // sameStep is whether two steps read the same to a row: both absent, or both present with checks that match in order by
@@ -418,6 +471,7 @@ function ItemBody({
   open,
   step,
   onToggleOpen,
+  epicCalls,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -425,9 +479,16 @@ function ItemBody({
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
+  epicCalls?: EpicCalls;
 }) {
   switch (item.kind) {
     case "prompt":
+      if (epicCalls !== undefined) {
+        const event = epicEventOf(item.text);
+        if (event !== null) {
+          return <EventRing event={event} calls={epicCalls} />;
+        }
+      }
       if (item.sender === "event") {
         return (
           <div class="event">
@@ -446,8 +507,14 @@ function ItemBody({
         </div>
       );
     case "tool":
-    case "question":
+    case "question": {
+      // An epic call whose result is not an error draws its epic's card in place of its row, when the reader holds
+      // epic calls.
+      if (item.epic !== "" && epicCalls !== undefined && result !== undefined && !result.error) {
+        return <EpicWidget epic={item.epic} calls={epicCalls} />;
+      }
       return <CallRow item={item} result={result} running={running} />;
+    }
     case "notice":
       return (
         <div class={item.error ? "notice err" : "notice"}>
@@ -801,7 +868,8 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
 
 // groupRows lists the rows a reader draws as the indices of their items, in order. A run of toolRunMinimum or more tool
 // calls with only results between them is one row; every other item is a row of its own, and a result is in none. A
-// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex.
+// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex. A
+// tool call that creates an epic is never in a run: it is a row of its own, and the calls either side of it fold apart.
 function groupRows(items: ConversationItem[], newIndex: number): number[][] {
   const rows: number[][] = [];
   let run: number[] = [];
@@ -813,14 +881,15 @@ function groupRows(items: ConversationItem[], newIndex: number): number[][] {
     }
     run = [];
   };
+  const foldable = (item: ConversationItem) => item.kind === "tool" && item.epic === "";
   items.forEach((item, index) => {
     if (item.kind === "result") {
       return;
     }
-    if (index === newIndex || item.kind !== "tool") {
+    if (index === newIndex || !foldable(item)) {
       endRun();
     }
-    if (item.kind === "tool") {
+    if (foldable(item)) {
       run.push(index);
     } else {
       rows.push([index]);

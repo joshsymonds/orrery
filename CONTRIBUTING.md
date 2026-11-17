@@ -1,10 +1,10 @@
 # Contributing to orrery
 
-This file explains how to work on orrery as the tree stands: the dev shell, the `just` targets, the lint and coverage standard, the pre-push hook and CI, generated code, the remote gate box, the test conventions, and how fixtures are recorded. The commands named here are recipes in `justfile`, scripts in `scripts/`, or tools the dev shell provides. Running `just` with no argument lists the recipes.
+This file explains how to work on orrery as the tree stands: the dev shell, the `just` targets, the lint and coverage standard, CI, generated code, the remote gate box, the test conventions, and how fixtures are recorded. The commands named here are recipes in `justfile`, scripts in `scripts/`, or tools the dev shell provides. Running `just` with no argument lists the recipes.
 
 ## Dev shell
 
-The Go toolchain comes from a devenv shell. `devenv.nix` imports `devenv-base.nix` and `githooks.nix`, and `devenv.yaml` pins nixpkgs. Enter the shell with:
+The Go toolchain comes from a devenv shell. `devenv.nix` imports `devenv-base.nix`, and `devenv.yaml` pins nixpkgs. Enter the shell with:
 
 ```bash
 devenv shell
@@ -24,8 +24,6 @@ scripts/in-devenv -c "go test ./internal/store/..."
 
 The script regenerates that snapshot with `devenv print-dev-env` when the snapshot is missing or older than `devenv.yaml`, `devenv.lock` or a top-level `*.nix` file. `scripts/in-devenv --refresh` and `just refresh-env` regenerate it unconditionally. The justfile sets `scripts/in-devenv` as its shell, so every recipe runs in the devenv environment. `just check` therefore works without an entered shell, as long as `just` and `devenv` are on `PATH`.
 
-Loading the environment, by entering the shell or running any recipe, sets `core.hooksPath` to `.githooks` in the clone's shared git config. That is what turns on the pre-push hook for every worktree.
-
 The flake's only dev shell is `.#android`, for `x86_64-linux`. It holds the Android SDK (platform 37.0, build-tools 36.0.0, platform-tools 37.0.1), Gradle 9 and JDK 17. `just android-test` and `just android-install` enter it themselves. Use `nix develop .#android` to work in it directly.
 
 The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.nix`, and the two must match. `just bump-nix [REF]` moves both literals, refreshes both locks with their own tools, regenerates the snapshot and runs `pin-check`. Do not edit the locks by hand. `pin-check` compares the two lock files with each other. It does not compare the two literals.
@@ -34,7 +32,7 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 
 ### Gate
 
-- `just check` is the full gate. It runs, in order: `reap-test-tmux`, `pin-check`, `doc-cites`, `lint`, `proto-lint`, `proto-breaking`, `cover`, `sqlc-diff`, `gen-diff`, `web-check`, `web-page`, `alert-check`, `gate-remote-test` and `test-deadline-test`. Run it before you push. The pre-push hook runs it, and CI runs it.
+- `just check` is the full gate. It runs, in order: `reap-test-tmux`, `pin-check`, `doc-cites`, `lint`, `proto-lint`, `proto-breaking`, `cover`, `sqlc-diff`, `gen-diff`, `web-check`, `web-page`, `alert-check`, `gate-remote-test` and `test-deadline-test`. Run it when you want the whole gate; nothing runs it on push. CI runs it.
 - `just check-changed [BASE]` is the fast gate for work in progress. It runs only what the changes since `BASE` can affect. `BASE` defaults to the merge base of `HEAD` and `origin/main`. Go lint and race tests run on the packages that changed and on every package that imports them. A change to `go.mod`, `go.sum`, `sqlc.yaml`, `internal/store` SQL or `proto/` selects every package. `sqlc-diff`, the proto checks, `gen-diff`, the web checks, `alert-check`, `android-test` (when `android/` or `proto/` changed) and the two script self-tests run when their inputs changed. `pin-check` always runs. It does not measure coverage.
 - `just lint` runs `golangci-lint run` on the whole tree. See [Lint and coverage](#lint-and-coverage).
 - `just cover` runs the tests with the race detector and fails below 80% total coverage. See [Lint and coverage](#lint-and-coverage).
@@ -105,11 +103,9 @@ Formatting is part of the same configuration. `goimports` groups imports from `g
 
 The run has a wall-clock budget of 360 seconds, set by `TEST_BUDGET` at the top of `justfile`. `scripts/test-deadline.sh` gives each test binary a `-test.timeout` that ends 10 seconds before the budget does, so a package still running then panics and names its running tests. A run that passes the budget fails with `tests exceeded 360s budget`. Override the budget for one run with `just TEST_BUDGET=600 cover`. The coverage profile is written to `coverage.out` and `coverage.cov.out`, and each test's artifacts to `test-artifacts/`. All three are git-ignored.
 
-## Pre-push hook and CI
+## CI
 
-`.githooks/pre-push` runs `.githooks/run-check.sh`, which runs `just check` from the top of the worktree. When the check fails, the script prints a message and exits 1. The hook takes no lock, so do not start another heavy job while a push is running.
-
-The push is the checked boundary. There is no pre-commit hook, so commits are not checked. The hook runs `just check` only. It does not run `nix flake check` or `just android-test`.
+There are no git hooks: neither a commit nor a push runs a check. Run `just check-changed`, `just check` or `just remote-check` when you want them; an epic's gates run them for its tasks and its candidate.
 
 CI is `.github/workflows/ci.yml`. It runs on pushes to `main` and on every pull request, as three jobs that run in parallel:
 

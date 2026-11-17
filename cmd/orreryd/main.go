@@ -107,7 +107,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR]
+               [--holder-scope PATH] [--holder-scope-memory SIZE] [--step-cap N] [--metrics-listen ADDR]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -125,6 +125,9 @@ flags:
   --holder-scope PATH
                     systemd-run binary that runs each session's holder in its own user scope
                     (default: none, the holder starts plainly)
+  --holder-scope-memory SIZE
+                    memory cap of each holder's scope, with no swap past it: bytes, or a whole
+                    number with K, M, G or T (powers of 1024) (default 8G)
   --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
   --metrics-listen ADDR
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
@@ -156,6 +159,7 @@ type options struct {
 	sessionCap      int
 	sessionShell    string
 	holderScope     string
+	scopeMemory     int64 // the --holder-scope-memory cap of each holder's scope, in bytes
 	stepCap         int
 	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	writeTick       time.Duration           // the --write-tick test seam's engine writer tick, 0 for the writer's own
@@ -377,6 +381,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
+	scopeMemory := scopeMemoryFlag(flags)
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
@@ -431,6 +436,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
 		holderScope:   *holderScope,
+		scopeMemory:   *scopeMemory,
 		stepCap:       *stepCap,
 		judgeDelay:    *judgeDelay,
 		writeTick:     *writeTick,
@@ -889,37 +895,39 @@ func startSessions(
 		})
 		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
-			Shell:       opts.sessionShell,
-			Claude:      opts.claude,
-			Environ:     childEnviron,
-			HolderScope: opts.holderScope,
-			StateDir:    stateDir,
-			ManagedDir:  managedDir,
-			Cap:         opts.sessionCap,
-			StepCap:     opts.stepCap,
-			Writer:      host.writer,
-			Notifier:    notifier,
-			Store:       st,
-			Logger:      logger,
-			Metrics:     opts.metrics,
+			Shell:             opts.sessionShell,
+			Claude:            opts.claude,
+			Environ:           childEnviron,
+			HolderScope:       opts.holderScope,
+			HolderScopeMemory: opts.scopeMemory,
+			StateDir:          stateDir,
+			ManagedDir:        managedDir,
+			Cap:               opts.sessionCap,
+			StepCap:           opts.stepCap,
+			Writer:            host.writer,
+			Notifier:          notifier,
+			Store:             st,
+			Logger:            logger,
+			Metrics:           opts.metrics,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		resolve := planner.NewResolver(os.Environ(), managedDir)
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
-			Sessions:     host.manager,
-			Store:        st,
-			Writer:       host.writer,
-			Pools:        host.pools,
-			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
-			Environ:      childEnviron,
-			Logger:       logger,
-			Haiku:        haiku,
-			GateStateDir: filepath.Join(stateDir, "gates"),
-			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, resolve),
-			ReadoptGate:  readoptGate(st),
+			Sessions:        host.manager,
+			Store:           st,
+			Writer:          host.writer,
+			Pools:           host.pools,
+			Worktrees:       filepath.Join(stateDir, "step-worktrees"),
+			Environ:         childEnviron,
+			Logger:          logger,
+			Haiku:           haiku,
+			GateStateDir:    filepath.Join(stateDir, "gates"),
+			GateScope:       opts.holderScope,
+			GateScopeMemory: opts.scopeMemory,
+			ReadoptCheck:    readoptCheck(st, resolve),
+			ReadoptGate:     readoptGate(st),
 		})
 		if err != nil {
 			host.stopBroker()
@@ -932,9 +940,9 @@ func startSessions(
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startCallerEvents(ctx, st, opts, logger)
-		host.startEvidence(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
+		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, childEnviron, logger)
+		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startSummaries(ctx, st, haiku, logger)
@@ -1129,23 +1137,26 @@ func sessionState(getenv func(string) string) (string, []string, error) {
 
 // startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
 // stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
-// them up is logged and serving goes on. Its gates run in environ.
+// them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
+// name.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
-	stateDir, holderScope string,
+	stateDir string,
+	opts options,
 	environ []string,
 	logger *slog.Logger,
 ) {
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
-		Store:        st,
-		Steps:        h.steps,
-		Pools:        h.pools,
-		Environ:      environ,
-		StateDir:     stateDir,
-		GateStateDir: filepath.Join(stateDir, "gates"),
-		GateScope:    holderScope,
-		Logger:       logger,
+		Store:           st,
+		Steps:           h.steps,
+		Pools:           h.pools,
+		Environ:         environ,
+		StateDir:        stateDir,
+		GateStateDir:    filepath.Join(stateDir, "gates"),
+		GateScope:       opts.holderScope,
+		GateScopeMemory: opts.scopeMemory,
+		Logger:          logger,
 	})
 	if err := h.evidence.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
@@ -1154,22 +1165,24 @@ func (h *sessionHost) startEvidence(
 
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
-// serving goes on. Its gates run in environ.
+// serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
-	stateDir, holderScope string,
+	stateDir string,
+	opts options,
 	environ []string,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
-		Store:        st,
-		Pools:        h.pools,
-		Environ:      environ,
-		StateDir:     stateDir,
-		GateStateDir: filepath.Join(stateDir, "gates"),
-		GateScope:    holderScope,
-		Logger:       logger,
+		Store:           st,
+		Pools:           h.pools,
+		Environ:         environ,
+		StateDir:        stateDir,
+		GateStateDir:    filepath.Join(stateDir, "gates"),
+		GateScope:       opts.holderScope,
+		GateScopeMemory: opts.scopeMemory,
+		Logger:          logger,
 	})
 	if err := h.checks.Resume(ctx); err != nil {
 		logger.ErrorContext(ctx, "resume node checks, serving anyway", "error", err)

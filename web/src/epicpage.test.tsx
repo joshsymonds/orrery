@@ -9,6 +9,7 @@ import { type EpicCommands, EpicPage } from "./epicpage";
 import type { LoadArtifact } from "./evidence";
 import { type EpicsGetResponse, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { installTestDom, removeTestDom } from "./testdom";
+import type { TalkTarget } from "./talk";
 
 type Props = Parameters<typeof EpicPage>[0];
 
@@ -119,6 +120,7 @@ async function withPage(
     commands: recorder().commands,
     numberKeys: true,
     onOpenContract: () => {},
+    onOpenSession: () => {},
     onBack: () => {},
     ...extra,
   };
@@ -244,6 +246,20 @@ test("a paused epic shows its state as paused, with Resume and Stop", async () =
   });
 });
 
+// orrerydEpic is a live orreryd epic in accepted: its outcome is its phase. Each test names the phase it changes.
+const orrerydEpic = { ...liveEpic, source: "orreryd", outcome: "accepted" };
+
+test("LiveControls: an accepted orreryd epic shows Pause and Stop, and reads planning with no task, then building", async () => {
+  await withPage(detail({ ...build, buildTasks: [], epic: orrerydEpic }), (container) => {
+    assert.equal(textOf(container, ".title-row .state"), "planning");
+    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Pause", "Stop…"]);
+  });
+  await withPage(detail({ ...build, epic: orrerydEpic }), (container) => {
+    assert.equal(textOf(container, ".title-row .state"), "building");
+    assert.deepEqual(textsOf(container, ".title-row .acts > *"), ["Pause", "Stop…"]);
+  });
+});
+
 test("an epic that is not live, or has an outcome, offers no command", async () => {
   for (const epic of [
     { ...liveEpic, live: false, outcome: "released" },
@@ -317,6 +333,61 @@ test("the summary opens the contract, and reads the contract's title when the ep
 test("the summary is absent without a contract", async () => {
   await withPage(detail({ ...build, summary: "Ship the demo" }), (container) => {
     assert.equal(has(container, ".summary"), false);
+  });
+});
+
+test("CreatorConversation: the line under the summary reads the creating session's label", async () => {
+  await withPage(
+    detail({
+      ...build,
+      summary: "Ship the demo",
+      contract: { title: "Show the accepted contract" },
+      sessions: [{ id: "s1", pane: "", label: "demo-repo", call: "epic_create", at: 9_000n, creator: true }],
+    }),
+    (container) => {
+      assert.equal(textOf(container, ".conversation"), "Conversation · demo-repo");
+      const sections = labelsOf(container, ".epic-page");
+      assert.equal(sections[sections.indexOf("summary") + 1], "summary conversation");
+    },
+  );
+});
+
+test("CreatorConversation: clicking the line opens the creator's target, the newest-call creator when two are marked", async () => {
+  const opened: TalkTarget[] = [];
+  await withPage(
+    detail({
+      ...build,
+      sessions: [
+        { id: "s1", pane: "%2", label: "first", call: "epic_create", at: 9_000n, creator: true },
+        { id: "s2", pane: "%7", label: "second", call: "epic_get", at: 9_500n, creator: true },
+        { id: "s3", pane: "", label: "reader", call: "epic_get", at: 9_800n, creator: false },
+      ],
+    }),
+    async (container) => {
+      assert.equal(textOf(container, ".conversation"), "Conversation · second");
+      await press(container, ".conversation");
+      assert.deepEqual(opened, [{ kind: "pane", id: "%7", label: "second" }]);
+    },
+    {
+      onOpenSession: (target) => {
+        opened.push(target);
+      },
+    },
+  );
+});
+
+test("CreatorConversation: no line shows when no listed session is the creator", async () => {
+  await withPage(
+    detail({
+      ...build,
+      sessions: [{ id: "s1", pane: "", label: "reader", call: "epic_get", at: 9_000n, creator: false }],
+    }),
+    (container) => {
+      assert.equal(has(container, ".conversation"), false);
+    },
+  );
+  await withPage(detail({ ...build }), (container) => {
+    assert.equal(has(container, ".conversation"), false);
   });
 });
 

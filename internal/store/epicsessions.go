@@ -86,8 +86,9 @@ func (s *Store) EpicCreator(ctx context.Context, epic string) (CallerSession, bo
 }
 
 // EpicSessionRow is one session that made a call of an epic: its newest call of the epic, the unix second it was made
-// at, and the session's kind, server, pane, label, dir, title and first prompt from its sessions row. Title is "" until
-// a title is stored, and FirstPrompt is the text of the session's oldest engine_prompt event, or "" when it has none.
+// at, whether the session created the epic, and the session's kind, server, pane, label, dir, title and first prompt
+// from its sessions row. Title is "" until a title is stored, and FirstPrompt is the text of the session's oldest
+// engine_prompt event, or "" when it has none.
 type EpicSessionRow struct {
 	Session     string
 	Kind        string
@@ -99,6 +100,7 @@ type EpicSessionRow struct {
 	FirstPrompt string
 	Call        string
 	At          int64
+	Creator     bool
 }
 
 // EpicSessions returns the sessions that made a call of epic and that the sessions table still holds, newest call
@@ -141,6 +143,7 @@ func readEpicSessions(ctx context.Context, db *sql.DB, epic string) ([]EpicSessi
 		listed = append(listed, EpicSessionRow{
 			Session: row.Session, Kind: row.Kind, Server: row.Server, Pane: row.Pane, Label: row.Label,
 			Dir: row.Dir, Title: row.Title, FirstPrompt: row.FirstPrompt, Call: row.Call, At: row.At,
+			Creator: row.Creator != 0,
 		})
 	}
 	return listed, nil

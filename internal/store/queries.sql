@@ -337,6 +337,12 @@ WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_turn_ended'
 ORDER BY events.seq DESC
 LIMIT 1;
 
+-- name: ListStepBlocks :many
+SELECT at, payload FROM events
+WHERE session_id = sqlc.arg(id) AND kind = 'engine_block'
+ORDER BY seq DESC
+LIMIT sqlc.arg(count);
+
 -- name: UpdateStepWatch :exec
 UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
@@ -1133,7 +1139,7 @@ SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, se
            WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
            ORDER BY events.seq LIMIT 1
        ), '') AS TEXT) AS first_prompt,
-       epic_sessions.call, epic_sessions.at
+       epic_sessions.call, epic_sessions.at, epic_sessions.creator
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?

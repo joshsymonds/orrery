@@ -4570,7 +4570,7 @@ SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, se
            WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
            ORDER BY events.seq LIMIT 1
        ), '') AS TEXT) AS first_prompt,
-       epic_sessions.call, epic_sessions.at
+       epic_sessions.call, epic_sessions.at, epic_sessions.creator
 FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?
@@ -4588,6 +4588,7 @@ type ListEpicSessionsRow struct {
 	FirstPrompt string
 	Call        string
 	At          int64
+	Creator     int64
 }
 
 func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpicSessionsRow, error) {
@@ -4610,6 +4611,7 @@ func (q *Queries) ListEpicSessions(ctx context.Context, epic string) ([]ListEpic
 			&i.FirstPrompt,
 			&i.Call,
 			&i.At,
+			&i.Creator,
 		); err != nil {
 			return nil, err
 		}
@@ -6626,6 +6628,46 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Headline,
 			&i.HeadlineAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStepBlocks = `-- name: ListStepBlocks :many
+SELECT at, payload FROM events
+WHERE session_id = ?1 AND kind = 'engine_block'
+ORDER BY seq DESC
+LIMIT ?2
+`
+
+type ListStepBlocksParams struct {
+	ID    string
+	Count int64
+}
+
+type ListStepBlocksRow struct {
+	At      int64
+	Payload string
+}
+
+func (q *Queries) ListStepBlocks(ctx context.Context, arg ListStepBlocksParams) ([]ListStepBlocksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listStepBlocks, arg.ID, arg.Count)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStepBlocksRow
+	for rows.Next() {
+		var i ListStepBlocksRow
+		if err := rows.Scan(&i.At, &i.Payload); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

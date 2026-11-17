@@ -5,7 +5,8 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { options, render } from "preact";
 import { act } from "preact/test-utils";
 
-import { EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { EpicCalls } from "./card";
+import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -19,7 +20,8 @@ import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
 import type { Sending } from "./sending";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
+import { turn } from "./testwait";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -708,6 +710,96 @@ test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt
       assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
       assert.equal(container.querySelector("button.fold") === null, true, "the event is not an engine fold");
       assert.equal(container.querySelector(".card") === null, true, "the event is not a send-back card");
+    },
+  ));
+
+// ringEpic is the epic the event blocks in the EventRing tests name.
+const ringEpic = "orrery-1a2b3c4/planner-runner";
+
+// eventText is the block an epic's event carries, as the server writes it.
+function eventText(kind: string, tail: string): string {
+  return `<orrery-event kind="${kind}" id="epic:${ringEpic}:${tail}">\nEpic ${ringEpic} (Plan the runner) is done.\n</orrery-event>`;
+}
+
+// ringCalls are the epic calls an event ring reads through. The epic reads as one with no open question, so a question
+// event draws its settled line.
+function ringCalls(): EpicCalls {
+  const reading = create(EpicsGetResponseSchema, {
+    epic: create(EpicSchema, { id: ringEpic, slug: "planner-runner" }),
+  });
+  return {
+    get: async () => reading,
+    pause: () => Promise.resolve(),
+    resume: () => Promise.resolve(),
+    answer: async () => "",
+    openEpic: () => {},
+    tick: 1,
+  };
+}
+
+// withEventReader draws the reader over items with the ring's epic calls, lets the ring's read settle inside act, runs
+// check on the container, then removes the DOM.
+async function withEventReader(items: ConversationItem[], check: (container: HTMLElement) => void): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    await act(() => {
+      render(
+        <Reader conversation={conversation({ items })} seenAt={10_000} open={false} epicCalls={ringCalls()} />,
+        container,
+      );
+    });
+    await act(turn);
+    check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
+}
+
+test("EventRing: an orrery-event prompt of each kind draws one ringed line and no EVENT block", async () => {
+  for (const [kind, tail] of [
+    ["question", "Q1"],
+    ["park", "Q1"],
+    ["release", "released"],
+    ["end", "done"],
+  ]) {
+    await withEventReader(
+      [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
+      (container) => {
+        assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
+        assertNone(container.querySelector(".event"), `a ${kind} event is not an EVENT row`);
+        const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
+        assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);
+      },
+    );
+  }
+});
+
+test("EventRing: a pane prompt with the same text draws the ring too, and its row takes no owner's-turn gap", () =>
+  withEventReader(
+    [item({ kind: "prompt", time: 100n, text: eventText("release", "released") })],
+    (container) => {
+      assert.equal(container.querySelectorAll(".ring-line").length, 1, "the pane prompt draws its ring");
+      assertNone(container.querySelector(".you"), "the pane prompt is not YOU");
+      assertNone(container.querySelector(".t.owner-turn"), "the ring's row is not the owner's turn");
+    },
+  ));
+
+test("EventRing: an orrery-event prompt draws its EVENT row when the reader holds no epic calls", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", text: eventText("release", "released") })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assertNone(container.querySelector(".ring-line"), "without epic calls the event draws no ring");
+      assert.equal(container.querySelector(".t > .body > .event > small")?.textContent, "EVENT");
     },
   ));
 
@@ -1605,9 +1697,9 @@ test("ToolTrail: the same items drawn with a question carry no running class or 
     (container) => {
       const fold = foldOf(container);
       assert.equal(fold.classList.contains("running"), false, "the fold carries no running class");
-      assert.equal(fold.querySelector(".running-mark"), null, "the fold carries no running mark");
-      assert.equal(container.querySelector(".running"), null, "no line of the reader is running");
-      assert.equal(container.querySelector(".running-mark"), null);
+      assertNone(fold.querySelector(".running-mark"), "the fold carries no running mark");
+      assertNone(container.querySelector(".running"), "no line of the reader is running");
+      assertNone(container.querySelector(".running-mark"));
     },
   ));
 
@@ -1913,7 +2005,7 @@ test("a sending entry draws a dimmed row marked sending after the items, and the
       assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
       assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
       assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
-      assert.equal(container.querySelector(".gut.sending"), null, "nothing is marked sending");
+      assertNone(container.querySelector(".gut.sending"), "nothing is marked sending");
     },
   );
 });
@@ -1930,7 +2022,7 @@ test("TurnRhythm: a reply is drawn with no rail or surface class on its row, its
       assert.ok(row !== null, "the reply is a row of the reader");
       assert.equal(row.className, "t", "the row carries no owner-turn or surface class");
       assert.equal(row.querySelector(".body")?.className, "body", "the body carries no rail or surface class");
-      assert.equal(row.querySelector(".you, .card, .question-card, .fold, .summary"), null, "no surface inside");
+      assertNone(row.querySelector(".you, .card, .question-card, .fold, .summary"), "no surface inside");
       assert.ok(row.querySelector(".reply") !== null, "the text draws as a reply");
     },
   ));
@@ -1975,8 +2067,8 @@ test("TurnRhythm: the compaction rule and the since-you-looked rule are rows, di
       const since = container.querySelector(".rule.new")?.closest(".t");
       assert.ok(compaction !== null && compaction !== undefined, "the compaction rule is in a row");
       assert.ok(since !== null && since !== undefined, "the since-you-looked rule is in a row");
-      assert.equal(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
-      assert.equal(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
+      assertSame(compaction.parentElement, reader, "the compaction row is a direct child of .reader");
+      assertSame(since.parentElement, reader, "the since-you-looked row is a direct child of .reader");
     },
   ));
 

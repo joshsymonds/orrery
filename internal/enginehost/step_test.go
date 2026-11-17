@@ -175,6 +175,9 @@ func TestStepsStartRefusesBadInputAndStoresNothing(t *testing.T) {
 		{name: "owned path outside repository", mutate: func(s *StepStart) {
 			s.Owned = []string{"../outside.txt"}
 		}, want: ErrBadOwned},
+		{name: "writing step with no owned path", mutate: func(s *StepStart) {
+			s.Owned = nil
+		}, want: ErrBadOwned, text: "a writing step needs owned_paths"},
 		{
 			name:   "writing in main working tree",
 			mutate: func(s *StepStart) { s.Workspace = mainTree },

@@ -7,7 +7,7 @@ import { act } from "preact/test-utils";
 import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
 import { PickerPalette } from "./picker";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 const askPath = "/orrery.v1.Picker/Ask";
@@ -240,7 +240,7 @@ test("TitleParts: a folder row draws its directory and note, with no line", (t) 
     await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
     const [row] = rowButtons(container);
     assert.equal(row.querySelector(".picker-label .title-dir")?.textContent, "web", "the folder's directory");
-    assert.equal(row.querySelector(".picker-label .title-line"), null, "a folder row has no line");
+    assertNone(row.querySelector(".picker-label .title-line"), "a folder row has no line");
     assert.equal(row.querySelector(".picker-note")?.textContent, "start fresh");
   }));
 
@@ -256,7 +256,7 @@ test("TitleParts: no picker row shows a pane id, and a pane row with no listed p
     const [listed, unlisted] = rowButtons(container);
     assert.equal(listed.querySelector(".title-dir")?.textContent, "billing", "the listed pane's directory");
     assert.equal(unlisted.querySelector(".title-dir")?.textContent, "docs", "the unlisted pane's own directory");
-    assert.equal(unlisted.querySelector(".title-line"), null, "an unlisted pane with no label draws no line");
+    assertNone(unlisted.querySelector(".title-line"), "an unlisted pane with no label draws no line");
     for (const button of rowButtons(container)) {
       assert.equal(/%\d/.test(button.textContent ?? ""), false, "a row shows no pane id");
     }

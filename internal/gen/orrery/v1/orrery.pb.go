@@ -3488,7 +3488,10 @@ type ConversationItem struct {
 	Round uint32 `protobuf:"varint,12,opt,name=round,proto3" json:"round,omitempty"`
 	// The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
 	// not a headless prompt.
-	PromptId      string `protobuf:"bytes,13,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	PromptId string `protobuf:"bytes,13,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	// The id of the epic a tool item's call creates: the contract id of an epic_create call, or empty when the item is
+	// not an epic_create call or its contract names no id.
+	Epic          string `protobuf:"bytes,14,opt,name=epic,proto3" json:"epic,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3610,6 +3613,13 @@ func (x *ConversationItem) GetRound() uint32 {
 func (x *ConversationItem) GetPromptId() string {
 	if x != nil {
 		return x.PromptId
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetEpic() string {
+	if x != nil {
+		return x.Epic
 	}
 	return ""
 }
@@ -6194,7 +6204,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05items\x18\x02 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x12\n" +
 	"\x04goal\x18\x03 \x01(\tR\x04goal\x123\n" +
 	"\awaiting\x18\x04 \x03(\v2\x19.orrery.v1.WaitingMessageR\awaiting\x128\n" +
-	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\xb3\x02\n" +
+	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\xc7\x02\n" +
 	"\x10ConversationItem\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x12\n" +
@@ -6209,7 +6219,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	" \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06sender\x18\v \x01(\tR\x06sender\x12\x14\n" +
 	"\x05round\x18\f \x01(\rR\x05round\x12\x1b\n" +
-	"\tprompt_id\x18\r \x01(\tR\bpromptId\"E\n" +
+	"\tprompt_id\x18\r \x01(\tR\bpromptId\x12\x12\n" +
+	"\x04epic\x18\x0e \x01(\tR\x04epic\"E\n" +
 	"\x13ConversationContext\x12\x16\n" +
 	"\x06tokens\x18\x01 \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06window\x18\x02 \x01(\x03R\x06window\"T\n" +
