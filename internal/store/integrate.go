@@ -135,7 +135,7 @@ func (s *Store) ParkEpicWaking(ctx context.Context, epic, reason string, trigger
 		if stored != 0 {
 			return nil
 		}
-		if _, err = setParked(ctx, queries, epic, ParkClassNotBuilt, capTurnText(reason)); err != nil {
+		if _, err = setParked(ctx, queries, epic, ParkClassNotBuilt, "", capTurnText(reason), at); err != nil {
 			return err
 		}
 		return insertNodeTrigger(ctx, queries, epic, trigger, at)

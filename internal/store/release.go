@@ -255,11 +255,14 @@ func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string
 	return ParkClassReleaseStep, nil
 }
 
+// releaseParkSubject is the subject of the park a stopped release makes: the release, whatever its node path.
+const releaseParkSubject = "release"
+
 // stopEpicRelease parks epic with reason as class, then moves epic from releasing to stopped, in the caller's write.
 func stopEpicRelease(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, class ParkClass, reason string, at time.Time,
 ) error {
-	if err := parkEpicAs(ctx, queries, epic, class, reason, at); err != nil {
+	if err := parkEpicAs(ctx, queries, epic, class, releaseParkSubject, reason, at); err != nil {
 		return err
 	}
 	if err := queries.StopEpicRelease(ctx, sqlcgen.StopEpicReleaseParams{PhaseAt: at.Unix(), ID: epic}); err != nil {

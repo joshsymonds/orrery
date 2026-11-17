@@ -117,7 +117,7 @@ func (s *Store) ParkTask(
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		if err := parkEpicAs(ctx, queries, epic, class, reason, at); err != nil {
+		if err := parkEpicAs(ctx, queries, epic, class, taskSubject(seq), reason, at); err != nil {
 			return err
 		}
 		if !class.OwnerHeld() {
@@ -131,7 +131,7 @@ func (s *Store) ParkTask(
 // planner. Reason is cut to TurnReasonMax bytes. An unknown epic is ErrNoEpic and writes nothing.
 func (s *Store) ParkEpic(ctx context.Context, epic string, class ParkClass, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return parkEpicAs(ctx, queries, epic, class, reason, at)
+		return parkEpicAs(ctx, queries, epic, class, "", reason, at)
 	})
 }
 

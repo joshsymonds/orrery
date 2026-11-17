@@ -20,6 +20,9 @@ const (
 	// ParkClassOrchestrator is an orchestrator unable to run: its role or agent does not resolve, three planner turns
 	// failed in a row, or its pinned workflow does not load.
 	ParkClassOrchestrator ParkClass = "orchestrator"
+	// ParkClassRetryBound is a planner park that came back after two planner actions on its chain. The planner is not
+	// woken again for it: the owner answers it.
+	ParkClassRetryBound ParkClass = "retry_bound"
 )
 
 // The planner classes. Each is answered by the planner's next turn.
@@ -41,7 +44,7 @@ const (
 func (c ParkClass) OwnerHeld() bool {
 	switch c {
 	case "", ParkClassReleaseUndoNone, ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,
-		ParkClassMetAtBase, ParkClassOrchestrator:
+		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound:
 		return true
 	case ParkClassNode, ParkClassTask, ParkClassLoop, ParkClassNotBuilt, ParkClassReleaseStep:
 		return false

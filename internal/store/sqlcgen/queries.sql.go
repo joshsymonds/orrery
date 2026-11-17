@@ -1151,6 +1151,51 @@ func (q *Queries) GetLatestEndedEpicTurn(ctx context.Context, epic string) (Epic
 	return i, err
 }
 
+const getLatestEpicPark = `-- name: GetLatestEpicPark :one
+SELECT epic, seq, class, subject, chain, reason, created FROM epic_parks WHERE epic = ? ORDER BY seq DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestEpicPark(ctx context.Context, epic string) (EpicPark, error) {
+	row := q.db.QueryRowContext(ctx, getLatestEpicPark, epic)
+	var i EpicPark
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.Class,
+		&i.Subject,
+		&i.Chain,
+		&i.Reason,
+		&i.Created,
+	)
+	return i, err
+}
+
+const getLatestEpicParkOf = `-- name: GetLatestEpicParkOf :one
+SELECT epic, seq, class, subject, chain, reason, created FROM epic_parks WHERE epic = ?1 AND class = ?2 AND subject = ?3
+ORDER BY seq DESC LIMIT 1
+`
+
+type GetLatestEpicParkOfParams struct {
+	Epic    string
+	Class   string
+	Subject string
+}
+
+func (q *Queries) GetLatestEpicParkOf(ctx context.Context, arg GetLatestEpicParkOfParams) (EpicPark, error) {
+	row := q.db.QueryRowContext(ctx, getLatestEpicParkOf, arg.Epic, arg.Class, arg.Subject)
+	var i EpicPark
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.Class,
+		&i.Subject,
+		&i.Chain,
+		&i.Reason,
+		&i.Created,
+	)
+	return i, err
+}
+
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1
 `
@@ -1862,6 +1907,33 @@ func (q *Queries) InsertEpicNodeRun(ctx context.Context, arg InsertEpicNodeRunPa
 		arg.Started,
 		arg.Ended,
 		arg.Attempt,
+	)
+	return err
+}
+
+const insertEpicPark = `-- name: InsertEpicPark :exec
+INSERT INTO epic_parks (epic, seq, class, subject, chain, reason, created) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicParkParams struct {
+	Epic    string
+	Seq     int64
+	Class   string
+	Subject string
+	Chain   int64
+	Reason  string
+	Created int64
+}
+
+func (q *Queries) InsertEpicPark(ctx context.Context, arg InsertEpicParkParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicPark,
+		arg.Epic,
+		arg.Seq,
+		arg.Class,
+		arg.Subject,
+		arg.Chain,
+		arg.Reason,
+		arg.Created,
 	)
 	return err
 }
@@ -3009,6 +3081,96 @@ func (q *Queries) ListEpicAlternatives(ctx context.Context, epic string) ([]Epic
 			&i.Alternative,
 			&i.WhyNot,
 			&i.Reconsider,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicChainActions = `-- name: ListEpicChainActions :many
+SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park FROM planner_actions
+JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
+WHERE planner_actions.epic = ?1 AND epic_parks.chain = ?2
+  AND planner_actions.state IN ('taken', 'refused')
+ORDER BY planner_actions.turn, planner_actions.position
+`
+
+type ListEpicChainActionsParams struct {
+	Epic  string
+	Chain int64
+}
+
+func (q *Queries) ListEpicChainActions(ctx context.Context, arg ListEpicChainActionsParams) ([]PlannerAction, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicChainActions, arg.Epic, arg.Chain)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlannerAction
+	for rows.Next() {
+		var i PlannerAction
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Turn,
+			&i.Position,
+			&i.Kind,
+			&i.Node,
+			&i.Task,
+			&i.CloseKind,
+			&i.ByEpic,
+			&i.UndoNone,
+			&i.Reason,
+			&i.State,
+			&i.Refusal,
+			&i.Park,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicChainParks = `-- name: ListEpicChainParks :many
+SELECT epic, seq, class, subject, chain, reason, created FROM epic_parks WHERE epic = ?1 AND chain = ?2 ORDER BY seq
+`
+
+type ListEpicChainParksParams struct {
+	Epic  string
+	Chain int64
+}
+
+func (q *Queries) ListEpicChainParks(ctx context.Context, arg ListEpicChainParksParams) ([]EpicPark, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicChainParks, arg.Epic, arg.Chain)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicPark
+	for rows.Next() {
+		var i EpicPark
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Class,
+			&i.Subject,
+			&i.Chain,
+			&i.Reason,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}
@@ -5320,7 +5482,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 }
 
 const listPendingPlannerActions = `-- name: ListPendingPlannerActions :many
-SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
+SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
 `
 
 func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerAction, error) {
@@ -5345,6 +5507,7 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.Reason,
 			&i.State,
 			&i.Refusal,
+			&i.Park,
 		); err != nil {
 			return nil, err
 		}
@@ -5867,6 +6030,17 @@ func (q *Queries) MaxEpicDecisionSeq(ctx context.Context, epic string) (int64, e
 	return column_1, err
 }
 
+const maxEpicParkSeq = `-- name: MaxEpicParkSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_parks WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicParkSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicParkSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const maxEpicQuestionSeq = `-- name: MaxEpicQuestionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?
 `
@@ -5906,6 +6080,22 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_turns WHERE epic = ?
 
 func (q *Queries) MaxEpicTurnSeq(ctx context.Context, epic string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, maxEpicTurnSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const maxTurnActionPark = `-- name: MaxTurnActionPark :one
+SELECT CAST(COALESCE(MAX(park), 0) AS INTEGER) FROM planner_actions WHERE epic = ? AND turn = ?
+`
+
+type MaxTurnActionParkParams struct {
+	Epic string
+	Turn int64
+}
+
+func (q *Queries) MaxTurnActionPark(ctx context.Context, arg MaxTurnActionParkParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxTurnActionPark, arg.Epic, arg.Turn)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -6152,6 +6342,53 @@ type ReleaseEpicTriggersParams struct {
 func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTriggersParams) error {
 	_, err := q.db.ExecContext(ctx, releaseEpicTriggers, arg.Epic, arg.Turn)
 	return err
+}
+
+const replacedEpicTask = `-- name: ReplacedEpicTask :one
+SELECT CAST(COALESCE(MIN(failed.seq), 0) AS INTEGER)
+FROM epic_tasks AS failed
+JOIN epic_tasks AS planned ON planned.epic = failed.epic AND failed.seq < planned.seq
+WHERE planned.epic = ?1 AND 'T' || planned.seq = CAST(?2 AS TEXT)
+  AND EXISTS (
+      SELECT 1 FROM planner_actions AS action
+      WHERE action.epic = failed.epic AND action.kind = 'fail_task' AND action.task = failed.seq
+        AND action.state = 'taken'
+  )
+  AND EXISTS (
+      SELECT 1 FROM epic_triggers AS trigger
+      WHERE trigger.epic = failed.epic AND trigger.id = 'T' || failed.seq || '-failed'
+        AND trigger.turn = planned.turn
+  )
+  AND EXISTS (
+      SELECT 1 FROM (
+          SELECT epic, task, requirement FROM epic_task_requirements
+          UNION ALL
+          SELECT epic, task, requirement FROM epic_task_contributes
+      ) AS claimed
+      JOIN (
+          SELECT epic, task, requirement FROM epic_task_requirements
+          UNION ALL
+          SELECT epic, task, requirement FROM epic_task_contributes
+      ) AS shared ON shared.epic = claimed.epic AND shared.requirement = claimed.requirement
+      WHERE claimed.epic = failed.epic AND claimed.task = failed.seq
+        AND shared.epic = planned.epic AND shared.task = planned.seq
+  )
+`
+
+type ReplacedEpicTaskParams struct {
+	Epic    string
+	Subject string
+}
+
+// ReplacedEpicTask returns the lowest seq of a task the task named by subject replaces, or 0. Task F is replaced by the
+// task N named by subject when the planner failed F by a taken fail_task action, N was planned in the turn that consumed
+// the trigger T<F>-failed, N shares a claimed or contributed Requirement with F, and F was planned before N, so the
+// replacement chain runs back in seq order.
+func (q *Queries) ReplacedEpicTask(ctx context.Context, arg ReplacedEpicTaskParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, replacedEpicTask, arg.Epic, arg.Subject)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const resumeEpic = `-- name: ResumeEpic :exec
@@ -6690,13 +6927,14 @@ func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJud
 }
 
 const setPlannerActionState = `-- name: SetPlannerActionState :execrows
-UPDATE planner_actions SET state = ?1, refusal = ?2
-WHERE epic = ?3 AND turn = ?4 AND position = ?5 AND state = 'pending'
+UPDATE planner_actions SET state = ?1, refusal = ?2, park = ?3
+WHERE epic = ?4 AND turn = ?5 AND position = ?6 AND state = 'pending'
 `
 
 type SetPlannerActionStateParams struct {
 	State    string
 	Refusal  string
+	Park     int64
 	Epic     string
 	Turn     int64
 	Position int64
@@ -6706,6 +6944,7 @@ func (q *Queries) SetPlannerActionState(ctx context.Context, arg SetPlannerActio
 	result, err := q.db.ExecContext(ctx, setPlannerActionState,
 		arg.State,
 		arg.Refusal,
+		arg.Park,
 		arg.Epic,
 		arg.Turn,
 		arg.Position,

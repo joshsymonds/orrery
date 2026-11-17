@@ -91,7 +91,7 @@ func parkCheckedRun(
 	}); err != nil {
 		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 	}
-	if err := parkEpicAs(ctx, queries, epic, ParkClassRefMove, park, at); err != nil {
+	if err := parkEpicAs(ctx, queries, epic, ParkClassRefMove, path, park, at); err != nil {
 		return err
 	}
 	return insertTells(ctx, queries, epic, tells, at)
@@ -120,7 +120,7 @@ func parkNodeRun(
 	if err != nil || !parked {
 		return err
 	}
-	return parkEpicAs(ctx, queries, epic, class, reason, at)
+	return parkEpicAs(ctx, queries, epic, class, path, reason, at)
 }
 
 // parkRunningRun parks the running run at path of epic at attempt with outcome and output, in the caller's write, and

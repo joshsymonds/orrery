@@ -18,9 +18,9 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044 and 00046 create, and of the columns those
-// migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045 and 00047 add
-// to epic tables.
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00046 and 00048 create, and of the columns
+// those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045, 00047
+// and 00048 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -102,11 +102,14 @@ func epicTableColumns() map[string][]string {
 		"epic_seen":          {"epic", "at"},
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
 		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
-		// R2: the actions a planner turn returned, from 00046_planner_actions.sql.
+		// R2: the actions a planner turn returned, from 00046_planner_actions.sql. park, the planner park an action
+		// answers, is 00048_park_bound.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
-			"refusal",
+			"refusal", "park",
 		},
+		// R5: the planner-class parks of each epic and their chains, from 00048_park_bound.sql.
+		"epic_parks":         {"epic", "seq", "class", "subject", "chain", "reason", "created"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -518,10 +521,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00047_park_class.sql is the newest. The newest was
-	// 00046_planner_actions.sql before the park class added 00047.
-	if version != 47 {
-		t.Fatalf("store version after Open = %d, want 47", version)
+	// Open applies 00014_epics.sql and every migration after it: 00048_park_bound.sql is the newest. The newest was
+	// 00047_park_class.sql before the park bound added 00048.
+	if version != 48 {
+		t.Fatalf("store version after Open = %d, want 48", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1091,6 +1094,43 @@ func TestParkClassMigrationDownAndUp(t *testing.T) {
 	}
 	if !hasAll(columnsOf(t, s, "epics"), "park_class") {
 		t.Errorf("epics columns after Up = %v, want park_class", columnsOf(t, s, "epics"))
+	}
+}
+
+// TestParkBoundMigrationDownAndUp removes the planner parks table and the park of planner_actions with the Down of
+// 00048_park_bound.sql, and Up restores them.
+func TestParkBoundMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 47); err != nil {
+		t.Fatalf("DownTo 47: %v", err)
+	}
+	if tableNames(t, s)["epic_parks"] {
+		t.Errorf("epic_parks after Down = present, want absent")
+	}
+	if hasAny(columnsOf(t, s, "planner_actions"), "park") {
+		t.Errorf("planner_actions columns after Down = %v, want no park", columnsOf(t, s, "planner_actions"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !tableNames(t, s)["epic_parks"] {
+		t.Errorf("epic_parks after Up = absent, want present")
+	}
+	if !hasAll(columnsOf(t, s, "planner_actions"), "park") {
+		t.Errorf("planner_actions columns after Up = %v, want park", columnsOf(t, s, "planner_actions"))
 	}
 }
 

@@ -36,7 +36,7 @@ func (s *Store) ParkLoop(ctx context.Context, epic, path string, round int64, re
 		if rows == 0 {
 			return nil
 		}
-		return parkEpicAs(ctx, queries, epic, ParkClassLoop, reason, at)
+		return parkEpicAs(ctx, queries, epic, ParkClassLoop, path, reason, at)
 	})
 }
 

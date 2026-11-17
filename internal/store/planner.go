@@ -743,7 +743,7 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 		if !failedInARow(recent) {
 			return nil
 		}
-		_, err = setParked(ctx, queries, epic, ParkClassOrchestrator, parkedAfterFailures+stored)
+		_, err = setParked(ctx, queries, epic, ParkClassOrchestrator, "", parkedAfterFailures+stored, at)
 		return err
 	})
 }
@@ -773,7 +773,7 @@ func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free Turn
 		if free.Park == "" {
 			return nil
 		}
-		_, err := setParked(ctx, queries, epic, ParkClassOrchestrator, free.Park)
+		_, err := setParked(ctx, queries, epic, ParkClassOrchestrator, "", free.Park, at)
 		return err
 	})
 }
@@ -812,16 +812,18 @@ func failedInARow(states []string) bool {
 	return true
 }
 
-// setParked parks epic with reason, cut to TurnReasonMax bytes, as class, in the caller's write. An owner class also
-// opens the park question of epic for it. The question is final when the epic's phase is met_at_base, so a park of an
-// epic the owner ended declares no choice. setParked returns the seq of the question, and 0 for a planner class, which
-// opens none. An unknown epic is ErrNoEpic.
+// setParked parks epic with reason, cut to TurnReasonMax bytes, as class of subject, in the caller's write. An owner class
+// opens the park question of epic for it, which is final when the epic's phase is met_at_base, so a park of an epic the
+// owner ended declares no choice. A planner class is stored by parkPlanner. setParked returns the seq of the park question
+// it opens, and 0 when the planner is woken instead. An unknown epic is ErrNoEpic.
 func setParked(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	class ParkClass,
+	subject string,
 	reason string,
+	at time.Time,
 ) (int64, error) {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
@@ -829,7 +831,7 @@ func setParked(
 	}
 	park := capTurnText(reason)
 	if !class.OwnerHeld() {
-		return 0, setPark(ctx, queries, epic, park, class)
+		return parkPlanner(ctx, queries, epic, class, subject, park, at)
 	}
 	return openPark(ctx, queries, epic, park, class, parkQuestion(park, head.Phase == phaseMetAtBase))
 }
@@ -855,26 +857,32 @@ func setPark(ctx context.Context, queries *sqlcgen.Queries, epic, park string, c
 	return nil
 }
 
-// parkEpicAs parks epic with reason as class, in the caller's write. An owner class opens the park question and adds reason
-// as a tell that carries it. A planner class opens no question and adds no tell: it adds the pending trigger that wakes
-// the planner, which carries reason as its cause.
+// parkEpicAs parks epic with reason as class of subject, in the caller's write. An owner class opens the park question and
+// adds reason as a tell that carries it. A planner class opens no question and adds no tell: it adds the pending trigger
+// that wakes the planner, which carries reason as its cause. A planner park at the bound of its chain is stored as
+// retry_bound instead: parkPlanner has opened its question and added its tell, so no trigger is added.
 func parkEpicAs(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
 	epic string,
 	class ParkClass,
+	subject string,
 	reason string,
 	at time.Time,
 ) error {
 	park := capTurnText(reason)
-	question, err := setParked(ctx, queries, epic, class, park)
+	question, err := setParked(ctx, queries, epic, class, subject, park, at)
 	if err != nil {
 		return err
 	}
-	if !class.OwnerHeld() {
+	switch {
+	case class.OwnerHeld():
+		return insertQuestionTell(ctx, queries, epic, park, question, at)
+	case question == 0:
 		return insertParkTrigger(ctx, queries, epic, park, at)
+	default:
+		return nil
 	}
-	return insertQuestionTell(ctx, queries, epic, park, question, at)
 }
 
 // insertParkTrigger adds to epic the pending trigger of a planner park with reason as its cause, in the caller's write.

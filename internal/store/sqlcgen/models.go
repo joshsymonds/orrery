@@ -211,6 +211,16 @@ type EpicNodeRun struct {
 	Output      string
 }
 
+type EpicPark struct {
+	Epic    string
+	Seq     int64
+	Class   string
+	Subject string
+	Chain   int64
+	Reason  string
+	Created int64
+}
+
 type EpicPremise struct {
 	Epic     string
 	Position int64
@@ -570,6 +580,7 @@ type PlannerAction struct {
 	Reason    string
 	State     string
 	Refusal   string
+	Park      int64
 }
 
 type PushedAlertNotice struct {

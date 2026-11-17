@@ -124,13 +124,19 @@ func (s *Store) refuse(ctx context.Context, action PlannerAction, refusal Refusa
 }
 
 // takeAction carries out action in the caller's write, as CarryOutAction describes, and returns the steps to stop. The
-// action is marked taken first, so an action that is not pending is errActionSettled, and an action on a closed epic is
-// a RefusalError.
+// epic head is read before the control runs, so the park the action answers is the one the epic held when it was taken.
+// The action is marked taken in the same write, so an action that is not pending is errActionSettled, and an action on a
+// closed epic is a RefusalError.
 func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) ([]string, error) {
-	if err := setActionState(ctx, queries, action, actionTaken, ""); err != nil {
+	head, err := epicHead(ctx, queries, action.Epic)
+	if err != nil {
 		return nil, err
 	}
-	head, err := epicHead(ctx, queries, action.Epic)
+	park, err := actionPark(ctx, queries, action, head)
+	if err != nil {
+		return nil, err
+	}
+	err = setActionState(ctx, queries, action, actionTaken, "", park)
 	if err != nil {
 		return nil, err
 	}
@@ -237,22 +243,36 @@ func openTaskSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 	return ids, nil
 }
 
-// refuseAction records the refusal of action in the caller's write: the action is marked refused with the refusal, a
-// decision holds the refusal and the planner's reason, and a pending trigger whose cause names the action and the refusal
-// is added.
+// refuseAction records the refusal of action in the caller's write: the action is marked refused with the refusal and the
+// park it answers, a decision holds the refusal and the planner's reason, and then either the held planner park is stored
+// as retry_bound, when its chain is at the bound, or a pending trigger whose cause names the action and the refusal is
+// added.
 func refuseAction(
 	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, refusal RefusalError, at time.Time,
 ) error {
-	if err := setActionState(ctx, queries, action, actionRefused, string(refusal)); err != nil {
+	head, err := epicHead(ctx, queries, action.Epic)
+	if err != nil {
+		return err
+	}
+	park, err := actionPark(ctx, queries, action, head)
+	if err != nil {
+		return err
+	}
+	err = setActionState(ctx, queries, action, actionRefused, string(refusal), park)
+	if err != nil {
 		return err
 	}
 	summary := actionSummary(action)
 	id := actionDecisionID(action) + "-refused"
 	text := fmt.Sprintf("planner %s refused: %s. Its reason: %s", summary, refusal, action.Reason)
-	if _, err := appendDecision(ctx, queries, action.Epic, id, text, 0, at); err != nil {
+	if _, err = appendDecision(ctx, queries, action.Epic, id, text, 0, at); err != nil {
 		return err
 	}
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+	bound, err := boundHeldPark(ctx, queries, action.Epic, head, at)
+	if err != nil || bound {
+		return err
+	}
+	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 		Epic: action.Epic, ID: id, Cause: fmt.Sprintf("planner %s refused: %s", summary, refusal),
 		State: triggerPending, Turn: 0, Created: at.Unix(),
 	}); err != nil {
@@ -262,11 +282,13 @@ func refuseAction(
 	return nil
 }
 
-// setActionState stores state and refusal on action in the caller's write, when the action is still pending. An action
-// that is not pending is errActionSettled.
-func setActionState(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, state, refusal string) error {
+// setActionState stores state, refusal and park on action in the caller's write, when the action is still pending. An
+// action that is not pending is errActionSettled.
+func setActionState(
+	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, state, refusal string, park int64,
+) error {
 	rows, err := queries.SetPlannerActionState(ctx, sqlcgen.SetPlannerActionStateParams{
-		State: state, Refusal: refusal, Epic: action.Epic, Turn: action.Turn, Position: action.Position,
+		State: state, Refusal: refusal, Park: park, Epic: action.Epic, Turn: action.Turn, Position: action.Position,
 	})
 	if err != nil {
 		return fmt.Errorf("set state of action %d of turn %d of epic %s: %w",

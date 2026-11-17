@@ -1025,8 +1025,68 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '');
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
 
 -- name: SetPlannerActionState :execrows
-UPDATE planner_actions SET state = sqlc.arg(state), refusal = sqlc.arg(refusal)
+UPDATE planner_actions SET state = sqlc.arg(state), refusal = sqlc.arg(refusal), park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
+
+-- name: MaxTurnActionPark :one
+SELECT CAST(COALESCE(MAX(park), 0) AS INTEGER) FROM planner_actions WHERE epic = ? AND turn = ?;
+
+-- name: InsertEpicPark :exec
+INSERT INTO epic_parks (epic, seq, class, subject, chain, reason, created) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: MaxEpicParkSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_parks WHERE epic = ?;
+
+-- name: GetLatestEpicPark :one
+SELECT * FROM epic_parks WHERE epic = ? ORDER BY seq DESC LIMIT 1;
+
+-- name: GetLatestEpicParkOf :one
+SELECT * FROM epic_parks WHERE epic = sqlc.arg(epic) AND class = sqlc.arg(class) AND subject = sqlc.arg(subject)
+ORDER BY seq DESC LIMIT 1;
+
+-- name: ListEpicChainParks :many
+SELECT * FROM epic_parks WHERE epic = sqlc.arg(epic) AND chain = sqlc.arg(chain) ORDER BY seq;
+
+-- name: ListEpicChainActions :many
+SELECT planner_actions.* FROM planner_actions
+JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
+WHERE planner_actions.epic = sqlc.arg(epic) AND epic_parks.chain = sqlc.arg(chain)
+  AND planner_actions.state IN ('taken', 'refused')
+ORDER BY planner_actions.turn, planner_actions.position;
+
+-- ReplacedEpicTask returns the lowest seq of a task the task named by subject replaces, or 0. Task F is replaced by the
+-- task N named by subject when the planner failed F by a taken fail_task action, N was planned in the turn that consumed
+-- the trigger T<F>-failed, N shares a claimed or contributed Requirement with F, and F was planned before N, so the
+-- replacement chain runs back in seq order.
+-- name: ReplacedEpicTask :one
+SELECT CAST(COALESCE(MIN(failed.seq), 0) AS INTEGER)
+FROM epic_tasks AS failed
+JOIN epic_tasks AS planned ON planned.epic = failed.epic AND failed.seq < planned.seq
+WHERE planned.epic = sqlc.arg(epic) AND 'T' || planned.seq = CAST(sqlc.arg(subject) AS TEXT)
+  AND EXISTS (
+      SELECT 1 FROM planner_actions AS action
+      WHERE action.epic = failed.epic AND action.kind = 'fail_task' AND action.task = failed.seq
+        AND action.state = 'taken'
+  )
+  AND EXISTS (
+      SELECT 1 FROM epic_triggers AS trigger
+      WHERE trigger.epic = failed.epic AND trigger.id = 'T' || failed.seq || '-failed'
+        AND trigger.turn = planned.turn
+  )
+  AND EXISTS (
+      SELECT 1 FROM (
+          SELECT epic, task, requirement FROM epic_task_requirements
+          UNION ALL
+          SELECT epic, task, requirement FROM epic_task_contributes
+      ) AS claimed
+      JOIN (
+          SELECT epic, task, requirement FROM epic_task_requirements
+          UNION ALL
+          SELECT epic, task, requirement FROM epic_task_contributes
+      ) AS shared ON shared.epic = claimed.epic AND shared.requirement = claimed.requirement
+      WHERE claimed.epic = failed.epic AND claimed.task = failed.seq
+        AND shared.epic = planned.epic AND shared.task = planned.seq
+  );
 
 -- name: GetEpicTask :one
 SELECT * FROM epic_tasks WHERE epic = ? AND seq = ?;
