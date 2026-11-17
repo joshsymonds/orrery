@@ -633,16 +633,23 @@ func (s crashStore) SetTaskBuildTelling(
 }
 
 func (s crashStore) ParkTask(
-	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time, tells ...string,
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, class store.ParkClass, reason string,
+	at time.Time, tells ...string,
 ) error {
 	return s.w.act("ParkTask", func() error {
-		return wrapErr("park task", s.Store.ParkTask(ctx, epic, seq, from, to, reason, at, tells...))
+		return wrapErr("park task", s.Store.ParkTask(ctx, epic, seq, from, to, class, reason, at, tells...))
 	})
 }
 
-func (s crashStore) ParkEpic(ctx context.Context, epic, reason string, at time.Time) error {
+func (s crashStore) ParkEpic(
+	ctx context.Context,
+	epic string,
+	class store.ParkClass,
+	reason string,
+	at time.Time,
+) error {
 	return s.w.act("ParkEpic", func() error {
-		return wrapErr("park epic", s.Store.ParkEpic(ctx, epic, reason, at))
+		return wrapErr("park epic", s.Store.ParkEpic(ctx, epic, class, reason, at))
 	})
 }
 

@@ -46,7 +46,7 @@ func openTriggerCount(t *testing.T, s *Store, epic string) int {
 func createParkedEpic(t *testing.T, s *Store, epic string) {
 	t.Helper()
 	createEpic(t, s, fullEpic(epic))
-	if err := s.ParkEpic(context.Background(), epic, "credit ran out", completedAt()); err != nil {
+	if err := s.ParkEpic(context.Background(), epic, ParkClassBranch, "credit ran out", completedAt()); err != nil {
 		t.Fatalf("ParkEpic of %s: %v", epic, err)
 	}
 }

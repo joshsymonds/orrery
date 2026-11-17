@@ -53,7 +53,13 @@ func stopRunnerRelease(t *testing.T, s *store.Store, position int64) {
 	); err != nil {
 		t.Fatalf("EndEpic stopped: %v", err)
 	}
-	if err := s.ParkEpic(ctx, runnerEpicID, releaseStopReason, claimedAt().Add(2*time.Second)); err != nil {
+	if err := s.ParkEpic(
+		ctx,
+		runnerEpicID,
+		store.ParkClassReleaseOwnerStop,
+		releaseStopReason,
+		claimedAt().Add(2*time.Second),
+	); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 	if position == 0 {
@@ -140,7 +146,13 @@ func TestAttentionBlockQuestionTellOnARunningEpicOpensOnItsQuestion(t *testing.T
 	createRunnerEpic(t, s)
 	// The turn stays running, so the park's tell is the only notice and its question is Q1.
 	claimAttentionTurn(t, s)
-	if err := s.ParkEpic(ctx, runnerEpicID, "credit ran out", claimedAt().Add(time.Second)); err != nil {
+	if err := s.ParkEpic(
+		ctx,
+		runnerEpicID,
+		store.ParkClassBranch,
+		"credit ran out",
+		claimedAt().Add(time.Second),
+	); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 	router := &fakeAttentionRouter{}

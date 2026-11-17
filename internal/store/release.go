@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -195,9 +196,9 @@ func (s *Store) FreeReleaseSlot(ctx context.Context, epic string) error {
 }
 
 // StopRelease stops the release of epic at the running node run at path and attempt, in one write. The run parks with
-// outcome failed and reason as its output, the epic parks with reason and adds reason as a tell, and the epic moves
-// from releasing to stopped. A run at another attempt and a run that is not running change nothing and add no tell, so
-// a repeat is a no-op.
+// outcome failed and reason as its output, the epic parks with reason as the class releaseStopClass gives, and the epic
+// moves from releasing to stopped. A run at another attempt and a run that is not running change nothing and add no
+// tell, so a repeat is a no-op.
 func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int64, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		parked, err := queries.ParkEpicNodeRun(ctx, sqlcgen.ParkEpicNodeRunParams{
@@ -209,14 +210,56 @@ func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int6
 		if parked == 0 {
 			return nil
 		}
-		return stopEpicRelease(ctx, queries, epic, reason, at)
+		class, err := releaseStopClass(ctx, queries, epic, attempt)
+		if err != nil {
+			return err
+		}
+		return stopEpicRelease(ctx, queries, epic, class, reason, at)
 	})
 }
 
-// stopEpicRelease parks epic with reason and adds reason as a tell, then moves epic from releasing to stopped, in the
-// caller's write.
-func stopEpicRelease(ctx context.Context, queries *sqlcgen.Queries, epic, reason string, at time.Time) error {
-	if err := parkWithTell(ctx, queries, epic, capTurnText(reason), at); err != nil {
+// releaseStopClass returns the class of the park a release of epic stopped at attempt takes, from the store's rows. It is
+// release_owner_stop when epic holds no release slot, release_undo_none when the release step that failed at attempt has
+// undo none, and release_step otherwise.
+func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string, attempt int64) (ParkClass, error) {
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return "", err
+	}
+	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
+	if err != nil {
+		return "", err
+	}
+	if holder != epic {
+		return ParkClassReleaseOwnerStop, nil
+	}
+	runs, err := readReleaseRuns(ctx, queries, epic)
+	if err != nil {
+		return "", err
+	}
+	failed := slices.IndexFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartStep && run.Attempt == attempt && !run.Passed
+	})
+	if failed < 0 {
+		return ParkClassReleaseStep, nil
+	}
+	steps, err := queries.ListEpicReleaseSteps(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("list release steps of epic %s: %w", epic, err)
+	}
+	for _, step := range steps {
+		if step.Position == runs[failed].Position && isUndoNone(step.Undo) {
+			return ParkClassReleaseUndoNone, nil
+		}
+	}
+	return ParkClassReleaseStep, nil
+}
+
+// stopEpicRelease parks epic with reason as class, then moves epic from releasing to stopped, in the caller's write.
+func stopEpicRelease(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, class ParkClass, reason string, at time.Time,
+) error {
+	if err := parkEpicAs(ctx, queries, epic, class, reason, at); err != nil {
 		return err
 	}
 	if err := queries.StopEpicRelease(ctx, sqlcgen.StopEpicReleaseParams{PhaseAt: at.Unix(), ID: epic}); err != nil {

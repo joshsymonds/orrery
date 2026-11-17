@@ -174,7 +174,7 @@ func TestRetryFailedIntegrateLeavesParkedRunsRerunnable(t *testing.T) {
 		NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1},
 	)
 	const reason = "workflow node plan/S1/integrate: the epic's base moved"
-	if err := s.ParkNode(ctx, integrateEpic, retryEarlierBatch, 1, "failed", "moved", reason,
+	if err := s.ParkNode(ctx, integrateEpic, retryEarlierBatch, 1, "failed", "moved", ParkClassNode, reason,
 		integrateParkedAt()); err != nil {
 		t.Fatalf("ParkNode: %v", err)
 	}

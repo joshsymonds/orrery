@@ -385,7 +385,7 @@ func TestAnswerRetryToParkQuestionEndsThePark(t *testing.T) {
 	keepOld := shapedQuestion("keep-old-tasks", "Keep the old tasks?")
 	questionedEpic(t, s, keepOld)
 	const reason = "credit ran out"
-	if err := s.ParkEpic(ctx, id, reason, completedAt()); err != nil {
+	if err := s.ParkEpic(ctx, id, ParkClassBranch, reason, completedAt()); err != nil {
 		t.Fatalf("ParkEpic: %v", err)
 	}
 
@@ -438,7 +438,7 @@ func TestAnswerOtherToFinalParkQuestionKeepsWordsAndStaysParked(t *testing.T) {
 		t.Fatalf("AnswerQuestion end: %v", err)
 	}
 	const reason = "credit ran out"
-	if err := s.ParkEpic(ctx, id, reason, completedAt()); err != nil {
+	if err := s.ParkEpic(ctx, id, ParkClassBranch, reason, completedAt()); err != nil {
 		t.Fatalf("ParkEpic on the epic ended at base: %v", err)
 	}
 	before := answerRowsOf(t, s)
@@ -485,7 +485,7 @@ func TestRetryNodeClosesTheParkQuestionAsRetry(t *testing.T) {
 		t.Fatalf("StartNodes: %v", err)
 	}
 	const reason = "workflow node check failed: boom"
-	if err := s.ParkNode(ctx, id, "check", 1, "failed", "boom", reason, completedAt()); err != nil {
+	if err := s.ParkNode(ctx, id, "check", 1, "failed", "boom", ParkClassBranch, reason, completedAt()); err != nil {
 		t.Fatalf("ParkNode: %v", err)
 	}
 

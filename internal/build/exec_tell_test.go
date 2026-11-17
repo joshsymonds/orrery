@@ -28,10 +28,11 @@ func (s *tellStore) SetTaskBuildTelling(
 }
 
 func (s *tellStore) ParkTask(
-	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, reason string, at time.Time, tells ...string,
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, class store.ParkClass, reason string,
+	at time.Time, tells ...string,
 ) error {
 	s.parks = append(s.parks, tells)
-	return s.Store.ParkTask(ctx, epic, seq, from, to, reason, at, tells...)
+	return s.Store.ParkTask(ctx, epic, seq, from, to, class, reason, at, tells...)
 }
 
 // errRefused is what a refusing store returns for the write it refuses.
@@ -55,7 +56,8 @@ type parkRefusingStore struct {
 }
 
 func (s *parkRefusingStore) ParkTask(
-	_ context.Context, _ string, _ int64, _, _ store.TaskBuild, _ string, _ time.Time, tells ...string,
+	_ context.Context, _ string, _ int64, _, _ store.TaskBuild, _ store.ParkClass, _ string, _ time.Time,
+	tells ...string,
 ) error {
 	s.parks = append(s.parks, tells)
 	return errRefused

@@ -408,7 +408,7 @@ SET phase = sqlc.arg(phase), phase_at = CASE WHEN phase = sqlc.arg(phase) THEN p
 WHERE id = sqlc.arg(id);
 
 -- name: SetEpicClosed :exec
-UPDATE epics SET closed_by = sqlc.arg(closed_by), superseded_by = sqlc.arg(superseded_by), parked = ''
+UPDATE epics SET closed_by = sqlc.arg(closed_by), superseded_by = sqlc.arg(superseded_by), parked = '', park_class = ''
 WHERE id = sqlc.arg(id);
 
 -- name: EndRunningEpicNodeRuns :exec
@@ -598,12 +598,15 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?
 SELECT * FROM epic_decisions WHERE epic = ? ORDER BY seq;
 
 -- name: ListEpicPlanStates :many
-SELECT epics.id, epics.paused, epics.parked,
+SELECT epics.id, epics.paused, epics.parked, epics.park_class,
     CAST(EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id AND epic_turns.state = 'running') AS INTEGER) AS running,
     CAST((SELECT COUNT(*) FROM epic_triggers WHERE epic_triggers.epic = epics.id AND epic_triggers.state = 'pending') AS INTEGER) AS pending
 FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_triggers WHERE epic_triggers.epic = epics.id AND epic_triggers.state = 'pending')
 ORDER BY epics.id;
+
+-- name: CountEpicTriggers :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ?;
 
 -- name: CountPendingEpicTriggers :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = 'pending';
@@ -721,7 +724,7 @@ WHERE epic = sqlc.arg(epic) AND state <> 'free'
 ORDER BY seq DESC LIMIT 3;
 
 -- name: SetEpicParked :execrows
-UPDATE epics SET parked = ? WHERE id = ?;
+UPDATE epics SET parked = ?, park_class = ? WHERE id = ?;
 
 -- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?;
@@ -733,7 +736,7 @@ UPDATE epics SET pause_source = ? WHERE id = ?;
 UPDATE epics SET paused = 0, pause_source = '' WHERE id = ?;
 
 -- name: RetryEpic :exec
-UPDATE epics SET parked = '', retried = ? WHERE id = ?;
+UPDATE epics SET parked = '', park_class = '', retried = ? WHERE id = ?;
 
 -- name: GrantEpicParkedLoops :exec
 UPDATE epic_node_runs SET state = 'running', granted = granted + 1

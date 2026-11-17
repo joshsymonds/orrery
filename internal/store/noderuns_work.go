@@ -91,34 +91,36 @@ func parkCheckedRun(
 	}); err != nil {
 		return fmt.Errorf("park node run %s of epic %s: %w", path, epic, err)
 	}
-	if err := parkWithTell(ctx, queries, epic, capTurnText(park), at); err != nil {
+	if err := parkEpicAs(ctx, queries, epic, ParkClassRefMove, park, at); err != nil {
 		return err
 	}
 	return insertTells(ctx, queries, epic, tells, at)
 }
 
-// ParkNode parks the running run at path of epic at attempt with outcome and output, parks epic with reason and adds
-// reason as a tell, in one write. Output is cut to NodeOutputMax bytes and reason to TurnReasonMax. A run at another
-// attempt and a run that is not running change nothing and add no tell, so a repeat is a no-op.
+// ParkNode parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as class,
+// in one write. An owner class adds reason as a tell, and a planner class wakes the planner. Output is cut to
+// NodeOutputMax bytes and reason to TurnReasonMax. A run at another attempt and a run that is not running change nothing
+// and add no tell, so a repeat is a no-op.
 func (s *Store) ParkNode(
-	ctx context.Context, epic, path string, attempt int64, outcome, output, reason string, at time.Time,
+	ctx context.Context, epic, path string, attempt int64, outcome, output string, class ParkClass, reason string,
+	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, reason, at)
+		return parkNodeRun(ctx, queries, epic, path, attempt, outcome, output, class, reason, at)
 	})
 }
 
-// parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason and
-// adds reason as a tell, in the caller's write.
+// parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as
+// class, in the caller's write.
 func parkNodeRun(
-	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output, reason string,
-	at time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output string,
+	class ParkClass, reason string, at time.Time,
 ) error {
 	parked, err := parkRunningRun(ctx, queries, epic, path, attempt, outcome, output)
 	if err != nil || !parked {
 		return err
 	}
-	return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+	return parkEpicAs(ctx, queries, epic, class, reason, at)
 }
 
 // parkRunningRun parks the running run at path of epic at attempt with outcome and output, in the caller's write, and

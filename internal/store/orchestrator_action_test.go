@@ -135,7 +135,7 @@ func TestOrchestratorActionRetryNodeRerunsTheParkedRun(t *testing.T) {
 	s := openIntegrateStore(t)
 	startIntegrateRuns(t, s,
 		NodeRun{Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1})
-	if err := s.ParkNode(ctx, integrateEpic, retryLatestBatch, 1, nodeFailedOutcome, "lint failed",
+	if err := s.ParkNode(ctx, integrateEpic, retryLatestBatch, 1, nodeFailedOutcome, "lint failed", ParkClassNode,
 		"integrate is red", integrateParkedAt()); err != nil {
 		t.Fatalf("ParkNode: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -206,8 +207,8 @@ func TestReleaseCleanEpicTakesSlotAndWaitsBehindHolder(t *testing.T) {
 }
 
 // TestReleaseRedDoneGateOnBehindCandidateStopsRelease: a candidate behind the target runs the epic's Done gate at the
-// candidate. A red gate stops the release, which parks with its one tell and moves the epic to stopped, and the gate is
-// not run again.
+// candidate. A red gate stops the release, which parks the epic for the planner with a trigger and no tell, and moves the
+// epic to stopped, and the gate is not run again.
 func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 	t.Parallel()
 	ending := &recordingEnding{}
@@ -242,16 +243,19 @@ func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
 		t.Errorf("epic phase = %q and parked = %q, want stopped and parked with %q",
 			flow.Epic.Phase, flow.Epic.Parked, reason)
 	}
-	if tells := nodeTells(t, w.path); !reflect.DeepEqual(tells, []string{reason}) {
-		t.Errorf("tells = %q, want the one tell %q", tells, reason)
+	if tells := nodeTells(t, w.path); len(tells) != 0 {
+		t.Errorf("tells = %q, want none: a stopped release at a step is a planner park", tells)
+	}
+	if got := triggerCausesOf(t, w.s, runEpic); !slices.Contains(got, reason) {
+		t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
 	}
 	if len(ending.calls) != 0 {
 		t.Errorf("EndEpic calls = %+v, want none for a stopped release", ending.calls)
 	}
 
 	w.pass()
-	if tells := nodeTells(t, w.path); !reflect.DeepEqual(tells, []string{reason}) {
-		t.Errorf("tells = %q after a later pass, want still the one tell", tells)
+	if tells := nodeTells(t, w.path); len(tells) != 0 {
+		t.Errorf("tells = %q after a later pass, want still none", tells)
 	}
 	if got := len(w.fakes.checks.calls); got != 1 {
 		t.Errorf("checks run = %d after a later pass, want the gate run once", got)

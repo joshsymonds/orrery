@@ -71,6 +71,7 @@ type Epic struct {
 	ReportWhy        string
 	ClosedBy         string
 	SupersededBy     string
+	ParkClass        string
 }
 
 type EpicAddition struct {

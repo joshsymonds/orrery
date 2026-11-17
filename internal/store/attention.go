@@ -13,7 +13,7 @@ import (
 // ErrNoTell reports that the epic has no tell with the seq asked for.
 var ErrNoTell = errors.New("no tell")
 
-// EpicAttention is what an epic needs from its owner: its phase, its park reason, whether it is paused, the lowest
+// EpicAttention is what an epic needs from its owner: its phase, its owner park reason, whether it is paused, the lowest
 // release step its release runs failed (0 when none did), its open questions in seq order, its untold tells in seq
 // order, the time of its newest tell, and its latest ended turn with the number of questions that turn asked.
 type EpicAttention struct {
@@ -97,7 +97,8 @@ func attentionOf(
 		return EpicAttention{}, fmt.Errorf("release runs: %w", err)
 	}
 	entry := EpicAttention{
-		Epic: head.ID, Title: head.Title, Phase: head.Phase, Parked: head.Parked, Paused: head.Paused != 0,
+		Epic: head.ID, Title: head.Title, Phase: head.Phase,
+		Parked: ownedPark(head.Parked, head.ParkClass), Paused: head.Paused != 0,
 		FailedStep: failedReleaseStep(releases), Open: questions, Tells: untold,
 	}
 	if len(tells) != 0 {
