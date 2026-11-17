@@ -217,3 +217,14 @@ func TestVerifierCheckNamesAValueThatDoesNotParse(t *testing.T) {
 		t.Fatalf("VerifierCheck(unparsable) = %q, want one line naming the parse error", got)
 	}
 }
+
+// TestVerifierRoleForbidsTheRecipesThatRewriteTrackedFiles asserts that the verifier's role names the generators and
+// check recipes that rewrite tracked files, which end a read-only verifier with no verdict when its checkout changes.
+func TestVerifierRoleForbidsTheRecipesThatRewriteTrackedFiles(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{"`just gen-diff`", "`just check`", "do not run them", "`git diff`"} {
+		if !strings.Contains(VerifierRole, want) {
+			t.Errorf("verifier role lacks %q", want)
+		}
+	}
+}
