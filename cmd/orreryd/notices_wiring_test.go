@@ -139,10 +139,9 @@ func TestSessionsHostWatchShowsPagesNotice(t *testing.T) {
 	}
 }
 
-// TestSessionsHostTellsOnlyEpiclessRestartedStep checks that a step an earlier run left open with no epic is told at
-// start as an interrupted notice for that step, and that a step whose row names an epic is not told. Both end
-// engine_restarted.
-func TestSessionsHostTellsOnlyEpiclessRestartedStep(t *testing.T) {
+// TestQuietStepRestartTellsNoRestartedStep checks that a step an earlier run left open is told nothing at start, whether
+// or not its row names an epic. Both end engine_restarted.
+func TestQuietStepRestartTellsNoRestartedStep(t *testing.T) {
 	t.Parallel()
 	st, getenv := openLimitStore(t)
 	addOpenStep(t, st, noticesWiringFree, "")
@@ -150,10 +149,8 @@ func TestSessionsHostTellsOnlyEpiclessRestartedStep(t *testing.T) {
 
 	router := &recordingRouter{}
 	host, _ := startNoticesHost(t, st, getenv, router, nil)
-	got := router.received()
-	wantKey := notice.Key{Session: noticesWiringFree}
-	if len(got) != 1 || got[0].Key != wantKey || got[0].State != "interrupted" {
-		t.Fatalf("notices at start = %+v, want exactly one interrupted notice for key %+v", got, wantKey)
+	if got := router.received(); len(got) != 0 {
+		t.Fatalf("notices at start = %+v, want none: a restart notices no step", got)
 	}
 
 	for _, id := range []string{noticesWiringFree, noticesWiringHeld} {

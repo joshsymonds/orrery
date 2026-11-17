@@ -896,7 +896,6 @@ func startSessions(
 			GateScope:    opts.holderScope,
 			ReadoptCheck: readoptCheck(st, resolve),
 			ReadoptGate:  readoptGate(st),
-			Notifier:     notifier,
 		})
 		if err != nil {
 			host.stopBroker()
@@ -1262,7 +1261,7 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 	}
 }
 
-// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop, or at each value
+// startLimits tells router which epics a usage limit holds, checking st every limitTick until stop, or at each value
 // ticks delivers when ticks is not nil. The marks st holds say which limits a previous orreryd told, and those are not
 // told again.
 func (h *sessionHost) startLimits(
@@ -1279,6 +1278,7 @@ func (h *sessionHost) startLimits(
 	}
 	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
 		Steps:  st,
+		Epics:  st,
 		Told:   st,
 		Route:  router,
 		Now:    time.Now,

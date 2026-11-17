@@ -137,8 +137,6 @@ type StepStore interface {
 // ReadoptGate returns the agent gate an agent gate step row is re-adopted with. A gate definition is not stored with the
 // row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
 // that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
-// Notifier is told of each step a restart ends engine_restarted with no epic holding it, as an interrupted session is.
-// A nil Notifier tells nothing.
 type StepsConfig struct {
 	Sessions     stepSessions
 	Store        StepStore
@@ -154,7 +152,6 @@ type StepsConfig struct {
 	GateScope    string
 	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
-	Notifier     *Notifier
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -184,7 +181,6 @@ type Steps struct {
 	gateScope    string
 	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
-	notifier     *Notifier
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -226,7 +222,6 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		gateScope:    cfg.GateScope,
 		readoptCheck: cfg.ReadoptCheck,
 		readoptGate:  cfg.ReadoptGate,
-		notifier:     cfg.Notifier,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},

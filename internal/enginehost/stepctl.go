@@ -16,9 +16,6 @@ const stepStoppedEnd = "stopped"
 // stepRestartedEnd is the end Reconcile stores on each open step row.
 const stepRestartedEnd = "engine_restarted"
 
-// stepRestartedBody is the body of the notice a step ended engine_restarted with no epic holding it is told with.
-const stepRestartedBody = "orreryd restarted during the step"
-
 // stepWaitPoll is how often Wait reads the rows it waits on.
 const stepWaitPoll = 20 * time.Millisecond
 
@@ -308,10 +305,9 @@ func (s *Steps) Reconcile(ctx context.Context) error {
 // endRestarted ends the open rows of steps with no live loop as a restart leaves them: engine_restarted, all stored in one
 // CommitAll so one ApplyEngine call carries every end. Then each row whose end was stored has its worktree removed, its gate
 // holder stopped and cleared, and its observer unregistered from the adopter when there is one. A row whose end is dropped
-// is not cleaned up or notified, the other rows still are, and the first dropped end is returned. A row whose end is stored
-// and whose epic is empty is told with an interrupted notice through the Notifier, when there is one. A row that names an
-// epic is not told. A queueing failure returns its error with no cleanup. No session is stopped, since a restart leaves no
-// session to stop.
+// is not cleaned up, the other rows still are, and the first dropped end is returned. No notice is sent for any row, whether
+// or not it names an epic. A queueing failure returns its error with no cleanup. No session is stopped, since a restart
+// leaves no session to stop.
 func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 	groups := make([]SessionOps, 0, len(rows))
 	for _, row := range rows {
@@ -334,14 +330,6 @@ func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
 				first = fmt.Errorf("reconcile step %s: %w", row.ID, errs[i])
 			}
 			continue
-		}
-		if s.notifier != nil && row.Epic == "" {
-			s.notifier.Notify(ctx, Notice{
-				Session: row.ID,
-				Dir:     row.Workspace,
-				State:   stateInterrupted,
-				Body:    stepRestartedBody,
-			})
 		}
 		s.cleanRestartedStep(ctx, row, adopter)
 	}
