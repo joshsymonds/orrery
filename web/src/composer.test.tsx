@@ -14,6 +14,7 @@ import {
   type WaitingMessage,
 } from "./gen/orrery/v1/orrery_pb";
 import type { SentText } from "./sending";
+import { mockTimers } from "./testclock";
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof Composer>[0];
@@ -466,7 +467,7 @@ test("text typed while a pull is in flight follows the pulled text", async () =>
 });
 
 test("Enter with text flashes the composer at once and clears 300 ms later", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withComposer({}, async (box, container) => {
     await type(box, "hello claude");
     await press(box, "Enter");
@@ -479,7 +480,7 @@ test("Enter with text flashes the composer at once and clears 300 ms later", asy
 });
 
 test("Enter on a blank box does not flash", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withComposer({}, async (box, container) => {
     await press(box, "Enter");
     assert.equal(flashing(container), false, "an empty box does not flash");
@@ -490,7 +491,7 @@ test("Enter on a blank box does not flash", async (t) => {
 });
 
 test("Enter during an in-flight send does not flash", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   let finish: () => void = () => {};
   const send = () =>
     new Promise<void>((resolve) => {
@@ -510,7 +511,7 @@ test("Enter during an in-flight send does not flash", async (t) => {
 });
 
 test("a send that starts during a flash restarts the window", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withComposer({}, async (box, container) => {
     await type(box, "first");
     await press(box, "Enter");
@@ -527,7 +528,7 @@ test("a send that starts during a flash restarts the window", async (t) => {
 });
 
 test("Up in an empty box with a pull flashes at once and clears 300 ms later", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withComposer({ pull: async () => "queued text" }, async (box, container) => {
     await press(box, "ArrowUp");
     assert.equal(flashing(container), true, "flashing at once after a pull starts");
@@ -539,7 +540,7 @@ test("Up in an empty box with a pull flashes at once and clears 300 ms later", a
 });
 
 test("Up with text in the box does not flash", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withComposer({ pull: async () => "queued text" }, async (box, container) => {
     await type(box, "typed");
     await press(box, "ArrowUp");

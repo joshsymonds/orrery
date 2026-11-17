@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createClients, createTransport } from "./client";
 import { start as startPage } from "./main";
+import { mockTimers } from "./testclock";
 import { turn, until } from "./testwait";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
@@ -908,7 +909,7 @@ async function fireEvent(t: TestContext, watch: Watch, seq: number): Promise<voi
 
 test("ChangedEpicsOnly: with the event stream open, an event reload over an unchanged Epics.List makes no Epics.Get call", (t) =>
   withPage(t.signal, async (root, start) => {
-    t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+    mockTimers(t, ["setInterval", "setTimeout"]);
     const server = fakeServer("api", true);
     server.gate = Promise.resolve();
     server.epics = [liveEpic("draft")];
@@ -936,7 +937,7 @@ test("ChangedEpicsOnly: with the event stream open, an event reload over an unch
 // once and asks for each live epic once.
 async function tickFetchesEveryLiveEpic(t: TestContext, streaming: boolean): Promise<void> {
   await withPage(t.signal, async (root, start) => {
-    t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+    mockTimers(t, ["setInterval", "setTimeout"]);
     const server = fakeServer("api", streaming);
     server.gate = Promise.resolve();
     server.epics = [liveEpic("draft"), { ...liveEpic("draft"), id: "repo-a/beta", slug: "beta" }];
@@ -968,7 +969,7 @@ test("ChangedEpicsOnly: a poll tick with the event stream down makes one Epics.G
 
 test("ChangedEpicsOnly: a tick that lands while an epics load is in flight makes the next load fetch every live epic", (t) =>
   withPage(t.signal, async (root, start) => {
-    t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+    mockTimers(t, ["setInterval", "setTimeout"]);
     const server = fakeServer("api", true);
     server.gate = Promise.resolve();
     server.epics = [liveEpic("draft")];

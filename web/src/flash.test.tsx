@@ -7,6 +7,7 @@ import type { JSX } from "preact";
 import { act } from "preact/test-utils";
 
 import { flashMillis, useFlash } from "./flash";
+import { mockTimers } from "./testclock";
 import { installTestDom, removeTestDom } from "./testdom";
 
 // Probe is a control that uses the hook: a click starts the flash, and the class follows the flag.
@@ -57,7 +58,7 @@ function flashing(control: HTMLButtonElement): boolean {
 }
 
 test("a use flashes at once and clears 300 ms later", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   assert.equal(flashMillis, 300);
   await withProbe(async (control) => {
     assert.equal(flashing(control), false, "not flashing before any use");
@@ -71,7 +72,7 @@ test("a use flashes at once and clears 300 ms later", async (t) => {
 });
 
 test("a use during a flash restarts the window", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   await withProbe(async (control) => {
     await tap(control);
     await advance(t, 200);
@@ -86,7 +87,7 @@ test("a use during a flash restarts the window", async (t) => {
 });
 
 test("unmounting while flashing clears the pending flash timer", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const scheduled = t.mock.method(globalThis, "setTimeout");
   const cleared = t.mock.method(globalThis, "clearTimeout");
   const window = installTestDom();

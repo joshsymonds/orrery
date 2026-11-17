@@ -21,6 +21,7 @@ import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
 import type { Sending } from "./sending";
+import { mockTimers } from "./testclock";
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 import { turn } from "./testwait";
 
@@ -1042,7 +1043,7 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
 });
 
 test("an option flashes for 300 ms after a click, restarts on a second click, and still answers", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const answers: number[] = [];
   await withReader(
     {
@@ -1085,7 +1086,7 @@ test("an option flashes for 300 ms after a click, restarts on a second click, an
 });
 
 test("the compaction rule flashes for 300 ms after a click and still toggles", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  mockTimers(t, ["setTimeout"]);
   const compaction = item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto" });
   let toggles = 0;
   await withReader(
