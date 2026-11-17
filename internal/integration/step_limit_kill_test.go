@@ -91,12 +91,13 @@ func TestStepLimitSigkillKeepsLimitedStepAndResumesDone(t *testing.T) {
 func (r *stepReadoptRig) startLimitKillStep(t *testing.T) string {
 	t.Helper()
 	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
-		Agent:     stepReadoptAgent,
-		Prompt:    limitKillPrompt,
-		Schema:    stepReadoptSchema,
-		Workspace: r.worktree,
-		GateName:  stepReadoptGate,
-		GatesFile: r.gatesFile,
+		Agent:      stepReadoptAgent,
+		Prompt:     limitKillPrompt,
+		Schema:     stepReadoptSchema,
+		Workspace:  r.worktree,
+		OwnedPaths: []string{stepReadoptOwned},
+		GateName:   stepReadoptGate,
+		GatesFile:  r.gatesFile,
 	}))
 	if err != nil {
 		t.Fatalf("start step: %v", err)

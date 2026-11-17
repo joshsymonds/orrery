@@ -20,8 +20,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// ErrBadOwned reports a step whose owned path is absolute or reaches outside the repository.
-var ErrBadOwned = errors.New("step owned path must be a relative path inside the repository")
+// ErrBadOwned reports a step whose owned paths are refused: an owned path that is absolute or reaches outside the
+// repository, or a writing step that names no owned path and is not Unowned.
+var ErrBadOwned = errors.New("step owned paths are refused")
 
 // ErrBadGate reports a step whose gate is refused: a named gate that does not resolve, or a gates file that is not
 // absolute or is set without a name.
@@ -49,7 +50,8 @@ const stepDefaultModelLimit = 60 * time.Minute
 const stepDefaultWatchTick = 5 * time.Second
 
 // StepStart describes a step to start. A writing step (ReadOnly false) runs in Workspace, a linked worktree, and its
-// done return is checked against its commit and Owned paths and, when it names one, its gate. A read-only step runs in
+// done return is checked against its commit and Owned paths and, when it names one, its gate. A writing step needs at
+// least one Owned path unless it is Unowned, or the start is refused with ErrBadOwned. A read-only step runs in
 // a detached worktree at Revision, which is removed when the step ends. Revision names the start commit and empty means
 // HEAD. DoneValue empty means "done", and ModelLimit zero means 60 minutes, the model-time limit the step is stored
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
@@ -469,7 +471,8 @@ func (s *Steps) endLoop(id string) {
 }
 
 // checkStepStart reports whether start's prompt, id, workspace and owned paths are usable, before anything is stored or
-// any worktree is added. Start checks the schema once the gate has set it.
+// any worktree is added. A writing step that is not Unowned needs at least one owned path, because an empty list would
+// let it change nothing. Start checks the schema once the gate has set it.
 func checkStepStart(start StepStart) error {
 	if start.Prompt == "" {
 		return ErrEmptyPrompt
@@ -480,9 +483,12 @@ func checkStepStart(start StepStart) error {
 	if err := checkDir(start.Workspace); err != nil {
 		return err
 	}
+	if !start.ReadOnly && !start.Unowned && len(start.Owned) == 0 {
+		return fmt.Errorf("%w: a writing step needs owned_paths", ErrBadOwned)
+	}
 	for _, path := range start.Owned {
 		if !filepath.IsLocal(path) {
-			return fmt.Errorf("%w: %q", ErrBadOwned, path)
+			return fmt.Errorf("%w: %q is not a relative path inside the repository", ErrBadOwned, path)
 		}
 	}
 	return nil
