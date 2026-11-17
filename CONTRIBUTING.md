@@ -32,8 +32,8 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 
 ### Gate
 
-- `just check` is the full gate. It runs, in order: `reap-test-tmux`, `pin-check`, `doc-cites`, `lint`, `proto-lint`, `proto-breaking`, `cover`, `sqlc-diff`, `gen-diff`, `web-check`, `web-page`, `alert-check`, `gate-remote-test` and `test-deadline-test`. Run it when you want the whole gate; nothing runs it on push. CI runs it.
-- `just check-changed [BASE]` is the fast gate for work in progress. It runs only what the changes since `BASE` can affect. `BASE` defaults to the merge base of `HEAD` and `origin/main`. Go lint and race tests run on the packages that changed and on every package that imports them. A change to `go.mod`, `go.sum`, `sqlc.yaml`, `internal/store` SQL or `proto/` selects every package. `sqlc-diff`, the proto checks, `gen-diff`, the web checks, `alert-check`, `android-test` (when `android/` or `proto/` changed) and the two script self-tests run when their inputs changed. `pin-check` always runs. It does not measure coverage.
+- `just check` is the full gate. It runs, in order: `reap-test-tmux`, `pin-check`, `doc-cites`, `lint`, `proto-lint`, `proto-breaking`, `cover`, `sqlc-diff`, `gen-diff`, `web-check`, `web-page`, `alert-check`, `gate-remote-test`, `test-deadline-test` and `test-budget-test`. Run it when you want the whole gate; nothing runs it on push. CI runs it.
+- `just check-changed [BASE]` is the fast gate for work in progress. It runs only what the changes since `BASE` can affect. `BASE` defaults to the merge base of `HEAD` and `origin/main`. Go lint and race tests run on the packages that changed and on every package that imports them. A change to `go.mod`, `go.sum`, `sqlc.yaml`, `internal/store` SQL or `proto/` selects every package. The whole run has a 240-second budget, and each tested package's CPU time is checked against its baseline. See [Test time budgets](#test-time-budgets). `sqlc-diff`, the proto checks, `gen-diff`, the web checks, `alert-check`, `android-test` (when `android/` or `proto/` changed) and the three script self-tests run when their inputs changed. `pin-check` always runs. It does not measure coverage.
 - `just lint` runs `golangci-lint run` on the whole tree. See [Lint and coverage](#lint-and-coverage).
 - `just cover` runs the tests with the race detector and fails below 80% total coverage. See [Lint and coverage](#lint-and-coverage).
 - `just proto-lint` runs `buf lint` in `proto/`.
@@ -42,16 +42,17 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 - `just gen-diff` regenerates everything, then fails when the output differs from what is committed. See [Generated code](#generated-code).
 - `just pin-check` fails when `devenv.lock` and `flake.lock` resolve nixpkgs to different revisions.
 - `just doc-cites` fails when `docs/` cites code by `file:line`. Cite the enclosing symbol instead.
-- `just web-check` typechecks `web/` with `tsc`, bundles every `*.test.ts` and `*.test.tsx` under `web/src` with esbuild, and runs the bundles with `node --test`. Each test has a 60-second limit. It runs offline, using the `web/node_modules` that the shell links from nix.
+- `just web-check` typechecks `web/` with `tsc`, bundles every `*.test.ts` and `*.test.tsx` under `web/src` with esbuild, and runs the bundles with `node --test`. Each test has a 5-second limit and the whole run a 120-second budget. See [Test time budgets](#test-time-budgets). It runs offline, using the `web/node_modules` that the shell links from nix.
 - `just web-page` bundles the web page into `web/build/page`, the directory the flake package embeds. `scripts/build-web.sh` holds the bundle command, and the flake calls it too.
 - `just alert-check` runs `promtool test rules` on `observability/orrery-rules.test.yml`.
-- `just gate-remote-test` tests `scripts/gate-remote.sh` against a fake box, with no AWS and no network. `just test-deadline-test` tests `scripts/test-deadline.sh`.
+- `just gate-remote-test` tests `scripts/gate-remote.sh` against a fake box, with no AWS and no network. `just test-deadline-test` tests `scripts/test-deadline.sh`, and `just test-budget-test` tests `scripts/test-budget.sh` with synthetic numbers.
 - `just reap-test-tmux` stops tmux servers that tests started and outlived. `check` and `check-changed` run it first. See [Test conventions](#test-conventions).
 
 ### Generation and setup
 
 - `just generate` regenerates the store's typed queries, the Go API, the Android client and the web client from `proto/` and the SQL. See [Generated code](#generated-code).
 - `just refresh-env` rebuilds `.devenv-shell-env.sh` now, even when it is fresh.
+- `just remote-test-budget-update` re-measures every package's test CPU time on the gate box and rewrites `testdata/test-budget.json`. `just test-budget-update` does the same on this machine. See [Test time budgets](#test-time-budgets).
 - `just bump-nix [REF]` moves the nixpkgs pin. `REF` is a 40-character revision, or a branch name that `git ls-remote` resolves on github.com/NixOS/nixpkgs. It defaults to `nixpkgs-unstable`. It needs the network.
 
 ### Android
@@ -102,6 +103,41 @@ Formatting is part of the same configuration. `goimports` groups imports from `g
 - fails when a tmux `-L` socket is left in the run's private tmux directory, so a test that leaves its server running is caught.
 
 The run has a wall-clock budget of 360 seconds, set by `TEST_BUDGET` at the top of `justfile`. `scripts/test-deadline.sh` gives each test binary a `-test.timeout` that ends 10 seconds before the budget does, so a package still running then panics and names its running tests. A run that passes the budget fails with `tests exceeded 360s budget`. Override the budget for one run with `just TEST_BUDGET=600 cover`. The coverage profile is written to `coverage.out` and `coverage.cov.out`, and each test's artifacts to `test-artifacts/`. All three are git-ignored.
+
+## Test time budgets
+
+The tests run under four limits. Three are wall-clock limits that end a hang with the hung test named. The fourth is a CPU budget per Go package that catches a package whose tests grow expensive.
+
+| Limit | Where | Value | Override |
+| --- | --- | --- | --- |
+| Go test run under `cover` | `just cover` | 360 s | `just TEST_BUDGET=600 cover` |
+| Whole `check-changed` run | `just check-changed` | 240 s | `just CHECK_CHANGED_BUDGET=600 check-changed` |
+| Whole web suite | `just web-check` | 120 s | `just WEB_TEST_BUDGET=300 web-check` |
+| One web test | `just web-check` | 5 s | none |
+| CPU time of one Go package | `just cover` and `just check-changed` | its baseline, plus 15% or 5 CPU seconds | `just remote-test-budget-update` |
+
+`cover` and `check-changed` run each Go test binary through `scripts/test-deadline.sh`. The binary's `-test.timeout` ends 10 seconds before the budget, so a package still running then panics and names its running tests. A `cover` test run that passes its budget fails with exit 124 and `tests exceeded 360s budget`.
+
+The `check-changed` budget counts from the start of the run and covers every check it runs: `pin-check`, lint, the Go tests, and whichever of the web, proto, SQL, alert, script and Android checks the change selects. Each check runs under `timeout` with what is left of the budget. A check still running when the budget ends, or one that fails past it, ends the run with exit 124 and `check-changed: exceeded 240s budget (<check> was running)`. A passing run ends with `check-changed: OK after <n>s of its 240s budget`. `android-test`, which a change to `android/` or `proto/` selects, counts against the same budget. Give such a run a larger `CHECK_CHANGED_BUDGET` when it needs one.
+
+`web-check` runs `node --test --test-timeout=5000` under `timeout 120`. A test still running after 5 seconds fails with its name. A suite still running after 120 seconds is ended, and the recipe fails with exit 124 and `web-check: the web suite exceeded 120s budget`. A test that needs a timeout to fire uses a short one: the child runs in `web/src/main.test.tsx` and `web/src/testwait.test.ts` set their own `--test-timeout` of a few hundred milliseconds.
+
+### CPU budget per package
+
+`cover` and `check-changed` set `ORRERY_TEST_CPU_FILE`, and `scripts/test-deadline.sh` then appends one line per test binary to `test-artifacts/test-budget.record`. The line holds the package directory and the user plus system CPU seconds of the binary and the processes it waited for, such as `internal/store 158.420`. CPU time is used rather than wall time because it changes little when the machine is loaded, while a package's wall time under load is mostly waiting.
+
+`testdata/test-budget.json` is the baseline. It maps each package directory to its CPU seconds under the gate's full test run, the `go test -count=1 -race -covermode=atomic -coverpkg=./... ./...` that `cover` runs. After a passing test run, `cover` and `check-changed` run `scripts/test-budget.sh check` over the record: `cover` checks every package, and `check-changed` only the packages it tested. `check-changed` runs the same tests without coverage, which costs 1% to 10% less CPU per package (about 6% in total), so its packages have that much more room under the same baseline. A package's budget is its baseline plus the larger of 15% and 5 CPU seconds. The check prints:
+
+- `test-budget: internal/store 212 cpu-s > 160 (+33%)` for a package over its budget: it used 212 CPU seconds against a baseline of 160, 33% more. The line is a report, and the check still passes.
+- `test-budget: internal/store 330 cpu-s > 160 (+106%), over twice its baseline` for a package over its budget and over twice its baseline. The check fails with exit 3, so `cover`, `check` and `check-changed` fail with exit 3.
+- `test-budget: internal/new 12 cpu-s, no baseline` for a package the baseline does not list. This is a report, and the check still passes.
+- a last line that counts the packages checked, or the packages over twice their baseline.
+
+A package the baseline lists but the run did not test is not mentioned.
+
+The baseline is measured on the gate box, where an epic's `check` and `check-changed` run. The same tests take more CPU time on some machines than on others. A 32-core workstation measured 20% to 80% more per package than the 64-core box, about 40% in total, so a full `cover` or `check-changed` there reports the largest packages over budget without failing.
+
+When a change makes a package's tests cost more on purpose, or after the tests got cheaper, re-measure with `just remote-test-budget-update` and commit the new `testdata/test-budget.json` with the change. It runs `just test-budget-update` on the gate box, takes the baseline from the run's output, and writes it here. `just test-budget-update` runs `cover`'s `go test` twice, keeps each package's lower figure, and writes the file, one package per line, sorted, to one decimal. It measures the machine it runs on, so run it directly only when no box can come up. A run that fails or passes the 360-second budget writes nothing.
 
 ## CI
 

@@ -7,10 +7,17 @@
 # BASE defaults to the merge base of HEAD and origin/main. Changes are the files that differ between BASE and the
 # working tree (committed and uncommitted, tracked and untracked).
 #
+# The whole run has a wall-clock budget of $CHECK_CHANGED_BUDGET seconds (default 240), counted from its start. Each
+# check runs under timeout with what is left of it; a check still running when it ends, or one that fails past it,
+# fails the run with exit 124 and "check-changed: exceeded <budget>s budget (<check> was running)". The Go test
+# binaries run through scripts/test-deadline.sh with a -test.timeout that ends 10 s before the budget, so a hung test
+# is named.
+#
 # Selection:
 #   - Go: the packages that hold a changed .go file, plus every package that imports one of them, directly or not.
 #     Lint and `go test -race` run on those. A change to go.mod, go.sum, internal/store SQL, sqlc.yaml or proto/
-#     selects every package.
+#     selects every package. Each tested package's CPU seconds are checked against its baseline
+#     (scripts/test-budget.sh).
 #   - sqlc-diff when internal/store SQL or sqlc.yaml changed.
 #   - proto-lint, proto-breaking and gen-diff when proto/ changed.
 #   - web-check and web-page when web/ changed (outside web/build).
@@ -18,9 +25,12 @@
 #   - android-test when android/ or proto/ changed.
 #   - gate-remote-test when scripts/gate-remote.sh or its test changed.
 #   - test-deadline-test when scripts/test-deadline.sh or its test changed.
+#   - test-budget-test when scripts/test-budget.sh or its test changed.
 #   - pin-check always (it is fast).
 set -euo pipefail
 
+budget=${CHECK_CHANGED_BUDGET:-240}
+end=$(($(date +%s) + budget))
 base=${1:-$(git merge-base HEAD origin/main)}
 changed=$( { git diff --name-only "$base" -- . ; git ls-files --others --exclude-standard; } | sort -u )
 
@@ -33,7 +43,26 @@ echo "check-changed: base $(git rev-parse --short "$base"), $(printf '%s\n' "$ch
 
 has() { printf '%s\n' "$changed" | grep -qE "$1"; }
 
-just pin-check
+over() {
+    echo "check-changed: exceeded ${budget}s budget ($1 was running)" >&2
+    exit 124
+}
+
+# within NAME COMMAND...: runs COMMAND under timeout with what is left of the budget. A failure at or past the end of
+# the budget is the budget's; any other failure ends the run with COMMAND's status.
+within() {
+    local name="$1" left rc=0
+    shift
+    left=$((end - $(date +%s)))
+    [ "$left" -ge 1 ] || over "$name"
+    timeout "$left" "$@" || rc=$?
+    if [ "$rc" -ne 0 ] && [ "$(date +%s)" -ge "$end" ]; then
+        over "$name"
+    fi
+    return "$rc"
+}
+
+within pin-check just pin-check
 
 module=$(go list -m)
 all_go=no
@@ -66,10 +95,10 @@ fi
 if [ -n "$pkgs" ]; then
     echo "check-changed: Go packages: $pkgs"
     if [ "$pkgs" = "./..." ]; then
-        golangci-lint run
+        within golangci-lint golangci-lint run
     else
         # shellcheck disable=SC2086 # word splitting is the package list
-        golangci-lint run $pkgs
+        within golangci-lint golangci-lint run $pkgs
     fi
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
@@ -77,8 +106,24 @@ if [ -n "$pkgs" ]; then
     # so a run that fails or times out leaves them on disk.
     artifacts="$PWD/test-artifacts"
     rm -rf "$artifacts" && mkdir "$artifacts"
+    # Each test binary runs through scripts/test-deadline.sh, as under `just cover`: its -test.timeout ends 10 s before
+    # the budget does, so a package still running then panics listing its running tests, and the line it appends to
+    # the record gives the package's CPU seconds for the budget check below.
+    deadline=$((end - 10))
+    record="$artifacts/test-budget.record"
+    : >"$record"
+    left=$((end - $(date +%s)))
+    [ "$left" -ge 1 ] || over "Go tests"
+    rc=0
     # shellcheck disable=SC2086
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" go test -count=1 -race -artifacts -outputdir "$artifacts" $pkgs
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$record" \
+        timeout "$left" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -artifacts -outputdir "$artifacts" \
+        $pkgs || rc=$?
+    if [ "$rc" -eq 124 ] || { [ "$rc" -ne 0 ] && [ "$(date +%s)" -ge "$deadline" ]; }; then
+        over "Go tests"
+    elif [ "$rc" -ne 0 ]; then
+        exit "$rc"
+    fi
     sock_dir="$dir/tmux-$(id -u)"
     if [ -d "$sock_dir" ]; then
         leftover=$(find "$sock_dir" -mindepth 1 -maxdepth 1 -type s)
@@ -88,16 +133,23 @@ if [ -n "$pkgs" ]; then
             exit 1
         fi
     fi
+    # One line per package over its CPU budget; exit 3 when one is over twice its baseline.
+    scripts/test-budget.sh check "$record"
 else
     echo "check-changed: no Go package affected"
 fi
 
-if has '^internal/store/.*\.sql$' || has '^sqlc\.yaml$'; then just sqlc-diff; fi
-if has '^proto/'; then just proto-lint proto-breaking gen-diff; fi
-if printf '%s\n' "$changed" | grep -E '^web/' | grep -vqE '^web/build/'; then just web-check web-page; fi
-if has '^observability/'; then just alert-check; fi
-if has '^scripts/gate-remote(-test)?\.sh$'; then just gate-remote-test; fi
-if has '^scripts/test-deadline(-test)?\.sh$'; then just test-deadline-test; fi
-if has '^(android/|proto/)'; then just android-test; else echo "check-changed: Android untouched; android-test skipped"; fi
+if has '^internal/store/.*\.sql$' || has '^sqlc\.yaml$'; then within sqlc-diff just sqlc-diff; fi
+if has '^proto/'; then within "proto checks" just proto-lint proto-breaking gen-diff; fi
+if printf '%s\n' "$changed" | grep -E '^web/' | grep -vqE '^web/build/'; then within "web checks" just web-check web-page; fi
+if has '^observability/'; then within alert-check just alert-check; fi
+if has '^scripts/gate-remote(-test)?\.sh$'; then within gate-remote-test just gate-remote-test; fi
+if has '^scripts/test-deadline(-test)?\.sh$'; then within test-deadline-test just test-deadline-test; fi
+if has '^scripts/test-budget(-test)?\.sh$'; then within test-budget-test just test-budget-test; fi
+if has '^(android/|proto/)'; then
+    within android-test just android-test
+else
+    echo "check-changed: Android untouched; android-test skipped"
+fi
 
-echo "check-changed: OK"
+echo "check-changed: OK after $((budget - (end - $(date +%s))))s of its ${budget}s budget"
