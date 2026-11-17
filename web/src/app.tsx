@@ -749,6 +749,15 @@ export function App({
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
     }
+    // While the palette is open it owns the keys: Escape closes it, and every other key is left to the palette's own
+    // controls, so the list keeps its keys and a focused row or button keeps its native Enter.
+    if (pickerOpen) {
+      if (event.key === "Escape") {
+        setPickerOpen(false);
+        event.preventDefault();
+      }
+      return;
+    }
     const input = inputRef.current;
     if (input !== null && document.activeElement === input) {
       if (event.key === "Enter") {
@@ -765,6 +774,10 @@ export function App({
       if (event.key === "Escape") {
         focused.blur();
       }
+      return;
+    }
+    // A focused button keeps its own Enter, so + Ask opens the palette and Enter writes no seen.
+    if (event.key === "Enter" && focused instanceof HTMLElement && focused.tagName === "BUTTON") {
       return;
     }
 

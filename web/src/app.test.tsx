@@ -4920,3 +4920,50 @@ test("PickerStartForm: a started session takes the cursor once its row arrives i
     await mount(container, { rows: [...fixture(), started], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "session:sess-new");
   }));
+
+// letTurnsRun steps through a fixed run of turns inside act, so a write queued by a key has started before a test checks
+// that none did. It reads no clock and arms no timer, unlike settle.
+async function letTurnsRun(): Promise<void> {
+  for (let round = 0; round < 50; round++) {
+    await act(turn);
+  }
+}
+
+// listDeployRow opens the palette, asks for deploy, and waits until the one row the answer holds is listed.
+async function listDeployRow(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
+  fake.replies.set(pickerAskPath, [
+    { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
+  ]);
+  await clickElement(askButton(container));
+  await typePicker(container, "deploy");
+  await pressIn(pickerInput(container), "Enter");
+  await untilTurn(signal, () => pickerRows(container).length === 1, "the answer's row is listed");
+}
+
+test("PickerPalette: Enter on a focused picker row is not defaultPrevented and writes no seen", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await listDeployRow(t.signal, container, fake);
+    await act(() => pickerRow(container, 0).focus());
+    const enter = await pressIn(pickerRow(container, 0), "Enter");
+    assert.equal(enter.defaultPrevented, false, "Enter on a picker row keeps its native activation");
+    await letTurnsRun();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter behind the palette writes no seen");
+  }));
+
+test("PickerPalette: j on a focused picker row leaves the list's cursor where it was", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await listDeployRow(t.signal, container, fake);
+    await act(() => pickerRow(container, 0).focus());
+    assert.equal(cursorKey(container), "a");
+    await pressIn(pickerRow(container, 0), "j");
+    assert.equal(cursorKey(container), "a", "j behind the palette does not move the list's cursor");
+  }));
+
+test("PickerPalette: Enter on the focused + Ask button is not defaultPrevented and writes no seen", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await act(() => askButton(container).focus());
+    const enter = await pressIn(askButton(container), "Enter");
+    assert.equal(enter.defaultPrevented, false, "Enter on + Ask keeps its native activation");
+    await letTurnsRun();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter on + Ask writes no seen");
+  }));
