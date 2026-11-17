@@ -104,14 +104,15 @@ type EpicTrigger struct {
 	Created time.Time
 }
 
-// EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions and its
-// outcome.
+// EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions, its outcome and
+// its actions.
 type EpicPlan struct {
 	Decisions []string
 	Tasks     []EpicTaskInput
 	Outline   string
 	Questions []EpicQuestionInput
 	Outcome   string
+	Actions   []EpicActionInput
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
@@ -434,8 +435,8 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 }
 
 // CompleteTurn stores plan as the return of the running turn seq of epic in one write: its decisions, its tasks with
-// their files and Requirements, its outline, its questions and its outcome. The turn succeeds ended at at, and every
-// trigger the turn claimed is consumed. When epic has a running plan run whose pinned workflow holds a build node
+// their files and Requirements, its outline, its questions, its outcome and its actions, which are stored pending. The
+// turn succeeds ended at at, and every trigger the turn claimed is consumed. When epic has a running plan run whose pinned workflow holds a build node
 // under the plan, each task also gets a running build child run under that node in the same write. A turn that is not
 // running, or does not exist, is ErrTurnNotRunning and writes nothing. A question of the plan that breaks a rule of
 // QuestionRefusals, or replaces a question epic does not hold, is ErrBadQuestion, and the call writes nothing.
@@ -469,6 +470,9 @@ func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan 
 		}
 		if err = insertQuestions(ctx, queries, epic, turn, plan.Questions); err != nil {
 			return fmt.Errorf("questions of turn %d of epic %s: %w", turn, epic, err)
+		}
+		if err = insertActions(ctx, queries, epic, turn, plan.Actions); err != nil {
+			return fmt.Errorf("actions of turn %d of epic %s: %w", turn, epic, err)
 		}
 		if err = queries.ConsumeEpicTriggers(ctx, sqlcgen.ConsumeEpicTriggersParams{
 			Epic: epic, Turn: turn,

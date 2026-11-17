@@ -139,30 +139,38 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
 // granted round. Each parked evidence run that an open park question for a red run judged holding at base names turns
 // running at its next attempt, and each open park question of epic is answered retry, in the same write. An unknown
-// epic is ErrNoEpic, an epic that is not parked is a RefusalError, and an epic in phase met_at_base, which the owner
-// ended, is a RefusalError that changes nothing.
+// epic is ErrNoEpic, an epic that is not parked is a RefusalError, an epic in phase met_at_base, which the owner
+// ended, is a RefusalError that changes nothing, and so is an epic in phase stopped, whose release park retry does not end.
 func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		head, err := epicHead(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		if head.Phase == phaseMetAtBase {
-			return metAtBaseRefusal(epic, head.Parked)
-		}
-		if head.Parked == "" {
-			return RefusalError(fmt.Sprintf("epic %s is not parked", epic))
-		}
-		err = rerunMetAtBaseRuns(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		err = closeParkQuestions(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		return endPark(ctx, queries, epic)
+		return retryEpicIn(ctx, queries, epic)
 	})
+}
+
+// retryEpicIn ends the park of epic in the caller's write, as RetryEpic does.
+func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if head.Phase == phaseMetAtBase {
+		return metAtBaseRefusal(epic, head.Parked)
+	}
+	if head.Phase == PhaseStopped {
+		return RefusalError(fmt.Sprintf("epic %s is stopped; retry does not end a stopped release", epic))
+	}
+	if head.Parked == "" {
+		return RefusalError(fmt.Sprintf("epic %s is not parked", epic))
+	}
+	err = rerunMetAtBaseRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	err = closeParkQuestions(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	return endPark(ctx, queries, epic)
 }
 
 // rerunMetAtBaseRuns turns each parked evidence run that an open park question of epic names running at its next

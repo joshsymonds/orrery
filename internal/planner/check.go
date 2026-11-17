@@ -23,21 +23,25 @@ const (
 )
 
 // Check returns one refusal per bad task field of ret, in plan order, then one per broken rule of each question, in
-// question order, or nil when the return passes. Each task refusal names the task by index and title, then the field,
-// then the reason. Each question refusal names the question by index and label, then the field and reason that
-// store.QuestionRefusals gives. requirements are the epic's Requirement ids, and owned are the files owned by the
-// epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a name they refuse gives the
-// refusal its error text.
+// question order, then one per broken rule of each action, in action order, or nil when the return passes. Each task
+// refusal names the task by index and title, then the field, then the reason. Each question refusal names the question by
+// index and label, then the field and reason that store.QuestionRefusals gives. Each action refusal names the action by
+// index and kind, then the field and the reason. requirements are the epic's Requirement ids, and owned are the files owned
+// by the epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a name they refuse gives
+// the refusal its error text. Check does not test whether an action's target is valid; the engine does that.
 func Check(ret Return, requirements []string, owned []string, gate, judge func(name string) error) []string {
 	known := stringSet(requirements)
 	taken := stringSet(owned)
 	named := make(map[string]bool)
-	refusals := make([]string, 0, len(ret.Tasks)+len(ret.Questions))
+	refusals := make([]string, 0, len(ret.Tasks)+len(ret.Questions)+len(ret.Actions))
 	for i, task := range ret.Tasks {
 		refusals = append(refusals, checkTask(i, task, known, taken, named, gate, judge)...)
 	}
 	for i, question := range ret.Questions {
 		refusals = append(refusals, checkQuestion(i, question)...)
+	}
+	for i, action := range ret.Actions {
+		refusals = append(refusals, checkAction(i, action)...)
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -122,6 +126,109 @@ func checkQuestion(i int, question Question) []string {
 		refusals = append(refusals, prefix+" "+line)
 	}
 	return refusals
+}
+
+// The closes an action may name: a superseded close names the epic that replaces it, and an abandoned close may name one.
+const (
+	closeSuperseded = "superseded"
+	closeAbandoned  = "abandoned"
+)
+
+// The reason a refusal gives for an action field that is not above 0, and for one that is not a close the planner may
+// name, and the reason for a field the action's kind does not use.
+const (
+	reasonAboveZero = "not above 0"
+	reasonNotClose  = "not superseded or abandoned"
+	reasonUnused    = "not used by this kind; leave it empty or 0"
+)
+
+// actionKinds returns the kinds an action may name, in the order the refusal lists them.
+func actionKinds() []string {
+	return []string{
+		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
+		store.ActionCloseEpic,
+	}
+}
+
+// actionFields returns the fields kind uses, by the names the return gives them, and whether kind is one of actionKinds.
+// resume_release uses undo_none, so the shape check passes a named position on to the engine, which refuses it: only the
+// owner names an undo-none step.
+func actionFields(kind string) ([]string, bool) {
+	switch kind {
+	case store.ActionRetryNode:
+		return []string{"node"}, true
+	case store.ActionRetryEpic:
+		return nil, true
+	case store.ActionFailTask:
+		return []string{"task"}, true
+	case store.ActionResumeRelease:
+		return []string{"undo_none"}, true
+	case store.ActionCloseEpic:
+		return []string{"close", "by"}, true
+	}
+	return nil, false
+}
+
+// checkAction returns the refusals of one action of a return, at position i, in the order of the rules: the kind, the
+// fields its kind needs, the fields its kind does not use, then the reason. An unknown kind has no other field to check.
+func checkAction(i int, action EngineAction) []string {
+	prefix := fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind)
+	var refusals []string
+	refuse := func(field, reason string) {
+		refusals = append(refusals, prefix+" "+field+": "+reason)
+	}
+	used, known := actionFields(action.Kind)
+	if known {
+		checkNeededFields(action, refuse)
+		checkUnusedFields(action, used, refuse)
+	} else {
+		refuse("kind", "not one of "+strings.Join(actionKinds(), ", "))
+	}
+	if strings.TrimSpace(action.Reason) == "" {
+		refuse("reason", reasonEmpty)
+	}
+	return refusals
+}
+
+// checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
+// a fail_task names a task above 0, and a close_epic names a close of superseded or abandoned and, when superseded, a by.
+func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
+	switch action.Kind {
+	case store.ActionRetryNode:
+		if strings.TrimSpace(action.Node) == "" {
+			refuse("node", reasonEmpty)
+		}
+	case store.ActionFailTask:
+		if action.Task <= 0 {
+			refuse("task", reasonAboveZero)
+		}
+	case store.ActionCloseEpic:
+		if action.Close != closeSuperseded && action.Close != closeAbandoned {
+			refuse("close", reasonNotClose)
+		}
+		if action.Close == closeSuperseded && strings.TrimSpace(action.By) == "" {
+			refuse("by", reasonEmpty)
+		}
+	}
+}
+
+// checkUnusedFields calls refuse for each field action sets that its kind, whose fields are used, does not use.
+func checkUnusedFields(action EngineAction, used []string, refuse func(field, reason string)) {
+	fields := []struct {
+		name string
+		set  bool
+	}{
+		{"node", action.Node != ""},
+		{"task", action.Task != 0},
+		{"close", action.Close != ""},
+		{"by", action.By != ""},
+		{"undo_none", len(action.UndoNone) > 0},
+	}
+	for _, field := range fields {
+		if field.set && !slices.Contains(used, field.name) {
+			refuse(field.name, reasonUnused)
+		}
+	}
 }
 
 // fileReason returns the reason file is refused, or "" when it passes. It records file as named before it checks

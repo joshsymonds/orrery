@@ -556,6 +556,21 @@ type PendingNoticeID struct {
 	High int64
 }
 
+type PlannerAction struct {
+	Epic      string
+	Turn      int64
+	Position  int64
+	Kind      string
+	Node      string
+	Task      int64
+	CloseKind string
+	ByEpic    string
+	UndoNone  string
+	Reason    string
+	State     string
+	Refusal   string
+}
+
 type PushedAlertNotice struct {
 	Alert string
 	Time  int64

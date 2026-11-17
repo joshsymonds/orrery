@@ -1009,6 +1009,48 @@ func (q *Queries) GetEpicSeen(ctx context.Context, epic string) (int64, error) {
 	return at, err
 }
 
+const getEpicTask = `-- name: GetEpicTask :one
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos, batch, guard FROM epic_tasks WHERE epic = ? AND seq = ?
+`
+
+type GetEpicTaskParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) GetEpicTask(ctx context.Context, arg GetEpicTaskParams) (EpicTask, error) {
+	row := q.db.QueryRowContext(ctx, getEpicTask, arg.Epic, arg.Seq)
+	var i EpicTask
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.Turn,
+		&i.Title,
+		&i.Deliverable,
+		&i.Status,
+		&i.Gate,
+		&i.Evidence,
+		&i.Stage,
+		&i.Base,
+		&i.Attempt,
+		&i.Rerun,
+		&i.NoVerdict,
+		&i.Held,
+		&i.Step,
+		&i.RedRun,
+		&i.GreenRun,
+		&i.Revision,
+		&i.Failure,
+		&i.Review,
+		&i.Refs,
+		&i.GatePos,
+		&i.FindingPos,
+		&i.Batch,
+		&i.Guard,
+	)
+	return i, err
+}
+
 const getEpicTurnStop = `-- name: GetEpicTurnStop :one
 SELECT stop FROM epic_turns WHERE epic = ? AND seq = ?
 `
@@ -2585,6 +2627,40 @@ type InsertHoldParams struct {
 
 func (q *Queries) InsertHold(ctx context.Context, arg InsertHoldParams) error {
 	_, err := q.db.ExecContext(ctx, insertHold, arg.Member, arg.Since)
+	return err
+}
+
+const insertPlannerAction = `-- name: InsertPlannerAction :exec
+INSERT INTO planner_actions (epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '')
+`
+
+type InsertPlannerActionParams struct {
+	Epic      string
+	Turn      int64
+	Position  int64
+	Kind      string
+	Node      string
+	Task      int64
+	CloseKind string
+	ByEpic    string
+	UndoNone  string
+	Reason    string
+}
+
+func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActionParams) error {
+	_, err := q.db.ExecContext(ctx, insertPlannerAction,
+		arg.Epic,
+		arg.Turn,
+		arg.Position,
+		arg.Kind,
+		arg.Node,
+		arg.Task,
+		arg.CloseKind,
+		arg.ByEpic,
+		arg.UndoNone,
+		arg.Reason,
+	)
 	return err
 }
 
@@ -4997,6 +5073,65 @@ func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]Epi
 	return items, nil
 }
 
+const listOpenEpicSteps = `-- name: ListOpenEpicSteps :many
+SELECT id FROM steps WHERE epic = ? AND end_value = '' ORDER BY started, id
+`
+
+func (q *Queries) ListOpenEpicSteps(ctx context.Context, epic string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEpicSteps, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenEpicTaskSteps = `-- name: ListOpenEpicTaskSteps :many
+SELECT id FROM steps WHERE epic = ? AND task = ? AND end_value = '' ORDER BY started, id
+`
+
+type ListOpenEpicTaskStepsParams struct {
+	Epic string
+	Task string
+}
+
+func (q *Queries) ListOpenEpicTaskSteps(ctx context.Context, arg ListOpenEpicTaskStepsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEpicTaskSteps, arg.Epic, arg.Task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEvidenceRuns = `-- name: ListOpenEvidenceRuns :many
 SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id
 `
@@ -5153,6 +5288,46 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.Silent,
 			&i.Epic,
 			&i.LimitKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingPlannerActions = `-- name: ListPendingPlannerActions :many
+SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
+`
+
+func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerAction, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingPlannerActions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlannerAction
+	for rows.Next() {
+		var i PlannerAction
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Turn,
+			&i.Position,
+			&i.Kind,
+			&i.Node,
+			&i.Task,
+			&i.CloseKind,
+			&i.ByEpic,
+			&i.UndoNone,
+			&i.Reason,
+			&i.State,
+			&i.Refusal,
 		); err != nil {
 			return nil, err
 		}
@@ -6492,6 +6667,33 @@ type SetEvidenceRunJudgeParams struct {
 func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJudgeParams) error {
 	_, err := q.db.ExecContext(ctx, setEvidenceRunJudge, arg.JudgeStep, arg.ID)
 	return err
+}
+
+const setPlannerActionState = `-- name: SetPlannerActionState :execrows
+UPDATE planner_actions SET state = ?1, refusal = ?2
+WHERE epic = ?3 AND turn = ?4 AND position = ?5 AND state = 'pending'
+`
+
+type SetPlannerActionStateParams struct {
+	State    string
+	Refusal  string
+	Epic     string
+	Turn     int64
+	Position int64
+}
+
+func (q *Queries) SetPlannerActionState(ctx context.Context, arg SetPlannerActionStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setPlannerActionState,
+		arg.State,
+		arg.Refusal,
+		arg.Epic,
+		arg.Turn,
+		arg.Position,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const startEpicRelease = `-- name: StartEpicRelease :exec

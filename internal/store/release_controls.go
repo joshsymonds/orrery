@@ -62,6 +62,44 @@ func resumeRelease(
 	if head.Phase == phaseEndedWithGaps {
 		return releaseEndedWithGaps(ctx, queries, head.ID, undoNone, at)
 	}
+	return resumeStoppedRelease(ctx, queries, head, undoNone, at)
+}
+
+// resumeReleaseByPlanner resumes the stopped release of epic for a planner's resume_release action, in the caller's
+// write. It runs only for an epic in phase stopped that already holds its repository's release slot: it never takes a
+// free slot, so a release the owner stopped, which freed the slot, stays with the owner. It refuses any undo-none step
+// named, since only the owner names one. Otherwise it resumes the release as ReleaseEpic does.
+func resumeReleaseByPlanner(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
+) error {
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if head.Phase != PhaseStopped {
+		return RefusalError(fmt.Sprintf("epic %s is not stopped", epic))
+	}
+	if len(undoNone) > 0 {
+		return RefusalError(
+			fmt.Sprintf("epic %s: a planner resume names no undo-none step; only the owner names one", epic))
+	}
+	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
+	if err != nil {
+		return err
+	}
+	if holder != epic {
+		return RefusalError(fmt.Sprintf("epic %s does not hold the release slot of %s", epic, head.Repository))
+	}
+	return resumeStoppedRelease(ctx, queries, head, undoNone, at)
+}
+
+// resumeStoppedRelease resumes the stopped release of head in the caller's write, as ReleaseEpic does for an epic that is
+// not ended with gaps: it takes the release slot, stores the named releases, moves the release node run to its next
+// attempt and unparks epic, and moves epic to releasing with the tell that says where it resumed.
+func resumeStoppedRelease(
+	ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, undoNone []int64, at time.Time,
+) error {
+	epic := head.ID
 	resume, err := checkReleaseResume(ctx, queries, head, undoNone)
 	if err != nil {
 		return err

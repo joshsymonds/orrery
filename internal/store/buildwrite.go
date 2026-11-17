@@ -23,23 +23,36 @@ func (s *Store) FailTask(
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		stored := capTurnText(reason)
-		to := from
-		to.Failure = stored
-		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
-			return err
-		}
-		if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
-			return err
-		}
-		if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-			Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, stored),
-			State: triggerPending, Turn: 0, Created: at.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert failure trigger of task %d of epic %s: %w", seq, epic, err)
-		}
-		return nil
+		return failTaskIn(ctx, queries, epic, seq, from, reason, at)
 	})
+}
+
+// failTaskIn fails task seq of epic in the caller's write, as FailTask does.
+func failTaskIn(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	from TaskBuild,
+	reason string,
+	at time.Time,
+) error {
+	stored := capTurnText(reason)
+	to := from
+	to.Failure = stored
+	if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+		return err
+	}
+	if err := setTaskStatus(ctx, queries, epic, seq, "failed"); err != nil {
+		return err
+	}
+	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: epic, ID: fmt.Sprintf("T%d-failed", seq), Cause: fmt.Sprintf("task T%d failed: %s", seq, stored),
+		State: triggerPending, Turn: 0, Created: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert failure trigger of task %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
 }
 
 // AcceptTask marks task seq of epic done with review in one write, when its stored build is from. A task that is not

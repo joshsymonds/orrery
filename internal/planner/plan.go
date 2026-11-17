@@ -78,20 +78,51 @@ const Schema = `{
 				"additionalProperties": false
 			}
 		},
+		"actions": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"kind": {"type": "string", "enum": ["retry_node", "retry_epic", "fail_task", "resume_release", "close_epic"]},
+					"node": {"type": "string"},
+					"task": {"type": "integer"},
+					"close": {"type": "string", "enum": ["", "superseded", "abandoned"]},
+					"by": {"type": "string"},
+					"undo_none": {"type": "array", "items": {"type": "integer"}},
+					"reason": {"type": "string"}
+				},
+				"required": ["kind", "node", "task", "close", "by", "undo_none", "reason"],
+				"additionalProperties": false
+			}
+		},
 		"outcome": {"type": "string", "enum": ["work", "wait", "complete"]}
 	},
-	"required": ["status", "decisions", "tasks", "outline", "questions", "outcome"],
+	"required": ["status", "decisions", "tasks", "outline", "questions", "actions", "outcome"],
 	"additionalProperties": false
 }`
 
 // Return is the planner turn's return.
 type Return struct {
-	Status    string     `json:"status"`
-	Decisions []string   `json:"decisions"`
-	Tasks     []Task     `json:"tasks"`
-	Outline   string     `json:"outline"`
-	Questions []Question `json:"questions"`
-	Outcome   string     `json:"outcome"`
+	Status    string         `json:"status"`
+	Decisions []string       `json:"decisions"`
+	Tasks     []Task         `json:"tasks"`
+	Outline   string         `json:"outline"`
+	Questions []Question     `json:"questions"`
+	Actions   []EngineAction `json:"actions"`
+	Outcome   string         `json:"outcome"`
+}
+
+// EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close and replacing epic its
+// kind uses, the undo-none positions it names, and the planner's reason. check.go lists the fields each kind uses. UndoNone
+// is read by Parse from the key undo_none, as the schema spells it, since the package's JSON tags are camel case.
+type EngineAction struct {
+	Kind     string  `json:"kind"`
+	Node     string  `json:"node"`
+	Task     int64   `json:"task"`
+	Close    string  `json:"close"`
+	By       string  `json:"by"`
+	UndoNone []int64 `json:"-"`
+	Reason   string  `json:"reason"`
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it
@@ -126,15 +157,16 @@ type Task struct {
 	Evidence     evidence.Item `json:"evidence"`
 }
 
-// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON. A task's test_changes is read
-// by its key, as the schema spells it, since the package's JSON tags are camel case.
+// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON. A task's test_changes and an
+// action's undo_none are read by their keys, as the schema spells them, since the package's JSON tags are camel case.
 func Parse(raw json.RawMessage) (Return, error) {
 	var ret Return
 	if err := json.Unmarshal(raw, &ret); err != nil {
 		return Return{}, fmt.Errorf("planner return: %w", err)
 	}
 	var keyed struct {
-		Tasks []map[string]json.RawMessage `json:"tasks"`
+		Tasks   []map[string]json.RawMessage `json:"tasks"`
+		Actions []map[string]json.RawMessage `json:"actions"`
 	}
 	if err := json.Unmarshal(raw, &keyed); err != nil {
 		return Return{}, fmt.Errorf("planner return: %w", err)
@@ -146,6 +178,15 @@ func Parse(raw json.RawMessage) (Return, error) {
 		}
 		if err := json.Unmarshal(value, &ret.Tasks[i].TestChanges); err != nil {
 			return Return{}, fmt.Errorf("planner return: tasks[%d] test_changes: %w", i, err)
+		}
+	}
+	for i, action := range keyed.Actions {
+		value, ok := action["undo_none"]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(value, &ret.Actions[i].UndoNone); err != nil {
+			return Return{}, fmt.Errorf("planner return: actions[%d] undo_none: %w", i, err)
 		}
 	}
 	return ret, nil

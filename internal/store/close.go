@@ -66,23 +66,32 @@ type closeEnd struct {
 func (s *Store) CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if _, err := epicHead(ctx, queries, epic); err != nil {
-			return err
-		}
-		end, err := closeEndOf(epic, kind, by, closer, at)
-		if err != nil {
-			return err
-		}
-		step, err = endClosedTurn(ctx, queries, end)
-		if err != nil {
-			return err
-		}
-		return closeEpicRows(ctx, queries, end)
+		var err error
+		step, err = closeEpicIn(ctx, queries, epic, kind, by, closer, at)
+		return err
 	})
 	if err != nil {
 		return "", err
 	}
 	return step, nil
+}
+
+// closeEpicIn closes epic in the caller's write, as CloseEpic does, and returns the step of the turn it ended.
+func closeEpicIn(
+	ctx context.Context, queries *sqlcgen.Queries, epic, kind, by, closer string, at time.Time,
+) (string, error) {
+	if _, err := epicHead(ctx, queries, epic); err != nil {
+		return "", err
+	}
+	end, err := closeEndOf(epic, kind, by, closer, at)
+	if err != nil {
+		return "", err
+	}
+	step, err := endClosedTurn(ctx, queries, end)
+	if err != nil {
+		return "", err
+	}
+	return step, closeEpicRows(ctx, queries, end)
 }
 
 // closeEndOf returns the close of epic as kind, by, closer at at, or a RefusalError when the close is refused: kind is

@@ -18,7 +18,7 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043 and 00044 create, and of the columns those
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044 and 00046 create, and of the columns those
 // migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044 and 00045 add to epic
 // tables.
 func epicTableColumns() map[string][]string {
@@ -99,7 +99,12 @@ func epicTableColumns() map[string][]string {
 		"epic_sessions":      {"epic", "session", "call", "at"},
 		"epic_seen":          {"epic", "at"},
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
-		"epic_met_at_base":   {"epic", "question", "path", "attempt", "requirements"},
+		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
+		// R2: the actions a planner turn returned, from 00046_planner_actions.sql.
+		"planner_actions": {
+			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
+			"refusal",
+		},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
@@ -511,10 +516,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00045_epic_close.sql is the newest. R6: the migration was
-	// 00044_met_at_base_question.sql before the epic close added 00045.
-	if version != 45 {
-		t.Fatalf("store version after Open = %d, want 45", version)
+	// Open applies 00014_epics.sql and every migration after it: 00046_planner_actions.sql is the newest. R2: the newest
+	// was 00045_epic_close.sql before the planner actions added 00046.
+	if version != 46 {
+		t.Fatalf("store version after Open = %d, want 46", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -991,6 +996,37 @@ func TestReleaseMigrationDownAndUp(t *testing.T) {
 	if tables := tableNames(t, s); !tables["epic_release_runs"] || !tables["epic_release_slots"] {
 		t.Errorf("release tables after Up: epic_release_runs %v, epic_release_slots %v; want both",
 			tables["epic_release_runs"], tables["epic_release_slots"])
+	}
+}
+
+// TestPlannerActionsMigrationDownAndUp removes the planner_actions table with the Down of 00046_planner_actions.sql, and Up
+// restores it.
+func TestPlannerActionsMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 45); err != nil {
+		t.Fatalf("DownTo 45: %v", err)
+	}
+	if tableNames(t, s)["planner_actions"] {
+		t.Errorf("planner_actions after Down = present, want absent")
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !tableNames(t, s)["planner_actions"] {
+		t.Errorf("planner_actions after Up = absent, want present")
 	}
 }
 

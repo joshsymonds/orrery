@@ -163,10 +163,11 @@ func (s *Store) EndNodesWaking(
 }
 
 // integrateKind is the kind of an integrate node, whose node runs batch accepted tasks onto the candidate, and
-// nodeFailedOutcome is the outcome of a node run that ended failed.
+// nodeFailedOutcome and nodePassedOutcome are the outcomes of a node run that ended failed and passed.
 const (
 	integrateKind     = "integrate"
 	nodeFailedOutcome = "failed"
+	nodePassedOutcome = "passed"
 )
 
 // RetryNode reruns node of epic under its next attempt and unparks epic, in one write. Each parked run of node turns
@@ -179,22 +180,27 @@ const (
 // run while the phase stays stopped and wait for good.
 func (s *Store) RetryNode(ctx context.Context, epic, node string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		runs, err := readNodeRuns(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		for _, run := range runs {
-			if run.Node == node && run.Kind == releaseKind {
-				return RefusalError(fmt.Sprintf(
-					"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
-			}
-		}
-		parked, err := retryParkedNode(ctx, queries, epic, node)
-		if err != nil || parked {
-			return err
-		}
-		return retryFailedIntegrate(ctx, queries, epic, node, runs)
+		return rerunNodeIn(ctx, queries, epic, node)
 	})
+}
+
+// rerunNodeIn reruns node of epic in the caller's write, as RetryNode does.
+func rerunNodeIn(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
+	runs, err := readNodeRuns(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.Node == node && run.Kind == releaseKind {
+			return RefusalError(fmt.Sprintf(
+				"node %s of epic %s is the release; resume it with orrery epic release %s", node, epic, epic))
+		}
+	}
+	parked, err := retryParkedNode(ctx, queries, epic, node)
+	if err != nil || parked {
+		return err
+	}
+	return retryFailedIntegrate(ctx, queries, epic, node, runs)
 }
 
 // retryNode turns the parked run of node in epic running at its next attempt, answers each open park question of epic
@@ -246,13 +252,14 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 
 // latestIntegrateRun returns the integrate run of node that sits in the newest settle walk, and whether there is one.
 // A settle walk is numbered by the seq of the task it settles, and a later task has a higher seq, so the run with the
-// highest seq is the latest.
+// highest seq is the latest. A run that ended passed with no revision moved nothing, an empty batch, so it does not
+// count: a failed run whose candidate never reached the branch stays the latest behind it. A running run does count.
 func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
 	var latest NodeRun
 	var newest uint64
 	found := false
 	for _, run := range runs {
-		if run.Kind != integrateKind || run.Node != node {
+		if run.Kind != integrateKind || run.Node != node || emptyPassedBatch(run) {
 			continue
 		}
 		seq, ok := settleSeq(run.Path)
@@ -261,6 +268,12 @@ func latestIntegrateRun(runs []NodeRun, node string) (NodeRun, bool) {
 		}
 	}
 	return latest, found
+}
+
+// emptyPassedBatch reports whether run is an integrate run that ended passed with no revision, a batch that had nothing
+// to integrate.
+func emptyPassedBatch(run NodeRun) bool {
+	return run.State == NodeEnded && run.Outcome == nodePassedOutcome && run.Revision == ""
 }
 
 // settleSeq returns the seq of the settle walk that holds the node run at path: the N of the S<N> segment just above the

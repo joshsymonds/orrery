@@ -1012,3 +1012,23 @@ ON CONFLICT (epic) DO UPDATE SET at = excluded.at;
 
 -- name: GetEpicSeen :one
 SELECT at FROM epic_seen WHERE epic = ?;
+
+-- name: InsertPlannerAction :exec
+INSERT INTO planner_actions (epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '');
+
+-- name: ListPendingPlannerActions :many
+SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
+
+-- name: SetPlannerActionState :execrows
+UPDATE planner_actions SET state = sqlc.arg(state), refusal = sqlc.arg(refusal)
+WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
+
+-- name: GetEpicTask :one
+SELECT * FROM epic_tasks WHERE epic = ? AND seq = ?;
+
+-- name: ListOpenEpicSteps :many
+SELECT id FROM steps WHERE epic = ? AND end_value = '' ORDER BY started, id;
+
+-- name: ListOpenEpicTaskSteps :many
+SELECT id FROM steps WHERE epic = ? AND task = ? AND end_value = '' ORDER BY started, id;
