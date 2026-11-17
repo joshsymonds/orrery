@@ -271,3 +271,138 @@ func TestContractLintRunReturnsGitFailure(t *testing.T) {
 		t.Fatalf("checkEpic = %q, want git's failure, not a field refusal", err)
 	}
 }
+
+// contractLintReleaseFast is the first release step of the contract that a release of this repository writes. It
+// passes the lint.
+const contractLintReleaseFast = "Fast-forward main to the epic's release candidate and push main to origin, so main " +
+	"holds the change; do not wait for CI."
+
+// contractLintReleaseTag is the second release step of that contract. It passes the lint.
+const contractLintReleaseTag = "Create a signed annotated tag at that main commit, named the next patch version above " +
+	"the newest v* tag on origin when this step runs, its message one sentence naming the change, and push it, so " +
+	"nix-config can pin it; do not wait for CI."
+
+// contractLintReleaseSteps returns the release steps a lint test gives its contract: the contract's first step, which
+// passes, then one step holding text. A refusal of that second step names release_steps[1].step.
+func contractLintReleaseSteps(text string) []*v1.EpicReleaseStep {
+	return []*v1.EpicReleaseStep{
+		{Step: contractLintReleaseFast, Target: "origin", Undo: "Synthetic undo."},
+		{Step: text, Target: "origin", Undo: "Synthetic undo."},
+	}
+}
+
+// contractLintReleaseRefusal is the refusal of the second release step, whose reason is reason.
+func contractLintReleaseRefusal(reason string) string {
+	return "release_steps[1].step: " + reason
+}
+
+// TestContractLintReleaseRefusesSteps asserts that a release step whose text says merge, names a fixed version or waits
+// on CI is refused under its field, with the reason that gives the accepted wording. Each refused step is the second,
+// so the field is release_steps[1].step. Where a step breaks two rules, the earlier rule gives the reason.
+func TestContractLintReleaseRefusesSteps(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	runEpicRefusals(t, repo, []epicRefusal{
+		{
+			name: "lowercase merge",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps(
+					"Push main to origin, then merge the release branch.",
+				)
+			},
+			want: contractLintReleaseRefusal(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+		},
+		{
+			name: "capitalised Merge",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge the release candidate into main.")
+			},
+			want: contractLintReleaseRefusal(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+		},
+		{
+			name: "negated merge",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps("Fast-forward main; do not merge.")
+			},
+			want: contractLintReleaseRefusal(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+		},
+		{
+			name: "fixed version v0.86.3",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps(
+					"Tag v0.86.3 at the release candidate, then push it.",
+				)
+			},
+			want: contractLintReleaseRefusal(
+				"names the fixed version v0.86.3: a release step's tag is chosen when the step runs; " +
+					"name the next version above the newest tag instead"),
+		},
+		{
+			name: "versioned path rel/v0.86.2",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push rel/v0.86.2 to origin.")
+			},
+			want: contractLintReleaseRefusal(
+				"names the fixed version v0.86.2: a release step's tag is chosen when the step runs; " +
+					"name the next version above the newest tag instead"),
+		},
+		{
+			name: "so CI runs",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps("Push main to origin, so CI runs.")
+			},
+			want: contractLintReleaseRefusal(
+				`a release does not wait for CI; write "do not wait for CI"`),
+		},
+		{
+			name: "Merge, v0.86.3 and so CI runs",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps("Merge v0.86.3 into main, so CI runs.")
+			},
+			want: contractLintReleaseRefusal(
+				"says merge: a release step fast-forwards main to the release candidate; write fast-forward"),
+		},
+		{
+			name: "tag v0.86.3 and so CI runs",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.ReleaseSteps = contractLintReleaseSteps("Tag v0.86.3, so CI runs.")
+			},
+			want: contractLintReleaseRefusal(
+				"names the fixed version v0.86.3: a release step's tag is chosen when the step runs; " +
+					"name the next version above the newest tag instead"),
+		},
+	})
+}
+
+// TestContractLintReleaseAcceptsSteps asserts that the contract's own two release steps, verbatim, pass. It also
+// asserts that the rules leave alone merged, merges and merging, a ci inside a path, and the phrase in capitals.
+func TestContractLintReleaseAcceptsSteps(t *testing.T) {
+	t.Parallel()
+	repo := stepGitTestRepo(t)
+	for _, tc := range []struct {
+		name string
+		step string
+	}{
+		{name: "contract's first step verbatim", step: contractLintReleaseFast},
+		{name: "contract's second step verbatim", step: contractLintReleaseTag},
+		{
+			name: "merged, merges and merging",
+			step: "Fast-forward main to the release candidate; the notes list what is merged, merges and merging.",
+		},
+		{name: "ci in a path and Do not wait for CI", step: "Push main to origin/ci-circle; Do not wait for CI."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := epicTestRequest(repo)
+			req.Contract.ReleaseSteps = []*v1.EpicReleaseStep{
+				{Step: tc.step, Target: "origin", Undo: "Synthetic undo."},
+			}
+			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+				t.Fatalf("checkEpic refused release step %q: %v", tc.step, err)
+			}
+		})
+	}
+}

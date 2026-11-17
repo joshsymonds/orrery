@@ -25,6 +25,14 @@ const (
 	epicReasonArgvClustered = "holds white space after %s, and only -c exempts it: write the flags apart, as %s"
 )
 
+// The reasons a release step refusal gives after its field. The version reason takes the version the step names.
+const (
+	epicReasonReleaseMerge   = "says merge: a release step fast-forwards main to the release candidate; write fast-forward"
+	epicReasonReleaseVersion = "names the fixed version %s: a release step's tag is chosen when the step runs; " +
+		"name the next version above the newest tag instead"
+	epicReasonReleaseCI = `a release does not wait for CI; write "do not wait for CI"`
+)
+
 // errShellQuote is what splitShellWords returns for a quote it cannot close.
 var errShellQuote = errors.New("quote not closed")
 
@@ -35,7 +43,8 @@ var clusteredFlagPattern = regexp.MustCompile(`^-[A-Za-z]{2,}$`)
 // other check of checkEpic, so each element it reads has passed them. It checks the argv elements of the gates in
 // order, then those of each requirement's capture. Once they pass, it refuses the first go test in the captures, in
 // order, whose -run pattern matches a test at the base. It reads the words of each line after -c that
-// checkArgvElements split, and splits no line again.
+// checkArgvElements split, and splits no line again. Last, it refuses the first release step, in order, whose text
+// says merge, names a fixed version or waits on CI.
 func checkContractLint(ctx context.Context, contract *v1.EpicContract) error {
 	for i, gate := range contract.GetGates() {
 		if _, err := checkArgvElements(fmt.Sprintf("gates[%d].argv", i), gate.GetArgv()); err != nil {
@@ -66,7 +75,42 @@ func checkContractLint(ctx context.Context, contract *v1.EpicContract) error {
 			}
 		}
 	}
+	return checkReleaseSteps(contract.GetReleaseSteps())
+}
+
+// The patterns of a release step's text. The merge and CI rules match whole words; the version rule matches a
+// lowercase v with three numbers, as the contract writes a version. The phrase is removed before the CI rule reads.
+var (
+	releaseMergePattern   = regexp.MustCompile(`(?i)\bmerge\b`)
+	releaseVersionPattern = regexp.MustCompile(`\bv[0-9]+\.[0-9]+\.[0-9]+`)
+	releaseWaitPattern    = regexp.MustCompile(`(?i)do not wait for CI`)
+	releaseCIPattern      = regexp.MustCompile(`\bCI\b`)
+)
+
+// checkReleaseSteps returns the first refusal of a release step whose text says merge, names a fixed version or waits
+// on CI, in the order of the steps.
+func checkReleaseSteps(steps []*v1.EpicReleaseStep) error {
+	for i, step := range steps {
+		if reason := releaseStepReason(step.GetStep()); reason != "" {
+			return &epicFieldError{field: epicRowField("release_steps", i, "step"), reason: reason}
+		}
+	}
 	return nil
+}
+
+// releaseStepReason returns the reason a release step's text is refused, or "" when it passes. The rules run in
+// order, and the first one that matches gives the reason.
+func releaseStepReason(text string) string {
+	if releaseMergePattern.MatchString(text) {
+		return epicReasonReleaseMerge
+	}
+	if version := releaseVersionPattern.FindString(text); version != "" {
+		return fmt.Sprintf(epicReasonReleaseVersion, version)
+	}
+	if releaseCIPattern.MatchString(releaseWaitPattern.ReplaceAllString(text, "")) {
+		return epicReasonReleaseCI
+	}
+	return ""
 }
 
 // checkArgvElements returns the first refusal of an argv list, whose elements are named list[j]. An element that holds
