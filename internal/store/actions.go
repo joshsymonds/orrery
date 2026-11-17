@@ -10,16 +10,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // The kinds of planner action. Each is carried out by the control of the same name, with the action's fields as given.
+// amend_evidence is AmendEvidence by the planner, whose action stays pending until its amendment is settled.
 const (
 	ActionRetryNode     = "retry_node"
 	ActionRetryEpic     = "retry_epic"
 	ActionFailTask      = "fail_task"
 	ActionResumeRelease = "resume_release"
 	ActionCloseEpic     = "close_epic"
+	ActionAmendEvidence = "amend_evidence"
 )
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
@@ -32,16 +35,18 @@ const (
 // errActionSettled reports that an action is no longer pending, so the write that found it so changes nothing.
 var errActionSettled = errors.New("action is not pending")
 
-// EpicActionInput is one action of a planner return: its kind, the node, task, close kind and replacing epic it names
-// where its kind uses them, the undo-none positions it names, and the planner's reason.
+// EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement and
+// evidence item it names where its kind uses them, the undo-none positions it names, and the planner's reason.
 type EpicActionInput struct {
-	Kind     string
-	Node     string
-	Task     int64
-	Close    string
-	By       string
-	UndoNone []int64
-	Reason   string
+	Kind        string
+	Node        string
+	Task        int64
+	Close       string
+	By          string
+	Requirement string
+	Item        evidence.Item
+	UndoNone    []int64
+	Reason      string
 }
 
 // PlannerAction is a stored action of a planner turn: the epic and turn that returned it, its 1-based position in the
@@ -69,11 +74,16 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		return PlannerAction{}, fmt.Errorf("undo-none positions of action %d of turn %d of epic %s: %w",
 			row.Position, row.Turn, row.Epic, err)
 	}
+	item, err := decodeItem(row.Item)
+	if err != nil {
+		return PlannerAction{}, fmt.Errorf("item of action %d of turn %d of epic %s: %w",
+			row.Position, row.Turn, row.Epic, err)
+	}
 	return PlannerAction{
 		Epic: row.Epic, Turn: row.Turn, Position: row.Position,
 		EpicActionInput: EpicActionInput{
-			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic, UndoNone: undo,
-			Reason: row.Reason,
+			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
+			Requirement: row.Requirement, Item: item, UndoNone: undo, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -87,12 +97,20 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task returns the open
 // steps of the failed task. Every other action returns none.
 //
+// amend_evidence is not carried out in this write. Its amendment starts checking, as AmendEvidence starts one by the
+// planner, and the action stays pending until SettleAmendment takes or refuses it with its amendment; while it is pending
+// with its amendment stored, carrying it out again changes nothing. A refusal of the amendment at its start is recorded
+// as any refusal is.
+//
 // A RefusalError from the control writes nothing of the control, and an action on a closed epic is refused the same way.
 // A second write then marks the action refused, appends a decision holding the refusal and the reason, and adds a pending
 // trigger whose cause names the action and the refusal, so the planner takes another turn. A refused action returns no
 // steps and no error. Any other error is returned with nothing written, so the action stays pending for the next pass.
 // An action that is not pending changes nothing.
 func (s *Store) CarryOutAction(ctx context.Context, action PlannerAction, at time.Time) ([]string, error) {
+	if action.Kind == ActionAmendEvidence {
+		return nil, s.startPlannedAmendment(ctx, action, at)
+	}
 	var stop []string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		var err error
@@ -250,7 +268,8 @@ func openTaskSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 }
 
 // refuseAction records the refusal of action in the caller's write: the action is marked refused with the refusal and the
-// park it answers, a decision holds the refusal and the planner's reason, and then either the held planner park is stored
+// park it answers, a decision holds the refusal and the planner's reason, and for amend_evidence the Requirement's item
+// and the item the action asked for, and then either the held planner park is stored
 // as retry_bound, when its chain is at the bound, or a pending trigger whose cause names the action and the refusal is
 // added.
 func refuseAction(
@@ -264,6 +283,18 @@ func refuseAction(
 	if err != nil {
 		return err
 	}
+	return refuseLinkedAction(ctx, queries, action, refusal, park, at)
+}
+
+// refuseLinkedAction records the refusal of action as refuseAction does, with park as the park the action answers.
+func refuseLinkedAction(
+	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, refusal RefusalError, park int64,
+	at time.Time,
+) error {
+	head, err := epicHead(ctx, queries, action.Epic)
+	if err != nil {
+		return err
+	}
 	err = setActionState(ctx, queries, action, actionRefused, string(refusal), park)
 	if err != nil {
 		return err
@@ -271,6 +302,13 @@ func refuseAction(
 	summary := actionSummary(action)
 	id := actionDecisionID(action) + "-refused"
 	text := fmt.Sprintf("planner %s refused: %s. Its reason: %s", summary, refusal, action.Reason)
+	if action.Kind == ActionAmendEvidence {
+		old, readErr := amendedItem(ctx, queries, action)
+		if readErr != nil {
+			return readErr
+		}
+		text += "." + itemsText(old, action.Item)
+	}
 	if _, err = appendDecision(ctx, queries, action.Epic, id, text, 0, at); err != nil {
 		return err
 	}
@@ -311,7 +349,7 @@ func actionDecisionID(action PlannerAction) string {
 	return fmt.Sprintf("action-%d-%d", action.Turn, action.Position)
 }
 
-// actionSummary names action for a decision or a trigger by its kind and the node, task or close it names.
+// actionSummary names action for a decision or a trigger by its kind and the node, task, close or Requirement it names.
 func actionSummary(action PlannerAction) string {
 	switch action.Kind {
 	case ActionRetryNode:
@@ -323,6 +361,8 @@ func actionSummary(action PlannerAction) string {
 			return "close epic as " + action.Close
 		}
 		return fmt.Sprintf("close epic as %s by %s", action.Close, action.By)
+	case ActionAmendEvidence:
+		return "amend evidence of " + action.Requirement
 	}
 	return strings.ReplaceAll(action.Kind, "_", " ")
 }
@@ -341,9 +381,28 @@ func insertActions(
 		if err != nil {
 			return fmt.Errorf("undo-none positions of action %d of turn %d of epic %s: %w", position, turn, epic, err)
 		}
+		item, err := encodeItem(action.Item)
+		if err != nil {
+			return fmt.Errorf("item of action %d of turn %d of epic %s: %w", position, turn, epic, err)
+		}
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
 			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
+			Requirement: action.Requirement, Item: item,
 		})
 	})
+}
+
+// amendedItem returns the item the Requirement an amend_evidence action names holds, as queries read it, or the zero item
+// when the epic holds no such Requirement.
+func amendedItem(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) (evidence.Item, error) {
+	item, err := epicRequirement(ctx, queries, action.Epic, action.Requirement)
+	var refusal RefusalError
+	if errors.As(err, &refusal) {
+		return evidence.Item{}, nil
+	}
+	if err != nil {
+		return evidence.Item{}, err
+	}
+	return item.Item, nil
 }

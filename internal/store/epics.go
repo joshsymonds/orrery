@@ -95,6 +95,8 @@ type EpicRow struct {
 	Tasks        []EpicTask
 	Questions    []EpicQuestion
 	Reviewers    []reviewers.Reviewer
+	// Amendments are the amendments of the evidence items of the epic's Requirements, in seq order.
+	Amendments []EvidenceAmendment
 }
 
 // EpicWorkflow is the workflow an epic pins: its name, the canonical text it was loaded as, the sha256 of that text,
@@ -461,7 +463,8 @@ func readEpic(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicRow
 	return readEpicOf(ctx, queries, head)
 }
 
-// readEpicOf returns the stored epic whose head is head, every section in order and its pinned workflow's nodes.
+// readEpicOf returns the stored epic whose head is head, every section in order, its pinned workflow's nodes, its seen
+// mark and its evidence amendments.
 func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicRow, error) {
 	row := epicHeadOf(head)
 	report, err := epicReportOf(head)
@@ -477,6 +480,9 @@ func readEpicOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic
 	}
 	if err = loadEpicSeen(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read seen of epic %s: %w", row.ID, err)
+	}
+	if err = loadAmendments(ctx, queries, &row); err != nil {
+		return EpicRow{}, fmt.Errorf("read amendments of epic %s: %w", row.ID, err)
 	}
 	return row, nil
 }

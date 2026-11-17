@@ -42,9 +42,43 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 	}
 	for i, action := range ret.Actions {
 		refusals = append(refusals, checkAction(i, action)...)
+		refusals = append(refusals, checkAmendAction(i, action, known, judge)...)
 	}
 	if len(refusals) == 0 {
 		return nil
+	}
+	return refusals
+}
+
+// checkAmendKeeps returns one refusal for each amend_evidence action of ret whose item changes the conclusion of the
+// Requirement it names, and one for each whose item changes its kind, which only the owner may change: the planner amends
+// how a Requirement is shown, never what it claims or what its kind checks. requirements are the epic's Requirements. An
+// action that names no Requirement of the epic is refused by Check, so it gets no line here.
+func checkAmendKeeps(ret Return, requirements []store.EpicRequirement) []string {
+	var refusals []string
+	for i, action := range ret.Actions {
+		if action.Kind != store.ActionAmendEvidence {
+			continue
+		}
+		j := slices.IndexFunc(requirements, func(requirement store.EpicRequirement) bool {
+			return requirement.ID == action.Requirement
+		})
+		if j < 0 {
+			continue
+		}
+		prefix := fmt.Sprintf(`actions[%d] "%s" %s`, i, action.Kind, argItem)
+		if requirements[j].Item.Conclusion != action.Item.Conclusion {
+			refusals = append(refusals, fmt.Sprintf(
+				"%s.conclusion: differs from the conclusion of %s; only the owner amends a conclusion", prefix,
+				action.Requirement))
+		}
+		if requirements[j].Item.Kind != action.Item.Kind {
+			refusals = append(
+				refusals,
+				fmt.Sprintf("%s.kind: differs from the kind of %s; only the owner amends a kind",
+					prefix, action.Requirement),
+			)
+		}
 	}
 	return refusals
 }
@@ -158,7 +192,7 @@ const (
 func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
-		store.ActionCloseEpic,
+		store.ActionCloseEpic, store.ActionAmendEvidence,
 	}
 }
 
@@ -177,13 +211,15 @@ func actionFields(kind string) ([]string, bool) {
 		return []string{argUndoNone}, true
 	case store.ActionCloseEpic:
 		return []string{argClose, argBy}, true
+	case store.ActionAmendEvidence:
+		return []string{argRequirement, argItem}, true
 	}
 	return nil, false
 }
 
 // checkAction returns the refusals of one action of a return, at position i, in the order of the rules: the kind, args that
 // do not read or hold a key no kind uses, the fields its kind needs, the fields its kind does not use, then the reason. An
-// unknown kind has no other field to check.
+// unknown kind has no other field to check. An amend_evidence action's own fields are checkAmendAction's.
 func checkAction(i int, action EngineAction) []string {
 	prefix := fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind)
 	var refusals []string
@@ -211,6 +247,7 @@ func checkAction(i int, action EngineAction) []string {
 
 // checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
 // a fail_task names a task above 0, and a close_epic names a close of superseded or abandoned and, when superseded, a by.
+// An amend_evidence action's fields are checkAmendAction's.
 func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
@@ -231,6 +268,36 @@ func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	}
 }
 
+// checkAmendAction returns the refusals of the fields of an amend_evidence action at position i, named as checkAction
+// names its lines: a requirement that is not one of the epic's Requirement ids, each line evidence.Check gives for the
+// item, as item.<line>, and an item judge that judge does not resolve. An action of another kind, and one whose args did
+// not read, which checkAction refuses, get none. Whether the item changes the Requirement's conclusion or kind is
+// checkAmendKeeps' to refuse, and whether its red holds at the epic's base is the engine's.
+func checkAmendAction(
+	i int,
+	action EngineAction,
+	requirements map[string]bool,
+	judge func(name string) error,
+) []string {
+	if action.Kind != store.ActionAmendEvidence || action.ArgsError != "" {
+		return nil
+	}
+	prefix := fmt.Sprintf(`actions[%d] "%s"`, i, action.Kind)
+	var refusals []string
+	if !requirements[action.Requirement] {
+		refusals = append(refusals, prefix+" "+argRequirement+": "+reasonRequirement)
+	}
+	for _, line := range evidence.Check(action.Item) {
+		refusals = append(refusals, prefix+" "+argItem+"."+line)
+	}
+	if strings.TrimSpace(action.Item.Judge) != "" {
+		if err := judge(action.Item.Judge); err != nil {
+			refusals = append(refusals, prefix+" "+argItem+".judge: "+err.Error())
+		}
+	}
+	return refusals
+}
+
 // checkUnusedFields calls refuse for each field action sets that its kind, whose fields are used, does not use.
 func checkUnusedFields(action EngineAction, used []string, refuse func(field, reason string)) {
 	fields := []struct {
@@ -241,6 +308,8 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argTask, action.Task != 0},
 		{argClose, action.Close != ""},
 		{argBy, action.By != ""},
+		{argRequirement, action.Requirement != ""},
+		{argItem, itemSet(action.Item)},
 		{argUndoNone, len(action.UndoNone) > 0},
 	}
 	for _, field := range fields {
@@ -248,6 +317,12 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 			refuse(field.name, reasonUnused)
 		}
 	}
+}
+
+// itemSet reports whether item sets any field: a list with an element, a limit, or a text that is not empty.
+func itemSet(item evidence.Item) bool {
+	lists := len(item.Capture) + len(item.Artifacts) + len(item.Supplied) + len(item.Tests)
+	return lists > 0 || item.Limit != 0 || item.Conclusion != "" || item.Judge != "" || item.Kind != ""
 }
 
 // fileReason returns the reason file is refused, or "" when it passes. It records file as named before it checks

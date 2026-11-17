@@ -33,6 +33,7 @@ type fakeEpics struct {
 	retries      []*v1.RetryEpicRequest
 	kicks        []*v1.KickEpicRequest
 	releases     []*v1.ReleaseEpicRequest
+	amends       []*v1.AmendEvidenceRequest
 	follows      []*v1.FollowEpicsRequest
 	createReply  *v1.CreateEpicResponse
 	getReply     *v1.GetEpicResponse
@@ -44,6 +45,7 @@ type fakeEpics struct {
 	retryReply   *v1.RetryEpicResponse
 	kickReply    *v1.KickEpicResponse
 	releaseReply *v1.ReleaseEpicResponse
+	amendReply   *v1.AmendEvidenceResponse
 	followReply  *v1.FollowEpicsResponse
 	err          error
 }
@@ -146,6 +148,19 @@ func (f *fakeEpics) CloseEpic(
 	_ *connect.Request[v1.CloseEpicRequest],
 ) (*connect.Response[v1.CloseEpicResponse], error) {
 	return nil, errors.New("fakeEpics: CloseEpic is not faked")
+}
+
+func (f *fakeEpics) AmendEvidence(
+	_ context.Context,
+	req *connect.Request[v1.AmendEvidenceRequest],
+) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.amends = append(f.amends, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.amendReply), nil
 }
 
 func (f *fakeEpics) RetryEpic(

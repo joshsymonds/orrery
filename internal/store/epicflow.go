@@ -30,7 +30,7 @@ const (
 // EpicReview returns it, its node runs as NodeRuns returns them, its checks as NodeChecks returns them, its evidence
 // runs as EvidenceRuns returns them, less the runs whose kept spec is no longer current with the item now stored under
 // their Item, its steps, its release runs as ReleaseRuns returns them, the holder of its repository's release slot, and
-// how many of its triggers are pending. Steps holds the steps its agent and release node runs ran under as Step returns
+// how many of its triggers and of its amend_evidence actions are pending. Steps holds the steps its agent and release node runs ran under as Step returns
 // them, for the runs that have them, then every step labeled with the epic and the path of one of its review, closure
 // or release node runs, in the order of the runs.
 type EpicFlow struct {
@@ -43,6 +43,8 @@ type EpicFlow struct {
 	Releases []ReleaseRun
 	Slot     string
 	Pending  int
+	// AmendActions counts the epic's amend_evidence planner actions that are still pending.
+	AmendActions int
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
@@ -107,9 +109,13 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, fmt.Errorf("count pending triggers of epic %s: %w", id, err)
 	}
+	amends, err := queries.CountPendingAmendActions(ctx, id)
+	if err != nil {
+		return EpicFlow{}, fmt.Errorf("count pending amend actions of epic %s: %w", id, err)
+	}
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
-		Releases: releases, Slot: slot, Pending: int(pending),
+		Releases: releases, Slot: slot, Pending: int(pending), AmendActions: int(amends),
 	}, nil
 }
 

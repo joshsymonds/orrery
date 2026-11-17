@@ -146,6 +146,15 @@ func (d *heldDaemon) CloseEpic(
 	return connect.NewResponse(&v1.CloseEpicResponse{Epic: &v1.StoredEpic{}}), nil
 }
 
+func (d *heldDaemon) AmendEvidence(
+	ctx context.Context, _ *connect.Request[v1.AmendEvidenceRequest],
+) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	if err := d.hold(ctx, "AmendEvidence"); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.AmendEvidenceResponse{Amendment: &v1.EpicAmendment{}, Epic: &v1.StoredEpic{}}), nil
+}
+
 func (d *heldDaemon) RetryEpic(
 	ctx context.Context, _ *connect.Request[v1.RetryEpicRequest],
 ) (*connect.Response[v1.RetryEpicResponse], error) {
@@ -315,6 +324,11 @@ func TestCancelLeavesAMutatingCallRunning(t *testing.T) {
 		{tool: "epic_stop", arguments: `{"id":"` + epicID + `"}`},
 		{tool: "epic_retry", arguments: `{"id":"` + epicID + `"}`},
 		{tool: "epic_kick", arguments: `{"id":"` + epicID + `","text":"Try again."}`},
+		{
+			tool: "epic_amend",
+			arguments: `{"id":"` + epicID + `","requirement":"R1","item":{"capture":["/bin/true"],"limit":1,` +
+				`"conclusion":"it holds","judge":"j","kind":"capture"}}`,
+		},
 		{
 			tool: "evidence_run",
 			arguments: `{"epic":"` + epicID + `","item":"R1",` +

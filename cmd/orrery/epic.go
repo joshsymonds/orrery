@@ -31,9 +31,13 @@ const epicReleaseForm = "release ID [--undo-none N]..."
 // epicCloseForm names the form of `orrery epic close`.
 const epicCloseForm = "close ID --as superseded|shipped|abandoned [--by EPIC]"
 
+// epicAmendForm names the form of `orrery epic amend`.
+const epicAmendForm = "amend ID R<n> --item JSON [--reason TEXT]"
+
 // epicForms names every form of `orrery epic`, for the usage error of a missing or unknown verb.
 const epicForms = "create FILE|-, get ID, list, follow, answer EPIC --id ID [--question QN] [--choice C] [TEXT], " +
-	"pause ID, resume ID, stop ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm + ", " + epicCloseForm
+	"pause ID, resume ID, stop ID, " + epicKickForm + ", " + epicRetryForm + ", " + epicReleaseForm + ", " +
+	epicCloseForm + ", " + epicAmendForm
 
 // epicAnswerForm names the form of `orrery epic answer`.
 const epicAnswerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
@@ -69,6 +73,15 @@ type epicCloseArgs struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	By   string `json:"by,omitempty"`
+}
+
+// epicAmendArgs is the arguments of epic_amend: the epic's id, the Requirement, the evidence item as the JSON the form
+// gave, and the reason, omitted when the form names none.
+type epicAmendArgs struct {
+	ID          string          `json:"id"`
+	Requirement string          `json:"requirement"`
+	Item        json.RawMessage `json:"item"`
+	Reason      string          `json:"reason,omitempty"`
 }
 
 // epicAnswerArgs is the arguments of epic_answer. Question and Choice are omitted for a note.
@@ -119,6 +132,8 @@ func epicCommand(
 		return epicRelease(ctx, epics, rest, stdout)
 	case "close":
 		return epicClose(ctx, epics, rest, stdout)
+	case "amend":
+		return epicAmend(ctx, epics, rest, stdout)
 	default:
 		return epicForm(epicForms)
 	}
@@ -187,6 +202,29 @@ func epicClose(ctx context.Context, epics enginev1connect.EpicsClient, rest []st
 		return epicForm(epicCloseForm)
 	}
 	return epicInvoke(ctx, epics, "epic_close", epicCloseArgs{ID: rest[0], Kind: *kind, By: *by}, stdout)
+}
+
+// epicAmend implements `amend ID R<n> --item JSON [--reason TEXT]`. JSON is the whole evidence item the Requirement
+// should hold, in the field names the epic_amend tool takes. A form without both ids, without --item, or whose --item is
+// not a JSON object is a usage error, and calls nothing. Any other refusal of the amendment is the service's to give.
+func epicAmend(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
+	if len(rest) < 2 || strings.HasPrefix(rest[0], "-") || strings.HasPrefix(rest[1], "-") {
+		return epicForm(epicAmendForm)
+	}
+	flags := flag.NewFlagSet("epic amend", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	item := flags.String("item", "", "the evidence item the Requirement should hold, as JSON")
+	reason := flags.String("reason", "", "why the item is amended")
+	if err := flags.Parse(rest[2:]); err != nil || flags.NArg() != 0 {
+		return epicForm(epicAmendForm)
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*item), &object); err != nil || object == nil {
+		return epicForm(epicAmendForm)
+	}
+	return epicInvoke(ctx, epics, "epic_amend", epicAmendArgs{
+		ID: rest[0], Requirement: rest[1], Item: json.RawMessage(*item), Reason: *reason,
+	}, stdout)
 }
 
 // epicCloseKind reports whether kind is one `orrery epic close --as` takes: superseded, shipped or abandoned.

@@ -71,9 +71,18 @@ type epicCloseArgs struct {
 	By   string `json:"by,omitempty" jsonschema:"the epic that replaces this one: required for superseded"`
 }
 
+// epicAmendArgs is the arguments of epic_amend, described for its input schema as epicCreateArgs is. Item is the evidence
+// item the Requirement should hold, in protobuf JSON field names.
+type epicAmendArgs struct {
+	ID          string          `json:"id"`
+	Requirement string          `json:"requirement"      jsonschema:"the id of the Requirement whose evidence item to amend, such as R2"`
+	Item        json.RawMessage `json:"item"             jsonschema:"the evidence item the Requirement should hold in place of its own, in protobuf JSON field names: capture, limit, artifacts, supplied, conclusion, judge, kind and tests"`
+	Reason      string          `json:"reason,omitempty" jsonschema:"why the item is amended, recorded with the amendment"`
+}
+
 // epicInputs holds the input schema of each epic tool, by the arguments it takes.
 type epicInputs struct {
-	create, id, list, answer, follow, retry, kick, release, close json.RawMessage
+	create, id, list, answer, follow, retry, kick, release, close, amend json.RawMessage
 }
 
 // epicToolInputs returns the input schemas of the epic tools.
@@ -105,6 +114,9 @@ func epicToolInputs() (epicInputs, error) {
 		return epicInputs{}, err
 	}
 	if in.close, err = argumentSchema[epicCloseArgs](nil); err != nil {
+		return epicInputs{}, err
+	}
+	if in.amend, err = argumentSchema[epicAmendArgs](nil); err != nil {
 		return epicInputs{}, err
 	}
 	return in, nil
@@ -165,8 +177,8 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 	}
 }
 
-// epicControlTools returns the epic tools that pause, resume, stop, retry, kick, release and close epics, each calling
-// epics with its input schema from in.
+// epicControlTools returns the epic tools that pause, resume, stop, retry, kick, release, close and amend epics, each
+// calling epics with its input schema from in.
 func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 	return []Tool{
 		{
@@ -228,6 +240,16 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"Refused for a superseded close without by.",
 			InputSchema: in.close,
 			Handler:     epicCloseHandler(epics),
+		},
+		{
+			Name: "epic_amend",
+			Description: "Amend the evidence item of a Requirement of an epic by id: requirement names it and item " +
+				"is the whole item it should hold, which must pass the shape check a created epic's items pass. The " +
+				"amendment starts checking: orreryd runs the new item's red at the epic's base and applies the item " +
+				"only when that red is judged not to hold there; a red that holds refuses it and the old item stays. " +
+				"The owner may change the conclusion. Returns the stored amendment and the stored epic.",
+			InputSchema: in.amend,
+			Handler:     epicAmendHandler(epics),
 		},
 	}
 }
@@ -422,6 +444,20 @@ func epicCloseHandler(epics enginev1connect.EpicsClient) ToolHandler {
 			return toolFailure(err), nil
 		}
 		return protoResult(closed.Msg.GetEpic())
+	}
+}
+
+func epicAmendHandler(epics enginev1connect.EpicsClient) ToolHandler {
+	return func(ctx context.Context, call Call) (ToolResult, error) {
+		var req v1.AmendEvidenceRequest
+		if err := decodeProto(call.Arguments, &req); err != nil {
+			return ToolResult{}, err
+		}
+		amended, err := epics.AmendEvidence(ctx, connect.NewRequest(&req))
+		if err != nil {
+			return toolFailure(err), nil
+		}
+		return protoResult(amended.Msg)
 	}
 }
 

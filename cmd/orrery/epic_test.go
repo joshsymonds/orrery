@@ -120,6 +120,16 @@ func (f *recordingEpics) CloseEpic(
 	return respond(f, req.Msg, &v1.CloseEpicResponse{Epic: f.epic})
 }
 
+func (f *recordingEpics) AmendEvidence(
+	_ context.Context,
+	req *connect.Request[v1.AmendEvidenceRequest],
+) (*connect.Response[v1.AmendEvidenceResponse], error) {
+	return respond(f, req.Msg, &v1.AmendEvidenceResponse{
+		Amendment: &v1.EpicAmendment{Seq: 1, Requirement: req.Msg.GetRequirement(), State: "checking"},
+		Epic:      f.epic,
+	})
+}
+
 func (f *recordingEpics) ReleaseEpic(
 	_ context.Context,
 	req *connect.Request[v1.ReleaseEpicRequest],

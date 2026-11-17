@@ -91,6 +91,29 @@ type EpicAlternative struct {
 	Reconsider  string
 }
 
+type EpicAmendment struct {
+	Epic         string
+	Seq          int64
+	Requirement  string
+	Amender      string
+	Turn         int64
+	Position     int64
+	PriorItem    string
+	Item         string
+	Reason       string
+	Base         string
+	State        string
+	RedAttempt   int64
+	RedRun       string
+	StoredBase   string
+	GreenAttempt int64
+	GreenRun     string
+	ReproCheck   string
+	Refusal      string
+	Created      int64
+	Settled      int64
+}
+
 type EpicClosure struct {
 	Epic    string
 	Round   int64
@@ -572,19 +595,21 @@ type PendingNoticeID struct {
 }
 
 type PlannerAction struct {
-	Epic      string
-	Turn      int64
-	Position  int64
-	Kind      string
-	Node      string
-	Task      int64
-	CloseKind string
-	ByEpic    string
-	UndoNone  string
-	Reason    string
-	State     string
-	Refusal   string
-	Park      int64
+	Epic        string
+	Turn        int64
+	Position    int64
+	Kind        string
+	Node        string
+	Task        int64
+	CloseKind   string
+	ByEpic      string
+	UndoNone    string
+	Reason      string
+	State       string
+	Refusal     string
+	Park        int64
+	Requirement string
+	Item        string
 }
 
 type PushedAlertNotice struct {

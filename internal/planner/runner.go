@@ -616,7 +616,7 @@ func planOf(ret Return) store.EpicPlan {
 	for _, action := range ret.Actions {
 		actions = append(actions, store.EpicActionInput{
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
-			UndoNone: action.UndoNone, Reason: action.Reason,
+			Requirement: action.Requirement, Item: action.Item, UndoNone: action.UndoNone, Reason: action.Reason,
 		})
 	}
 	return store.EpicPlan{
@@ -645,7 +645,8 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
-// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks. When epic holds
+// gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
+// checkAmendKeeps against the epic's Requirements. When epic holds
 // a planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
 // reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
 // cancellation, so the turn that started the step ending does not refuse its return.
@@ -668,6 +669,7 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 			return []string{err.Error()}
 		}
 		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
+		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

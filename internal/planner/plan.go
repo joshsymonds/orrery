@@ -4,6 +4,7 @@
 package planner
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -110,35 +111,40 @@ type Return struct {
 	Outcome   string         `json:"outcome"`
 }
 
-// EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close and replacing epic its
-// kind uses, the undo-none positions it names, and the planner's reason. check.go lists the fields each kind uses. The
-// return carries the fields a kind uses as args, a JSON object written as a string, so that the schema the model is held to
-// stays one small fixed shape however many kinds there are; Parse reads args into these fields. ArgsError is why args
-// did not read, and Unknown lists the keys of args that no kind uses; check.go refuses either.
+// EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close, replacing epic,
+// Requirement and evidence item its kind uses, the undo-none positions it names, and the planner's reason. check.go lists
+// the fields each kind uses. The return carries the fields a kind uses as args, a JSON object written as a string, so
+// that the schema the model is held to stays one small fixed shape however many kinds there are; Parse reads args into
+// these fields. ArgsError is why args did not read, and Unknown lists the keys of args that no kind uses; check.go
+// refuses either.
 type EngineAction struct {
-	Kind      string   `json:"kind"`
-	Node      string   `json:"-"`
-	Task      int64    `json:"-"`
-	Close     string   `json:"-"`
-	By        string   `json:"-"`
-	UndoNone  []int64  `json:"-"`
-	Reason    string   `json:"reason"`
-	ArgsError string   `json:"-"`
-	Unknown   []string `json:"-"`
+	Kind        string        `json:"kind"`
+	Node        string        `json:"-"`
+	Task        int64         `json:"-"`
+	Close       string        `json:"-"`
+	By          string        `json:"-"`
+	Requirement string        `json:"-"`
+	Item        evidence.Item `json:"-"`
+	UndoNone    []int64       `json:"-"`
+	Reason      string        `json:"reason"`
+	ArgsError   string        `json:"-"`
+	Unknown     []string      `json:"-"`
 }
 
 // The keys an action's args may hold, by the names the role text gives them.
 const (
-	argNode     = "node"
-	argTask     = "task"
-	argClose    = "close"
-	argBy       = "by"
-	argUndoNone = "undo_none"
+	argNode        = "node"
+	argTask        = "task"
+	argClose       = "close"
+	argBy          = "by"
+	argRequirement = "requirement"
+	argItem        = "item"
+	argUndoNone    = "undo_none"
 )
 
 // readArgs fills action's fields from args, a JSON object written as a string. Blank args reads as no fields. args that is
-// not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError;
-// keys outside the five above are listed in Unknown.
+// not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError; an
+// item with a key an evidence item does not have is such a value. Keys outside the seven above are listed in Unknown.
 func readArgs(action *EngineAction, args string) {
 	if strings.TrimSpace(args) == "" {
 		return
@@ -150,7 +156,8 @@ func readArgs(action *EngineAction, args string) {
 	}
 	var read EngineAction
 	fields := map[string]any{
-		argNode: &read.Node, argTask: &read.Task, argClose: &read.Close, argBy: &read.By, argUndoNone: &read.UndoNone,
+		argNode: &read.Node, argTask: &read.Task, argClose: &read.Close, argBy: &read.By,
+		argRequirement: &read.Requirement, argItem: &read.Item, argUndoNone: &read.UndoNone,
 	}
 	for key, value := range keys {
 		field, known := fields[key]
@@ -158,7 +165,9 @@ func readArgs(action *EngineAction, args string) {
 			action.Unknown = append(action.Unknown, key)
 			continue
 		}
-		if err := json.Unmarshal(value, field); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(value))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(field); err != nil {
 			action.ArgsError = key + ": " + err.Error()
 			return
 		}
@@ -166,6 +175,7 @@ func readArgs(action *EngineAction, args string) {
 	slices.Sort(action.Unknown)
 	action.Node, action.Task, action.Close, action.By, action.UndoNone =
 		read.Node, read.Task, read.Close, read.By, read.UndoNone
+	action.Requirement, action.Item = read.Requirement, read.Item
 }
 
 // Question is one question the planner asks the owner: its label, its text, the choices it declares, the choice it

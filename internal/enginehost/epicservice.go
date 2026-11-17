@@ -51,6 +51,12 @@ type EpicCommands interface {
 	KickEpic(ctx context.Context, epic, text string, at time.Time) error
 	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, at time.Time) error
 	CloseEpic(ctx context.Context, epic, kind, by, closer string, at time.Time) (string, error)
+	AmendEvidence(
+		ctx context.Context,
+		epic string,
+		amend store.Amendment,
+		at time.Time,
+	) (store.EvidenceAmendment, error)
 	SeeEpic(ctx context.Context, epic string, at time.Time) error
 }
 
@@ -581,8 +587,8 @@ func (s *epicService) CloseEpic(
 	return connect.NewResponse(&v1.CloseEpicResponse{Epic: message}), nil
 }
 
-// closerOf returns who closes epic for a call whose headers are header: the planner when the session the call runs in
-// is the step of epic's running turn, and the owner otherwise. An unknown epic is NotFound.
+// closerOf returns who closes epic for a call whose headers are header: the planner when the session the call runs in is
+// the step of epic's running turn, and the owner otherwise. An unknown epic is NotFound.
 func (s *epicService) closerOf(ctx context.Context, epic string, header http.Header) (string, error) {
 	session := header.Get(protocol.HeaderSession)
 	if session == "" {
@@ -767,31 +773,32 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 
 // storedEpicMessage returns the StoredEpic message of row: its contract, summary, phase, times, decisions in order, its
 // merged reviewers in order, its paused and parked state with its turns, tasks and questions in order, its branch state,
-// its pinned workflow, its phase time, its seen mark and its report. It fails when a task's messages fail.
+// its pinned workflow, its phase time, its seen mark, its report and its evidence amendments in order. It fails when a task's messages fail.
 func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
 	tasks, err := taskMessages(row.Tasks)
 	if err != nil {
 		return nil, err
 	}
 	return &v1.StoredEpic{
-		Contract:  contractMessage(row),
-		Summary:   row.Summary,
-		Phase:     row.Phase,
-		Created:   row.Created.Unix(),
-		Changed:   row.Changed.Unix(),
-		PhaseAt:   row.PhaseAt.Unix(),
-		Seen:      unixOrZero(row.Seen),
-		Decisions: epicMap(row.Decisions, decisionMessage),
-		Reviewers: epicMap(row.Reviewers, epicReviewerMessage),
-		Paused:    row.Paused,
-		Parked:    row.Parked,
-		ParkClass: string(row.ParkClass),
-		Turns:     epicMap(row.Turns, turnMessage),
-		Tasks:     tasks,
-		Questions: epicMap(row.Questions, questionMessage),
-		Branch:    row.Branch,
-		Workflow:  workflowMessage(row.Workflow),
-		Report:    reportMessage(row.Report),
+		Contract:   contractMessage(row),
+		Summary:    row.Summary,
+		Phase:      row.Phase,
+		Created:    row.Created.Unix(),
+		Changed:    row.Changed.Unix(),
+		PhaseAt:    row.PhaseAt.Unix(),
+		Seen:       unixOrZero(row.Seen),
+		Decisions:  epicMap(row.Decisions, decisionMessage),
+		Reviewers:  epicMap(row.Reviewers, epicReviewerMessage),
+		Paused:     row.Paused,
+		Parked:     row.Parked,
+		ParkClass:  string(row.ParkClass),
+		Turns:      epicMap(row.Turns, turnMessage),
+		Tasks:      tasks,
+		Questions:  epicMap(row.Questions, questionMessage),
+		Branch:     row.Branch,
+		Workflow:   workflowMessage(row.Workflow),
+		Report:     reportMessage(row.Report),
+		Amendments: epicMap(row.Amendments, amendmentMessage),
 	}, nil
 }
 

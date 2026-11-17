@@ -69,6 +69,8 @@ func epicNamedBy(msg any) string {
 		return req.GetId()
 	case *v1.CloseEpicRequest:
 		return req.GetId()
+	case *v1.AmendEvidenceRequest:
+		return req.GetId()
 	}
 	return ""
 }
@@ -87,9 +89,11 @@ func epicCallerOf(header http.Header) (store.EpicCaller, bool) {
 	return store.EpicCaller{Server: "-S " + socket, Pane: pane}, true
 }
 
-// epicCallName returns the name a call of procedure records: "epic_" and the lowercased verb of its method, so
-// "/orrery.engine.v1.Epics/CreateEpic" records "epic_create".
+// epicCallName returns the name a call of procedure records: "epic_" and the lowercased verb of its method, the verb
+// being the method less its Epic or Evidence noun, so "/orrery.engine.v1.Epics/CreateEpic" records "epic_create" and
+// "/orrery.engine.v1.Epics/AmendEvidence" records "epic_amend".
 func epicCallName(procedure string) string {
 	method := procedure[strings.LastIndex(procedure, "/")+1:]
-	return "epic_" + strings.ToLower(strings.TrimSuffix(method, "Epic"))
+	verb := strings.TrimSuffix(strings.TrimSuffix(method, "Epic"), "Evidence")
+	return "epic_" + strings.ToLower(verb)
 }

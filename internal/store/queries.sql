@@ -472,6 +472,9 @@ SELECT * FROM epic_requirements WHERE epic = ? ORDER BY position;
 -- name: DropEpicRequirement :exec
 UPDATE epic_requirements SET dropped_by = sqlc.arg(decision) WHERE epic = sqlc.arg(epic) AND id = sqlc.arg(id);
 
+-- name: SetEpicRequirementItem :execrows
+UPDATE epic_requirements SET item = sqlc.arg(item) WHERE epic = sqlc.arg(epic) AND id = sqlc.arg(id);
+
 -- name: InsertEpicPremise :exec
 INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?);
 
@@ -1061,8 +1064,10 @@ ON CONFLICT (epic) DO UPDATE SET at = excluded.at;
 SELECT at FROM epic_seen WHERE epic = ?;
 
 -- name: InsertPlannerAction :exec
-INSERT INTO planner_actions (epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '');
+INSERT INTO planner_actions (
+    epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
@@ -1142,3 +1147,66 @@ SELECT id FROM steps WHERE epic = ? AND task = ? AND end_value = '' ORDER BY sta
 
 -- name: ListEpicIntegrateRunPaths :many
 SELECT path FROM epic_node_runs WHERE epic = ? AND node = ? AND kind = 'integrate' ORDER BY rowid;
+
+-- name: InsertEpicAmendment :exec
+INSERT INTO epic_amendments (
+    epic, seq, requirement, amender, turn, position, prior_item, item, reason, base, state, red_run, created
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'checking', ?, ?);
+
+-- name: MaxEpicAmendmentSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_amendments WHERE epic = ?;
+
+-- name: ListEpicAmendments :many
+SELECT * FROM epic_amendments WHERE epic = ? ORDER BY seq;
+
+-- name: ListOpenEpicAmendments :many
+SELECT * FROM epic_amendments WHERE state IN ('checking', 'capturing') ORDER BY epic, seq;
+
+-- name: GetEpicAmendment :one
+SELECT * FROM epic_amendments WHERE epic = ? AND seq = ?;
+
+-- name: GetActionAmendment :one
+SELECT * FROM epic_amendments WHERE epic = ? AND amender = 'planner' AND turn = ? AND position = ?;
+
+-- name: CountOpenRequirementAmendments :one
+SELECT COUNT(*) FROM epic_amendments
+WHERE epic = ? AND requirement = ? AND state IN ('checking', 'capturing');
+
+-- name: RetryEpicAmendmentRed :execrows
+UPDATE epic_amendments SET red_attempt = sqlc.arg(red_attempt), red_run = sqlc.arg(red_run)
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'checking';
+
+-- name: RetryEpicAmendmentGreen :execrows
+UPDATE epic_amendments
+SET green_attempt = sqlc.arg(green_attempt), green_run = sqlc.arg(green_run), repro_check = sqlc.arg(repro_check)
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'capturing';
+
+-- name: RefuseEpicAmendment :execrows
+UPDATE epic_amendments SET state = 'refused', refusal = sqlc.arg(refusal), settled = sqlc.arg(settled)
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'checking';
+
+-- name: CaptureEpicAmendment :execrows
+UPDATE epic_amendments
+SET state = 'capturing', stored_base = sqlc.arg(stored_base), green_run = sqlc.arg(green_run),
+    repro_check = sqlc.arg(repro_check), settled = sqlc.arg(settled)
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'checking';
+
+-- name: ApplyEpicAmendment :execrows
+UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 THEN sqlc.arg(settled) ELSE settled END
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'capturing');
+
+-- name: CountWorkingEvidenceNodeRuns :one
+SELECT COUNT(*) FROM epic_node_runs
+WHERE epic = ? AND state = 'running'
+  AND ((kind IN ('evidence', 'integrate') AND revision != '') OR kind = 'release');
+
+-- name: CountPendingAmendActions :one
+SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';
+
+-- name: GetPlannerActionPark :one
+SELECT park FROM planner_actions WHERE epic = ? AND turn = ? AND position = ?;
+
+-- name: LinkPlannerActionPark :exec
+UPDATE planner_actions SET park = sqlc.arg(park)
+WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';

@@ -58,7 +58,8 @@ type closeEnd struct {
 // Each open question is answered with the closed phase, so the epic has none open. Its running turn ends free, which
 // never counts toward a park, and the triggers it claimed return to pending. Every pending trigger of the epic is then
 // consumed, so the planner has nothing to claim. Its running node runs end, its due resumes close, and a release slot it
-// holds is freed. A planner close also adds one tell, which says the epic is closed and is the ending the owner is told;
+// holds is freed. An evidence amendment of the epic that is checking is refused, with the planner action that asked for
+// it, and one that is capturing, whose item is applied already, is applied. A planner close also adds one tell, which says the epic is closed and is the ending the owner is told;
 // an owner close adds none.
 //
 // An unknown epic is ErrNoEpic. A close the store refuses is a RefusalError and writes nothing: an unknown kind, and a
@@ -128,10 +129,13 @@ func endClosedTurn(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) 
 	return running.Step, nil
 }
 
-// closeEpicRows writes end in the caller's write: the answers, the node runs, the head, the phase, the release slot, the
-// triggers and the due resumes, and for a planner close the ending tell.
+// closeEpicRows writes end in the caller's write: the answers, the open evidence amendments, the node runs, the head, the
+// phase, the release slot, the triggers and the due resumes, and for a planner close the ending tell.
 func closeEpicRows(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) error {
 	if err := answerOpenQuestions(ctx, queries, end.epic, end.phase); err != nil {
+		return err
+	}
+	if err := settleClosedAmendments(ctx, queries, end); err != nil {
 		return err
 	}
 	if err := queries.EndRunningEpicNodeRuns(ctx, sqlcgen.EndRunningEpicNodeRunsParams{

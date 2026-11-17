@@ -18,9 +18,9 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049 and 00051 create, and of the columns
-// those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045, 00048,
-// 00050 and 00051 add to epic tables.
+// 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
+// columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
+// 00048, 00050, 00051 and 00052 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -103,10 +103,17 @@ func epicTableColumns() map[string][]string {
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
 		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
 		// R2: the actions a planner turn returned, from 00049_planner_actions.sql. park, the planner park an action
-		// answers, is 00051_park_bound.sql.
+		// answers, is 00051_park_bound.sql. requirement and item, what an amend_evidence action asks for, are
+		// 00052_evidence_amendments.sql.
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
-			"refusal", "park",
+			"refusal", "park", "requirement", "item",
+		},
+		// The amendments of the epics' Requirement evidence items, from 00052_evidence_amendments.sql.
+		"epic_amendments": {
+			"epic", "seq", "requirement", "amender", "turn", "position", "prior_item", "item", "reason", "base",
+			"state", "red_attempt", "red_run", "stored_base", "green_attempt", "green_run", "repro_check", "refusal",
+			"created", "settled",
 		},
 		// R5: the planner-class parks of each epic and their chains, from 00051_park_bound.sql.
 		"epic_parks":         {"epic", "seq", "class", "subject", "chain", "reason", "created"},
@@ -521,10 +528,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00051_park_bound.sql is the newest. The newest was
-	// 00050_park_class.sql before the park bound added 00051.
-	if version != 51 {
-		t.Fatalf("store version after Open = %d, want 51", version)
+	// Open applies 00014_epics.sql and every migration after it: 00052_evidence_amendments.sql is the newest. The newest
+	// was 00051_park_bound.sql before evidence amendments added 00052.
+	if version != 52 {
+		t.Fatalf("store version after Open = %d, want 52", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1131,6 +1138,44 @@ func TestParkBoundMigrationDownAndUp(t *testing.T) {
 	}
 	if !hasAll(columnsOf(t, s, "planner_actions"), "park") {
 		t.Errorf("planner_actions columns after Up = %v, want park", columnsOf(t, s, "planner_actions"))
+	}
+}
+
+// TestEvidenceAmendmentsMigrationDownAndUp removes the amendments table and the requirement and item of planner_actions
+// with the Down of 00052_evidence_amendments.sql, and Up restores them.
+func TestEvidenceAmendmentsMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 51); err != nil {
+		t.Fatalf("DownTo 51: %v", err)
+	}
+	if tableNames(t, s)["epic_amendments"] {
+		t.Errorf("epic_amendments after Down = present, want absent")
+	}
+	if hasAny(columnsOf(t, s, "planner_actions"), "requirement", "item") {
+		t.Errorf("planner_actions columns after Down = %v, want no requirement or item",
+			columnsOf(t, s, "planner_actions"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !tableNames(t, s)["epic_amendments"] {
+		t.Errorf("epic_amendments after Up = absent, want present")
+	}
+	if !hasAll(columnsOf(t, s, "planner_actions"), "requirement", "item") {
+		t.Errorf("planner_actions columns after Up = %v, want requirement and item", columnsOf(t, s, "planner_actions"))
 	}
 }
 

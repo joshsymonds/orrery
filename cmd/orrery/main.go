@@ -134,6 +134,9 @@ subcommands:
   epic close ID --as superseded|shipped|abandoned [--by EPIC]
                                                 close an epic as superseded by EPIC (required), shipped by hand
                                                 or abandoned; its open questions are answered by the close
+  epic amend ID R<n> --item JSON [--reason TEXT]
+                                                amend R<n>'s evidence item to JSON; it applies only once the new
+                                                item's red at the epic's base is judged not to hold there
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
