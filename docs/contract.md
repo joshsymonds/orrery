@@ -633,6 +633,10 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
+**Questions the owner cannot answer.** A question whose input is not exactly one question that is not `multiSelect` and has at least one option is refused when it arrives: the session denies it with `orrery cannot show this question to the owner: it answers only one question that is not multiSelect and has options. Ask again as one single-choice question, or ask in plain text and end your turn.`, it never opens, and the row does not become `waiting` (`session.answerableQuestion`, `session.requestOf`, `session.Session.observeRequest`, `session.UnanswerableQuestionMessage`).
+
+**The owner speaks over an open request.** A `Say` to a live session, and an `Interrupt`, first deny every request the session has open with `The owner did not answer this request; they sent a message or an interrupt instead. Read it and act on it.`, then record the row `working` with no question, and only then write the message or the interrupt, so a session waiting on a request reads them instead of holding them behind it (`enginehost.Manager.declineOpen`, `enginehost.Manager.say`, `enginehost.Manager.Interrupt`).
+
 `Say`, `Answer`, `Interrupt`, `Stop` and `Resume` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`enginehost.service.refuseStep`, `enginehost.service.Say`, `enginehost.service.Answer`, `enginehost.service.Interrupt`, `enginehost.service.Stop`, `enginehost.service.Resume`). `Resume` is refused as `failed_precondition` when its row is not `interrupted`, or has no Claude session; the message names which, as `resume session <id>: session cannot be resumed: its state is <state>, not interrupted` or `resume session <id>: session cannot be resumed: it has no Claude session` (`enginehost.Manager.Resume`, `enginehost.ErrNotResumable`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`enginehost.service.ready`, and see [Steps](#steps)).
 
 Errors are Connect codes:
@@ -2312,7 +2316,7 @@ An engine row is a `sessions` row with `kind` `engine`. Its columns hold these v
 - `state` is one of the session states of [Headless sessions](#headless-sessions).
 - `changed` is the unix seconds of the last state change.
 - `seen` is the unix seconds of the last `session seen`, or `""`.
-- `question` is the open question while the state is `waiting`, or the tool name of an open permission request. An answer, a withdrawn request, a turn's end and reconcile set it to `""`. A row that becomes `stopped`, `failed` or `interrupted` while it waits keeps the question it had.
+- `question` is the open question while the state is `waiting`, or the tool name of an open permission request. An answer, a request the owner spoke over (see **The owner speaks over an open request**), a withdrawn request, a turn's end and reconcile set it to `""`. A row that becomes `stopped`, `failed` or `interrupted` while it waits keeps the question it had.
 - `claude_session` is the Claude Code session id, once the process has reported it.
 - `dir` is the directory the session runs in. `reason` is described in the table above.
 

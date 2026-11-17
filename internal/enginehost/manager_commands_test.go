@@ -3,7 +3,10 @@ package enginehost
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
@@ -306,5 +309,72 @@ func TestReplayRebuildsConversationInOrder(t *testing.T) {
 	want := []string{"prompt: hi", "reply: fake reply 1", "prompt: again", "reply: fake reply 2"}
 	if got := conversationOf(t, history); !reflect.DeepEqual(got, want) {
 		t.Fatalf("replayed conversation = %q, want %q", got, want)
+	}
+}
+
+// stdinBefore reports whether the fake's stdin log in dir holds a deny response carrying ownerSpokeMessage on a line
+// before the first line containing later.
+func stdinBefore(t *testing.T, dir, later string) bool {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "fakeclaude.stdin"))
+	if err != nil {
+		t.Fatalf("read fake stdin log: %v", err)
+	}
+	denied := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, `"behavior":"deny"`) && strings.Contains(line, ownerSpokeMessage) {
+			denied = true
+		}
+		if strings.Contains(line, later) {
+			return denied
+		}
+	}
+	return false
+}
+
+func TestSayWhileARequestIsOpenDeniesItFirst(t *testing.T) {
+	t.Parallel()
+	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	dir := t.TempDir()
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "PERMIT"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
+		return h.State == "waiting"
+	})
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "never mind that"}); err != nil {
+		t.Fatalf("Say: %v", err)
+	}
+	history := waitHistory(t, engineOf(m), path, id, "the reply to the owner's message", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake denied 1") && hasBlock(t, h, "fake reply 2")
+	})
+	if !workingWithoutQuestion(t, history) {
+		t.Fatalf("no engine_changed sets state working with no question in %+v", changedFields(t, history))
+	}
+	if !stdinBefore(t, dir, "never mind that") {
+		t.Fatalf("the request was not denied with the owner-spoke message before the owner's message was written")
+	}
+}
+
+func TestInterruptWhileARequestIsOpenDeniesIt(t *testing.T) {
+	t.Parallel()
+	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	dir := t.TempDir()
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "PERMIT"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitHistory(t, engineOf(m), path, id, "the waiting state", func(h store.EngineHistory) bool {
+		return h.State == "waiting"
+	})
+	if err := m.Interrupt(t.Context(), id); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	waitHistory(t, engineOf(m), path, id, "the denied reply block", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake denied 1")
+	})
+	if !stdinBefore(t, dir, `"subtype":"interrupt"`) {
+		t.Fatalf("the request was not denied with the owner-spoke message before the interrupt was written")
 	}
 }

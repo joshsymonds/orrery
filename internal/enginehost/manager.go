@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +65,10 @@ const denyMessage = "The orrery host denied this request."
 // stepDenyMessage is the message a step's request is denied with. A step has nobody to answer it, so the
 // message tells the step to give its answer as the structured return.
 const stepDenyMessage = "The orrery host does not answer questions in a step. Do not ask; give your answer as the structured return."
+
+// ownerSpokeMessage is the denial each open request gets when the owner sends a message or an interrupt instead of
+// answering it, so the session reads the message instead of waiting on the request.
+const ownerSpokeMessage = "The owner did not answer this request; they sent a message or an interrupt instead. Read it and act on it."
 
 // closeWait bounds how long Close waits for the sessions it stops to record their state.
 const closeWait = 5 * time.Second
@@ -537,8 +542,14 @@ func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 	return err
 }
 
-// say sends the prompt of req as Say does, without the check of its prompt id.
+// say sends the prompt of req as Say does, without the check of its prompt id. A live session's open requests are
+// declined first (see declineOpen), so the message is read instead of held behind them.
 func (m *Manager) say(ctx context.Context, req SayRequest) error {
+	if open, err := m.live(req.ID); err == nil {
+		if err = m.declineOpen(ctx, open); err != nil {
+			return fmt.Errorf("say to session %s: %w", req.ID, err)
+		}
+	}
 	live, err := m.claim(req.ID)
 	if errors.Is(err, ErrNoSession) {
 		live, err = m.resumeSession(ctx, req.ID)
@@ -550,6 +561,43 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 		return fmt.Errorf("say to session %s: %w", req.ID, err)
 	}
 	return m.send(ctx, live, store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID})
+}
+
+// declineOpen denies every request live has open with ownerSpokeMessage, so a session waiting on a question or a
+// permission reads the owner's message or interrupt instead of holding it behind the request. A request the session
+// already answered or withdrew is skipped. When it denies any, it records the session working with no question.
+func (m *Manager) declineOpen(ctx context.Context, live *liveSession) error {
+	live.order.Lock()
+	defer live.order.Unlock()
+	m.mu.Lock()
+	open := slices.Collect(maps.Keys(live.requests))
+	m.mu.Unlock()
+	declined := false
+	for _, requestID := range open {
+		err := live.sess.Deny(requestID, ownerSpokeMessage)
+		if errors.Is(err, session.ErrNoPendingRequest) {
+			m.closeRequest(live, requestID)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("decline request %s: %w", requestID, err)
+		}
+		m.closeRequest(live, requestID)
+		declined = true
+	}
+	if !declined {
+		return nil
+	}
+	working := string(protocol.StateWorking)
+	question := ""
+	if err := m.writer.Put(ctx, live.id, store.EngineSet{ID: live.id,
+		Changes: store.EngineChanges{State: &working, Question: &question}}); err != nil {
+		return fmt.Errorf("record session %s working: %w", live.id, err)
+	}
+	if !live.step {
+		m.changed(ctx, live.id)
+	}
+	return nil
 }
 
 // Resume sends resumePrompt to the session id as its next prompt, through Say, so that its interrupted turn continues
@@ -771,12 +819,16 @@ func answerPermission(sess *session.Session, requestID, answer string) error {
 	}
 }
 
-// Interrupt asks the live session id to end the turn in progress. The turn's end is recorded when the session reports
+// Interrupt asks the live session id to end the turn in progress, first denying any request it has open (see
+// declineOpen), since a session waiting on a request does not read an interrupt. The turn's end is recorded when the session reports
 // it, and that end sends no notice. It returns an error wrapping ErrNoSession when id is not live.
-func (m *Manager) Interrupt(_ context.Context, id string) error {
+func (m *Manager) Interrupt(ctx context.Context, id string) error {
 	defer m.calls.enter()()
 	live, err := m.live(id)
 	if err != nil {
+		return fmt.Errorf("interrupt session %s: %w", id, err)
+	}
+	if err = m.declineOpen(context.WithoutCancel(ctx), live); err != nil {
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}
 	m.setInterrupting(live, true)

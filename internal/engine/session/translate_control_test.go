@@ -111,7 +111,8 @@ func TestAskUserQuestionWithMadeUpFieldsIsQuestion(t *testing.T) {
 	tr := newTranslator()
 	got := translateLines(t, tr,
 		`{"type":"control_request","request_id":"req_ask_8","request":{"subtype":"can_use_tool",`+
-			`"tool_name":"AskUserQuestion","input":{"questions":[{"question":"made-up question"}]},`+
+			`"tool_name":"AskUserQuestion","input":{"questions":[{"question":"made-up question",`+
+			`"options":[{"label":"made-up option"}]}]},`+
 			`"tool_use_id":"toolu_ask_8"}}`,
 	)
 	requireEvents(t, got, []Event{Request{
@@ -120,7 +121,7 @@ func TestAskUserQuestionWithMadeUpFieldsIsQuestion(t *testing.T) {
 		ToolUseID: "toolu_ask_8",
 		ToolName:  "AskUserQuestion",
 		Subtype:   "can_use_tool",
-		Input:     json.RawMessage(`{"questions":[{"question":"made-up question"}]}`),
+		Input:     json.RawMessage(`{"questions":[{"question":"made-up question","options":[{"label":"made-up option"}]}]}`),
 	}})
 }
 
