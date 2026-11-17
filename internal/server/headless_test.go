@@ -297,9 +297,9 @@ func TestListHeadlessReturnsInternalWithoutStoreDetail(t *testing.T) {
 // labelPrompt is a first prompt whose words run over a line break and whose label cut falls inside a word.
 const labelPrompt = "Refactor the billing module so\n every invoice lines up with the ledger, then add tests for the rounding edge cases"
 
-// listedLabels lists the headless sessions of the store at path through a server whose clock is now, and returns each
-// session's label by id.
-func listedLabels(t *testing.T, path string, now time.Time) map[string]string {
+// listedSessions lists the headless sessions of the store at path through a server whose clock is now, and returns each
+// session by id.
+func listedSessions(t *testing.T, path string, now time.Time) map[string]*orreryv1.HeadlessSession {
 	t.Helper()
 	client := sessionsClientAt(t, store.NewReader(path), func() time.Time { return now })
 	got, err := client.ListHeadless(
@@ -309,9 +309,19 @@ func listedLabels(t *testing.T, path string, now time.Time) map[string]string {
 	if err != nil {
 		t.Fatalf("ListHeadless: %v", err)
 	}
-	labels := make(map[string]string, len(got.Msg.GetSessions()))
+	sessions := make(map[string]*orreryv1.HeadlessSession, len(got.Msg.GetSessions()))
 	for _, session := range got.Msg.GetSessions() {
-		labels[session.GetId()] = session.GetLabel()
+		sessions[session.GetId()] = session
+	}
+	return sessions
+}
+
+// listedLabels returns the label of each session that listedSessions lists for the store at path and clock now.
+func listedLabels(t *testing.T, path string, now time.Time) map[string]string {
+	t.Helper()
+	labels := map[string]string{}
+	for id, session := range listedSessions(t, path, now) {
+		labels[id] = session.GetLabel()
 	}
 	return labels
 }
@@ -365,6 +375,81 @@ func TestSessionTitleLabelBeforeATitleIsDirAndFirstWords(t *testing.T) {
 	for id, label := range labels {
 		if strings.Contains(label, id) || strings.Contains(label, id[:8]) {
 			t.Fatalf("label %q of session %s holds its id", label, id)
+		}
+	}
+}
+
+// TestSessionHeadlineListHeadlessCarriesTheStoredHeadlineElseTitleElseFirstWords covers the headline of each listed
+// row: the trimmed stored headline once one is written, else the trimmed title, else the first words of the first
+// prompt cut to labelPromptRunes runes, else empty. A headline never holds the directory, and the label is unchanged.
+func TestSessionHeadlineListHeadlessCarriesTheStoredHeadlineElseTitleElseFirstWords(t *testing.T) {
+	t.Parallel()
+	// promptOnlyID has a blank headline, no title and a prompt, so its headline is the prompt's first words. emptyID has
+	// no headline, title or prompt, so its headline is empty.
+	const (
+		promptOnlyID = "cccccccccccccccccccccccccccccccc"
+		emptyID      = "dddddddddddddddddddddddddddddddd"
+	)
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openHeadlessStore(t, path)
+	now := time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessAlphaID, Dir: "/work/gamma", State: "idle"})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: headlessAlphaID, Text: labelPrompt})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: headlessBetaID, Dir: "/work/delta", State: "idle"})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: headlessBetaID, Text: labelPrompt})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: promptOnlyID, Dir: "/work/epsilon", State: "idle"})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EnginePrompt{ID: promptOnlyID, Text: labelPrompt})
+	applyHeadless(t, s, now.Add(-time.Hour), store.EngineAdd{ID: emptyID, Dir: "/work/zeta", State: "idle"})
+	ctx := t.Context()
+	for _, step := range []struct {
+		id       string
+		title    string
+		headline string
+	}{
+		{id: headlessAlphaID, title: "Billing title", headline: "  Billing rounding plan  "},
+		{id: headlessBetaID, title: " Gamma work "},
+		{id: promptOnlyID, headline: "   "},
+	} {
+		if step.title != "" {
+			if err := s.SetSessionTitle(ctx, step.id, step.title); err != nil {
+				t.Fatalf("SetSessionTitle %s: %v", step.id, err)
+			}
+		}
+		if step.headline != "" {
+			if err := s.SetSessionHeadline(ctx, step.id, step.headline, now); err != nil {
+				t.Fatalf("SetSessionHeadline %s: %v", step.id, err)
+			}
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close store: %v", err)
+	}
+
+	sessions := listedSessions(t, path, now)
+	wantHeadlines := map[string]string{
+		headlessAlphaID: "Billing rounding plan",
+		headlessBetaID:  "Gamma work",
+		promptOnlyID:    "Refactor the billing module so every inv",
+		emptyID:         "",
+	}
+	for id, want := range wantHeadlines {
+		session, ok := sessions[id]
+		if !ok {
+			t.Fatalf("ListHeadless does not list session %s", id)
+		}
+		if got := session.GetHeadline(); got != want {
+			t.Fatalf("headline of %s = %q, want %q", id, got, want)
+		}
+	}
+	wantLabels := map[string]string{
+		headlessAlphaID: "Billing title",
+		headlessBetaID:  "Gamma work",
+		promptOnlyID:    "epsilon · Refactor the billing module so every inv",
+		emptyID:         "zeta",
+	}
+	for id, want := range wantLabels {
+		if got := sessions[id].GetLabel(); got != want {
+			t.Fatalf("label of %s = %q, want %q", id, got, want)
 		}
 	}
 }
