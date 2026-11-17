@@ -58,7 +58,8 @@ type epicsServer struct {
 
 // List answers every epic under the record root and every epic orreryd's database holds, live or folded, sorted by id.
 // An epic in both is answered once, with the database's fields and the record's problem. It asks ListEpics and ListSteps
-// once each, and again only to retry an unavailable answer.
+// once each, and again only to retry an unavailable answer. It reads the archive marks once, and sets each epic's
+// archived field by them and the aging rule (see archivedRow).
 func (e epicsServer) List(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.EpicsListRequest],
@@ -72,6 +73,10 @@ func (e epicsServer) List(
 		return nil, err
 	}
 	steps, err := e.listSteps(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	marks, err := readArchiveMarks(ctx, e.sessions)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +108,7 @@ func (e epicsServer) List(
 			id, summary.GetPhase(), summary.GetPhaseAt(), summary.GetChanged(), summary.GetSeen(), nil, byEpic[id],
 		))
 	}
+	markEpics(epics, marks, now)
 	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
 	return connect.NewResponse(&orreryv1.EpicsListResponse{Epics: epics}), nil
 }
