@@ -182,7 +182,7 @@ public interface ConversationItemOrBuilder extends
 
   /**
    * <pre>
-   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent a prompt item's prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 11 [json_name = "sender"];</code>
@@ -191,7 +191,7 @@ public interface ConversationItemOrBuilder extends
   java.lang.String getSender();
   /**
    * <pre>
-   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent a prompt item's prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    * </pre>
    *
    * <code>string sender = 11 [json_name = "sender"];</code>

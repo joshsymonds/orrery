@@ -20,7 +20,7 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
 // columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052, 00053 and 00054 add to epic tables.
+// 00048, 00050, 00051, 00052, 00053, 00054 and 00057 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -102,7 +102,7 @@ func epicTableColumns() map[string][]string {
 		"epic_review_rounds": {"epic", "round", "revision", "tasks", "outcome"},
 		"epic_closures":      {"epic", "round", "finding", "step", "result", "reason"},
 		"epic_review_holds":  {"epic", "step"},
-		"epic_sessions":      {"epic", "session", "call", "at"},
+		"epic_sessions":      {"epic", "session", "call", "at", "creator"},
 		"epic_seen":          {"epic", "at"},
 		// R4: the parked run and the Requirements found met under a met-at-base park question, from 00044.
 		"epic_met_at_base": {"epic", "question", "path", "attempt", "requirements"},
@@ -532,10 +532,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00055_archived_rows.sql is the newest. The newest was
-	// 00054_origin_read.sql before the archive marks added 00055.
-	if version != 55 {
-		t.Fatalf("store version after Open = %d, want 55", version)
+	// Open applies 00014_epics.sql and every migration after it: 00057_caller_events.sql is the newest. The newest was
+	// 00055_archived_rows.sql before the step caller and caller events added 00056 and 00057.
+	if version != 57 {
+		t.Fatalf("store version after Open = %d, want 57", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

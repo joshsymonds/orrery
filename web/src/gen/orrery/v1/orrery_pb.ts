@@ -1199,7 +1199,7 @@ export type EnginePrompt = Message<"orrery.v1.EnginePrompt"> & {
   promptId: string;
 
   /**
-   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent the prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    *
    * @generated from field: string sender = 3;
    */
@@ -1905,7 +1905,7 @@ export type ConversationItem = Message<"orrery.v1.ConversationItem"> & {
   tokens: bigint;
 
   /**
-   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * Who sent a prompt item's prompt: brief, engine, owner or event, or empty when the prompt was stored without a sender.
    *
    * @generated from field: string sender = 11;
    */

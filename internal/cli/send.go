@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -224,13 +225,40 @@ func sendText(ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client,
 		return err
 	}
 	if typable && sendTypeable(pane, text) {
-		// A started typed send is detached from the caller, so a caller that leaves cannot leave half a
-		// message in the input box.
-		typeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTypeBound)
-		defer cancel()
-		return sendTyped(typeCtx, clock, client, pane, text)
+		return sendTypedDetached(ctx, clock, client, pane, text)
 	}
 	return sendPaste(ctx, client, pane, text)
+}
+
+// SendIdle types text into pane and presses Enter when the pane is done, not in a tmux mode, and its
+// captured screen shows Claude Code's input box. Otherwise it sends no key and returns false. It never
+// pastes: text that cannot be typed exactly is an error, and no key is sent. It returns true once it
+// begins typing, so an error after that means the pane may hold part of the text.
+func SendIdle(ctx context.Context, client *tmuxctl.Client, pane, text string) (bool, error) {
+	return sendIdleWithClock(ctx, rpcretry.SystemClock{}, client, pane, text)
+}
+
+// sendIdleWithClock is SendIdle with the clock that times the typed send's pauses.
+func sendIdleWithClock(
+	ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, text string,
+) (bool, error) {
+	if !sendTypeable(pane, text) {
+		return false, errors.New("send: text cannot be typed exactly")
+	}
+	ready, err := paneInputReady(ctx, client, pane, protocol.StateDone)
+	if err != nil || !ready {
+		return false, err
+	}
+	return true, sendTypedDetached(ctx, clock, client, pane, text)
+}
+
+// sendTypedDetached types text into pane and presses Enter on a context that outlives ctx, bounded by
+// sendTypeBound. A started typed send is detached from the caller, so a caller that leaves cannot leave
+// half a message in the input box.
+func sendTypedDetached(ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, text string) error {
+	typeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTypeBound)
+	defer cancel()
+	return sendTyped(typeCtx, clock, client, pane, text)
 }
 
 // sendTypeable reports whether typing text delivers it exactly: it is valid UTF-8, holds no control
@@ -251,6 +279,12 @@ func sendTypeable(pane, text string) bool {
 // sendTypable reports whether pane may take typed text: it is not in a tmux mode, its orrery state is
 // working or done, and its captured screen shows Claude Code's input box at the pane's width.
 func sendTypable(ctx context.Context, client *tmuxctl.Client, pane string) (bool, error) {
+	return paneInputReady(ctx, client, pane, protocol.StateWorking, protocol.StateDone)
+}
+
+// paneInputReady reports whether pane is not in a tmux mode, its orrery state is one of states, and its
+// captured screen shows Claude Code's input box at the pane's width.
+func paneInputReady(ctx context.Context, client *tmuxctl.Client, pane string, states ...protocol.State) (bool, error) {
 	out, err := client.Run(ctx, "display-message", "-p", "-t", pane,
 		"#{pane_in_mode}|#{pane_width}|#{@orrery_state}")
 	if err != nil {
@@ -265,7 +299,7 @@ func sendTypable(ctx context.Context, client *tmuxctl.Client, pane string) (bool
 		return false, fmt.Errorf("send: pane width %q: %w", fields[1], err)
 	}
 	state := protocol.State(fields[2])
-	if fields[0] != "0" || (state != protocol.StateWorking && state != protocol.StateDone) {
+	if fields[0] != "0" || !slices.Contains(states, state) {
 		return false, nil
 	}
 	screen, err := client.Run(ctx, "capture-pane", "-p", "-t", pane)

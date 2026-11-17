@@ -335,7 +335,7 @@ func (m *Mirror) syncOut(ctx context.Context, server tmuxctl.Server, pane, out s
 			return err
 		}
 	}
-	if err := m.store.SyncPane(ctx, serverValue(server), store.Pane{
+	if err := m.store.SyncPane(ctx, server.Column(), store.Pane{
 		ID: id, Pane: pane, Fields: fieldsOf(values[1:]),
 	}, m.now()); err != nil {
 		return fmt.Errorf("sync pane %s: %w", pane, err)
@@ -359,18 +359,6 @@ func mintID() (string, error) {
 		return "", fmt.Errorf("mint pane id: %w", err)
 	}
 	return hex.EncodeToString(raw[:]), nil
-}
-
-// serverValue returns the store's server column for server: "-L <name>", "-S <path>", or "" for the default.
-func serverValue(server tmuxctl.Server) string {
-	switch {
-	case server.Name != "":
-		return "-L " + server.Name
-	case server.Socket != "":
-		return "-S " + server.Socket
-	default:
-		return ""
-	}
 }
 
 // fieldsOf maps the ten mirrored option values, in mirrorFormat order after @orrery_id, to store.Fields.
@@ -398,7 +386,7 @@ func fieldsOf(values []string) store.Fields {
 func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
 	if !m.awaitStore() {
 		m.logger.WarnContext(ctx, "mirror tidy deferred",
-			"server", serverValue(server), "reason", "store still opening")
+			"server", server.Column(), "reason", "store still opening")
 		m.deferTidy(ctx, server)
 		return
 	}
@@ -406,7 +394,7 @@ func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
 		return
 	}
 	if !m.acquire() {
-		m.logger.WarnContext(ctx, "mirror tidy deferred", "server", serverValue(server), "reason", "lock wait exceeded")
+		m.logger.WarnContext(ctx, "mirror tidy deferred", "server", server.Column(), "reason", "lock wait exceeded")
 		m.deferTidy(ctx, server)
 		return
 	}
@@ -418,7 +406,7 @@ func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
 func (m *Mirror) tidyLocked(ctx context.Context, server tmuxctl.Server) {
 	client, err := tmuxctl.New(server)
 	if err != nil {
-		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", serverValue(server),
+		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", server.Column(),
 			"error", fmt.Errorf("resolve tmux server: %w", err))
 		return
 	}
@@ -428,7 +416,7 @@ func (m *Mirror) tidyLocked(ctx context.Context, server tmuxctl.Server) {
 		return
 	}
 	if err = m.tidy(ctx, server, client, out); err != nil {
-		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", serverValue(server), "error", err)
+		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", server.Column(), "error", err)
 	}
 }
 
@@ -449,8 +437,8 @@ func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server, client *tmuxct
 		}
 		minted = append(minted, panes[i])
 	}
-	if err = m.store.SyncServer(ctx, serverValue(server), panes, m.now()); err != nil {
-		return fmt.Errorf("sync server %s: %w", serverValue(server), err)
+	if err = m.store.SyncServer(ctx, server.Column(), panes, m.now()); err != nil {
+		return fmt.Errorf("sync server %s: %w", server.Column(), err)
 	}
 
 	var errs []error
@@ -466,7 +454,7 @@ func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server, client *tmuxct
 // "tmux server unreachable" when the previous list-panes on the server succeeded, and nothing while it keeps
 // failing. The first success after a failure logs "tmux server reachable again". The caller holds m.lock.
 func (m *Mirror) noteListPanes(ctx context.Context, server tmuxctl.Server, err error) {
-	key := serverValue(server)
+	key := server.Column()
 	switch {
 	case err != nil:
 		if m.unreachable[key] {

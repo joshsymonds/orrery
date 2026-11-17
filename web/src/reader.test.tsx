@@ -609,6 +609,46 @@ test("without a step every prompt draws as YOU, whatever its sender and round", 
     },
   ));
 
+test("a CallerEvent prompt in a session draws as an EVENT row with its text, and not as YOU", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", text: "**orrery** step finished" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      const event = container.querySelector<HTMLElement>(".t > .body > .event");
+      assert.ok(event !== null, "the event is an event row");
+      assert.equal(event.querySelector("small")?.textContent, "EVENT");
+      assert.equal(event.querySelector(".reply > p > strong")?.textContent, "orrery", "the text draws as Markdown");
+      assert.equal(event.textContent?.includes("step finished"), true, "the whole text is shown");
+      assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
+    },
+  ));
+
+test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt or YOU", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", round: 1, text: "step finished: gate passed" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([{ round: 1, name: "gate", ok: false }]),
+    },
+    (container) => {
+      const event = container.querySelector<HTMLElement>(".t > .body > .event");
+      assert.ok(event !== null, "the event is an event row");
+      assert.equal(event.querySelector("small")?.textContent, "EVENT");
+      assert.equal(event.textContent?.includes("step finished: gate passed"), true, "the whole text is shown");
+      assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
+      assert.equal(container.querySelector("button.fold") === null, true, "the event is not an engine fold");
+      assert.equal(container.querySelector(".card") === null, true, "the event is not a send-back card");
+    },
+  ));
+
 test("live text draws its markdown as elements inside .reply, before its caret", () =>
   withReader(
     { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },

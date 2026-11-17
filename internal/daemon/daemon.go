@@ -458,7 +458,7 @@ func (h *frameHandler) checkDefaultSocket() bool {
 	}
 	h.defaultSkipReason = reason
 	if reason != "" {
-		h.logger.Warn(defaultSocketSkipMsg, "server", serverValue(h.cfg.DefaultServer), "reason", reason)
+		h.logger.Warn(defaultSocketSkipMsg, "server", h.cfg.DefaultServer.Column(), "reason", reason)
 	}
 	return reason == ""
 }

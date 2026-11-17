@@ -25,8 +25,9 @@ const toolRunMinimum = 3;
 // it and no question drawn, carries the running rail and mark, and so does a run that holds one.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
-// round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
+// a button. A prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
+// With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
+// round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
 // other render keeps the bottom only for a reader that sat within nearBottomPixels of it. When items are drawn above
 // the first row shown before, the reader keeps the rows on screen where they were. Once it sits within nearTopPixels
@@ -316,6 +317,14 @@ function ItemBody({
 }) {
   switch (item.kind) {
     case "prompt":
+      if (item.sender === "event") {
+        return (
+          <div class="event">
+            <small>EVENT</small>
+            <ReplyMarkdown text={item.text} />
+          </div>
+        );
+      }
       if (step !== undefined && !ownersTurn(item, step)) {
         return <StepPrompt item={item} checks={step.checks} />;
       }
@@ -342,10 +351,10 @@ function ItemBody({
   }
 }
 
-// ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step. Its
-// row carries the owner-turn class, and its body draws as YOU.
+// ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
+// an event did not send. Its row carries the owner-turn class, and its body draws as YOU.
 function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
-  return item.kind === "prompt" && (step === undefined || item.sender === "owner");
+  return item.kind === "prompt" && item.sender !== "event" && (step === undefined || item.sender === "owner");
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
