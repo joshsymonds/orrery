@@ -31,6 +31,7 @@ function listed(init: Pick<Row, "kind" | "id" | "project" | "label">): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    archiveId: "",
     ...init,
   };
 }

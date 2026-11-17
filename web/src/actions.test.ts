@@ -13,6 +13,7 @@ import type { Row } from "./rows";
 const paneRow: Row = {
   key: "pane:%3",
   id: "%3",
+  archiveId: "",
   kind: "pane",
   label: "api",
   project: "api",
@@ -31,6 +32,7 @@ const paneRow: Row = {
 const sessionRow: Row = {
   key: "session:s1",
   id: "s1",
+  archiveId: "s1",
   kind: "session",
   label: "notes",
   project: "",

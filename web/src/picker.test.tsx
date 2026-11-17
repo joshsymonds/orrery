@@ -71,6 +71,7 @@ function listedPane(pane: string, project: string, label: string): Row {
     unseen: false,
     archived: false,
     archiveKind: "none",
+    archiveId: "",
   };
 }
 

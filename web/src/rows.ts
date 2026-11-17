@@ -1,7 +1,8 @@
 import type { HeadlessSession, Pane, Session } from "./gen/orrery/v1/orrery_pb";
 
-// The kind Epics.Archive takes to archive a row: session for a Sessions.List row, headless for a headless session, and
-// none for a pane, which is never archived.
+// The kind Epics.Archive takes to archive a row: session for a Sessions.List row, and for a pane with an orrery_id,
+// which archives as the session that id names; headless for a headless session; and none for a pane with no
+// orrery_id, which has no archive control.
 export type ArchiveKind = "session" | "headless" | "none";
 
 // One line of the list: a pane, or a headless session that names no pane.
@@ -9,6 +10,9 @@ export interface Row {
   key: string;
   // The pane's id (such as %3) for a pane row, the session's id for a session row.
   id: string;
+  // The id Epics.Archive and Epics.Unarchive take with archiveKind: the pane's orrery_id for a pane row, the
+  // session's id for a session or headless row, and empty for a pane with no orrery_id.
+  archiveId: string;
   kind: "pane" | "session";
   // The row's line, which its title draws after its directory: a pane's summary, a headless session's served headline,
   // or a Sessions.List row's label, which reads 'session' when it is empty.
@@ -24,7 +28,8 @@ export interface Row {
   changed: number;
   seen: number;
   unseen: boolean;
-  // Whether the owner archived the row. A pane is never archived.
+  // Whether the owner archived the row. A pane is archived when the Session with its orrery_id is archived, and a pane
+  // with no orrery_id, or whose Session is not in the answer, is not.
   archived: boolean;
   archiveKind: ArchiveKind;
 }
@@ -57,6 +62,7 @@ const rankRest = 3;
 // headline, or a Sessions.List row's label. A session row is driven by its id, through the session row path,
 // Sessions.WatchConversation and Control.
 export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessSession[] = []): Row[] {
+  const archivedSessions = new Map(sessions.map((session) => [session.id, session.archived]));
   const rows: Row[] = [];
   for (const pane of panes) {
     if (pane.session.startsWith(shellSessionPrefix)) {
@@ -64,9 +70,11 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
     }
     const changed = Number(pane.changed);
     const seen = Number(pane.seen);
+    const archivable = pane.orreryId !== "";
     rows.push({
       key: `pane:${pane.host}:${pane.id}`,
       id: pane.id,
+      archiveId: pane.orreryId,
       kind: "pane",
       label: pane.summary,
       project: pane.cwd,
@@ -78,8 +86,8 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       changed,
       seen,
       unseen: isUnseen(pane.state, changed, seen),
-      archived: false,
-      archiveKind: "none",
+      archived: archivable && archivedSessions.get(pane.orreryId) === true,
+      archiveKind: archivable ? "session" : "none",
     });
   }
   for (const session of sessions) {
@@ -91,6 +99,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
     rows.push({
       key: `session:${session.id}`,
       id: session.id,
+      archiveId: session.id,
       kind: "session",
       label: session.label || sessionLabel,
       project: "",
@@ -112,6 +121,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
     rows.push({
       key: `session:${session.id}`,
       id: session.id,
+      archiveId: session.id,
       kind: "session",
       label: session.headline,
       project: session.dir,
