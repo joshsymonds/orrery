@@ -367,6 +367,17 @@ func (q *Queries) CountPendingAmendActions(ctx context.Context, epic string) (in
 	return count, err
 }
 
+const countPendingEpicPlannerActions = `-- name: CountPendingEpicPlannerActions :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM planner_actions WHERE state = 'pending' AND epic = ?
+`
+
+func (q *Queries) CountPendingEpicPlannerActions(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPendingEpicPlannerActions, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countPendingEpicTriggers = `-- name: CountPendingEpicTriggers :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = 'pending'
 `

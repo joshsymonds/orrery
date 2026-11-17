@@ -189,6 +189,8 @@ func TestSyncAdvanceNamesWhyTheEpicMoved(t *testing.T) {
 	turning.Epic.Turns = []store.EpicTurn{{Seq: 2, State: "running"}}
 	moved := syncRows(gatesPassed(), captured...)
 	moved.Epic.StoredBase = "base-2"
+	acting := syncRows(gatesPassed(), captured...)
+	acting.Actions = 1
 	advance := func(reason string) Action {
 		return Action{
 			Kind: ActAdvance, Output: "merged origin's commit o1 into the stored base base-1 as m1\n" +
@@ -202,6 +204,7 @@ func TestSyncAdvanceNamesWhyTheEpicMoved(t *testing.T) {
 			"a stored base that moved is the advance's reason", node, moved,
 			advance("the stored base moved from base-1 to base-2"),
 		},
+		{"a planner action pending is the advance's reason", node, acting, advance("a planner action is pending")},
 	})
 }
 
@@ -219,6 +222,8 @@ func TestBusy(t *testing.T) {
 		{"a candidate", Rows{Epic: store.EpicRow{Candidate: "c1"}}, "the epic has the candidate c1"},
 		{"a running turn", Rows{Epic: store.EpicRow{Turns: []store.EpicTurn{{Seq: 3, State: turnRunning}}}},
 			"planner turn 3 is running"},
+		{"a pending planner action", Rows{Actions: 1}, "a planner action is pending"},
+		{"pending planner actions", Rows{Actions: 3}, "3 planner actions are pending"},
 		{"an open task", Rows{Epic: store.EpicRow{Tasks: []store.EpicTask{{Seq: 4, Status: taskOpen}}}},
 			"task T4 is open"},
 		{"an unbatched task", Rows{Epic: store.EpicRow{Tasks: []store.EpicTask{{Seq: 5, Status: taskDone}}}},

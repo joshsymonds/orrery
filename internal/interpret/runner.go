@@ -285,12 +285,17 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 
 // passFlow carries out the actions flow asks for on epic, and reports whether epic's plan run was given its turn. Each
 // structural action is carried out and the rows read again, at most maxSteps times. Once a decision has no structural
-// action, its build runs go to the builder.
+// action, its build runs go to the builder. An epic that the rows show closed is left with nothing carried out: a close
+// that lands while the pass carries out an action, such as a sync's prepare, ends the epic's running runs, and the walk
+// would read the plan run it ended as a node that ended and start the node after it.
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
 	for range maxSteps {
 		row, acts, err := r.decide(ctx, epic.ID, flow)
 		if err != nil {
 			r.logger.ErrorContext(ctx, "decide epic", "epic", epic.ID, "err", err)
+			return false
+		}
+		if store.IsClosedPhase(row.Phase) {
 			return false
 		}
 		act, structural := firstStructural(acts)
@@ -315,8 +320,8 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 	}
 	rows := kinds.Rows{
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
-		Pending: read.Pending, AmendActions: read.AmendActions, Releases: read.Releases, Slot: read.Slot,
-		Review: read.Review,
+		Pending: read.Pending, AmendActions: read.AmendActions, Actions: read.Actions, Releases: read.Releases,
+		Slot: read.Slot, Review: read.Review,
 	}
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)

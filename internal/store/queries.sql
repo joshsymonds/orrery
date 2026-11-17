@@ -1079,6 +1079,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?);
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
 
+-- name: CountPendingEpicPlannerActions :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM planner_actions WHERE state = 'pending' AND epic = ?;
+
 -- name: SetPlannerActionState :execrows
 UPDATE planner_actions SET state = sqlc.arg(state), refusal = sqlc.arg(refusal), park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';

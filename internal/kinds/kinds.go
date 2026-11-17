@@ -17,10 +17,10 @@ type Node struct {
 }
 
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
-// checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, its
-// end-of-epic review, the
-// epic-stage reviewers enabled for it in merged order, its release runs, and the epic that holds the release slot of
-// its repository, which is "" when the slot is free.
+// checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, how
+// many of the actions its planner returned are pending, its end-of-epic review, the epic-stage reviewers enabled for it
+// in merged order, its release runs, and the epic that holds the release slot of its repository, which is "" when the
+// slot is free.
 type Rows struct {
 	Epic     store.EpicRow
 	Runs     []store.NodeRun
@@ -28,8 +28,10 @@ type Rows struct {
 	Evidence []store.EvidenceRun
 	Steps    []store.StepRow
 	Pending  int
-	// AmendActions counts the epic's amend_evidence actions that are still pending.
+	// AmendActions counts the epic's amend_evidence actions that are still pending, and Actions every planner action
+	// of the epic that is still pending, those among it.
 	AmendActions int
+	Actions      int
 	Review       store.Review
 	Reviewers    []Reviewer
 	Releases     []store.ReleaseRun

@@ -285,8 +285,9 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 
 // plan decides a running plan run from the act its kind gives. The plan runs while its kind keeps it running, and it
 // ends once its kind ends it, its latest settle walk has ended and no sync of origin's main holds it. Its settle walks,
-// its sync and its fan-out are decided with it. While a sync holds the plan, the plan gets no run, so the planner gets no
-// turn. A plan whose kind leaves it waiting gives no action.
+// its sync and its fan-out are decided with it. While a sync holds the plan, the plan gets no run, so the planner gets
+// no turn. The planner's pass still carries out the epic's pending actions, which wait on no turn, so the hold never
+// waits on the planner. A plan whose kind leaves it waiting gives no action.
 func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
 	if act.Kind != kinds.ActEnd && act.Kind != kinds.ActRun {
 		return nil
@@ -371,14 +372,15 @@ func syncTell(path, output string) string {
 }
 
 // quiet reports whether the epic is at a quiet point of the plan run of def: the plan's body holds an integrate node, a
-// batch under the plan run has passed and moved the stored base, the epic is neither paused nor parked, its review has
-// not frozen, it does not hold its repository's release slot, and its work is at rest (kinds.Busy). The review compares
-// revisions against a frozen one, so no sync runs once it froze.
+// batch under the plan run has passed and moved the stored base, the epic has not ended and is not closed
+// (kinds.Ended), it is neither paused nor parked, whatever the class of its park, its review has not frozen, it does
+// not hold its repository's release slot, and its work is at rest (kinds.Busy), which no pending planner action leaves
+// it. The review compares revisions against a frozen one, so no sync runs once it froze.
 func (p pass) quiet(def workflow.Node, run store.NodeRun) bool {
 	epic := p.rows.Epic
 	switch {
 	case !slices.ContainsFunc(def.Body, func(node workflow.Node) bool { return node.Kind == kindIntegrate }),
-		epic.Paused, epic.Parked != "", p.rows.Review.Frozen != "", p.rows.Slot == epic.ID,
+		kinds.Ended(epic.Phase), epic.Paused, epic.Parked != "", p.rows.Review.Frozen != "", p.rows.Slot == epic.ID,
 		kinds.Busy(p.rows) != "":
 		return false
 	}

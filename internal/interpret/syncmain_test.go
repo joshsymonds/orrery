@@ -3,6 +3,7 @@ package interpret
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/workflow"
 )
 
 // The paths of the sync runs of the test plan for turns 1, 2 and 3, and the batches of turns 2 and 3: the settle walks of
@@ -861,4 +863,247 @@ func TestSyncWriteThatFailsIsMadeOnTheNextPass(t *testing.T) {
 	}
 	w.requireSyncEnded(syncFirst, outcomePassed, fmt.Sprintf(
 		"merged origin's commit %s into the stored base %s as %s\nR1 green", originHead, candidate, merge))
+}
+
+// requireNoPark fails unless the test epic is not parked, holds no park of either class, has no open question and has
+// stored no planner park, so nothing of a sync went to the owner or the planner as a park.
+func (w *integrateWorld) requireNoPark() {
+	w.t.Helper()
+	epic := epicOf(w.t, w.s)
+	if epic.Parked != "" || epic.ParkClass != "" || len(epic.Questions) != 0 {
+		w.t.Errorf("epic parked %q as %q with questions %+v, want no park", epic.Parked, epic.ParkClass,
+			epic.Questions)
+	}
+	db, err := sql.Open("sqlite", w.path)
+	if err != nil {
+		w.t.Fatalf("open store file: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			w.t.Errorf("close store file: %v", err)
+		}
+	}()
+	var parks int
+	if err = db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM epic_parks WHERE epic = ?",
+		runEpic).Scan(&parks); err != nil {
+		w.t.Fatalf("count planner parks: %v", err)
+	}
+	if parks != 0 {
+		w.t.Errorf("planner parks stored = %d, want none", parks)
+	}
+}
+
+// hasRunAt reports whether the test epic has a node run at path.
+func (w *integrateWorld) hasRunAt(path string) bool {
+	w.t.Helper()
+	return slices.ContainsFunc(runsOf(w.t, w.s), func(run store.NodeRun) bool { return run.Path == path })
+}
+
+// actionTurn completes the next planner turn of the test epic with no task and action as its one action, as a turn the
+// planner returns an action from does, and returns the action as the store keeps it pending.
+func (w *integrateWorld) actionTurn(action store.EpicActionInput) store.PlannerAction {
+	w.t.Helper()
+	completeTurn(w.t, w.s, store.EpicPlan{
+		Decisions: []string{}, Outline: "act on the epic", Outcome: "work", Actions: []store.EpicActionInput{action},
+	})
+	pending, err := w.s.PendingActions(context.Background())
+	if err != nil {
+		w.t.Fatalf("PendingActions: %v", err)
+	}
+	if len(pending) != 1 {
+		w.t.Fatalf("pending actions = %+v, want the turn's one action", pending)
+	}
+	return pending[0]
+}
+
+// carryOut carries out action as the planner's pass does at the end of the interpreter's pass.
+func (w *integrateWorld) carryOut(action store.PlannerAction) {
+	w.t.Helper()
+	if _, err := w.s.CarryOutAction(context.Background(), action, runClock()); err != nil {
+		w.t.Fatalf("CarryOutAction: %v", err)
+	}
+}
+
+// TestFailedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending: a sync whose merge conflicts ends failed with its one
+// tell, and parks nothing: no park of either class, no question, no planner park and no trigger, so the planner is
+// woken only by the batch before it. The planner's next turn returns a retry_node of the node sync. While that action
+// is pending, the quiet point that turn opens starts no sync, and the plan keeps its run. The action is refused, since
+// a sync run never parks and is no integrate run, and the failed sync is kept as it ended. Once the action is carried
+// out the quiet point syncs, and skips origin's commit the first sync tried.
+func TestFailedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	candidate := w.toCaptured()
+	pending := w.pending()
+	originHead := w.originCommit("b.go")
+	if !w.passed() {
+		t.Error("the planner got no turn after the sync failed")
+	}
+	output := fmt.Sprintf("merge of origin's commit %s into the stored base %s conflicts in b.go", originHead,
+		candidate)
+	failed := w.requireSyncEnded(syncFirst, outcomeFailed, output)
+	w.requireNoPark()
+	if got := w.pending(); got != pending+1 {
+		t.Errorf("pending triggers = %d, want %d: only the batch wakes the planner", got, pending+1)
+	}
+	for _, cause := range triggerCausesOf(t, w.s, runEpic) {
+		if strings.Contains(cause, syncFirst) {
+			t.Errorf("trigger cause %q names the sync, want no trigger of it", cause)
+		}
+	}
+	tells := []string{"workflow node plan/M1 failed: " + output}
+	if got := w.syncTells(); !reflect.DeepEqual(got, tells) {
+		t.Errorf("tells = %q, want %q", got, tells)
+	}
+
+	action := w.actionTurn(store.EpicActionInput{
+		Kind: store.ActionRetryNode, Node: "sync", Reason: "the merge of origin's main conflicted",
+	})
+	if !w.passed() {
+		t.Error("the plan got no run while a planner action is pending, want no sync to hold it")
+	}
+	if w.hasRunAt(syncSecond) {
+		t.Errorf("sync %s started while a planner action is pending", syncSecond)
+	}
+
+	w.carryOut(action)
+	if got := runAt(t, w.s, syncFirst); !reflect.DeepEqual(got, failed) {
+		t.Errorf("sync after the refused retry = %+v, want it kept as %+v", got, failed)
+	}
+	w.requireNoPark()
+	decisions := epicOf(t, w.s).Decisions
+	refused := fmt.Sprintf("planner retry node sync refused: node sync of epic %s is not parked. Its reason: %s",
+		runEpic, action.Reason)
+	if !slices.ContainsFunc(decisions, func(d store.EpicDecision) bool { return d.Text == refused }) {
+		t.Errorf("decisions = %+v, want the refusal %q", decisions, refused)
+	}
+
+	if !w.passed() {
+		t.Error("the planner got no turn once the skipped sync ended")
+	}
+	w.requireSyncEnded(syncSecond, "skipped", fmt.Sprintf("origin's commit %s was tried by %s", originHead, syncFirst))
+	w.requireUnmoved(candidate)
+	if got := w.syncTells(); !reflect.DeepEqual(got, tells) {
+		t.Errorf("tells after the skipped sync = %q, want only the first %q", got, tells)
+	}
+}
+
+// TestSyncWaitsForThePlannersRerunOfAFailedBatch: a batch whose Done gate fails leaves its candidate, so no sync starts
+// while origin's main has moved. The planner's retry_node of the integrate node reruns the failed batch on that
+// candidate, which a sync would have left behind the stored base, and no sync starts while the action is pending. Once
+// the rerun passes and advances, the pass syncs from the stored base it moved to, and the planner waits for that sync.
+func TestSyncWaitsForThePlannersRerunOfAFailedBatch(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	candidate := w.toGate()
+	originHead := w.originCommit("origin.txt")
+	w.endGate(integrateBatch, 1, "lint failed")
+	if !w.passed() {
+		t.Error("the planner got no turn after the batch failed")
+	}
+	if epic := epicOf(t, w.s); epic.Candidate != candidate || w.hasRunAt(syncFirst) {
+		t.Fatalf("candidate %q and sync stored %v after the failed batch, want %q and no sync", epic.Candidate,
+			w.hasRunAt(syncFirst), candidate)
+	}
+
+	action := w.actionTurn(store.EpicActionInput{
+		Kind: store.ActionRetryNode, Node: "integrate", Reason: "the lint gate is flaky",
+	})
+	if !w.passed() || w.hasRunAt(syncSecond) {
+		t.Fatalf("plan run given %v, sync stored %v, want the plan's run and no sync while the action is pending",
+			true, w.hasRunAt(syncSecond))
+	}
+	w.carryOut(action)
+	if batch := runAt(t, w.s, integrateBatch); batch.State != store.NodeRunning || batch.Revision != candidate {
+		t.Fatalf("batch = %+v after the retry, want running again at the candidate %s", batch, candidate)
+	}
+	w.pass()
+	w.endGate(integrateBatch, 0, "")
+	w.pass()
+	w.endCapture(integrateBatch)
+	if w.passed() {
+		t.Error("the planner got a turn while the sync after the rerun runs")
+	}
+
+	if batch := runAt(t, w.s, integrateBatch); batch.Outcome != outcomePassed {
+		t.Errorf("batch = %+v, want the rerun passed", batch)
+	}
+	sync := runAt(t, w.s, syncSecond)
+	if sync.State != store.NodeRunning || sync.Revision == "" {
+		t.Fatalf("sync = %+v, want it running at its merge after the rerun passed", sync)
+	}
+	parents := strings.Fields(w.git("rev-list", "--parents", "-n", "1", sync.Revision))
+	if want := []string{sync.Revision, candidate, originHead}; !reflect.DeepEqual(parents, want) {
+		t.Errorf("merge parents = %v, want the rerun's candidate then origin's commit %v", parents, want)
+	}
+	w.requireUnmoved(candidate)
+	w.endGate(syncSecond, 0, "")
+	w.pass()
+	w.endCapture(syncSecond)
+	if !w.passed() {
+		t.Error("the planner got no turn once the sync ended")
+	}
+	if epic := epicOf(t, w.s); epic.StoredBase != sync.Revision || epic.Synced != originHead {
+		t.Errorf("stored base %q and synced %q, want the merge %q and %q", epic.StoredBase, epic.Synced, sync.Revision,
+			originHead)
+	}
+}
+
+// closingSyncStore is the store a test wraps so that the owner's close of the epic lands while a sync's prepare runs:
+// its PrepareSync closes the epic before it writes.
+type closingSyncStore struct {
+	Store
+	closer *store.Store
+}
+
+// PrepareSync closes the epic as abandoned by its owner, then writes the prepare.
+func (c *closingSyncStore) PrepareSync(
+	ctx context.Context, epic, path string, attempt int64, revision, result string,
+) error {
+	if _, err := c.closer.CloseEpic(ctx, epic, "abandoned", "", store.CloserOwner, runClock()); err != nil {
+		return fmt.Errorf("close epic %s: %w", epic, err)
+	}
+	return c.Store.PrepareSync(ctx, epic, path, attempt, revision, result)
+}
+
+// TestSyncCloseWhileItPreparesEndsItAndStartsNothingMore: the owner closes the epic while its sync prepares. The close
+// ends the sync run with the plan run, and the prepare written after it stores nothing. The pass then carries out
+// nothing more on the closed epic: the gate after the plan, which the walk would read as next once the plan run ended,
+// does not start, the branch and stored base stay, nothing is told, and the planner is not passed for the epic.
+func TestSyncCloseWhileItPreparesEndsItAndStartsNothingMore(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	candidate := w.toCaptured()
+	w.originCommit("origin.txt")
+	w.runner = runNodes(&closingSyncStore{Store: w.s, closer: w.s}, w.fakes)
+	w.runner.logger = slog.New(slog.NewTextHandler(w.logs, nil))
+	flow := integrateFlow()
+	flow.Nodes = append(flow.Nodes, workflow.Node{
+		ID: "after", Kind: kindGate, Settings: &workflow.Settings{Gate: integrateDoneGate, At: "head"},
+	})
+	if w.runner.passFlow(context.Background(), epicOf(t, w.s), flow) {
+		t.Error("the planner was passed for a closed epic")
+	}
+	if w.logs.Len() > 0 {
+		t.Errorf("pass logged: %s", w.logs.String())
+	}
+
+	sync := runAt(t, w.s, syncFirst)
+	if sync.State != store.NodeEnded || sync.Outcome != "" || sync.Result != "" || sync.Revision != "" {
+		t.Errorf("sync = %+v, want ended by the close with nothing prepared", sync)
+	}
+	if w.hasRunAt("after") {
+		t.Error("the node after the plan started on the closed epic")
+	}
+	epic := epicOf(t, w.s)
+	if epic.Phase != store.PhaseClosedAbandoned || epic.StoredBase != candidate || epic.Synced != "" {
+		t.Errorf("epic phase %q, stored base %q, synced %q, want closed at %q with none synced", epic.Phase,
+			epic.StoredBase, epic.Synced, candidate)
+	}
+	if tip := w.git("rev-parse", integrateBranch); tip != candidate {
+		t.Errorf("branch = %s, want it left at %s", tip, candidate)
+	}
+	if tells := w.syncTells(); len(tells) != 0 {
+		t.Errorf("tells = %q, want none", tells)
+	}
 }
