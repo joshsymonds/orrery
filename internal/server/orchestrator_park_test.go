@@ -4,37 +4,57 @@ import (
 	"testing"
 	"time"
 
-	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// TestEpicsGetOrchestratorParkMarksOnlyAPlannerClassPark shows that Get marks a park the planner holds as
-// planner_parked and a park the owner holds as not, and that both keep their reason in parked.
-func TestEpicsGetOrchestratorParkMarksOnlyAPlannerClassPark(t *testing.T) {
+// TestEpicsGetOrchestratorParkGivesNeedsYouNoQuestionAndThePlannerMarkForAPlannerPark shows what Get serves for a park
+// the store holds. web/src/needs.ts epicNeeds raises a need from an epic's open questions and from a park that is not
+// plannerParked. So a planner park that reaches Get with no open question and with planner_parked true raises no
+// Needs you need. An owner park keeps its open question and is not planner_parked, and both keep their reason in
+// parked.
+func TestEpicsGetOrchestratorParkGivesNeedsYouNoQuestionAndThePlannerMarkForAPlannerPark(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		class store.ParkClass
-		want  bool
+		name          string
+		class         store.ParkClass
+		reason        string
+		wantPlanner   bool
+		wantQuestions int
 	}{
-		{name: "a node park is planner_parked", class: store.ParkClassNode, want: true},
-		{name: "a branch park is not planner_parked", class: store.ParkClassBranch, want: false},
+		{
+			name:          "a node park (no verdict twice) has no open question and is planner_parked",
+			class:         store.ParkClassNode,
+			reason:        "no verdict twice",
+			wantPlanner:   true,
+			wantQuestions: 0,
+		},
+		{
+			name:          "a branch park keeps its open question and is not planner_parked",
+			class:         store.ParkClassBranch,
+			reason:        "epic branch is gone",
+			wantPlanner:   false,
+			wantQuestions: 1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			stored := storedEpicOf("repoa/parked", "accepted", epicsAgo(time.Hour))
-			stored.Parked = "synthetic park reason"
-			stored.ParkClass = string(tt.class)
-			fake := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-			client := epicStoreServe(t, t.TempDir(), &epicsFake{}, fake)
-
-			got := epicsGet(t, client, "repoa/parked")
-			if got.GetPlannerParked() != tt.want {
-				t.Errorf("planner_parked = %v, want %v", got.GetPlannerParked(), tt.want)
+			st := openEpicAnswerStore(t)
+			at := time.Unix(1_700_000_100, 0)
+			if err := st.ParkEpic(t.Context(), syntheticEpicID, tt.class, tt.reason, at); err != nil {
+				t.Fatalf("ParkEpic: %v", err)
 			}
-			if got.GetParked() != "synthetic park reason" {
-				t.Errorf("parked = %q, want the park reason", got.GetParked())
+			client := epicStoreServe(t, t.TempDir(), &epicsFake{}, serveEngineEpics(t, st))
+
+			got := epicsGet(t, client, syntheticEpicID)
+			if got.GetPlannerParked() != tt.wantPlanner {
+				t.Errorf("planner_parked = %v, want %v", got.GetPlannerParked(), tt.wantPlanner)
+			}
+			if got.GetParked() != tt.reason {
+				t.Errorf("parked = %q, want the park reason %q", got.GetParked(), tt.reason)
+			}
+			if n := len(got.GetQuestions()); n != tt.wantQuestions {
+				t.Errorf("open questions = %d, want %d", n, tt.wantQuestions)
 			}
 		})
 	}
