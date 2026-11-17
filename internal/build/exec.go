@@ -11,12 +11,9 @@ import (
 // execute carries out action for the task of view in epic, and reports whether the store or a start changed. A write
 // or start that fails is logged and reports false, so the task waits for the next pass.
 func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
-	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
 	case ActNone:
 		return false
-	case ActMove:
-		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
 	case ActGuard:
 		return r.guardCommit(ctx, epic, view, action)
 	case ActSnapshot:
@@ -35,6 +32,18 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 		return r.grant(ctx, epic, view, action)
 	case ActAccept:
 		return r.accept(ctx, epic, view, action)
+	default:
+		return r.record(ctx, epic, view, action)
+	}
+}
+
+// record carries out an action that is one store write of the task's build: a move, a pause, a park, a review or a
+// finding. Any other action does nothing and reports false.
+func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
+	seq, from := view.Task.Seq, view.Task.Build
+	switch action.Kind {
+	case ActMove:
+		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
 	case ActPause:
 		err := r.store.StopTask(ctx, epic.ID, seq, from, action.Next)
 		return r.written(ctx, epic.ID, seq, "pause task", err)
@@ -47,8 +56,9 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 	case ActFinding:
 		err := r.store.SetFindingResult(ctx, epic.ID, seq, from, action.Next, action.Finding)
 		return r.written(ctx, epic.ID, seq, "store finding", err)
+	default:
+		return false
 	}
-	return false
 }
 
 // snapshotRefs stores the refs snapshot the implementer's step is checked against.

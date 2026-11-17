@@ -670,11 +670,17 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	if head.Status == r.doneValue {
 		return r.endDoneReturn(ctx, round, value, commit, head.Status, checks)
 	}
-	if r.keepJudgedCommit(ctx, head.Status, head.Commit) {
-		return false
-	}
-	r.finish(ctx, stepLoopEndReturned, head.Status, "")
+	r.endNotDone(ctx, head.Status, head.Commit)
 	return false
+}
+
+// endNotDone ends the step on a return with status, which is not done, that passed its checks: goal_unmet when the
+// judged commit is kept (see keepJudgedCommit), and returned otherwise.
+func (r *stepRun) endNotDone(ctx context.Context, status string, commit json.RawMessage) {
+	if r.keepJudgedCommit(ctx, status, commit) {
+		return
+	}
+	r.finish(ctx, stepLoopEndReturned, status, "")
 }
 
 // keepJudgedCommit ends a writing step goal_unmet, as a second unmet verdict does, when it returns status, which is not
@@ -687,8 +693,8 @@ func (r *stepRun) keepJudgedCommit(ctx context.Context, status string, raw json.
 	}
 	var named string
 	if err := json.Unmarshal(raw, &named); err == nil && named != "" {
-		resolved, err := stepGitResolve(ctx, r.dir, named)
-		if err != nil || resolved != r.judgedCommit {
+		resolved, resolveErr := stepGitResolve(ctx, r.dir, named)
+		if resolveErr != nil || resolved != r.judgedCommit {
 			return false
 		}
 	}

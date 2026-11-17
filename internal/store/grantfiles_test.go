@@ -13,8 +13,14 @@ import (
 // addRawTask adds task seq of buildEpic with status, owning files, through raw.
 func addRawTask(t *testing.T, raw *sql.DB, seq int64, status string, files ...string) {
 	t.Helper()
-	if _, err := raw.Exec(`INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status) VALUES (?, ?, 1, ?, ?, ?)`,
-		buildEpic, seq, "another task", "another change", status); err != nil {
+	if _, err := raw.Exec(
+		`INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, status) VALUES (?, ?, 1, ?, ?, ?)`,
+		buildEpic,
+		seq,
+		"another task",
+		"another change",
+		status,
+	); err != nil {
 		t.Fatalf("insert task %d: %v", seq, err)
 	}
 	for i, file := range files {

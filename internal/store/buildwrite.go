@@ -77,40 +77,55 @@ func (e FileOwnedError) Error() string {
 // task that is not open, or whose stored build is not from, is ErrTaskMoved and writes nothing.
 func (s *Store) GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to TaskBuild, files []string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		tasks, err := queries.ListEpicTasks(ctx, epic)
+		next, err := grantPosition(ctx, queries, epic, seq, files)
 		if err != nil {
-			return fmt.Errorf("read tasks of epic %s: %w", epic, err)
-		}
-		rows, err := queries.ListEpicTaskFiles(ctx, epic)
-		if err != nil {
-			return fmt.Errorf("read task files of epic %s: %w", epic, err)
-		}
-		open := map[int64]bool{}
-		for _, task := range tasks {
-			open[task.Seq] = task.Status == "open"
-		}
-		var next int64
-		for _, row := range rows {
-			if row.Task == seq {
-				next = max(next, row.Position+1)
-				continue
-			}
-			if open[row.Task] && slices.Contains(files, row.Path) {
-				return FileOwnedError{File: row.Path, Task: row.Task}
-			}
-		}
-		if err = moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
+		if moveErr := moveTask(ctx, queries, epic, seq, from, to); moveErr != nil {
+			return moveErr
+		}
 		for i, file := range files {
-			if err = queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
+			if insertErr := queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
 				Epic: epic, Task: seq, Position: next + int64(i), Path: file,
-			}); err != nil {
-				return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, err)
+			}); insertErr != nil {
+				return fmt.Errorf("grant file %s to task %d of epic %s: %w", file, seq, epic, insertErr)
 			}
 		}
 		return nil
 	})
+}
+
+// grantPosition returns the position after the last file of task seq of epic, where granted files go. A file in files
+// that another open task of the epic owns is a FileOwnedError.
+func grantPosition(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic string,
+	seq int64,
+	files []string,
+) (int64, error) {
+	tasks, err := queries.ListEpicTasks(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read tasks of epic %s: %w", epic, err)
+	}
+	rows, err := queries.ListEpicTaskFiles(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read task files of epic %s: %w", epic, err)
+	}
+	open := map[int64]bool{}
+	for _, task := range tasks {
+		open[task.Seq] = task.Status == "open"
+	}
+	var next int64
+	for _, row := range rows {
+		switch {
+		case row.Task == seq:
+			next = max(next, row.Position+1)
+		case open[row.Task] && slices.Contains(files, row.Path):
+			return 0, FileOwnedError{File: row.Path, Task: row.Task}
+		}
+	}
+	return next, nil
 }
 
 // SetTaskBuildTelling stores to as the build of task seq of epic and adds each of tells as a tell of epic, in one

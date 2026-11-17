@@ -202,7 +202,15 @@ func TestBriefCutsRedLogToItsLastEightKiB(t *testing.T) {
 func TestBriefPrintsRedStderrAfterRedLog(t *testing.T) {
 	t.Parallel()
 	red := store.EvidenceRun{Exit: 1, Verdict: "fails"}
-	got := Brief(briefEpic(), briefTask(), briefGate(), red, []byte("first line\nlast line\n"), []byte("panic: boom\n"), "boom")
+	got := Brief(
+		briefEpic(),
+		briefTask(),
+		briefGate(),
+		red,
+		[]byte("first line\nlast line\n"),
+		[]byte("panic: boom\n"),
+		"boom",
+	)
 	want := "Red log (last 8 KiB):\n```\nfirst line\nlast line\n\n```\n" +
 		"Red stderr (last 8 KiB):\n```\npanic: boom\n\n```\n" +
 		"From your previous try on this task: boom\n"
