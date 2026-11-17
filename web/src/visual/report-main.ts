@@ -3,26 +3,18 @@
 // navigation or an unmatched selector is a fact the report records, not a failure of this run. A run that cannot start
 // (no browser, no build) exits 1, since then there is no report.
 
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { faultKinds } from "./faults";
-import { runReport } from "./report";
+import { pagesOf, runReport } from "./report";
 
 // The recipe runs from the repository root, which holds web/.
 const repoRoot = process.cwd();
 const outDir = join(repoRoot, "web/build/visual");
 
-// pagesOf lists the pages the map's scenarios belong to, in the order the map gives them.
-async function pagesOf(): Promise<string[]> {
-  const map = JSON.parse(await readFile(join(repoRoot, "web/visual/map.json"), "utf8")) as {
-    scenarios: { page: string }[];
-  };
-  return [...new Set(map.scenarios.map((scenario) => scenario.page))];
-}
-
 async function main(): Promise<void> {
-  const pages = await pagesOf();
+  const pages = await pagesOf(repoRoot);
   await mkdir(outDir, { recursive: true });
   const report = await runReport(pages, {
     repoRoot,

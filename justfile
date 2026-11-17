@@ -209,11 +209,26 @@ web-page:
 # run that cannot start exits 1. It runs under the visual devenv profile, which carries Chromium and the prose font, so
 # the default shell and the gates stay free of them. The driver is web/src/visual/report-main.ts.
 [script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
-visual-report:
-    scripts/build-web.sh web/build/page
-    rm -rf web/build/visual web/build/visual-tool
-    esbuild $(find web/src/visual -name '*.ts' ! -name '*.test.ts' | sort) --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build/visual-tool --out-extension:.js=.mjs --external:playwright-core --log-level=warning
+visual-report: _visual-build
+    rm -rf web/build/visual
     node web/build/visual-tool/visual/report-main.mjs
+
+# Check the web client against its accepted wireframe: each named page of web/visual/map.json, or every page when none is
+# named. It writes the screenshots and web/build/visual/report.json, prints each failure and exits 0 when the pass/fail
+# decision passes and 1 when it fails; a run that cannot start exits 1. It runs under the visual devenv profile, as
+# visual-report does. The entry point is web/src/visual/check-main.ts.
+[positional-arguments]
+[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
+visual-check *PAGES: _visual-build
+    node web/build/visual-tool/visual/check-main.mjs "$@"
+
+# The build the visual recipes share: the page under test in web/build/page, and the node tools compiled from
+# web/src/visual into web/build/visual-tool with playwright-core left external. It runs under the visual devenv profile.
+[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
+_visual-build:
+    scripts/build-web.sh web/build/page
+    rm -rf web/build/visual-tool
+    esbuild $(find web/src/visual -name '*.ts' ! -name '*.test.ts' | sort) --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build/visual-tool --out-extension:.js=.mjs --external:playwright-core --log-level=warning
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
 check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test

@@ -143,6 +143,12 @@ async function loadMap(repoRoot: string): Promise<VisualMap> {
   return JSON.parse(text) as VisualMap;
 }
 
+// pagesOf lists the pages the map's scenarios belong to, in the order the map gives them.
+export async function pagesOf(repoRoot: string): Promise<string[]> {
+  const map = await loadMap(repoRoot);
+  return [...new Set(map.scenarios.map((scenario) => scenario.page))];
+}
+
 // probeSide measures probes in the page: each selector's match count, and for one match its computed values.
 async function probeSide(page: Page, probes: readonly Probe[]): Promise<Probed[]> {
   return page.evaluate((list: readonly Probe[]) =>
