@@ -72,6 +72,7 @@ func TestContractLintArgvAcceptsLineAfterDashC(t *testing.T) {
 			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
 				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
 			}
+			t.Logf("checkEpic accepted capture %q", tc.capture)
 		})
 	}
 }
@@ -224,6 +225,7 @@ func TestContractLintRunAcceptsCaptures(t *testing.T) {
 			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
 				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
 			}
+			t.Logf("checkEpic accepted capture %q", tc.capture)
 		})
 	}
 }
@@ -251,6 +253,7 @@ func TestContractLintRunAcceptsNonLiteralPackages(t *testing.T) {
 			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
 				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
 			}
+			t.Logf("checkEpic accepted capture %q", tc.capture)
 		})
 	}
 }
@@ -403,6 +406,7 @@ func TestContractLintReleaseAcceptsSteps(t *testing.T) {
 			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
 				t.Fatalf("checkEpic refused release step %q: %v", tc.step, err)
 			}
+			t.Logf("checkEpic accepted release step %q", tc.step)
 		})
 	}
 }
