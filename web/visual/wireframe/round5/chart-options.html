@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>orrery epic chart against view B</title>
+<style>
+@font-face { font-family: "Orrery Mono"; src: url(fonts/MapleMonoNF-Regular.woff2) format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Orrery Mono"; src: url(fonts/MapleMonoNF-Bold.woff2) format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Orrery Mono"; src: url(fonts/MapleMonoNF-Italic.woff2) format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+
+:root {
+  --crust: #11111b; --mantle: #181825; --base: #1e1e2e;
+  --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+  --overlay0: #6c7086; --overlay1: #7f849c; --subtext0: #a6adc8; --subtext1: #bac2de; --text: #cdd6f4;
+  --lavender: #b4befe; --blue: #89b4fa; --green: #a6e3a1;
+  --yellow: #f9e2af; --peach: #fab387; --maroon: #eba0ac; --red: #f38ba8; --mauve: #cba6f7;
+  --mono: "Orrery Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--crust); color-scheme: dark; }
+body {
+  margin: 0; font: 13px/20px var(--mono); color: var(--text); background: var(--crust); -webkit-font-smoothing: antialiased;
+  padding: 28px max(16px, env(safe-area-inset-right, 0px)) 96px max(16px, env(safe-area-inset-left, 0px));
+}
+main { max-width: 1480px; margin: 0 auto; min-width: 0; }
+h1 { margin: 0; font: 700 20px/28px var(--mono); }
+h2 { margin: 0; font: 700 16px/24px var(--mono); }
+h3 { margin: 0 0 6px; font: 700 11px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--overlay1); }
+p { margin: 0; }
+.lede { max-width: 92ch; margin-top: 8px; color: var(--subtext0); }
+.lede b, .say b { color: var(--text); }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+/* The state hues, as the reader's style.css names them. */
+.chart { --ground: var(--crust); --orbit: var(--surface0); --pin: var(--surface1); }
+.device .chart { --ground: var(--base); --orbit: var(--surface1); --pin: var(--surface2); }
+.h-dispatched { --ts: var(--yellow); } .h-done { --ts: var(--green); } .h-gap { --ts: var(--red); }
+
+/* page furniture */
+.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: start; }
+.today { display: flex; gap: 14px; align-items: center; color: var(--overlay1); max-width: 400px; }
+.today .chart { width: 132px; flex: none; }
+.today p { font-size: 12px; line-height: 18px; }
+.jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.jump a { padding: 3px 10px; border-radius: 6px; color: var(--subtext1); text-decoration: none; box-shadow: 0 0 0 1px var(--surface0); }
+.jump a b { color: var(--mauve); margin-right: 6px; }
+.jump a.picked { box-shadow: 0 0 0 1px var(--mauve); color: var(--text); }
+
+.opt { margin-top: 64px; padding-top: 26px; border-top: 1px solid var(--surface0); scroll-margin-top: 12px; }
+.opt-head { display: grid; grid-template-columns: 230px repeat(3, minmax(0, 1fr)); gap: 12px 32px; align-items: start; }
+.opt-name { display: flex; align-items: baseline; gap: 12px; }
+.opt-name .n { font: 700 28px/32px var(--mono); color: var(--mauve); }
+.opt-name .pick { margin-top: 8px; display: inline-block; padding: 1px 8px; border-radius: 5px; font: 700 11px/18px var(--mono); color: var(--crust); background: var(--mauve); }
+.opt-tag { margin-top: 4px; color: var(--overlay1); }
+.opt-name .pick.bar { color: var(--peach); background: none; box-shadow: inset 0 0 0 1px var(--peach); }
+.opt.base .opt-name .n { color: var(--peach); }
+.chart-key.hues span::before { content: ""; display: inline-block; width: 9px; height: 5px; margin-right: 6px; border-radius: 1px; vertical-align: 1px; background: var(--ts); }
+.say { color: var(--subtext0); max-width: 62ch; }
+.figs { display: flex; flex-wrap: wrap; gap: 30px 28px; align-items: flex-start; margin-top: 26px; }
+.fig { min-width: 0; max-width: 100%; }
+.cap { margin-bottom: 8px; font-size: 11px; line-height: 16px; color: var(--overlay0); display: flex; justify-content: space-between; gap: 10px; }
+.cap .sw { display: inline-flex; gap: 2px; }
+.cap .sw button { padding: 0 7px; border-radius: 5px; color: var(--overlay1); }
+.cap .sw button.on { color: var(--text); background: var(--surface0); }
+
+/* the reader's right column, as style.css draws it */
+.col { width: 440px; max-width: 100%; padding: 16px 18px 14px; border-radius: 12px; box-shadow: 0 0 0 1px var(--surface0); }
+.epic-head .slug { margin: 0; font: 700 14px/22px var(--mono); }
+.epic-head p { color: var(--subtext0); }
+.chart { display: block; width: 100%; height: auto; touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; }
+.col .chart { max-width: 404px; margin: 6px auto 0; }
+.chart-key { margin: 2px 0 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0 12px; font-size: 11px; line-height: 18px; color: var(--overlay0); }
+.chart-key b { color: var(--overlay1); margin-right: 5px; }
+.tasks { margin: 12px 0 0; padding: 0; list-style: none; -webkit-mask-image: linear-gradient(#000 20%, transparent); mask-image: linear-gradient(#000 20%, transparent); }
+.tasks li { display: flex; justify-content: space-between; padding: 4px 6px; color: var(--subtext0); }
+.tasks li span:last-child { color: var(--overlay0); }
+
+/* the phone's epic screen */
+.device { width: 412px; max-width: 100%; padding: 10px 0 14px; border-radius: 30px; background: var(--base); box-shadow: 0 0 0 1px var(--surface1), 0 0 0 7px var(--mantle), 0 0 0 8px var(--surface0); margin: 7px 8px; }
+.device .back { padding: 8px 18px; color: var(--mauve); }
+.device .title { padding: 2px 18px 0; font: 700 20px/28px var(--mono); }
+.device .sub { padding: 0 18px; color: var(--subtext0); font-size: 12px; }
+.device .chart { width: calc(100% - 28px); margin: 8px auto 0; }
+.device .chart-key { padding: 0 14px; }
+.device .sec { padding: 14px 18px 2px; font: 700 12px/18px var(--mono); color: var(--subtext1); }
+.device .tasks { margin: 0 12px; }
+
+/* the chart */
+.chart text { font-family: var(--mono); }
+.chart .empty { stroke: var(--orbit); fill: none; }
+.chart .track { fill: color-mix(in srgb, var(--orbit) 60%, var(--ground)); }
+.chart .c-pass { fill: var(--green); } .chart .c-now { fill: var(--yellow); } .chart .c-held { fill: var(--peach); } .chart .c-err { fill: var(--red); }
+.chart text.t-pass, .chart tspan.t-pass { fill: var(--green); } .chart text.t-now, .chart tspan.t-now { fill: var(--yellow); } .chart text.t-held, .chart tspan.t-held { fill: var(--peach); } .chart text.t-err, .chart tspan.t-err { fill: var(--red); }
+.chart .bloom { fill: var(--yellow); stroke: var(--yellow); stroke-width: 4; stroke-linejoin: round; pointer-events: none; animation: bloom-breathe 1.8s ease-in-out infinite; }
+.chart .bloom.whole { stroke: none; animation-name: whole-breathe; }
+@keyframes bloom-breathe { 0%, 100% { opacity: .8; } 50% { opacity: .2; } }
+@keyframes whole-breathe { 0%, 100% { opacity: .34; } 50% { opacity: .08; } }
+@media (prefers-reduced-motion: reduce) { .chart .bloom { animation: none; opacity: .5; } .chart .bloom.whole { opacity: .2; } }
+.chart .mark { stroke: var(--ts); fill: none; }
+.chart .fillmark { fill: var(--ts); }
+.chart .tick { stroke: var(--surface1); stroke-width: 1; }
+.chart .tick.major { stroke: var(--overlay0); }
+.chart .num { fill: var(--overlay0); font-size: 8.5px; }
+.chart .ringletter { fill: var(--overlay0); font-size: 8.5px; font-weight: 700; }
+.chart .wash { fill: color-mix(in srgb, var(--mauve) 16%, var(--ground)); }
+.chart .cur { fill: none; stroke: var(--mauve); stroke-width: 1.5; stroke-linejoin: round; }
+.chart .hand { fill: var(--mauve); }
+.chart .hov { fill: color-mix(in srgb, var(--text) 6%, transparent); stroke: color-mix(in srgb, var(--text) 55%, transparent); stroke-width: 1; stroke-linejoin: round; }
+.chart .dot { fill: var(--yellow); stroke: var(--ground); }
+.chart .bnow { animation: b-pulse 1.4s ease-in-out infinite; }
+@keyframes b-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .chart .bnow { animation: none; } }
+.chart .halo { fill: none; stroke: var(--yellow); stroke-width: 1; transform-box: fill-box; transform-origin: center; animation: orbit-pulse 1.8s ease-in-out infinite; }
+@keyframes orbit-pulse { 0%, 100% { opacity: .6; transform: scale(1); } 50% { opacity: .12; transform: scale(1.35); } }
+@media (prefers-reduced-motion: reduce) { .chart .halo { animation: none; opacity: .5; } }
+.chart .r-big { fill: var(--text); font-weight: 700; }
+.chart .r-dim { fill: var(--overlay1); }
+.chart .r-state { fill: var(--ts); }
+.chart .r-pip { font-weight: 700; fill: var(--surface1); }
+.chart .r-pip.on { fill: var(--ts); }
+.chart .r-ord { fill: var(--overlay0); }
+
+/* scale strip */
+.strip { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; margin-top: 30px; }
+.strip figure { margin: 0; text-align: center; color: var(--overlay0); font-size: 11px; }
+.strip .chart { max-width: 200px; margin: 0 auto; }
+
+/* recommendation and details */
+.rec { margin-top: 72px; padding: 22px 24px; border-radius: 14px; background: var(--mantle); box-shadow: 0 0 0 1px var(--surface0); }
+.rec h2 span { color: var(--mauve); }
+.rec p { margin-top: 10px; max-width: 96ch; color: var(--subtext1); }
+.rec p b { color: var(--text); }
+.detail { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 26px; align-items: flex-start; }
+.detail .fig { width: 300px; }
+.detail .chart, .emptybox { border-radius: 12px; background: var(--crust); box-shadow: 0 0 0 1px var(--surface0); }
+.detail p { margin-top: 8px; color: var(--subtext0); font-size: 12px; line-height: 18px; }
+.emptybox { width: 300px; max-width: 100%; padding: 18px; }
+.chart-none { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--overlay1); }
+.chart-none svg { width: 132px; height: 132px; }
+.chart-none circle { fill: none; stroke: var(--surface0); stroke-width: 1.5; stroke-dasharray: 2 5; }
+
+@media (max-width: 1100px) {
+  .opt-head { grid-template-columns: minmax(0, 1fr); }
+  .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .top { grid-template-columns: minmax(0, 1fr); }
+  .col { padding: 14px 10px; }
+  .device { margin: 7px auto; }
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rec { padding: 18px 14px; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="orbit-bloom" filterUnits="userSpaceOnUse" x="-6" y="-6" width="412" height="412"><feGaussianBlur stdDeviation="3.4"/></filter>
+</defs></svg>
+<main>
+  <div class="top">
+    <div>
+      <h1>orrery · the epic chart against view B</h1>
+      <p class="lede"><b>The owner chose Orbits, with three changes</b>, and its section and the notes at the foot now show them: no dot; colour by phase, cell by cell (green for every phase that succeeded, yellow the phase a running task is working toward, peach that phase on a held task, red the phase that errored); and the yellow cell glows. View B and the other two directions are kept as they were, drawn by the earlier rule of one hue per task and a dot, for reference.</p>
+      <p class="lede"><b>View B's own chart is the bar.</b> It is drawn first, twice: as the wireframe has it, and turned to the rules. Then three directions that obey the rules, each saying where it beats view B and where it does not. What the chart is: <b>one slice per task</b>, clockwise in task order; <b>five rings</b>, from the outside in: red test, working, tests pass, checks, gate accepted; the cursor's task is outlined. Each direction below is drawn at 35 tasks (the synthetic-35 spread), at 150, and at the phone's width. Move over a chart to read a task in the centre; click or tap to move the outline.</p>
+      <nav class="jump" id="jump"></nav>
+    </div>
+    <div class="today"><div id="today"></div><p>Today, for comparison. No ring is named, the dot is yellow on yellow, the grid lines outweigh the data, and it is drawn 200&nbsp;px wide.</p></div>
+  </div>
+  <div id="opts"></div>
+
+  <section class="rec" id="rec">
+    <h2>Chosen: <span>1 · Orbits</span>, with the owner's three changes</h2>
+    <p><b>1. No dot and no halo.</b> The phase a task is working toward is a cell, like every other phase.</p>
+    <p><b>2. Colour by phase, per cell.</b> Green: that phase succeeded; if something succeeded it is green, on a running task as on a finished one. Yellow: the phase a running task is working toward, the first ring it has not yet reached counting from red test inward, and the only yellow in the chart. A task that has just started is yellow on red test. Peach: that same ring on a held task, still. Red: the phase that errored, on a task that ended without done: checks when the gate kept failing, gate accepted when the judge said unmet, otherwise the first ring it had not reached. The track tone: not reached.</p>
+    <p><b>3. The glow is on the cell, not the slice.</b> The yellow cell stays at full strength and a blurred copy of it breathes over it, spilling a little on its neighbours. The whole slice lit is drawn beside it for comparison: it finds the task as well, but it lays yellow over the green cells the task has passed, and green must mean passed. At 6 tasks it is a slab a sixth of the chart wide. Under reduced motion the glow holds still at half strength.</p>
+    <p><b>What serve changes on EpicSlice:</b> <code>at</code> names the ring the task is working toward (the first ring not yet reached, from red test inward), and two fields are new: whether the task is held, and the ring that errored. All three are in <code>webview/chart-spec.md</code>, with the class and test notes.</p>
+    <p><b>Confirmed by the owner:</b> the ring letters and the gap at 12 o'clock that holds them; the numbers round the rim; the cursor's hand and wash; the ring key and the colour key under the chart; 404 px wide in the web column.</p>
+    <div class="detail">
+      <div class="fig"><div class="cap"><span>the running phase and the cursor, 3× · glow at its peak</span></div><div id="zoom-a"></div><p>Two running tasks that have passed tests and are working toward checks: three green cells, then one yellow cell with its glow. Beside them a held task, peach on the same ring and still. The cursor is one mauve wedge round the whole slice, a wash under it, and a hand pointing at it from the centre.</p></div>
+      <div class="fig"><div class="cap"><span>150 tasks, 3× · glow at its peak</span></div><div id="zoom-b"></div><p>At 150 a slice is 4 to 7 px wide. A running task is one yellow tooth; the glow is the same size at every count, so here it is wider than the tooth and is what the eye finds.</p></div>
+      <div class="fig"><div class="cap"><span>not chosen: the whole slice lit</span></div><div id="zoom-c"></div><p>The same corner with the glow on the slice. The task is easy to find, but its passed phases turn yellow-green and the unreached one looks lit.</p></div>
+      <div class="fig"><div class="cap"><span>no orrery-tracked steps</span></div><div class="emptybox"><div class="chart-none"><svg viewBox="0 0 132 132" aria-hidden="true"><circle cx="66" cy="66" r="62"/><circle cx="66" cy="66" r="51"/><circle cx="66" cy="66" r="40"/><circle cx="66" cy="66" r="29"/><circle cx="66" cy="66" r="18"/></svg><span>No orrery-tracked steps</span></div></div><p>Five dotted orbits at a third of the chart's size, and the sentence. Nothing in it can be read as a task.</p></div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+// ---------- data: synthetic only ----------
+const RINGS = [
+  { name: "red test", letter: "R" },
+  { name: "working", letter: "W" },
+  { name: "tests pass", letter: "T" },
+  { name: "checks", letter: "C" },
+  { name: "gate accepted", letter: "G" },
+];
+// slice(task, "RWT__", hue): the pattern names the reached rings; a running slice's dot sits on its innermost one.
+// A slice as serve would send it (DL-O9). first is the first ring not yet reached, counting from red test inward. A
+// running or held task is working toward it: that is at. A task that ended short errored at checks for checks_failed,
+// at gate accepted for goal_unmet, and at first for any other end: that is err, serve's error_at.
+function slice(task, pattern, hue, more = {}) {
+  const r = [..."RWTCG"].map((c, i) => pattern[i] === c), deep = r.lastIndexOf(true) + 1, first = r.indexOf(false) + 1;
+  const err = hue !== "gap" ? 0 : more.end === "checks_failed" ? 4 : more.end === "goal_unmet" ? 5 : first;
+  // was is the earlier meaning of at, the furthest ring reached, which view B and the other two directions still draw
+  // their dot on.
+  const live = hue === "dispatched";
+  return { task, hue, r, at: live ? first : 0, was: live ? deep : 0, held: live && !!more.held, err };
+}
+// What one cell shows under the owner's colours: passed, now (the ring a running task is working toward), held, err,
+// or empty. A phase that succeeded is green, always.
+function cellOf(s, ring) {
+  if (s.at === ring + 1) return s.held ? "held" : "now";
+  if (s.err === ring + 1) return "err";
+  return s.r[ring] ? "pass" : "empty";
+}
+function synthetic35() {
+  const out = [], t = (n) => "t" + String(n).padStart(2, "0");
+  const put = (from, to, pattern, hue, more) => { for (let n = from; n <= to; n++) out.push(slice(t(n), pattern, hue, more)); };
+  put(1, 3, "RW___", "gap", { end: "returned" }); put(4, 5, "RW___", "gap", { end: "checks_failed" });
+  put(6, 9, "RWT__", "gap", { end: "checks_failed" }); put(10, 11, "_W___", "gap", { end: "failed" });
+  put(12, 20, "RWTCG", "done"); put(21, 22, "RWT_G", "done");
+  put(23, 26, "RWT__", "gap", { end: "checks_failed" }); put(27, 29, "RWTC_", "gap", { end: "goal_unmet" }); put(30, 31, "_W___", "gap", { end: "stopped" });
+  put(32, 32, "_W___", "dispatched"); put(33, 34, "RWT__", "dispatched"); put(35, 35, "RWT__", "dispatched", { held: true });
+  return out;
+}
+// A long epic near its end: mostly done, a few stretches that ended short, and the newest tasks still in flight.
+function synthetic(n) {
+  let seed = 0x9e3779b9 ^ n;
+  const rnd = () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const out = [], width = String(n).length, t = (i) => "t" + String(i + 1).padStart(Math.max(2, width), "0");
+  const live = n <= 2 ? 1 : Math.max(1, Math.round(n * 0.055));
+  for (let i = 0; i < n; i++) {
+    const p = i / n;
+    if (i >= n - live) {
+      const depth = ["_W___", "RW___", "RWT__", "RWT__", "RWTC_"][Math.floor(rnd() * 5)];
+      out.push(slice(t(i), depth, "dispatched", { held: live >= 3 && i === n - live + 1 }));
+    } else if ((p > 0.39 && p < 0.43) || (p > 0.6 && p < 0.65)) {
+      out.push(slice(t(i), p < 0.5 ? "RW___" : "RWT__", "gap", { end: p < 0.5 ? "returned" : "checks_failed" }));
+    } else if (p > 0.79 && p < 0.87) {
+      out.push(rnd() < 0.3 ? slice(t(i), "_W___", "gap", { end: "failed" }) : slice(t(i), "RWTC_", "gap", { end: "goal_unmet" }));
+    } else {
+      const roll = rnd();
+      if (roll < 0.05) out.push(slice(t(i), "RWT__", "gap", { end: "checks_failed" }));
+      else if (roll < 0.09) out.push(slice(t(i), "RWT_G", "done"));
+      else if (roll < 0.12) out.push(slice(t(i), "_WTCG", "done"));
+      else out.push(slice(t(i), "RWTCG", "done"));
+    }
+  }
+  return out;
+}
+
+// ---------- geometry ----------
+// Every chart is drawn in a 400-unit box centred on (200, 200). Angles are radians clockwise from 12 o'clock.
+const C = 200, TAU = Math.PI * 2, GAP = (16 * Math.PI) / 180;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const xy = (r, a) => [C + r * Math.sin(a), C - r * Math.cos(a)];
+const pt = (r, a) => { const [x, y] = xy(r, a); return x.toFixed(2) + " " + y.toFixed(2); };
+const arc = (r, a0, a1) => `M${pt(r, a0)}A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${pt(r, a1)}`;
+// An annulus sector from ri to ro between a0 and a1. g is a gap of constant width taken from the two sides together,
+// so the channel between neighbours has parallel walls; cr rounds the four corners.
+function sector(ri, ro, a0, a1, g = 0, cr = 0) {
+  let o0 = a0 + g / 2 / ro, o1 = a1 - g / 2 / ro, i0 = a0 + g / 2 / ri, i1 = a1 - g / 2 / ri;
+  if (i1 <= i0) { const m = (a0 + a1) / 2; i0 = m - 0.0005; i1 = m + 0.0005; }
+  cr = Math.min(cr, (ro - ri) / 2, ((i1 - i0) * ri) / 2);
+  const big = (sweep) => (sweep > Math.PI ? 1 : 0);
+  if (cr < 0.3) {
+    return `M${pt(ro, o0)}A${ro} ${ro} 0 ${big(o1 - o0)} 1 ${pt(ro, o1)}L${pt(ri, i1)}A${ri} ${ri} 0 ${big(i1 - i0)} 0 ${pt(ri, i0)}Z`;
+  }
+  const co = cr / ro, ci = cr / ri, f = cr / (ro - ri);
+  const s1o = o1 + (i1 - o1) * f, s1i = i1 + (o1 - i1) * f, s0o = o0 + (i0 - o0) * f, s0i = i0 + (o0 - i0) * f;
+  return `M${pt(ro, o0 + co)}A${ro} ${ro} 0 ${big(o1 - o0 - 2 * co)} 1 ${pt(ro, o1 - co)}Q${pt(ro, o1)} ${pt(ro - cr, s1o)}` +
+    `L${pt(ri + cr, s1i)}Q${pt(ri, i1)} ${pt(ri, i1 - ci)}A${ri} ${ri} 0 ${big(i1 - i0 - 2 * ci)} 0 ${pt(ri, i0 + ci)}` +
+    `Q${pt(ri, i0)} ${pt(ri + cr, s0i)}L${pt(ro - cr, s0o)}Q${pt(ro, o0)} ${pt(ro, o0 + co)}Z`;
+}
+
+// Each style: the ring centre radii, the extent the cursor wraps, and how it draws the cells.
+const STYLES = {
+  // Arcs riding five orbits, at view B's weight: every cell is an 11-unit arc on a 17-unit pitch with softened corners.
+  // The owner's colours, per cell: green passed, yellow the phase a running task is on, peach the phase a held task is
+  // on, red the phase that errored, and a tone just off the ground for a phase not reached. There is no dot. A bezel
+  // outside counts the tasks.
+  orbits: {
+    R: [168, 151, 134, 117, 100], rin: 94.5, rout: 173.5, phase: true,
+    cell(k, i, ring) { const r = this.R[ring]; return sector(r - 5.5, r + 5.5, k.a0(i), k.a0(i + 1), k.g, Math.min(2, 0.3 * (k.span * r - k.g))); },
+    cells(k) {
+      const d = {};
+      k.S.forEach((s, i) => this.R.forEach((r, ring) => { const kind = cellOf(s, ring); d[kind] = (d[kind] || "") + this.cell(k, i, ring); }));
+      let out = d.empty ? `<path class="track" d="${d.empty}"/>` : "";
+      for (const kind of ["pass", "err", "held", "now"]) if (d[kind]) out += `<path class="c-${kind}" d="${d[kind]}"/>`;
+      if (!k.compact && k.N >= 10) {
+        const step = [5, 10, 25, 50].find((v) => k.N / v <= 8) || 50;
+        for (let i = 4; i < k.N; i += 5) {
+          const a = k.mid(i), major = (i + 1) % step === 0;
+          const [x0, y0] = xy(179, a), [x1, y1] = xy(major ? 184 : 182, a);
+          out += `<line class="tick${major ? " major" : ""}" x1="${x0.toFixed(2)}" y1="${y0.toFixed(2)}" x2="${x1.toFixed(2)}" y2="${y1.toFixed(2)}"/>`;
+          if (major) { const [x, y] = xy(192.5, a); out += `<text class="num" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${i + 1}</text>`; }
+        }
+      }
+      return out;
+    },
+    wrap(k, i) { return `<path d="${sector(this.rin - 3.5, this.rout + 3.5, k.a0(i), k.a0(i + 1), -1, 3)}"/>`; },
+  },
+  // B. Each task is a needle falling toward the centre: a reached cell is a radial stroke with round ends, an unreached
+  // cell a pinprick. Nothing is drawn along the rings.
+  rays: {
+    R: [168, 151, 134, 117, 100], rin: 93.5, rout: 174.5, dot: 5.2,
+    width(k) { return clamp(k.span * 93.5 * 0.42, 1.7, 7); },
+    cells(k) {
+      const w = this.width(k), h = Math.max(6.5 - w / 2, 0.5), d = {};
+      let pins = "";
+      k.S.forEach((s, i) => this.R.forEach((r, ring) => {
+        const a = k.mid(i);
+        if (s.r[ring]) d[s.hue] = (d[s.hue] || "") + `M${pt(r + h, a)}L${pt(r - h, a)}`;
+        else { const [x, y] = xy(r, a); pins += `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${Math.min(1.15, w * 0.45).toFixed(2)}"/>`; }
+      }));
+      let out = `<g fill="var(--pin)">${pins}</g>`;
+      for (const hue of ["gap", "done", "dispatched"]) if (d[hue]) out += `<path class="mark h-${hue}" stroke-width="${w.toFixed(2)}" stroke-linecap="round" d="${d[hue]}"/>`;
+      return out;
+    },
+    wrap(k, i) {
+      const hw = this.width(k) / 2 + 2.6, ro = this.rout + 3.5, ri = this.rin - 3.5;
+      return `<rect x="${(C - hw).toFixed(2)}" y="${C - ro}" width="${(2 * hw).toFixed(2)}" height="${ro - ri}" rx="${hw.toFixed(2)}" transform="rotate(${((k.mid(i) * 180) / Math.PI).toFixed(3)} ${C} ${C})"/>`;
+    },
+  },
+  // C. Solid ground. Neighbouring reached cells of one hue fuse into a band with rounded ends, on a dark track; the
+  // slices are hairlines cut through the bands.
+  strata: {
+    R: [167, 151, 135, 119, 103], rin: 96, rout: 174, dot: 5,
+    cells(k) {
+      const th = 14, lo = GAP / 2, hi = TAU - GAP / 2;
+      let track = "", cuts = "", out = "";
+      this.R.forEach((r, ring) => {
+        track += sector(r - th / 2, r + th / 2, lo, hi, 0, 3);
+        let i = 0;
+        while (i < k.N) {
+          if (!k.S[i].r[ring]) { i++; continue; }
+          let j = i;
+          while (j + 1 < k.N && k.S[j + 1].r[ring] && k.S[j + 1].hue === k.S[i].hue) j++;
+          out += `<path class="fillmark h-${k.S[i].hue}" d="${sector(r - th / 2, r + th / 2, k.a0(i), k.a0(j + 1), k.g, 3)}"/>`;
+          for (let c = i + 1; c <= j; c++) cuts += `M${pt(r - th / 2, k.a0(c))}L${pt(r + th / 2, k.a0(c))}`;
+          i = j + 1;
+        }
+      });
+      const cutWidth = clamp(k.span * 96 * 0.07, 0.45, 1.1);
+      return `<path fill="color-mix(in srgb, var(--orbit) 55%, var(--ground))" d="${track}"/>${out}` +
+        `<path stroke="var(--ground)" stroke-opacity=".7" stroke-width="${cutWidth.toFixed(2)}" fill="none" d="${cuts}"/>`;
+    },
+    wrap(k, i) { return `<path d="${sector(this.rin - 3.5, this.rout + 3.5, k.a0(i), k.a0(i + 1), -1, 3)}"/>`; },
+  },
+  // View B's drawing turned to the rules: its five radii, its 7-in-11 stroke, full-weight grey for an unreached cell,
+  // butt ends, its constant-width gap, and its centre. A slice is a task and a ring is a phase.
+  brule: {
+    R: [162.04, 141.67, 121.3, 100.93, 80.56], rin: 74.07, rout: 168.52, noGap: true, plain: true,
+    gap(span) { return clamp(0.14 * span * 80.56, 0.7, 14.2); },
+    cells(k) {
+      const d = {};
+      let now = "";
+      k.S.forEach((s, i) => this.R.forEach((r, ring) => {
+        const key = s.r[ring] ? s.hue : "empty", piece = arc(r, k.a0(i) + k.g / 2 / r, k.a0(i + 1) - k.g / 2 / r);
+        if (s.was === ring + 1) now += piece; else d[key] = (d[key] || "") + piece;
+      }));
+      let out = d.empty ? `<path class="empty" stroke-width="12.96" d="${d.empty}"/>` : "";
+      for (const hue of ["gap", "done", "dispatched"]) if (d[hue]) out += `<path class="mark h-${hue}" stroke-width="12.96" d="${d[hue]}"/>`;
+      if (now) out += `<path class="mark h-dispatched bnow" stroke-width="12.96" d="${now}"/>`;
+      return out;
+    },
+    wrap(k, i) { return `<path d="${sector(this.rin - 3, this.rout + 3, k.a0(i), k.a0(i + 1), -1, 2)}"/>`; },
+  },
+  // Today's drawing, for the comparison in the header.
+  today: {
+    R: [171.5, 148.5, 125.5, 102.5, 79.5], rin: 68, rout: 183, noGap: true,
+    cells(k) {
+      let out = "";
+      k.S.forEach((s, i) => this.R.forEach((r, ring) => {
+        out += `<path ${s.r[ring] ? `class="fillmark h-${s.hue}"` : `fill="var(--surface0)"`} stroke="var(--base)" stroke-width="1" d="${sector(r - 11.5, r + 11.5, k.a0(i), k.a0(i + 1))}"/>`;
+      }));
+      return out;
+    },
+    wrap() { return ""; },
+  },
+};
+
+// ---------- the chart ----------
+function chart(host, S, opts) {
+  const style = STYLES[opts.style], N = S.length, gap = style.noGap ? 0 : GAP, span = (TAU - gap) / N;
+  const k = {
+    S, N, span, compact: !!opts.compact,
+    a0: (i) => gap / 2 + i * span, mid: (i) => gap / 2 + (i + 0.5) * span,
+    g: style.gap ? style.gap(span) : clamp(0.16 * span * style.R[4], 0.7, 3),
+  };
+  const state = { cursor: opts.cursor ?? -1, hover: -1 };
+
+  // One rule for the whole chart: below 4.5 units on the middle ring the dots lose the moat's width and the halo.
+  const wide = span * style.R[2] * 0.62 >= 4.5;
+  let dots = "";
+  S.forEach((s, i) => {
+    if (s.was < 1 || style.phase) return;
+    const r = style.R[s.was - 1], [x, y] = xy(r, k.mid(i));
+    if (opts.style === "today") { dots += `<circle class="dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="8" stroke-width="2" style="stroke:var(--base)"/>`; return; }
+    // View B's dot: 5.5 on a 7 stroke with a 2 outline, scaled, and held to the slice's width.
+    if (style.plain) { const rb = clamp(span * r * 0.62, 3.2, 10.19); dots += `<circle class="dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${rb.toFixed(2)}" stroke-width="${(rb * 0.36).toFixed(2)}"/>`; return; }
+    // The dot is as wide as the slice allows, never smaller than 3.2 units.
+    const rd = clamp(span * r * 0.62, 3.2, style.dot), moat = wide ? 2.4 : 1.2;
+    if (wide) dots += `<circle class="halo" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${(rd + moat + 2).toFixed(2)}"/>`;
+    dots += `<circle class="dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${(rd + moat / 2).toFixed(2)}" stroke-width="${moat}"/>`;
+  });
+  // The glow of a running task: its yellow cell again, blurred, breathing, drawn over the cells so it spills on its
+  // neighbours. opts.glow "slice" is the other choice, kept to be shown: the whole slice lit from red test to gate.
+  let glow = "";
+  if (style.phase) {
+    let d = "";
+    S.forEach((s, i) => {
+      if (s.at < 1 || s.held) return;
+      d += opts.glow === "slice" ? sector(style.rin - 2, style.rout + 2, k.a0(i), k.a0(i + 1), 0, 2) : style.cell(k, i, s.at - 1);
+    });
+    if (d) glow = `<path class="bloom${opts.glow === "slice" ? " whole" : ""}" filter="url(#orbit-bloom)" d="${d}"/>`;
+  }
+  let letters = "";
+  if (!k.compact && !style.noGap) style.R.forEach((r, ring) => { letters += `<text class="ringletter" x="${C}" y="${C - r}" text-anchor="middle" dominant-baseline="central">${RINGS[ring].letter}</text>`; });
+
+  host.innerHTML = `<svg class="chart" viewBox="-6 -6 412 412" role="img" aria-label="${opts.label || "epic chart"}">` +
+    `<g data-layer="wash"></g><g>${style.cells(k)}</g>${glow}<g>${letters}</g><g data-layer="cur"></g><g>${dots}</g><g data-layer="hov"></g><g data-layer="read"></g></svg>`;
+  const svg = host.firstChild, layer = (name) => svg.querySelector(`[data-layer=${name}]`);
+
+  function hand(i) {
+    const a = k.mid(i), tip = xy(style.rin - 5.5, a), base = xy(style.rin - 12, a), px = Math.cos(a) * 3.4, py = Math.sin(a) * 3.4;
+    return `<path class="hand" d="M${tip[0].toFixed(2)} ${tip[1].toFixed(2)}L${(base[0] + px).toFixed(2)} ${(base[1] + py).toFixed(2)}L${(base[0] - px).toFixed(2)} ${(base[1] - py).toFixed(2)}Z"/>`;
+  }
+  function readout(i) {
+    if (opts.style === "today") return "";
+    if (style.plain) return centreB(S, k.compact);
+    if (i < 0 && style.phase) {
+      const count = (test) => S.filter(test).length, done = count((s) => s.hue === "done"), held = count((s) => s.held), live = count((s) => s.hue === "dispatched") - held, gapped = count((s) => s.hue === "gap");
+      const parts = [];
+      if (live) parts.push(`<tspan class="t-now">${live} running</tspan>`);
+      if (held) parts.push(`<tspan class="t-held">${held} held</tspan>`);
+      if (gapped) parts.push(`<tspan class="t-err">${gapped} gap</tspan>`);
+      const dot = '<tspan class="r-dim"> · </tspan>', two = parts.length === 3;
+      return `<text class="r-big" x="${C}" y="${C - (two ? 6 : 2)}" text-anchor="middle" font-size="${k.compact ? 40 : 34}">${done}<tspan class="r-dim" font-weight="400">/${N}</tspan></text>` +
+        (k.compact ? "" : `<text class="r-dim" x="${C}" y="${C + (two ? 12 : 17)}" text-anchor="middle" font-size="11">tasks done</text>` +
+        (two ? `<text x="${C}" y="${C + 31}" text-anchor="middle" font-size="10.5">${parts.slice(0, 2).join(dot)}</text><text x="${C}" y="${C + 46}" text-anchor="middle" font-size="10.5">${parts[2]}</text>`
+          : `<text x="${C}" y="${C + 38}" text-anchor="middle" font-size="10.5">${parts.join(dot)}</text>`));
+    }
+    if (i >= 0 && style.phase) {
+      const s = S[i], label = s.task.length > 26 ? s.task.slice(0, 25) + "…" : s.task, size = clamp(146 / (0.6 * label.length), 9, 22);
+      const [tone, words] = s.hue === "done" ? ["pass", "done"] : s.held ? ["held", `held · ${RINGS[s.at - 1].name}`] : s.hue === "dispatched" ? ["now", `running · ${RINGS[s.at - 1].name}`] : ["err", `gap · ${RINGS[s.err - 1].name}`];
+      let pips = "";
+      RINGS.forEach((ring, n) => { const kind = cellOf(s, n); pips += `<text class="r-pip${kind === "empty" ? "" : " t-" + kind}" x="${C + (n - 2) * 15}" y="${C + 37}" text-anchor="middle" font-size="11">${ring.letter}</text>`; });
+      return `<text class="r-ord" x="${C}" y="${C - 30}" text-anchor="middle" font-size="9">${i + 1} of ${N}</text>` +
+        `<text class="r-big" x="${C}" y="${C - 5}" text-anchor="middle" font-size="${size.toFixed(1)}">${label}</text>` +
+        `<text class="t-${tone}" x="${C}" y="${C + 14}" text-anchor="middle" font-size="10.5">${words}</text>${pips}`;
+    }
+    if (i < 0) {
+      const done = S.filter((s) => s.hue === "done").length, live = S.filter((s) => s.hue === "dispatched").length, gapped = N - done - live;
+      const parts = [];
+      if (live) parts.push(`<tspan class="h-dispatched r-state">${live} running</tspan>`);
+      if (gapped) parts.push(`<tspan class="h-gap r-state">${gapped} gap</tspan>`);
+      return `<text class="r-big" x="${C}" y="${C - 2}" text-anchor="middle" font-size="${k.compact ? 40 : 34}">${done}<tspan class="r-dim" font-weight="400">/${N}</tspan></text>` +
+        (k.compact ? "" : `<text class="r-dim" x="${C}" y="${C + 17}" text-anchor="middle" font-size="11">tasks done</text>` +
+        `<text x="${C}" y="${C + 38}" text-anchor="middle" font-size="10.5">${parts.join('<tspan class="r-dim"> · </tspan>')}</text>`);
+    }
+    const s = S[i], deepest = s.r.lastIndexOf(true);
+    const label = s.task.length > 26 ? s.task.slice(0, 25) + "…" : s.task;
+    const size = clamp(146 / (0.6 * label.length), 9, 22);
+    const words = s.hue === "done" ? "done" : s.hue === "dispatched" ? `running · ${RINGS[s.was - 1].name}` : deepest < 0 ? "gap" : `gap · ${RINGS[deepest].name}`;
+    let pips = "";
+    RINGS.forEach((ring, n) => { pips += `<text class="r-pip${s.r[n] ? " on" : ""}" x="${C + (n - 2) * 15}" y="${C + 37}" text-anchor="middle" font-size="11">${ring.letter}</text>`; });
+    return `<g class="h-${s.hue}"><text class="r-ord" x="${C}" y="${C - 30}" text-anchor="middle" font-size="9">${i + 1} of ${N}</text>` +
+      `<text class="r-big" x="${C}" y="${C - 5}" text-anchor="middle" font-size="${size.toFixed(1)}">${label}</text>` +
+      `<text class="r-state" x="${C}" y="${C + 14}" text-anchor="middle" font-size="10.5">${words}</text>${pips}</g>`;
+  }
+  function paint() {
+    const on = state.cursor >= 0 && opts.style !== "today";
+    // The wash is for narrow slices, which need help to be found. A wide slice has the outline and the hand.
+    layer("wash").innerHTML = on && N >= 18 ? `<g class="wash">${style.wrap(k, state.cursor)}</g>` : "";
+    layer("cur").innerHTML = on ? `<g class="cur">${style.wrap(k, state.cursor)}</g>${style.plain ? "" : hand(state.cursor)}` : "";
+    layer("hov").innerHTML = state.hover >= 0 && state.hover !== state.cursor ? `<g class="hov">${style.wrap(k, state.hover)}</g>` : "";
+    layer("read").innerHTML = k.compact && state.hover < 0 ? readout(-1) : readout(state.hover >= 0 ? state.hover : state.cursor);
+  }
+  // The slice under a pointer, by angle alone: -1 over the start gap or outside the rings, -2 over the centre.
+  function sliceAt(event) {
+    const box = svg.getBoundingClientRect();
+    const x = ((event.clientX - box.left) / box.width) * 412 - 6 - C, y = ((event.clientY - box.top) / box.height) * 412 - 6 - C;
+    const r = Math.hypot(x, y);
+    if (r < style.rin - 14) return -2;
+    if (r > 200) return -1;
+    const a = (Math.atan2(x, -y) + TAU) % TAU;
+    if (a < gap / 2 || a > TAU - gap / 2) return -1;
+    return Math.min(N - 1, Math.floor((a - gap / 2) / span));
+  }
+  if (opts.style !== "today" && !style.plain) {
+    svg.addEventListener("pointermove", (event) => { const i = Math.max(-1, sliceAt(event)); if (i !== state.hover) { state.hover = i; paint(); } });
+    svg.addEventListener("pointerleave", () => { state.hover = -1; paint(); });
+    svg.addEventListener("click", (event) => { const i = sliceAt(event); state.cursor = i === -2 || i === state.cursor ? -1 : i >= 0 ? i : state.cursor; state.hover = -1; paint(); });
+  }
+  paint();
+  return svg;
+}
+
+// View B's centre: the count over its caption. Its requirement dots have no data behind them and are left out.
+function centreB(S, compact) {
+  const done = S.filter((s) => s.hue === "done").length;
+  const text = `${done}/${S.length}`, size = Math.min(compact ? 44 : 38, 132 / (0.6 * text.length));
+  return `<text class="r-big" x="${C}" y="${C - 2}" text-anchor="middle" font-size="${size.toFixed(1)}">${text}</text>` +
+    (compact ? "" : `<text class="r-dim" x="${C}" y="${C + 22}" text-anchor="middle" font-size="13">tasks done</text>`);
+}
+// View B as its SVG draws it, scaled from its 216 box: a ring per task, innermost first, 11 apart with a 7 stroke; the
+// five phases are five arcs round each ring, clockwise from 12 o'clock, parted by a gap 1.1 strokes wide. Past five
+// tasks the rings share the room out to view B's outermost outlined ring, so the pitch and the stroke shrink together.
+function chartB(host, S, opts) {
+  const N = S.length, f = 200 / 108, r0 = 43.5 * f, rmax = 102 * f;
+  const pitch = N > 5 ? (rmax - r0) / (N - 1) : 11 * f, sw = (pitch * 7) / 11, gap = sw * 1.1, part = TAU / 5;
+  const d = {};
+  let now = "", dots = "";
+  S.forEach((s, i) => {
+    const r = r0 + i * pitch;
+    for (let ph = 0; ph < 5; ph++) {
+      const key = s.r[ph] ? s.hue : "empty", piece = arc(r, ph * part + gap / 2 / r, (ph + 1) * part - gap / 2 / r);
+      if (s.was === ph + 1) now += piece; else d[key] = (d[key] || "") + piece;
+    }
+    if (s.was >= 1) {
+      const [x, y] = xy(r, (s.was - 0.5) * part), rd = clamp(sw * 0.79, 2.2, 10.19);
+      dots += `<circle class="dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${rd.toFixed(2)}" stroke-width="${(rd * 0.36).toFixed(2)}"/>`;
+    }
+  });
+  let out = d.empty ? `<path class="empty" stroke-width="${sw.toFixed(2)}" d="${d.empty}"/>` : "";
+  for (const hue of ["gap", "done", "dispatched"]) if (d[hue]) out += `<path class="mark h-${hue}" stroke-width="${sw.toFixed(2)}" d="${d[hue]}"/>`;
+  if (now) out += `<path class="mark h-dispatched bnow" stroke-width="${sw.toFixed(2)}" d="${now}"/>`;
+  // View B marks the cursor's unit in its list, not in the chart. The rules ask for an outline, so the task's ring gets one.
+  let cur = "";
+  if (opts.cursor >= 0) {
+    const r = r0 + opts.cursor * pitch, off = sw / 2 + Math.min(2.5, pitch * 0.2);
+    cur = `<g class="cur"><circle cx="${C}" cy="${C}" r="${(r - off).toFixed(2)}" style="stroke-width:1.2"/><circle cx="${C}" cy="${C}" r="${(r + off).toFixed(2)}" style="stroke-width:1.2"/></g>`;
+  }
+  host.innerHTML = `<svg class="chart" viewBox="-6 -6 412 412" role="img" aria-label="${opts.label || "epic chart"}"><g>${out}</g>${cur}<g>${dots}</g><g>${centreB(S, !!opts.compact)}</g></svg>`;
+  return host.firstChild;
+}
+const draw = (host, S, opts) => (opts.style === "bdrawn" ? chartB(host, S, opts) : chart(host, S, opts));
+
+// ---------- the page ----------
+const OPTIONS = [
+  { id: "bdrawn", n: "B", name: "View B, as drawn", tag: "the wireframe's own chart: a ring per task, five arcs per ring", base: true, key: "hues",
+    cols: [
+      ["What it is", "The chart in view B's right column, scaled up from its 216 px box with the strokes it has there. <b>A ring is a task</b>, innermost first, 11 apart with a 7 stroke. The five arcs round each ring are the phases, clockwise from 12 o'clock: red test, working, tests pass, checks, gate accepted. The dot sits on the arc a running task has reached."],
+      ["How it differs from the rules", "<b>Turned a quarter.</b> The rules ask for a slice per task and a ring per phase; view B has a ring per task and a slice per phase. <b>Colour.</b> View B colours each arc by its own phase (teal passed, yellow running, red failed) and turns a ring green once integrated; the rules give a task one hue and EpicSlice has no per-phase state, so each ring is drawn here in its task's hue. <b>Left out:</b> the dashed rings for outlined units and the requirement dots, which no orrery record backs. <b>Added:</b> an outline on the cursor's ring; view B marks the cursor only in its list."],
+      ["Where it holds and where it stops", "At 5 and 7 tasks it is the best-looking chart on this page: long arcs, a clear centre, nothing to learn. Every task added thins every ring. At 12 the rings are 6 px; at 35 they are 2 px and the running tasks, the newest, are a hair at the rim; at 150 it is a moiré. No phase is named, so which arc is checks has to be remembered."]] },
+  { id: "brule", n: "B′", name: "View B, to the rules", tag: "the same strokes, turned: a slice per task, a ring per phase", base: true, key: "hues",
+    cols: [
+      ["What it is", "View B's strokes on the rules' layout: five rings at view B's radii with its 7-in-11 stroke, full-weight grey for an unreached cell, butt ends, its constant-width gap, its dot and its count. A slice is a task; the rings run red test outermost to gate accepted innermost. <b>This is the fair bar</b>: view B's chart when it obeys the rules."],
+      ["What had to change", "The gap between cells scales with the slice (14% of its inner width, view B's own ratio), and past about 45 tasks the dot shrinks to the slice's width; at view B's fixed sizes neither fits. Nothing else is new, so it keeps what view B lacks: no ring is named, nothing says where task 1 is, and the centre shows only the count."],
+      ["Where it holds and where it stops", "It holds its shape from 1 to 150 and is the heaviest, most confident drawing here. The grey cells weigh as much as the coloured ones, so at 35 the eye meets a full mosaic before it finds the colour. At 150 the innermost cells are 2.5 px wide, and the dot hides the cell it sits on."]] },
+  { id: "orbits", n: "1", name: "Orbits", tag: "the owner's pick: view B's weight, colour by phase, no dot", pick: true, key: "phase",
+    cols: [
+      ["Why it reads", "View B's weight on the rules' layout, and now view B's way with colour: <b>each cell is its own phase</b>. Green is a phase that succeeded, always. Yellow is the phase a running task is working toward, the first ring it has not yet reached counting from the outside, and it glows. Peach is that same ring on a held task. Red is the phase that errored. A tone just off the ground is a phase not reached. The chart is green where work stood up, and the eye goes to the three colours that are not green."],
+      ["What it trades away", "A task's state is no longer one colour across its slice. A task that ended short is green with one red cell, so trouble is found by its red cells, and at 150 a red cell is a tooth 3 to 6 px wide. With no dot, the glow is what finds a running task. The gap at the top and the numbers round the rim are still two things view B does not have."],
+      ["Against view B", "<b>Matches it:</b> colour by phase, a running phase that pulses, peach for held. These are view B's own. <b>Beats it:</b> the rings are named and the start is marked; the centre reads the cursor's, hovered or tapped task; a failed phase is red on its own cell while the phases before it stay green; inner cells at 150 are 3.3 px against B′'s 2.5. <b>Does not:</b> at 5 to 7 tasks view B as drawn is still the handsomer object, and B′ is bolder."]] },
+  { id: "rays", n: "2", name: "Rays", tag: "each task a needle toward the centre", key: "rings",
+    cols: [
+      ["Why it reads", "Each task is one stroke falling inward, broken where a phase is missing, so <b>how deep a task got</b> and where it skipped a step are the first things you see. Unreached cells are pinpricks, so the chart is mostly dark and the running dots stand alone."],
+      ["What it trades away", "The rings are only implied by alignment, so a phase is harder to follow round. At 150 the strokes are under 2 px wide and carry under half the colour Orbits does, so green and red take longer to tell apart."],
+      ["Against view B", "<b>Beats it:</b> depth per task at 35, and the dots, which sit on dark ground. <b>Does not:</b> it has none of view B's weight, and that weight is what view B is liked for. Next to B′ it looks like a different product."]] },
+  { id: "strata", n: "3", name: "Strata", tag: "fused bands of solid colour", key: "rings",
+    cols: [
+      ["Why it reads", "Neighbouring cells of one state fuse into a band with rounded ends, so the epic reads as <b>a few large shapes</b>: the done block, the stretch that stopped at tests, the notch where checks were skipped. It is the calmest at 150."],
+      ["What it trades away", "The single task is a hairline cut in a band; you need the cursor or the centre to find one. The dot sits yellow on a yellow band and reads as a ring. It is the nearest to the pie chart it replaces."],
+      ["Against view B", "<b>Beats it:</b> the epic's shape at 150, where B′ is a mosaic and Strata is five or six shapes. <b>Does not:</b> the single task, the dot, and the gaps: view B is made of separate arcs with air between them, and Strata gives that up."]] },
+];
+const KEYS = {
+  rings: `<p class="chart-key">${RINGS.map((r) => `<span><b>${r.letter}</b>${r.name.replace(" accepted", "")}</span>`).join("")}</p>`,
+  hues: `<p class="chart-key hues"><span class="h-dispatched">running</span><span class="h-done">done</span><span class="h-gap">gap</span></p>`,
+  phase: `<p class="chart-key">${RINGS.map((r) => `<span><b>${r.letter}</b>${r.name.replace(" accepted", "")}</span>`).join("")}</p>` +
+    `<p class="chart-key hues"><span style="--ts:var(--green)">passed</span><span style="--ts:var(--yellow)">now</span><span style="--ts:var(--peach)">held</span><span style="--ts:var(--red)">errored</span></p>`,
+};
+const data35 = synthetic35(), data150 = synthetic(150);
+const cursor150 = data150.length - 4;
+
+function taskRows(S) {
+  return `<ul class="tasks">${S.slice(0, 3).map((s) => `<li><span>${s.task}</span><span>${s.hue === "done" ? "done" : s.hue === "dispatched" ? "running" : "returned"}</span></li>`).join("")}</ul>`;
+}
+function column(S, slug, key) {
+  return `<div class="col"><header class="epic-head"><h2 class="slug">${slug}</h2><p>chart-check</p><p>synthetic chart check</p></header><div data-chart></div>${key}${taskRows(S)}</div>`;
+}
+
+document.getElementById("jump").innerHTML = OPTIONS.map((o) => `<a href="#${o.id}"${o.pick ? ' class="picked"' : ""}><b>${o.n}</b>${o.name}</a>`).join("") + `<a href="#rec">the choice</a>`;
+chart(document.getElementById("today"), data35, { style: "today", label: "today's chart" });
+
+const root = document.getElementById("opts");
+for (const o of OPTIONS) {
+  const sec = document.createElement("section"), key = KEYS[o.key];
+  sec.className = o.base ? "opt base" : "opt"; sec.id = o.id;
+  sec.innerHTML =
+    `<div class="opt-head"><div><div class="opt-name"><span class="n">${o.n}</span><h2>${o.name}</h2></div><p class="opt-tag">${o.tag}</p>` +
+    `${o.pick ? '<span class="opt-name"><span class="pick">chosen</span></span>' : ""}${o.base ? '<span class="opt-name"><span class="pick bar">the bar</span></span>' : ""}</div>` +
+    o.cols.map(([head, text]) => `<div><h3>${head}</h3><p class="say">${text}</p></div>`).join("") + `</div>` +
+    `<div class="figs">` +
+    `<div class="fig"><div class="cap"><span>web reader, right column · 35 tasks · cursor on t33</span></div>${column(data35, "synthetic-35", key)}</div>` +
+    `<div class="fig"><div class="cap"><span>web reader, right column · 150 tasks · cursor on ${data150[cursor150].task}</span></div>${column(data150, "synthetic-150", key)}</div>` +
+    `<div class="fig"><div class="cap"><span>phone, 412 dp · nothing selected</span><span class="sw"><button data-n="35" class="on">35</button><button data-n="150">150</button></span></div>` +
+    `<div class="device"><div class="back">‹ Back</div><div class="title">synthetic-35</div><div class="sub">chart-check · synthetic chart check</div><div data-chart></div>${key}<div class="sec">Tasks</div>${taskRows(data35)}</div></div>` +
+    `</div><div class="strip"></div>`;
+  root.appendChild(sec);
+  const hosts = sec.querySelectorAll("[data-chart]");
+  draw(hosts[0], data35, { style: o.id, cursor: 32, label: `${o.name}, 35 tasks` });
+  draw(hosts[1], data150, { style: o.id, cursor: cursor150, label: `${o.name}, 150 tasks` });
+  const phone = (S) => { draw(hosts[2], S, { style: o.id, cursor: -1, label: `${o.name}, phone` }); sec.querySelector(".device .title").textContent = `synthetic-${S.length}`; };
+  phone(data35);
+  sec.querySelectorAll(".sw button").forEach((button) => button.addEventListener("click", () => {
+    sec.querySelectorAll(".sw button").forEach((other) => other.classList.toggle("on", other === button));
+    phone(button.dataset.n === "35" ? data35 : data150);
+  }));
+  const strip = sec.querySelector(".strip");
+  for (const n of [1, 2, 5, 7, 12, 35, 80, 150]) {
+    const fig = document.createElement("figure");
+    fig.innerHTML = `<div></div><figcaption>${n} task${n === 1 ? "" : "s"}</figcaption>`;
+    strip.appendChild(fig);
+    draw(fig.firstChild, n === 35 ? data35 : synthetic(n), { style: o.id, cursor: -1, compact: true, label: `${o.name}, ${n} tasks` });
+  }
+}
+
+// The two enlarged details: the same chart, with the viewBox cut down to a corner of it.
+function zoom(id, S, cursor, box, glow) {
+  const svg = chart(document.getElementById(id), S, { style: "orbits", cursor, glow, label: "detail" });
+  svg.setAttribute("viewBox", box);
+  svg.style.pointerEvents = "none";
+}
+zoom("zoom-a", data35, 32, "104 25 106 106");
+zoom("zoom-b", data150, cursor150, "104 25 106 106");
+zoom("zoom-c", data35, 32, "104 25 106 106", "slice");
+// The three details hold the glow at its peak, so a still picture shows it.
+document.querySelectorAll("#rec .bloom").forEach((bloom) => { bloom.style.animation = "none"; bloom.style.opacity = bloom.classList.contains("whole") ? ".34" : ".8"; });
+</script>
+</body>
+</html>
