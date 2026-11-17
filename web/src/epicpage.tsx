@@ -8,7 +8,7 @@ import { JustHappened, NextRows, NowRows } from "./happenings";
 import { Orrery } from "./orrery";
 import { durationText, type Phase, requirementArcs, wedgesOf } from "./phases";
 import { GreenProof, RedProof, Report, ReleaseProof } from "./proof";
-import { type Blocker, blockerOf, stateOf } from "./status";
+import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
 import { TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
 
@@ -55,7 +55,7 @@ const landingTargets: Partial<Record<string, string>> = {
 // EpicPage is the one epic page: its title row with the epic's commands, the summary of its contract, the now sentence
 // and blocker, the red proof, the implementation (the orrery, Now, Next, Just happened and the workflow), the green
 // proof, the handover when given, the release proof and the report. A section the epic has not reached is dim. The
-// commands are live only while the epic is live and has no outcome. Each phase click reaches onOpenPhase. A landing
+// commands are the ones controlsOf shows for the epic. Each phase click reaches onOpenPhase. A landing
 // brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
 // the open question.
 export function EpicPage(props: {
@@ -90,7 +90,7 @@ export function EpicPage(props: {
   const wedges = wedgesOf(detail);
   const blocker = blockerOf(detail);
   const slug = epic?.slug ?? "";
-  const live = epic?.live === true && epic.outcome === "";
+  const controls = controlsOf(detail);
   const released = epic !== undefined && epic.outcome.startsWith("released");
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -111,17 +111,17 @@ export function EpicPage(props: {
         blocker={blockerLine(blocker, now)}
       >
         {actions}
-        {live &&
-          (detail.paused ? (
-            <button type="button" class="act" onClick={() => commands.resume()}>
-              Resume
-            </button>
-          ) : (
-            <button type="button" class="act" onClick={() => commands.pause()}>
-              Pause
-            </button>
-          ))}
-        {live && (
+        {controls.resume && (
+          <button type="button" class="act" onClick={() => commands.resume()}>
+            Resume
+          </button>
+        )}
+        {controls.pause && (
+          <button type="button" class="act" onClick={() => commands.pause()}>
+            Pause
+          </button>
+        )}
+        {controls.stop && (
           <AskFirst
             label="Stop…"
             question={`Stop ${slug}?`}
