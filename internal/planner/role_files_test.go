@@ -14,6 +14,11 @@ const roleTestFilesSentence = "A task's files also include the existing test fil
 const roleReplacementFilesSentence = "A task that replaces a failed one also puts in its files the files that its " +
 	"predecessor's failure reason or its implementer named."
 
+// roleStartsNowSentence is the sentence role.md gives the planner about when a task may build on another's work.
+const roleStartsNowSentence = "Plan only tasks that can start now. Work that builds on an open task's change, such as " +
+	"code that uses fields or functions another open task adds, waits for a later turn: once the open tasks are done, " +
+	"orreryd integrates them and plans the epic again from the new base."
+
 // assertPlannerReceivesSentence asserts that the role text, and the prompt of a planner turn, contain sentence.
 func assertPlannerReceivesSentence(t *testing.T, sentence string) {
 	t.Helper()
@@ -38,4 +43,11 @@ func TestPlannerRoleFilesIncludeTheExistingTestsThatAssertAChangedBehaviour(t *t
 func TestPlannerRoleFilesGiveAReplacementTheFilesItsPredecessorNamed(t *testing.T) {
 	t.Parallel()
 	assertPlannerReceivesSentence(t, roleReplacementFilesSentence)
+}
+
+// TestPlannerRolePlansOnlyTasksThatCanStartNow asserts that the role text tells the planner that every task starts at
+// once from the integrated branch, so work that builds on an open task's change waits for a later turn.
+func TestPlannerRolePlansOnlyTasksThatCanStartNow(t *testing.T) {
+	t.Parallel()
+	assertPlannerReceivesSentence(t, roleStartsNowSentence)
 }
