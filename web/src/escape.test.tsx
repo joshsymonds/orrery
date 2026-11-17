@@ -426,6 +426,18 @@ function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
 }
 
+// leaveComposer focuses the cursor's reply box, as a row's opening does on origin, and presses Shift+Tab in it, which
+// takes the focus to the list's cursor row.
+async function leaveComposer(container: HTMLElement): Promise<void> {
+  const box = composer(container);
+  await act(() => {
+    box.focus();
+  });
+  await act(() => {
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+  });
+}
+
 test("EscapeInterrupt InboxPin: Escape on a working session with the inbox hidden by a click takes back its queued messages and interrupts", (t) =>
   withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
     fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
@@ -480,6 +492,7 @@ test("EscapeInterrupt InboxPin: at 700px, a list key after a row is opened leave
     fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
     await narrowWindow(700);
     await clickRow(container, "s1");
+    await leaveComposer(container);
     await press("j");
     assert.equal(paneState(container), "docked", "the list key pops no inbox out");
     await emitHeld(t.signal, container, fake, [

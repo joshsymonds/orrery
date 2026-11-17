@@ -142,6 +142,23 @@ async function press(key: string): Promise<void> {
   });
 }
 
+// leavePinnedBox focuses the pinned reader's reply box, as | does on origin, and presses Shift+Tab in it, which takes
+// the focus to the list's cursor row.
+async function leavePinnedBox(container: HTMLElement): Promise<void> {
+  const box = container.querySelector<HTMLTextAreaElement>(
+    'section[aria-label="pinned reader"] .pin-reply:not([hidden]) .composer textarea',
+  );
+  if (box === null) {
+    assert.fail("the pinned reader has its reply box");
+  }
+  await act(() => {
+    box.focus();
+  });
+  await act(() => {
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+  });
+}
+
 function textOf(container: HTMLElement, selector: string): string | null {
   return container.querySelector(selector)?.textContent ?? null;
 }
@@ -237,6 +254,7 @@ test("PaneStrip: m hides every strip, and a second m shows them again", (t) =>
   withStrip(t.signal, { host: denHost }, async (container) => {
     await press("|");
     assert.equal(container.querySelectorAll(".pane-strip").length, 2);
+    await leavePinnedBox(container);
     await press("m");
     assert.equal(container.querySelectorAll(".pane-strip").length, 0);
     await press("m");

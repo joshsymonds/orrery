@@ -138,6 +138,40 @@ async function clickRow(container: HTMLElement, key: string): Promise<void> {
   await dispatchOn(container.querySelector(`.b-row[data-key="${key}"]`), "click");
 }
 
+// replyBox is the cursor's visible reply box. A missing box fails the test.
+function replyBox(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  if (box === null) {
+    assert.fail("the cursor's reply box is drawn");
+  }
+  return box;
+}
+
+// onCursorRow is whether the focus is on the list's cursor row.
+function onCursorRow(container: HTMLElement): boolean {
+  return document.activeElement === container.querySelector(".b-row.cur");
+}
+
+// shiftTabFrom presses Shift+Tab in the element, as a key pressed in a focused box is, and returns whether the press
+// was default-prevented.
+async function shiftTabFrom(element: Element): Promise<boolean> {
+  const tab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+  await act(() => {
+    element.dispatchEvent(tab);
+  });
+  return tab.defaultPrevented;
+}
+
+// leaveReplyBox leaves the cursor's reply box the way a row's opening leaves it on origin: it focuses the visible reply
+// box, then presses Shift+Tab in it. It returns whether the press was default-prevented.
+async function leaveReplyBox(container: HTMLElement): Promise<boolean> {
+  const box = replyBox(container);
+  await act(() => {
+    box.focus();
+  });
+  return shiftTabFrom(box);
+}
+
 // paneState is the inbox state the app draws on the panes: docked, pinned, hidden or flyout.
 function paneState(container: HTMLElement): string | null {
   return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
@@ -238,6 +272,8 @@ test("InboxFlyout: a click on the mark or B pins the inbox beside the page, and 
     assert.equal(paneState(container), "pinned");
     await dispatchOn(container.querySelector(".mark-crumb"), "click");
     assert.equal(paneState(container), "hidden");
+    await leaveReplyBox(container);
+    await press("b");
     await press("B");
     assert.equal(paneState(container), "pinned");
     await press("B");
@@ -306,6 +342,8 @@ test("InboxPin: b pops a hidden inbox out by key, and b again tucks it back to h
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
     assert.equal(paneState(container), "hidden");
+    await leaveReplyBox(container);
+    await press("b");
     await press("b");
     assert.equal(paneState(container), "flyout", "b pops the inbox out over the page");
     await press("b");
@@ -316,6 +354,8 @@ test("InboxPin: b pops the inbox out, and Escape tucks it back with no interrupt
   const paths: string[] = [];
   return withRecordedInbox(t.signal, paths, async (container) => {
     await clickRow(container, "b");
+    await leaveReplyBox(container);
+    await press("b");
     await press("b");
     assert.equal(paneState(container), "flyout");
     const before = paths.length;
@@ -335,6 +375,8 @@ test("InboxPin: j while hidden pops the inbox out and leaves the cursor row unch
   return withRecordedInbox(t.signal, paths, async (container) => {
     await clickRow(container, "a");
     assert.equal(paneState(container), "hidden");
+    await leaveReplyBox(container);
+    await press("b");
     await press("j");
     assert.equal(paneState(container), "flyout", "j pops the hidden inbox out");
     assert.equal(cursorKey(container), "a", "the press that pops the inbox out does not move the cursor");
@@ -353,8 +395,10 @@ test("InboxPin: j while hidden pops the inbox out and leaves the cursor row unch
 });
 
 test("InboxPin: Enter opens the cursor row and hides the inbox, clearing a key pop-out", (t) =>
-  withInbox(t.signal, {}, async (container) => {
+  withInbox(t.signal, { rows: fixture().map((item) => (item.key === "b" ? { ...item, project: "" } : item)) }, async (container) => {
     await clickRow(container, "a");
+    await leaveReplyBox(container);
+    await press("b");
     await press("b");
     assert.equal(paneState(container), "flyout");
     await press("j");
@@ -372,6 +416,8 @@ test("InboxPin: h at a row's first crumb pops a hidden inbox out by key", (t) =>
   withInbox(t.signal, {}, async (container) => {
     await clickRow(container, "b");
     assert.equal(paneState(container), "hidden");
+    await leaveReplyBox(container);
+    await press("b");
     await press("h");
     assert.equal(paneState(container), "flyout", "h at the row's first crumb pops the inbox out");
   }));
@@ -411,6 +457,7 @@ test("InboxPin: at 700px a row opened by click leaves the inbox docked, and j mo
     await narrowWindow(700);
     await clickRow(container, "a");
     assert.equal(paneState(container), "docked", "a narrow window draws the inbox docked once a row is open");
+    await leaveReplyBox(container);
     await press("j");
     assert.equal(cursorKey(container), "b", "the first j moves the cursor to the next row");
     assert.equal(paneState(container), "docked", "j pops no inbox out");
@@ -420,6 +467,7 @@ test("InboxPin: at 700px b and h after a row is opened leave the inbox docked", 
   withInbox(t.signal, {}, async (container) => {
     await narrowWindow(700);
     await clickRow(container, "b");
+    await leaveReplyBox(container);
     await press("b");
     assert.equal(paneState(container), "docked", "b pops no inbox out");
     await press("h");
@@ -435,4 +483,49 @@ test("InboxPin: a window narrowed from wide with a row open reads docked, and re
     assert.equal(paneState(container), "docked", "the narrowed window draws the inbox docked");
     await resizeWindow(1024);
     assert.equal(paneState(container), "hidden", "widened again, the inbox is hidden as the open row leaves it");
+  }));
+
+test("InboxPin: Shift+Tab out of a reply box pops a hidden inbox out by key and focuses the cursor row, and Escape tucks it back with no interrupt or withdraw call", (t) => {
+  const paths: string[] = [];
+  return withRecordedInbox(t.signal, paths, async (container) => {
+    await clickRow(container, "b");
+    assert.equal(paneState(container), "hidden");
+    await act(() => {
+      replyBox(container).focus();
+    });
+    assert.equal(document.activeElement === replyBox(container), true, "the reply box is focused");
+    const prevented = await shiftTabFrom(replyBox(container));
+    assert.equal(prevented, true, "the Shift+Tab press is default-prevented");
+    assert.equal(paneState(container), "flyout", "Shift+Tab pops the hidden inbox out by key");
+    assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
+    const before = paths.length;
+    await press("Escape");
+    await settle();
+    assert.equal(paneState(container), "hidden", "Escape tucks the key-popped inbox back to hidden");
+    assert.deepEqual(
+      paths.slice(before).filter((path) => escapeCallPaths.includes(path)),
+      [],
+      "no queued message is taken back and no row is interrupted",
+    );
+  });
+});
+
+test("InboxPin: Shift+Tab out of a reply box with the inbox docked focuses the cursor row and leaves the inbox docked", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await press("i");
+    assert.equal(document.activeElement?.tagName === "TEXTAREA", true, "i focuses the cursor's reply box");
+    await shiftTabFrom(replyBox(container));
+    assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
+    assert.equal(paneState(container), "docked", "the docked inbox stays docked");
+  }));
+
+test("InboxPin: Shift+Tab out of a reply box with the inbox pinned focuses the cursor row and leaves the inbox pinned", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await dispatchOn(container.querySelector(".mark-crumb"), "click");
+    assert.equal(paneState(container), "pinned");
+    await press("i");
+    assert.equal(document.activeElement?.tagName === "TEXTAREA", true, "i focuses the cursor's reply box");
+    await shiftTabFrom(replyBox(container));
+    assert.equal(onCursorRow(container), true, "the focus is on the cursor row");
+    assert.equal(paneState(container), "pinned", "the pinned inbox stays pinned");
   }));

@@ -937,8 +937,22 @@ export function App({
       />
     ) : undefined;
 
-  // focusCursorRow moves focus to the list's current row, the row the cursor rests on.
+  // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
+  // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
+  // render that draws it, as a browser takes no focus on a row it does not display.
+  const focusPending = useRef(false);
+  useLayoutEffect(() => {
+    if (focusPending.current) {
+      focusPending.current = false;
+      document.querySelector<HTMLElement>(".b-row.cur")?.focus();
+    }
+  });
   const focusCursorRow = () => {
+    if (inboxHidden) {
+      focusPending.current = true;
+      setPopout("key");
+      return;
+    }
     document.querySelector<HTMLElement>(".b-row.cur")?.focus();
   };
 
@@ -983,9 +997,9 @@ export function App({
       }
       return;
     }
-    // Keys typed in a text box are text: only Escape leaves it. That covers the reply boxes and the answer box. Escape
-    // in the cursor's or the pinned row's reply box takes its queued messages back, as Escape outside a box does; any
-    // other box is only left.
+    // Keys typed in a text box are text: only Escape leaves it, and in the cursor's or the pinned row's reply box Shift+Tab
+    // also leaves it, for the list. That covers the reply boxes and the answer box. Escape in the cursor's or the pinned
+    // row's reply box takes its queued messages back, as Escape outside a box does; any other box is only left.
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
       if (event.key === "Escape") {
@@ -995,6 +1009,11 @@ export function App({
         } else {
           void escapeRow(target, focused);
         }
+      } else if (event.key === "Tab" && event.shiftKey && replyBoxTarget(focused) !== null) {
+        // Shift+Tab takes the focus to the list's cursor row. It takes nothing back and interrupts nothing.
+        event.preventDefault();
+        focused.blur();
+        focusCursorRow();
       }
       return;
     }
