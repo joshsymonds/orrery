@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -45,11 +46,11 @@ func doneBetweenTurnEnds(t *testing.T, history store.EngineHistory) bool {
 	return false
 }
 
-// TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds sends a prompt while a JUDGEHOLDS turn holds, so claude runs it
-// as the turn after. That prompt plays WAITOPEN, which holds before it opens its turn, so the first turn's end is stored
-// while the queued turn is held: the session reads working. Once the queued turn opens and ends, the session is done,
-// with no done recorded between the two turn ends, and the owner's first notice is the queued turn's done, carrying its
-// reply, with none for the first turn's end before it.
+// TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds sends a prompt while a JUDGEHOLDS turn holds. The prompt is held
+// until that turn ends, and then it is written as the turn after, so claude runs it next. That prompt plays WAITOPEN, which
+// holds before it opens its turn, so the first turn's end is stored while the queued turn is held: the session reads
+// working. Once the queued turn opens and ends, the session is done, with no done recorded between the two turn ends, and the
+// owner's first notice is the queued turn's done, carrying its reply, with none for the first turn's end before it.
 func TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
@@ -62,6 +63,12 @@ func TestQueuedPromptKeepsTheSessionWorkingUntilItsTurnEnds(t *testing.T) {
 	}
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "WAITOPEN"}); err != nil {
 		t.Fatalf("Say during the held turn: %v", err)
+	}
+	if got := heldTexts(t, path, id); !slices.Equal(got, []string{"WAITOPEN"}) {
+		t.Fatalf("held messages during the turn = %q, want [WAITOPEN]", got)
+	}
+	if got := writtenPrompts(t, historyOf(t, path, id)); slices.Contains(got, "WAITOPEN") {
+		t.Fatalf("prompts written during the turn = %q, want the queued prompt held", got)
 	}
 
 	releaseHeldTurn(t, dir)

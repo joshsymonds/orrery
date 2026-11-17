@@ -13,14 +13,12 @@ import (
 	"syscall"
 	"testing"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // The tests in this file kill orreryd with SIGKILL while a turn's lines are not yet stored, or while a prompt is sent or
-// its write is in flight, then restart it on the same store and state directory. Each line and each prompt must reach
+// held, then restart it on the same store and state directory. Each line and each prompt must reach
 // the store and the fake claude exactly once, and each turn must complete.
 
 // TestEngineHolderScopeSigkillReplaysFloodOnce proves that a FLOOD turn whose lines the store has not all taken when
@@ -120,39 +118,41 @@ func TestEngineHolderScopeSigkillKeepsSentPromptOnce(t *testing.T) {
 	wantExit(t, restarted.stop(t), 0)
 }
 
-// TestEngineHolderScopeSigkillKeepsInFlightPromptOnce proves that a prompt whose write is in flight when orreryd is
-// killed reaches the fake claude once after the restart, and that each turn completes once. The fake reads its stdin
-// only between turns, so a prompt sent during a TRICKLEHELD turn and larger than the pipe blocks in the holder: its
-// write id is recorded and the write is part-way when orreryd dies. The fake holds the turn's last block until the test
-// releases it after the restart, so the turn runs across the kill.
-func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
+// TestEngineHolderScopeSigkillKeepsHeldPromptOnce proves that a prompt held while a TRICKLEHELD turn runs, and killed with
+// orreryd still held, reaches the fake claude once after the restart, and that each turn completes once. The fake holds the
+// turn's last block until the test releases it after the restart, so the turn runs across the kill, and the prompt stays
+// held until that turn ends.
+func TestEngineHolderScopeSigkillKeepsHeldPromptOnce(t *testing.T) {
 	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)
-	dir := f.sessionDir(t, "readopt-inflight")
+	dir := f.sessionDir(t, "readopt-held")
 	id := f.start(t, dir, "hello")
 	t.Cleanup(func() { clearHolder(t, filepath.Join(stateDir, "holders", id)) })
 	f.waitForBlock(t, id, "fake reply 1")
 	f.waitForHistory(t, id, turnDone)
-	pid := fakeClaudePID(t, dir)
 
 	// The fake numbers its replies by prompt, and TRICKLEHELD is the second prompt of the session. The prompt after it is
-	// 96 KiB, under the 128 KiB a single exec argument may hold and over the 64 KiB a Linux pipe holds.
+	// 96 KiB, under the 128 KiB a single exec argument may hold. A Say during the turn holds it in the store, so the fake
+	// reads nothing of it until the turn ends.
 	wantExit(t, f.orrery(t, "session", "say", id, "TRICKLEHELD"), 0)
 	f.waitForBlock(t, id, "fake trickle 2.1")
-	say := startBinary(t, "orrery", f.env, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10))
-	waitUntil(t, func() bool { return !stdinWritable(t, pid) })
+	wantExit(t, f.orrery(t, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10)), 0)
+	if held, err := f.reader.HeldPrompts(t.Context(), id); err != nil || len(held) != 1 {
+		t.Fatalf("held prompts of %s before the kill = %d, %v; want the one BIG prompt", id, len(held), err)
+	}
+	if n := promptsWritten(t, dir, "BIG"); n != 0 {
+		t.Fatalf("fake claude read the BIG prompt %d times before the kill, want none", n)
+	}
 	killOrreryd(t, daemon)
 
-	// The say retries its cut call with the same prompt id until the restarted orreryd answers it.
 	restarted := f.startOrreryd(t, true, "--holder-scope", scope)
-	// The turn ran across the kill. Releasing its last block lets the turn end, the fake read the prompt the holder is
-	// still writing, and the say's retry complete.
+	// The turn ran across the kill. Releasing its last block lets the turn end, and the restarted orreryd writes the held
+	// BIG prompt as the turn after it.
 	writeFile(t, filepath.Join(dir, "fakeclaude.release"), "", 0o600)
-	wantExit(t, say.exitOutcome(t), 0)
-	// The BIG prompt arrived while the TRICKLEHELD turn ran, so its turn records no working state of its own: the state
-	// reads done from the TRICKLEHELD turn's end through the whole BIG turn. Only the turn's own end shows it finished.
+	// The BIG prompt is written as the turn after TRICKLEHELD, so that turn's end is followed and records no done state of
+	// its own. Only the BIG turn's own end shows it finished.
 	f.waitForHistory(t, id, func(h store.EngineHistory) bool { return turnEndsAfterBlock(h, "fake reply 3") })
 	var wantTrickle []string
 	for k := 1; k <= 60; k++ {
@@ -244,25 +244,6 @@ func procState(t *testing.T, pid int) string {
 		t.Fatalf("stat of pid %d has no state: %q", pid, raw)
 	}
 	return fields[0]
-}
-
-// stdinWritable reports whether the pipe that feeds the fake claude pid its stdin has room for a write. It polls the
-// pipe's write end, which /proc opens for it, and writes nothing, so the pipe keeps its data.
-func stdinWritable(t *testing.T, pid int) bool {
-	t.Helper()
-	fd, err := unix.Open(fmt.Sprintf("/proc/%d/fd/0", pid), unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
-	if err != nil {
-		t.Fatalf("open stdin of fake claude %d: %v", pid, err)
-	}
-	defer unix.Close(fd)
-	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
-	if _, err = unix.Poll(fds, 0); err != nil {
-		t.Fatalf("poll stdin of fake claude %d: %v", pid, err)
-	}
-	if fds[0].Revents&unix.POLLERR != 0 {
-		t.Fatalf("stdin of fake claude %d has no reader", pid)
-	}
-	return fds[0].Revents&unix.POLLOUT != 0
 }
 
 // waitProcessExited waits until /proc shows pid as ended: no stat, or a zombie that has ended and is not yet reaped.

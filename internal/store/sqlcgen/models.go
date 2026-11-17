@@ -16,6 +16,13 @@ type DueResume struct {
 	State  string
 }
 
+type EngineHeld struct {
+	Seq       int64
+	SessionID string
+	PromptID  string
+	Text      string
+}
+
 type EnginePromptFailed struct {
 	SessionID string
 	PromptID  string

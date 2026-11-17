@@ -356,6 +356,20 @@ func (q *Queries) DeleteGrantMembers(ctx context.Context, grantID string) error 
 	return err
 }
 
+const deleteHeldPrompt = `-- name: DeleteHeldPrompt :exec
+DELETE FROM engine_held WHERE session_id = ? AND prompt_id = ?
+`
+
+type DeleteHeldPromptParams struct {
+	SessionID string
+	PromptID  string
+}
+
+func (q *Queries) DeleteHeldPrompt(ctx context.Context, arg DeleteHeldPromptParams) error {
+	_, err := q.db.ExecContext(ctx, deleteHeldPrompt, arg.SessionID, arg.PromptID)
+	return err
+}
+
 const deleteHold = `-- name: DeleteHold :exec
 DELETE FROM holds WHERE member = ?
 `
@@ -448,6 +462,7 @@ const deleteStaleEngineSessions = `-- name: DeleteStaleEngineSessions :exec
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
   AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+  AND NOT EXISTS (SELECT 1 FROM engine_held WHERE engine_held.session_id = sessions.id)
   AND sessions.id NOT IN (SELECT value FROM json_each(?2))
 `
 
@@ -1328,6 +1343,22 @@ func (q *Queries) InsertDueResume(ctx context.Context, arg InsertDueResumeParams
 		arg.Target,
 		arg.Resets,
 	)
+	return err
+}
+
+const insertEngineHeld = `-- name: InsertEngineHeld :exec
+INSERT INTO engine_held (session_id, prompt_id, text) VALUES (?, ?, ?)
+ON CONFLICT (session_id, prompt_id) DO NOTHING
+`
+
+type InsertEngineHeldParams struct {
+	SessionID string
+	PromptID  string
+	Text      string
+}
+
+func (q *Queries) InsertEngineHeld(ctx context.Context, arg InsertEngineHeldParams) error {
+	_, err := q.db.ExecContext(ctx, insertEngineHeld, arg.SessionID, arg.PromptID, arg.Text)
 	return err
 }
 
@@ -4643,6 +4674,38 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 			&i.NewestReply,
 			&i.FirstPrompt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHeldPrompts = `-- name: ListHeldPrompts :many
+SELECT prompt_id, text FROM engine_held WHERE session_id = ? ORDER BY seq
+`
+
+type ListHeldPromptsRow struct {
+	PromptID string
+	Text     string
+}
+
+func (q *Queries) ListHeldPrompts(ctx context.Context, sessionID string) ([]ListHeldPromptsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldPrompts, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHeldPromptsRow
+	for rows.Next() {
+		var i ListHeldPromptsRow
+		if err := rows.Scan(&i.PromptID, &i.Text); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

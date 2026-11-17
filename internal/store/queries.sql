@@ -59,6 +59,7 @@ WHERE session_id IN (
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
   AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
+  AND NOT EXISTS (SELECT 1 FROM engine_held WHERE engine_held.session_id = sessions.id)
   AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)));
 
 -- name: InsertEngineSession :exec
@@ -222,6 +223,16 @@ ON CONFLICT (session_id, prompt_id) DO NOTHING;
 
 -- name: GetEnginePromptFailure :one
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
+
+-- name: InsertEngineHeld :exec
+INSERT INTO engine_held (session_id, prompt_id, text) VALUES (?, ?, ?)
+ON CONFLICT (session_id, prompt_id) DO NOTHING;
+
+-- name: ListHeldPrompts :many
+SELECT prompt_id, text FROM engine_held WHERE session_id = ? ORDER BY seq;
+
+-- name: DeleteHeldPrompt :exec
+DELETE FROM engine_held WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
