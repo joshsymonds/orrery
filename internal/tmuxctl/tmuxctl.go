@@ -19,6 +19,34 @@ type Server struct {
 	Socket string
 }
 
+// Column returns the server's store column: "-L <name>", "-S <path>", or "" for the default server. ServerOfColumn is
+// its inverse.
+func (s Server) Column() string {
+	switch {
+	case s.Name != "":
+		return "-L " + s.Name
+	case s.Socket != "":
+		return "-S " + s.Socket
+	default:
+		return ""
+	}
+}
+
+// ServerOfColumn returns the server that column names: "-L <name>" gives Name, "-S <path>" gives Socket, and "" gives
+// the default server. Any other column, or a flag with an empty argument, is an error.
+func ServerOfColumn(column string) (Server, error) {
+	if column == "" {
+		return Server{}, nil
+	}
+	if name, ok := strings.CutPrefix(column, "-L "); ok && name != "" {
+		return Server{Name: name}, nil
+	}
+	if socket, ok := strings.CutPrefix(column, "-S "); ok && socket != "" {
+		return Server{Socket: socket}, nil
+	}
+	return Server{}, fmt.Errorf("tmux server column %q: want \"\", \"-L <name>\" or \"-S <path>\"", column)
+}
+
 // Client runs tmux commands against one server.
 type Client struct {
 	serverArgs []string
