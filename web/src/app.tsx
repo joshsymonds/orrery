@@ -150,7 +150,7 @@ const helpEntries: [string[], string][] = [
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
   [["i"], "focus the reply box"],
-  [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
+  [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
   [["m"], "open or close the host's meters"],
@@ -856,6 +856,7 @@ export function App({
         now={now}
         loadArtifact={loadArtifact}
         commands={epicCommands(clients, entry.id, setCommandError)}
+        numberKeys={!epicPage.closed}
         onOpenContract={openContract}
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
@@ -1421,8 +1422,8 @@ function epicCommands(clients: Clients, epicId: string, report: (line: string) =
     resume: () => send(clients.epics.resume({ id: epicId })),
     stop: () => send(clients.epics.stop({ id: epicId })),
     retry: () => send(clients.epics.retry({ id: epicId })),
-    answer: (question, text) =>
-      clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question }).then(
+    answer: (question, choice, text) =>
+      clients.epics.answer({ epicId, id: crypto.randomUUID(), text, question, choice }).then(
         () => "",
         (error: unknown) => (error instanceof Error && error.message !== "" ? error.message : answerFailedText),
       ),

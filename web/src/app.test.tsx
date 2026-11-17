@@ -1824,6 +1824,31 @@ test("1 2 and 3 do nothing while the filter or a composer has focus", (t) =>
     assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the reply box answers nothing");
   }));
 
+test("1 on the list answers the cursor's session row and selects no epic option", (t) =>
+  withApp(t.signal, { rows: [sessionRow], epics: pageEpic(optionsQuestion) }, async (container, fake) => {
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "s1", "the cursor rests on the session row, past the epic and its step");
+    assert.equal(epicPageShown(container), false, "the list draws no epic page");
+    // The step entry the cursor passed through streamed the same session, so the row's stream is the last one.
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length > 0, "the session stream");
+    const stream = fake.callsTo(sessionWatchPath).at(-1);
+    assert.ok(stream, "the session row streams its session");
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed question" }],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(t.signal, () => readerText(container).includes("the streamed question"), "the streamed question");
+    await press("1");
+    await until(t.signal, () => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
+    assert.equal(fake.callsTo(answerEpicPath).length, 0, "no epic answer is sent");
+    assert.equal(optionCards(container).length, 0, "no epic option is drawn to select");
+  }));
+
 const fourOptionQuestion = JSON.stringify({
   questions: [
     {
@@ -2547,7 +2572,7 @@ async function clickNeed(container: HTMLElement, sentence: string): Promise<void
   });
 }
 
-test("Needs you reads each need as a sentence: a waiting row's, an open question's with its form, and a park's with Retry", (t) => {
+test("Needs you reads each need as a sentence: a waiting row's, an open question's with its open button, and a park's with Retry", (t) => {
   const asking = makeEpic(widgetsRepo, "first");
   const parked = makeEpic(gadgetsRepo, "second");
   const epics = epicsView(
@@ -2560,7 +2585,7 @@ test("Needs you reads each need as a sentence: a waiting row's, an open question
   return withApp(t.signal, { epics }, (container) => {
     assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "api asks: Ship it?");
     assert.deepEqual(needSentences(container), ["first asks: Which way?", "second is parked: a lock is held"]);
-    assert.deepEqual(needButtons(container), ["Answer", "Retry"]);
+    assert.deepEqual(needButtons(container), ["Open the epic ›", "Retry"]);
     assert.equal(
       sectionOf(container, "Needs you").querySelector(".b-sec i")?.textContent,
       "3",
@@ -2608,20 +2633,17 @@ test("Needs you draws a failed release step with Retry and Stop… bound to its 
   });
 });
 
-test("answering an open question in Needs you sends Epics.Answer with its epic and question", (t) => {
+test("an open question's Needs you entry draws no text box, and its open button opens the epic", (t) => {
   const epic = makeEpic(widgetsRepo, "first");
   const detail = create(EpicsGetResponseSchema, { epic, questions: [{ id: "Q1", text: "Which way?" }] });
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
   return withApp(t.signal, { epics }, async (container, fake) => {
-    const box = container.querySelector<HTMLTextAreaElement>('.need-entry textarea[aria-label="answer"]');
-    assert.ok(box !== null, "the question's need shows its answer box");
-    await typeInto(box, " north ");
-    await submitIn(container, ".need-entry form.answer");
-    await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
-    const body = fake.callsTo(answerEpicPath)[0].body;
-    assert.equal(body.epicId, epic.id);
-    assert.equal(body.text, "north", "the answer is sent trimmed");
-    assert.equal(body.question, "Q1");
+    assert.equal(container.querySelector(".need-entry textarea") === null, true, "the need draws no text box");
+    assert.equal(container.querySelector(".need-entry form") === null, true, "the need draws no form");
+    await clickButton(container, ".need-entry", "Open the epic ›");
+    assert.equal(cursorKey(container), epicKey(epic), "the cursor moves to the epic");
+    assert.equal(epicPageShown(container), true, "the epic page opens");
+    assert.equal(fake.callsTo(answerEpicPath).length, 0, "nothing is answered");
   });
 });
 
@@ -3347,6 +3369,22 @@ function pageEpic(init: MessageInitShape<typeof EpicsGetResponseSchema> = {}, ch
   return epicsView([epic], new Map([[epic.id, create(EpicsGetResponseSchema, { epic, ...init })]]));
 }
 
+// optionsQuestion is an open question with three choices, the second of which the planner recommends for its why.
+const optionsQuestion = {
+  questions: [
+    {
+      id: "Q1",
+      text: "Which database?",
+      choices: [
+        { id: "postgres", does: "Use PostgreSQL for the store." },
+        { id: "sqlite", does: "Use SQLite for the store." },
+        { id: "memory", does: "Keep the store in memory." },
+      ],
+      recommendation: { choice: "sqlite", why: "one file is enough here", confidence: "medium" },
+    },
+  ],
+};
+
 // acceptedContract is an accepted contract whose title the summary shows.
 const acceptedContract = { title: "Show the accepted contract", approved: "approved line", intent: "the intent" };
 
@@ -3664,6 +3702,25 @@ async function clickFirst(container: HTMLElement, selector: string): Promise<voi
   await clickIn(target);
 }
 
+// optionCards are the option cards the epic page's question draws, in order, Something else last.
+function optionCards(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(".now-block form.answer .opts > .opt")];
+}
+
+// selectedCard is the position of the option card that is selected, or -1 when none is.
+function selectedCard(container: HTMLElement): number {
+  return optionCards(container).findIndex((card) => card.classList.contains("sel"));
+}
+
+// clickCard clicks the option card at index, as the owner's pointer does.
+async function clickCard(container: HTMLElement, index: number): Promise<void> {
+  const card = optionCards(container)[index];
+  assert.ok(card, `the question draws card ${index + 1}`);
+  await act(() => {
+    card.dispatchEvent(new Event("click"));
+  });
+}
+
 // clickPhaseHead clicks the head of the phase row the phase output names.
 async function clickPhaseHead(container: HTMLElement, name: string): Promise<void> {
   const head = [...container.querySelectorAll<HTMLButtonElement>('section.page[aria-label="epic"] .phase-head')].find(
@@ -3840,41 +3897,76 @@ test("Retry on a parked epic sends Epics.Retry with the epic's id", (t) =>
     assert.equal(fake.callsTo(retryEpicPath)[0].body.id, widgetsFirst);
   }));
 
-test("Answer sends Epics.Answer with the epic, a fresh decision id, the trimmed text and the question's id", (t) =>
-  withApp(t.signal, { epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container, fake) => {
+test("Confirm sends Epics.Answer with the epic, a fresh decision id, the question's id, and the chosen card's id and what it does", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
     await press("j");
-    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
-    assert.ok(box, "the open question shows its answer box");
-    await typeInto(box, " postgres ");
+    await clickCard(container, 0);
     await submitIn(container, ".now-block form.answer");
     await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
     const body = fake.callsTo(answerEpicPath)[0].body;
     assert.equal(body.epicId, widgetsFirst);
-    assert.equal(body.text, "postgres", "the answer is sent trimmed");
     assert.equal(body.question, "Q1");
+    assert.equal(body.choice, "postgres");
+    assert.equal(body.text, "Use PostgreSQL for the store.", "the text is what the choice does");
     assert.equal(typeof body.id === "string" && body.id !== "", true, "the decision has an id");
     assert.equal(body.id !== widgetsFirst && body.id !== "Q1", true, "the decision id is its own, not the epic's or the question's");
   }));
 
-test("a refused answer shows the server's message under the answer form", (t) =>
-  withApp(t.signal, { epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container, fake) => {
+test("Something else sends Epics.Answer with the choice other and the typed text, trimmed", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
+    await press("j");
+    await clickCard(container, 3);
+    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
+    assert.ok(box, "Something else shows its text box");
+    await typeInto(box, "  use a file  ");
+    await submitIn(container, ".now-block form.answer");
+    await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
+    const body = fake.callsTo(answerEpicPath)[0].body;
+    assert.equal(body.question, "Q1");
+    assert.equal(body.choice, "other");
+    assert.equal(body.text, "use a file", "the typed text is sent trimmed");
+  }));
+
+test("a number key on the epic page selects its card, and confirm sends that choice", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
+    await press("j");
+    assert.equal(selectedCard(container), 1, "the recommended card starts selected");
+    await press("1");
+    assert.equal(selectedCard(container), 0);
+    await submitIn(container, ".now-block form.answer");
+    await until(t.signal, () => fake.callsTo(answerEpicPath).length === 1, "the Answer call");
+    assert.equal(fake.callsTo(answerEpicPath)[0].body.choice, "postgres");
+    assert.equal(fake.callsTo(answerEpicPath)[0].body.text, "Use PostgreSQL for the store.");
+  }));
+
+test("a digit with the epic page closed selects no card of its question", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
+    await press("j");
+    assert.equal(selectedCard(container), 1);
+    await clickFirst(container, 'section.page[aria-label="epic"] .back');
+    assert.equal(epicPageShown(container), false, "the back closes the page");
+    await press("1");
+    assert.equal(selectedCard(container), 1, "the digit selects no card of the closed page");
+    assert.equal(fake.callsTo(answerEpicPath).length, 0);
+  }));
+
+test("a refused answer shows the server's message under the question's cards", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container, fake) => {
     fake.refuseNext.set(answerEpicPath, "question is closed");
     await press("j");
-    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
-    assert.ok(box, "the open question shows its answer box");
-    await typeInto(box, "postgres");
     await submitIn(container, ".now-block form.answer");
-    await until(t.signal, 
+    await until(t.signal,
       () => alertTexts(container).some((text) => text.includes("question is closed")),
       "the refusal line",
     );
   }));
 
-test("keys typed in the answer box are text: j and p do nothing there, and Escape leaves it", (t) =>
-  withApp(t.signal, { epics: pageEpic({ questions: [{ id: "Q1", text: "Which database?" }] }) }, async (container) => {
+test("keys typed in the Something else box are text: j and p do nothing there, and Escape leaves it", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container) => {
     await press("j");
+    await clickCard(container, 3);
     const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
-    assert.ok(box, "the open question shows its answer box");
+    assert.ok(box, "Something else shows its text box");
     const viewOn = () => container.querySelector(".views .view.on")?.textContent ?? null;
     const cursor = cursorKey(container);
     assert.equal(viewOn(), "aBy attention", "the view starts by attention");
@@ -3891,6 +3983,19 @@ test("keys typed in the answer box are text: j and p do nothing there, and Escap
     assert.equal(document.activeElement === box, true, "the answer box keeps focus through list keys");
     await pressIn(box, "Escape");
     assert.equal(document.activeElement === box, false, "Escape blurs the answer box");
+  }));
+
+test("a digit typed in the Something else box selects no card", (t) =>
+  withApp(t.signal, { epics: pageEpic(optionsQuestion) }, async (container) => {
+    await press("j");
+    await clickCard(container, 3);
+    const box = container.querySelector<HTMLTextAreaElement>('.now-block textarea[aria-label="answer"]');
+    assert.ok(box, "Something else shows its text box");
+    await act(() => {
+      box.focus();
+    });
+    await pressIn(box, "2");
+    assert.equal(selectedCard(container), 3, "the digit is text, so Something else stays selected");
   }));
 
 test("a command that fails shows a fixed line, and one that lands clears it", (t) =>

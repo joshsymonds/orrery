@@ -12,13 +12,14 @@ import { type Blocker, blockerOf, stateOf } from "./status";
 import { TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
 
-// EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question.
+// EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
+// the owner picked, which is a declared choice's id or other, and its text.
 export interface EpicCommands {
   pause: () => void;
   resume: () => void;
   stop: () => void;
   retry: () => void;
-  answer: (questionId: string, text: string) => Promise<string>;
+  answer: (questionId: string, choice: string, text: string) => Promise<string>;
 }
 
 // blockerLine is the blocker's text for the title row: its text, and its time once it has begun.
@@ -55,13 +56,15 @@ const landingTargets: Partial<Record<string, string>> = {
 // and blocker, the red proof, the implementation (the orrery, Now, Next, Just happened and the workflow), the green
 // proof, the handover when given, the release proof and the report. A section the epic has not reached is dim. The
 // commands are live only while the epic is live and has no outcome. Each phase click reaches onOpenPhase. A landing
-// brings its part of the page into view once the page is drawn.
+// brings its part of the page into view once the page is drawn. numberKeys is whether a digit key picks an option of
+// the open question.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
   now: number;
   loadArtifact: LoadArtifact;
   commands: EpicCommands;
+  numberKeys: boolean;
   onOpenContract: () => void;
   onBack: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
@@ -75,6 +78,7 @@ export function EpicPage(props: {
     now,
     loadArtifact,
     commands,
+    numberKeys,
     onOpenContract,
     onBack,
     onOpenPhase,
@@ -137,6 +141,7 @@ export function EpicPage(props: {
         sentence={nowSentence(wedges)}
         blocker={blocker}
         slug={slug}
+        numberKeys={numberKeys}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}
         onStop={() => commands.stop()}

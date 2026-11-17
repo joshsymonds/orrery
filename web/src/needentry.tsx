@@ -1,14 +1,12 @@
-import { create } from "@bufbuild/protobuf";
 import type { JSX } from "preact";
 
-import { AnswerForm, AskFirst } from "./blocker";
+import { AskFirst } from "./blocker";
 import type { EpicCommands } from "./epicpage";
-import { EpicQuestionSchema } from "./gen/orrery/v1/epics_pb";
 import type { Need } from "./needs";
 
-// NeedEntry draws one epic need: its sentence, which opens the epic on click, then its control. A question draws the
-// answer form for that question, a park draws Retry, and a release need draws Retry and Stop…, which asks first. Any
-// other need draws its sentence alone.
+// NeedEntry draws one epic need: its sentence, which opens the epic on click, then its control. A question draws a
+// button that opens its epic, where its options are answered; a park draws Retry, and a release need draws Retry and
+// Stop…, which asks first. Any other need draws its sentence alone.
 export function NeedEntry({
   need,
   slug,
@@ -26,12 +24,9 @@ export function NeedEntry({
         {need.text}
       </p>
       {need.kind === "question" && (
-        <AnswerForm
-          key={need.question}
-          question={create(EpicQuestionSchema, { id: need.question })}
-          hideQuestion
-          onAnswer={commands.answer}
-        />
+        <button type="button" class="act" onClick={() => onOpen()}>
+          Open the epic ›
+        </button>
       )}
       {need.kind === "park" && (
         <button type="button" class="act" onClick={() => commands.retry()}>

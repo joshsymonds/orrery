@@ -729,9 +729,13 @@ test("the now block is a column of its sentence, its blocker's line or form, and
   assert.match(declarationsFor(css, ".now-block .blocked"), /color:\s*var\(--peach\);/);
 });
 
-test("a question's form is a column with its question in peach and its answer box in a surface1 ring", () => {
+test("a question's card is a column with its question in peach, its option cards as key-capped rows, and its text box in a surface1 ring", () => {
   assert.match(declarationsFor(css, ".now-block .answer"), /flex-direction:\s*column;/);
   assert.match(declarationsFor(css, ".now-block .answer .question"), /color:\s*var\(--peach\);/);
+  assert.match(declarationsFor(css, ".now-block .answer .opts"), /display:\s*grid;/);
+  assert.match(declarationsFor(css, ".now-block .answer .opt"), /grid-template-columns:\s*24px minmax\(0, 1fr\);/);
+  assert.match(declarationsFor(css, ".now-block .answer .opt.sel"), /box-shadow:\s*inset 0 0 0 1\.5px var\(--mauve\);/);
+  assert.match(declarationsFor(css, ".now-block .answer .opt em"), /background:\s*var\(--green\);/);
   assert.match(
     declarationsFor(css, ".now-block .answer textarea"),
     /box-shadow:\s*inset 0 0 0 1px var\(--surface1\);/,

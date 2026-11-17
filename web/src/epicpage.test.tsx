@@ -94,8 +94,8 @@ function recorder(): { calls: string[]; commands: EpicCommands } {
     retry: () => {
       calls.push("retry");
     },
-    answer: async (questionId, text) => {
-      calls.push(`answer ${questionId} ${text}`);
+    answer: async (questionId, choice, text) => {
+      calls.push(`answer ${questionId} ${choice} ${text}`);
       return "";
     },
   };
@@ -117,6 +117,7 @@ async function withPage(
     now,
     loadArtifact: noArtifact,
     commands: recorder().commands,
+    numberKeys: true,
     onOpenContract: () => {},
     onBack: () => {},
     ...extra,
