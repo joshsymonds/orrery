@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
+import { EventRing, epicEventOf } from "./eventring";
 import { useFlash } from "./flash";
 import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
@@ -28,7 +29,8 @@ const toolRunMinimum = 3;
 // its place.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. A prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
+// a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. Any
+// other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step prompt.
 // With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
@@ -336,9 +338,10 @@ function ItemRow({
   onToggleOpen?: () => void;
   epicCalls?: EpicCalls;
 }) {
-  // Its row carries the owner-turn class, which sets the gap above it.
+  // Its row carries the owner-turn class, which sets the gap above it, unless the row is an epic's event ring.
+  const ringed = item.kind === "prompt" && epicCalls !== undefined && epicEventOf(item.text) !== null;
   return (
-    <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
+    <div class={ownersTurn(item, step) && !ringed ? "t owner-turn" : "t"}>
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
         <ItemBody
@@ -374,6 +377,12 @@ function ItemBody({
 }) {
   switch (item.kind) {
     case "prompt":
+      if (epicCalls !== undefined) {
+        const event = epicEventOf(item.text);
+        if (event !== null) {
+          return <EventRing event={event} calls={epicCalls} />;
+        }
+      }
       if (item.sender === "event") {
         return (
           <div class="event">

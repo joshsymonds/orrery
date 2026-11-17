@@ -5,7 +5,8 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
+import type { EpicCalls } from "./card";
+import { EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -20,6 +21,7 @@ import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
 import type { Sending } from "./sending";
 import { installTestDom, removeTestDom } from "./testdom";
+import { turn } from "./testwait";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
   return create(ConversationItemSchema, init);
@@ -708,6 +710,97 @@ test("a CallerEvent prompt in a step draws as an EVENT row, not as a step prompt
       assert.equal(container.querySelector(".you") === null, true, "the event is not YOU");
       assert.equal(container.querySelector("button.fold") === null, true, "the event is not an engine fold");
       assert.equal(container.querySelector(".card") === null, true, "the event is not a send-back card");
+    },
+  ));
+
+// ringEpic is the epic the event blocks in the EventRing tests name.
+const ringEpic = "orrery-1a2b3c4/planner-runner";
+
+// eventText is the block an epic's event carries, as the server writes it.
+function eventText(kind: string, tail: string): string {
+  return `<orrery-event kind="${kind}" id="epic:${ringEpic}:${tail}">\nEpic ${ringEpic} (Plan the runner) is done.\n</orrery-event>`;
+}
+
+// ringCalls are the epic calls an event ring reads through. The epic reads as one with no open question, so a question
+// event draws its settled line.
+function ringCalls(): EpicCalls {
+  const reading = create(EpicsGetResponseSchema, {
+    epic: create(EpicSchema, { id: ringEpic, slug: "planner-runner" }),
+  });
+  return {
+    get: async () => reading,
+    pause: () => Promise.resolve(),
+    resume: () => Promise.resolve(),
+    answer: async () => "",
+    openEpic: () => {},
+    tick: 1,
+  };
+}
+
+// withEventReader draws the reader over items with the ring's epic calls, lets the ring's read settle inside act, runs
+// check on the container, then removes the DOM.
+async function withEventReader(items: ConversationItem[], check: (container: HTMLElement) => void): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    await act(() => {
+      render(
+        <Reader conversation={conversation({ items })} seenAt={10_000} open={false} epicCalls={ringCalls()} />,
+        container,
+      );
+    });
+    await act(turn);
+    check(container);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    await removeTestDom(window);
+  }
+}
+
+test("EventRing: an orrery-event prompt of each kind draws one ringed line with the epic slug and no EVENT block", async () => {
+  for (const [kind, tail] of [
+    ["question", "Q1"],
+    ["park", "Q1"],
+    ["release", "released"],
+    ["end", "done"],
+  ]) {
+    await withEventReader(
+      [item({ kind: "prompt", time: 100n, sender: "event", text: eventText(kind, tail) })],
+      (container) => {
+        assert.equal(container.querySelectorAll(".ring-line").length, 1, `a ${kind} event draws one ringed line`);
+        assert.equal(container.querySelector(".ring-slug")?.textContent, "planner-runner");
+        assert.equal(container.querySelector(".event"), null, `a ${kind} event is not an EVENT row`);
+        const labels = [...container.querySelectorAll("small")].map((small) => small.textContent);
+        assert.equal(labels.includes("EVENT"), false, `a ${kind} event shows no EVENT label`);
+      },
+    );
+  }
+});
+
+test("EventRing: a pane prompt with the same text draws the ring too, and its row takes no owner's-turn gap", () =>
+  withEventReader(
+    [item({ kind: "prompt", time: 100n, text: eventText("release", "released") })],
+    (container) => {
+      assert.equal(container.querySelectorAll(".ring-line").length, 1, "the pane prompt draws its ring");
+      assert.equal(container.querySelector(".you"), null, "the pane prompt is not YOU");
+      assert.equal(container.querySelector(".t.owner-turn"), null, "the ring's row is not the owner's turn");
+    },
+  ));
+
+test("EventRing: an orrery-event prompt draws its EVENT row when the reader holds no epic calls", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "event", text: eventText("release", "released") })],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".ring-line"), null, "without epic calls the event draws no ring");
+      assert.equal(container.querySelector(".t > .body > .event > small")?.textContent, "EVENT");
     },
   ));
 

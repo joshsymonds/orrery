@@ -491,6 +491,29 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .epic-card .count { margin: 0; color: var(--overlay1); }
 .reader .epic-card .question { margin: 0; color: var(--peach); overflow-wrap: anywhere; }
 .reader .epic-card .card-controls { display: flex; gap: 6px; }
+/* An epic's event in a conversation: a ringed line with its kind's icon, the event's first sentence and the epic's slug.
+   Under it, while the event's question is open, the answer form the epic page draws; once the question is settled, a line
+   saying so. */
+.reader .event-ring { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.reader .event-ring .ring-line {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; margin: 0; padding: 3px 12px 4px 4px;
+  border: 1px solid var(--teal); border-radius: 999px; background: var(--mantle); color: var(--subtext1);
+  font: 12px/20px var(--mono); text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+.reader .event-ring .ring-icon {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--surface0); color: var(--teal);
+  font: 700 11px/20px var(--mono); text-align: center;
+}
+.reader .event-ring .ring-icon.question { color: var(--peach); }
+.reader .event-ring .ring-icon.park { color: var(--yellow); }
+.reader .event-ring .ring-icon.release { color: var(--green); }
+.reader .event-ring .ring-icon.end { color: var(--overlay1); }
+.reader .event-ring .ring-sentence {
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);
+}
+.reader .event-ring .ring-slug { flex: none; color: var(--blue); }
+.reader .event-ring .settled { margin: 0; color: var(--overlay1); }
+.reader .event-ring .answer .question { margin: 0; padding: 0; font: 700 14px/1.45 var(--mono); }
 
 /* The send foot's queue docks onto the composer under it: the queue's top corners and the composer's bottom corners are
    rounded, so the two read as one box. The head counts the rows quietly. A queued message is a ghost of the owner's

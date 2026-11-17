@@ -73,7 +73,7 @@ function isTextBox(element: Element | null): boolean {
 // selected, or while Something else is selected with blank text. It sends the choice's id with its does as the text,
 // or other with the trimmed text. With numberKeys on, a digit key selects the card it names, unless a text box has
 // focus. A returned error shows under the card and keeps the selection and the text; an empty return clears the text.
-function QuestionCard({
+export function QuestionCard({
   question,
   numberKeys,
   onAnswer,
