@@ -36,20 +36,21 @@ const (
 const stepPart = "step"
 
 // work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
-// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A sync run's
-// prepare merges origin's main, and its advance moves the epic's branch to that merge. A review or closure run's prepare
-// and start are its own. The work of a release run is carried out by release.
+// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch. A review or
+// closure run's prepare and start are its own. The work of a release run is carried out by release, and that of a sync
+// run by syncWork.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	if act.NodeKind == kindRelease {
+	switch act.NodeKind {
+	case kindRelease:
 		return r.release(ctx, epic, act, at)
+	case kindSync:
+		return r.syncWork(ctx, epic, act, at)
 	}
 	switch act.Work {
 	case kinds.ActPrepare:
 		switch act.NodeKind {
 		case kindIntegrate:
 			return r.prepareBatch(ctx, epic, act)
-		case kindSync:
-			return r.prepareSync(ctx, epic, act)
 		case reviewNodeKind:
 			return r.prepareReview(ctx, epic, act, at)
 		case closureNodeKind:
@@ -65,9 +66,6 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 	case kinds.ActRefs:
 		return r.checkRefs(ctx, epic, act, at)
 	case kinds.ActAdvance:
-		if act.NodeKind == kindSync {
-			return r.advanceSync(ctx, epic, act, at)
-		}
 		return r.advance(ctx, epic, act, at)
 	default:
 		return fmt.Errorf("work %s is not one the executor carries out", act.Work)

@@ -11,8 +11,8 @@ import (
 // syncPassed is the outcome of a sync run that advanced the epic's branch and stored base to its merge.
 const syncPassed = "passed"
 
-// SyncEnd is how a sync run of origin's main ends: the path and attempt of the run, its outcome and output, the commit of
-// origin's main its merge holds when it passed, and the text it tells, "" when it tells nothing.
+// SyncEnd is how a sync run of origin's main ends: the path and attempt of the run, its outcome and output, the commit
+// of origin's main its merge holds when it passed, and the text it tells, "" when it tells nothing.
 type SyncEnd struct {
 	Path    string
 	Attempt int64
@@ -22,17 +22,60 @@ type SyncEnd struct {
 	Tell    string
 }
 
-// PrepareSync stores result as the result of the running sync run at path of epic at attempt, and revision as its
-// revision, in one write. revision is the merge the sync made, "" when it made none. A run that already has a result, a
-// run at another attempt and a run that is not running change nothing, so the prepare is recorded once.
-func (s *Store) PrepareSync(ctx context.Context, epic, path string, attempt int64, revision, result string) error {
+// OriginRead is an epic's last read of origin's main, which a sync of origin's main starts from: the stored base it was
+// read for, origin's commit it found, "" when it found none, what it found of that commit, as the interpreter names it,
+// and when it was read, zero while origin's main was never read. Times are stored at whole seconds.
+type OriginRead struct {
+	Base   string
+	Commit string
+	State  string
+	At     time.Time
+}
+
+// originReadOf returns the read of origin's main a stored epic holds, its time zero when none is stored.
+func originReadOf(head sqlcgen.Epic) OriginRead {
+	read := OriginRead{Base: head.OriginReadBase, Commit: head.OriginReadCommit, State: head.OriginReadState}
+	if head.OriginReadAt != 0 {
+		read.At = time.Unix(head.OriginReadAt, 0)
+	}
+	return read
+}
+
+// RecordOriginRead stores read as the last read of origin's main of epic, in place of the one it held, in one write.
+func (s *Store) RecordOriginRead(ctx context.Context, epic string, read OriginRead) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := queries.PrepareEpicSyncRun(ctx, sqlcgen.PrepareEpicSyncRunParams{
+		return setOriginRead(ctx, queries, epic, read)
+	})
+}
+
+// setOriginRead stores read as the last read of origin's main of epic, in the caller's write.
+func setOriginRead(ctx context.Context, queries *sqlcgen.Queries, epic string, read OriginRead) error {
+	if err := queries.SetEpicOriginRead(ctx, sqlcgen.SetEpicOriginReadParams{
+		Base: read.Base, Commit: read.Commit, State: read.State, At: read.At.Unix(), ID: epic,
+	}); err != nil {
+		return fmt.Errorf("record read of origin's main of epic %s: %w", epic, err)
+	}
+	return nil
+}
+
+// PrepareSync stores result as the result of the running sync run at path of epic at attempt, and revision as its
+// revision, and stores read, the prepare's own read of origin's main, as the epic's last read, in one write. revision
+// is the merge the sync made, "" when it made none. A run that already has a result, a run at another attempt and a run
+// that is not running change nothing, the read among it, so the prepare is recorded once.
+func (s *Store) PrepareSync(
+	ctx context.Context, epic, path string, attempt int64, revision, result string, read OriginRead,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		prepared, err := queries.PrepareEpicSyncRun(ctx, sqlcgen.PrepareEpicSyncRunParams{
 			Revision: revision, Result: result, Epic: epic, Path: path, Attempt: attempt,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("prepare sync run %s of epic %s: %w", path, epic, err)
 		}
-		return nil
+		if prepared == 0 {
+			return nil
+		}
+		return setOriginRead(ctx, queries, epic, read)
 	})
 }
 

@@ -20,7 +20,7 @@ import (
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
 // 00019, 00028, 00030, 00035, 00036, 00037, 00038, 00040, 00041, 00043, 00044, 00049, 00051 and 00052 create, and of the
 // columns those migrations and 00020, 00021, 00022, 00025, 00029, 00033, 00034, 00035, 00039, 00040, 00042, 00044, 00045,
-// 00048, 00050, 00051, 00052 and 00053 add to epic tables.
+// 00048, 00050, 00051, 00052, 00053 and 00054 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -34,6 +34,8 @@ func epicTableColumns() map[string][]string {
 			"park_class",
 			// synced, the commit of origin's main the stored base last merged in a sync, is 00053_epic_synced.sql.
 			"synced",
+			// The epic's last read of origin's main, which a sync starts from, is 00054_origin_read.sql.
+			"origin_read_base", "origin_read_commit", "origin_read_state", "origin_read_at",
 		},
 		"epic_failures":  {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions": {"epic", "position", "location", "what", "why", "cost"},
@@ -530,10 +532,10 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00053_epic_synced.sql is the newest. The newest was
-	// 00052_evidence_amendments.sql before the sync of origin's main added 00053.
-	if version != 53 {
-		t.Fatalf("store version after Open = %d, want 53", version)
+	// Open applies 00014_epics.sql and every migration after it: 00054_origin_read.sql is the newest. The newest was
+	// 00053_epic_synced.sql before the sync's read of origin's main added 00054.
+	if version != 54 {
+		t.Fatalf("store version after Open = %d, want 54", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1244,6 +1246,10 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 			"",
 			"",
 			"",
+			"",
+			"",
+			"",
+			int64(0),
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},

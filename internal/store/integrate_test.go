@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -250,8 +251,8 @@ func TestEndBatchPassedMovesStoredBaseAndClearsCandidate(t *testing.T) {
 	)
 	pendingBefore := integratePending(t, s)
 
-	if err := s.PrepareNode(ctx, integrateEpic, failedPath, 1, "rev-1", "refs-1"); err != nil {
-		t.Fatalf("PrepareNode: %v", err)
+	if err := s.ClaimBatch(ctx, integrateEpic, failedPath, 1, "rev-1", "refs-1", retryComposed, nil); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
 	}
 	red := NodeTrigger{ID: "workflow:S1", Cause: "workflow node " + failedPath + " failed: red"}
 	if err := s.EndBatch(ctx, integrateEpic, failedPath, 1, "failed", "red", &red, integrateEndedAt()); err != nil {
@@ -303,9 +304,9 @@ func TestEndBatchPassedMovesStoredBaseAndClearsCandidate(t *testing.T) {
 		State: NodeEnded, Started: integrateStartedAt(), Ended: integrateEndedAt()})
 }
 
-// TestEndBatchFailedSetsCandidateUnlessRevisionIsStoredBase checks that a failed batch at a revision other than the
-// stored base sets the candidate to it, and a failed batch at the stored base leaves the candidate empty. A failed
-// batch with no trigger adds none.
+// TestEndBatchFailedSetsCandidateUnlessRevisionIsStoredBase checks that a failed batch that composed a task at a
+// revision other than the stored base sets the candidate to it, and a failed batch at the stored base leaves the
+// candidate empty. A failed batch with no trigger adds none.
 func TestEndBatchFailedSetsCandidateUnlessRevisionIsStoredBase(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -317,12 +318,10 @@ func TestEndBatchFailedSetsCandidateUnlessRevisionIsStoredBase(t *testing.T) {
 	)
 	pendingBefore := integratePending(t, s)
 
-	if err := s.PrepareNode(ctx, integrateEpic, atBase, 1, integrationBase, "refs-1"); err != nil {
-		t.Fatalf("PrepareNode: %v", err)
+	if err := s.ClaimBatch(ctx, integrateEpic, atBase, 1, integrationBase, "refs-1", retryComposed, nil); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
 	}
-	if err := s.EndBatch(
-		ctx, integrateEpic, atBase, 1, "failed", "nothing composed", nil, integrateEndedAt(),
-	); err != nil {
+	if err := s.EndBatch(ctx, integrateEpic, atBase, 1, "failed", "red", nil, integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch at the stored base: %v", err)
 	}
 	if row := integrateEpicRow(t, s); row.StoredBase != integrationBase || row.Candidate != "" {
@@ -330,8 +329,8 @@ func TestEndBatchFailedSetsCandidateUnlessRevisionIsStoredBase(t *testing.T) {
 			row.StoredBase, row.Candidate, integrationBase, "")
 	}
 
-	if err := s.PrepareNode(ctx, integrateEpic, moved, 1, "rev-3", "refs-2"); err != nil {
-		t.Fatalf("PrepareNode: %v", err)
+	if err := s.ClaimBatch(ctx, integrateEpic, moved, 1, "rev-3", "refs-2", retryComposed, nil); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
 	}
 	if err := s.EndBatch(ctx, integrateEpic, moved, 1, "failed", "red", nil, integrateEndedAt()); err != nil {
 		t.Fatalf("EndBatch at another revision: %v", err)
@@ -342,6 +341,47 @@ func TestEndBatchFailedSetsCandidateUnlessRevisionIsStoredBase(t *testing.T) {
 	}
 	if got := integratePending(t, s); got != pendingBefore {
 		t.Errorf("pending triggers after failed batches with no trigger = %d, want %d", got, pendingBefore)
+	}
+}
+
+// TestEndBatchFailedThatComposedNothingSetsNoCandidate checks that a failed batch whose result names no composed task
+// sets no candidate, whatever its revision: here the stored base the batch was composed on, which a sync of origin's
+// main moved past before the batch's retry ended it failed again, a result that is not JSON, and no result. A failed
+// batch that composed a task still sets its candidate.
+func TestEndBatchFailedThatComposedNothingSetsNoCandidate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	const composedNone = `{"base":"rev-0","candidate":"rev-0","composed":[],"leftOut":[{"task":1,"reason":"overlap"}]}`
+	cases := []struct{ path, revision, result string }{
+		{"plan/S1/integrate", "rev-0", composedNone},
+		{"plan/S2/integrate", "rev-5", "not json"},
+		{"plan/S3/integrate", "rev-6", ""},
+	}
+	for i, tc := range cases {
+		startIntegrateRuns(t, s, NodeRun{Path: tc.path, ID: fmt.Sprintf("id-c%d", i), Node: "integrate",
+			Kind: "integrate", Attempt: 1})
+		if err := s.ClaimBatch(ctx, integrateEpic, tc.path, 1, tc.revision, "refs", tc.result, nil); err != nil {
+			t.Fatalf("ClaimBatch %s: %v", tc.path, err)
+		}
+		if err := s.EndBatch(ctx, integrateEpic, tc.path, 1, "failed", "red", nil, integrateEndedAt()); err != nil {
+			t.Fatalf("EndBatch %s: %v", tc.path, err)
+		}
+		if row := integrateEpicRow(t, s); row.StoredBase != integrationBase || row.Candidate != "" {
+			t.Errorf("stored base and candidate after failed batch %s = %q and %q, want %q and none", tc.path,
+				row.StoredBase, row.Candidate, integrationBase)
+		}
+	}
+	const composed = "plan/S4/integrate"
+	startIntegrateRuns(t, s, NodeRun{Path: composed, ID: "id-c4", Node: "integrate", Kind: "integrate", Attempt: 1})
+	if err := s.ClaimBatch(ctx, integrateEpic, composed, 1, "rev-7", "refs", retryComposed, nil); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
+	}
+	if err := s.EndBatch(ctx, integrateEpic, composed, 1, "failed", "red", nil, integrateEndedAt()); err != nil {
+		t.Fatalf("EndBatch: %v", err)
+	}
+	if row := integrateEpicRow(t, s); row.Candidate != "rev-7" {
+		t.Errorf("candidate after a failed batch that composed a task = %q, want rev-7", row.Candidate)
 	}
 }
 

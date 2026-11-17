@@ -22,28 +22,67 @@ func startSyncRun(t *testing.T, s *Store) {
 	startIntegrateRuns(t, s, NodeRun{Path: syncRunPath, ID: "sync-run", Node: "sync", Kind: "sync"})
 }
 
-// TestPrepareSyncRecordsResultAndMergeOnce: the prepare stores the result and the merge as the revision in one write.
-// A repeat, a prepare at another attempt and one of a run that is not running change nothing.
+// syncRead returns the read of origin's main the sync write tests' prepare records: origin's commit at the epic's
+// stored base, which the prepare took, read when the run started.
+func syncRead() OriginRead {
+	return OriginRead{Base: integrationBase, Commit: syncOrigin, State: "taken", At: integrateStartedAt()}
+}
+
+// TestPrepareSyncRecordsResultAndMergeOnce: the prepare stores the result and the merge as the revision, and its read
+// of origin's main as the epic's, in one write. A repeat, a prepare at another attempt and one of a run that is not
+// running change nothing, the read among it.
 func TestPrepareSyncRecordsResultAndMergeOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	startSyncRun(t, s)
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 1, syncMerge, syncResult); err != nil {
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 1, syncMerge, syncResult, syncRead()); err != nil {
 		t.Fatalf("PrepareSync at another attempt: %v", err)
 	}
 	if run := integrateRun(t, s, syncRunPath); run.Result != "" || run.Revision != "" {
 		t.Fatalf("run = %+v after a prepare at another attempt, want it unprepared", run)
 	}
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult); err != nil {
+	if read := integrateEpicRow(t, s).OriginRead; read != (OriginRead{}) {
+		t.Fatalf("origin read = %+v after a prepare at another attempt, want none", read)
+	}
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult, syncRead()); err != nil {
 		t.Fatalf("PrepareSync: %v", err)
 	}
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, "", `{"base":"other"}`); err != nil {
+	again := OriginRead{Base: "other", State: "failed", At: integrateEndedAt()}
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, "", `{"base":"other"}`, again); err != nil {
 		t.Fatalf("PrepareSync repeated: %v", err)
 	}
 	run := integrateRun(t, s, syncRunPath)
 	if run.Result != syncResult || run.Revision != syncMerge {
 		t.Errorf("run = %+v, want the first prepare's result and merge", run)
+	}
+	if read := integrateEpicRow(t, s).OriginRead; read != syncRead() {
+		t.Errorf("origin read = %+v, want the first prepare's %+v", read, syncRead())
+	}
+}
+
+// TestRecordOriginReadKeepsTheLastRead: an epic that origin's main was never read for holds no read, its time zero. A
+// read is stored as it was read, at whole seconds, and the next read replaces it whole, its empty commit among it.
+func TestRecordOriginReadKeepsTheLastRead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	if read := integrateEpicRow(t, s).OriginRead; read != (OriginRead{}) || !read.At.IsZero() {
+		t.Fatalf("origin read = %+v before any read, want none", read)
+	}
+	ahead := OriginRead{Base: integrationBase, Commit: syncOrigin, State: "ahead", At: integrateStartedAt()}
+	if err := s.RecordOriginRead(ctx, integrateEpic, ahead); err != nil {
+		t.Fatalf("RecordOriginRead: %v", err)
+	}
+	if read := integrateEpicRow(t, s).OriginRead; read != ahead {
+		t.Errorf("origin read = %+v, want %+v", read, ahead)
+	}
+	failed := OriginRead{Base: syncMerge, State: "failed", At: integrateEndedAt()}
+	if err := s.RecordOriginRead(ctx, integrateEpic, failed); err != nil {
+		t.Fatalf("RecordOriginRead again: %v", err)
+	}
+	if read := epicFlowOf(t, s).Epic.OriginRead; read != failed {
+		t.Errorf("origin read the flow reads = %+v, want the last read %+v", read, failed)
 	}
 }
 
@@ -54,7 +93,7 @@ func TestEndSyncPassedMovesTheStoredBaseOnce(t *testing.T) {
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	startSyncRun(t, s)
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult); err != nil {
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult, syncRead()); err != nil {
 		t.Fatalf("PrepareSync: %v", err)
 	}
 	end := SyncEnd{Path: syncRunPath, Outcome: "passed", Output: "merged", Synced: syncOrigin}
@@ -94,7 +133,7 @@ func TestEndSyncFailedTellsAndMovesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openIntegrateStore(t)
 	startSyncRun(t, s)
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult); err != nil {
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult, syncRead()); err != nil {
 		t.Fatalf("PrepareSync: %v", err)
 	}
 	tell := "workflow node plan/M1 failed: " + strings.Repeat("x", TurnReasonMax)
@@ -151,7 +190,7 @@ func endSyncRuns(t *testing.T, s *Store) []NodeRun {
 	t.Helper()
 	ctx := context.Background()
 	startSyncRun(t, s)
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult); err != nil {
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult, syncRead()); err != nil {
 		t.Fatalf("PrepareSync: %v", err)
 	}
 	failed := SyncEnd{
@@ -266,7 +305,7 @@ func TestCloseEndsARunningSyncAndItsLaterWritesChangeNothing(t *testing.T) {
 		t.Fatalf("sync run = %+v after the close, want ended with no outcome", closed)
 	}
 
-	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult); err != nil {
+	if err := s.PrepareSync(ctx, integrateEpic, syncRunPath, 0, syncMerge, syncResult, syncRead()); err != nil {
 		t.Fatalf("PrepareSync after the close: %v", err)
 	}
 	for _, end := range []SyncEnd{

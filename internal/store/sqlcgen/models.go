@@ -73,6 +73,10 @@ type Epic struct {
 	SupersededBy     string
 	ParkClass        string
 	Synced           string
+	OriginReadBase   string
+	OriginReadCommit string
+	OriginReadState  string
+	OriginReadAt     int64
 }
 
 type EpicAddition struct {

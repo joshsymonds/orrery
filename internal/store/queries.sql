@@ -435,6 +435,12 @@ UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 -- name: SyncEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
 
+-- name: SetEpicOriginRead :exec
+UPDATE epics
+SET origin_read_base = sqlc.arg(base), origin_read_commit = sqlc.arg(commit), origin_read_state = sqlc.arg(state),
+    origin_read_at = sqlc.arg(at)
+WHERE id = sqlc.arg(id);
+
 -- name: SetEpicCandidate :exec
 UPDATE epics SET candidate = ? WHERE id = ?;
 
@@ -575,7 +581,7 @@ WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
 UPDATE epic_node_runs SET result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
 
--- name: PrepareEpicSyncRun :exec
+-- name: PrepareEpicSyncRun :execrows
 UPDATE epic_node_runs SET revision = ?, result = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND result = '';
 

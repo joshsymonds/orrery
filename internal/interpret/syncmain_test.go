@@ -97,15 +97,6 @@ func (w *syncWorld) forceOrigin(file string) string {
 	return nodeGit(w.t, clone, "rev-parse", "HEAD")
 }
 
-// uploadPack writes a shell script whose body is body under a temporary directory and makes it the program the test
-// repository's git runs for origin's side of a fetch or ls-remote, which a local origin runs as a child of git.
-func (w *integrateWorld) uploadPack(body string) {
-	w.t.Helper()
-	script := filepath.Join(w.t.TempDir(), "upload-pack")
-	exectest.WriteFile(w.t, script, []byte("#!/bin/sh\n"+body), 0o700)
-	w.git("config", "remote.origin.uploadpack", script)
-}
-
 // toSyncGate runs the first batch to its end with origin's main moved by a commit of origin.txt, which the pass that
 // ends the batch merges into the stored base and starts the sync's Done gate at. It returns the batch's candidate,
 // origin's commit and the sync run. The planner gets no turn in that pass.
@@ -193,6 +184,16 @@ func (w *integrateWorld) requireUnmoved(base string) {
 	}
 }
 
+// requireRead fails unless the test epic's last read of origin's main was made for the stored base base at the
+// runner's clock and found commit as state.
+func (w *integrateWorld) requireRead(base, commit, state string) {
+	w.t.Helper()
+	want := store.OriginRead{Base: base, Commit: commit, State: state, At: w.runner.now()}
+	if read := epicOf(w.t, w.s).OriginRead; read != want {
+		w.t.Errorf("origin read = %+v, want %+v", read, want)
+	}
+}
+
 // syncTells returns the tells of the test epic that name a sync run.
 func (w *integrateWorld) syncTells() []string {
 	w.t.Helper()
@@ -277,8 +278,8 @@ func TestSyncMergesOriginMainAtAQuietPoint(t *testing.T) {
 
 // TestSyncConflictTellsOnceAndIsNotTriedAgain: origin's main adds a path a task added too, so the merge conflicts. The
 // sync ends failed and tells the paths once, the branch and stored base stay, nothing is pinned, and the planner gets
-// its turn in the same pass. At the next quiet point origin's main has not moved, so the sync is skipped as tried, and
-// nothing more is told.
+// its turn in the same pass. At the next quiet point origin's main has not moved, so its read finds the commit the
+// first sync tried, no sync starts and no run is stored, and nothing more is told.
 func TestSyncConflictTellsOnceAndIsNotTriedAgain(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
@@ -309,9 +310,12 @@ func TestSyncConflictTellsOnceAndIsNotTriedAgain(t *testing.T) {
 	w.nextTurn(candidate, 3, 4, integrateNextBatch)
 	next := w.candidate(integrateNextBatch)
 	if !w.passed() {
-		t.Error("the planner got no turn after a sync skipped as tried")
+		t.Error("the planner got no turn at a quiet point whose origin commit a sync tried")
 	}
-	w.requireSyncEnded(syncSecond, "skipped", fmt.Sprintf("origin's commit %s was tried by %s", originHead, syncFirst))
+	if w.hasRunAt(syncSecond) {
+		t.Errorf("sync %s stored for origin's commit the first sync tried", syncSecond)
+	}
+	w.requireRead(next, originHead, originAhead)
 	w.requireUnmoved(next)
 	if tells := w.syncTells(); !reflect.DeepEqual(tells, want) {
 		t.Errorf("tells after the second quiet point = %q, want only the first %q", tells, want)
@@ -319,8 +323,8 @@ func TestSyncConflictTellsOnceAndIsNotTriedAgain(t *testing.T) {
 }
 
 // TestSyncGateFailureTellsAndALaterMainIsTried: a Done gate that fails at the merge ends the sync failed and tells it,
-// and the branch does not move. The same origin commit is not tried at the next quiet point: no gate runs for it. Once
-// origin's main moves, the next quiet point merges the new commit and advances to it.
+// and the branch does not move. The same origin commit is not tried at the next quiet point: no sync run is stored and
+// no gate runs for it. Once origin's main moves, the next quiet point merges the new commit and advances to it.
 func TestSyncGateFailureTellsAndALaterMainIsTried(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
@@ -346,7 +350,9 @@ func TestSyncGateFailureTellsAndALaterMainIsTried(t *testing.T) {
 	second := w.candidate(integrateNextBatch)
 	checks++ // The second batch's own Done gate.
 	w.pass()
-	w.requireSyncEnded(syncSecond, "skipped", fmt.Sprintf("origin's commit %s was tried by %s", originHead, syncFirst))
+	if w.hasRunAt(syncSecond) {
+		t.Errorf("sync %s stored for origin's commit the first sync tried", syncSecond)
+	}
 	if got := len(w.fakes.checks.calls); got != checks {
 		t.Errorf("%d checks run, want %d: the tried commit runs no gate again", got, checks)
 	}
@@ -391,19 +397,21 @@ func TestSyncCaptureRegressionTellsAndDoesNotAdvance(t *testing.T) {
 	}
 }
 
-// TestSyncSkipsOriginMainTheStoredBaseHolds: origin's main has not moved since the epic's base, so the stored base holds
-// it. The sync ends skipped in the pass that started it, runs no gate, tells nothing and moves nothing, and the planner
-// gets its turn in that pass.
-func TestSyncSkipsOriginMainTheStoredBaseHolds(t *testing.T) {
+// TestSyncStoresNoRunWhenTheStoredBaseHoldsOriginMain: origin's main has not moved since the epic's base, so the stored
+// base holds it. The quiet point reads origin's main, records that the stored base holds it, starts no sync and stores
+// no run, runs no gate, tells nothing and moves nothing, and the planner gets its turn in that pass.
+func TestSyncStoresNoRunWhenTheStoredBaseHoldsOriginMain(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
 	candidate := w.toCaptured()
 	checks := len(w.fakes.checks.calls)
 	if !w.passed() {
-		t.Error("the planner got no turn after a sync with nothing to merge")
+		t.Error("the planner got no turn when origin's main had nothing to merge")
 	}
-	w.requireSyncEnded(syncFirst, "skipped",
-		fmt.Sprintf("origin's commit %s is in the stored base %s", w.base, candidate))
+	if w.hasRunAt(syncFirst) {
+		t.Errorf("sync %s stored with nothing to merge", syncFirst)
+	}
+	w.requireRead(candidate, w.base, originHeld)
 	w.requireUnmoved(candidate)
 	if got := len(w.fakes.checks.calls); got != checks {
 		t.Errorf("%d checks run, want %d: nothing to merge runs no gate", got, checks)
@@ -413,25 +421,28 @@ func TestSyncSkipsOriginMainTheStoredBaseHolds(t *testing.T) {
 	}
 }
 
-// TestSyncWithNoOriginSkipsQuietly: a repository with no remote origin skips the sync with a note, logs nothing, tells
-// nothing, parks nothing, and the planner gets its turn.
-func TestSyncWithNoOriginSkipsQuietly(t *testing.T) {
+// TestSyncWithNoOriginStoresNoRun: a repository with no remote origin records that it has none, starts no sync, logs
+// nothing, tells nothing, parks nothing, and the planner gets its turn.
+func TestSyncWithNoOriginStoresNoRun(t *testing.T) {
 	t.Parallel()
 	w := newIntegrateWorld(t)
 	candidate := w.toCaptured()
 	if !w.passed() {
 		t.Error("the planner got no turn in a repository with no origin")
 	}
-	w.requireSyncEnded(syncFirst, "skipped", "the repository has no remote origin")
+	if w.hasRunAt(syncFirst) {
+		t.Errorf("sync %s stored in a repository with no origin", syncFirst)
+	}
+	w.requireRead(candidate, "", originNone)
 	w.requireUnmoved(candidate)
 	if tells := w.syncTells(); len(tells) != 0 {
 		t.Errorf("tells = %q, want none", tells)
 	}
 }
 
-// TestSyncFetchFailureSkipsAndLogs: an origin that cannot be fetched skips the sync with the error as its output and a
-// logged warning. Nothing is told or parked, and the planner gets its turn.
-func TestSyncFetchFailureSkipsAndLogs(t *testing.T) {
+// TestSyncReadThatFailsStoresNoRunAndLogs: an origin that cannot be read records a failed read and a logged warning,
+// and starts no sync. Nothing is told or parked, and the planner gets its turn.
+func TestSyncReadThatFailsStoresNoRunAndLogs(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
 	candidate := w.toCaptured()
@@ -439,48 +450,15 @@ func TestSyncFetchFailureSkipsAndLogs(t *testing.T) {
 	logs := &bytes.Buffer{}
 	w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
 	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
-		t.Error("the planner got no turn after a fetch failed")
+		t.Error("the planner got no turn after the read of origin's main failed")
 	}
-	run := runAt(t, w.s, syncFirst)
-	if run.State != store.NodeEnded || run.Outcome != "skipped" ||
-		!strings.HasPrefix(run.Output, "the sync did not run: git ls-remote --symref origin HEAD: ") {
-		t.Errorf("sync = %+v, want ended skipped on the failed fetch", run)
+	if w.hasRunAt(syncFirst) {
+		t.Errorf("sync %s stored when origin's main could not be read", syncFirst)
 	}
-	if !strings.Contains(logs.String(), "sync of origin's main did not run") {
-		t.Errorf("logs = %q, want the failed fetch logged", logs.String())
-	}
-	w.requireUnmoved(candidate)
-	if tells := w.syncTells(); len(tells) != 0 {
-		t.Errorf("tells = %q, want none", tells)
-	}
-}
-
-// TestSyncFetchThatStallsIsStoppedAtTheLimit: an origin that never answers holds the sync's prepare only for the
-// runner's sync limit. git is stopped then, with the upload-pack it started, and the sync ends skipped with the limit
-// named and a logged warning. Nothing is told or moved, and the planner gets its turn.
-func TestSyncFetchThatStallsIsStoppedAtTheLimit(t *testing.T) {
-	t.Parallel()
-	w := newSyncWorld(t)
-	candidate := w.toCaptured()
-	w.originCommit("origin.txt")
-	w.uploadPack("exec sleep 60\n")
-	w.runner.syncLimit = time.Second
-	logs := &bytes.Buffer{}
-	w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
-	started := time.Now()
-	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
-		t.Error("the planner got no turn after the fetch was stopped")
-	}
-	if took := time.Since(started); took > 30*time.Second {
-		t.Errorf("the pass took %s, want it cut at the limit, well before the stalled origin's 60s", took)
-	}
-	run := runAt(t, w.s, syncFirst)
-	if run.State != store.NodeEnded || run.Outcome != "skipped" ||
-		!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1s: git ") {
-		t.Errorf("sync = %+v, want ended skipped on git stopped at the limit", run)
-	}
-	if !strings.Contains(logs.String(), "sync of origin's main did not run") {
-		t.Errorf("logs = %q, want the stopped fetch logged", logs.String())
+	w.requireRead(candidate, "", originFailed)
+	if !strings.Contains(logs.String(), "origin's main was not read") ||
+		!strings.Contains(logs.String(), "git ls-remote --symref origin HEAD") {
+		t.Errorf("logs = %q, want the failed read logged", logs.String())
 	}
 	w.requireUnmoved(candidate)
 	if tells := w.syncTells(); len(tells) != 0 {
@@ -523,8 +501,8 @@ func TestFetchOriginNeverPrompts(t *testing.T) {
 // TestSyncSkipsOriginMainWithoutTheChangeBase: the epic's base is a commit on main that origin lacks, and origin's main
 // moves on from the commit the base was made on. The change from origin's commit would hold the base's own commit
 // beside the epic's, so the sync ends skipped in the pass that started it: it merges and pins nothing, runs no gate,
-// tells nothing and moves nothing, and the planner gets its turn. It tried no merge, so the next quiet point reads
-// origin's commit again and is not skipped as tried.
+// tells nothing and moves nothing, and the planner gets its turn. Its fetch brought origin's commit, so the next quiet
+// point's read finds that commit lacks the change base and starts no sync.
 func TestSyncSkipsOriginMainWithoutTheChangeBase(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorldAhead(t)
@@ -552,9 +530,12 @@ func TestSyncSkipsOriginMainWithoutTheChangeBase(t *testing.T) {
 	w.nextTurn(candidate, 3, 4, integrateNextBatch)
 	next := w.candidate(integrateNextBatch)
 	if !w.passed() {
-		t.Error("the planner got no turn after the second sync")
+		t.Error("the planner got no turn at the second quiet point")
 	}
-	w.requireSyncEnded(syncSecond, "skipped", output)
+	if w.hasRunAt(syncSecond) {
+		t.Errorf("sync %s stored for origin's commit that lacks the change base", syncSecond)
+	}
+	w.requireRead(next, originHead, originApart)
 	w.requireUnmoved(next)
 }
 
@@ -669,7 +650,7 @@ func TestSyncDoesNotAdvanceABusyEpic(t *testing.T) {
 }
 
 // TestSyncDoesNotAdvanceAMovedBranch: a branch another commit moved while the sync ran is not moved. The sync ends
-// failed and tells why, and the epic is not parked.
+// skipped and tells why, the epic is not parked, and origin's commit is not counted as tried.
 func TestSyncDoesNotAdvanceAMovedBranch(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
@@ -684,7 +665,7 @@ func TestSyncDoesNotAdvanceAMovedBranch(t *testing.T) {
 		"merge %s of origin's commit %s into the stored base %s\nnot advanced: epic/epic-runner moved: at %s, not "+
 			"the stored base %s", sync.Revision, originHead, candidate, moved, candidate,
 	)
-	w.requireSyncEnded(syncFirst, outcomeFailed, output)
+	w.requireSyncEnded(syncFirst, "skipped", output)
 	if epic := epicOf(t, w.s); epic.StoredBase != candidate || epic.Parked != "" || epic.Synced != "" {
 		t.Errorf("epic = stored base %q, parked %q, synced %q, want %q, not parked, none", epic.StoredBase,
 			epic.Parked, epic.Synced, candidate)
@@ -692,7 +673,7 @@ func TestSyncDoesNotAdvanceAMovedBranch(t *testing.T) {
 	if tip := w.git("rev-parse", integrateBranch); tip != moved {
 		t.Errorf("branch = %s, want it left at %s", tip, moved)
 	}
-	if tells := w.syncTells(); !reflect.DeepEqual(tells, []string{"workflow node plan/M1 failed: " + output}) {
+	if tells := w.syncTells(); !reflect.DeepEqual(tells, []string{"workflow node plan/M1 skipped: " + output}) {
 		t.Errorf("tells = %q, want the refused advance", tells)
 	}
 }
@@ -751,8 +732,10 @@ func TestSyncOnTheBuiltInEpicHoldsThePlannerAndEndsBuilt(t *testing.T) {
 	if epic := epicOf(t, s); epic.Phase != "built" || epic.Parked != "" {
 		t.Errorf("epic phase %q, parked %q, want built and not parked", epic.Phase, epic.Parked)
 	}
-	w.requireSyncEnded(syncSecond, "skipped", fmt.Sprintf("origin's commit %s is in the stored base %s", originHead,
-		merge))
+	if w.hasRunAt(syncSecond) {
+		t.Errorf("sync %s stored at the plan's end, when the stored base holds origin's main", syncSecond)
+	}
+	w.requireRead(merge, originHead, originHeld)
 }
 
 // TestOwnedReadsTheChangeFromTheSyncedCommit: an owned node of an epic whose stored base merged origin's main in a sync
@@ -773,7 +756,7 @@ func TestOwnedReadsTheChangeFromTheSyncedCommit(t *testing.T) {
 	if err := s.StartNodes(ctx, runEpic, []store.NodeRun{sync}, nil, runClock()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if err := s.PrepareSync(ctx, runEpic, syncFirst, 0, head, `{"base":"`+base+`"}`); err != nil {
+	if err := s.PrepareSync(ctx, runEpic, syncFirst, 0, head, `{"base":"`+base+`"}`, store.OriginRead{}); err != nil {
 		t.Fatalf("PrepareSync: %v", err)
 	}
 	end := store.SyncEnd{Path: syncFirst, Outcome: outcomePassed, Synced: originHead}
@@ -799,12 +782,12 @@ var errSyncWrite = errors.New("disk full")
 
 // PrepareSync fails while failing is set, and writes otherwise.
 func (f *failingSyncStore) PrepareSync(
-	ctx context.Context, epic, path string, attempt int64, revision, result string,
+	ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
 ) error {
 	if f.failing {
 		return errSyncWrite
 	}
-	return f.Store.PrepareSync(ctx, epic, path, attempt, revision, result)
+	return f.Store.PrepareSync(ctx, epic, path, attempt, revision, result, read)
 }
 
 // EndSync fails while failing is set, and writes otherwise.
@@ -929,7 +912,7 @@ func (w *integrateWorld) carryOut(action store.PlannerAction) {
 // woken only by the batch before it. The planner's next turn returns a retry_node of the node sync. While that action
 // is pending, the quiet point that turn opens starts no sync, and the plan keeps its run. The action is refused, since
 // a sync run never parks and is no integrate run, and the failed sync is kept as it ended. Once the action is carried
-// out the quiet point syncs, and skips origin's commit the first sync tried.
+// out the quiet point starts no sync either, since origin's commit is the one the first sync tried.
 func TestFailedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
@@ -979,9 +962,11 @@ func TestFailedSyncRoutesNoParkAndNoSyncRunsWhileAnActionIsPending(t *testing.T)
 	}
 
 	if !w.passed() {
-		t.Error("the planner got no turn once the skipped sync ended")
+		t.Error("the planner got no turn once the action was carried out")
 	}
-	w.requireSyncEnded(syncSecond, "skipped", fmt.Sprintf("origin's commit %s was tried by %s", originHead, syncFirst))
+	if w.hasRunAt(syncSecond) {
+		t.Errorf("sync %s stored for origin's commit the first sync tried", syncSecond)
+	}
 	w.requireUnmoved(candidate)
 	if got := w.syncTells(); !reflect.DeepEqual(got, tells) {
 		t.Errorf("tells after the skipped sync = %q, want only the first %q", got, tells)
@@ -1058,12 +1043,12 @@ type closingSyncStore struct {
 
 // PrepareSync closes the epic as abandoned by its owner, then writes the prepare.
 func (c *closingSyncStore) PrepareSync(
-	ctx context.Context, epic, path string, attempt int64, revision, result string,
+	ctx context.Context, epic, path string, attempt int64, revision, result string, read store.OriginRead,
 ) error {
 	if _, err := c.closer.CloseEpic(ctx, epic, "abandoned", "", store.CloserOwner, runClock()); err != nil {
 		return fmt.Errorf("close epic %s: %w", epic, err)
 	}
-	return c.Store.PrepareSync(ctx, epic, path, attempt, revision, result)
+	return c.Store.PrepareSync(ctx, epic, path, attempt, revision, result, read)
 }
 
 // TestSyncCloseWhileItPreparesEndsItAndStartsNothingMore: the owner closes the epic while its sync prepares. The close

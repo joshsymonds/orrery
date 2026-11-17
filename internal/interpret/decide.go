@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/kinds"
@@ -16,24 +17,26 @@ import (
 // ActionKind names what the interpreter does for an epic's workflow.
 type ActionKind string
 
-// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch, ActSync and ActParkEpic change
-// the node runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the review. ActWork
-// hands a check, sync or release node run's work to the interpreter, and ActRun hands a node run to its kind.
+// The actions Decide returns. ActStart, ActEnd, ActRound, ActPark, ActParkNode, ActBatch, ActSync and ActParkEpic
+// change the node runs or the epic in the store, and so do ActHold, ActReview, ActClosure and ActConclude for the
+// review. ActWork hands a check, sync or release node run's work to the interpreter, and ActRun hands a node run to its
+// kind. ActReadOrigin reads origin's main for a sync and records the read on the epic.
 const (
-	ActStart    ActionKind = "start"
-	ActEnd      ActionKind = "end"
-	ActRound    ActionKind = "round"
-	ActPark     ActionKind = "park"
-	ActParkNode ActionKind = "park_node"
-	ActParkEpic ActionKind = "park_epic"
-	ActBatch    ActionKind = "batch"
-	ActSync     ActionKind = "sync"
-	ActHold     ActionKind = "hold"
-	ActReview   ActionKind = "review"
-	ActClosure  ActionKind = "closure"
-	ActConclude ActionKind = "conclude"
-	ActWork     ActionKind = "work"
-	ActRun      ActionKind = "run"
+	ActStart      ActionKind = "start"
+	ActEnd        ActionKind = "end"
+	ActRound      ActionKind = "round"
+	ActPark       ActionKind = "park"
+	ActParkNode   ActionKind = "park_node"
+	ActParkEpic   ActionKind = "park_epic"
+	ActBatch      ActionKind = "batch"
+	ActSync       ActionKind = "sync"
+	ActReadOrigin ActionKind = "read_origin"
+	ActHold       ActionKind = "hold"
+	ActReview     ActionKind = "review"
+	ActClosure    ActionKind = "closure"
+	ActConclude   ActionKind = "conclude"
+	ActWork       ActionKind = "work"
+	ActRun        ActionKind = "run"
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
@@ -51,7 +54,7 @@ const (
 // pauses the epic for the review step IDs[0], stopped for Reason. Review ends the review run at Path, whose Attempt
 // ended with Output, Verdicts and Ledger. Closure ends the closure run at Path, whose Attempt ended with Outcome and
 // Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path, whose Attempt ended with Phase and
-// Output.
+// Output. ReadOrigin carries nothing: it reads origin's main for the epic it was decided for.
 type Action struct {
 	Kind        ActionKind
 	Runs        []store.NodeRun
@@ -97,11 +100,33 @@ const (
 )
 
 // The kind of a sync run, the node id it is stored under, and the cause its id is derived from. A sync run is no node
-// of the workflow: the interpreter adds it under a plan run (syncMain).
+// of the workflow: the interpreter adds it under a plan run (syncMain). A free turn, which a turn the planner could not
+// start or that a restart cut ends as, is no turn a sync is keyed by.
 const (
 	kindSync  = "sync"
 	syncNode  = "sync"
 	syncCause = "sync"
+	turnFree  = "free"
+)
+
+// syncInterval is how long an epic's read of origin's main stands for the stored base it was read for. Origin's main is
+// read for a sync at most once in that time for one stored base, a read that failed among it, so origin that cannot be
+// reached is tried again only once it has passed. Its age is measured by the runner's clock against the read's stored
+// time, so a restart keeps it.
+const syncInterval = 5 * time.Minute
+
+// What an epic's read of origin's main found of origin's commit, as the epic's last read stores it. A read finds the
+// repository with no remote origin (originNone), fails (originFailed), finds origin's commit in the stored base
+// (originHeld), finds it does not hold the epic's change base (originApart), or finds it ahead of the stored base
+// (originAhead), which a sync starts from. The prepare of a sync stores its own read, and one that took origin's commit
+// for a merge stores originTaken, so the read it started from starts no second sync.
+const (
+	originNone   = "none"
+	originFailed = "failed"
+	originHeld   = "held"
+	originApart  = "apart"
+	originAhead  = "ahead"
+	originTaken  = "taken"
 )
 
 // The kinds of the end-of-epic review nodes. Each ends with an action of its own.
@@ -307,9 +332,12 @@ func (p pass) plan(def workflow.Node, run store.NodeRun, act kinds.Action) []Act
 
 // syncMain decides the sync of origin's main under a running plan run, and reports whether the sync holds the plan. A
 // running sync run under the plan is decided by the sync kind, and holds the plan until it ends. Otherwise, once the
-// plan's walks have settled and the epic is at a quiet point (quiet), a sync run starts at <plan path>/M<turn>, where
-// <turn> is the epic's highest turn seq, unless a run is stored there already: one sync is tried for each turn. A sync
-// that starts holds the plan too. An interpreter that registers no sync kind starts none.
+// plan's walks have settled and the epic is at a quiet point (quiet), a sync is due unless a run is stored at <plan
+// path>/M<turn>, where <turn> is the epic's highest turn that is not free (syncTurn): one sync is tried for each such
+// turn. A due sync reads origin's main first when the epic's last read is stale (originStale), which holds the plan
+// while it reads. A sync run starts at that path only when the last read found origin's commit ahead of the stored base
+// and no earlier sync tried that commit (kinds.SyncTriedBy), and it holds the plan too. Any other read starts nothing,
+// so a turn whose origin's main has not moved stores no run. An interpreter that registers no sync kind starts none.
 func (p pass) syncMain(def workflow.Node, run store.NodeRun, settled bool) ([]Action, bool) {
 	kind, ok := p.reg[kindSync]
 	if !ok {
@@ -321,8 +349,15 @@ func (p pass) syncMain(def workflow.Node, run store.NodeRun, settled bool) ([]Ac
 	if !settled || !p.quiet(def, run) {
 		return nil, false
 	}
-	path := syncPath(run.Path, p.highestTurn())
+	path := syncPath(run.Path, p.syncTurn())
 	if _, stored := p.byPath[path]; stored {
+		return nil, false
+	}
+	if p.originStale() {
+		return []Action{{Kind: ActReadOrigin}}, true
+	}
+	read := p.rows.Epic.OriginRead
+	if read.State != originAhead || kinds.SyncTriedBy(p.rows, read.Commit) != "" {
 		return nil, false
 	}
 	child := store.NodeRun{
@@ -330,6 +365,28 @@ func (p pass) syncMain(def workflow.Node, run store.NodeRun, settled bool) ([]Ac
 		Round: run.Round,
 	}
 	return []Action{{Kind: ActStart, Runs: []store.NodeRun{child}}}, true
+}
+
+// syncTurn returns the highest seq among the epic's turns that are not free, zero when it has none. A free turn ends a
+// turn the planner could not start, such as one a full step cap refused, or one a restart cut, and the planner claims
+// another at its next pass, so a key of the highest seq would start a sync for each of them.
+func (p pass) syncTurn() int64 {
+	var highest int64
+	for _, turn := range p.rows.Epic.Turns {
+		if turn.State != turnFree {
+			highest = max(highest, turn.Seq)
+		}
+	}
+	return highest
+}
+
+// originStale reports whether the epic's last read of origin's main no longer stands: it was read for another stored
+// base, or syncInterval has passed since it was read, by the rows' clock. A read stored later than that clock, which a
+// clock set back leaves, is stale too, so the next read stores the clock's time.
+func (p pass) originStale() bool {
+	read := p.rows.Epic.OriginRead
+	age := p.rows.Now.Sub(read.At)
+	return read.Base != p.rows.Epic.StoredBase || age < 0 || age >= syncInterval
 }
 
 // syncPath returns the path of the sync run of the plan at path for turn.
@@ -347,7 +404,7 @@ func (p pass) runningSync(path string) (store.NodeRun, bool) {
 	return store.NodeRun{}, false
 }
 
-// decideSync decides a running sync run with kind. An end ends the run, telling its output when it ended failed. The
+// decideSync decides a running sync run with kind. An end ends the run, telling its output when the kind tells it. The
 // prepare, the checks at the merge and the advance are its work.
 func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 	def := workflow.Node{ID: syncNode, Kind: kindSync}
@@ -355,8 +412,8 @@ func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 	switch act.Kind {
 	case kinds.ActEnd:
 		end := Action{Kind: ActSync, Path: run.Path, Attempt: run.Attempt, Outcome: act.Outcome, Output: act.Output}
-		if act.Outcome == outcomeFailed {
-			end.Reason = syncTell(run.Path, act.Output)
+		if act.Tell {
+			end.Reason = syncTell(run.Path, act.Outcome, act.Output)
 		}
 		return []Action{end}
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActAdvance:
@@ -366,9 +423,9 @@ func (p pass) decideSync(kind kinds.Kind, run store.NodeRun) []Action {
 	}
 }
 
-// syncTell returns the tell of the sync run at path that ended failed with output.
-func syncTell(path, output string) string {
-	return fmt.Sprintf("workflow node %s failed: %s", path, output)
+// syncTell returns the tell of the sync run at path that ended with outcome and output.
+func syncTell(path, outcome, output string) string {
+	return fmt.Sprintf("workflow node %s %s: %s", path, outcome, output)
 }
 
 // quiet reports whether the epic is at a quiet point of the plan run of def: the plan's body holds an integrate node, a

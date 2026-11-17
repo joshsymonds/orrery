@@ -26,11 +26,12 @@ const releaseRemote = "origin"
 const remoteKillGrace = 2 * time.Second
 
 // The exit statuses that answer a question rather than fail. merge-base --is-ancestor exits notAncestor for a commit
-// that is not an ancestor, and merge-tree --write-tree exits mergeConflict when the merge conflicts, with the conflicted
-// paths on its stdout.
+// that is not an ancestor, merge-tree --write-tree exits mergeConflict when the merge conflicts, with the conflicted
+// paths on its stdout, and rev-parse --verify --quiet exits noCommit for a commit the repository does not have.
 const (
 	notAncestor   = 1
 	mergeConflict = 1
+	noCommit      = 1
 )
 
 // prepareRelease carries out the prepare of a release run. A run with no Result works out its candidate, records the
@@ -108,10 +109,24 @@ func decideRelease(ctx context.Context, epic store.EpicRow, run store.NodeRun) (
 }
 
 // fetchOrigin fetches origin's default branch into ref of epic's repository, and returns the branch and the commit the
-// ref names. The default branch is the one origin's HEAD names. A release fetches into its origin ref, and a sync of
-// origin's main into its own. It reads origin with remoteOutput.
+// ref names. The default branch is the one origin's HEAD names (lsRemoteHead). A release fetches into its origin ref,
+// and a sync of origin's main into its own, each git it runs for at most its own limit (Runner.fetchMain).
 func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, string, error) {
-	listing, err := remoteOutput(ctx, epic.Repository, "ls-remote", "--symref", releaseRemote, "HEAD")
+	branch, _, err := lsRemoteHead(ctx, epic.Repository)
+	if err != nil {
+		return "", "", err
+	}
+	commit, err := fetchBranch(ctx, epic, branch, ref)
+	if err != nil {
+		return "", "", err
+	}
+	return branch, commit, nil
+}
+
+// lsRemoteHead reads origin of repo with git ls-remote --symref origin HEAD (remoteOutput), and returns origin's
+// default branch, the one its HEAD names, and the commit its HEAD names. It fetches nothing.
+func lsRemoteHead(ctx context.Context, repo string) (string, string, error) {
+	listing, err := remoteOutput(ctx, repo, "ls-remote", "--symref", releaseRemote, "HEAD")
 	if err != nil {
 		return "", "", err
 	}
@@ -119,17 +134,27 @@ func fetchOrigin(ctx context.Context, epic store.EpicRow, ref string) (string, s
 	if err != nil {
 		return "", "", err
 	}
-	fetchSpec := "+" + branch + ":" + ref
-	if _, err = remoteOutput(
-		ctx, epic.Repository, "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", releaseRemote, fetchSpec,
-	); err != nil {
-		return "", "", err
-	}
-	commit, err := gitOutput(ctx, epic.Repository, "rev-parse", "--verify", ref+"^{commit}")
+	commit, err := headCommit(listing)
 	if err != nil {
 		return "", "", err
 	}
-	return branch, strings.TrimSpace(commit), nil
+	return branch, commit, nil
+}
+
+// fetchBranch fetches branch of origin into ref of epic's repository (remoteOutput), and returns the commit the ref
+// names.
+func fetchBranch(ctx context.Context, epic store.EpicRow, branch, ref string) (string, error) {
+	fetchSpec := "+" + branch + ":" + ref
+	if _, err := remoteOutput(
+		ctx, epic.Repository, "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", releaseRemote, fetchSpec,
+	); err != nil {
+		return "", err
+	}
+	commit, err := gitOutput(ctx, epic.Repository, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(commit), nil
 }
 
 // remoteOutput runs git in dir as gitOutput does, for a command that reads origin. git never prompts for a username or
@@ -164,6 +189,18 @@ func defaultBranch(listing string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("git ls-remote --symref %s HEAD names no default branch", releaseRemote)
+}
+
+// headCommit returns the commit that origin's HEAD names, read from the output of ls-remote --symref: the line that
+// names HEAD and is not the line of its symref.
+func headCommit(listing string) (string, error) {
+	for _, line := range strings.Split(listing, "\n") {
+		commit, name, found := strings.Cut(line, "\t")
+		if found && name == "HEAD" && !strings.HasPrefix(commit, "ref: ") && commit != "" {
+			return commit, nil
+		}
+	}
+	return "", fmt.Errorf("git ls-remote --symref %s HEAD names no commit", releaseRemote)
 }
 
 // isAncestor reports whether ancestor is an ancestor of descendant in repo. A commit that is not one is an answer, not a

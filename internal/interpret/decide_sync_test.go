@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -26,8 +27,14 @@ func syncKinds() map[string]kinds.Kind {
 	}
 }
 
+// decideNow is the time of the runner's clock the sync cases decide at.
+func decideNow() time.Time {
+	return time.Unix(1700005000, 0)
+}
+
 // quietRows returns the rows of an epic at a quiet point: turn 1 planned tasks 1 and 2, the batch of the settle walk of
 // task 2 claimed both and passed at c1, and the stored base is c1. The plan runs, since turn 1 did not end the plan.
+// The epic's last read of origin's main, a minute before the rows' clock, found origin's commit o1 ahead of c1.
 func quietRows() kinds.Rows {
 	batch := ended(attempted(startOf(batchPath, "integrate", "integrate", 0), 0), outcomePassed)
 	batch.Revision = "c1"
@@ -37,6 +44,10 @@ func quietRows() kinds.Rows {
 		runningPlan(0), batch,
 	)
 	rows.Epic.StoredBase = "c1"
+	rows.Now = decideNow()
+	rows.Epic.OriginRead = store.OriginRead{
+		Base: "c1", Commit: "o1", State: originAhead, At: decideNow().Add(-time.Minute),
+	}
 	return rows
 }
 
@@ -56,14 +67,100 @@ func runsPlan(acts []Action) bool {
 }
 
 // TestDecideSyncStartsAtAQuietPointAndHoldsThePlanner: once the batch of the latest walk passed, nothing is open or
-// unbatched and the epic is free, the plan starts its sync run at <plan path>/M<highest turn> and gives the plan no run,
-// so the planner gets no turn before the sync.
+// unbatched, the epic is free and its read of origin's main, which still stands, found origin's commit ahead of the
+// stored base, the plan starts its sync run at <plan path>/M<highest turn> and gives the plan no run, so the planner
+// gets no turn before the sync.
 func TestDecideSyncStartsAtAQuietPointAndHoldsThePlanner(t *testing.T) {
 	t.Parallel()
 	got := Decide(syncFlow(), quietRows(), syncKinds())
 	want := []Action{{Kind: ActStart, Runs: []store.NodeRun{syncRun("")}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Decide() = %+v, want %+v", got, want)
+	}
+}
+
+// TestDecideSyncReadsOriginWhenTheReadIsStale: at a quiet point a sync is due, and the epic's read of origin's main no
+// longer stands: there is none, it was read for another stored base, the sync interval has passed since it, or it is
+// later than the rows' clock, which a clock set back leaves. The plan reads origin's main and holds the plan while it
+// does, so neither the planner nor a sync starts on the read that no longer stands. A read just inside the interval
+// still stands.
+func TestDecideSyncReadsOriginWhenTheReadIsStale(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		apply func(read *store.OriginRead)
+	}{
+		{"no read", func(read *store.OriginRead) { *read = store.OriginRead{} }},
+		{"a read for another stored base", func(read *store.OriginRead) { read.Base = "c0" }},
+		{"a read the interval has passed since", func(read *store.OriginRead) {
+			read.At = decideNow().Add(-syncInterval)
+		}},
+		{"a read later than the clock", func(read *store.OriginRead) { read.At = decideNow().Add(time.Second) }},
+		{"a failed read the interval has passed since", func(read *store.OriginRead) {
+			read.State, read.Commit, read.At = originFailed, "", decideNow().Add(-syncInterval-time.Second)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rows := quietRows()
+			tc.apply(&rows.Epic.OriginRead)
+			if got := Decide(syncFlow(), rows, syncKinds()); !reflect.DeepEqual(got, []Action{{Kind: ActReadOrigin}}) {
+				t.Errorf("Decide() = %+v, want only the read of origin's main", got)
+			}
+		})
+	}
+	rows := quietRows()
+	rows.Epic.OriginRead.At = decideNow().Add(-syncInterval + time.Second)
+	if got := Decide(syncFlow(), rows, syncKinds()); !startsAt(got, syncPathOne) {
+		t.Errorf("Decide() with a read inside the interval = %+v, want the sync started", got)
+	}
+}
+
+// TestDecideSyncStartsOnlyOnAReadAhead: a read that stands and found origin's commit in the stored base, lacking the
+// change base, with no origin, failed, or taken by a sync's prepare starts no sync and stores no run, and the plan
+// keeps its run. Nor does a read ahead whose commit an earlier sync tried. A commit an earlier sync skipped is tried
+// again.
+func TestDecideSyncStartsOnlyOnAReadAhead(t *testing.T) {
+	t.Parallel()
+	tried := ended(store.NodeRun{Path: "plan/M0", Kind: "sync"}, outcomeFailed)
+	tried.Result = `{"origin":"o1","base":"c0","conflicts":["a.go"]}`
+	skipped := ended(store.NodeRun{Path: "plan/M0", Kind: "sync"}, "skipped")
+	skipped.Result = `{"origin":"o1","base":"c1","merge":"m1"}`
+	cases := []struct {
+		name  string
+		apply func(rows *kinds.Rows)
+	}{
+		{"origin's commit is in the stored base", func(rows *kinds.Rows) { rows.Epic.OriginRead.State = originHeld }},
+		{"origin's commit lacks the change base", func(rows *kinds.Rows) { rows.Epic.OriginRead.State = originApart }},
+		{"the repository has no origin", func(rows *kinds.Rows) {
+			rows.Epic.OriginRead.State, rows.Epic.OriginRead.Commit = originNone, ""
+		}},
+		{"the read failed", func(rows *kinds.Rows) {
+			rows.Epic.OriginRead.State, rows.Epic.OriginRead.Commit = originFailed, ""
+		}},
+		{"a sync's prepare took origin's commit", func(rows *kinds.Rows) {
+			rows.Epic.OriginRead.State = originTaken
+		}},
+		{"an earlier sync tried origin's commit", func(rows *kinds.Rows) { rows.Runs = append(rows.Runs, tried) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rows := quietRows()
+			tc.apply(&rows)
+			got := Decide(syncFlow(), rows, syncKinds())
+			if startsAt(got, syncPathOne) || !runsPlan(got) || slices.ContainsFunc(got, func(act Action) bool {
+				return act.Kind == ActReadOrigin
+			}) {
+				t.Errorf("Decide() = %+v, want the plan's run and no sync nor read", got)
+			}
+		})
+	}
+	rows := quietRows()
+	rows.Runs = append(rows.Runs, skipped)
+	if got := Decide(syncFlow(), rows, syncKinds()); !startsAt(got, syncPathOne) || runsPlan(got) {
+		t.Errorf("Decide() after a skipped sync of origin's commit = %+v, want the sync started again", got)
 	}
 }
 
@@ -91,9 +188,9 @@ func TestDecideRunningSyncIsDecidedAndHoldsThePlan(t *testing.T) {
 	}
 }
 
-// TestDecideSyncEndTellsOnlyAFailure: a sync run that ends failed ends with its output told, and one that ends skipped
-// tells nothing. Neither writes a trigger, so neither wakes the planner a second time.
-func TestDecideSyncEndTellsOnlyAFailure(t *testing.T) {
+// TestDecideSyncEndTellsWhatTheKindTells: a sync run that ends failed ends with its output told, and one that ends
+// skipped with nothing to tell tells nothing. Neither writes a trigger, so neither wakes the planner a second time.
+func TestDecideSyncEndTellsWhatTheKindTells(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name, result, outcome, output, tell string
@@ -242,5 +339,28 @@ func TestDecideSyncKeyIsTheHighestTurn(t *testing.T) {
 	rows.Runs = append(rows.Runs, ended(syncRun(""), "skipped"))
 	if got := Decide(syncFlow(), rows, syncKinds()); !startsAt(got, "plan/M2") || runsPlan(got) {
 		t.Errorf("Decide() = %+v, want the sync of turn 2 started and the plan held", got)
+	}
+}
+
+// TestDecideSyncKeyIsTheHighestTurnThatIsNotFree: turns that ended free, as a full step cap's refusals and a restart's
+// cut turns end, key no sync of their own, so the quiet point after them is still that of turn 1, whose sync is stored,
+// and nothing starts or reads origin's main while the planner's turns keep being freed. A turn that failed is a turn
+// the planner ran, and keys a sync of its own.
+func TestDecideSyncKeyIsTheHighestTurnThatIsNotFree(t *testing.T) {
+	t.Parallel()
+	rows := quietRows()
+	rows.Epic.Turns = append(rows.Epic.Turns,
+		store.EpicTurn{Seq: 2, State: turnFree}, store.EpicTurn{Seq: 3, State: turnFree})
+	rows.Runs = append(rows.Runs, ended(syncRun(""), "skipped"))
+	rows.Epic.OriginRead = store.OriginRead{}
+	got := Decide(syncFlow(), rows, syncKinds())
+	if !runsPlan(got) || slices.ContainsFunc(got, func(act Action) bool {
+		return act.Kind == ActReadOrigin || act.Kind == ActStart
+	}) {
+		t.Errorf("Decide() after freed turns = %+v, want the plan's run and no sync nor read", got)
+	}
+	rows.Epic.Turns = append(rows.Epic.Turns, store.EpicTurn{Seq: 4, State: "failed"})
+	if got = Decide(syncFlow(), rows, syncKinds()); !reflect.DeepEqual(got, []Action{{Kind: ActReadOrigin}}) {
+		t.Errorf("Decide() after a failed turn = %+v, want the read of origin's main for the sync of turn 4", got)
 	}
 }
