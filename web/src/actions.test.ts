@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
 
-import { answer, markSeen, newPromptId, pullQueued, send } from "./actions";
+import { answer, interrupt, markSeen, newPromptId, pullQueued, send, withdraw } from "./actions";
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
 import { ConversationStateSchema, OpenRequestSchema } from "./gen/orrery/v1/orrery_pb";
@@ -49,6 +49,7 @@ const openConversation: Conversation = {
   oldest: 0n,
   more: false,
   unfinished: [],
+  held: [],
   state: create(ConversationStateSchema, {
     request: create(OpenRequestSchema, {
       id: "req-7",
@@ -196,6 +197,45 @@ test("pullQueued on a session resolves empty and sends nothing", async () => {
   const text = await pullQueued(clients, sessionRow);
   assert.equal(text, "");
   assert.equal(calls.length, 0);
+});
+
+test("withdraw on a session calls Control.Withdraw with every held message and resolves their texts in order", async () => {
+  const { clients, calls } = fakeClients(() => okJSON({ texts: ["first", "second"] }));
+  const texts = await withdraw(clients, sessionRow);
+  assert.deepEqual(texts, ["first", "second"]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/Withdraw");
+  assert.deepEqual(calls[0].body, { id: "s1" }, "an empty prompt id is left off the wire");
+});
+
+test("withdraw on a session with nothing held resolves no texts", async () => {
+  const { clients } = fakeClients(() => okJSON({}));
+  assert.deepEqual(await withdraw(clients, sessionRow), []);
+});
+
+test("withdraw on a pane resolves its pulled text as one message, and none when the pull is empty", async () => {
+  const { clients, calls } = fakeClients();
+  assert.deepEqual(await withdraw(clients, paneRow), ["queued"]);
+  assert.equal(calls[0].path, pullPath);
+  assert.deepEqual(calls[0].body, { pane: "%3" });
+  const empty = fakeClients(() => okJSON({ text: "" }));
+  assert.deepEqual(await withdraw(empty.clients, paneRow), []);
+});
+
+test("interrupt on a session calls Control.Interrupt with the session id", async () => {
+  const { clients, calls } = fakeClients();
+  await interrupt(clients, sessionRow);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/Interrupt");
+  assert.deepEqual(calls[0].body, { id: "s1" });
+});
+
+test("interrupt on a pane sends the Escape key to it, and no question is expected", async () => {
+  const { clients, calls } = fakeClients();
+  await interrupt(clients, paneRow);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Panes/SendKeys");
+  assert.deepEqual(calls[0].body, { pane: "%3", keys: ["Escape"] });
 });
 
 test("a failed call rejects and is not repeated", async () => {

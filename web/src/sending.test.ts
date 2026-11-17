@@ -4,8 +4,13 @@ import { test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 
 import type { Conversation } from "./conversation";
-import { ConversationItemSchema, ConversationStateSchema, type ConversationItem } from "./gen/orrery/v1/orrery_pb";
-import { sendingEntry, unsentEntries, type Sending } from "./sending";
+import {
+  ConversationItemSchema,
+  ConversationStateSchema,
+  HeldMessageSchema,
+  type ConversationItem,
+} from "./gen/orrery/v1/orrery_pb";
+import { sendingEntry, unsentEntries, withoutTexts, type Sending } from "./sending";
 
 function prompt(text: string, promptId = ""): ConversationItem {
   return create(ConversationItemSchema, { kind: "prompt", text, promptId, time: 100n });
@@ -15,7 +20,11 @@ function reply(text: string): ConversationItem {
   return create(ConversationItemSchema, { kind: "reply", text, time: 101n });
 }
 
-function held(items: ConversationItem[]): Conversation {
+function heldMessage(promptId: string, text: string) {
+  return create(HeldMessageSchema, { promptId, text });
+}
+
+function held(items: ConversationItem[], heldSet: Conversation["held"] = []): Conversation {
   return {
     transcript: "t1",
     seq: 1n,
@@ -24,6 +33,7 @@ function held(items: ConversationItem[]): Conversation {
     more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
+    held: heldSet,
   };
 }
 
@@ -42,6 +52,12 @@ test("a session's entry with the same text under another prompt id is unsent", (
   const entries = [entry("fix the build", "p2")];
   const conversation = held([prompt("fix the build", "p1")]);
   assert.deepEqual(unsentEntries(entries, conversation, "session"), entries);
+});
+
+test("a session's entry is sent once its prompt id is in the held set, and is still unsent for another id", () => {
+  const entries = [entry("fix the build", "p1"), entry("run the tests", "p2")];
+  const conversation = held([], [heldMessage("p1", "fix the build")]);
+  assert.deepEqual(unsentEntries(entries, conversation, "session"), [entries[1]]);
 });
 
 test("a pane's entry is sent once a prompt with its text is held after the item the send began after", () => {
@@ -93,4 +109,15 @@ test("sendingEntry anchors a send to the newest item held when it began, and to 
     text: "fix",
     after: undefined,
   });
+});
+
+test("withoutTexts takes one entry for each text, in order, and matches text trimmed", () => {
+  const entries = [entry("fix", "p1"), entry("tests", "p2"), entry("fix", "p3")];
+  assert.deepEqual(withoutTexts(entries, [" fix\n", "tests"]), [entries[2]]);
+});
+
+test("withoutTexts returns the same array when no text matches", () => {
+  const entries = [entry("fix", "p1")];
+  assert.equal(withoutTexts(entries, ["other"]), entries);
+  assert.equal(withoutTexts(entries, []), entries);
 });

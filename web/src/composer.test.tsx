@@ -5,9 +5,9 @@ import { create } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
-import { Composer } from "./composer";
+import { type ComposerHandle, Composer } from "./composer";
 import { flashMillis } from "./flash";
-import { WaitingMessageSchema, type WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import { HeldMessageSchema, WaitingMessageSchema, type WaitingMessage } from "./gen/orrery/v1/orrery_pb";
 import type { SentText } from "./sending";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -768,6 +768,47 @@ test("a pane's queued message with the text a send drew above the box is drawn o
         ],
         "a canceled message with the same text does not stand for the sent one",
       );
+    },
+  );
+});
+
+test("a held message draws one queued row, and the local entry the held set carries under its prompt id is dropped", async () => {
+  await withRerenderableComposer(
+    { state: "working", send: async () => {}, newPromptId: () => "p1" },
+    async (box, container, rerender) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      assert.equal(queuedRows(container).length, 1, "the sent message is queued");
+      await rerender({ held: [create(HeldMessageSchema, { promptId: "p1", text: "hello" })] });
+      assert.deepEqual(queuedRows(container), [{ tag: "queued", words: queuedWords, text: "hello", canceled: false }]);
+    },
+  );
+});
+
+test("the page's handle appends returned texts after the box's text, joined by blank lines, and forgets the local entries they match", async () => {
+  const handles: ComposerHandle[] = [];
+  await withComposer(
+    {
+      state: "working",
+      send: async () => {},
+      newPromptId: () => "p1",
+      register: (handle) => {
+        if (handle !== null) handles.push(handle);
+      },
+    },
+    async (box, container) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      await type(box, "draft");
+      const [handle] = handles;
+      await act(() => {
+        handle.append(["one", "two"]);
+        handle.forget(["hello"]);
+      });
+      assert.equal(box.value, "draft\n\none\n\ntwo");
+      assert.deepEqual(queuedRows(container), [], "the forgotten message leaves the queue");
     },
   );
 });

@@ -326,3 +326,35 @@ test("a message sent from the dock draws as a sending row until its stored promp
     assert.equal(container.querySelector(".reader .sending-row") === null, true, "a sent message that left never draws again");
   });
 });
+
+test("a message the dock's target holds draws as one queued row, and no sending row", { timeout: 2000 }, async (t) => {
+  const server = new FakeServer();
+  await withDock(server, {}, async (container) => {
+    server.emit(0, { transcript: "t1", seq: "5", reset: true, items: [], state: { session: { state: "working" } } });
+    const box = container.querySelector<HTMLTextAreaElement>("textarea");
+    assert.ok(box, "the dock has a composer");
+    await act(() => {
+      box.value = "held from the dock";
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(() => {
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", cancelable: true }));
+    });
+    await rendered(t.signal, () => server.says.length === 1, "the say");
+    const promptId = String(server.says[0].promptId);
+    await rendered(t.signal, () => container.querySelector(".reader .sending-row") !== null, "the sending row");
+    server.emit(0, {
+      transcript: "t1",
+      seq: "6",
+      items: [],
+      state: { session: { state: "stopped" } },
+      held: [{ promptId, text: "held from the dock" }],
+    });
+    await rendered(t.signal, () => container.querySelector(".reader .sending-row") === null, "the sending row leaves");
+    assert.deepEqual(
+      [...container.querySelectorAll(".compose .queue li .text")].map((text) => text.textContent),
+      ["held from the dock"],
+      "the held message draws one queued row",
+    );
+  });
+});

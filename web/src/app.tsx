@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preac
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
-import { Composer } from "./composer";
+import { type ComposerHandle, Composer } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
 import { EpicLine } from "./epicline";
@@ -36,7 +36,7 @@ import { type ParsedQuestion, parseQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
-import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries } from "./sending";
+import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
@@ -51,6 +51,13 @@ type View = "attention" | "project";
 interface Stream {
   key: string;
   conversation: Conversation;
+}
+
+// The row an Escape acts on: the row, the column whose composer holds the key, and the row's state at the press.
+interface EscapeTarget {
+  row: Row;
+  column: "cursor" | "pinned";
+  state: string;
 }
 
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
@@ -123,6 +130,8 @@ const noDirectoryTitle = "no directory";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
+const takeBackFailedText = "could not take the queued messages back";
+const interruptFailedText = "could not interrupt";
 const commandFailedText = "epic command failed";
 const sessionUnavailableText = "session unavailable";
 // The most entries one page of an epic's history asks for.
@@ -197,6 +206,9 @@ export function App({
   const inputRef = useRef<HTMLInputElement>(null);
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const stepInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The handles of the cursor's and the pinned row's composers, by row key, which an Escape calls.
+  const composerHandles = useRef(new Map<string, ComposerHandle>());
+  const pinnedHandles = useRef(new Map<string, ComposerHandle>());
   // The row | pinned beside the list, with its own stream. The rows that have been pinned each keep a composer, as the
   // visited rows do, so a draft or a failed send survives the pin's close and its reopening on that row.
   const [pinned, setPinned] = useState<Row | null>(null);
@@ -216,6 +228,8 @@ export function App({
   const [seenEpics, setSeenEpics] = useState<Set<string>>(() => new Set());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
+  const [escapeError, setEscapeError] = useState("");
   // Whether the accepted, waiting epics are open under their line. They start closed.
   const [waitingOpen, setWaitingOpen] = useState(false);
   // Whether the folded epics are open under their line. They start closed.
@@ -581,6 +595,53 @@ export function App({
       }
       return new Map(previous).set(rowKey, entries.filter((entry) => entry.promptId !== promptId));
     });
+  // dropTaken removes the texts an Escape took back from the row: its sending entries, its held messages on each of its
+  // streams, and the local queued entry each of its composers holds. A stream's next delta then replaces its held set
+  // with the server's own.
+  const dropTaken = (key: string, texts: string[]) => {
+    setSendingByRow((previous) => withoutSent(previous, key, texts));
+    const dropHeld = (current: Stream | null): Stream | null => {
+      if (current === null || current.key !== key) {
+        return current;
+      }
+      const held = withoutTexts(current.conversation.held, texts);
+      return { ...current, conversation: { ...current.conversation, held } };
+    };
+    setStream(dropHeld);
+    setPinStream(dropHeld);
+    composerHandles.current.get(key)?.forget(texts);
+    pinnedHandles.current.get(key)?.forget(texts);
+  };
+  // escapeRow takes back a row's queued messages: their texts go to the column's composer after the text it holds, and
+  // the row's sending and held entries for them are dropped. The row is then interrupted when it was working at the
+  // press. A failed take back shows its line, and the interrupt still goes out. The composer keeps focus when it
+  // interrupted or took messages back, and otherwise leaves it, as Escape does.
+  const escapeRow = async (target: EscapeTarget, box: HTMLElement | null): Promise<void> => {
+    const { row, column, state } = target;
+    const interrupting = state === stateWorking;
+    const failures: string[] = [];
+    let texts: string[] = [];
+    try {
+      texts = await actions.withdraw(clients, row);
+    } catch {
+      failures.push(takeBackFailedText);
+    }
+    if (texts.length > 0) {
+      dropTaken(row.key, texts);
+      (column === "pinned" ? pinnedHandles : composerHandles).current.get(row.key)?.append(texts);
+    }
+    if (interrupting) {
+      try {
+        await actions.interrupt(clients, row);
+      } catch {
+        failures.push(interruptFailedText);
+      }
+    }
+    setEscapeError(failures.join(" "));
+    if (box !== null && !interrupting && texts.length === 0) {
+      box.blur();
+    }
+  };
   const toggleOpen = () => setOpen((value) => !value);
   const toggleMeters = () => setMetersOpen((value) => !value);
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
@@ -708,6 +769,18 @@ export function App({
     document.querySelector<HTMLElement>(".b-row.cur")?.focus();
   };
 
+  // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
+  // state at the press. A step's box, the talk dock's box and any other box are none.
+  const replyBoxTarget = (box: HTMLElement): EscapeTarget | null => {
+    if (cursorRow !== null && composerInputs.current.get(cursorRow.key) === box) {
+      return { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) };
+    }
+    if (pinned !== null && pinnedInputs.current.get(pinned.key) === box) {
+      return { row: pinned, column: "pinned", state: headState(pinned, pinnedConversation?.state?.pane) };
+    }
+    return null;
+  };
+
   const handleKey = (event: KeyboardEvent) => {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
@@ -722,11 +795,18 @@ export function App({
       }
       return;
     }
-    // Keys typed in a text box are text: only Escape leaves it. That covers the reply boxes and the answer box.
+    // Keys typed in a text box are text: only Escape leaves it. That covers the reply boxes and the answer box. Escape
+    // in the cursor's or the pinned row's reply box takes its queued messages back, as Escape outside a box does; any
+    // other box is only left.
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
       if (event.key === "Escape") {
-        focused.blur();
+        const target = replyBoxTarget(focused);
+        if (target === null) {
+          focused.blur();
+        } else {
+          void escapeRow(target, focused);
+        }
       }
       return;
     }
@@ -827,6 +907,12 @@ export function App({
         setHelpOpen((open) => !open);
         break;
       case "Escape":
+        if (!helpOpen && cursorRow !== null) {
+          void escapeRow(
+            { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) },
+            null,
+          );
+        }
         setHelpOpen(false);
         return;
       default:
@@ -976,6 +1062,11 @@ export function App({
             {answerError !== "" && (
               <p class="error" role="alert">
                 {answerError}
+              </p>
+            )}
+            {escapeError !== "" && (
+              <p class="error" role="alert">
+                {escapeError}
               </p>
             )}
             {commandError !== "" && (
@@ -1188,7 +1279,9 @@ export function App({
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
+                  register={(handle) => registerHandle(composerHandles, row.key, handle)}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
+                  held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1253,7 +1346,9 @@ export function App({
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
+                  register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
+                  held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
                   onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
                   onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
@@ -1429,6 +1524,34 @@ function pruneSent(
     } else {
       next.set(key, kept);
     }
+  }
+  return next;
+}
+
+// registerHandle keeps a composer's handle under its row key while the composer is mounted, and drops it on null.
+function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: string, handle: ComposerHandle | null) {
+  if (handle === null) {
+    handles.current.delete(key);
+  } else {
+    handles.current.set(key, handle);
+  }
+}
+
+// withoutSent drops the texts from the sending entries of one row, and returns previous itself when none is dropped.
+function withoutSent(previous: Map<string, Sending[]>, key: string, texts: string[]): Map<string, Sending[]> {
+  const entries = previous.get(key);
+  if (entries === undefined) {
+    return previous;
+  }
+  const kept = withoutTexts(entries, texts);
+  if (kept === entries) {
+    return previous;
+  }
+  const next = new Map(previous);
+  if (kept.length === 0) {
+    next.delete(key);
+  } else {
+    next.set(key, kept);
   }
   return next;
 }

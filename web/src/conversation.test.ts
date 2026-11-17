@@ -7,6 +7,7 @@ import {
   ConversationItemSchema,
   ConversationStateSchema,
   EngineTextSchema,
+  HeldMessageSchema,
   OlderResponseSchema,
   SessionsOlderResponseSchema,
   SessionsWatchConversationResponseSchema,
@@ -14,6 +15,7 @@ import {
   type ConversationItem,
   type ConversationState,
   type EngineText,
+  type HeldMessage,
   type OlderResponse,
   type SessionsOlderResponse,
   type SessionsWatchConversationResponse,
@@ -55,6 +57,10 @@ function texts(conversation: Conversation): string[] {
   return conversation.items.map((item) => item.text);
 }
 
+function makeHeld(promptId: string, text: string): HeldMessage {
+  return create(HeldMessageSchema, { promptId, text });
+}
+
 function held(init: Partial<Conversation> = {}): Conversation {
   return {
     transcript: "t1",
@@ -64,6 +70,7 @@ function held(init: Partial<Conversation> = {}): Conversation {
     more: false,
     state: makeState({ goal: "ship" }),
     unfinished: [makeUnfinished("partial")],
+    held: [],
     ...init,
   };
 }
@@ -282,6 +289,49 @@ test("a session delta appends, replaces unfinished, keeps state when unset, and 
   assert.equal(keptAlive.seq, 6n);
 });
 
+test("a session reset holds the held set the delta carries", () => {
+  const next = applyDelta(
+    null,
+    sessionDelta({
+      transcript: "s1",
+      seq: 4n,
+      reset: true,
+      items: [makeItem("a")],
+      held: [makeHeld("p1", "first"), makeHeld("p2", "second")],
+    }),
+  );
+
+  assert.deepEqual(next.held, [makeHeld("p1", "first"), makeHeld("p2", "second")]);
+});
+
+test("a session delta replaces the held set with its own, even an empty one, and a keepalive keeps the items", () => {
+  const start = applyDelta(
+    null,
+    sessionDelta({ transcript: "s1", seq: 4n, items: [makeItem("a")], held: [makeHeld("p1", "first")] }),
+  );
+
+  const grown = applyDelta(
+    start,
+    sessionDelta({ transcript: "s1", seq: 5n, held: [makeHeld("p1", "first"), makeHeld("p2", "second")] }),
+  );
+  assert.deepEqual(grown.held, [makeHeld("p1", "first"), makeHeld("p2", "second")]);
+  assert.deepEqual(texts(grown), ["a"]);
+
+  const taken = applyDelta(grown, sessionDelta({ transcript: "s1", seq: 6n, held: [makeHeld("p2", "second")] }));
+  assert.deepEqual(taken.held, [makeHeld("p2", "second")]);
+
+  const emptied = applyDelta(taken, sessionDelta({ transcript: "s1", seq: 7n }));
+  assert.deepEqual(emptied.held, []);
+  assert.deepEqual(texts(emptied), ["a"]);
+});
+
+test("a pane delta holds no messages, whatever the held set held before", () => {
+  const before = held({ held: [makeHeld("p1", "first")] });
+  const next = applyDelta(before, paneDelta({ transcript: "t1", seq: 6n, items: [makeItem("b")] }));
+
+  assert.deepEqual(next.held, []);
+});
+
 test("prependOlder puts an older page's items before the held items", () => {
   const before = held({ items: [makeItem("two"), makeItem("three")], oldest: 50n, more: true });
 
@@ -325,7 +375,17 @@ test("prependOlder takes a session page the same way", () => {
 test("prependOlder leaves the transcript, seq, state and unfinished set as they were", () => {
   const state = makeState({ goal: "kept" });
   const unfinished = [makeUnfinished("typing")];
-  const before = held({ transcript: "t7", seq: 13n, state, unfinished, items: [makeItem("two")], oldest: 50n, more: true });
+  const heldSet = [makeHeld("p1", "waiting")];
+  const before = held({
+    transcript: "t7",
+    seq: 13n,
+    state,
+    unfinished,
+    held: heldSet,
+    items: [makeItem("two")],
+    oldest: 50n,
+    more: true,
+  });
 
   const next = prependOlder(before, olderPage({ items: [makeItem("one")], oldest: 20n, more: true }));
 
@@ -333,4 +393,5 @@ test("prependOlder leaves the transcript, seq, state and unfinished set as they 
   assert.equal(next.seq, 13n);
   assert.equal(next.state, state);
   assert.equal(next.unfinished, unfinished);
+  assert.equal(next.held, heldSet);
 });

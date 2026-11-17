@@ -1,0 +1,401 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { create } from "@bufbuild/protobuf";
+import { render } from "preact";
+import { act } from "preact/test-utils";
+
+import { App } from "./app";
+import { createClients, createTransport } from "./client";
+import { epicsView, type EpicsView } from "./epics";
+import { EpicSchema, EpicStepSchema } from "./gen/orrery/v1/epics_pb";
+import type { Row } from "./rows";
+import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { pause, until as waitUntil } from "./testwait";
+
+// Escape over the fake transport: the App takes a working row's queued messages back and interrupts it, and a row that
+// is waiting is never interrupted. Each test's name carries the token EscapeInterrupt.
+
+const now = 1000;
+const queuedText = "queued words";
+const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
+const sayPath = "/orrery.v1.Control/Say";
+const withdrawPath = "/orrery.v1.Control/Withdraw";
+const interruptPath = "/orrery.v1.Control/Interrupt";
+const pullPath = "/orrery.v1.Panes/PullQueued";
+const sendKeysPath = "/orrery.v1.Panes/SendKeys";
+const takeBackFailedText = "could not take the queued messages back";
+const widgetsRepo = "widgets-5d0c1a7";
+
+type Clients = ReturnType<typeof createClients>;
+
+// One request the fake server received. A unary call has no controller; a stream call has one until it ends.
+interface Call {
+  path: string;
+  body: Record<string, unknown>;
+  controller: ReadableStreamDefaultController<Uint8Array> | null;
+}
+
+// FakeServer answers the App's calls on the Connect wire: unary calls with JSON, and WatchConversation with a stream the
+// test feeds through emit. Every call is recorded, and a unary path answers with its queued reply, else an empty one.
+class FakeServer {
+  readonly calls: Call[] = [];
+  // failNext holds the unary paths whose next call the server fails with a Connect error, once each.
+  readonly failNext = new Set<string>();
+  // replies queues the bodies a unary path answers with, one per call in order.
+  readonly replies = new Map<string, object[]>();
+
+  readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    // A call's signal is the one the transport passed, so a stream that the App stops is not fed afterwards.
+    const signal = init?.signal ?? request.signal;
+    const path = new URL(request.url).pathname;
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (!path.endsWith("/WatchConversation")) {
+      this.calls.push({ path, body: decodeUnary(bytes), controller: null });
+      if (this.failNext.delete(path)) {
+        return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return json(this.replies.get(path)?.shift() ?? (path === pullPath ? { text: queuedText } : {}));
+    }
+    const call: Call = { path, body: decodeEnvelope(bytes), controller: null };
+    this.calls.push(call);
+    signal.addEventListener("abort", () => {
+      call.controller = null;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        call.controller = controller;
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
+  };
+
+  readonly clients: Clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: this.fetch }));
+
+  callsTo(path: string): Call[] {
+    return this.calls.filter((call) => call.path === path);
+  }
+
+  emit(call: Call, message: object): void {
+    if (call.controller === null) {
+      throw new Error(`the stream to ${call.path} has ended`);
+    }
+    call.controller.enqueue(envelope(0, message));
+  }
+
+  closeStreams(): void {
+    for (const call of this.calls) {
+      if (call.controller !== null) {
+        call.controller.enqueue(envelope(2, {}));
+        call.controller.close();
+        call.controller = null;
+      }
+    }
+  }
+}
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function decodeUnary(bytes: Uint8Array): Record<string, unknown> {
+  return bytes.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(bytes));
+}
+
+// decodeEnvelope reads the one message of a streamed request: a flag byte, a 4-byte length, and the JSON payload.
+function decodeEnvelope(bytes: Uint8Array): Record<string, unknown> {
+  const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1);
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(5, 5 + length)));
+}
+
+function envelope(flag: number, message: object): Uint8Array {
+  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const bytes = new Uint8Array(5 + payload.byteLength);
+  bytes[0] = flag;
+  new DataView(bytes.buffer).setUint32(1, payload.byteLength);
+  bytes.set(payload, 5);
+  return bytes;
+}
+
+// row is a synthetic row over the given fields. Its changed and seen times are equal, so it reads as seen and arms no
+// seen dwell.
+function row(init: Partial<Row> & Pick<Row, "key">): Row {
+  return {
+    id: init.key,
+    kind: "pane",
+    label: init.key,
+    project: "/work/app",
+    host: "box",
+    state: "working",
+    summary: "",
+    question: "",
+    questionHash: "",
+    changed: 0,
+    seen: 0,
+    unseen: false,
+    ...init,
+  };
+}
+
+const paneRow = row({ key: "a", label: "api", state: "working", changed: 300, seen: 300 });
+const sessionRow = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  project: "",
+  host: "",
+  state: "working",
+  changed: 30,
+  seen: 30,
+});
+
+// oneEpic is a live epic with two running steps, and no detail.
+function oneEpic(): EpicsView {
+  const step = (id: string) => create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false });
+  const epic = create(EpicSchema, {
+    id: `${widgetsRepo}/first`,
+    repository: widgetsRepo,
+    slug: "first",
+    outcome: "",
+    live: true,
+    runningSteps: [step("s1"), step("s2")],
+  });
+  return epicsView([epic], new Map());
+}
+
+async function press(key: string): Promise<void> {
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+  });
+}
+
+async function pressIn(element: Element, key: string): Promise<void> {
+  await act(() => {
+    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
+  await act(() => {
+    box.value = text;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// until waits as the app tests' until does: each round runs one pause inside act, so the renders it lets through apply.
+function until(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
+  return waitUntil(signal, check, what, { step: () => act(pause) });
+}
+
+// withApp mounts the App over a fake server in a fresh DOM and runs check. The App is unmounted, its streams closed and
+// the DOM removed when the test ends, or as soon as the test's signal aborts first.
+async function withApp(
+  signal: AbortSignal,
+  props: { rows: Row[]; epics?: EpicsView },
+  check: (container: HTMLElement, fake: FakeServer) => Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const fake = new FakeServer();
+  const teardown = teardownOnce(signal, async () => {
+    await act(() => {
+      render(null, container);
+    });
+    fake.closeStreams();
+    container.remove();
+    await removeTestDom(window);
+  });
+  try {
+    await act(() => {
+      render(<App rows={props.rows} error="" now={now} clients={fake.clients} epics={props.epics} />, container);
+    });
+    await check(container, fake);
+  } finally {
+    await teardown();
+  }
+}
+
+function composer(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  assert.ok(box, "the reader has a composer");
+  return box;
+}
+
+function cursorKey(container: HTMLElement): string | null {
+  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+}
+
+// queueTexts is the text of each message in the cursor's queue above its box, oldest first, without its tag.
+function queueTexts(container: HTMLElement): string[] {
+  return Array.from(
+    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    (text) => text.textContent ?? "",
+  );
+}
+
+function sendingRowCount(container: HTMLElement): number {
+  return container.querySelectorAll('[aria-label="reader"] .sending-row').length;
+}
+
+function alertTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
+}
+
+// emitHeld waits for the cursor's session stream to open, then sends a delta whose held set is held, and waits until
+// the cursor's queue draws each held message.
+async function emitHeld(
+  signal: AbortSignal,
+  container: HTMLElement,
+  fake: FakeServer,
+  held: { promptId: string; text: string }[],
+): Promise<void> {
+  await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+  fake.emit(fake.callsTo(sessionWatchPath)[0], { transcript: "s1.jsonl", seq: "1", reset: true, items: [], held });
+  await until(signal, () => queueTexts(container).length === held.length, "the held messages' queued rows");
+}
+
+// sendFromComposer types text into the cursor's composer and sends it with Enter, then waits for its Say and its
+// sending row. It returns the prompt id the Say carried.
+async function sendFromComposer(
+  signal: AbortSignal,
+  container: HTMLElement,
+  fake: FakeServer,
+  text: string,
+): Promise<string> {
+  await press("i");
+  await typeInto(composer(container), text);
+  await pressIn(composer(container), "Enter");
+  await until(signal, () => fake.callsTo(sayPath).length === 1, "the say");
+  await until(signal, () => sendingRowCount(container) === 1, "the sending row");
+  return String(fake.callsTo(sayPath)[0].body.promptId);
+}
+
+test("EscapeInterrupt: Escape on a working headless session withdraws its held messages into the composer in order, before it calls Control.Interrupt", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    const [withdraw] = fake.callsTo(withdrawPath);
+    const [interrupt] = fake.callsTo(interruptPath);
+    assert.ok(fake.calls.indexOf(withdraw) < fake.calls.indexOf(interrupt), "the withdraw came before the interrupt");
+    assert.deepEqual(withdraw.body, { id: "s1" }, "the withdraw names the session and every held message");
+    assert.deepEqual(interrupt.body, { id: "s1" });
+    assert.equal(composer(container).value, "first\n\nsecond");
+  }));
+
+test("EscapeInterrupt: Escape on a working pane pulls its queued input into the composer, then sends the Escape key", (t) =>
+  withApp(t.signal, { rows: [paneRow] }, async (container, fake) => {
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(sendKeysPath).length === 1, "the Escape key");
+    const [pull] = fake.callsTo(pullPath);
+    const [sendKeys] = fake.callsTo(sendKeysPath);
+    assert.ok(fake.calls.indexOf(pull) < fake.calls.indexOf(sendKeys), "the pull came before the key");
+    assert.deepEqual(sendKeys.body, { pane: "a", keys: ["Escape"] });
+    assert.equal(composer(container).value, queuedText);
+  }));
+
+test("EscapeInterrupt: Escape on a waiting session calls no Control.Interrupt", (t) =>
+  withApp(t.signal, { rows: [{ ...sessionRow, state: "waiting" }] }, async (container, fake) => {
+    await press("i");
+    await pressIn(composer(container), "Escape");
+    await until(t.signal, () => document.activeElement !== composer(container), "the blur after the withdraw");
+    assert.equal(fake.callsTo(withdrawPath).length, 1, "the held messages were still asked for");
+    assert.equal(fake.callsTo(interruptPath).length, 0, "a waiting session is not interrupted");
+  }));
+
+test("EscapeInterrupt: Escape in a step's box calls neither Control.Interrupt nor Control.Withdraw", (t) =>
+  withApp(t.signal, { rows: [], epics: oneEpic() }, async (container, fake) => {
+    await press("j");
+    assert.equal(cursorKey(container), "step:s1");
+    await press("i");
+    const box = composer(container);
+    assert.equal(document.activeElement === box, true);
+    await pressIn(box, "Escape");
+    assert.equal(document.activeElement === box, false, "Escape leaves the step's box");
+    assert.equal(fake.callsTo(withdrawPath).length, 0);
+    assert.equal(fake.callsTo(interruptPath).length, 0);
+  }));
+
+test("EscapeInterrupt: composer text already present is kept ahead of the returned messages", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    await press("i");
+    await typeInto(composer(container), "draft");
+    await pressIn(composer(container), "Escape");
+    await until(t.signal, () => composer(container).value !== "draft", "the returned messages");
+    assert.equal(composer(container).value, "draft\n\nfirst\n\nsecond");
+  }));
+
+test("EscapeInterrupt: a held message from the stream draws one queued row and no sending row", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    const promptId = await sendFromComposer(t.signal, container, fake, "hello");
+    assert.equal(queueTexts(container).length, 1, "the sent message is queued while it is sent");
+    await act(() => {
+      fake.emit(fake.callsTo(sessionWatchPath)[0], {
+        transcript: "s1.jsonl",
+        seq: "1",
+        reset: true,
+        items: [],
+        held: [{ promptId, text: "hello" }],
+      });
+    });
+    await until(t.signal, () => sendingRowCount(container) === 0, "the sending row's end");
+    assert.deepEqual(queueTexts(container), ["hello"], "the held message draws one queued row");
+    assert.equal(sendingRowCount(container), 0, "the held message draws no sending row");
+  }));
+
+test("EscapeInterrupt: after Escape the returned messages leave no sending or queued row", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["hello"] }]);
+    const promptId = await sendFromComposer(t.signal, container, fake, "hello");
+    await act(() => {
+      fake.emit(fake.callsTo(sessionWatchPath)[0], {
+        transcript: "s1.jsonl",
+        seq: "1",
+        reset: true,
+        items: [],
+        held: [{ promptId, text: "hello" }],
+      });
+    });
+    await until(t.signal, () => sendingRowCount(container) === 0, "the sending row's end");
+    await pressIn(composer(container), "Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(composer(container).value, "hello", "the message is back in the composer");
+    assert.deepEqual(queueTexts(container), [], "no queued row is left");
+    assert.equal(sendingRowCount(container), 0, "no sending row is left");
+  }));
+
+test("EscapeInterrupt: a message sent but not yet held leaves no sending or queued row after Escape", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["hello"] }]);
+    await sendFromComposer(t.signal, container, fake, "hello");
+    assert.deepEqual(queueTexts(container), ["hello"], "the sent message is queued while it is sent");
+    await pressIn(composer(container), "Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(composer(container).value, "hello", "the message is back in the composer");
+    assert.deepEqual(queueTexts(container), [], "no queued row is left");
+    assert.equal(sendingRowCount(container), 0, "no sending row is left");
+  }));
+
+test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt still goes out", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.failNext.add(withdrawPath);
+    await press("Escape");
+    await until(t.signal, () => alertTexts(container).includes(takeBackFailedText), "the error line");
+    assert.equal(fake.callsTo(interruptPath).length, 1, "the interrupt went out after the failed withdraw");
+    assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
+  }));

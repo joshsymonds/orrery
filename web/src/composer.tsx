@@ -2,8 +2,8 @@ import type { JSX, Ref } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { useFlash } from "./flash";
-import type { WaitingMessage } from "./gen/orrery/v1/orrery_pb";
-import type { SentText } from "./sending";
+import type { HeldMessage, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import { type SentText, sameText, withoutTexts } from "./sending";
 import { ReplyText } from "./text";
 
 const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
@@ -54,17 +54,21 @@ function placeholderFor(state: string, label: string): string {
   }
 }
 
-// sameText compares two messages' text as the page does for a sent message: trimmed.
-function sameText(a: string, b: string): boolean {
-  return a.trim() === b.trim();
+// ComposerHandle is what the page calls on a composer when its row's Escape takes queued messages back. append puts
+// their texts in the box after its text, joined by blank lines. forget drops the local entry each text matches, since
+// the held set no longer carries those messages.
+export interface ComposerHandle {
+  append: (texts: string[]) => void;
+  forget: (texts: string[]) => void;
 }
 
 // Composer is the send box under the reader. Enter and the send button send the text once; Shift+Enter or Alt+Enter
 // puts a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it
 // rejects. A failed send keeps the draft and its prompt id and is never resent by the composer. Up in an empty box pulls
 // the newest queued text back. The queue draws above the box, oldest first, each message as a tag and its text: the
-// conversation's waiting messages, then the messages this composer sent while the conversation was working. Its edge
-// and placeholder follow the conversation's state.
+// conversation's waiting messages, then its held messages, then the messages this composer sent while the conversation
+// was working, except those the held set now carries under their prompt id. Its edge and placeholder follow the
+// conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -72,11 +76,14 @@ export function Composer(props: {
   pull: (() => Promise<string>) | null; // null: no pull for this row (sessions)
   newPromptId: () => string;
   inputRef?: Ref<HTMLTextAreaElement>; // the page focuses it on `i`
+  register?: (handle: ComposerHandle | null) => void; // gets the handle while mounted, and null once unmounted
   queued?: WaitingMessage[]; // the row's waiting and canceled messages, oldest first; none drawn when absent
+  held?: HeldMessage[]; // the row's held messages, oldest first, each drawn as a queued row; none drawn when absent
   onSending?: (entry: SentText) => void; // called as a send starts, before it is awaited
   onUnsent?: (promptId: string) => void; // called when a send rejects
 }): JSX.Element {
-  const { label, state, send, pull, newPromptId, inputRef, queued = [], onSending, onUnsent } = props;
+  const { label, state, send, pull, newPromptId, inputRef, register, queued = [], held = [], onSending, onUnsent } =
+    props;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [local, setLocal] = useState<LocalQueued[]>([]);
@@ -85,6 +92,20 @@ export function Composer(props: {
   const [flashing, flash] = useFlash();
   // caret is the cursor a line break left for the render to park: setting the value moves the cursor to the end.
   const caret = useRef<{ box: HTMLTextAreaElement; at: number } | null>(null);
+
+  // The page holds the handle while this composer is mounted, and drops it when the composer unmounts.
+  useLayoutEffect(() => {
+    register?.({
+      append: (texts) => {
+        const returned = texts.join("\n\n");
+        setText((current) => (current === "" ? returned : `${current}\n\n${returned}`));
+      },
+      forget: (texts) => {
+        setLocal((current) => withoutTexts(current, texts));
+      },
+    });
+    return () => register?.(null);
+  }, [register]);
 
   useLayoutEffect(() => {
     const pending = caret.current;
@@ -166,12 +187,15 @@ export function Composer(props: {
     }
   }
 
-  // The local messages show only while the conversation is working, and a message the conversation's queue already
-  // holds, not canceled, is drawn once, from the queue.
+  // The local messages show only while the conversation is working. A message the conversation's queue already holds,
+  // not canceled, is drawn once, from the queue, and so is one the held set carries under its prompt id, from the held
+  // set.
   const sentHere = state === "working" ? local : [];
   const rows: QueueRow[] = [
     ...queued.map((message, index) => ({ key: `queued-${index}`, text: message.text, canceled: message.canceled })),
+    ...held.map((message) => ({ key: `held-${message.promptId}`, text: message.text, canceled: false })),
     ...sentHere
+      .filter((entry) => !held.some((message) => message.promptId === entry.promptId))
       .filter((entry) => !queued.some((message) => !message.canceled && sameText(message.text, entry.text)))
       .map((entry) => ({ key: `local-${entry.promptId}`, text: entry.text, canceled: false })),
   ];

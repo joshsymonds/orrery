@@ -23,7 +23,7 @@ const millisPerSecond = 1000;
 // conversation as the pinned reader does. While the session is interrupted, Resume resumes its turn; a refusal shows
 // its message under the reader. The reader's "since you looked" rule marks what arrives after the dock opened on the
 // target. A message sent to the target shows in its reader as sending until its stored prompt arrives, and above the box
-// as queued while the target is working.
+// as queued while the target is working or holds it.
 export function TalkDock({
   clients,
   target,
@@ -113,6 +113,7 @@ export function TalkDock({
         pull={target.kind === "pane" ? pull : null}
         newPromptId={newPromptId}
         queued={conversation?.state?.waiting}
+        held={conversation?.held}
         onSending={(entry) => setSending((previous) => [...previous, sendingEntry(entry, conversation)])}
         onUnsent={(promptId) => setSending((previous) => previous.filter((entry) => entry.promptId !== promptId))}
       />

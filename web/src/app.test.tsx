@@ -1662,11 +1662,13 @@ test("a message sent to a working pane draws above the box as queued, and leaves
   }));
 
 test("a draft survives moving the cursor away and back", (t) =>
-  withApp(t.signal, {}, async (container) => {
+  withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pullPath, [{ text: "" }]);
     await press("i");
     const box = composer(container);
     await typeInto(box, "half a thought");
     await pressIn(box, "Escape");
+    await until(t.signal, () => document.activeElement !== box, "the blur after the pull");
     await press("j");
     assert.equal(cursorKey(container), "c");
     await press("k");
@@ -1684,7 +1686,9 @@ test("a failed send keeps its prompt id when the cursor moves away and back", (t
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
     await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
-    await pressIn(box, "Escape");
+    await act(() => {
+      box.blur();
+    });
     await press("k");
     assert.equal(cursorKey(container), "a");
     await press("j");
@@ -1706,7 +1710,9 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
     await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
-    await pressIn(composer(container), "Escape");
+    await act(() => {
+      composer(container).blur();
+    });
     // A poll whose Sessions.List failed lists the panes only; the next poll lists the session again.
     await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients, seen: fake.seen });
     await mount(container, { rows: [paneRow, sessionRow], error: "", now, clients: fake.clients, seen: fake.seen });
@@ -1722,7 +1728,8 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
   }));
 
 test("keys typed in the composer never act as list keys, and Escape leaves it", (t) =>
-  withApp(t.signal, {}, async (container) => {
+  withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pullPath, [{ text: "" }]);
     await press("i");
     const box = composer(container);
     await pressIn(box, "j");
@@ -1734,6 +1741,7 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     assert.equal(document.activeElement === filterInput(container), false);
     assert.equal(document.activeElement === box, true);
     await pressIn(box, "Escape");
+    await until(t.signal, () => document.activeElement !== box, "the blur after the pull");
     assert.equal(document.activeElement === box, false);
     await press("j");
     assert.equal(cursorKey(container), "c");
@@ -2421,6 +2429,7 @@ test("leaving the page stops the pinned stream as well", (t) =>
 
 test("with the pinned reply box focused, | is text; after it blurs, i focuses the cursor's reply box", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pullPath, [{ text: "" }]);
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await act(() => {
@@ -2429,6 +2438,11 @@ test("with the pinned reply box focused, | is text; after it blurs, i focuses th
     await pressIn(pinnedComposer(container), "|");
     assert.ok(pinnedColumn(container), "a | typed in the pinned reply box does not close the pin");
     await pressIn(pinnedComposer(container), "Escape");
+    await until(
+      t.signal,
+      () => document.activeElement !== pinnedComposer(container),
+      "the blur after the pull",
+    );
     assert.equal(document.activeElement === pinnedComposer(container), false, "Escape leaves the pinned reply box");
     await press("i");
     assert.equal(document.activeElement === composer(container), true, "i focuses the cursor's reply box");
@@ -2436,6 +2450,7 @@ test("with the pinned reply box focused, | is text; after it blurs, i focuses th
 
 test("a pinned column's draft survives closing the pin and reopening it on the same row", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pullPath, [{ text: "" }]);
     await press("|");
     await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await act(() => {
@@ -2443,6 +2458,7 @@ test("a pinned column's draft survives closing the pin and reopening it on the s
     });
     await typeInto(pinnedComposer(container), "half a thought");
     await pressIn(pinnedComposer(container), "Escape");
+    await until(t.signal, () => document.activeElement !== pinnedComposer(container), "the blur after the pull");
     await press("|");
     assert.equal(pinnedColumn(container) === null, true, "the pin is closed");
     await press("|");
@@ -2464,7 +2480,9 @@ test("a failed send in the pinned column keeps its prompt id through a close and
     await pressIn(pinnedComposer(container), "Enter");
     await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the failed say");
     await until(t.signal, () => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
-    await pressIn(pinnedComposer(container), "Escape");
+    await act(() => {
+      pinnedComposer(container).blur();
+    });
     await press("|");
     await press("|");
     assert.equal(pinnedComposer(container).value, "keep going", "the draft survived the close");

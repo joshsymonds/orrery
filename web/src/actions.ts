@@ -60,6 +60,27 @@ export async function pullQueued(clients: Clients, row: Row): Promise<string> {
   return reply.text;
 }
 
+// withdraw takes back a row's queued messages and resolves their texts, oldest first. A session's are every held
+// message, by Control.Withdraw with an empty prompt id, so a session with nothing held resolves none. A pane's queued
+// input is one text by Panes.PullQueued, which resolves none when it is empty.
+export async function withdraw(clients: Clients, row: Row): Promise<string[]> {
+  if (row.kind === "pane") {
+    const text = await pullQueued(clients, row);
+    return text === "" ? [] : [text];
+  }
+  const reply = await clients.control.withdraw({ id: row.id, promptId: "" });
+  return reply.texts;
+}
+
+// interrupt interrupts the row's running turn: Control.Interrupt for a session, and the Escape key sent to a pane.
+export async function interrupt(clients: Clients, row: Row): Promise<void> {
+  if (row.kind === "pane") {
+    await clients.panes.sendKeys({ pane: row.id, keys: ["Escape"] });
+    return;
+  }
+  await clients.control.interrupt({ id: row.id });
+}
+
 // newPromptId returns a fresh random id for a Say, as the phone's UUID.randomUUID() does.
 export function newPromptId(): string {
   return crypto.randomUUID();
