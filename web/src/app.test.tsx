@@ -24,7 +24,7 @@ import type { Viewing } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
-import { pause, until as waitUntil } from "./testwait";
+import { pause, turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
 
@@ -392,6 +392,11 @@ async function withApp(
 // until waits as testwait's until does, with each pause run inside act, so the renders it lets through are applied.
 function until(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
   return waitUntil(signal, check, what, { step: () => act(pause) });
+}
+
+// untilTurn waits as until does, but each round steps by turn inside act, so the wait reads no clock and arms no timer.
+function untilTurn(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
+  return waitUntil(signal, check, what, { step: () => act(turn) });
 }
 
 // settle lets pending promises run, so a write the test expects to be absent has time to start.
@@ -1368,7 +1373,7 @@ test("a click on the send button sends the cursor's text once with Panes.SendTex
 
 test("the cursor's reader is its title row, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
       "header.title-row",
       "div.reader",
@@ -1438,9 +1443,9 @@ test("a pane row's reader draws its prompts as YOU, whatever their sender and ro
 
 test("the pinned reader is its title row, its conversation and its foot, and nothing else", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
       "header.title-row",
       "div.reader",
@@ -1522,21 +1527,21 @@ const sentNotice = "Not sent. Your draft is kept; press Enter to try again.";
 
 test("a message sent to a headless session draws at once as a sending row, and its stored prompt replaces it", (t) =>
   withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await untilTurn(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     const [stream] = fake.callsTo(sessionWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [] });
     const releaseSay = fake.holdNext(sayPath);
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
+    await untilTurn(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
     const [say] = fake.callsTo(sayPath);
     assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
     assert.equal(sendingRows(container)[0].textContent?.includes("keep going"), true, "the row holds the text");
     assert.equal(sendingMark(sendingRows(container)[0]), "sending", "the row is marked sending");
 
     releaseSay();
-    await until(t.signal, () => composer(container).value === "", "the say was answered");
+    await untilTurn(t.signal, () => composer(container).value === "", "the say was answered");
     assert.equal(sendingRows(container).length, 1, "the row stays until the stored prompt arrives");
 
     fake.emit(stream, {
@@ -1545,42 +1550,42 @@ test("a message sent to a headless session draws at once as a sending row, and i
       reset: false,
       items: [{ kind: "prompt", text: "keep going", promptId: String(say.body.promptId) }],
     });
-    await until(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
+    await untilTurn(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
     assert.equal(ordinaryPromptRows(container).length, 1, "the stored prompt is the one ordinary prompt row");
     assert.equal(ordinaryPromptRows(container)[0].textContent?.includes("keep going"), true);
 
     fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
-    await until(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
+    await untilTurn(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
     assert.equal(sendingRows(container).length, 0, "a sent message that left never draws again");
   }));
 
 test("a message sent to a pane draws as a sending row until the pane's stream delivers its prompt", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [] });
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
-    await until(t.signal, () => composer(container).value === "", "the sent draft cleared");
+    await untilTurn(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
+    await untilTurn(t.signal, () => composer(container).value === "", "the sent draft cleared");
     assert.equal(sendingRows(container).length, 1, "the row draws while the stream has not shown the prompt");
     assert.equal(sendingMark(sendingRows(container)[0]), "sending");
 
     fake.emit(stream, { transcript: "t1", seq: "2", items: [{ kind: "prompt", text: "keep going" }] });
-    await until(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
+    await untilTurn(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
     assert.equal(ordinaryPromptRows(container).length, 1, "the stored prompt is the one ordinary prompt row");
 
     fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
-    await until(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
+    await untilTurn(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
     assert.equal(sendingRows(container).length, 0, "a sent message that left never draws again");
   }));
 
 test("a message sent from the pinned composer draws as a sending row in the pinned reader until its prompt arrives there", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [, pinnedStream] = fake.callsTo(paneWatchPath);
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [] });
     await press("j");
@@ -1590,13 +1595,13 @@ test("a message sent from the pinned composer draws as a sending row in the pinn
       pinnedComposer(container).focus();
     });
     await pressIn(pinnedComposer(container), "Enter");
-    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
+    await untilTurn(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
     assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
     assert.equal(sendingRows(container, "pinned reader").length, 1, "the pinned reader draws the sending row");
     assert.equal(sendingRows(container).length, 0, "the cursor's reader on c draws none");
 
     fake.emit(pinnedStream, { transcript: "t1", seq: "2", items: [{ kind: "prompt", text: "keep going" }] });
-    await until(t.signal, () => sendingRows(container, "pinned reader").length === 0, "the pinned sending row leaves");
+    await untilTurn(t.signal, () => sendingRows(container, "pinned reader").length === 0, "the pinned sending row leaves");
     assert.equal(ordinaryPromptRows(container, "pinned reader").length, 1, "the stored prompt is the one pinned prompt row");
   }));
 
@@ -1607,10 +1612,10 @@ test("a failed send to a session leaves no sending row, and keeps the draft and 
     await press("i");
     await typeInto(composer(container), "keep going");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
+    await untilTurn(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
     assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
     releaseSay();
-    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await untilTurn(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
     assert.equal(container.querySelector('[role="alert"]')?.textContent, sentNotice);
     assert.equal(sendingRows(container).length, 0, "no sending row is left");
     assert.equal(composer(container).value, "keep going", "the draft is kept");
@@ -1621,7 +1626,7 @@ test("a message sent to a working session draws above the box as queued, and lea
     await press("i");
     await typeInto(composer(container), "after the turn");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => queueTexts(container).length === 1, "the queued send");
+    await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
     assert.equal(queued?.querySelector(".tag")?.textContent, "queued");
@@ -1633,19 +1638,19 @@ test("a message sent to a working session draws above the box as queued, and lea
       clients: fake.clients,
       seen: fake.seen,
     });
-    await until(t.signal, () => queueTexts(container).length === 0, "the queue after the turn");
+    await untilTurn(t.signal, () => queueTexts(container).length === 0, "the queue after the turn");
   }));
 
 test("a message sent to a working pane draws above the box as queued, and leaves when the pane's turn ends", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    await untilTurn(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
     await press("i");
     await typeInto(composer(container), "after the turn");
     await pressIn(composer(container), "Enter");
-    await until(t.signal, () => queueTexts(container).length === 1, "the queued send");
+    await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
     assert.equal(
       container.querySelector('[aria-label="reader"] .send .queue li.queued .words')?.textContent,
@@ -1653,7 +1658,7 @@ test("a message sent to a working pane draws above the box as queued, and leaves
     );
 
     fake.emit(stream, { transcript: "t1", seq: "2", items: [], state: { pane: { id: "a", state: "idle" } } });
-    await until(t.signal, () => queueTexts(container).length === 0, "the queue after the turn");
+    await untilTurn(t.signal, () => queueTexts(container).length === 0, "the queue after the turn");
   }));
 
 test("a draft survives moving the cursor away and back", (t) =>
@@ -2227,9 +2232,9 @@ function pinnedNote(container: HTMLElement): Element | null {
 
 test("the pinned title row names the pinned row while the cursor rests on another, and no .pin-head is drawn", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     await press("j");
     assert.equal(cursorKey(container), "c");
     assert.deepEqual(crumbTexts(pinnedHead(container)), ["orrery", "api"]);
@@ -2255,7 +2260,7 @@ test("‹ and the orrery crumb on the cursor's title row move focus to the list'
 
 test("‹ on the pinned title row closes the pin, as | does", (t) =>
   withApp(t.signal, {}, async (container, fake) => {
-    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await untilTurn(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
     assert.ok(pinnedColumn(container) !== null, "the pin is open");
     await clickButton(container, 'section[aria-label="pinned reader"] .title-row', "‹");
@@ -4277,12 +4282,18 @@ test("a history that fails draws no history and no error line, and the page stay
     assert.equal(epicPageShown(container), true, "the epic page stays open");
   }));
 
-// onStepOne moves the cursor from row a down to the first step of oneEpic, s1, and waits for its stream to start.
-async function onStepOne(signal: AbortSignal, container: HTMLElement, fake: FakeServer): Promise<void> {
+// onStepOne moves the cursor from row a down to the first step of oneEpic, s1, and waits for its stream to start. It
+// waits as wait does, so a test can pass untilTurn and the wait reads no clock.
+async function onStepOne(
+  signal: AbortSignal,
+  container: HTMLElement,
+  fake: FakeServer,
+  wait: typeof until = until,
+): Promise<void> {
   await press("j");
   await press("j");
   assert.equal(cursorKey(container), "step:s1");
-  await until(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
+  await wait(signal, () => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
 }
 
 // stepButton is the button of the cursor's step box with the given label: Interrupt and ⋯ on the line, and Stop,
@@ -4350,7 +4361,7 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
 
 test("a step's reader at its top asks Sessions.Older for the page before its oldest item, and draws the page above", (t) =>
   withApp(t.signal, { epics: oneEpic() }, async (container, fake) => {
-    await onStepOne(t.signal, container, fake);
+    await onStepOne(t.signal, container, fake, untilTurn);
     const [stream] = fake.callsTo(sessionWatchPath);
     fake.replies.set(sessionOlderPath, [
       { items: [{ kind: "assistant", text: "the step's earlier reply" }], oldest: "4", more: false },
@@ -4362,9 +4373,9 @@ test("a step's reader at its top asks Sessions.Older for the page before its old
       oldest: "9",
       items: [{ kind: "assistant", text: "the step reply" }],
     });
-    await until(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
+    await untilTurn(t.signal, () => fake.callsTo(sessionOlderPath).length === 1, "the older request");
     assert.deepEqual(fake.callsTo(sessionOlderPath)[0].body, { id: "s1", before: "9" });
-    await until(t.signal, () => readerText(container).includes("the step's earlier reply"), "the older page");
+    await untilTurn(t.signal, () => readerText(container).includes("the step's earlier reply"), "the older page");
     const text = readerText(container);
     assert.ok(text.indexOf("the step's earlier reply") < text.indexOf("the step reply"), "the older page is drawn above");
   }));

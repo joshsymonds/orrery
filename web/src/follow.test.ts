@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { createClients, createTransport } from "./client";
 import type { Conversation } from "./conversation";
-import { until } from "./testwait";
+import { turn, until } from "./testwait";
 import { follow, type Followed, type Schedule } from "./follow";
 
 const panesPath = "/orrery.v1.Panes/WatchConversation";
@@ -321,7 +321,7 @@ test("older asks a session for the page before its reset's oldest, and prepends 
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, {
       transcript: "s-t",
       seq: "7",
@@ -329,10 +329,10 @@ test("older asks a session for the page before its reset's oldest, and prepends 
       oldest: "9",
       items: [{ kind: "assistant", text: "nine" }],
     });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
     assert.equal(asks.length, 1);
     assert.equal(fake.olderCalls()[0].path, sessionsOlderPath);
     assert.equal(fake.olderCalls()[0].body.id, "s1");
@@ -343,7 +343,7 @@ test("older asks a session for the page before its reset's oldest, and prepends 
       oldest: "8",
       more: true,
     });
-    await until(t.signal, () => seen.length === 2, "the older page");
+    await until(t.signal, () => seen.length === 2, "the older page", { step: turn });
     assert.deepEqual(texts(seen[1]), ["eight", "nine"]);
     assert.equal(seen[1].oldest, 8n);
     assert.equal(seen[1].more, true);
@@ -359,7 +359,7 @@ test("older asks a pane for the page before its reset's oldest, with the held tr
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, {
       transcript: "t1",
       seq: "3",
@@ -367,10 +367,10 @@ test("older asks a pane for the page before its reset's oldest, with the held tr
       oldest: "120",
       items: [{ kind: "assistant", text: "line-120" }],
     });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
     assert.equal(asks.length, 1);
     assert.equal(fake.olderCalls()[0].path, panesOlderPath);
     assert.equal(fake.olderCalls()[0].body.pane, "%1");
@@ -387,21 +387,21 @@ test("older chains pages back until more is false, and then asks no more", async
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 1, "the first older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the first older request", { step: turn });
     fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "b" }], oldest: "60", more: true });
-    await until(t.signal, () => seen.length === 2, "the first older page");
+    await until(t.signal, () => seen.length === 2, "the first older page", { step: turn });
     assert.equal(seen[1].more, true);
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 2, "the second older request");
+    await until(t.signal, () => fake.olderCalls().length === 2, "the second older request", { step: turn });
     assert.equal(Number(fake.olderCalls()[1].body.before), 60);
     fake.answer(fake.olderCalls()[1], { items: [{ kind: "assistant", text: "a" }], oldest: "20", more: false });
-    await until(t.signal, () => seen.length === 3, "the last older page");
+    await until(t.signal, () => seen.length === 3, "the last older page", { step: turn });
     assert.deepEqual(texts(seen[2]), ["a", "b", "c"]);
     assert.equal(seen[2].more, false);
 
@@ -430,12 +430,12 @@ test("older does nothing after stop, and a page that answers after stop is dropp
   const { clients, asks } = clientsSpying(fake);
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
-  await until(t.signal, () => fake.served.length === 1, "the first request");
+  await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
   fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
-  await until(t.signal, () => seen.length === 1, "the reset delta");
+  await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
   older();
-  await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+  await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
   const signal = asks[0].signal;
   assert.equal(signal?.aborted, false, "the older request carries the stream's signal, not yet aborted");
 
@@ -455,15 +455,15 @@ test("a page that answers after a reset moved the held oldest is dropped", async
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
 
     fake.emit(0, { transcript: "t1", seq: "9", reset: true, oldest: "300", items: [{ kind: "assistant", text: "z" }] });
-    await until(t.signal, () => seen.length === 2, "the reset that moves the oldest");
+    await until(t.signal, () => seen.length === 2, "the reset that moves the oldest", { step: turn });
 
     fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "b" }], oldest: "60", more: true });
     await settle();
@@ -481,17 +481,17 @@ test("only one older page is in flight at a time", async (t) => {
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "s-t", seq: "7", reset: true, oldest: "9", items: [{ kind: "assistant", text: "nine" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
     older();
     assert.equal(asks.length, 1, "a second request waits for the first page");
 
-    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
     fake.answer(fake.olderCalls()[0], { items: [{ kind: "assistant", text: "eight" }], oldest: "8", more: true });
-    await until(t.signal, () => seen.length === 2, "the older page");
+    await until(t.signal, () => seen.length === 2, "the older page", { step: turn });
 
     older();
     assert.equal(asks.length, 2, "the next page is asked for once the first has landed");
@@ -506,14 +506,14 @@ test("failed_precondition ends the history, and no page is asked for after it", 
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "pane", id: "%1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "t1", seq: "3", reset: true, oldest: "120", items: [{ kind: "assistant", text: "c" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
     fake.refuse(fake.olderCalls()[0], "failed_precondition", "transcript changed");
-    await until(t.signal, () => seen.length === 2, "the history ending");
+    await until(t.signal, () => seen.length === 2, "the history ending", { step: turn });
     assert.equal(seen[1].more, false);
     assert.deepEqual(texts(seen[1]), ["c"]);
 
@@ -530,19 +530,19 @@ test("another failure leaves more set, so a later call asks again", async (t) =>
   const seen: Conversation[] = [];
   const { stop, older } = follow(clients, { kind: "session", id: "s1" }, (conversation) => seen.push(conversation), retryMs);
   try {
-    await until(t.signal, () => fake.served.length === 1, "the first request");
+    await until(t.signal, () => fake.served.length === 1, "the first request", { step: turn });
     fake.emit(0, { transcript: "s-t", seq: "7", reset: true, oldest: "9", items: [{ kind: "assistant", text: "nine" }] });
-    await until(t.signal, () => seen.length === 1, "the reset delta");
+    await until(t.signal, () => seen.length === 1, "the reset delta", { step: turn });
 
     older();
-    await until(t.signal, () => fake.olderCalls().length === 1, "the older request");
+    await until(t.signal, () => fake.olderCalls().length === 1, "the older request", { step: turn });
     fake.refuse(fake.olderCalls()[0], "unavailable", "try later");
     await settle();
     assert.equal(seen.length, 1, "a failed page changes nothing held");
 
     older();
     assert.equal(asks.length, 2, "a later call asks again");
-    await until(t.signal, () => fake.olderCalls().length === 2, "the second older request");
+    await until(t.signal, () => fake.olderCalls().length === 2, "the second older request", { step: turn });
     assert.equal(Number(fake.olderCalls()[1].body.before), 9);
   } finally {
     stop();

@@ -7,7 +7,7 @@ import { act } from "preact/test-utils";
 import { createClients, createTransport } from "./client";
 import { TalkDock } from "./talkdock";
 import { installTestDom, removeTestDom } from "./testdom";
-import { pause, until } from "./testwait";
+import { turn, until } from "./testwait";
 
 type Props = Parameters<typeof TalkDock>[0];
 type DomWindow = ReturnType<typeof installTestDom>;
@@ -55,11 +55,9 @@ class FakeServer {
   readonly resumes: Record<string, unknown>[] = [];
   readonly says: Record<string, unknown>[] = [];
   readonly olderBodies: Record<string, unknown>[] = [];
-  // opened counts the conversation streams the client has opened; resumed counts the Resume calls it has received;
-  // olderAsked counts the Sessions.Older calls.
+  // opened counts the conversation streams the client has opened; resumed counts the Resume calls it has received.
   readonly opened = new Gauge();
   readonly resumed = new Gauge();
-  readonly olderAsked = new Gauge();
   resumeError: { code: string; message: string } | null = null;
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -81,7 +79,6 @@ class FakeServer {
     }
     if (path.endsWith("/Older")) {
       this.olderBodies.push(JSON.parse(new TextDecoder().decode(bytes)));
-      this.olderAsked.bump();
       return new Response(
         JSON.stringify({ items: [{ kind: "assistant", text: "older words" }], oldest: "4", more: false }),
         { status: 200, headers: json },
@@ -262,9 +259,9 @@ test("a refused Resume shows its message in the dock", { timeout: 2000 }, async 
   });
 });
 
-test("the dock's reader asks for the page before its oldest item, and draws the page above", { timeout: 2000 }, async () => {
+test("the dock's reader asks for the page before its oldest item, and draws the page above", { timeout: 2000 }, async (t) => {
   const server = new FakeServer();
-  await withDock(server, {}, async (container, window) => {
+  await withDock(server, {}, async (container) => {
     server.emit(0, {
       transcript: "t1",
       seq: "5",
@@ -272,11 +269,11 @@ test("the dock's reader asks for the page before its oldest item, and draws the 
       oldest: "9",
       items: [{ kind: "assistant", text: "nine" }],
     });
-    await shown(window, container, () => textOf(container, ".reader").includes("nine"));
+    await rendered(t.signal, () => textOf(container, ".reader").includes("nine"), "the held item");
 
-    await server.olderAsked.reached(1);
+    await rendered(t.signal, () => server.olderBodies.length === 1, "the older request");
     assert.deepEqual(server.olderBodies, [{ id: "s1", before: "9" }]);
-    await shown(window, container, () => textOf(container, ".reader").includes("older words"));
+    await rendered(t.signal, () => textOf(container, ".reader").includes("older words"), "the older page");
     const reader = textOf(container, ".reader");
     assert.ok(reader.indexOf("older words") < reader.indexOf("nine"), "the older page is drawn above the held item");
   });
@@ -294,10 +291,10 @@ test("a new target restarts the conversation stream with its id", { timeout: 200
   });
 });
 
-// rendered waits as testwait's until does, with each pause run inside act, so the renders the stream's events queue are
+// rendered waits as testwait's until does, with each turn run inside act, so the renders the stream's events queue are
 // applied. It ends with the test's own signal, so a wait that never holds fails the test by name.
 function rendered(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
-  return until(signal, check, what, { step: () => act(pause) });
+  return until(signal, check, what, { step: () => act(turn) });
 }
 
 test("a message sent from the dock draws as a sending row until its stored prompt arrives", { timeout: 2000 }, async (t) => {
