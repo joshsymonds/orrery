@@ -221,9 +221,10 @@ func TestStepLoopSaveFailedPutIsLoggedAndLoopGoesOn(t *testing.T) {
 	}
 }
 
-// TestStepLoopSaveTurnEndClearsOwnerNudgeBeforeSend checks that a turn end stores the clear of the pending owner text
-// before the text is sent, so a failed send leaves no pending text stored.
-func TestStepLoopSaveTurnEndClearsOwnerNudgeBeforeSend(t *testing.T) {
+// TestStepLoopSaveTurnEndClearsOwnerNudgeWithItsPrompt checks that a turn end stores the clear of the pending owner text
+// only in the write of the prompt that sends it, so nothing is stored ahead of that prompt: a send that does not land
+// leaves the text pending in the store, as a restart before the prompt's write must find it.
+func TestStepLoopSaveTurnEndClearsOwnerNudgeWithItsPrompt(t *testing.T) {
 	t.Parallel()
 	f := newStepLoopFixture(t, errors.New("session refused"))
 	f.run.Event(session.Started{})
@@ -249,14 +250,16 @@ func TestStepLoopSaveTurnEndClearsOwnerNudgeBeforeSend(t *testing.T) {
 	if row.End != stepLoopEndFailed {
 		t.Fatalf("end = %q, want failed by the refused send", row.End)
 	}
-	if row.LoopOwnerNudge != "" {
-		t.Fatalf("loop owner nudge = %q after the turn end, want it cleared before the send", row.LoopOwnerNudge)
+	if row.LoopOwnerNudge != text {
+		t.Fatalf("loop owner nudge = %q after a send that did not land, want %q still pending", row.LoopOwnerNudge,
+			text)
 	}
 }
 
-// TestStepLoopSaveTurnEndClearsWatchdogNudgeBeforeSend checks that a turn end stores the clear of the pending watchdog
-// text before the text is sent, so a failed send leaves no pending text stored.
-func TestStepLoopSaveTurnEndClearsWatchdogNudgeBeforeSend(t *testing.T) {
+// TestStepLoopSaveTurnEndClearsWatchdogNudgeWithItsPrompt checks that a turn end stores the clear of the pending
+// watchdog text only in the write of the prompt that sends it: a send that does not land leaves the text pending in the
+// store, as a restart before the prompt's write must find it.
+func TestStepLoopSaveTurnEndClearsWatchdogNudgeWithItsPrompt(t *testing.T) {
 	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictLooping, watchLoopDoing)}}
 	sessions := &stepLoopSessions{continueErr: errors.New("session refused")}
@@ -265,7 +268,8 @@ func TestStepLoopSaveTurnEndClearsWatchdogNudgeBeforeSend(t *testing.T) {
 
 	f.tick(t, 5*time.Minute)
 	f.waitVerdicts(t, 1)
-	if row := f.row(t); row.LoopNudge == "" {
+	pending := f.row(t).LoopNudge
+	if pending == "" {
 		t.Fatal("loop nudge empty after a landed watchdog nudge, want it set")
 	}
 
@@ -274,7 +278,7 @@ func TestStepLoopSaveTurnEndClearsWatchdogNudgeBeforeSend(t *testing.T) {
 	if row.End != stepLoopEndFailed {
 		t.Fatalf("end = %q, want failed by the refused send", row.End)
 	}
-	if row.LoopNudge != "" {
-		t.Fatalf("loop nudge = %q after the turn end, want it cleared before the send", row.LoopNudge)
+	if row.LoopNudge != pending {
+		t.Fatalf("loop nudge = %q after a send that did not land, want %q still pending", row.LoopNudge, pending)
 	}
 }

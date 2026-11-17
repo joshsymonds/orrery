@@ -101,7 +101,7 @@ func (r *stepRun) hold(ctx context.Context) error {
 // is interrupted and its end is continued with text, in place of a round. A run with no turn running and not held
 // refuses with ErrStepNoTurn. Text sent while a nudge is already pending joins it. An interrupt error is returned and
 // leaves nothing pending. A failed continue ends the step failed and is returned. Each landed change stores the loop
-// state: a pending text when it is set, and the held state when a held run resumes.
+// state: a pending text when it is set, and the held state when a held run resumes, in the write of its prompt.
 func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 	if r.held.Load() {
 		if !r.heldEnded {
@@ -111,7 +111,6 @@ func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 		}
 		r.held.Store(false)
 		r.heldEnded = false
-		r.saveLoop(ctx)
 		return r.continueStep(ctx, StepPrompt{Text: text, Sender: store.PromptSenderOwner})
 	}
 	if !r.watch.turnRunning() {

@@ -23,12 +23,14 @@ import (
 
 // StepPrompt is a prompt sent to a step session as its next message. Sender is who sent it, which the engine stores with
 // it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none. PromptID is the
-// client-chosen id of the prompt, and empty when it carries none.
+// client-chosen id of the prompt, and empty when it carries none. Loop, when set, is the step's loop state, stored in
+// the one write that stores the prompt, so a restart never finds the one without the other.
 type StepPrompt struct {
 	Text     string
 	Sender   string
 	Round    int
 	PromptID string
+	Loop     *store.StepLoop
 }
 
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
@@ -423,8 +425,11 @@ func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 }
 
 // turnEnded handles a turn end the run takes. A turn that ended on a usage limit is handled by limitTurn, and is no round.
-// Whatever else it is, it clears the pending nudges and stores the clear before anything is sent. A held step's turn end
-// is no round and continues nothing, unless an owner nudge is pending, which resumes the step with it. An owner nudge
+// Whatever else it is, it clears the pending nudges. A turn end that continues the step stores the clear, and a held
+// step's resume, in the write of the prompt it sends (continueStep), so a restart before that write finds the nudge
+// still pending and the step still held, and sends it again. Any other turn end stores the clear before it goes on. A
+// held step's turn end is no round and continues nothing, unless an owner nudge is pending, which resumes the step with
+// it. An owner nudge
 // pending continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
 // that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. Any other
 // turn end is the next round, which judge checks. It reports whether the run goes on.
@@ -434,18 +439,17 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	}
 	nudge, owner := r.nudge, r.ownerNudge
 	r.nudge, r.ownerNudge = "", ""
-	if nudge != "" || owner != "" {
-		r.saveLoop(ctx)
-	}
 	if r.held.Load() {
 		r.latchNoRound(ended.StructuredOutput)
 		if owner == "" {
 			r.heldEnded = true
+			if nudge != "" {
+				r.saveLoop(ctx)
+			}
 			return true
 		}
 		r.held.Store(false)
 		r.heldEnded = false
-		r.saveLoop(ctx)
 		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if owner != "" {
@@ -455,6 +459,9 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	if nudge != "" && ended.IsError {
 		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, StepPrompt{Text: nudge, Sender: store.PromptSenderEngine})
+	}
+	if nudge != "" {
+		r.saveLoop(ctx)
 	}
 	return r.judge(ctx, r.round+1, ended.StructuredOutput)
 }
@@ -503,15 +510,12 @@ func (r *stepRun) continueWith(ctx context.Context, prompt StepPrompt) bool {
 	return true
 }
 
-// continueStep sends prompt to the session as its next message, after the loop is stored in turn. A failed store or send
-// ends the step failed and returns the error.
+// continueStep sends prompt to the session as its next message, with the loop in turn as its Loop, so the loop state is
+// stored in the write that stores the prompt. A failed store or send ends the step failed and returns the error.
 func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 	r.setStage(store.StepStageTurn)
-	if err := r.writer.Commit(ctx, r.id, r.loopState()); err != nil {
-		err = fmt.Errorf("record turn of step %s: %w", r.id, err)
-		r.finish(ctx, stepLoopEndFailed, "", err.Error())
-		return err
-	}
+	loop := r.loopState()
+	prompt.Loop = &loop
 	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		err = fmt.Errorf("continue step %s: %w", r.id, err)
 		r.finish(ctx, stepLoopEndFailed, "", err.Error())

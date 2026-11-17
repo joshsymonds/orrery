@@ -24,8 +24,10 @@ const stepLoopSchema = `{"type":"object","properties":{"status":{"type":"string"
 // stepLoopDone is the status that ends a step done.
 const stepLoopDone = "DONE"
 
-// stepLoopSessions is a fake stepSessions that records every Continue and Stop.
+// stepLoopSessions is a fake stepSessions that records every Continue and Stop. A Continue that succeeds stores the
+// loop state its prompt carries through writer, when one is set, as Manager.Continue stores it with the prompt.
 type stepLoopSessions struct {
+	writer       *Writer
 	mu           sync.Mutex
 	continued    []StepPrompt
 	interrupted  []string
@@ -65,7 +67,19 @@ func (f *stepLoopSessions) Continue(ctx context.Context, id string, prompt StepP
 		f.cancelOnContinue()
 		return ctx.Err()
 	}
-	return f.continueErr
+	if f.continueErr != nil {
+		return f.continueErr
+	}
+	return storePromptLoop(ctx, f.writer, id, prompt)
+}
+
+// storePromptLoop stores the loop state prompt carries for step id through writer, as Manager.Continue stores it in the
+// write of the prompt. A nil writer or a prompt with no loop state stores nothing.
+func storePromptLoop(ctx context.Context, writer *Writer, id string, prompt StepPrompt) error {
+	if writer == nil || prompt.Loop == nil {
+		return nil
+	}
+	return writer.Commit(ctx, id, *prompt.Loop)
 }
 
 func (f *stepLoopSessions) Stop(_ context.Context, id string) error {
@@ -134,7 +148,9 @@ func newStepLoopFixture(t *testing.T, continueErr error) *stepLoopFixture {
 	}
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
-	fixture := &stepLoopFixture{store: s, writer: writer, sessions: &stepLoopSessions{continueErr: continueErr}}
+	fixture := &stepLoopFixture{
+		store: s, writer: writer, sessions: &stepLoopSessions{writer: writer, continueErr: continueErr},
+	}
 	cleanup := func(context.Context) error {
 		fixture.cleaned++
 		return nil

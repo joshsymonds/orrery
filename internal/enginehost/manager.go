@@ -621,11 +621,13 @@ func (m *Manager) Resume(ctx context.Context, id string) error {
 	return m.Say(ctx, SayRequest{ID: id, Text: resumePrompt})
 }
 
-// send records prompt as the next prompt of live, with the working state, and then sends its text. live must have its
-// turn marked running and a send begun, as claim, claimStep or markSending leaves it, and the send ends when send
-// returns (see endSend). A failed send records the session failed with the send's error, and with a prompt.PromptID the
+// send records prompt as the next prompt of live, with the working state and the ops with names, in one write, and then
+// sends its text. live must have its turn marked running and a send begun, as claim, claimStep or markSending leaves
+// it, and the send ends when send returns (see endSend). A failed send records the session failed with the send's error, and with a prompt.PromptID the
 // same write stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
-func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.EnginePrompt) error {
+func (m *Manager) send(
+	ctx context.Context, live *liveSession, prompt store.EnginePrompt, with ...store.EngineOp,
+) error {
 	defer m.endSend(live)
 	id, text := prompt.ID, prompt.Text
 	working := string(protocol.StateWorking)
@@ -633,7 +635,9 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 	if err == nil {
 		prompt.WriteID = writeID
 		live.sess.ExpectPrompt(writeID)
-		err = m.writer.Commit(ctx, id, prompt, store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}})
+		ops := append([]store.EngineOp{prompt, store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}},
+			with...)
+		err = m.writer.Commit(ctx, id, ops...)
 		if err != nil {
 			live.sess.DropPrompt(writeID)
 		}
@@ -693,9 +697,13 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 	if err != nil {
 		return fmt.Errorf("continue step %s: %w", id, err)
 	}
+	var loop []store.EngineOp
+	if prompt.Loop != nil {
+		loop = append(loop, *prompt.Loop)
+	}
 	return m.send(ctx, live, store.EnginePrompt{
 		ID: id, Text: prompt.Text, PromptID: prompt.PromptID, Sender: prompt.Sender, Round: prompt.Round,
-	})
+	}, loop...)
 }
 
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
