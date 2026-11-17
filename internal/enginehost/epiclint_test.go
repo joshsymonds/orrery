@@ -1,6 +1,8 @@
 package enginehost
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -118,5 +120,154 @@ func TestContractLintArgvSplitsShellWords(t *testing.T) {
 				t.Fatalf("splitShellWords(%q) = %q, want %q", tc.line, got, tc.want)
 			}
 		})
+	}
+}
+
+// contractLintRunRepo returns a synthetic repository whose base declares TestX in pkg, the test the go test captures
+// of the ContractLintRun tests name.
+func contractLintRunRepo(t *testing.T) string {
+	t.Helper()
+	repo := stepGitTestRepo(t)
+	stepGitTestCommit(t, repo, map[string]string{
+		"pkg/x_test.go": "package pkg\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n",
+	})
+	return repo
+}
+
+// contractLintRunRefusal is the refusal of a capture's go test whose -run pattern matches TestX in ./pkg.
+func contractLintRunRefusal(pattern string) string {
+	return fmt.Sprintf("requirements[0].item.capture: -run pattern %q matches TestX in ./pkg at the base: "+
+		"name a new top-level test", pattern)
+}
+
+// TestContractLintRunRefusesGoTestAtBase asserts that a go test whose -run pattern matches a Test function present at
+// the base in the packages it names is refused under the capture's field. It holds whether the go test is in the argv
+// or in a line after -c, and whether the packages are named or are ./....
+func TestContractLintRunRefusesGoTestAtBase(t *testing.T) {
+	t.Parallel()
+	repo := contractLintRunRepo(t)
+	runEpicRefusals(t, repo, []epicRefusal{
+		{
+			name: "env runs go test in argv",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{
+					"/usr/bin/env", "go", "test", "-run", "X", "./pkg/",
+				}
+			},
+			want: contractLintRunRefusal("X"),
+		},
+		{
+			name: "shell line runs go test after -c",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{
+					"scripts/in-devenv", "-c", "go test -race -count=1 -v -run X ./pkg/",
+				}
+			},
+			want: contractLintRunRefusal("X"),
+		},
+		{
+			name: "-run=X joined to its value",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run=X", "./pkg/"}
+			},
+			want: contractLintRunRefusal("X"),
+		},
+		{
+			name: "--run X with two dashes",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{
+					"/usr/bin/env", "go", "test", "--run", "X", "./pkg/",
+				}
+			},
+			want: contractLintRunRefusal("X"),
+		},
+		{
+			name: "./... names every package",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./..."}
+			},
+			want: contractLintRunRefusal("X"),
+		},
+		{
+			name: "subtest of a matching top-level test",
+			mutate: func(req *v1.CreateEpicRequest) {
+				req.Contract.Requirements[0].Item.Capture = []string{
+					"/usr/bin/env", "go", "test", "-run", "X/Sub", "./pkg/",
+				}
+			},
+			want: contractLintRunRefusal("X/Sub"),
+		},
+	})
+}
+
+// TestContractLintRunAcceptsCaptures asserts that a go test is not refused when its -run pattern matches no test at the
+// base, or when the pattern is not literal or its top-level element does not compile.
+func TestContractLintRunAcceptsCaptures(t *testing.T) {
+	t.Parallel()
+	repo := contractLintRunRepo(t)
+	for _, tc := range []struct {
+		name    string
+		capture []string
+	}{
+		{name: "pattern matches no test", capture: []string{"/usr/bin/env", "go", "test", "-run", "Y", "./pkg/"}},
+		// Read as written, $PAT|X matches TestX through its X alternative, so only the shell-expansion check accepts it.
+		{
+			name:    "pattern holds a shell variable",
+			capture: []string{"scripts/in-devenv", "-c", `go test -run "$PAT|X" ./pkg/`},
+		},
+		{name: "pattern does not compile", capture: []string{"scripts/in-devenv", "-c", "go test -run '(' ./pkg/"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := epicTestRequest(repo)
+			req.Contract.Requirements[0].Item.Capture = tc.capture
+			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
+			}
+		})
+	}
+}
+
+// TestContractLintRunAcceptsNonLiteralPackages asserts that a go test is not refused when a package word is not
+// literal: it holds a shell expansion, or it neither starts with ./ nor is a bare dot. The directories the words name
+// hold TestX at the base, so each capture would be refused if its word were read as written.
+func TestContractLintRunAcceptsNonLiteralPackages(t *testing.T) {
+	t.Parallel()
+	repo := contractLintRunRepo(t)
+	stepGitTestCommit(t, repo, map[string]string{
+		"pkg$V/x_test.go": "package pkg\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n",
+	})
+	for _, tc := range []struct {
+		name    string
+		capture []string
+	}{
+		{name: "package holds a shell variable", capture: []string{"scripts/in-devenv", "-c", "go test -run X ./pkg$V/"}},
+		{name: "package is not a ./ path", capture: []string{"/usr/bin/env", "go", "test", "-run", "X", "pkg"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := epicTestRequest(repo)
+			req.Contract.Requirements[0].Item.Capture = tc.capture
+			if err := checkEpic(t.Context(), req, epicTestGetenv); err != nil {
+				t.Fatalf("checkEpic refused %q: %v", tc.capture, err)
+			}
+		})
+	}
+}
+
+// TestContractLintRunReturnsGitFailure asserts that a go test whose package git grep cannot read is not accepted: the
+// failure is returned, and it is not a refusal of the field.
+func TestContractLintRunReturnsGitFailure(t *testing.T) {
+	t.Parallel()
+	repo := contractLintRunRepo(t)
+	req := epicTestRequest(repo)
+	req.Contract.Requirements[0].Item.Capture = []string{"/usr/bin/env", "go", "test", "-run", "X", "./../outside/"}
+	err := checkEpic(t.Context(), req, epicTestGetenv)
+	if err == nil {
+		t.Fatal("checkEpic accepted a go test whose package git grep cannot read")
+	}
+	var fieldErr *epicFieldError
+	if errors.As(err, &fieldErr) {
+		t.Fatalf("checkEpic = %q, want git's failure, not a field refusal", err)
 	}
 }
