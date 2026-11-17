@@ -947,15 +947,21 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 }
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
-// running planner turn, and when that check is nil, the build's verifier check. An error from either is returned.
+// running planner turn, and when that check is nil, the release integrator's check when it is a release integrator
+// step, and then the build's verifier check. An error from any of them is returned.
 func readoptCheck(
 	st *store.Store,
 	resolve planner.Resolver,
 ) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 	plan := planner.ReadoptCheck(st, resolve)
+	integrate := interpret.ReadoptCheck(st)
 	verify := build.ReadoptCheck()
 	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 		check, err := plan(ctx, row)
+		if err != nil || check != nil {
+			return check, err
+		}
+		check, err = integrate(ctx, row)
 		if err != nil || check != nil {
 			return check, err
 		}

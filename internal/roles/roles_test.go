@@ -142,3 +142,66 @@ func TestAgentNeitherXDGNorHomeIsAnError(t *testing.T) {
 		t.Fatalf("error = %q, want it to contain %q", err, want)
 	}
 }
+
+func TestAgentOrReadsTheRoleWhenTheFileNamesIt(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".config", "orrery", "roles.toml"),
+		"release = \"opus-high\"\nintegrator = \" opus-xhigh \"\n")
+
+	got, err := AgentOr(fakeEnv(map[string]string{"HOME": home}), "integrator", "release")
+	if err != nil {
+		t.Fatalf("AgentOr: %v", err)
+	}
+	if got != "opus-xhigh" {
+		t.Fatalf("AgentOr = %q, want the trimmed integrator agent %q", got, "opus-xhigh")
+	}
+}
+
+func TestAgentOrFallsBackWhenTheFileHasNoKeyForTheRole(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".config", "orrery", "roles.toml"), "release = \"opus-high\"\n")
+
+	got, err := AgentOr(fakeEnv(map[string]string{"HOME": home}), "integrator", "release")
+	if err != nil {
+		t.Fatalf("AgentOr: %v", err)
+	}
+	if got != "opus-high" {
+		t.Fatalf("AgentOr = %q, want the release agent %q", got, "opus-high")
+	}
+}
+
+func TestAgentOrRefusesAnEmptyRoleWithoutFallingBack(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	path := filepath.Join(home, ".config", "orrery", "roles.toml")
+	writeFile(t, path, "release = \"opus-high\"\nintegrator = \"  \"\n")
+
+	_, err := AgentOr(fakeEnv(map[string]string{"HOME": home}), "integrator", "release")
+	if err == nil {
+		t.Fatal("AgentOr for an empty integrator returned no error")
+	}
+	for _, want := range []string{path, "names no integrator agent"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err, want)
+		}
+	}
+}
+
+func TestAgentOrNamesTheFallbackWhenNeitherIsSet(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	path := filepath.Join(home, ".config", "orrery", "roles.toml")
+	writeFile(t, path, "planner = \"opus-high-ro\"\n")
+
+	_, err := AgentOr(fakeEnv(map[string]string{"HOME": home}), "integrator", "release")
+	if err == nil {
+		t.Fatal("AgentOr with neither role set returned no error")
+	}
+	for _, want := range []string{path, "names no release agent"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err, want)
+		}
+	}
+}

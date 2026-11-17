@@ -41,9 +41,9 @@ const (
 // Requirements, the evidence node at base found them holding at the base, and the park's question offers them as met.
 // Batch ends the integrate run at Path, whose Attempt ended with Outcome and Output, with Trigger. ParkEpic
 // parks the epic for Reason, with Trigger. Work carries a check or release node run's work: Work is the kind's action,
-// prepare, start, capture, repro, refs, advance, take, step, judge, record, stop, ending or free, and Def, Run, IDs, Items,
-// Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome, and an advance
-// the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
+// prepare, start, capture, repro, refs, advance, take, integrator, step, judge, record, stop, ending or free, and Def,
+// Run, IDs, Items, Tasks and Units are what it is for. An advance and a stop carry their Output, an ending its Outcome,
+// an integrator the failure its round mends as its Output, and an advance the Trigger its passed batch writes. Hold pauses the epic for the review step IDs[0], stopped for Reason. Review ends
 // the review run at Path, whose Attempt ended with Output, Verdicts and Ledger. Closure ends the closure run at Path,
 // whose Attempt ended with Outcome and Output, with ReviewRound and Closures. Conclude ends the conclusion run at Path,
 // whose Attempt ended with Phase and Output.
@@ -252,7 +252,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 	case kinds.ActEnd:
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
-		kinds.ActTake, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop, kinds.ActEnding, kinds.ActFree:
+		kinds.ActTake, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
+		kinds.ActEnding, kinds.ActFree:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActPark:
 		return []Action{{
@@ -459,8 +460,12 @@ func (p pass) batchTrigger(run store.NodeRun, outcome, output string) *store.Nod
 }
 
 // work returns the work action of a check or release node run: the kind's action, and the ids, items, tasks, units,
-// output and outcome the work is for. An advance also carries the trigger its passed batch writes.
+// output and outcome the work is for. An advance also carries the trigger its passed batch writes. An action that names
+// a revision runs at it: the run it carries holds that revision in place of its own.
 func (p pass) work(def workflow.Node, run store.NodeRun, act kinds.Action) Action {
+	if act.Revision != "" {
+		run.Revision = act.Revision
+	}
 	out := Action{
 		Kind: ActWork, Work: act.Kind, Path: run.Path, NodeKind: def.Kind, Def: def, Run: run, IDs: act.IDs,
 		Items: act.Items, Tasks: act.Tasks, Units: act.Units, Outcome: act.Outcome, Output: act.Output,

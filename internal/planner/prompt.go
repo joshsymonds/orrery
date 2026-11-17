@@ -33,23 +33,23 @@ func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follow
 	if err != nil {
 		return "", fmt.Errorf("contract section: %w", err)
 	}
-	writeSection(&out, "Contract", contract)
-	writeSection(&out, "Decisions", decisionLines(epic, turn))
-	writeSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
-	writeSection(&out, "Open questions", questionLines(epic.Questions))
-	writeSection(&out, "Advice followed", followLines(follows))
+	WriteSection(&out, "Contract", contract)
+	WriteSection(&out, "Decisions", DecisionLines(epic, turn))
+	WriteSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
+	WriteSection(&out, "Open questions", questionLines(epic.Questions))
+	WriteSection(&out, "Advice followed", followLines(follows))
 	tasks, err := taskLines(epic.Tasks)
 	if err != nil {
 		return "", fmt.Errorf("tasks section: %w", err)
 	}
-	writeSection(&out, "Tasks", tasks)
-	writeSection(&out, "Triggers", triggerLines(triggers))
-	writeSection(&out, "Last failure", failureLines(last, found))
+	WriteSection(&out, "Tasks", tasks)
+	WriteSection(&out, "Triggers", triggerLines(triggers))
+	WriteSection(&out, "Last failure", failureLines(last, found))
 	return out.String(), nil
 }
 
-// writeSection writes a `## ` heading, then each of lines on its own line, or None. when there are none.
-func writeSection(out *strings.Builder, heading string, lines []string) {
+// WriteSection writes a `## ` heading, then each of lines on its own line, or None. when there are none.
+func WriteSection(out *strings.Builder, heading string, lines []string) {
 	fmt.Fprintf(out, "\n## %s\n", heading)
 	if len(lines) == 0 {
 		lines = []string{none}
@@ -77,25 +77,25 @@ func lastTurn(turns []store.EpicTurn, turn int64) (store.EpicTurn, bool) {
 // encoded.
 func contractLines(epic store.EpicRow) ([]string, error) {
 	lines := []string{"Title: " + epic.Title, "Approved: " + epic.Approved, "Intent: " + epic.Intent}
-	lines = append(lines, listLines("Failures", failureItems(epic.Failures))...)
+	lines = append(lines, ListLines("Failures", failureItems(epic.Failures))...)
 	lines = append(lines, "Care: "+epic.Care)
-	lines = append(lines, listLines("Additions", additionItems(epic.Additions))...)
-	requirements, err := requirementItems(epic.Requirements)
+	lines = append(lines, ListLines("Additions", additionItems(epic.Additions))...)
+	requirements, err := RequirementItems(epic.Requirements)
 	if err != nil {
 		return nil, err
 	}
-	lines = append(lines, listLines("Requirements", requirements)...)
+	lines = append(lines, ListLines("Requirements", requirements)...)
 	gates, err := gateItems(epic.Gates)
 	if err != nil {
 		return nil, err
 	}
-	lines = append(lines, listLines("Gates", gates)...)
+	lines = append(lines, ListLines("Gates", gates)...)
 	lines = append(lines, nameLine("Done gates", epic.DoneGates), nameLine("Review gates", epic.ReviewGates))
-	lines = append(lines, listLines("Premises", premiseItems(epic.Premises))...)
-	lines = append(lines, listLines("Exclusions", exclusionItems(epic.Exclusions))...)
+	lines = append(lines, ListLines("Premises", premiseItems(epic.Premises))...)
+	lines = append(lines, ListLines("Exclusions", exclusionItems(epic.Exclusions))...)
 	lines = append(lines, "Approach: "+epic.Approach)
-	lines = append(lines, listLines("Alternatives", alternativeItems(epic.Alternatives))...)
-	lines = append(lines, listLines("Release steps", releaseStepItems(epic.ReleaseSteps))...)
+	lines = append(lines, ListLines("Alternatives", alternativeItems(epic.Alternatives))...)
+	lines = append(lines, ListLines("Release steps", releaseStepItems(epic.ReleaseSteps))...)
 	return append(lines, "Release then: "+epic.ReleaseThen, "Checks: "+epic.Checks), nil
 }
 
@@ -104,8 +104,8 @@ func nameLine(label string, names []string) string {
 	return label + ": " + nameList(names)
 }
 
-// listLines returns label alone above items, or label with None. when there are no items.
-func listLines(label string, items []string) []string {
+// ListLines returns label alone above items, or label with None. when there are no items.
+func ListLines(label string, items []string) []string {
 	if len(items) == 0 {
 		return []string{label + ": " + none}
 	}
@@ -130,10 +130,10 @@ func additionItems(additions []store.EpicAddition) []string {
 	return items
 }
 
-// requirementItems returns each requirement as its id and text, then its evidence and kind, then its evidence item as
+// RequirementItems returns each requirement as its id and text, then its evidence and kind, then its evidence item as
 // compact JSON, in the form a task's evidence item takes: its kind, capture, tests, limit, artifacts, supplied,
 // conclusion and judge.
-func requirementItems(requirements []store.EpicRequirement) ([]string, error) {
+func RequirementItems(requirements []store.EpicRequirement) ([]string, error) {
 	items := make([]string, 0, 4*len(requirements))
 	for _, r := range requirements {
 		item, err := json.Marshal(r.Item)
@@ -220,10 +220,10 @@ func releaseStepItems(steps []store.EpicReleaseStep) []string {
 	return items
 }
 
-// decisionLines returns every epic decision as `- id: text`, as `- id (answers Qn): text` when it answers question n,
+// DecisionLines returns every epic decision as `- id: text`, as `- id (answers Qn): text` when it answers question n,
 // or as `- id (answers Qn with choice): text` when the question was answered with a choice, then the decisions of each
 // turn before turn as `- turn n: text`.
-func decisionLines(epic store.EpicRow, turn int64) []string {
+func DecisionLines(epic store.EpicRow, turn int64) []string {
 	choices := make(map[int64]string, len(epic.Questions))
 	for _, q := range epic.Questions {
 		choices[q.Seq] = q.Choice

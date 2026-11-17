@@ -232,7 +232,7 @@ func (f *fakeSteps) Start(ctx context.Context, start enginehost.StepStart) (stri
 	}
 	err := f.store.ApplyEngine(ctx, []store.EngineOp{store.StepAdd{
 		ID: start.ID, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
-		Revision: start.Revision, DoneValue: "done", ReadOnly: start.ReadOnly, Epic: start.Epic,
+		Revision: start.Revision, DoneValue: "done", ReadOnly: start.ReadOnly, Epic: start.Epic, Task: start.Task,
 	}}, runClock())
 	if err != nil {
 		return "", fmt.Errorf("store step %s: %w", start.ID, err)

@@ -10,19 +10,21 @@ import (
 )
 
 // Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
-// release candidate, starts each release step in order, stores each end first, stops on any failure, judges the
-// postconditions, and ends the epic released, or done when it has no release steps.
+// release candidate, has the release integrator finish a merge of origin's commit that conflicts, starts each release
+// step in order, stores each end first, stops on any failure, judges the postconditions, and ends the epic released, or
+// done when it has no release steps.
 type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
 const (
-	ActTake   ActionKind = "take"
-	ActStep   ActionKind = "step"
-	ActJudge  ActionKind = "judge"
-	ActRecord ActionKind = "record"
-	ActStop   ActionKind = "stop"
-	ActEnding ActionKind = "ending"
-	ActFree   ActionKind = "free"
+	ActTake       ActionKind = "take"
+	ActIntegrator ActionKind = "integrator"
+	ActStep       ActionKind = "step"
+	ActJudge      ActionKind = "judge"
+	ActRecord     ActionKind = "record"
+	ActStop       ActionKind = "stop"
+	ActEnding     ActionKind = "ending"
+	ActFree       ActionKind = "free"
 )
 
 // The outcomes a release run writes beyond those the other kinds name.
@@ -32,13 +34,18 @@ const (
 )
 
 // ReleaseResult is the result a release prepare writes to its run: the error that stopped it, whether the revision it
-// records is behind the target, the candidate it records and the tip the candidate was made from. The release kind
-// reads it and the executor writes and reads it, so it is defined once, here.
+// records is behind the target, the candidate it records and the tip the candidate was made from. A merge of origin's
+// commit into the tip that conflicts records no candidate: it records origin's commit, the branch of origin it was
+// fetched from and the paths that conflict, and the release integrator makes the candidate. The release kind reads it
+// and the executor writes and reads it, so it is defined once, here.
 type ReleaseResult struct {
-	Error     string `json:"error"`
-	Behind    bool   `json:"behind"`
-	Candidate string `json:"candidate"`
-	Tip       string `json:"tip"`
+	Error     string   `json:"error"`
+	Behind    bool     `json:"behind"`
+	Candidate string   `json:"candidate"`
+	Tip       string   `json:"tip"`
+	Origin    string   `json:"origin,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 // Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
@@ -123,7 +130,8 @@ func staleAt(attempt int64, head string, runs []store.ReleaseRun) bool {
 
 // candidateAction decides a releasing epic whose candidate has not passed. It stops on a candidate that failed at this
 // attempt. Otherwise it prepares the candidate, stops on the error the prepare recorded, and holds the candidate at its
-// done gates when it is behind the target or prepared again at this attempt. Any other candidate is recorded.
+// done gates when it is behind the target or prepared again at this attempt. Any other candidate is recorded. A prepare
+// that found the merge of origin's commit conflicting hands the merge to the release integrator (integratorAction).
 func candidateAction(run store.NodeRun, rows Rows) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartCandidate && !r.Passed && r.Attempt == run.Attempt
@@ -134,6 +142,9 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 	result, err := ParseReleaseResult(run.Result)
 	if err != nil {
 		return Action{Kind: ActStop, Output: err.Error()}
+	}
+	if len(result.Conflicts) > 0 {
+		return integratorAction(run, rows)
 	}
 	if run.Revision == "" {
 		return prepareRelease(result, rows)
