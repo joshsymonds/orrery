@@ -6,6 +6,7 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { faultKinds } from "./faults";
 import { runReport } from "./report";
 
 // The recipe runs from the repository root, which holds web/.
@@ -40,6 +41,10 @@ async function main(): Promise<void> {
   for (const record of incomplete) {
     console.log(`  incomplete: ${record.scenario} ${record.side} ${record.width}: ${record.error}`);
   }
+  const live = report.faults.filter((fault) => !fault.reference);
+  const byKind = faultKinds.map((kind) => `${kind} ${live.filter((fault) => fault.kind === kind).length}`).join(", ");
+  const reference = report.faults.length - live.length;
+  console.log(`visual-report: live faults by kind: ${byKind}; ${reference} wireframe reference faults (never counted)`);
 }
 
 main().then(
