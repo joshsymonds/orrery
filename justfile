@@ -8,6 +8,12 @@ set script-interpreter := ["scripts/in-devenv", "-euo", "pipefail"]
 # performance target. Override on the CLI: just TEST_BUDGET=60 check
 TEST_BUDGET := "360"
 
+# Wall-clock budget (seconds) for check-changed's Go tests. Override: just CHECK_CHANGED_BUDGET=600 check-changed
+CHECK_CHANGED_BUDGET := "240"
+
+# Wall-clock budget (seconds) for web-check's node run, the whole web suite. Override: just WEB_TEST_BUDGET=300 web-check
+WEB_TEST_BUDGET := "120"
+
 # List available recipes.
 default:
     @just --list
@@ -195,9 +201,16 @@ web-check:
         exit 1
     fi
     esbuild $tests --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build --out-extension:.js=.mjs --log-level=warning
-    # A test still running after a minute fails, named, rather than holding its file until the gate's own limit ends
-    # it with no test named: every test here takes milliseconds, so the minute bounds a hang, not a slow test.
-    node --test --test-timeout=60000 $(find web/build -name '*.test.mjs' | sort)
+    # A test still running after 5 s fails, named, rather than holding its file until the gate's own limit ends it
+    # with no test named. Most tests here take milliseconds and the slowest a few hundred, so 5 s bounds a hang, not a
+    # slow test. The whole run is bounded too: past WEB_TEST_BUDGET seconds timeout ends it, and the recipe fails
+    # saying so, so a file that hangs outside any test cannot hold the gate.
+    rc=0
+    timeout {{WEB_TEST_BUDGET}} node --test --test-timeout=5000 $(find web/build -name '*.test.mjs' | sort) || rc=$?
+    if [ "$rc" -eq 124 ]; then
+        echo "web-check: the web suite exceeded {{WEB_TEST_BUDGET}}s budget" >&2
+    fi
+    exit "$rc"
 
 # Bundle the web page into web/build/page, the directory the flake package embeds. scripts/build-web.sh holds the
 # bundle command, which the flake calls too.
@@ -239,7 +252,7 @@ _visual-build:
     esbuild $(find web/src/visual -name '*.ts' ! -name '*.test.ts' | sort) --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build/visual-tool --out-extension:.js=.mjs --external:playwright-core --log-level=warning
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test
+check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test test-deadline-test test-budget-test
 
 # Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
 # and its -L server runs on as a daemon. Only a server named orrery-<word>(-<word>)*-<pid>-<hex>, as tests name theirs,
@@ -251,7 +264,7 @@ reap-test-tmux:
 # The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
 # merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
 check-changed BASE="": reap-test-tmux
-    scripts/check-changed.sh {{BASE}}
+    CHECK_CHANGED_BUDGET={{CHECK_CHANGED_BUDGET}} scripts/check-changed.sh {{BASE}}
 
 # Run a gate command on the orrery-gate EC2 box. When the box is gone it waits for the one its wake brings up, and runs
 # here through /tmp/claude-1000/heavy only when no box can come up; see scripts/gate-remote.sh for the steps, the
@@ -277,9 +290,35 @@ remote-flake-check:
 gate-remote-test:
     scripts/gate-remote-test.sh
 
+# With ORRERY_TEST_CPU_FILE set, scripts/test-deadline.sh also records each test binary's CPU seconds.
 # Test scripts/test-deadline.sh, the go test -exec program that gives each test binary what is left of the budget.
 test-deadline-test:
     scripts/test-deadline-test.sh
+
+# Test scripts/test-budget.sh, the per-package CPU budget check, against synthetic records and baselines.
+test-budget-test:
+    scripts/test-budget-test.sh
+
+# Two runs of `go test -count=1 -race ./...`, check-changed's tests over every package, each package keeping the lower
+# of its two CPU seconds. A failing or timed-out run writes nothing. Run it on an idle machine, as load inflates CPU.
+# Re-measure every package's test CPU seconds and rewrite the baseline, testdata/test-budget.json.
+[script]
+test-budget-update: reap-test-tmux
+    dir=$(mktemp -d /tmp/orrery-budget.XXXXXX)
+    trap 'rm -rf "$dir"' EXIT
+    for run in 1 2; do
+        mkdir "$dir/tmux$run"
+        : >"$dir/run$run"
+        deadline=$(($(date +%s) + {{TEST_BUDGET}} - 10))
+        rc=0
+        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$dir/run$run" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race ./... || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            echo "test-budget-update: run $run failed (exit $rc); testdata/test-budget.json is unchanged" >&2
+            exit "$rc"
+        fi
+    done
+    mkdir -p testdata
+    scripts/test-budget.sh update testdata/test-budget.json "$dir/run1" "$dir/run2"
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

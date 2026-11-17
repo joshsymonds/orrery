@@ -546,9 +546,9 @@ test("an engine_added on the open stream adds the new headless session's row wit
 // tests named with childPrefix, and it runs only those.
 const childEnv = "ORRERY_MAIN_TEST_CHILD";
 const childPrefix = "child run: ";
-// childTimeoutMs is the child run's --test-timeout: its first test can only end by timing out, and its second, a page's
-// first load, ends long before it.
-const childTimeoutMs = 3000;
+// childTimeoutMs is the child run's --test-timeout, short, as testwait's is: its first test can only end by timing out,
+// and its second, a page's first load against a fake server, takes milliseconds.
+const childTimeoutMs = 300;
 
 if (process.env[childEnv] === "1") {
   test(`${childPrefix}a page whose wait never ends`, (t) =>
