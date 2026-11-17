@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -20,9 +22,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
-// stepsFake is an in-process Steps service for the step tests. It answers each ResumeStep in order from script, then
-// with tail. A cut answer drops the connection once the request is read. It records each ResumeStep it answers as
-// "Resume ID".
+// stepsFake is an in-process Steps service for the step tests. Each request that reaches it takes the next answer of
+// script, then tail, and a cut answer drops the connection once the request is read. A ResumeStep, StepStatus or
+// WaitSteps the server answers is recorded as "Resume ID", "Status ID" or "Wait IDS timeout SECONDS", with IDS the ids
+// joined by commas. A WaitSteps is answered from waits, and rows holds the steps a StepStatus or WaitSteps names.
 type stepsFake struct {
 	enginev1connect.UnimplementedStepsHandler
 
@@ -30,7 +33,9 @@ type stepsFake struct {
 	script   []holdAnswer
 	tail     holdAnswer
 	attempts int      // requests that reached the server, cut or answered
-	calls    []string // calls the server answered, as "Resume ID"
+	calls    []string // calls the server answered
+	rows     map[string]*v1.Step
+	waits    []string // the step each WaitSteps ends, in order; "" ends none and times out
 }
 
 // arrive counts a request that reached the server and returns the answer it gets.
@@ -75,6 +80,107 @@ func (f *stepsFake) ResumeStep(
 	return connect.NewResponse(&v1.ResumeStepResponse{}), nil
 }
 
+// stepEndedAt is the unix second every step the fake ends is ended at.
+const stepEndedAt = 1700000100
+
+// stepRow returns the row of step id as the fake holds it: running, or ended at stepEndedAt.
+func stepRow(id string, ended bool) *v1.Step {
+	row := &v1.Step{Id: id, Agent: "claude", Workspace: "/work/" + id, Started: 1700000000}
+	if ended {
+		row.End = "done"
+		row.Status = "done"
+		row.Ended = stepEndedAt
+	}
+	return row
+}
+
+// cloneStep returns a copy of row, so an answer does not share the fake's row.
+func cloneStep(row *v1.Step) *v1.Step {
+	out := &v1.Step{}
+	proto.Merge(out, row)
+	return out
+}
+
+// noStepError is the refusal orreryd sends for an id no step has: NotFound, with the store's text naming the id.
+func noStepError(id string) error {
+	return connectErr(connect.CodeNotFound, fmt.Sprintf("step %s: no step", id))
+}
+
+// answerError returns the error the request in ctx is answered with, or nil.
+func answerError(ctx context.Context) error {
+	ans, _ := ctx.Value(answerKey{}).(holdAnswer)
+	return ans.err
+}
+
+// StepStatus implements enginev1connect.StepsHandler. It answers the row of the step, or a refusal naming an id no row
+// holds.
+func (f *stepsFake) StepStatus(
+	ctx context.Context,
+	req *connect.Request[v1.StepStatusRequest],
+) (*connect.Response[v1.StepStatusResponse], error) {
+	id := req.Msg.GetId()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "Status "+id)
+	if err := answerError(ctx); err != nil {
+		return nil, err
+	}
+	row, ok := f.rows[id]
+	if !ok {
+		return nil, noStepError(id)
+	}
+	return connect.NewResponse(&v1.StepStatusResponse{Step: cloneStep(row)}), nil
+}
+
+// WaitSteps implements enginev1connect.StepsHandler. Each call takes the next entry of waits and ends that step, or ends
+// none for an entry of "". The answer names the first listed step that has ended, and every named step's row. Once waits
+// is used up, a call answers with the steps already ended, and fails when none has ended, so a test that expects an end
+// does not hang.
+func (f *stepsFake) WaitSteps(
+	ctx context.Context,
+	req *connect.Request[v1.WaitStepsRequest],
+) (*connect.Response[v1.WaitStepsResponse], error) {
+	ids := req.Msg.GetIds()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("Wait %s timeout %d", strings.Join(ids, ","), req.Msg.GetTimeoutSeconds()))
+	if err := answerError(ctx); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if _, ok := f.rows[id]; !ok {
+			return nil, noStepError(id)
+		}
+	}
+	scripted := len(f.waits) > 0
+	if scripted {
+		end := f.waits[0]
+		f.waits = f.waits[1:]
+		if row, ok := f.rows[end]; ok && end != "" {
+			row.End = "done"
+			row.Status = "done"
+			row.Ended = stepEndedAt
+		}
+	}
+	var endedRow *v1.Step
+	steps := make([]*v1.Step, 0, len(ids))
+	for _, id := range ids {
+		row := f.rows[id]
+		if endedRow == nil && row.GetEnd() != "" {
+			endedRow = row
+		}
+		steps = append(steps, cloneStep(row))
+	}
+	if endedRow == nil && !scripted {
+		return nil, connectErr(connect.CodeInternal, "fake: no WaitSteps answer scripted")
+	}
+	resp := &v1.WaitStepsResponse{Steps: steps}
+	if endedRow != nil {
+		resp.Ended = cloneStep(endedRow)
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // serveStepsFake serves fake as Steps on the session socket beside the daemon socket at daemon. The server is closed at
 // cleanup.
 func serveStepsFake(t *testing.T, daemon string, fake *stepsFake) {
@@ -109,20 +215,29 @@ func serveStepsFake(t *testing.T, daemon string, fake *stepsFake) {
 	t.Cleanup(func() { _ = srv.Close() })
 }
 
-// runStepRetry runs `orrery step` with args against the daemon socket on clock. It returns the exit code main would
-// report and what was written to stderr.
-func runStepRetry(t *testing.T, clock rpcretry.Clock, daemon string, args ...string) (int, string) {
+// runStepCapture runs `orrery step` with args against the daemon socket on clock. It returns the exit code main would
+// report and what was written to stdout and stderr.
+func runStepCapture(t *testing.T, clock rpcretry.Clock, daemon string, args ...string) (int, string, string) {
 	t.Helper()
-	var stderr bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	err := runStepWith(
 		t.Context(),
 		clock,
 		globals{daemonSocket: daemon},
 		args,
+		&stdout,
 		&stderr,
 		func(string) string { return "" },
 	)
-	return report(&stderr, err), stderr.String()
+	return report(&stderr, err), stdout.String(), stderr.String()
+}
+
+// runStepRetry runs `orrery step` with args as runStepCapture does, and returns the exit code and what was written to
+// stderr.
+func runStepRetry(t *testing.T, clock rpcretry.Clock, daemon string, args ...string) (int, string) {
+	t.Helper()
+	code, _, stderr := runStepCapture(t, clock, daemon, args...)
+	return code, stderr
 }
 
 // TestStepResumeSendsResume resumes s1 against a Steps fake. It exits 0 and writes nothing.
