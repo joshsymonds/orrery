@@ -44,6 +44,7 @@ import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
+import { lastPathElement, TitleParts } from "./titleparts";
 import { TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
@@ -1294,19 +1295,13 @@ export function App({
                         {item.state === stateWaiting && (
                           <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
                         )}
-                        <span class="label">{item.label}</span>
-                        <span class="proj">{lastPathElement(item.project)}</span>
+                        <TitleParts dir={item.project} line={item.label} />
                         <span class="age">{ageText(item.changed, now)}</span>
                         {item.archiveKind !== "none" && <ArchiveButton control={archiveControl(item)} />}
                       </div>
                       <div class={item.unseen ? "l2" : "l2 one"}>
-                        <ReplyText text={item.state === stateWaiting ? rowNeed(item).text : item.summary} />
+                        <ReplyText text={replyText(item)} />
                       </div>
-                      {item.state === stateWaiting && item.summary !== "" && (
-                        <div class="l2 one why">
-                          <ReplyText text={item.summary} />
-                        </div>
-                      )}
                       <RowOptions
                         row={item}
                         conversation={heldConversation(item.key)}
@@ -1344,7 +1339,8 @@ export function App({
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
             <ConversationHead
-              label={cursorRow.label}
+              dir={cursorRow.project}
+              line={cursorRow.label}
               state={headState(cursorRow, cursorConversation?.state?.pane)}
               onBack={focusCursorRow}
               onGoList={focusCursorRow}
@@ -1383,7 +1379,7 @@ export function App({
             {composerRows(visited, cursorRow).map((row) => (
               <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
                 <Composer
-                  label={row.label}
+                  label={rowName(row)}
                   state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
@@ -1429,7 +1425,8 @@ export function App({
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && (
             <ConversationHead
-              label={pinned.label}
+              dir={pinned.project}
+              line={pinned.label}
               state={headState(pinned, pinnedConversation?.state?.pane)}
               onBack={closePin}
               onGoList={focusCursorRow}
@@ -1450,7 +1447,7 @@ export function App({
             {composerRows(pinnedRows, pinned).map((row) => (
               <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
                 <Composer
-                  label={row.label}
+                  label={rowName(row)}
                   state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
@@ -1719,6 +1716,21 @@ function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
 }
 
+// replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
+// title's line, so a pane that is not waiting has no second line.
+function replyText(row: Row): string {
+  if (row.state === stateWaiting) {
+    return rowNeed(row).text;
+  }
+  return row.kind === "session" ? row.summary : "";
+}
+
+// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
+// directory.
+function rowName(row: Row): string {
+  return lastPathElement(row.project) || row.label;
+}
+
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
 function pruneSent(
   previous: Map<string, Sending[]>,
@@ -1973,11 +1985,6 @@ function stepWhere(step: StepItem): string {
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
 function pageClasses(move: EpicPageState["move"], docked: boolean): string {
   return ["page", move, docked ? "docked" : ""].filter((name) => name !== "").join(" ");
-}
-
-function lastPathElement(path: string): string {
-  const parts = path.split("/").filter((part) => part !== "");
-  return parts[parts.length - 1] ?? "";
 }
 
 function ageText(changed: number, now: number): string {

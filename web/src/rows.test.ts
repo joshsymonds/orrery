@@ -52,7 +52,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
       key: "pane:box:%3",
       id: "%3",
       kind: "pane",
-      label: "api",
+      label: "building",
       project: "/work/api",
       host: "box",
       state: "working",
@@ -81,12 +81,13 @@ test("a pane row carries the pane's id and question hash, and a session row carr
   assert.equal(sessionRow?.questionHash, "");
 });
 
-test("a pane row without a label is named by its tmux session", () => {
-  const [row] = rowsFrom([makePane({ id: "%4", session: "deploy", label: "" })], []);
-  assert.equal(row?.label, "deploy");
+test("TitleParts: a pane with no summary has an empty line, never its tmux session or label, so its title is its directory alone", () => {
+  const [row] = rowsFrom([makePane({ id: "%4", session: "deploy", label: "api", cwd: "/work/app", summary: "" })], []);
+  assert.equal(row?.label, "");
+  assert.equal(row?.project, "/work/app");
 });
 
-test("a session row is keyed by its id, named by its first eight characters, and has no project or host", () => {
+test("a session row is keyed by its id, reads 'session' as its line when it has no label, and has no project or host", () => {
   const rows = rowsFrom(
     [],
     [
@@ -108,7 +109,7 @@ test("a session row is keyed by its id, named by its first eight characters, and
       key: "session:0123456789abcdef",
       id: "0123456789abcdef",
       kind: "session",
-      label: "01234567",
+      label: "session",
       project: "",
       host: "",
       state: "done",
@@ -136,7 +137,7 @@ test("a session row reads a label when one is set and treats non-numeric times a
   assert.equal(row?.unseen, true);
 });
 
-test("a headless row is labeled by the server's label, and an empty label stays empty rather than naming the id", () => {
+test("TitleParts: a headless row's line is its served headline and its project its directory, with no id in either, and an empty headline leaves the line empty", () => {
   const rows = rowsFrom(
     [],
     [],
@@ -144,7 +145,8 @@ test("a headless row is labeled by the server's label, and an empty label stays 
       makeHeadless({
         id: "0123456789abcdef",
         dir: "/work/app",
-        label: "",
+        label: "app · 01234567",
+        headline: "",
         state: "idle",
         changed: 42n,
         seen: 42n,
@@ -152,7 +154,8 @@ test("a headless row is labeled by the server's label, and an empty label stays 
       makeHeadless({
         id: "fedcba9876543210",
         dir: "/work/app",
-        label: "Billing rounding",
+        label: "app · fedcba98",
+        headline: "Billing rounding plan",
         state: "working",
         changed: 7n,
         seen: 0n,
@@ -164,7 +167,7 @@ test("a headless row is labeled by the server's label, and an empty label stays 
     rows.map((row) => [row.id, row.label, row.project]),
     [
       ["0123456789abcdef", "", "/work/app"],
-      ["fedcba9876543210", "Billing rounding", "/work/app"],
+      ["fedcba9876543210", "Billing rounding plan", "/work/app"],
     ],
   );
 });

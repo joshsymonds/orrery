@@ -10,7 +10,10 @@ export interface Row {
   // The pane's id (such as %3) for a pane row, the session's id for a session row.
   id: string;
   kind: "pane" | "session";
+  // The row's line, which its title draws after its directory: a pane's summary, a headless session's served headline,
+  // or a Sessions.List row's label, which reads 'session' when it is empty.
   label: string;
+  // The directory the row runs in, which its title draws as the last element of its path. Empty for a Sessions.List row.
   project: string;
   host: string;
   state: string;
@@ -35,8 +38,8 @@ export interface Section {
 // Panes in a tmux session with this prefix are internal to orrery and are not listed.
 const shellSessionPrefix = "_orrery-shell-";
 
-// A session row with no label is named by this many characters of its id.
-const sessionLabelLength = 8;
+// A Sessions.List row with no label reads this word as its line.
+const sessionLabel = "session";
 
 const sessionsTitle = "Sessions";
 
@@ -50,8 +53,9 @@ const rankWorking = 2;
 const rankRest = 3;
 
 // rowsFrom makes a row of each pane outside orrery's own shells, of each session that names no pane, and of each headless
-// session: a session row whose label is the server's, whose project is the session's directory, and that the session
-// row path, Sessions.WatchConversation and Control, drives by its id.
+// session. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
+// headline, or a Sessions.List row's label. A session row is driven by its id, through the session row path,
+// Sessions.WatchConversation and Control.
 export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessSession[] = []): Row[] {
   const rows: Row[] = [];
   for (const pane of panes) {
@@ -64,7 +68,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       key: `pane:${pane.host}:${pane.id}`,
       id: pane.id,
       kind: "pane",
-      label: pane.label || pane.session,
+      label: pane.summary,
       project: pane.cwd,
       host: pane.host,
       state: pane.state,
@@ -88,7 +92,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       key: `session:${session.id}`,
       id: session.id,
       kind: "session",
-      label: session.label || session.id.slice(0, sessionLabelLength),
+      label: session.label || sessionLabel,
       project: "",
       host: "",
       state: session.state,
@@ -109,7 +113,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       key: `session:${session.id}`,
       id: session.id,
       kind: "session",
-      label: session.label,
+      label: session.headline,
       project: session.dir,
       host: "",
       state: session.state,

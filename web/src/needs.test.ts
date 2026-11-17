@@ -57,16 +57,16 @@ const asksAboutDatabase = JSON.stringify({
   questions: [{ question: "Which database?", options: [{ label: "Postgres", description: "" }] }],
 });
 
-test("a waiting row with a question reads its label asks and the question's title, its summary the why", () => {
+test("a waiting row with a question reads asks and the question's title, naming neither its directory nor its line, and its summary the why", () => {
   const need = rowNeed(makeRow({ label: "api", question: asksAboutDatabase, summary: "schema change" }));
-  assert.equal(need.text, "api asks: Which database?");
+  assert.equal(need.text, "asks: Which database?");
   assert.equal(need.summary, "schema change");
   assert.equal(need.kind, "row");
 });
 
-test("a waiting row with no question reads that it waits on you, its summary the why", () => {
+test("a waiting row with no question reads that it waits on you, naming neither its directory nor its line, and its summary the why", () => {
   const need = rowNeed(makeRow({ label: "web", question: "", summary: "build finished" }));
-  assert.equal(need.text, "web waits on you");
+  assert.equal(need.text, "waits on you");
   assert.equal(need.summary, "build finished");
   assert.equal(need.kind, "row");
 });

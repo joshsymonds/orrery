@@ -27,15 +27,14 @@ const retryMs = 5;
 const longPollMs = 600_000;
 
 // Synthetic fixtures: one pane and one headless session, no real hosts or paths.
-function paneBody(label: string) {
+function paneBody(dir: string) {
   return {
     panes: [
       {
         id: "%1",
         host: "box",
         session: "work",
-        label,
-        cwd: "/work/api",
+        cwd: `/work/${dir}`,
         state: "waiting",
         summary: "building",
         question: "",
@@ -61,13 +60,13 @@ const sessionBody = {
   ],
 };
 
-// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with the
-// label the server derives: the directory's base name and the first 8 characters of the id.
+// headlessSession is one headless session as Sessions.ListHeadless answers it, under a synthetic directory, with no
+// headline yet, so its row reads its directory alone.
 function headlessSession(id: string, base: string) {
   return {
     id,
     dir: `/work/${base}`,
-    label: `${base} · ${id.slice(0, 8)}`,
+    headline: "",
     state: "working",
     changed: "50",
     seen: "0",
@@ -122,8 +121,8 @@ interface Watch {
 
 interface FakeServer {
   fetch: typeof globalThis.fetch;
-  // The pane label the next Panes.List answers with.
-  paneLabel: string;
+  // The directory the next Panes.List answers its pane in, named by its last element.
+  paneDir: string;
   // While set, Panes.List waits for it before answering.
   gate: Promise<void> | null;
   panesCalls: number;
@@ -158,7 +157,7 @@ interface FakeServer {
 // fakeServer answers the lists from its fields, so a test can change what the next reload shows. It starts with no
 // epics, so a test that does not ask for one sees the same page as before epics existed. Without streaming,
 // Events.Watch answers 404, so the stream is down and the poll alone reloads.
-function fakeServer(paneLabel: string, streaming = false): FakeServer {
+function fakeServer(paneDir: string, streaming = false): FakeServer {
   const server: FakeServer = {
     fetch: async (input, init) => {
       const request = new Request(input, init);
@@ -250,12 +249,12 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
           // Longer than intervalMs, so a reload that ignored the in-flight one would overlap it.
           await new Promise((resolve) => setTimeout(resolve, intervalMs * 3));
         }
-        return json(paneBody(server.paneLabel));
+        return json(paneBody(server.paneDir));
       } finally {
         server.panesInFlight--;
       }
     },
-    paneLabel,
+    paneDir,
     gate: null,
     panesCalls: 0,
     panesInFlight: 0,
@@ -304,14 +303,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function labels(root: HTMLElement): string[] {
-  return [...root.querySelectorAll(".label")].map((element) => element.textContent ?? "");
+// nameOf names a session or pane row by its directory's last element, or by its line when it has no directory. An epic
+// or step row, which draws no title, is named by its label.
+function nameOf(row: Element): string {
+  return (
+    row.querySelector(".title-dir")?.textContent ??
+    row.querySelector(".title-line")?.textContent ??
+    row.querySelector(".label")?.textContent ??
+    ""
+  );
 }
 
-// ageOf returns the age text of the row labelled name, or "" when no such row is rendered.
+// labels names each row that is drawn, in the order drawn.
+function labels(root: HTMLElement): string[] {
+  return [...root.querySelectorAll("[data-row]")].map(nameOf).filter((name) => name !== "");
+}
+
+// ageOf returns the age text of the row named name, or "" when no such row is rendered.
 function ageOf(root: HTMLElement, name: string): string {
   const rows = [...root.querySelectorAll("[data-row]")];
-  const row = rows.find((element) => element.querySelector(".label")?.textContent === name);
+  const row = rows.find((element) => nameOf(element) === name);
   return row?.querySelector(".age")?.textContent ?? "";
 }
 
@@ -447,7 +458,7 @@ test("a reload shows the changed pane", (t) =>
     const stop = start(root, clientsFor(server), intervalMs);
     try {
       await until(t.signal, () => labels(root).includes("api"), "the first pane label");
-      server.paneLabel = "web";
+      server.paneDir = "web";
       await until(t.signal, () => labels(root).includes("web") && !labels(root).includes("api"), "the renamed pane");
     } finally {
       stop();
@@ -496,7 +507,7 @@ test("a headless session from Sessions.ListHeadless is a row on the first load",
     const stop = start(root, clientsFor(server), longPollMs);
     try {
       await until(t.signal, () => labels(root).includes("api"), "the first load");
-      await until(t.signal, () => labels(root).includes("gatehouse · 170bf619"), "the headless session's row");
+      await until(t.signal, () => labels(root).includes("gatehouse"), "the headless session's row");
       assert.ok(server.paths.has(headlessPath), "the page never called Sessions.ListHeadless");
     } finally {
       stop();
@@ -511,7 +522,7 @@ test("an engine_added on the open stream adds the new headless session's row wit
     try {
       await until(
         t.signal,
-        () => server.watches.length === 1 && labels(root).includes("gatehouse · 170bf619"),
+        () => server.watches.length === 1 && labels(root).includes("gatehouse"),
         "the first load and stream",
       );
       // The poll waits longPollMs, longer than the suite lets a test run, so the row this wait sees can only come from
@@ -519,8 +530,8 @@ test("an engine_added on the open stream adds the new headless session's row wit
       const added = headlessSession("cfe64ee3aa00bb11cc22dd33ee44ff55", "orrery");
       server.headless = [...server.headless, added];
       sendEngineAdded(server.watches[0], 8, added.id, added.dir);
-      await until(t.signal, () => labels(root).includes("orrery · cfe64ee3"), "the added session's row");
-      assert.ok(labels(root).includes("gatehouse · 170bf619"), "the first headless session's row went away");
+      await until(t.signal, () => labels(root).includes("orrery"), "the added session's row");
+      assert.ok(labels(root).includes("gatehouse"), "the first headless session's row went away");
     } finally {
       stop();
     }
@@ -604,7 +615,7 @@ test("an event on the open stream reloads without waiting for the poll", (t) =>
     try {
       await until(t.signal, () => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
       assert.equal(server.watches[0].header, clientValue, "the stream call lacked the client header");
-      server.paneLabel = "web";
+      server.paneDir = "web";
       // The poll waits longPollMs, longer than the suite lets a test run, so the reload this wait sees can only be the
       // event's.
       sendEvent(server.watches[0], 8);
