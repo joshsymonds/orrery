@@ -49,6 +49,18 @@ func Check(ret Return, requirements []string, owned []string, gate, judge func(n
 	return refusals
 }
 
+// checkPark returns the refusal of a return that answers no park: one with no action and no question. park is the
+// reason of the planner-class park the epic holds, or "" when it holds none, and then every return passes. The line names
+// the actions field and the reason, so the planner sees which park its return must answer.
+func checkPark(ret Return, park string) []string {
+	if park == "" || len(ret.Actions) > 0 || len(ret.Questions) > 0 {
+		return nil
+	}
+	return []string{
+		"actions: the epic is parked (" + park + "); return an action for the park or a catastrophe question",
+	}
+}
+
 // checkTask returns the refusals of one task's fields, in the order title, deliverable, files, test_changes,
 // requirements, gate, each line of the evidence item's form, then the gate and the judge that do not resolve. named
 // records each well-formed file the plan names, so a later naming of the same file is refused.
