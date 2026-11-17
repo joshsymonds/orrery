@@ -1641,8 +1641,9 @@ test("a message sent to a working session draws above the box as queued, and lea
     await pressIn(composer(container), "Enter");
     await untilTurn(t.signal, () => queueTexts(container).length === 1, "the queued send");
     assert.deepEqual(queueTexts(container), ["after the turn"]);
+    assert.equal(container.querySelector('[aria-label="reader"] .send .queue .queue-head')?.textContent, "1 queued");
     const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
-    assert.equal(queued?.querySelector(".tag")?.textContent, "queued");
+    assert.equal(queued?.querySelector(".tag"), null, "a waiting row carries no per-row tag, since the head names it");
     assert.equal(queued?.querySelector(".words")?.textContent, "It sends when this turn ends");
     await mount(container, {
       rows: [{ ...sessionRow, state: "done" }],

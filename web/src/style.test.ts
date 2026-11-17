@@ -286,6 +286,10 @@ test("queued text is dim, and a canceled one is struck through with a maroon tag
   assert.match(declarationsFor(css, ".compose .queued.canceled > .tag"), /color:\s*var\(--maroon\);/);
 });
 
+test("GhostQueued: the queued row's rule draws a dashed mauve edge", () => {
+  assert.match(declarationsFor(css, ".compose .queued"), /border-left:\s*2px dashed var\(--mauve\);/);
+});
+
 test("the step foot sets Interrupt as a red chip, the line beside its input, and the more button as a 36px ring", () => {
   assert.match(declarationsFor(css, ".stepbox .line"), /display:\s*flex;/);
   const interrupt = declarationsFor(css, ".stepbox .interrupt");

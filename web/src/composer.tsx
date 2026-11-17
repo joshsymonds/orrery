@@ -62,9 +62,9 @@ function sameText(a: string, b: string): boolean {
 // Composer is the send box under the reader. Enter and the send button send the text once; Shift+Enter or Alt+Enter
 // puts a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it
 // rejects. A failed send keeps the draft and its prompt id and is never resent by the composer. Up in an empty box pulls
-// the newest queued text back. The queue draws above the box, oldest first, each message as a tag and its text: the
-// conversation's waiting messages, then the messages this composer sent while the conversation was working. Its edge
-// and placeholder follow the conversation's state.
+// the newest queued text back. The queue draws above the box under one head that counts its rows, oldest first, each
+// message as its text: the conversation's waiting messages, then the messages this composer sent while the conversation
+// was working. A canceled message is tagged. Its edge and placeholder follow the conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -180,9 +180,10 @@ export function Composer(props: {
     <div class="compose">
       {rows.length > 0 && (
         <ol class="queue">
+          <li class="queue-head">{`${rows.length} queued`}</li>
           {rows.map((row) => (
             <li key={row.key} class={row.canceled ? "queued canceled" : "queued"}>
-              <span class="tag">{row.canceled ? "canceled" : "queued"}</span>
+              {row.canceled && <span class="tag">canceled</span>}
               {!row.canceled && <span class="words">{queuedWords}</span>}
               <span class="text">
                 <ReplyText text={row.text} />
