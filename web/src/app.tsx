@@ -114,6 +114,12 @@ interface TalkDockState {
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
 type Item = Row | EpicItem | StepItem;
 
+// The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
+interface PendingTarget {
+  kind: Row["kind"];
+  id: string;
+}
+
 const stateWaiting = "waiting";
 const stateWorking = "working";
 // The block kind a notice names when it opens the contract page.
@@ -193,8 +199,9 @@ export function App({
   const [metersOpen, setMetersOpen] = useState(false);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
-  // The pane Picker.Run answered, which the cursor moves to once the loaded rows hold its row.
-  const [pickedPane, setPickedPane] = useState("");
+  // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
+  // answered, or the session Control.Start started.
+  const [pending, setPending] = useState<PendingTarget | null>(null);
   const [stream, setStream] = useState<Stream | null>(null);
   // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
   // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
@@ -654,22 +661,22 @@ export function App({
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
-  // The pane Picker.Run answered takes the cursor once the loaded rows hold its row, so a row that arrives in a later
-  // render is reached too. A filter that hides the row is accepted: the cursor then stays where it is.
+  // The palette's answered row takes the cursor once the loaded rows hold it, so a row that arrives in a later render
+  // is reached too. A filter that hides the row is accepted: the cursor then stays where it is.
   useEffect(() => {
-    if (pickedPane === "") {
+    if (pending === null) {
       return;
     }
-    const picked = rows.find((row) => row.kind === "pane" && row.id === pickedPane);
-    if (picked === undefined) {
+    const found = rows.find((row) => row.kind === pending.kind && row.id === pending.id);
+    if (found === undefined) {
       return;
     }
-    setPickedPane("");
-    const target = flat.findIndex((item) => item.key === picked.key);
+    setPending(null);
+    const target = flat.findIndex((item) => item.key === found.key);
     if (target >= 0) {
       moveTo(target);
     }
-  }, [pickedPane, rows, flat]);
+  }, [pending, rows, flat]);
 
   // openEpic moves the cursor to an epic's entry, first opening the accepted, folded or ended earlier line that holds
   // it when that line is shut. The entry is then in the list, so the cursor rests on it.
@@ -1326,7 +1333,11 @@ export function App({
           clients={clients}
           onRun={(pane) => {
             setPickerOpen(false);
-            setPickedPane(pane);
+            setPending({ kind: "pane", id: pane });
+          }}
+          onStart={(session) => {
+            setPickerOpen(false);
+            setPending({ kind: "session", id: session });
           }}
           onClose={() => setPickerOpen(false)}
         />

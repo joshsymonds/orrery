@@ -4880,3 +4880,43 @@ test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arr
     await mount(container, { rows: [...fixture(), deploy], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "pane:box:%9");
   }));
+
+test("PickerStartForm: a started session takes the cursor once its row arrives in a later render", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    fake.replies.set(pickerAskPath, [
+      {
+        rows: [
+          {
+            token: "tok-web",
+            kind: "fresh",
+            dir: "/work/web",
+            pane: "",
+            label: "web",
+            note: "start fresh",
+            prompt: false,
+          },
+        ],
+      },
+    ]);
+    fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
+    await clickElement(askButton(container));
+    await typePicker(container, "web");
+    await pressIn(pickerInput(container), "Enter");
+    await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
+    await clickElement(pickerRow(container, 0));
+    await clickButton(container, '[aria-label="picker"]', "Start");
+    await untilTurn(t.signal, () => !pickerShown(container), "the start closes the palette");
+    assert.equal(cursorKey(container), "a", "the started session's row is not in the list yet");
+
+    const started = row({
+      key: "session:sess-new",
+      id: "sess-new",
+      kind: "session",
+      label: "web",
+      state: "working",
+      changed: 500,
+      seen: 500,
+    });
+    await mount(container, { rows: [...fixture(), started], error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(cursorKey(container), "session:sess-new");
+  }));

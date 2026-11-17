@@ -11,6 +11,7 @@ import { turn, until } from "./testwait";
 
 const askPath = "/orrery.v1.Picker/Ask";
 const runPath = "/orrery.v1.Picker/Run";
+const startPath = "/orrery.v1.Control/Start";
 
 // Synthetic rows only: made-up tokens, panes, directories and words.
 const jumpRow = {
@@ -40,6 +41,15 @@ const freshRow = {
   note: "start fresh",
   prompt: false,
 };
+const promptRow = {
+  token: "tok-prompt",
+  kind: "pane",
+  dir: "/work/docs",
+  pane: "%4",
+  label: "docs",
+  note: "pane in docs",
+  prompt: true,
+};
 
 interface Call {
   path: string;
@@ -52,8 +62,8 @@ interface Reply {
   body: object;
 }
 
-// FakeServer answers Picker.Ask and Picker.Run through TransportOptions.fetch. A path answers with the reply a test
-// queues for it, once, and an unqueued call answers an empty reply. Every call is recorded with its body.
+// FakeServer answers Picker.Ask, Picker.Run and Control.Start through TransportOptions.fetch. A path answers with the
+// reply a test queues for it, once, and an unqueued call answers an empty reply. Every call is recorded with its body.
 class FakeServer {
   readonly calls: Call[] = [];
   readonly replies = new Map<string, Reply>();
@@ -108,9 +118,10 @@ async function mountPalette(
   server: FakeServer,
   onRun: (pane: string) => void = () => {},
   onClose: () => void = () => {},
+  onStart: (session: string) => void = () => {},
 ): Promise<void> {
   await act(() => {
-    render(<PickerPalette clients={server.clients} onRun={onRun} onClose={onClose} />, container);
+    render(<PickerPalette clients={server.clients} onRun={onRun} onStart={onStart} onClose={onClose} />, container);
   });
 }
 
@@ -220,4 +231,125 @@ test("PickerPalette: a failed Ask shows the fixed error line and none of the ser
     await untilTurn(t.signal, () => alertTexts(container).length === 1, "the failure shows its line");
     assert.deepEqual(alertTexts(container), ["the picker failed"]);
     assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
+  }));
+
+// startForm is the start form the palette draws for a folder row, which it draws only while the form is open.
+function startForm(container: HTMLElement): HTMLElement {
+  const form = container.querySelector<HTMLElement>(".picker-start");
+  assert.ok(form, "the start form is open");
+  return form;
+}
+
+function messageBox(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>('[aria-label="message"]');
+  assert.ok(box, "the start form has its message box");
+  return box;
+}
+
+function startButton(container: HTMLElement): HTMLButtonElement {
+  const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "Start",
+  );
+  assert.ok(found, "the start form has its Start button");
+  return found;
+}
+
+async function typeMessage(container: HTMLElement, text: string): Promise<void> {
+  const box = messageBox(container);
+  await act(() => {
+    box.value = text;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// askAndChoose asks for words, once the answer lists the row at index, and chooses that row.
+async function askAndChoose(signal: AbortSignal, container: HTMLElement, words: string, index: number): Promise<void> {
+  await typeWords(container, words);
+  await pressKey(input(container), "Enter");
+  await untilTurn(signal, () => rowButtons(container).length > index, "the row is listed");
+  await click(rowButtons(container)[index]);
+}
+
+test("PickerStartForm: choosing a folder row opens the start form naming the folder, with an empty message", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    await mountPalette(container, server);
+    await askAndChoose(t.signal, container, "web", 0);
+    assert.equal(startForm(container).querySelector(".picker-folder")?.textContent, "/work/web");
+    assert.equal(messageBox(container).value, "", "a row without a prompt starts the message empty");
+    assert.deepEqual(server.callsTo(runPath), [], "a folder row runs nothing");
+  }));
+
+test("PickerStartForm: a prompt row's message starts with the words the palette last asked", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [promptRow] } });
+    await mountPalette(container, server);
+    await typeWords(container, "api  web");
+    await pressKey(input(container), "Enter");
+    await untilTurn(t.signal, () => rowButtons(container).length === 1, "the row is listed");
+    await typeWords(container, "typed but not asked");
+    await click(rowButtons(container)[0]);
+    assert.equal(startForm(container).querySelector(".picker-folder")?.textContent, "/work/docs");
+    assert.equal(messageBox(container).value, "api  web", "the message starts with the asked words, not typed ones");
+  }));
+
+test("PickerStartForm: Start sends Control.Start with the folder, message and a 32-hex id", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    server.replies.set(startPath, { status: 200, body: { id: "sess-new" } });
+    const started: string[] = [];
+    await mountPalette(container, server, () => {}, () => {}, (session) => started.push(session));
+    await askAndChoose(t.signal, container, "web", 0);
+    await typeMessage(container, "fix the build");
+    await click(startButton(container));
+    await untilTurn(t.signal, () => started.length === 1, "the start reports its session");
+    assert.deepEqual(started, ["sess-new"]);
+    const [call] = server.callsTo(startPath);
+    assert.match(String(call.body.id), /^[0-9a-f]{32}$/, "the start id is 32 lowercase hex digits");
+    assert.deepEqual(
+      call.body,
+      { dir: "/work/web", prompt: "fix the build", id: call.body.id },
+      "the call names the folder, the message and the id, with no model",
+    );
+  }));
+
+test("PickerStartForm: a retry after a failed Start sends the same id, also after the message was edited", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    server.replies.set(startPath, { status: 503, body: { code: "unavailable", message: "queue unreachable" } });
+    const started: string[] = [];
+    await mountPalette(container, server, () => {}, () => {}, (session) => started.push(session));
+    await askAndChoose(t.signal, container, "web", 0);
+    await typeMessage(container, "first words");
+    await click(startButton(container));
+    await untilTurn(t.signal, () => alertTexts(container).length === 1, "the failed start shows its line");
+
+    await typeMessage(container, "edited words");
+    server.replies.set(startPath, { status: 200, body: { id: "sess-new" } });
+    await click(startButton(container));
+    await untilTurn(t.signal, () => started.length === 1, "the retry reports its session");
+    assert.deepEqual(started, ["sess-new"]);
+
+    const [first, retry] = server.callsTo(startPath);
+    assert.equal(first.body.prompt, "first words");
+    assert.equal(retry.body.prompt, "edited words");
+    assert.match(String(first.body.id), /^[0-9a-f]{32}$/, "the start id is 32 lowercase hex digits");
+    assert.equal(retry.body.id, first.body.id, "the retry names the same start id");
+  }));
+
+test("PickerStartForm: a refused Start keeps the message and shows the fixed line, none of the server's text", (t) =>
+  withDom(t.signal, async (container, server) => {
+    server.replies.set(askPath, { status: 200, body: { rows: [freshRow] } });
+    server.replies.set(startPath, {
+      status: 400,
+      body: { code: "failed_precondition", message: "directory is refused: secret detail" },
+    });
+    await mountPalette(container, server);
+    await askAndChoose(t.signal, container, "web", 0);
+    await typeMessage(container, "keep this");
+    await click(startButton(container));
+    await untilTurn(t.signal, () => alertTexts(container).length === 1, "the refusal shows its line");
+    assert.deepEqual(alertTexts(container), ["the picker failed"]);
+    assert.equal(container.textContent?.includes("secret detail"), false, "the server's text is not shown");
+    assert.equal(messageBox(container).value, "keep this", "the form keeps the message as typed");
   }));

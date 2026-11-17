@@ -77,3 +77,15 @@ export async function run(clients: Clients, token: string): Promise<string> {
 export function newPromptId(): string {
   return crypto.randomUUID();
 }
+
+// newStartId returns a fresh start id: 32 lowercase hex digits, the UUID with its hyphens removed.
+export function newStartId(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+// start sends the folder, the message and the start id to Control.Start, with no model, and resolves the session id the
+// reply carries.
+export async function start(clients: Clients, dir: string, message: string, id: string): Promise<string> {
+  const reply = await clients.control.start({ dir, prompt: message, id });
+  return reply.id;
+}
