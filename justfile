@@ -318,7 +318,26 @@ test-budget-update: reap-test-tmux
         fi
     done
     mkdir -p testdata
-    scripts/test-budget.sh update testdata/test-budget.json "$dir/run1" "$dir/run2"
+    scripts/test-budget.sh update testdata/test-budget.json "$dir/run1" "$dir/run2" >&2
+    # The baseline goes to stdout too, which is how remote-test-budget-update brings it back from the box.
+    cat testdata/test-budget.json
+
+# A run that fails writes nothing. When no box can come up, test-budget-update runs here instead.
+# Run test-budget-update on the orrery-gate box, where the gate's check-changed runs, and write its baseline here.
+[script]
+remote-test-budget-update:
+    out=$(mktemp)
+    trap 'rm -f "$out" "$out.json"' EXIT
+    scripts/gate-remote.sh just test-budget-update >"$out"
+    # The baseline is the last block from a line "{" to a line "}" on the run's stdout.
+    awk '/^\{$/ { block = ""; on = 1 } on { block = block $0 "\n" } /^\}$/ { on = 0; last = block } END { printf "%s", last }' "$out" >"$out.json"
+    if ! jq -e 'type == "object" and length > 0' "$out.json" >/dev/null 2>&1; then
+        echo "remote-test-budget-update: the run printed no baseline; testdata/test-budget.json is unchanged" >&2
+        exit 1
+    fi
+    mkdir -p testdata
+    cp "$out.json" testdata/test-budget.json
+    echo "remote-test-budget-update: wrote $(jq length testdata/test-budget.json) packages to testdata/test-budget.json"
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

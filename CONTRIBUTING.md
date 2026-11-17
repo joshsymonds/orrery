@@ -52,7 +52,7 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 
 - `just generate` regenerates the store's typed queries, the Go API, the Android client and the web client from `proto/` and the SQL. See [Generated code](#generated-code).
 - `just refresh-env` rebuilds `.devenv-shell-env.sh` now, even when it is fresh.
-- `just test-budget-update` re-measures every package's test CPU time and rewrites `testdata/test-budget.json`. See [Test time budgets](#test-time-budgets).
+- `just remote-test-budget-update` re-measures every package's test CPU time on the gate box and rewrites `testdata/test-budget.json`. `just test-budget-update` does the same on this machine. See [Test time budgets](#test-time-budgets).
 - `just bump-nix [REF]` moves the nixpkgs pin. `REF` is a 40-character revision, or a branch name that `git ls-remote` resolves on github.com/NixOS/nixpkgs. It defaults to `nixpkgs-unstable`. It needs the network.
 
 ### Android
@@ -114,7 +114,7 @@ The tests run under four limits. Three are wall-clock limits that end a hang wit
 | Go test run under `check-changed` | `just check-changed` | 240 s | `just CHECK_CHANGED_BUDGET=600 check-changed` |
 | Whole web suite | `just web-check` | 120 s | `just WEB_TEST_BUDGET=300 web-check` |
 | One web test | `just web-check` | 5 s | none |
-| CPU time of one Go package | `just check-changed` | its baseline, plus 15% or 5 CPU seconds | `just test-budget-update` |
+| CPU time of one Go package | `just check-changed` | its baseline, plus 15% or 5 CPU seconds | `just remote-test-budget-update` |
 
 `cover` and `check-changed` run each Go test binary through `scripts/test-deadline.sh`. The binary's `-test.timeout` ends 10 seconds before the run's budget, so a package still running then panics and names its running tests. A run that passes its budget fails with exit 124 and `tests exceeded 360s budget` (`cover`) or `check-changed: Go tests exceeded 240s budget`.
 
@@ -133,7 +133,9 @@ The tests run under four limits. Three are wall-clock limits that end a hang wit
 
 A package the baseline lists but the run did not test is not mentioned. `cover` does not run the check: its coverage instrumentation of every package changes the CPU time, so its numbers do not compare with the baseline.
 
-When a change makes a package's tests cost more on purpose, or after the tests got cheaper, re-measure with `just test-budget-update` and commit the new `testdata/test-budget.json` with the change. The recipe runs `go test -count=1 -race ./...` twice, keeps each package's lower figure, and writes the file, one package per line, sorted, to one decimal. A run that fails or passes the 360-second budget writes nothing. Run it on an idle machine, because load raises CPU time too, and on the kind of machine that runs `check-changed`, since a binary's runtime spends more CPU with more cores to run on.
+The baseline is measured on the gate box, where an epic's `check-changed` runs. The same tests take more CPU time on some machines than on others. A 32-core workstation measured 20% to 80% more per package than the 64-core box, about 40% in total, so a full `check-changed` there reports the largest packages over budget without failing.
+
+When a change makes a package's tests cost more on purpose, or after the tests got cheaper, re-measure with `just remote-test-budget-update` and commit the new `testdata/test-budget.json` with the change. It runs `just test-budget-update` on the gate box, takes the baseline from the run's output, and writes it here. `just test-budget-update` runs `go test -count=1 -race ./...` twice, keeps each package's lower figure, and writes the file, one package per line, sorted, to one decimal. It measures the machine it runs on, so run it directly only when no box can come up. A run that fails or passes the 360-second budget writes nothing.
 
 ## CI
 
