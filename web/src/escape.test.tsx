@@ -11,7 +11,7 @@ import { epicsView, type EpicsView } from "./epics";
 import { EpicSchema, EpicStepSchema } from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
-import { pause, until as waitUntil } from "./testwait";
+import { turn, until as waitUntil } from "./testwait";
 
 // Escape over the fake transport: the App takes a working row's queued messages back and interrupts it, and a row that
 // is waiting is never interrupted. Each test's name carries the token EscapeInterrupt.
@@ -187,9 +187,10 @@ async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
   });
 }
 
-// until waits as the app tests' until does: each round runs one pause inside act, so the renders it lets through apply.
+// until waits as app.test.tsx's untilTurn does: each round steps by turn inside act, so the renders it lets through
+// apply. It reads no clock and arms no timer.
 function until(signal: AbortSignal, check: () => boolean, what: string): Promise<void> {
-  return waitUntil(signal, check, what, { step: () => act(pause) });
+  return waitUntil(signal, check, what, { step: () => act(turn) });
 }
 
 // withApp mounts the App over a fake server in a fresh DOM and runs check. The App is unmounted, its streams closed and
