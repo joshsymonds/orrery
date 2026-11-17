@@ -388,3 +388,51 @@ test("InboxPin: the keys help lists b, B and h", (t) =>
       assert.ok(listed.includes(keys), `the keys help lists ${keys}`);
     }
   }));
+
+// resizeWindow sets the viewport of the window the test's DOM is in, the one installTestDom made, to width pixels wide,
+// as a resize does. It runs inside act, so the renders the resize causes are applied.
+async function resizeWindow(width: number): Promise<void> {
+  const view = (globalThis as unknown as { window: ReturnType<typeof installTestDom> }).window;
+  await act(() => {
+    view.happyDOM.setViewport({ width, height: 800 });
+  });
+}
+
+// narrowWindow narrows the window from the wide default to width. happy-dom's media query starts out not matching, so
+// it fires change for a narrowing only after a resize has shown it a match. The window is widened by a pixel first,
+// which is that resize. A browser's query fires change on every crossing, so it needs no such step.
+async function narrowWindow(width: number): Promise<void> {
+  await resizeWindow(1025);
+  await resizeWindow(width);
+}
+
+test("InboxPin: at 700px a row opened by click leaves the inbox docked, and j moves the cursor to the next row on its first press", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await narrowWindow(700);
+    await clickRow(container, "a");
+    assert.equal(paneState(container), "docked", "a narrow window draws the inbox docked once a row is open");
+    await press("j");
+    assert.equal(cursorKey(container), "b", "the first j moves the cursor to the next row");
+    assert.equal(paneState(container), "docked", "j pops no inbox out");
+  }));
+
+test("InboxPin: at 700px b and h after a row is opened leave the inbox docked", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await narrowWindow(700);
+    await clickRow(container, "b");
+    await press("b");
+    assert.equal(paneState(container), "docked", "b pops no inbox out");
+    await press("h");
+    assert.equal(paneState(container), "docked", "h pops no inbox out");
+  }));
+
+test("InboxPin: a window narrowed from wide with a row open reads docked, and reads hidden again once widened", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    // The click opens the row while the window is wide. The widened read is hidden only if that open row was kept
+    // through the narrow layout, so the final assertion also shows the click took effect.
+    await clickRow(container, "b");
+    await narrowWindow(700);
+    assert.equal(paneState(container), "docked", "the narrowed window draws the inbox docked");
+    await resizeWindow(1024);
+    assert.equal(paneState(container), "hidden", "widened again, the inbox is hidden as the open row leaves it");
+  }));

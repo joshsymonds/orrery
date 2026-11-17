@@ -457,3 +457,44 @@ test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbo
     assert.equal(composer(container).value, "first\n\nsecond");
     assert.equal(paneState(container), "flyout", "Escape does not tuck a hover pop-out");
   }));
+
+// resizeWindow sets the viewport of the window the test's DOM is in, the one installTestDom made, to width pixels wide.
+// It runs inside act, so the renders the resize causes are applied.
+async function resizeWindow(width: number): Promise<void> {
+  const view = (globalThis as unknown as { window: ReturnType<typeof installTestDom> }).window;
+  await act(() => {
+    view.happyDOM.setViewport({ width, height: 800 });
+  });
+}
+
+// narrowWindow narrows the window from the wide default to width. happy-dom's media query starts out not matching, so
+// it fires change for a narrowing only after a resize has shown it a match. The window is widened by a pixel first,
+// which is that resize. A browser's query fires change on every crossing, so it needs no such step.
+async function narrowWindow(width: number): Promise<void> {
+  await resizeWindow(1025);
+  await resizeWindow(width);
+}
+
+test("EscapeInterrupt InboxPin: at 700px, a list key after a row is opened leaves the inbox docked, and Escape on the working session still takes back its queued messages and interrupts", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await narrowWindow(700);
+    await clickRow(container, "s1");
+    await press("j");
+    assert.equal(paneState(container), "docked", "the list key pops no inbox out");
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    const before = fake.calls.length;
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.deepEqual(
+      fake.calls
+        .slice(before)
+        .map((call) => call.path)
+        .filter((path) => path.startsWith("/orrery.v1.Control/")),
+      [withdrawPath, interruptPath],
+      "after the list key, Escape at 700px sends the withdraw that takes back the messages, then the interrupt",
+    );
+  }));

@@ -170,6 +170,10 @@ const stepSeenAt = Number.POSITIVE_INFINITY;
 // The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
 const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
 
+// The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
+// inbox: a narrower window always shows it docked, as the stacked layout does.
+const wideQuery = "(min-width: 760px)";
+
 const helpEntries: [string[], string][] = [
   [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
   [["gg"], "first row"],
@@ -233,6 +237,22 @@ export function App({
   const [rowOpened, setRowOpened] = useState(false);
   const [inboxPinned, setInboxPinned] = useState(false);
   const [popout, setPopout] = useState<Popout>("none");
+  // Whether the window is wide, read at mount and followed on the query's change event. A window narrowed below 760px
+  // drops any pop-out, and keeps rowOpened and the pin, so widening it again shows the inbox as it was.
+  const [wide, setWide] = useState(() => window.matchMedia(wideQuery).matches);
+  useEffect(() => {
+    const query = window.matchMedia(wideQuery);
+    const follow = () => {
+      setWide(query.matches);
+      if (!query.matches) {
+        setPopout("none");
+      }
+    };
+    query.addEventListener("change", follow);
+    return () => {
+      query.removeEventListener("change", follow);
+    };
+  }, []);
   const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -343,13 +363,16 @@ export function App({
   // in every view and under any filter, as the list reads every loaded row after seen writes.
   const markNeeds =
     splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length + liveNeeds.length;
-  const inboxState: InboxState = inboxPinned
-    ? "pinned"
-    : !rowOpened
-      ? "docked"
-      : popout !== "none"
-        ? "flyout"
-        : "hidden";
+  // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
+  const inboxState: InboxState = !wide
+    ? "docked"
+    : inboxPinned
+      ? "pinned"
+      : !rowOpened
+        ? "docked"
+        : popout !== "none"
+          ? "flyout"
+          : "hidden";
   // The inbox is hidden once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout that
   // Escape and b tuck back.
   const inboxHidden = inboxState === "hidden";
@@ -887,10 +910,14 @@ export function App({
   const togglePin = () => setInboxPinned((value) => !value);
   // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
   // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away. A hover does
-  // not change a pop-out a key already made.
+  // not change a pop-out a key already made, and a narrow window takes no hover at all.
   const inboxMark: InboxMark = {
     needs: markNeeds,
-    enter: () => setPopout((current) => (current === "none" ? "hover" : current)),
+    enter: () => {
+      if (wide) {
+        setPopout((current) => (current === "none" ? "hover" : current));
+      }
+    },
     leave: (to) => {
       if (!(to instanceof Node) || listRef.current?.contains(to) !== true) {
         setPopout("none");
