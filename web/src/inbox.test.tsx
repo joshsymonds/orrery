@@ -17,6 +17,7 @@ import {
 } from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { turn } from "./testwait";
 
 const now = 1000;
 
@@ -237,7 +238,7 @@ test("InboxFlyout: a click on the mark or B pins the inbox beside the page, and 
     assert.equal(paneState(container), "pinned");
     await dispatchOn(container.querySelector(".mark-crumb"), "click");
     assert.equal(paneState(container), "hidden");
-    await press("b");
+    await press("B");
     assert.equal(paneState(container), "pinned");
     await press("B");
     assert.equal(paneState(container), "hidden");
@@ -246,4 +247,144 @@ test("InboxFlyout: a click on the mark or B pins the inbox beside the page, and 
 test("InboxFlyout: the brand row holds no counts row", (t) =>
   withInbox(t.signal, {}, (container) => {
     assert.equal(container.querySelector(".counts"), null);
+  }));
+
+// escapeCallPaths are the calls an Escape on a working row makes to take its queued messages back and interrupt it: a
+// session's Withdraw and Interrupt, and a pane's PullQueued and SendKeys.
+const escapeCallPaths = [
+  "/orrery.v1.Control/Withdraw",
+  "/orrery.v1.Control/Interrupt",
+  "/orrery.v1.Panes/PullQueued",
+  "/orrery.v1.Panes/SendKeys",
+];
+
+// withRecordedInbox mounts the app as withInbox does, over a fetch that keeps the path of each call the app makes in
+// paths, in order, so a test can see which calls went out.
+async function withRecordedInbox(
+  signal: AbortSignal,
+  paths: string[],
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const recording = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    paths.push(new URL(new Request(input, init).url).pathname);
+    return quietFetch(input, init);
+  };
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: recording }));
+  const teardown = teardownOnce(signal, async () => {
+    await act(() => {
+      render(null, container);
+    });
+    container.remove();
+    await removeTestDom(window);
+  });
+  try {
+    await act(() => {
+      render(<App rows={fixture()} error="" now={now} clients={clients} />, container);
+    });
+    await check(container);
+  } finally {
+    await teardown();
+  }
+}
+
+// settle lets the calls a key press starts reach the fake transport, so a test looks for them after they could.
+async function settle(): Promise<void> {
+  for (let round = 0; round < 3; round++) {
+    await act(turn);
+  }
+}
+
+// cursorKey is the key of the row the cursor rests on, or null when no row does.
+function cursorKey(container: HTMLElement): string | null {
+  return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+}
+
+test("InboxPin: b pops a hidden inbox out by key, and b again tucks it back to hidden", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await clickRow(container, "b");
+    assert.equal(paneState(container), "hidden");
+    await press("b");
+    assert.equal(paneState(container), "flyout", "b pops the inbox out over the page");
+    await press("b");
+    assert.equal(paneState(container), "hidden", "b again tucks it back to hidden");
+  }));
+
+test("InboxPin: b pops the inbox out, and Escape tucks it back with no interrupt or withdraw call", (t) => {
+  const paths: string[] = [];
+  return withRecordedInbox(t.signal, paths, async (container) => {
+    await clickRow(container, "b");
+    await press("b");
+    assert.equal(paneState(container), "flyout");
+    const before = paths.length;
+    await press("Escape");
+    await settle();
+    assert.equal(paneState(container), "hidden", "Escape tucks the key-popped inbox back to hidden");
+    assert.deepEqual(
+      paths.slice(before).filter((path) => escapeCallPaths.includes(path)),
+      [],
+      "no queued message is taken back and no row is interrupted",
+    );
+  });
+});
+
+test("InboxPin: j while hidden pops the inbox out and leaves the cursor row unchanged, then j moves the cursor, then Escape tucks the inbox and makes no interrupt call", (t) => {
+  const paths: string[] = [];
+  return withRecordedInbox(t.signal, paths, async (container) => {
+    await clickRow(container, "a");
+    assert.equal(paneState(container), "hidden");
+    await press("j");
+    assert.equal(paneState(container), "flyout", "j pops the hidden inbox out");
+    assert.equal(cursorKey(container), "a", "the press that pops the inbox out does not move the cursor");
+    await press("j");
+    assert.equal(cursorKey(container), "b", "the next j moves the cursor in the popped inbox");
+    const before = paths.length;
+    await press("Escape");
+    await settle();
+    assert.equal(paneState(container), "hidden", "Escape tucks the key-popped inbox back to hidden");
+    assert.deepEqual(
+      paths.slice(before).filter((path) => escapeCallPaths.includes(path)),
+      [],
+      "the working row under the cursor is not interrupted",
+    );
+  });
+});
+
+test("InboxPin: Enter opens the cursor row and hides the inbox, clearing a key pop-out", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await clickRow(container, "a");
+    await press("b");
+    assert.equal(paneState(container), "flyout");
+    await press("j");
+    assert.equal(cursorKey(container), "b");
+    await press("Enter");
+    assert.equal(paneState(container), "hidden", "Enter hides the inbox and clears the pop-out");
+    assert.equal(
+      container.querySelector('section[aria-label="reader"] .crumb.here')?.textContent,
+      "web",
+      "the cursor's row is the page the reader shows",
+    );
+  }));
+
+test("InboxPin: h at a row's first crumb pops a hidden inbox out by key", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await clickRow(container, "b");
+    assert.equal(paneState(container), "hidden");
+    await press("h");
+    assert.equal(paneState(container), "flyout", "h at the row's first crumb pops the inbox out");
+  }));
+
+test("InboxPin: the keys help lists b, B and h", (t) =>
+  withInbox(t.signal, {}, async (container) => {
+    await press("?");
+    const help = container.querySelector('[aria-label="keys"]');
+    assert.ok(help, "help panel is open");
+    const listed = [...help.querySelectorAll("dt")].map((entry) =>
+      [...entry.querySelectorAll("kbd")].map((kbd) => kbd.textContent).join(" "),
+    );
+    for (const keys of ["b", "B", "h ←"]) {
+      assert.ok(listed.includes(keys), `the keys help lists ${keys}`);
+    }
   }));

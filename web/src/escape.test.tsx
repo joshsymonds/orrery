@@ -402,3 +402,58 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
     assert.equal(fake.callsTo(interruptPath).length, 1, "the interrupt went out after the failed withdraw");
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
   }));
+
+// clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox is hidden.
+async function clickRow(container: HTMLElement, key: string): Promise<void> {
+  const element = container.querySelector(`.b-row[data-key="${key}"]`);
+  assert.ok(element, `the list draws the row ${key}`);
+  await act(() => {
+    element.dispatchEvent(new Event("click", { bubbles: true }));
+  });
+}
+
+// hoverMark moves the pointer onto the mark, which pops a hidden inbox out over the page.
+async function hoverMark(container: HTMLElement): Promise<void> {
+  const mark = container.querySelector(".mark-crumb");
+  assert.ok(mark, "the page draws the mark");
+  await act(() => {
+    mark.dispatchEvent(new Event("mouseenter", { bubbles: true }));
+  });
+}
+
+// paneState is the inbox state the app draws on the panes: docked, pinned, hidden or flyout.
+function paneState(container: HTMLElement): string | null {
+  return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
+}
+
+test("EscapeInterrupt InboxPin: Escape on a working session with the inbox hidden by a click takes back its queued messages and interrupts", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await clickRow(container, "s1");
+    assert.equal(paneState(container), "hidden", "the click opened the row and hid the inbox");
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(fake.callsTo(withdrawPath).length, 1, "the queued messages were taken back");
+    assert.equal(composer(container).value, "first\n\nsecond");
+  }));
+
+test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbox out takes back the queued messages and interrupts, and leaves the inbox out", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await clickRow(container, "s1");
+    await hoverMark(container);
+    assert.equal(paneState(container), "flyout", "the hover popped the inbox out");
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(fake.callsTo(withdrawPath).length, 1, "the queued messages were taken back");
+    assert.equal(composer(container).value, "first\n\nsecond");
+    assert.equal(paneState(container), "flyout", "Escape does not tuck a hover pop-out");
+  }));

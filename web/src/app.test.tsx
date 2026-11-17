@@ -341,7 +341,7 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "v", "A", "w", "n", "N", "⌘K", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "b", "B", "h", "←", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {

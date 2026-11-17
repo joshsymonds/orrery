@@ -51,8 +51,12 @@ import { Pill, rowPill, stepPill } from "./workline";
 type View = "attention" | "project" | "archived";
 
 // The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
-// popped out over the hidden page while the pointer is on the mark.
+// popped out over the hidden page while the pointer is on the mark or a key has popped it out.
 type InboxState = "docked" | "pinned" | "hidden" | "flyout";
+
+// How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
+// Escape.
+type Popout = "none" | "hover" | "key";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -163,6 +167,9 @@ const hoursPerDay = 24;
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
 
+// The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
+const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
+
 const helpEntries: [string[], string][] = [
   [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
   [["gg"], "first row"],
@@ -182,6 +189,9 @@ const helpEntries: [string[], string][] = [
   [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
+  [["b"], "pop the inbox out over the page, or tuck it back"],
+  [["B"], "pin or unpin the inbox beside the page"],
+  [["h", "←"], "back one crumb, or the inbox from the first crumb"],
   [["m"], "open or close the host's meters"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
@@ -217,10 +227,11 @@ export function App({
   const [open, setOpen] = useState(false);
   const [metersOpen, setMetersOpen] = useState(false);
   // Whether a row has been opened by a click or Enter, which hides the inbox. The mark's click or B pins the inbox
-  // beside the page, and the pointer on the mark pops a hidden inbox out over the page.
+  // beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or by a key, and popout
+  // records which.
   const [rowOpened, setRowOpened] = useState(false);
   const [inboxPinned, setInboxPinned] = useState(false);
-  const [inboxFlyout, setInboxFlyout] = useState(false);
+  const [popout, setPopout] = useState<Popout>("none");
   const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -333,7 +344,17 @@ export function App({
   // in every view and under any filter, as the list reads every loaded row after seen writes.
   const markNeeds =
     splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length + liveNeeds.length;
-  const inboxState: InboxState = inboxPinned ? "pinned" : !rowOpened ? "docked" : inboxFlyout ? "flyout" : "hidden";
+  const inboxState: InboxState = inboxPinned
+    ? "pinned"
+    : !rowOpened
+      ? "docked"
+      : popout !== "none"
+        ? "flyout"
+        : "hidden";
+  // The inbox is hidden once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout that
+  // Escape and b tuck back.
+  const inboxHidden = inboxState === "hidden";
+  const keyPopped = inboxState === "flyout" && popout === "key";
   const sections =
     view === "attention"
       ? withEpicsGroup(withNeedsSection(byAttention(defaultRows), needs.length > 0), kept)
@@ -745,6 +766,15 @@ export function App({
   // back returns from the page on top to the page under it. toEpicPage returns to the epic page from any page over it.
   const back = () => leaveTo(epicPage.below.length - 1);
   const toEpicPage = () => leaveTo(0);
+  // backOneCrumb is h and the left arrow. On a contract, phase output or worker session page it does that page's back.
+  // On the epic page, a row's page or a step's page, which is at its first crumb, it pops a hidden inbox out by key.
+  const backOneCrumb = () => {
+    if (epicEntry !== null && epicPage.page.kind !== "epic") {
+      back();
+    } else if (inboxHidden) {
+      setPopout("key");
+    }
+  };
   // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
   const openPhase = (task: string, phase: Phase) => {
     if (epicPage.page.kind === "phase") {
@@ -857,13 +887,14 @@ export function App({
   // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
   const togglePin = () => setInboxPinned((value) => !value);
   // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
-  // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away.
+  // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away. A hover does
+  // not change a pop-out a key already made.
   const inboxMark: InboxMark = {
     needs: markNeeds,
-    enter: () => setInboxFlyout(true),
+    enter: () => setPopout((current) => (current === "none" ? "hover" : current)),
     leave: (to) => {
       if (!(to instanceof Node) || listRef.current?.contains(to) !== true) {
-        setInboxFlyout(false);
+        setPopout("none");
       }
     },
     pin: togglePin,
@@ -937,6 +968,12 @@ export function App({
 
     const afterG = pendingG.current;
     pendingG.current = false;
+    // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
+    if (inboxHidden && inboxListKeys.has(event.key)) {
+      setPopout("key");
+      event.preventDefault();
+      return;
+    }
     switch (event.key) {
       case "g":
         if (afterG) {
@@ -996,12 +1033,24 @@ export function App({
       case "Enter":
         if (cursorRow !== null) {
           setRowOpened(true);
+          setPopout("none");
           void writeSeen(cursorRow);
         }
         break;
       case "b":
+        // b pops a hidden inbox out by key, and tucks a key-popped one back.
+        if (keyPopped) {
+          setPopout("none");
+        } else if (inboxHidden) {
+          setPopout("key");
+        }
+        break;
       case "B":
         togglePin();
+        break;
+      case "h":
+      case "ArrowLeft":
+        backOneCrumb();
         break;
       case "e":
         if (cursorRow !== null) {
@@ -1052,6 +1101,12 @@ export function App({
         setHelpOpen((open) => !open);
         break;
       case "Escape":
+        // A key-popped inbox is tucked back, and nothing is interrupted; an open help panel closes too.
+        if (keyPopped) {
+          setPopout("none");
+          setHelpOpen(false);
+          return;
+        }
         if (!helpOpen && cursorRow !== null) {
           void escapeRow(
             { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) },
@@ -1163,7 +1218,7 @@ export function App({
     <main class="app">
       <div class={pinned !== null ? "panes split" : "panes"} data-inbox={inboxState}>
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list" ref={listRef} onMouseLeave={() => setInboxFlyout(false)}>
+        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
           <header class="top">
             <div class="brand">
               <Mark />
