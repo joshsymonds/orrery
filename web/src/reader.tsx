@@ -1,6 +1,7 @@
 import { Component, createElement, type ComponentChildren, type JSX } from "preact";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { BackgroundRow } from "./backgroundrow";
 import { type EpicCalls, EpicWidget } from "./card";
 import type { Conversation } from "./conversation";
 import type { Match } from "./find";
@@ -34,13 +35,21 @@ export interface ReaderHandle {
   page: (direction: "up" | "down") => boolean;
 }
 
+// CallReveal is a request to bring the tool call with id into view and open it. done ends the request once the call's
+// row has acted on it, so a row that mounts later, as a closed run opens again, does not act on it a second time.
+interface CallReveal {
+  id: string;
+  done: () => void;
+}
+
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
 // it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
 // fold into one run line that opens to a line per call. A call still running, with nothing but calls and results after
 // it and no question drawn, carries the running rail and mark, and so does a run that holds one. A call that creates an
 // epic is never in a run: once its result is not an error, and the reader is given epic calls, the epic's card draws in
-// its place.
+// its place. A background row's link reveals the Agent call it names: the call's row opens, with its result, and comes
+// into view, and a run that holds the call opens first.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
 // a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. An
@@ -57,13 +66,14 @@ export interface ReaderHandle {
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
 // call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards, waiting cards,
-// live text, thinking, the question card, sending rows and event lines are not searched. The current match,
-// find.current's index in find.matches, is the mark with class current: it is scrolled into view as it arrives, and the
-// fold, call or run that holds it opens. A fold opens when the current match moves into it, and the owner can close it;
-// it opens again only when the current match moves into it once more.
+// background rows, live text, thinking, the question card, sending rows, event lines and agent-finished lines are not
+// searched. The current match, find.current's index in find.matches, is the mark with class current: it is scrolled
+// into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current match moves
+// into it, and the owner can close it; it opens again only when the current match moves into it once more.
 // After the items and live text, the reader draws a waiting card for each caller event the conversation holds pending,
-// oldest first, except one whose id an event prompt already drawn holds. The sending entries draw after them, each as a
-// dimmed prompt row marked sending. They are not items: they keep no key and no place in the scroll place, and a reader
+// oldest first, except one whose id an event prompt already drawn holds. Then it draws a row for each background task
+// the conversation's state holds, in the state's order. The sending entries draw after them, each as a dimmed prompt
+// row marked sending. They are not items: they keep no key and no place in the scroll place, and a reader
 // at its bottom keeps it as a new row arrives.
 export function Reader({
   conversation,
@@ -133,6 +143,16 @@ export function Reader({
     () => (epicCalls === undefined ? undefined : callsAt(latestCalls, epicCalls)),
     [epicCalls?.tick],
   );
+  // A background row's link asks for its Agent call to be revealed. Each click makes a new request, so a click on the same
+  // call again is acted on, and the call's row ends the request once it has acted on it.
+  const [reveal, setReveal] = useState<CallReveal | undefined>(undefined);
+  const openCall = useCallback((toolUseId: string) => {
+    const request: CallReveal = {
+      id: toolUseId,
+      done: () => setReveal((held) => (held === request ? undefined : held)),
+    };
+    setReveal(request);
+  }, []);
   // query is what the reader marks, and focus is the current match, when there is a query and a current one.
   const query = find?.query ?? "";
   const focus = find !== undefined && query !== "" && find.current >= 0 ? find.matches[find.current] : undefined;
@@ -249,6 +269,7 @@ export function Reader({
         result: results.get(index),
         running: running.has(index),
         current: currentAt(index),
+        reveal: revealOf(items[index], reveal),
       }));
       rows.push(<MemoToolRun key={keys[first]} calls={calls} query={query} />);
       return;
@@ -266,6 +287,7 @@ export function Reader({
         query={query}
         current={currentAt(first)}
         epicCalls={rowCalls}
+        reveal={revealOf(items[first], reveal)}
       />,
     );
   });
@@ -286,12 +308,16 @@ export function Reader({
         </div>
       </div>
     ));
+  const background = (conversation.state?.background ?? []).map((task) => (
+    <BackgroundRow key={task.id} task={task} onOpen={openCall} />
+  ));
   return (
     <div class="reader" ref={root} onScroll={followScroll}>
       {rows}
       {questionCard}
       {live}
       {waiting}
+      {background}
       {sendingRows}
     </div>
   );
@@ -446,9 +472,21 @@ interface ItemRowProps {
   query: string;
   current: number;
   epicCalls?: EpicCalls;
+  reveal?: CallReveal;
 }
 
-function ItemRow({ item, result, running, open, step, onToggleOpen, query, current, epicCalls }: ItemRowProps) {
+function ItemRow({
+  item,
+  result,
+  running,
+  open,
+  step,
+  onToggleOpen,
+  query,
+  current,
+  epicCalls,
+  reveal,
+}: ItemRowProps) {
   // Its row carries the owner-turn class, which sets the gap above it, unless the row is an epic's event ring.
   const ringed = item.kind === "prompt" && epicCalls !== undefined && epicEventOf(item.text) !== null;
   return (
@@ -465,6 +503,7 @@ function ItemRow({ item, result, running, open, step, onToggleOpen, query, curre
           query={query}
           current={current}
           epicCalls={epicCalls}
+          reveal={reveal}
         />
       </div>
     </div>
@@ -475,8 +514,9 @@ function ItemRow({ item, result, running, open, step, onToggleOpen, query, curre
 const MemoItemRow = memo(ItemRow, sameItemRow);
 
 // sameItemRow is whether new props draw the row the old ones drew: the same item, result, running and open state and
-// toggle, a step that reads the same, the same find query and current match, and the same epic calls when the row reads
-// them. An item or result is compared by its object, which the held items keep from one delta to the next.
+// toggle, a step that reads the same, the same find query and current match, the same reveal, and the same epic calls
+// when the row reads them. An item or result is compared by its object, which the held items keep from one delta to the
+// next.
 function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
   return (
     previous.item === next.item &&
@@ -486,6 +526,7 @@ function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
     previous.onToggleOpen === next.onToggleOpen &&
     previous.query === next.query &&
     previous.current === next.current &&
+    previous.reveal === next.reveal &&
     sameStep(previous.step, next.step) &&
     (previous.epicCalls === next.epicCalls || !readsEpicCalls(next.item))
   );
@@ -555,6 +596,7 @@ function ItemBody({
   query,
   current,
   epicCalls,
+  reveal,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
@@ -565,6 +607,7 @@ function ItemBody({
   query: string;
   current: number;
   epicCalls?: EpicCalls;
+  reveal?: CallReveal;
 }) {
   switch (item.kind) {
     case "prompt": {
@@ -605,7 +648,9 @@ function ItemBody({
       if (item.epic !== "" && epicCalls !== undefined && result !== undefined && !result.error) {
         return <EpicWidget epic={item.epic} calls={epicCalls} />;
       }
-      return <CallRow item={item} result={result} running={running} query={query} current={current} />;
+      return (
+        <CallRow item={item} result={result} running={running} query={query} current={current} reveal={reveal} />
+      );
     }
     case "notice":
       return (
@@ -626,6 +671,8 @@ function ItemBody({
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     case "interrupted":
       return <div class="rule interrupted">Interrupted by you</div>;
+    case "agent_finished":
+      return <div class="rule agent-finished">{agentFinishedLine(item)}</div>;
     default:
       return <ReplyMarkdown text={item.text} query={query} current={current} />;
   }
@@ -636,6 +683,19 @@ function ItemBody({
 // item's parts one to a line, so the part after a newline starts one past the part before it.
 function partCurrent(current: number, start: number, length: number): number {
   return current >= start && current < start + length ? current - start : -1;
+}
+
+// revealOf is the reveal a row of item is given: the reveal when item is the tool call it names, and none for any other
+// item.
+function revealOf(item: ConversationItem, reveal: CallReveal | undefined): CallReveal | undefined {
+  return reveal !== undefined && item.kind === "tool" && item.id === reveal.id ? reveal : undefined;
+}
+
+// agentFinishedLine is the line an agent_finished item draws: its description after Agent finished, with failed or
+// stopped added when the agent did not finish. An agent that is done names no status.
+function agentFinishedLine(item: ConversationItem): string {
+  const ending = item.notice === "failed" || item.notice === "stopped" ? ` (${item.notice})` : "";
+  return `Agent finished: ${item.text}${ending}`;
 }
 
 // ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
@@ -802,25 +862,39 @@ function Disclosure({
 // CallRow draws a tool or question item as one line of its tool and its input or question. A call with a result is a
 // button: a click shows the result under the line, and a second click folds it again. A failed result marks the line
 // with ✗. A running call's line carries the running class, which draws its rail, and the running mark. The result
-// opens when the current match moves into it, and then its match is marked. query and current are as ItemRow's are.
+// opens when the current match moves into it, and then its match is marked. A reveal the reader gives opens the result
+// too, and brings the line into view. query and current are as ItemRow's are.
 function CallRow({
   item,
   result,
   running,
   query,
   current,
+  reveal,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
   running: boolean;
   query: string;
   current: number;
+  reveal?: CallReveal;
 }) {
   const [shown, setShown] = useState(false);
   const [flashing, flash] = useFlash();
+  const element = useRef<HTMLElement>(null);
+  const attach = (node: HTMLElement | null): void => {
+    element.current = node;
+  };
   const called = item.kind === "question" ? item.text : item.input;
   const resultCurrent = result === undefined ? -1 : partCurrent(current, called.length + 1, result.text.length);
   useReveal(resultCurrent >= 0, setShown);
+  useLayoutEffect(() => {
+    if (reveal !== undefined) {
+      setShown(true);
+      element.current?.scrollIntoView({ block: "nearest" });
+      reveal.done();
+    }
+  }, [reveal]);
   const className = `call${running ? " running" : ""}${flashing ? " flash" : ""}`;
   const line = (
     <>
@@ -833,13 +907,18 @@ function CallRow({
     </>
   );
   if (result === undefined) {
-    return <div class={className}>{line}</div>;
+    return (
+      <div class={className} ref={attach}>
+        {line}
+      </div>
+    );
   }
   return (
     <>
       <button
         type="button"
         class={className}
+        ref={attach}
         onClick={() => {
           flash();
           setShown((value) => !value);
@@ -862,6 +941,7 @@ type RunCall = {
   result: ConversationItem | undefined;
   running: boolean;
   current: number;
+  reveal?: CallReveal;
 };
 
 // ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and a trail of
@@ -873,6 +953,13 @@ function ToolRun({ calls, query }: { calls: RunCall[]; query: string }) {
   const [shown, setShown] = useState(false);
   const running = calls.some((call) => call.running);
   useReveal(calls.some((call) => call.current >= 0), setShown);
+  // A reveal of a call in the run opens the run, so the call's line mounts and brings itself into view.
+  const reveal = calls.find((call) => call.reveal !== undefined)?.reveal;
+  useLayoutEffect(() => {
+    if (reveal !== undefined) {
+      setShown(true);
+    }
+  }, [reveal]);
   return (
     <div class="t">
       <span class="gut" />
@@ -901,6 +988,7 @@ function ToolRun({ calls, query }: { calls: RunCall[]; query: string }) {
                 running={call.running}
                 query={query}
                 current={call.current}
+                reveal={call.reveal}
               />
             ))}
           </div>
@@ -917,8 +1005,8 @@ const MemoToolRun = memo(
 );
 
 // sameCalls is whether two runs hold the same calls in the same order: each call has the same key, item, result,
-// running state and current match. A run's calls array is rebuilt on each render, so the calls are what is compared,
-// not the array.
+// running state, current match and reveal. A run's calls array is rebuilt on each render, so the calls are what is
+// compared, not the array.
 function sameCalls(previous: RunCall[], next: RunCall[]): boolean {
   return (
     previous.length === next.length &&
@@ -930,7 +1018,8 @@ function sameCalls(previous: RunCall[], next: RunCall[]): boolean {
         call.item === other.item &&
         call.result === other.result &&
         call.running === other.running &&
-        call.current === other.current
+        call.current === other.current &&
+        call.reveal === other.reveal
       );
     })
   );

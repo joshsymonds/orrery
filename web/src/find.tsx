@@ -19,8 +19,8 @@ export interface Match {
 // text of the result that answers it, and a notice by its kind and text. Compaction, an event line (a prompt an event
 // sent, drawn as EVENT), a prompt holding an epic's event block (it draws as the event's ring), a send-back of a check
 // round (it draws as a card), a call that creates an epic and whose result is not an error (it draws as the epic's
-// card), an interrupted item (it draws the line "Interrupted by you"), and a result that answers no call are not
-// searched. An empty query matches nothing.
+// card), an interrupted item (it draws the line "Interrupted by you"), an agent-finished item (it draws the line
+// "Agent finished: ..."), and a result that answers no call are not searched. An empty query matches nothing.
 export function findMatches(items: ConversationItem[], query: string): Match[] {
   const answers = resultsByCall(items);
   const matches: Match[] = [];
@@ -54,6 +54,7 @@ function searchedText(item: ConversationItem, result: ConversationItem | undefin
       return joinParts([item.notice, item.text]);
     case "compaction":
     case "interrupted":
+    case "agent_finished":
     case "result":
       return "";
     default:
