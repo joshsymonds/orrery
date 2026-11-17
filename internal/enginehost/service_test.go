@@ -81,8 +81,8 @@ func (f *fakeCommands) Answer(_ context.Context, id, requestID, answer string) e
 	return f.record(call{method: "Answer", id: id, requestID: requestID, answer: answer})
 }
 
-func (f *fakeCommands) Interrupt(_ context.Context, id string) error {
-	return f.record(call{method: "Interrupt", id: id})
+func (f *fakeCommands) OwnerInterrupt(_ context.Context, id string) error {
+	return f.record(call{method: "OwnerInterrupt", id: id})
 }
 
 func (f *fakeCommands) Stop(_ context.Context, id string) error {
@@ -239,7 +239,7 @@ func TestServeRoutesEachRPCToCommands(t *testing.T) {
 		{method: "Start", dir: "/work", prompt: "hello"},
 		{method: "Say", id: "s1", text: "more"},
 		{method: "Answer", id: "s1", requestID: "r1", answer: "allow"},
-		{method: "Interrupt", id: "s1"},
+		{method: "OwnerInterrupt", id: "s1"},
 		{method: "Stop", id: "s1"},
 		{method: "Seen", id: "s1"},
 		{method: "Resume", id: "s1"},

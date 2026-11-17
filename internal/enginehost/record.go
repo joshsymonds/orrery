@@ -71,7 +71,7 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 			store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &working, Question: new("")}},
 		}
 	case session.TurnEnded:
-		return r.turnEnd(ev, protocol.StateDone)
+		return r.turnEnd(ev, protocol.StateDone, false)
 	case session.Exited:
 		clear(r.texts)
 		return []store.EngineOp{store.EngineTextClear{ID: r.id}, store.EngineSet{ID: r.id, Changes: exitChanges(ev)}}
@@ -82,9 +82,9 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 
 // followedTurnEnd returns the store ops that record ended, a turn's end that another turn follows: its turn end and the
 // removal of its unfinished text, as for any turn's end, with the session left working, since claude runs the next
-// turn at once.
-func (r *recorder) followedTurnEnd(ended session.TurnEnded) []store.EngineOp {
-	return r.turnEnd(ended, protocol.StateWorking)
+// turn at once. ownerInterrupted is whether the owner's interrupt caused it.
+func (r *recorder) followedTurnEnd(ended session.TurnEnded, ownerInterrupted bool) []store.EngineOp {
+	return r.turnEnd(ended, protocol.StateWorking, ownerInterrupted)
 }
 
 // turnOpened returns the store op that records a turn claude started by itself as running: the session goes working.
@@ -94,12 +94,14 @@ func (r *recorder) turnOpened() []store.EngineOp {
 }
 
 // turnEnd returns the store ops that record ended with the session left in state and its question cleared.
-func (r *recorder) turnEnd(ended session.TurnEnded, state protocol.State) []store.EngineOp {
+// ownerInterrupted is whether the owner's interrupt caused the turn's end.
+func (r *recorder) turnEnd(ended session.TurnEnded, state protocol.State, ownerInterrupted bool) []store.EngineOp {
 	clear(r.texts)
 	after := string(state)
 	return []store.EngineOp{
 		store.EngineTurnEnded{ID: r.id, Subtype: ended.Subtype, IsError: ended.IsError,
-			TerminalReason: ended.TerminalReason, Result: ended.Result, Origin: ended.Origin, Answered: ended.Answered},
+			TerminalReason: ended.TerminalReason, Result: ended.Result, Origin: ended.Origin, Answered: ended.Answered,
+			OwnerInterrupted: ownerInterrupted},
 		store.EngineTextClear{ID: r.id},
 		store.EngineSet{ID: r.id, Changes: store.EngineChanges{State: &after, Question: new("")}},
 	}

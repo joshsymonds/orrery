@@ -92,7 +92,7 @@ func TestEngineForwardsNonStepIDsAsBefore(t *testing.T) {
 		{method: "Start", dir: "/work", prompt: "hello"},
 		{method: "Say", id: "s1", text: "more"},
 		{method: "Answer", id: "s1", requestID: "r1", answer: "allow"},
-		{method: "Interrupt", id: "s1"},
+		{method: "OwnerInterrupt", id: "s1"},
 		{method: "Stop", id: "s1"},
 		{method: "Seen", id: "s1"},
 		{method: "Resume", id: "s1"},
