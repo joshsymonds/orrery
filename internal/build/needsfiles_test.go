@@ -2,12 +2,16 @@ package build
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -72,18 +76,66 @@ func needsFilesView(status, result string) View {
 	}
 }
 
+// atRerun returns view with its build at rerun.
+func atRerun(view View, rerun int64) View {
+	view.Task.Build.Rerun = rerun
+	return view
+}
+
+// owning returns view with its task owning files.
+func owning(view View, files ...string) View {
+	view.Task.Files = files
+	return view
+}
+
 func TestNeedsFilesDecideCarriesThePathsOfANeedsContextReturn(t *testing.T) {
 	t.Parallel()
 	runDecideCases(t, Decide, []decideCase{
 		{
-			name: "needs_context carries the paths it names",
-			view: needsFilesView(
+			name: "needs_context past the grant limit fails carrying the paths it names",
+			view: atRerun(needsFilesView(
 				"needs_context",
 				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go","b/c.go"]}`,
-			),
+			), grantLimit),
 			want: Action{
 				Kind: ActFail, Reason: "returned needs_context: the spec is short",
 				NeedsFiles: []string{"a.go", "b/c.go"},
+			},
+		},
+		{
+			name: "needs_context naming a path inside .git fails carrying the paths it names",
+			view: needsFilesView(
+				"needs_context",
+				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go",".git/config"]}`,
+			),
+			want: Action{
+				Kind: ActFail, Reason: "returned needs_context: the spec is short",
+				NeedsFiles: []string{"a.go", ".git/config"},
+			},
+		},
+		{
+			name: "needs_context naming only files the task owns fails carrying them",
+			view: owning(needsFilesView(
+				"needs_context",
+				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go"]}`,
+			), "a.go"),
+			want: Action{
+				Kind: ActFail, Reason: "returned needs_context: the spec is short", NeedsFiles: []string{"a.go"},
+			},
+		},
+		{
+			name: "needs_context naming files the task does not own grants the new ones and reruns the implementer",
+			view: owning(needsFilesView(
+				"needs_context",
+				`{"status":"needs_context","summary":"the spec is short","needs_files":["a.go","b/c.go","b/c.go"]}`,
+			), "a.go"),
+			want: Action{
+				Kind: ActGrant, Reason: "returned needs_context: the spec is short", NeedsFiles: []string{"b/c.go"},
+				Next: store.TaskBuild{
+					Stage: StageImplement, Base: decideBranch, Attempt: 1, Rerun: 2, RedRun: "red-run",
+					Failure: "you returned needs_context for files outside your list, and these are now yours: " +
+						"b/c.go. Your earlier work is in this worktree; continue from it.",
+				},
 			},
 		},
 		{
@@ -123,26 +175,38 @@ func TestNeedsFilesBriefEndsByAskingForThem(t *testing.T) {
 	t.Parallel()
 	const sentence = "When the work needs files beyond the owned list, return needs_context and name each one in " +
 		"needs_files."
-	got := Brief(briefEpic(), briefTask(), store.EvidenceRun{}, nil, nil, "")
+	got := Brief(briefEpic(), briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
 	if !strings.HasSuffix(got, sentence) {
 		t.Fatalf("brief does not end with the needs_files request; brief:\n%s", got)
 	}
 }
 
+// newOwnerFixture returns a fixture whose epic has task 1 as newPassFixture plans it and an open task 2 that owns file.
+func newOwnerFixture(t *testing.T, file string) *passFixture {
+	t.Helper()
+	plan := passTwoTaskPlan()
+	plan.Tasks[1].Files = []string{file}
+	return newPlanFixture(t, plan)
+}
+
 // TestNeedsFilesPassStoresThePathsWithTheFailedTask covers R3: an implementer that returns needs_context with
-// needs_files fails the task with the paths stored under it.
+// needs_files that cannot be granted, since another open task owns one, fails the task with the paths stored under it.
 func TestNeedsFilesPassStoresThePathsWithTheFailedTask(t *testing.T) {
 	t.Parallel()
-	f := newPassFixture(t)
-	guardStartImplementer(f)
+	f := newOwnerFixture(t, "internal/other/a.go")
+	first := []int64{1}
+	f.runner.PassTasks(f.ctx, passEpic, first)
+	f.addRun(RunID(passEpic, 1, StageRed, 0, 0), evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
+	f.runner.PassTasks(f.ctx, passEpic, first)
 	f.steps.rows[passStep(StageImplement, 1, 0)] = store.StepRow{
 		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "needs_context",
 		Result: `{"status":"needs_context","summary":"stuck","needs_files":["internal/other/a.go"]}`,
 	}
-	f.pass()
+	f.runner.PassTasks(f.ctx, passEpic, first)
 	task := f.task()
-	if task.Status != "failed" || task.Build.Failure != "returned needs_context: stuck" {
-		t.Errorf("task status %q failure %q, want failed with the return's reason", task.Status, task.Build.Failure)
+	want := "returned needs_context: stuck; internal/other/a.go is owned by open task T2"
+	if task.Status != "failed" || task.Build.Failure != want {
+		t.Errorf("task status %q failure %q, want failed with %q", task.Status, task.Build.Failure, want)
 	}
 	if want := []string{"internal/other/a.go"}; !reflect.DeepEqual(task.NeedsFiles, want) {
 		t.Errorf("NeedsFiles = %v, want %v", task.NeedsFiles, want)
@@ -166,5 +230,42 @@ func TestNeedsFilesPassStoresNoPathsForABlockedReturn(t *testing.T) {
 	}
 	if len(task.NeedsFiles) != 0 {
 		t.Errorf("NeedsFiles = %v, want none", task.NeedsFiles)
+	}
+}
+
+func TestNeedsFilesPassGrantsFreeFilesAndRerunsTheImplementerInTheSameWorktree(t *testing.T) {
+	t.Parallel()
+	f := newPassFixture(t)
+	guardStartImplementer(f)
+	worktree := ImplementWorktree(f.stateDir, passEpic, 1)
+	if err := os.WriteFile(filepath.Join(worktree, "thing.go"), []byte("package thing\n"), 0o600); err != nil {
+		t.Fatalf("write earlier work: %v", err)
+	}
+	f.steps.rows[passStep(StageImplement, 1, 0)] = store.StepRow{
+		ID: passStep(StageImplement, 1, 0), End: "returned", Status: "needs_context",
+		Result: `{"status":"needs_context","summary":"stuck","needs_files":["internal/other/a.go"]}`,
+	}
+	f.pass()
+	task := f.task()
+	if task.Status != "open" || task.Build.Rerun != 1 || task.Build.Attempt != 1 {
+		t.Fatalf("task status %q attempt %d rerun %d, want open at attempt 1, rerun 1",
+			task.Status, task.Build.Attempt, task.Build.Rerun)
+	}
+	if want := []string{"thing.go", "internal/other/a.go"}; !reflect.DeepEqual(task.Files, want) {
+		t.Fatalf("Files = %v, want %v", task.Files, want)
+	}
+	f.pass()
+	start := f.lastStart()
+	if start.ID != passStep(StageImplement, 1, 1) || start.Workspace != worktree {
+		t.Fatalf("start %s in %s, want %s in %s", start.ID, start.Workspace, passStep(StageImplement, 1, 1), worktree)
+	}
+	if !slices.Contains(start.Owned, "internal/other/a.go") {
+		t.Errorf("Owned = %v, want it to hold the granted file", start.Owned)
+	}
+	if !strings.Contains(start.Prompt, "these are now yours: internal/other/a.go") {
+		t.Errorf("prompt does not name the granted file:\n%s", start.Prompt)
+	}
+	if data, err := os.ReadFile(filepath.Join(worktree, "thing.go")); err != nil || string(data) != "package thing\n" {
+		t.Errorf("earlier work = %q, %v, want it kept in the worktree", data, err)
 	}
 }

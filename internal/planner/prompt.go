@@ -318,9 +318,10 @@ func followLines(follows []store.LabelFollow) []string {
 }
 
 // taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, contributes,
-// gate, and its evidence item as compact JSON. A failed task is followed by failedLines.
+// test_changes, gate, and its evidence item as compact JSON, then the guard's last refusal of its build when there is
+// one. A failed task is followed by failedLines.
 func taskLines(tasks []store.EpicTask) ([]string, error) {
-	lines := make([]string, 0, 7*len(tasks))
+	lines := make([]string, 0, 8*len(tasks))
 	for _, task := range tasks {
 		evidence, err := json.Marshal(task.Evidence)
 		if err != nil {
@@ -332,9 +333,13 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 			"  files: "+strings.Join(task.Files, ", "),
 			"  requirements: "+strings.Join(task.Requirements, ", "),
 			"  contributes: "+strings.Join(task.Contributes, ", "),
+			"  test_changes: "+strings.Join(task.TestChanges, ", "),
 			"  gate: "+task.Gate,
 			"  evidence: "+string(evidence),
 		)
+		if task.Build.Guard != "" {
+			lines = append(lines, "  guard refused: "+task.Build.Guard)
+		}
 		if task.Status == taskFailed {
 			lines = append(lines, failedLines(task)...)
 		}

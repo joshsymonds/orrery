@@ -187,6 +187,9 @@ type stepRun struct {
 	limitReleased bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
+	// judgedCommit is the commit of the done return the judge sent back, which passed every check. It is kept in memory
+	// only, so a run re-adopted after a restart has none.
+	judgedCommit string
 	// round is the number of the step's latest stored round. A turn end that is no continuation is the next round, which
 	// judge checks, and it becomes round once its return is stored, so round is always the round the store holds.
 	round int
@@ -667,8 +670,32 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	if head.Status == r.doneValue {
 		return r.endDoneReturn(ctx, round, value, commit, head.Status, checks)
 	}
+	if r.keepJudgedCommit(ctx, head.Status, head.Commit) {
+		return false
+	}
 	r.finish(ctx, stepLoopEndReturned, head.Status, "")
 	return false
+}
+
+// keepJudgedCommit ends a writing step goal_unmet, as a second unmet verdict does, when it returns status, which is not
+// done, after the judge sent back a done return whose commit passed every check, while HEAD is still that commit and
+// the return names no other. The commit is kept instead of the work being lost to the return. It reports whether it
+// ended the step.
+func (r *stepRun) keepJudgedCommit(ctx context.Context, status string, raw json.RawMessage) bool {
+	if !r.writing || r.judgedCommit == "" || !stepGitHeadCheck(ctx, r.dir, r.judgedCommit).OK {
+		return false
+	}
+	var named string
+	if err := json.Unmarshal(raw, &named); err == nil && named != "" {
+		resolved, err := stepGitResolve(ctx, r.dir, named)
+		if err != nil || resolved != r.judgedCommit {
+			return false
+		}
+	}
+	r.finish(ctx, judgeLoopEndGoalUnmet, "", fmt.Sprintf(
+		"returned %s after the judge sent back commit %s, which passed every check; that commit is kept",
+		status, r.judgedCommit))
+	return true
 }
 
 // checkoutMove compares a read-only step's checkout with the state it started in. It returns the failed checkout check of

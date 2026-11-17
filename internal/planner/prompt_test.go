@@ -191,7 +191,20 @@ func TestPromptRendersEmptyContributesWhenTaskContributesNothing(t *testing.T) {
 	epic.Tasks[0].Contributes = nil
 	prompt := promptOf(t, epic, 2, syntheticTriggers())
 	inOrder(t, prompt,
-		"  requirements: R1\n  contributes: \n  gate: check\n",
+		"  requirements: R1\n  contributes: \n  test_changes: \n  gate: check\n",
+	)
+}
+
+func TestPromptRendersTestChangesAndTheGuardsLastRefusal(t *testing.T) {
+	t.Parallel()
+	epic := syntheticEpic()
+	epic.Tasks[0].TestChanges = []string{"store_test.go"}
+	epic.Tasks[0].Build.Guard = "store_test.go: TestOld: test present at the base removed"
+	prompt := promptOf(t, epic, 2, syntheticTriggers())
+	inOrder(t, prompt,
+		"  contributes: ",
+		"  test_changes: store_test.go\n  gate: check\n",
+		"  guard refused: store_test.go: TestOld: test present at the base removed\n",
 	)
 }
 

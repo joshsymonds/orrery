@@ -612,6 +612,14 @@ func (s crashStore) FailTask(
 	})
 }
 
+func (s crashStore) GrantTaskFiles(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string,
+) error {
+	return s.w.act("GrantTaskFiles", func() error {
+		return wrapErr("grant files", s.Store.GrantTaskFiles(ctx, epic, seq, from, to, files))
+	})
+}
+
 func (s crashStore) AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error {
 	return s.w.act("AcceptTask", func() error {
 		return wrapErr("accept task", s.Store.AcceptTask(ctx, epic, seq, from, review))

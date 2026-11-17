@@ -31,6 +31,8 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 		return r.reproduce(ctx, epic, view, action)
 	case ActFail:
 		return r.fail(ctx, epic, view, action)
+	case ActGrant:
+		return r.grant(ctx, epic, view, action)
 	case ActAccept:
 		return r.accept(ctx, epic, view, action)
 	case ActPause:
@@ -119,6 +121,20 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 	}
 	r.removeWorktrees(ctx, epic, seq)
 	return true
+}
+
+// grant gives the task the files action names and stores action's build, which runs its implementer again in the same
+// worktree. When another open task owns one of the files, the store writes nothing and the task fails with action's
+// reason and the files it named, as an implementer's needs_context return does.
+func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
+	seq := view.Task.Seq
+	err := r.store.GrantTaskFiles(ctx, epic.ID, seq, view.Task.Build, action.Next, action.NeedsFiles)
+	var owned store.FileOwnedError
+	if errors.As(err, &owned) {
+		reason := action.Reason + "; " + owned.Error()
+		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason, NeedsFiles: action.NeedsFiles})
+	}
+	return r.written(ctx, epic.ID, seq, "grant files", err)
 }
 
 // accept pins the task's revision under refs/orrery, accepts the task with its review, then removes its worktrees.

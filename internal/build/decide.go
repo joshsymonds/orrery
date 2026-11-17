@@ -3,7 +3,10 @@ package build
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
+	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -181,6 +184,7 @@ func decideImplement(view View) Action {
 		fail := Action{Kind: ActFail, Reason: fmt.Sprintf("returned %s: %s", step.Status, ret.Summary)}
 		if step.Status == statusNeedsContext {
 			fail.NeedsFiles = ret.NeedsFiles
+			return grantOrFail(build, view.Task.Files, fail)
 		}
 		return fail
 	case endStopped:
@@ -226,4 +230,36 @@ func parseImplementerReturn(result string) (implementerReturn, bool) {
 		}
 	}
 	return ret, true
+}
+
+// grantLimit is how many reruns a build may have reached and still be granted files: a grant is a rerun, so a task is
+// granted files at most this many times, fewer when other reruns came first.
+const grantLimit = 3
+
+// grantOrFail returns the action for an implementer that returned needs_context naming the files fail carries. When
+// it names a file the task does not own, every such file can be a task's file (planner.FileRefusal), and the build has
+// reruns left under grantLimit, the task is granted those files and its implementer runs again in the same worktree,
+// with a note naming them. The store refuses a file another open task owns, and the task then fails as fail says.
+// Otherwise the task fails as fail says.
+func grantOrFail(build store.TaskBuild, owned []string, fail Action) Action {
+	var grant []string
+	for _, file := range fail.NeedsFiles {
+		if slices.Contains(owned, file) || slices.Contains(grant, file) {
+			continue
+		}
+		if planner.FileRefusal(file) != "" {
+			return fail
+		}
+		grant = append(grant, file)
+	}
+	if len(grant) == 0 || build.Rerun >= grantLimit {
+		return fail
+	}
+	next := build
+	next.Rerun++
+	next.NoVerdict = 0
+	next.Step = ""
+	next.Failure = "you returned needs_context for files outside your list, and these are now yours: " +
+		strings.Join(grant, ", ") + ". Your earlier work is in this worktree; continue from it."
+	return Action{Kind: ActGrant, Next: next, NeedsFiles: grant, Reason: fail.Reason}
 }

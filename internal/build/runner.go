@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -234,8 +233,7 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
 		return view, nil
 	}
-	_, stepID := unitIDs(epic.ID, task.Seq, task.Build)
-	view.Head = r.head(ctx, filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), stepID))
+	view.Head = r.head(ctx, ImplementWorktree(r.stateDir, epic.ID, task.Seq))
 	if task.Build.Refs != "" {
 		moves, err := r.refMoves(ctx, epic, task.Build.Refs, task.Build.Base, view.Head)
 		if err != nil {

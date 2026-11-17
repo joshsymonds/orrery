@@ -70,6 +70,7 @@ func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMess
 		return false
 	}
 	r.judgeSent = true
+	r.judgedCommit = commit
 	verdict.Action = judgeLoopActionContinue
 	if !r.judgeRecord(ctx, verdict) {
 		return false

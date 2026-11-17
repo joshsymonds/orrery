@@ -116,11 +116,8 @@ func checkQuestion(i int, question Question) []string {
 // fileReason returns the reason file is refused, or "" when it passes. It records file as named before it checks
 // ownership, so the plan's own naming is counted whether or not the file is owned.
 func fileReason(file string, taken, named map[string]bool) string {
-	if !fileFormOK(file) {
-		return reasonFileForm
-	}
-	if inGitDir(file) {
-		return reasonGitDir
+	if reason := FileRefusal(file); reason != "" {
+		return reason
 	}
 	if named[file] {
 		return reasonFileTwice
@@ -128,6 +125,18 @@ func fileReason(file string, taken, named map[string]bool) string {
 	named[file] = true
 	if taken[file] {
 		return reasonFileOwned
+	}
+	return ""
+}
+
+// FileRefusal returns why file cannot be a task's file on its own, or "" when it can: a path that is not a normalized
+// repository-relative file path, or one inside a .git directory.
+func FileRefusal(file string) string {
+	if !fileFormOK(file) {
+		return reasonFileForm
+	}
+	if inGitDir(file) {
+		return reasonGitDir
 	}
 	return ""
 }

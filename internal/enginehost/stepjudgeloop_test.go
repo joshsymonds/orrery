@@ -363,3 +363,55 @@ func TestJudgeLoopFallback(t *testing.T) {
 	}
 	judgeLoopCheckVerdict(t, row.Verdicts[0], 1, "met", "complete", "end")
 }
+
+// judgeLoopGiveUp is a needs_context return after a send-back, naming commit when it is not empty.
+func judgeLoopGiveUp(commit string) session.TurnEnded {
+	raw := `{"status":"needs_context","summary":"the task needs a file outside my list"}`
+	if commit != "" {
+		raw = fmt.Sprintf(`{"status":"needs_context","summary":"stuck","commit":%q}`, commit)
+	}
+	return session.TurnEnded{StructuredOutput: json.RawMessage(raw)}
+}
+
+func TestJudgeLoopGiveUpAfterSendBackKeepsTheCommitThatPassedEveryCheck(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	gate := stepDoneScript(t, "exit 0")
+	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("unmet", "the summary is thin")}}
+	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	f.run.Return(stepDoneReturn(commit))
+	f.run.Return(judgeLoopGiveUp(""))
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != judgeLoopEndGoalUnmet {
+		t.Fatalf("end = %q, want goal_unmet so the judged commit is kept", row.End)
+	}
+	want := "returned needs_context after the judge sent back commit " + commit +
+		", which passed every check; that commit is kept"
+	if row.Reason != want {
+		t.Errorf("reason = %q, want %q", row.Reason, want)
+	}
+}
+
+func TestJudgeLoopGiveUpNamingAnotherCommitAfterSendBackEndsReturned(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	other := stepGitTestRun(t, dir, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "other")
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	gate := stepDoneScript(t, "exit 0")
+	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("unmet", "the summary is thin")}}
+	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	f.run.Return(stepDoneReturn(commit))
+	f.run.Return(judgeLoopGiveUp(other))
+	waitRunEnd(t, done)
+
+	if row := f.row(t); row.End != stepLoopEndReturned || row.Status != "needs_context" {
+		t.Fatalf("end = %q status %q, want returned needs_context", row.End, row.Status)
+	}
+}

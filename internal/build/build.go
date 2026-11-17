@@ -91,6 +91,7 @@ const (
 	ActPark      ActionKind = "park"
 	ActReview    ActionKind = "review"
 	ActFinding   ActionKind = "finding"
+	ActGrant     ActionKind = "grant"
 )
 
 // Action is one thing a pass does for a task. Next is the build the task moves to. Reason is what a fail or a park
@@ -186,6 +187,7 @@ type Store interface {
 		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
 		at time.Time,
 	) error
+	GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string) error
 	AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error
 	StopTask(ctx context.Context, epic string, seq int64, from, to store.TaskBuild) error
 	ParkTask(

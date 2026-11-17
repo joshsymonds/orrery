@@ -3,7 +3,6 @@ package build
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -60,8 +59,10 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 }
 
 // implementerStart returns the start of the implementer step id for task of epic. The step runs the roles file's
-// implementer agent in its own detached worktree at the task's base, under the task's directory, with the brief, the
-// task's files, and the command gate the epic names for the task. A gate that is an agent gate is an error.
+// implementer agent in the task's implement worktree (ImplementWorktree), added detached at the task's base when it does
+// not exist and kept as it is when it does, so a later attempt or rerun continues from the earlier work. The step is
+// checked from the task's base, with the brief, the task's files, and the command gate the epic names for the task. A
+// gate that is an agent gate is an error.
 func (r *Runner) implementerStart(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
 ) (enginehost.StepStart, error) {
@@ -76,7 +77,7 @@ func (r *Runner) implementerStart(
 	if gate.Agent != "" {
 		return enginehost.StepStart{}, fmt.Errorf("gate %s is an agent gate, not a command gate", task.Gate)
 	}
-	path := filepath.Join(TaskDir(r.stateDir, epic.ID, task.Seq), id)
+	path := ImplementWorktree(r.stateDir, epic.ID, task.Seq)
 	err = r.git.AddWorktree(ctx, epic.Repository, path, task.Build.Base)
 	if err != nil {
 		return enginehost.StepStart{}, fmt.Errorf("prepare worktree: %w", err)
@@ -85,7 +86,7 @@ func (r *Runner) implementerStart(
 	return enginehost.StepStart{
 		ID:          id,
 		Agent:       agent,
-		Prompt:      Brief(epic, task, red, redLog, redStderr, task.Build.Failure),
+		Prompt:      Brief(epic, task, gate, red, redLog, redStderr, task.Build.Failure),
 		Schema:      ImplementerSchema,
 		Workspace:   path,
 		Revision:    task.Build.Base,
