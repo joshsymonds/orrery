@@ -91,6 +91,8 @@ class FakeServer {
   // replies queues the bodies a unary path answers with, one per call in order. A path with none queued answers as
   // it did.
   readonly replies = new Map<string, object[]>();
+  // holds maps a unary path to the gate its next call waits on, once: the call answers only after the gate opens.
+  readonly holds = new Map<string, Promise<void>>();
   // seen is the page the seen watch reads: the test emits its input, sets its focus, and advances its clock.
   readonly seen = fakeSeen();
 
@@ -103,6 +105,11 @@ class FakeServer {
     const bytes = new Uint8Array(await request.arrayBuffer());
     if (!path.endsWith("/WatchConversation")) {
       this.calls.push({ path, body: decodeUnary(bytes), signal, controller: null });
+      const gate = this.holds.get(path);
+      if (gate !== undefined) {
+        this.holds.delete(path);
+        await gate;
+      }
       if (this.failNext.delete(path)) {
         return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
           status: 503,
@@ -136,6 +143,19 @@ class FakeServer {
 
   callsTo(path: string): Call[] {
     return this.calls.filter((call) => call.path === path);
+  }
+
+  // holdNext makes the next call to path wait until the returned release runs, so a test draws the page while the call
+  // is still pending.
+  holdNext(path: string): () => void {
+    let release: () => void = () => {};
+    this.holds.set(
+      path,
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    return release;
   }
 
   emit(call: Call, message: object): void {
@@ -468,6 +488,22 @@ function pinnedQueueTexts(container: HTMLElement): string[] {
     container.querySelectorAll('[aria-label="pinned reader"] .send .queue li .text'),
     (text) => text.textContent ?? "",
   );
+}
+
+// sendingRows are the sending rows a column's reader draws: the cursor's by default, or the one named, such as
+// "pinned reader".
+function sendingRows(container: HTMLElement, column = "reader"): Element[] {
+  return Array.from(container.querySelectorAll(`[aria-label="${column}"] .sending-row`));
+}
+
+// ordinaryPromptRows are the prompt rows a column's reader draws for stored prompts, with no sending row among them.
+function ordinaryPromptRows(container: HTMLElement, column = "reader"): Element[] {
+  return Array.from(container.querySelectorAll(`[aria-label="${column}"] .reader > .t:not(.sending-row) .you`));
+}
+
+// sendingMark is the mark a sending row draws, or null when the element holds none.
+function sendingMark(row: Element): string | null {
+  return row.querySelector(".gut.sending")?.textContent ?? null;
 }
 
 // workingPane is the pane a stream sends while it runs a tool. The tool started at 940, a minute before the test's
@@ -1482,6 +1518,144 @@ test("Enter in a session's composer sends the text with Control.Say and a prompt
     assert.match(String(say.body.promptId), /^[0-9a-f-]{36}$/);
   }));
 
+const sentNotice = "Not sent. Your draft is kept; press Enter to try again.";
+
+test("a message sent to a headless session draws at once as a sending row, and its stored prompt replaces it", (t) =>
+  withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [] });
+    const releaseSay = fake.holdNext(sayPath);
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Enter");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
+    const [say] = fake.callsTo(sayPath);
+    assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
+    assert.equal(sendingRows(container)[0].textContent?.includes("keep going"), true, "the row holds the text");
+    assert.equal(sendingMark(sendingRows(container)[0]), "sending", "the row is marked sending");
+
+    releaseSay();
+    await until(t.signal, () => composer(container).value === "", "the say was answered");
+    assert.equal(sendingRows(container).length, 1, "the row stays until the stored prompt arrives");
+
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "2",
+      reset: false,
+      items: [{ kind: "prompt", text: "keep going", promptId: String(say.body.promptId) }],
+    });
+    await until(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
+    assert.equal(ordinaryPromptRows(container).length, 1, "the stored prompt is the one ordinary prompt row");
+    assert.equal(ordinaryPromptRows(container)[0].textContent?.includes("keep going"), true);
+
+    fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
+    await until(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
+    assert.equal(sendingRows(container).length, 0, "a sent message that left never draws again");
+  }));
+
+test("a message sent to a pane draws as a sending row until the pane's stream delivers its prompt", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [] });
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Enter");
+    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
+    await until(t.signal, () => composer(container).value === "", "the sent draft cleared");
+    assert.equal(sendingRows(container).length, 1, "the row draws while the stream has not shown the prompt");
+    assert.equal(sendingMark(sendingRows(container)[0]), "sending");
+
+    fake.emit(stream, { transcript: "t1", seq: "2", items: [{ kind: "prompt", text: "keep going" }] });
+    await until(t.signal, () => sendingRows(container).length === 0, "the sending row leaves");
+    assert.equal(ordinaryPromptRows(container).length, 1, "the stored prompt is the one ordinary prompt row");
+
+    fake.emit(stream, { transcript: "t1", seq: "3", reset: true, items: [{ kind: "assistant", text: "a later reply" }] });
+    await until(t.signal, () => readerText(container).includes("a later reply"), "the reset that drops the prompt");
+    assert.equal(sendingRows(container).length, 0, "a sent message that left never draws again");
+  }));
+
+test("a message sent from the pinned composer draws as a sending row in the pinned reader until its prompt arrives there", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [] });
+    await press("j");
+    assert.equal(cursorKey(container), "c", "the cursor moves off the pinned row");
+    await typeInto(pinnedComposer(container), "keep going");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(t.signal, () => fake.callsTo(sendTextPath).length === 1, "the send");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    assert.equal(sendingRows(container, "pinned reader").length, 1, "the pinned reader draws the sending row");
+    assert.equal(sendingRows(container).length, 0, "the cursor's reader on c draws none");
+
+    fake.emit(pinnedStream, { transcript: "t1", seq: "2", items: [{ kind: "prompt", text: "keep going" }] });
+    await until(t.signal, () => sendingRows(container, "pinned reader").length === 0, "the pinned sending row leaves");
+    assert.equal(ordinaryPromptRows(container, "pinned reader").length, 1, "the stored prompt is the one pinned prompt row");
+  }));
+
+test("a failed send to a session leaves no sending row, and keeps the draft and its error line", (t) =>
+  withApp(t.signal, { rows: [{ ...sessionRow, state: "done" }] }, async (container, fake) => {
+    const releaseSay = fake.holdNext(sayPath);
+    fake.failNext.add(sayPath);
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Enter");
+    await until(t.signal, () => fake.callsTo(sayPath).length === 1, "the say");
+    assert.equal(sendingRows(container).length, 1, "the row draws while the say is pending");
+    releaseSay();
+    await until(t.signal, () => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    assert.equal(container.querySelector('[role="alert"]')?.textContent, sentNotice);
+    assert.equal(sendingRows(container).length, 0, "no sending row is left");
+    assert.equal(composer(container).value, "keep going", "the draft is kept");
+  }));
+
+test("a message sent to a working session draws above the box as queued, and leaves when the row's turn ends", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    await press("i");
+    await typeInto(composer(container), "after the turn");
+    await pressIn(composer(container), "Enter");
+    await until(t.signal, () => queueTexts(container).length === 1, "the queued send");
+    assert.deepEqual(queueTexts(container), ["after the turn"]);
+    const queued = container.querySelector('[aria-label="reader"] .send .queue li.queued');
+    assert.equal(queued?.querySelector(".tag")?.textContent, "queued");
+    assert.equal(queued?.querySelector(".words")?.textContent, "It sends when this turn ends");
+    await mount(container, {
+      rows: [{ ...sessionRow, state: "done" }],
+      error: "",
+      now,
+      clients: fake.clients,
+      seen: fake.seen,
+    });
+    await until(t.signal, () => queueTexts(container).length === 0, "the queue after the turn");
+  }));
+
+test("a message sent to a working pane draws above the box as queued, and leaves when the pane's turn ends", (t) =>
+  withApp(t.signal, {}, async (container, fake) => {
+    await until(t.signal, () => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
+    await press("i");
+    await typeInto(composer(container), "after the turn");
+    await pressIn(composer(container), "Enter");
+    await until(t.signal, () => queueTexts(container).length === 1, "the queued send");
+    assert.deepEqual(queueTexts(container), ["after the turn"]);
+    assert.equal(
+      container.querySelector('[aria-label="reader"] .send .queue li.queued .words')?.textContent,
+      "It sends when this turn ends",
+    );
+
+    fake.emit(stream, { transcript: "t1", seq: "2", items: [], state: { pane: { id: "a", state: "idle" } } });
+    await until(t.signal, () => queueTexts(container).length === 0, "the queue after the turn");
+  }));
+
 test("a draft survives moving the cursor away and back", (t) =>
   withApp(t.signal, {}, async (container) => {
     await press("i");
@@ -2125,7 +2299,7 @@ test("the reader's composer on a working row has the working edge and says it qu
     await press("j");
     assert.equal(cursorKey(container), "b");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for web; it lands at Claude's next step");
+    assert.equal(composer(container).placeholder, "Queue for web; it sends when this turn ends");
   }));
 
 test("a working pane turns a waiting row's composer from answering to queueing", (t) =>
@@ -2137,7 +2311,7 @@ test("a working pane turns a waiting row's composer from answering to queueing",
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for api; it lands at Claude's next step");
+    assert.equal(composer(container).placeholder, "Queue for api; it sends when this turn ends");
   }));
 
 test("a pane on the cursor's stream turns only the shown composer; a visited row's hidden composer keeps its row's state", (t) =>
@@ -2151,7 +2325,7 @@ test("a pane on the cursor's stream turns only the shown composer; a visited row
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => composer(container).placeholder.startsWith("Queue for"), "the shown composer's working placeholder");
     assert.deepEqual(edgesOf(composer(container)), ["edge-working"]);
-    assert.equal(composer(container).placeholder, "Queue for docs; it lands at Claude's next step");
+    assert.equal(composer(container).placeholder, "Queue for docs; it sends when this turn ends");
     const hidden = [...container.querySelectorAll<HTMLTextAreaElement>('[aria-label="reader"] .reply[hidden] textarea')];
     const api = hidden.find((box) => box.placeholder === "Answer api");
     assert.equal(api !== undefined, true, "the api row's hidden composer still answers");
@@ -2171,7 +2345,7 @@ test("the pinned composer follows its own stream's pane while the cursor rests o
     fake.emit(pinnedStream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
     await until(t.signal, () => pinnedComposer(container).placeholder.startsWith("Queue for"), "the pinned working placeholder");
     assert.deepEqual(edgesOf(pinnedComposer(container)), ["edge-working"]);
-    assert.equal(pinnedComposer(container).placeholder, "Queue for api; it lands at Claude's next step");
+    assert.equal(pinnedComposer(container).placeholder, "Queue for api; it sends when this turn ends");
     assert.deepEqual(edgesOf(composer(container)), ["edge-idle"]);
     assert.equal(composer(container).placeholder, "Reply to docs");
   }));

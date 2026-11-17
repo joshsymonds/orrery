@@ -8,6 +8,7 @@ import { act } from "preact/test-utils";
 import { Composer } from "./composer";
 import { flashMillis } from "./flash";
 import { WaitingMessageSchema, type WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import type { SentText } from "./sending";
 import { installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof Composer>[0];
@@ -120,13 +121,54 @@ function queuedMessage(text: string, canceled = false): WaitingMessage {
   return create(WaitingMessageSchema, { text, canceled });
 }
 
-// queuedRows reads each drawn queued message as its tag, its text and whether it is marked canceled.
-function queuedRows(container: HTMLElement): { tag: string; text: string; canceled: boolean }[] {
+// queuedRows reads each drawn queued message as its tag, its words, its text and whether it is marked canceled.
+function queuedRows(container: HTMLElement): { tag: string; words: string; text: string; canceled: boolean }[] {
   return Array.from(container.querySelectorAll("li.queued"), (row) => ({
     tag: row.querySelector(".tag")?.textContent ?? "",
+    words: row.querySelector(".words")?.textContent ?? "",
     text: row.querySelector(".text")?.textContent ?? "",
     canceled: row.classList.contains("canceled"),
   }));
+}
+
+const queuedWords = "It sends when this turn ends";
+
+// settleSends lets a send that is pending resolve or reject, and the state it sets render, inside act.
+async function settleSends(): Promise<void> {
+  await act(async () => {
+    for (let turn = 0; turn < 5; turn += 1) {
+      await Promise.resolve();
+    }
+  });
+}
+
+// withRerenderableComposer mounts a composer as withComposer does, and gives the check a rerender that draws the props
+// it names over the mounted composer's first props.
+async function withRerenderableComposer(
+  props: Partial<Props>,
+  check: (
+    box: HTMLTextAreaElement,
+    container: HTMLElement,
+    rerender: (next: Partial<Props>) => Promise<void>,
+  ) => Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const rerender = (next: Partial<Props>) =>
+    act(() => {
+      render(<Composer {...baseProps({ ...props, ...next })} />, container);
+    });
+  try {
+    await rerender({});
+    await check(textarea(container), container, rerender);
+  } finally {
+    await act(() => {
+      render(null, container);
+    });
+    container.remove();
+    await removeTestDom(window);
+  }
 }
 
 test("Enter sends the text once with a prompt id and clears the box on success", async () => {
@@ -500,7 +542,7 @@ test("Up with text in the box does not flash", async (t) => {
 
 // The state cases: working queues the text, waiting answers, and any other state, known or not, replies.
 const stateCases = [
-  { state: "working", edge: "edge-working", placeholder: "Queue for api; it lands at Claude's next step" },
+  { state: "working", edge: "edge-working", placeholder: "Queue for api; it sends when this turn ends" },
   { state: "waiting", edge: "edge-waiting", placeholder: "Answer api" },
   { state: "idle", edge: "edge-idle", placeholder: "Reply to api" },
   { state: "unknown-state", edge: "edge-idle", placeholder: "Reply to api" },
@@ -585,9 +627,9 @@ test("queued messages draw above the input in the given order, each tagged, a ca
   const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
   await withComposer({ queued }, async (_box, container) => {
     assert.deepEqual(queuedRows(container), [
-      { tag: "waiting", text: "first", canceled: false },
-      { tag: "canceled", text: "second", canceled: true },
-      { tag: "waiting", text: "third", canceled: false },
+      { tag: "queued", words: queuedWords, text: "first", canceled: false },
+      { tag: "canceled", words: "", text: "second", canceled: true },
+      { tag: "queued", words: queuedWords, text: "third", canceled: false },
     ]);
     const root = container.querySelector(".compose");
     assert.ok(root, "the composer renders its root");
@@ -628,4 +670,104 @@ test("queued text draws as text, never as markup", async () => {
     assert.equal(container.querySelector("li.queued img") !== null, false, "no image element is drawn");
     assert.equal(container.querySelector("li.queued b") !== null, false, "no bold element is drawn");
   });
+});
+
+test("a send calls onSending with the text and prompt id at once, while the send is still pending", async () => {
+  const sent: SentText[] = [];
+  let resolveSend: () => void = () => {};
+  const send = () =>
+    new Promise<void>((resolve) => {
+      resolveSend = resolve;
+    });
+  await withComposer(
+    {
+      send,
+      onSending: (entry) => {
+        sent.push(entry);
+      },
+      newPromptId: () => "sent-1",
+    },
+    async (box) => {
+      await type(box, "hello claude");
+      await press(box, "Enter");
+      assert.deepEqual(sent, [{ text: "hello claude", promptId: "sent-1" }]);
+      resolveSend();
+      await settleSends();
+      assert.deepEqual(sent, [{ text: "hello claude", promptId: "sent-1" }], "the send is reported once");
+    },
+  );
+});
+
+test("a rejected send calls onUnsent, leaves no sending or queued entry, and keeps the draft and the error line", async () => {
+  const unsent: string[] = [];
+  await withComposer(
+    {
+      state: "working",
+      send: async () => {
+        throw new Error(serverText);
+      },
+      onUnsent: (promptId) => {
+        unsent.push(promptId);
+      },
+      newPromptId: () => "failed-1",
+    },
+    async (box, container) => {
+      await type(box, "hello claude");
+      await press(box, "Enter");
+      await settleSends();
+      assert.deepEqual(unsent, ["failed-1"]);
+      assert.deepEqual(queuedRows(container), [], "the failed message leaves the queue");
+      assert.equal(box.value, "hello claude", "the draft is kept");
+      assert.equal(errorLine(container)?.textContent, sendFailedLine);
+      assert.equal(container.textContent?.includes("secret-session-7"), false, "server text is never shown");
+    },
+  );
+});
+
+for (const { kind, pull } of [
+  { kind: "session", pull: null },
+  { kind: "pane", pull: async () => "" },
+]) {
+  test(`a send to a working ${kind} draws above the box as queued, with its words, and leaves when the turn ends`, async () => {
+    await withRerenderableComposer(
+      { state: "working", pull, send: async () => {} },
+      async (box, container, rerender) => {
+        await type(box, "hello");
+        await press(box, "Enter");
+        await settleSends();
+        assert.deepEqual(queuedRows(container), [
+          { tag: "queued", words: queuedWords, text: "hello", canceled: false },
+        ]);
+        const root = container.querySelector(".compose");
+        assert.ok(root, "the composer renders its root");
+        assert.equal(root.children[0]?.className, "queue", "the queue sits above the box");
+        assert.deepEqual(edgesOf(container), ["edge-working"]);
+        await rerender({ state: "idle" });
+        assert.deepEqual(queuedRows(container), [], "the message leaves when the turn ends");
+        assert.equal(container.querySelector(".queue"), null);
+      },
+    );
+  });
+}
+
+test("a pane's queued message with the text a send drew above the box is drawn once", async () => {
+  await withRerenderableComposer(
+    { state: "working", pull: async () => "", send: async () => {} },
+    async (box, container, rerender) => {
+      await type(box, "hello");
+      await press(box, "Enter");
+      await settleSends();
+      await rerender({ queued: [queuedMessage("hello")] });
+      assert.deepEqual(queuedRows(container), [{ tag: "queued", words: queuedWords, text: "hello", canceled: false }]);
+      await rerender({ queued: [queuedMessage("hello", true)] });
+      assert.deepEqual(
+        queuedRows(container).map((row) => [row.tag, row.text]),
+        [
+          ["canceled", "hello"],
+          ["queued", "hello"],
+        ],
+        "a canceled message with the same text does not stand for the sent one",
+      );
+    },
+  );
 });

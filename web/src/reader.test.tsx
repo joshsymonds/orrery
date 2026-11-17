@@ -18,6 +18,7 @@ import type { Conversation } from "./conversation";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
+import type { Sending } from "./sending";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
@@ -60,6 +61,7 @@ interface Props {
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  sending?: Sending[];
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
@@ -1514,3 +1516,57 @@ test("an opened thinking block stays open as its deltas grow", () =>
       );
     },
   ));
+
+// withRerenderableReader mounts a reader and gives the check a rerender that draws new props into the same mounted
+// reader, as the page does when a stored prompt arrives.
+async function withRerenderableReader(
+  props: Props,
+  check: (container: HTMLElement, rerender: (next: Props) => Promise<void>) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  const rerender = (next: Props) =>
+    act(() => {
+      render(<Reader {...next} />, container);
+    });
+  try {
+    await rerender(props);
+    await check(container, rerender);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
+test("a sending entry draws a dimmed row marked sending after the items, and the stored prompt makes it an ordinary row", async () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, text: "earlier", promptId: "p0" }),
+    item({ kind: "reply", time: 101n, text: "Done." }),
+  ];
+  const sending: Sending[] = [{ promptId: "p1", text: "fix the build", after: items[1] }];
+  await withRerenderableReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, sending },
+    async (container, rerender) => {
+      const rows = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.equal(rows.length, 3, "the two items, then the sending row");
+      const last = rows[2];
+      assert.equal(last.classList.contains("sending-row"), true, "the sending row is dimmed");
+      assert.equal(last.querySelector(".gut")?.textContent, "sending", "the row is marked sending");
+      assert.equal(last.querySelector(".you")?.textContent, "YOUfix the build");
+
+      await rerender({
+        conversation: conversation({
+          items: [...items, item({ kind: "prompt", time: 102n, text: "fix the build", promptId: "p1" })],
+        }),
+        seenAt: 1000,
+        open: false,
+        sending: [],
+      });
+      const after = container.querySelectorAll<HTMLElement>(".reader > .t");
+      assert.equal(after.length, 3, "the stored prompt takes the sending row's place");
+      assert.equal(after[2].classList.contains("sending-row"), false, "the row is no longer dimmed");
+      assert.equal(after[2].querySelector(".you")?.textContent, "YOUfix the build");
+      assert.equal(container.querySelector(".gut.sending"), null, "nothing is marked sending");
+    },
+  );
+});

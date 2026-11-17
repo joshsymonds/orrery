@@ -805,6 +805,10 @@ message ConversationItem {
 
   // The check round a send-back returns on a prompt item, or 0 otherwise.
   uint32 round = 12;
+
+  // The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+  // not a headless prompt.
+  string prompt_id = 13;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured

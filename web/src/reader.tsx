@@ -7,6 +7,7 @@ import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
+import type { Sending } from "./sending";
 import { ReplyText } from "./text";
 import { TitleRow } from "./titlerow";
 
@@ -29,6 +30,8 @@ const toolRunMinimum = 3;
 // other render keeps the bottom only for a reader that sat within nearBottomPixels of it. When items are drawn above
 // the first row shown before, the reader keeps the rows on screen where they were. Once it sits within nearTopPixels
 // of its top while the conversation has older items, it calls onOlder, which loads the page before its oldest item.
+// The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
+// they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
   conversation,
   seenAt,
@@ -38,6 +41,7 @@ export function Reader({
   onAnswer,
   onToggleOpen,
   onOlder,
+  sending = [],
 }: {
   conversation: Conversation | null;
   seenAt: number;
@@ -47,6 +51,7 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
   onOlder?: () => void;
+  sending?: Sending[];
 }): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const drewConversation = useRef(false);
@@ -82,10 +87,12 @@ export function Reader({
     }
     askOlder();
   });
+  const sendingRows = sending.map((entry) => <SendingRow key={entry.promptId} text={entry.text} />);
   if (conversation === null) {
     return (
       <div class="reader" ref={root}>
         <p class="reader-loading">loading…</p>
+        {sendingRows}
       </div>
     );
   }
@@ -123,6 +130,7 @@ export function Reader({
       {rows}
       {questionCard}
       {live}
+      {sendingRows}
     </div>
   );
 }
@@ -238,6 +246,22 @@ function OptionButton({
     >
       {label}
     </button>
+  );
+}
+
+// SendingRow draws a message the page sent that the stored conversation does not hold yet: a prompt row, dimmed, with
+// a mark reading sending. Its text draws through Markdown, as a prompt's does.
+function SendingRow({ text }: { text: string }) {
+  return (
+    <div class="t sending-row">
+      <span class="gut sending">sending</span>
+      <div class="body">
+        <div class="you">
+          <small>YOU</small>
+          <ReplyMarkdown text={text} />
+        </div>
+      </div>
+    </div>
   );
 }
 

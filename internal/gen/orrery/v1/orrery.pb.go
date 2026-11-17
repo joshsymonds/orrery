@@ -3282,7 +3282,10 @@ type ConversationItem struct {
 	// Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
 	Sender string `protobuf:"bytes,11,opt,name=sender,proto3" json:"sender,omitempty"`
 	// The check round a send-back returns on a prompt item, or 0 otherwise.
-	Round         uint32 `protobuf:"varint,12,opt,name=round,proto3" json:"round,omitempty"`
+	Round uint32 `protobuf:"varint,12,opt,name=round,proto3" json:"round,omitempty"`
+	// The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+	// not a headless prompt.
+	PromptId      string `protobuf:"bytes,13,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3399,6 +3402,13 @@ func (x *ConversationItem) GetRound() uint32 {
 		return x.Round
 	}
 	return 0
+}
+
+func (x *ConversationItem) GetPromptId() string {
+	if x != nil {
+		return x.PromptId
+	}
+	return ""
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
@@ -5903,7 +5913,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05items\x18\x02 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x12\n" +
 	"\x04goal\x18\x03 \x01(\tR\x04goal\x123\n" +
 	"\awaiting\x18\x04 \x03(\v2\x19.orrery.v1.WaitingMessageR\awaiting\x128\n" +
-	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\x96\x02\n" +
+	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\xb3\x02\n" +
 	"\x10ConversationItem\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x12\n" +
@@ -5917,7 +5927,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x06tokens\x18\n" +
 	" \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06sender\x18\v \x01(\tR\x06sender\x12\x14\n" +
-	"\x05round\x18\f \x01(\rR\x05round\"E\n" +
+	"\x05round\x18\f \x01(\rR\x05round\x12\x1b\n" +
+	"\tprompt_id\x18\r \x01(\tR\bpromptId\"E\n" +
 	"\x13ConversationContext\x12\x16\n" +
 	"\x06tokens\x18\x01 \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06window\x18\x02 \x01(\x03R\x06window\"T\n" +

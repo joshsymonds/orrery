@@ -27,6 +27,7 @@ public  final class ConversationItem extends
     notice_ = "";
     trigger_ = "";
     sender_ = "";
+    promptId_ = "";
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private java.lang.String kind_;
@@ -714,6 +715,78 @@ public  final class ConversationItem extends
   private void clearRound() {
 
     round_ = 0;
+  }
+
+  public static final int PROMPT_ID_FIELD_NUMBER = 13;
+  private java.lang.String promptId_;
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   * @return The promptId.
+   */
+  @java.lang.Override
+  public java.lang.String getPromptId() {
+    return promptId_;
+  }
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   * @return The bytes for promptId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPromptIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(promptId_);
+  }
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   * @param value The promptId to set.
+   */
+  private void setPromptId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    promptId_ = value;
+  }
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   */
+  private void clearPromptId() {
+
+    promptId_ = getDefaultInstance().getPromptId();
+  }
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   * @param value The bytes for promptId to set.
+   */
+  private void setPromptIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    promptId_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem parseFrom(
@@ -1529,6 +1602,80 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+     * not a headless prompt.
+     * </pre>
+     *
+     * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+     * @return The promptId.
+     */
+    @java.lang.Override
+    public java.lang.String getPromptId() {
+      return instance.getPromptId();
+    }
+    /**
+     * <pre>
+     * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+     * not a headless prompt.
+     * </pre>
+     *
+     * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+     * @return The bytes for promptId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPromptIdBytes() {
+      return instance.getPromptIdBytes();
+    }
+    /**
+     * <pre>
+     * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+     * not a headless prompt.
+     * </pre>
+     *
+     * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+     * @param value The promptId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPromptId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPromptId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+     * not a headless prompt.
+     * </pre>
+     *
+     * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPromptId() {
+      copyOnWrite();
+      instance.clearPromptId();
+      return this;
+    }
+    /**
+     * <pre>
+     * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+     * not a headless prompt.
+     * </pre>
+     *
+     * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+     * @param value The bytes for promptId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPromptIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPromptIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -1557,11 +1704,12 @@ public  final class ConversationItem extends
             "tokens_",
             "sender_",
             "round_",
+            "promptId_",
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
+              "\u0000\r\u0000\u0000\u0001\r\r\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
               "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002\u000b\u0208" +
-              "\f\u000b";
+              "\f\u000b\r\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

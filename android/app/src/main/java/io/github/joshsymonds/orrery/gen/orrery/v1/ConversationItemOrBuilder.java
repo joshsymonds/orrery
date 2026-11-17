@@ -209,4 +209,26 @@ public interface ConversationItemOrBuilder extends
    * @return The round.
    */
   int getRound();
+
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   * @return The promptId.
+   */
+  java.lang.String getPromptId();
+  /**
+   * <pre>
+   * The client-chosen prompt id of a headless session's prompt item, or empty when the prompt has none or the item is
+   * not a headless prompt.
+   * </pre>
+   *
+   * <code>string prompt_id = 13 [json_name = "promptId"];</code>
+   * @return The bytes for promptId.
+   */
+  com.google.protobuf.ByteString
+      getPromptIdBytes();
 }

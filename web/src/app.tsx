@@ -36,6 +36,7 @@ import { type ParsedQuestion, parseQuestion } from "./question";
 import { ConversationHead, Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
+import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries } from "./sending";
 import { StepBox } from "./stepbox";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
@@ -247,6 +248,9 @@ export function App({
   // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
   // waits on the question it answered.
   const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
+  // The messages each row's composer sent that the row's stored conversation does not hold yet, by row key. Each shows
+  // as sending in its row's reader until its stored prompt arrives.
+  const [sendingByRow, setSendingByRow] = useState<Map<string, Sending[]>>(() => new Map());
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row or unseen ended epic the seen watch last rested on, which its write marks seen.
   const restedSeen = useRef<Row | EpicItem | null>(null);
@@ -548,6 +552,35 @@ export function App({
   // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
+  // The messages each reader shows as sending: its row's entries the conversation it holds has not sent yet.
+  const cursorSending =
+    cursorRow === null ? [] : unsentEntries(sendingByRow.get(cursorRow.key) ?? [], cursorConversation, cursorRow.kind);
+  const pinnedSending =
+    pinned === null ? [] : unsentEntries(sendingByRow.get(pinned.key) ?? [], pinnedConversation, pinned.kind);
+  // A stored prompt that a reader's stream holds ends its entry, so the entry leaves the page.
+  useEffect(() => {
+    setSendingByRow((previous) =>
+      pruneSent(previous, [
+        { key: cursorRowKey, kind: cursorRow?.kind ?? "session", conversation: cursorConversation },
+        { key: pinnedKey, kind: pinned?.kind ?? "session", conversation: pinnedConversation },
+      ]),
+    );
+  }, [cursorConversation, pinnedConversation, cursorRowKey, pinnedKey]);
+  // addSending records a message a row's composer sent as it starts. held is the conversation on screen for that row,
+  // which anchors a pane's match, or null when the row's stream is not held.
+  const addSending = (rowKey: string, sent: SentText, held: Conversation | null) =>
+    setSendingByRow((previous) =>
+      new Map(previous).set(rowKey, [...(previous.get(rowKey) ?? []), sendingEntry(sent, held)]),
+    );
+  // retractSending drops a message whose send failed.
+  const retractSending = (rowKey: string, promptId: string) =>
+    setSendingByRow((previous) => {
+      const entries = previous.get(rowKey);
+      if (entries === undefined || !entries.some((entry) => entry.promptId === promptId)) {
+        return previous;
+      }
+      return new Map(previous).set(rowKey, entries.filter((entry) => entry.promptId !== promptId));
+    });
   const toggleOpen = () => setOpen((value) => !value);
   const toggleMeters = () => setMetersOpen((value) => !value);
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
@@ -1133,6 +1166,7 @@ export function App({
               onAnswer={answerCursor}
               onToggleOpen={toggleOpen}
               onOlder={() => cursorOlder.current()}
+              sending={cursorSending}
             />
           )}
           {cursorStep !== null && (
@@ -1155,6 +1189,8 @@ export function App({
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
+                  onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
+                  onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
                     if (element === null) {
                       composerInputs.current.delete(row.key);
@@ -1205,6 +1241,7 @@ export function App({
               seenAt={pinned.seen}
               open={false}
               onOlder={() => pinnedOlder.current()}
+              sending={pinnedSending}
             />
           )}
           <div class="send">
@@ -1217,6 +1254,8 @@ export function App({
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
                   queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
+                  onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
+                  onUnsent={(promptId) => retractSending(row.key, promptId)}
                   inputRef={(element) => {
                     if (element === null) {
                       pinnedInputs.current.delete(row.key);
@@ -1365,6 +1404,33 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
 // own state.
 function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
+}
+
+// pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
+function pruneSent(
+  previous: Map<string, Sending[]>,
+  held: { key: string; kind: SendKind; conversation: Conversation | null }[],
+): Map<string, Sending[]> {
+  let next = previous;
+  for (const { key, kind, conversation } of held) {
+    const entries = previous.get(key);
+    if (entries === undefined) {
+      continue;
+    }
+    const kept = unsentEntries(entries, conversation, kind);
+    if (kept === entries) {
+      continue;
+    }
+    if (next === previous) {
+      next = new Map(previous);
+    }
+    if (kept.length === 0) {
+      next.delete(key);
+    } else {
+      next.set(key, kept);
+    }
+  }
+  return next;
 }
 
 // composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added

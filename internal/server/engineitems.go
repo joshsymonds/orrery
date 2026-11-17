@@ -22,7 +22,12 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 			return nil, false, fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
 		}
 		return &orreryv1.ConversationItem{
-			Kind: "prompt", Time: event.At, Text: body.Text, Sender: body.Sender, Round: body.Round,
+			Kind:     "prompt",
+			Time:     event.At,
+			Text:     body.Text,
+			Sender:   body.Sender,
+			Round:    body.Round,
+			PromptId: body.PromptId,
 		}, true, nil
 	case store.EventEngineBlock:
 		body := &orreryv1.EngineBlock{}
