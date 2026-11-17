@@ -2,11 +2,27 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
+
+// The kinds of the caller events, as the <orrery-event> block names them.
+const (
+	CallerKindStepEnd  = "step_end"
+	CallerKindPark     = "park"
+	CallerKindQuestion = "question"
+	CallerKindRelease  = "release"
+	CallerKindEnd      = "end"
+)
+
+// stepEventPrefix heads the id of a step's end event: the prefix and the step id. ListCallerSteps and
+// ListPendingCallerSteps list the steps whose end has no mark under this id.
+const stepEventPrefix = "step:"
 
 // CallerSession is the sessions row of a caller: its id, kind, server, pane and state.
 type CallerSession struct {
@@ -60,11 +76,190 @@ func (s *Store) MarkCallerEvent(ctx context.Context, event, session string, at t
 
 // CallerEventMarked reports whether MarkCallerEvent has recorded the event as delivered to the session.
 func (s *Store) CallerEventMarked(ctx context.Context, event, session string) (bool, error) {
-	count, err := sqlcgen.New(s.db).CountCallerEvent(ctx, sqlcgen.CountCallerEventParams{
-		Event: event, Session: session,
-	})
+	return callerEventMarkedIn(ctx, sqlcgen.New(s.db), event, session)
+}
+
+// callerEventMarkedIn reports whether a caller_events row holds event under session, as read through queries.
+func callerEventMarkedIn(ctx context.Context, queries *sqlcgen.Queries, event, session string) (bool, error) {
+	count, err := queries.CountCallerEvent(ctx, sqlcgen.CountCallerEventParams{Event: event, Session: session})
 	if err != nil {
 		return false, fmt.Errorf("read event %s delivered to session %s: %w", event, session, err)
 	}
 	return count > 0, nil
+}
+
+// The epic event ids below are the ids that migration 00057_caller_events.sql seeds as marks, so the two must match:
+// change them together.
+
+// EpicQuestionEvent returns the id of the event of question seq of epic, which is a park or a question.
+func EpicQuestionEvent(epic string, seq int64) string {
+	return fmt.Sprintf("epic:%s:Q%d", epic, seq)
+}
+
+// EpicPhaseEvent returns the id of the event of epic's phase, which is its release or its end.
+func EpicPhaseEvent(epic, phase string) string {
+	return fmt.Sprintf("epic:%s:%s", epic, phase)
+}
+
+// EpicPhaseEventKind returns the kind of the event of an epic in phase: release for released and stopped, and end for
+// the phases that follow a release. It returns false for a phase that sends none, clean among them.
+func EpicPhaseEventKind(phase string) (string, bool) {
+	switch phase {
+	case "released", PhaseStopped:
+		return CallerKindRelease, true
+	case "met_at_base", "ended_with_gaps", "done":
+		return CallerKindEnd, true
+	default:
+		return "", false
+	}
+}
+
+// PendingEvent is a caller event still owed to a session, as PendingCallerEvents lists it. ID is the id the event is
+// marked under once it is delivered, and Kind is the kind its block names.
+//
+// A step_end carries the step: Step is its id, Agent its agent, End, Status and Reason how it ended, Summary the first
+// line of its result, and Epic the epic that holds it, empty when none does. An epic event carries Epic, the epic's id,
+// and Title, the epic's title.
+type PendingEvent struct {
+	ID      string
+	Kind    string
+	Step    string
+	Agent   string
+	End     string
+	Status  string
+	Reason  string
+	Summary string
+	Epic    string
+	Title   string
+}
+
+// PendingCallerEvents returns the caller events still owed to session, read in one read transaction. A step end is
+// owed when the step has ended, session called it, it is unread, and no mark holds its id under session. An epic event
+// is owed when session created the epic, as EpicCreator reads it, and no mark holds its id under session: each open
+// question of the epic in seq order, then the epic's phase event when its phase sends one.
+//
+// The step ends come first, oldest end first and then by id. The epic events follow in epic id order. An epic event has
+// no time of its own, so the epic events are not merged into the step ends by time.
+//
+// It returns an error matching ErrUnavailable when the store file is missing or the database is busy.
+func (r *Reader) PendingCallerEvents(ctx context.Context, session string) ([]PendingEvent, error) {
+	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	if err != nil {
+		return nil, fmt.Errorf("open store reader: %w", err)
+	}
+	r.reach(readOpened)
+	events, err := pendingInDB(ctx, db, session, r.reach)
+	if closeErr := db.Close(); closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
+	}
+	if err != nil {
+		if unavailable(err) {
+			return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
+		}
+		return nil, err
+	}
+	return events, nil
+}
+
+// pendingInDB runs pendingInTx in one read transaction on db.
+func pendingInDB(ctx context.Context, db *sql.DB, session string, reach func(readPoint)) ([]PendingEvent, error) {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("begin store read: %w", err)
+	}
+	reach(readBegun)
+	events, err := pendingInTx(ctx, tx, session)
+	if err != nil {
+		return nil, errors.Join(err, tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("end store read: %w", err)
+	}
+	return events, nil
+}
+
+// pendingInTx returns the caller events owed to session, as PendingCallerEvents orders them.
+func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEvent, error) {
+	queries := sqlcgen.New(tx)
+	rows, err := queries.ListPendingCallerSteps(ctx, session)
+	if err != nil {
+		return nil, fmt.Errorf("list pending caller steps: %w", err)
+	}
+	events := make([]PendingEvent, 0, len(rows))
+	for _, row := range rows {
+		step, stepErr := toStepRow(row)
+		if stepErr != nil {
+			return nil, stepErr
+		}
+		events = append(events, PendingEvent{
+			ID: stepEventPrefix + step.ID, Kind: CallerKindStepEnd, Step: step.ID, Agent: step.Agent,
+			End: step.End, Status: step.Status, Reason: step.Reason, Summary: firstLine(step.Result), Epic: step.Epic,
+		})
+	}
+
+	created, err := queries.ListCreatedEpics(ctx, session)
+	if err != nil {
+		return nil, fmt.Errorf("list epics created by session %s: %w", session, err)
+	}
+	var epicEvents []PendingEvent
+	for _, epic := range created {
+		owned, epicErr := epicEventsOf(ctx, queries, epic)
+		if epicErr != nil {
+			return nil, epicErr
+		}
+		epicEvents = append(epicEvents, owned...)
+	}
+	owed, err := unmarkedEvents(ctx, queries, session, epicEvents)
+	if err != nil {
+		return nil, err
+	}
+	return append(events, owed...), nil
+}
+
+// epicEventsOf returns the epic events of epic before the marks are read: its open questions in seq order, then its
+// phase event when its phase sends one.
+func epicEventsOf(ctx context.Context, queries *sqlcgen.Queries, epic sqlcgen.Epic) ([]PendingEvent, error) {
+	questions, err := queries.ListOpenEpicQuestions(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list open questions of epic %s: %w", epic.ID, err)
+	}
+	events := make([]PendingEvent, 0, len(questions)+1)
+	for _, question := range questions {
+		kind := CallerKindQuestion
+		if question.Label == ParkLabel {
+			kind = CallerKindPark
+		}
+		events = append(events, PendingEvent{
+			ID: EpicQuestionEvent(epic.ID, question.Seq), Kind: kind, Epic: epic.ID, Title: epic.Title,
+		})
+	}
+	if kind, sends := EpicPhaseEventKind(epic.Phase); sends {
+		events = append(events, PendingEvent{
+			ID: EpicPhaseEvent(epic.ID, epic.Phase), Kind: kind, Epic: epic.ID, Title: epic.Title,
+		})
+	}
+	return events, nil
+}
+
+// unmarkedEvents returns the events that no caller_events mark holds under session, in their order.
+func unmarkedEvents(
+	ctx context.Context, queries *sqlcgen.Queries, session string, events []PendingEvent,
+) ([]PendingEvent, error) {
+	var out []PendingEvent
+	for _, event := range events {
+		marked, err := callerEventMarkedIn(ctx, queries, event.ID, session)
+		if err != nil {
+			return nil, err
+		}
+		if !marked {
+			out = append(out, event)
+		}
+	}
+	return out, nil
+}
+
+// firstLine returns the text of s before its first line break.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

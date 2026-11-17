@@ -3448,6 +3448,79 @@ func (q *Queries) ListCallerSteps(ctx context.Context) ([]ListCallerStepsRow, er
 	return items, nil
 }
 
+const listCreatedEpics = `-- name: ListCreatedEpics :many
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256, pause_source, stored_base, candidate, summary, phase_at, report_phase, report_shipped, report_not_shipped, report_why, closed_by, superseded_by, park_class, synced, origin_read_base, origin_read_commit, origin_read_state, origin_read_at FROM epics
+WHERE (
+    SELECT epic_sessions.session FROM epic_sessions
+    JOIN sessions ON sessions.id = epic_sessions.session
+    WHERE epic_sessions.epic = epics.id AND epic_sessions.creator = 1
+    ORDER BY epic_sessions.at DESC, epic_sessions.session
+    LIMIT 1
+) = CAST(?1 AS TEXT)
+ORDER BY epics.id
+`
+
+func (q *Queries) ListCreatedEpics(ctx context.Context, session string) ([]Epic, error) {
+	rows, err := q.db.QueryContext(ctx, listCreatedEpics, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Epic
+	for rows.Next() {
+		var i Epic
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Approved,
+			&i.Intent,
+			&i.Care,
+			&i.Approach,
+			&i.ReleaseThen,
+			&i.Checks,
+			&i.Phase,
+			&i.Created,
+			&i.Changed,
+			&i.Paused,
+			&i.Parked,
+			&i.Retried,
+			&i.Base,
+			&i.Branch,
+			&i.Workflow,
+			&i.WorkflowText,
+			&i.WorkflowSha256,
+			&i.PauseSource,
+			&i.StoredBase,
+			&i.Candidate,
+			&i.Summary,
+			&i.PhaseAt,
+			&i.ReportPhase,
+			&i.ReportShipped,
+			&i.ReportNotShipped,
+			&i.ReportWhy,
+			&i.ClosedBy,
+			&i.SupersededBy,
+			&i.ParkClass,
+			&i.Synced,
+			&i.OriginReadBase,
+			&i.OriginReadCommit,
+			&i.OriginReadState,
+			&i.OriginReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDueResumes = `-- name: ListDueResumes :many
 SELECT id, kind, target, resets, state FROM due_resumes WHERE state = 'due' ORDER BY resets, id
 `
@@ -6167,6 +6240,90 @@ SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_val
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 	rows, err := q.db.QueryContext(ctx, listOpenSteps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Step
+	for rows.Next() {
+		var i Step
+		if err := rows.Scan(
+			&i.ID,
+			&i.Agent,
+			&i.Prompt,
+			&i.OutputSchema,
+			&i.Workspace,
+			&i.Revision,
+			&i.Worktree,
+			&i.DoneValue,
+			&i.ReadOnly,
+			&i.Owned,
+			&i.Gate,
+			&i.GateLimit,
+			&i.Started,
+			&i.Checks,
+			&i.Result,
+			&i.Status,
+			&i.EndValue,
+			&i.Reason,
+			&i.Ended,
+			&i.ModelLimit,
+			&i.Doing,
+			&i.Verdicts,
+			&i.Epic,
+			&i.Task,
+			&i.GateName,
+			&i.GateSource,
+			&i.GateNeeds,
+			&i.LoopRound,
+			&i.LoopContinues,
+			&i.LoopNudge,
+			&i.LoopOwnerNudge,
+			&i.LoopNudged,
+			&i.LoopHeld,
+			&i.LoopJudgeSent,
+			&i.LoopSeq,
+			&i.GateGrant,
+			&i.GateHolder,
+			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
+			&i.LoopGateFrom,
+			&i.CheckoutHead,
+			&i.CheckoutHash,
+			&i.LoopStage,
+			&i.LoopStageFrom,
+			&i.Agents,
+			&i.Unowned,
+			&i.Caller,
+			&i.CallerRead,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingCallerSteps = `-- name: ListPendingCallerSteps :many
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets, loop_gate_from, checkout_head, checkout_hash, loop_stage, loop_stage_from, agents, unowned, caller, caller_read FROM steps
+WHERE steps.end_value <> '' AND steps.caller = ? AND steps.caller_read = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM caller_events
+      WHERE caller_events.event = 'step:' || steps.id AND caller_events.session = steps.caller
+  )
+ORDER BY steps.ended, steps.id
+`
+
+func (q *Queries) ListPendingCallerSteps(ctx context.Context, caller string) ([]Step, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingCallerSteps, caller)
 	if err != nil {
 		return nil, err
 	}

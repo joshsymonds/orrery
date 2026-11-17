@@ -303,6 +303,15 @@ WHERE steps.end_value <> '' AND steps.caller <> '' AND steps.caller_read = 0
   )
 ORDER BY steps.ended, steps.id;
 
+-- name: ListPendingCallerSteps :many
+SELECT * FROM steps
+WHERE steps.end_value <> '' AND steps.caller = ? AND steps.caller_read = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM caller_events
+      WHERE caller_events.event = 'step:' || steps.id AND caller_events.session = steps.caller
+  )
+ORDER BY steps.ended, steps.id;
+
 -- name: MarkStepRead :execrows
 UPDATE steps SET caller_read = 1 WHERE id = ? AND end_value <> '' AND caller = ?;
 
@@ -1146,6 +1155,17 @@ JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ? AND epic_sessions.creator = 1
 ORDER BY epic_sessions.at DESC, epic_sessions.session
 LIMIT 1;
+
+-- name: ListCreatedEpics :many
+SELECT * FROM epics
+WHERE (
+    SELECT epic_sessions.session FROM epic_sessions
+    JOIN sessions ON sessions.id = epic_sessions.session
+    WHERE epic_sessions.epic = epics.id AND epic_sessions.creator = 1
+    ORDER BY epic_sessions.at DESC, epic_sessions.session
+    LIMIT 1
+) = CAST(sqlc.arg(session) AS TEXT)
+ORDER BY epics.id;
 
 -- name: ListEpicSessions :many
 SELECT sessions.id AS session, sessions.kind, sessions.server, sessions.pane, sessions.label, sessions.dir,
