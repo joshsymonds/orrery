@@ -2244,6 +2244,24 @@ test("TranscriptSearch: a match that Markdown splits across elements is marked o
   );
 });
 
+test("TranscriptSearch: an EVENT line draws no mark under a find query its text contains, while a reply in the same transcript is marked", () => {
+  const items = [
+    item({ kind: "prompt", time: 100n, sender: "event", text: "**orrery** build passed" }),
+    item({ kind: "reply", time: 200n, text: "the build is green" }),
+  ];
+  return withReader(
+    { conversation: conversation({ items }), seenAt: 1000, open: false, find: findProps(items, "build", 0) },
+    (container) => {
+      const event = container.querySelector<HTMLElement>(".event");
+      assert.ok(event !== null, "the event is an EVENT line");
+      assert.equal(event.textContent?.includes("build passed"), true, "the line draws its text");
+      assert.equal(event.querySelector("mark"), null, "the EVENT line holds no mark");
+      assert.equal(container.querySelectorAll("mark").length, 1, "only the reply's occurrence is marked");
+      assert.equal(container.querySelector("mark.current")?.textContent, "build", "the reply's match is current");
+    },
+  );
+});
+
 test("TranscriptSearch: a reader drawn without a find, or with an empty query, has no mark", async () => {
   const items = [item({ kind: "reply", time: 100n, text: "build it" }), callItem("c1", "make build")];
   await withReader({ conversation: conversation({ items }), seenAt: 1000, open: false }, (container) => {

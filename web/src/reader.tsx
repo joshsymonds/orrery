@@ -49,10 +49,11 @@ export interface ReaderHandle {
 // conversation has older items, it calls onOlder, which loads the page before its oldest item. The page pages it a
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
-// call's input and result, and a notice. Compaction, check cards, live text, thinking, the question card and sending
-// rows are not searched. The current match, find.current's index in find.matches, is the mark with class current: it is
-// scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current match
-// moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
+// call's input and result, and a notice. Compaction, check cards, live text, thinking, the question card, sending rows
+// and event lines are not searched. The current match, find.current's index in find.matches, is the mark with class
+// current: it is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the
+// current match moves into it, and the owner can close it; it opens again only when the current match moves into it
+// once more.
 // The sending entries draw after the items and live text, each as a dimmed prompt row marked sending. They are not items:
 // they keep no key and no place in the scroll place, and a reader at its bottom keeps it as a new row arrives.
 export function Reader({
@@ -431,7 +432,7 @@ function ItemBody({
         return (
           <div class="event">
             <small>EVENT</small>
-            <ReplyMarkdown text={item.text} query={query} current={current} />
+            <ReplyMarkdown text={item.text} />
           </div>
         );
       }

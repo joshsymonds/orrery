@@ -64,6 +64,14 @@ test("TranscriptSearch: compaction and check-card items are not searched", () =>
   assert.deepEqual(itemsOf(items, "lint"), [2]);
 });
 
+test("TranscriptSearch: a prompt an event sent draws as an EVENT line and is not searched, while an owner's prompt with the same text matches", () => {
+  const items = [
+    item({ kind: "prompt", sender: "event", text: "build finished" }),
+    item({ kind: "prompt", sender: "owner", text: "build finished" }),
+  ];
+  assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
+});
+
 test("TranscriptSearch: an empty query matches nothing", () => {
   assert.deepEqual(findMatches([item({ kind: "reply", text: "anything" })], ""), []);
 });
