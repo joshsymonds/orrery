@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { createClients, createTransport } from "./client";
 import { start as startPage } from "./main";
-import { until } from "./testwait";
+import { turn, until } from "./testwait";
 import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 const panesPath = "/orrery.v1.Panes/List";
@@ -144,6 +144,8 @@ interface FakeServer {
   // While set, Epics.List waits for it before answering.
   epicsGate: Promise<void> | null;
   epicsListCalls: number;
+  // The Epics.Get calls the page has made, counted as each arrives.
+  epicsGetCalls: number;
   epicsInFlight: number;
   maxEpicsInFlight: number;
   // While set, Host.Status answers with a server error.
@@ -217,6 +219,7 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         }
       }
       if (path === epicsGetPath) {
+        server.epicsGetCalls++;
         const body = (await request.json()) as { id?: string };
         const epic = server.epics.find((candidate) => candidate.id === body.id);
         if (epic === undefined) {
@@ -268,6 +271,7 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     epics: [],
     epicsGate: null,
     epicsListCalls: 0,
+    epicsGetCalls: 0,
     epicsInFlight: 0,
     maxEpicsInFlight: 0,
     hostFails: false,
@@ -857,6 +861,139 @@ test("a second tick during a slow epics load starts no second load", (t) =>
       assert.equal(server.maxEpicsInFlight, 1);
       release();
       await until(t.signal, () => labels(root).includes("alpha"), "the epic after release");
+    } finally {
+      release();
+      stop();
+    }
+  }));
+
+// The ChangedEpicsOnly tests mock the page's timers, so each fires only when its test advances the clock. Advancing
+// pollMs fires the poll once. Advancing eventWaitMs runs the page's event reload wait, which is shorter, and stays short
+// of the poll's next firing. mockedRetryMs is out of reach of every advance these tests make.
+const pollMs = 60_000;
+const eventWaitMs = 1_000;
+const mockedRetryMs = 600_000;
+
+// endedBeta is a folded epic that ended before its last seen, so the page lists it as just ended. No load asks for it.
+const endedBeta = {
+  id: "repo-a/beta",
+  repository: "repo-a",
+  slug: "beta",
+  outcome: "released",
+  changed: "50",
+  live: false,
+  runningSteps: [],
+  endedSteps: 0,
+  phaseAt: "5",
+  seen: "0",
+};
+
+// fireEvent sends an event on the watch, lets the page read it, which starts its event reload wait, and fires that wait.
+async function fireEvent(t: TestContext, watch: Watch, seq: number): Promise<void> {
+  sendEvent(watch, seq);
+  await turn();
+  t.mock.timers.tick(eventWaitMs);
+}
+
+test("ChangedEpicsOnly: with the event stream open, an event reload over an unchanged Epics.List makes no Epics.Get call", (t) =>
+  withPage(t.signal, async (root, start) => {
+    t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+    const server = fakeServer("api", true);
+    server.gate = Promise.resolve();
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
+    try {
+      await until(
+        t.signal,
+        () => server.watches.length === 1 && labels(root).includes("draft"),
+        "the first load and stream",
+        { step: turn },
+      );
+      const gets = server.epicsGetCalls;
+      // The event's list also holds a folded epic, which no load asks for. Its label draws only once the event's epics
+      // load has drawn, and a load draws only after its Gets have answered, so the count below is final by then.
+      server.epics = [liveEpic("draft"), endedBeta];
+      await fireEvent(t, server.watches[0], 8);
+      await until(t.signal, () => labels(root).includes("beta"), "the event's epics load", { step: turn });
+      assert.equal(server.epicsGetCalls, gets, "an event reload over an unchanged list asked for an epic");
+    } finally {
+      stop();
+    }
+  }));
+
+// tickFetchesEveryLiveEpic fires one poll tick on a page with two live epics, and checks that the tick lists the epics
+// once and asks for each live epic once.
+async function tickFetchesEveryLiveEpic(t: TestContext, streaming: boolean): Promise<void> {
+  await withPage(t.signal, async (root, start) => {
+    t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+    const server = fakeServer("api", streaming);
+    server.gate = Promise.resolve();
+    server.epics = [liveEpic("draft"), { ...liveEpic("draft"), id: "repo-a/beta", slug: "beta" }];
+    const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
+    try {
+      await until(
+        t.signal,
+        () => labels(root).includes("alpha") && labels(root).includes("beta"),
+        "both epics",
+        { step: turn },
+      );
+      const lists = server.epicsListCalls;
+      const gets = server.epicsGetCalls;
+      t.mock.timers.tick(pollMs);
+      await until(t.signal, () => server.epicsGetCalls >= gets + 2, "the tick's Epics.Get calls", { step: turn });
+      assert.equal(server.epicsListCalls, lists + 1, "the tick listed the epics more than once");
+      assert.equal(server.epicsGetCalls, gets + 2, "the tick did not ask for each live epic once");
+    } finally {
+      stop();
+    }
+  });
+}
+
+test("ChangedEpicsOnly: a poll tick with the event stream open makes one Epics.Get per live epic", (t) =>
+  tickFetchesEveryLiveEpic(t, true));
+
+test("ChangedEpicsOnly: a poll tick with the event stream down makes one Epics.Get per live epic", (t) =>
+  tickFetchesEveryLiveEpic(t, false));
+
+test("ChangedEpicsOnly: a tick that lands while an epics load is in flight makes the next load fetch every live epic", (t) =>
+  withPage(t.signal, async (root, start) => {
+    t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+    const server = fakeServer("api", true);
+    server.gate = Promise.resolve();
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), pollMs, mockedRetryMs);
+    let release: () => void = () => {};
+    try {
+      await until(
+        t.signal,
+        () => server.watches.length === 1 && labels(root).includes("draft"),
+        "the first load and stream",
+        { step: turn },
+      );
+      // The event's epics load is held in flight, and the list it answers with has a changed step, so it will fetch.
+      server.epicsGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      server.epics = [liveEpic("review")];
+      await fireEvent(t, server.watches[0], 8);
+      await until(
+        t.signal,
+        () => server.epicsListCalls === 2 && server.epicsInFlight === 1,
+        "the held epics load",
+        { step: turn },
+      );
+      // A tick lands while that load is in flight, and starts no load of its own.
+      t.mock.timers.tick(pollMs);
+      await turn();
+      assert.equal(server.epicsListCalls, 2, "a tick started a second epics load while one was in flight");
+      release();
+      await until(t.signal, () => labels(root).includes("review"), "the held load's changed step", { step: turn });
+
+      // The next event lists the same epics. Only the tick that landed mid-load makes it fetch the epic again.
+      const gets = server.epicsGetCalls;
+      await fireEvent(t, server.watches[0], 9);
+      await until(t.signal, () => server.epicsGetCalls >= gets + 1, "the next load's Epics.Get", { step: turn });
+      assert.equal(server.epicsGetCalls, gets + 1, "the next load did not fetch every live epic");
     } finally {
       release();
       stop();

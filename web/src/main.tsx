@@ -6,7 +6,7 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
-import { loadEpics } from "./loadepics";
+import { type HeldEpic, loadEpics } from "./loadepics";
 import { loadRows } from "./load";
 import { watchNotices } from "./notices";
 import { type Viewing, watchPresence } from "./presence";
@@ -59,8 +59,10 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 // unavailable reopens from the last seq it delivered after retryMs. Once the stream ends or fails any other way, the
 // poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while a reload is
 // in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
-// its own guard: a tick or event that lands while it is in flight is left to the next tick. The host's status is read
-// at start and on each tick, under its own guard, and a refused read hands App null. The page also reports its input:
+// its own guard: an event that lands while it is in flight is left to the next tick, and a tick that lands while it is
+// in flight is remembered, so the next epics load fetches every live epic. An epics load keeps the held detail of each
+// live epic whose listed message is unchanged, so an event reload fetches only the rest. The host's status is read at
+// start and on each tick, under its own guard, and a refused read hands App null. The page also reports its input:
 // watchPresence sends each Presence.Report request, its input age and the view App shows, and a failed report is
 // dropped. The returned function stops reloading, aborts the stream, stops the presence watch, aborts the notices watch
 // and unmounts App. The page also watches the in-app notices its banner shows until each ends; a notices stream that
@@ -78,6 +80,11 @@ export function start(
   let stopped = false;
   let loading = false;
   let epicsLoading = false;
+  // The held epic details, each with the Epics.List message it was fetched against, kept across epics loads.
+  let held: ReadonlyMap<string, HeldEpic> = new Map();
+  // Whether a poll tick has landed since the last epics load started. A tick that lands while an epics load is in
+  // flight stays set for the next one.
+  let tickPending = false;
   let hostLoading = false;
   let rerun = false;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
@@ -124,11 +131,14 @@ export function start(
       return;
     }
     epicsLoading = true;
+    const tick = tickPending;
+    tickPending = false;
     try {
-      const next = await loadEpics(clients);
+      const next = await loadEpics(clients, held, tick);
       if (stopped) {
         return;
       }
+      held = next.held;
       loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
       now = Math.floor(Date.now() / 1000);
       draw();
@@ -235,6 +245,9 @@ export function start(
   void reload();
   void loadHostStatus();
   const timer = setInterval(() => {
+    // The tick is marked before any load starts, so the epics load it reaches, or the next one if it is in flight,
+    // refetches every live epic whether the stream is open or down.
+    tickPending = true;
     void loadHostStatus();
     if (stream === null) {
       void reload();
