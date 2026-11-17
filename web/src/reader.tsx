@@ -597,6 +597,8 @@ function ItemBody({
       );
     case "compaction":
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
+    case "interrupted":
+      return <div class="rule interrupted">Interrupted by you</div>;
     default:
       return <ReplyMarkdown text={item.text} query={query} current={current} />;
   }

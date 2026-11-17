@@ -94,6 +94,20 @@ test("a session's working state has no tool and no clock", () => {
   assert.equal(model.since === undefined, true);
 });
 
+test("a working row with its interrupt mark reads interrupting, with no tool and no clock", () => {
+  const model = rowPill("working", undefined, true);
+  assert.equal(model.tone, "interrupting");
+  assert.equal(model.word, "interrupting");
+  assert.equal(model.tool, "");
+  assert.equal(model.since === undefined, true);
+});
+
+test("an interrupt mark on a row that is not working reads the row's state", () => {
+  const model = rowPill("done", undefined, true);
+  assert.equal(model.tone, "done");
+  assert.equal(model.word, "done");
+});
+
 test("a pane given takes its own state over the state argument", () => {
   const model = rowPill("working", pane({ state: "done", changed: BigInt(now) }));
   assert.equal(model.tone, "done");

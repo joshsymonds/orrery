@@ -36,8 +36,9 @@ function currentTool(pane: Pane): PaneTool | null {
   };
 }
 
-// Tone is a pill's colour: the state it shows, with ended for a run that failed or was stopped.
-type Tone = "working" | "waiting" | "held" | "done" | "interrupted" | "ended" | "idle";
+// Tone is a pill's colour: the state it shows, with ended for a run that failed or was stopped, and interrupting for a
+// working row the owner has interrupted.
+type Tone = "working" | "waiting" | "held" | "done" | "interrupted" | "interrupting" | "ended" | "idle";
 
 // PillModel is what a pill shows: its tone, its word, its tool's short name when it has one, and the unix seconds its
 // clock runs from when it has a clock.
@@ -48,9 +49,13 @@ export interface PillModel {
   since?: number;
 }
 
-// rowPill is the pill a row shows. A pane given speaks for the row: a working pane reads its tool and the unix seconds
-// the tool started, or else its last change. Any other pane, and no pane, reads its state.
-export function rowPill(state: string, pane?: Pane): PillModel {
+// rowPill is the pill a row shows. A row the owner has interrupted reads interrupting while it is working, with no tool
+// and no clock. A pane given speaks for the row: a working pane reads its tool and the unix seconds the tool started, or
+// else its last change. Any other pane, and no pane, reads its state.
+export function rowPill(state: string, pane?: Pane, interrupting = false): PillModel {
+  if (interrupting && (pane?.state ?? state) === "working") {
+    return { tone: "interrupting", word: "interrupting", tool: "" };
+  }
   if (pane !== undefined && pane.state === "working") {
     const tool = currentTool(pane);
     return {

@@ -279,6 +279,9 @@ export function App({
   const [answerError, setAnswerError] = useState("");
   // The fixed line an Escape leaves when taking queued messages back or interrupting a row fails.
   const [escapeError, setEscapeError] = useState("");
+  // The headless session rows the owner has interrupted, by row key. A marked row reads interrupting in its head's pill
+  // while the list still says it is working, and the mark clears once that state leaves working.
+  const [interrupts, setInterrupts] = useState<Set<string>>(() => new Set());
   const [archiveError, setArchiveError] = useState("");
   // The key of the entry whose ⋯ menu is open, if any: one menu is open at a time. It counts as open only while the entry
   // is drawn.
@@ -484,6 +487,18 @@ export function App({
   // A pinned row keeps its last shape while it is missing from the list, as a visited row does.
   useEffect(() => {
     setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
+  }, [rows]);
+
+  // An interrupt mark clears once its row is in the list and no longer working. A row missing from the list keeps its
+  // mark, as a pinned row keeps its last shape.
+  useEffect(() => {
+    setInterrupts((previous) => {
+      const kept = [...previous].filter((key) => {
+        const row = rows.find((item) => item.key === key);
+        return row === undefined || row.state === stateWorking;
+      });
+      return kept.length === previous.size ? previous : new Set(kept);
+    });
   }, [rows]);
 
   // A find bar closes when its column's row changes: the cursor moves to another entry, or the pin closes or moves.
@@ -768,12 +783,17 @@ export function App({
   };
   // escapeRow takes back a row's queued messages: their texts go to the column's composer after the text it holds, and
   // the row's sending and held entries for them are dropped. The row is then interrupted when it was working at the
-  // press. A failed take back shows its line, and the interrupt still goes out. The composer keeps focus when it
-  // interrupted or took messages back, and otherwise leaves it, as Escape does.
+  // press. A headless session's interrupt is marked on the page at once, before the calls below are made. A failed take
+  // back shows its line, and the interrupt still goes out. A failed interrupt shows its line and clears the mark. The
+  // composer keeps focus when it interrupted or took messages back, and otherwise leaves it, as Escape does.
   const escapeRow = async (target: EscapeTarget, box: HTMLElement | null): Promise<void> => {
     const { row, column, state } = target;
     const interrupting = state === stateWorking;
+    const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
+    if (marked) {
+      setInterrupts((previous) => new Set(previous).add(row.key));
+    }
     let texts: string[] = [];
     try {
       texts = await actions.withdraw(clients, row);
@@ -789,6 +809,9 @@ export function App({
         await actions.interrupt(clients, row);
       } catch {
         failures.push(interruptFailedText);
+        if (marked) {
+          setInterrupts((previous) => withoutKey(previous, row.key));
+        }
       }
     }
     setEscapeError(failures.join(" "));
@@ -1460,7 +1483,10 @@ export function App({
               onBack={focusCursorRow}
               onGoList={focusCursorRow}
             >
-              <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
+              <Pill
+                model={rowPill(cursorRow.state, cursorConversation?.state?.pane, interrupts.has(cursorRow.key))}
+                now={now}
+              />
             </ConversationHead>
           )}
           {cursorFinding !== null && (
@@ -1585,7 +1611,10 @@ export function App({
               onBack={closePin}
               onGoList={focusCursorRow}
             >
-              <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
+              <Pill
+                model={rowPill(pinned.state, pinnedConversation?.state?.pane, interrupts.has(pinned.key))}
+                now={now}
+              />
             </ConversationHead>
           )}
           {pinnedFinding !== null && (
@@ -1912,6 +1941,13 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
 // own state.
 function headState(row: Row, pane: Pane | undefined): string {
   return pane?.state ?? row.state;
+}
+
+// withoutKey is a copy of keys without key.
+function withoutKey(keys: Set<string>, key: string): Set<string> {
+  const next = new Set(keys);
+  next.delete(key);
+  return next;
 }
 
 // replyText is a row's second line: the sentence of a waiting row, else a session's summary. A pane's summary is its
