@@ -101,32 +101,31 @@ func TestRecordEvidenceCaptureStoresStderrBesideLog(t *testing.T) {
 	}
 }
 
-// TestCheckoutTailsMigrationDownAndUp removes the checkout columns of steps and the stderr columns of evidence_runs
-// with the Down of 00023_checkout_tails.sql, and Up restores them.
-func TestCheckoutTailsMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 23)
+// checkoutTailsDownAndUp is the walk's check of 00023_checkout_tails.sql: its Down removes the checkout columns of steps
+// and the stderr columns of evidence_runs, and its Up restores them.
+func checkoutTailsDownAndUp() migrationCheck {
 	stepColumns := []string{"checkout_head", "checkout_hash"}
 	runColumns := []string{"stderr_hash", "stderr_bytes"}
-
-	if _, err := provider.DownTo(ctx, 22); err != nil {
-		t.Fatalf("DownTo 22: %v", err)
-	}
-	if hasAny(tableColumns(t, s, "steps"), stepColumns...) {
-		t.Fatalf("steps columns after Down = %v, want no checkout columns", tableColumns(t, s, "steps"))
-	}
-	if hasAny(tableColumns(t, s, "evidence_runs"), runColumns...) {
-		t.Fatalf("evidence_runs columns after Down = %v, want no stderr columns", tableColumns(t, s, "evidence_runs"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(tableColumns(t, s, "steps"), stepColumns...) {
-		t.Fatalf("steps columns after Up = %v, want the checkout columns", tableColumns(t, s, "steps"))
-	}
-	if !hasAll(tableColumns(t, s, "evidence_runs"), runColumns...) {
-		t.Fatalf("evidence_runs columns after Up = %v, want the stderr columns", tableColumns(t, s, "evidence_runs"))
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if hasAny(tableColumns(t, s, "steps"), stepColumns...) {
+				t.Errorf("steps columns after Down = %v, want no checkout columns", tableColumns(t, s, "steps"))
+			}
+			if hasAny(tableColumns(t, s, "evidence_runs"), runColumns...) {
+				t.Errorf("evidence_runs columns after Down = %v, want no stderr columns",
+					tableColumns(t, s, "evidence_runs"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !hasAll(tableColumns(t, s, "steps"), stepColumns...) {
+				t.Errorf("steps columns after Up = %v, want the checkout columns", tableColumns(t, s, "steps"))
+			}
+			if !hasAll(tableColumns(t, s, "evidence_runs"), runColumns...) {
+				t.Errorf("evidence_runs columns after Up = %v, want the stderr columns",
+					tableColumns(t, s, "evidence_runs"))
+			}
+		},
 	}
 }

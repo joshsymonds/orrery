@@ -150,99 +150,104 @@ func TestSyncReadsOriginAtMostOncePerIntervalForAStoredBase(t *testing.T) {
 	w.requireRead(candidate, originHead, originTaken)
 }
 
-// TestSyncReadThatStallsIsStoppedAtTheReadLimitAndBacksOff: an origin that never answers holds the read of origin's
+// syncReadThatStallsIsStoppedAtTheReadLimitAndBacksOff: an origin that never answers holds the read of origin's
 // main only for the runner's read limit. git is stopped then, with the upload-pack it started, the read is recorded
 // failed and logged with the limit named, and no sync starts, so the planner gets its turn. Within the sync interval
 // the failed read stands: no pass reads origin again or logs. Once it has passed, the next pass reads origin again.
-func TestSyncReadThatStallsIsStoppedAtTheReadLimitAndBacksOff(t *testing.T) {
-	t.Parallel()
-	w := newSyncWorld(t)
-	candidate := w.toCaptured()
-	w.originCommit("origin.txt")
-	reads := w.countedUploadPack(1, 2)
-	w.runner.readLimit = time.Second
-	logs := &bytes.Buffer{}
-	w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
-	started := time.Now()
-	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
-		t.Error("the planner got no turn after the read was stopped")
-	}
-	if took := time.Since(started); took > 30*time.Second {
-		t.Errorf("the pass took %s, want it cut at the limit, well before the stalled origin's 60s", took)
-	}
-	if w.hasRunAt(syncFirst) {
-		t.Errorf("sync %s stored after the read was stopped", syncFirst)
-	}
-	w.requireRead(candidate, "", originFailed)
-	if !strings.Contains(logs.String(), "origin's main was not read") ||
-		!strings.Contains(logs.String(), "git did not finish within 1s: git ls-remote") {
-		t.Errorf("logs = %q, want the stopped read logged with the limit", logs.String())
-	}
+func syncReadThatStallsIsStoppedAtTheReadLimitAndBacksOff(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		w, candidate := images.syncWorld(t, atCaptured)
+		w.originCommit("origin.txt")
+		reads := w.countedUploadPack(1, 2)
+		w.runner.readLimit = time.Second
+		logs := &bytes.Buffer{}
+		w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
+		started := time.Now()
+		if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
+			t.Error("the planner got no turn after the read was stopped")
+		}
+		if took := time.Since(started); took > 30*time.Second {
+			t.Errorf("the pass took %s, want it cut at the limit, well before the stalled origin's 60s", took)
+		}
+		if w.hasRunAt(syncFirst) {
+			t.Errorf("sync %s stored after the read was stopped", syncFirst)
+		}
+		w.requireRead(candidate, "", originFailed)
+		if !strings.Contains(logs.String(), "origin's main was not read") ||
+			!strings.Contains(logs.String(), "git did not finish within 1s: git ls-remote") {
+			t.Errorf("logs = %q, want the stopped read logged with the limit", logs.String())
+		}
 
-	logs.Reset()
-	w.laterBy(syncInterval - time.Second)
-	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
-		t.Error("the planner got no turn while the failed read stands")
-	}
-	if logs.Len() > 0 || reads() != 1 {
-		t.Errorf("origin read %d times, logs %q, within the interval, want 1 and nothing", reads(), logs.String())
-	}
-	w.laterBy(syncInterval)
-	w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow())
-	if got := reads(); got != 2 || !strings.Contains(logs.String(), "origin's main was not read") {
-		t.Errorf("origin read %d times, logs %q, once the interval passed, want 2 and the read logged", got,
-			logs.String())
+		logs.Reset()
+		w.laterBy(syncInterval - time.Second)
+		if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
+			t.Error("the planner got no turn while the failed read stands")
+		}
+		if logs.Len() > 0 || reads() != 1 {
+			t.Errorf("origin read %d times, logs %q, within the interval, want 1 and nothing", reads(), logs.String())
+		}
+		w.laterBy(syncInterval)
+		w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow())
+		if got := reads(); got != 2 || !strings.Contains(logs.String(), "origin's main was not read") {
+			t.Errorf("origin read %d times, logs %q, once the interval passed, want 2 and the read logged", got,
+				logs.String())
+		}
 	}
 }
 
-// TestSyncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff: origin answers the read and the prepare's ls-remote and
+// syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff: origin answers the read and the prepare's ls-remote and
 // then stalls in the fetch, which is stopped at the runner's fetch limit. The sync ends skipped with the limit named,
 // logged and untold, and the planner gets its turn. Its failed read stands for the sync interval, so the quiet point of
 // the planner's next turn, at the same stored base, reads nothing and starts no sync. Once the interval has passed, the
 // quiet point reads origin again and the sync of the same origin commit merges it, since a skipped sync tried nothing.
-func TestSyncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(t *testing.T) {
-	t.Parallel()
-	w := newSyncWorld(t)
-	candidate := w.toCaptured()
-	originHead := w.originCommit("origin.txt")
-	reads := w.countedUploadPack(3)
-	w.runner.fetchLimit = time.Second
-	logs := &bytes.Buffer{}
-	w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
-	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
-		t.Error("the planner got no turn after the fetch was stopped")
-	}
-	run := runAt(t, w.s, syncFirst)
-	if run.State != store.NodeEnded || run.Outcome != "skipped" ||
-		!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1s: git fetch ") {
-		t.Errorf("sync = %+v, want ended skipped on the fetch stopped at the limit", run)
-	}
-	if !strings.Contains(logs.String(), "sync of origin's main did not run") {
-		t.Errorf("logs = %q, want the stopped fetch logged", logs.String())
-	}
-	w.requireRead(candidate, "", originFailed)
-	w.requireUnmoved(candidate)
-	if tells := w.syncTells(); len(tells) != 0 {
-		t.Errorf("tells = %q, want none", tells)
-	}
+func syncFetchThatStallsIsStoppedAtTheFetchLimitAndBacksOff(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		w, candidate := images.syncWorld(t, atCaptured)
+		originHead := w.originCommit("origin.txt")
+		reads := w.countedUploadPack(3)
+		w.runner.fetchLimit = time.Second
+		logs := &bytes.Buffer{}
+		w.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
+		if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
+			t.Error("the planner got no turn after the fetch was stopped")
+		}
+		run := runAt(t, w.s, syncFirst)
+		if run.State != store.NodeEnded || run.Outcome != "skipped" ||
+			!strings.HasPrefix(run.Output, "the sync did not run: git did not finish within 1s: git fetch ") {
+			t.Errorf("sync = %+v, want ended skipped on the fetch stopped at the limit", run)
+		}
+		if !strings.Contains(logs.String(), "sync of origin's main did not run") {
+			t.Errorf("logs = %q, want the stopped fetch logged", logs.String())
+		}
+		w.requireRead(candidate, "", originFailed)
+		w.requireUnmoved(candidate)
+		if tells := w.syncTells(); len(tells) != 0 {
+			t.Errorf("tells = %q, want none", tells)
+		}
 
-	logs.Reset()
-	w.quietTurn()
-	if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) || w.hasRunAt(syncSecond) {
-		t.Errorf("sync stored %v at the next quiet point within the interval, want none and the planner's turn",
-			w.hasRunAt(syncSecond))
-	}
-	if got := reads(); got != 3 || logs.Len() > 0 {
-		t.Errorf("origin read %d times, logs %q, within the interval, want the first 3 only and nothing logged", got,
-			logs.String())
-	}
-	w.laterBy(syncInterval)
-	if w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
-		t.Error("the planner got a turn while the sync after the interval runs")
-	}
-	sync := runAt(t, w.s, syncSecond)
-	if parents := w.git("rev-parse", sync.Revision+"^1", sync.Revision+"^2"); parents != candidate+"\n"+originHead {
-		t.Errorf("merge parents = %q, want %s and the skipped sync's origin commit %s", parents, candidate,
-			originHead)
+		logs.Reset()
+		w.quietTurn()
+		if !w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) || w.hasRunAt(syncSecond) {
+			t.Errorf("sync stored %v at the next quiet point within the interval, want none and the planner's turn",
+				w.hasRunAt(syncSecond))
+		}
+		if got := reads(); got != 3 || logs.Len() > 0 {
+			t.Errorf(
+				"origin read %d times, logs %q, within the interval, want the first 3 only and nothing logged",
+				got,
+				logs.String(),
+			)
+		}
+		w.laterBy(syncInterval)
+		if w.runner.passFlow(context.Background(), epicOf(t, w.s), integrateFlow()) {
+			t.Error("the planner got a turn while the sync after the interval runs")
+		}
+		sync := runAt(t, w.s, syncSecond)
+		if parents := w.git("rev-parse", sync.Revision+"^1", sync.Revision+"^2"); parents != candidate+"\n"+originHead {
+			t.Errorf("merge parents = %q, want %s and the skipped sync's origin commit %s", parents, candidate,
+				originHead)
+		}
 	}
 }

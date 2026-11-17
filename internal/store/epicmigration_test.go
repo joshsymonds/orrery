@@ -4,15 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pressly/goose/v3"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
@@ -227,39 +224,36 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 	}
 }
 
-// TestReviewersMigrationDownAndUp removes the agents column of steps, the unverified column of epic_task_findings and
-// the epic_reviewers table with the Down of 00035_reviewers.sql, and Up restores them.
-func TestReviewersMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 35)
-
-	if _, err := provider.DownTo(ctx, 34); err != nil {
-		t.Fatalf("DownTo 34: %v", err)
-	}
-	if hasAny(tableColumns(t, s, "steps"), "agents") {
-		t.Fatalf("steps columns after Down = %v, want no agents column", tableColumns(t, s, "steps"))
-	}
-	if hasAny(tableColumns(t, s, "epic_task_findings"), "unverified") {
-		t.Fatalf("epic_task_findings columns after Down = %v, want no unverified column",
-			tableColumns(t, s, "epic_task_findings"))
-	}
-	if tableNames(t, s)["epic_reviewers"] {
-		t.Fatalf("epic_reviewers after Down: present, want absent")
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(tableColumns(t, s, "steps"), "agents") {
-		t.Fatalf("steps columns after Up = %v, want the agents column", tableColumns(t, s, "steps"))
-	}
-	if !hasAll(tableColumns(t, s, "epic_task_findings"), "unverified") {
-		t.Fatalf("epic_task_findings columns after Up = %v, want the unverified column",
-			tableColumns(t, s, "epic_task_findings"))
-	}
-	if !tableNames(t, s)["epic_reviewers"] {
-		t.Fatalf("epic_reviewers after Up: absent, want present")
+// reviewersDownAndUp is the walk's check of 00035_reviewers.sql: its Down removes the agents column of steps, the
+// unverified column of epic_task_findings and the epic_reviewers table, and its Up restores them.
+func reviewersDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if hasAny(tableColumns(t, s, "steps"), "agents") {
+				t.Errorf("steps columns after Down = %v, want no agents column", tableColumns(t, s, "steps"))
+			}
+			if hasAny(tableColumns(t, s, "epic_task_findings"), "unverified") {
+				t.Errorf("epic_task_findings columns after Down = %v, want no unverified column",
+					tableColumns(t, s, "epic_task_findings"))
+			}
+			if tableNames(t, s)["epic_reviewers"] {
+				t.Errorf("epic_reviewers after Down: present, want absent")
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !hasAll(tableColumns(t, s, "steps"), "agents") {
+				t.Errorf("steps columns after Up = %v, want the agents column", tableColumns(t, s, "steps"))
+			}
+			if !hasAll(tableColumns(t, s, "epic_task_findings"), "unverified") {
+				t.Errorf("epic_task_findings columns after Up = %v, want the unverified column",
+					tableColumns(t, s, "epic_task_findings"))
+			}
+			if !tableNames(t, s)["epic_reviewers"] {
+				t.Errorf("epic_reviewers after Up: absent, want present")
+			}
+		},
 	}
 }
 
@@ -744,442 +738,369 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	}
 }
 
-// TestEvidenceMigrationDownAndUp removes the epic gate tables, the base and item columns, and the task gate and evidence
-// with the Down of 00020_evidence.sql, and Up restores them. The task it stores with an evidence item reads its
-// conclusion back as task_check after the Down.
-func TestEvidenceMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 20)
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks
-		(epic, seq, turn, title, deliverable, status, gate, evidence)
-		VALUES ('orrery-0123456/epic-one', 1, 1, 'Build it', 'the down', 'open', 'check',
-		'{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,"conclusion":"go test ./restored",
-		"judge":"a judge"}')`); err != nil {
-		t.Fatalf("insert task: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 19); err != nil {
-		t.Fatalf("DownTo 19: %v", err)
-	}
-	var check string
-	if err := s.db.QueryRowContext(ctx, `SELECT task_check FROM epic_tasks WHERE seq = 1`).Scan(&check); err != nil {
-		t.Fatalf("read task_check after Down: %v", err)
-	}
-	if want := "go test ./restored"; check != want {
-		t.Errorf("task_check after Down = %q, want %q", check, want)
-	}
-	if columns := columnsOf(t, s, "epic_tasks"); hasAny(columns, "gate", "evidence") {
-		t.Errorf("epic_tasks columns after Down = %v, want no gate or evidence", columns)
-	}
-	tables := tableNames(t, s)
-	if tables["epic_gates"] || tables["epic_gate_lists"] {
-		t.Errorf("gate tables after Down: epic_gates %v, epic_gate_lists %v; want neither", tables["epic_gates"],
-			tables["epic_gate_lists"])
-	}
-	if hasAny(columnsOf(t, s, "epics"), "base") {
-		t.Errorf("epics columns after Down still hold base")
-	}
-	if hasAny(columnsOf(t, s, "epic_requirements"), "item") {
-		t.Errorf("epic_requirements columns after Down still hold item")
-	}
-	if tables["evidence_runs"] || tables["evidence_artifacts"] {
-		t.Errorf("evidence tables after Down: evidence_runs %v, evidence_artifacts %v; want neither",
-			tables["evidence_runs"], tables["evidence_artifacts"])
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	tables = tableNames(t, s)
-	if !tables["epic_gates"] || !tables["epic_gate_lists"] {
-		t.Errorf("gate tables after Up: epic_gates %v, epic_gate_lists %v; want both", tables["epic_gates"],
-			tables["epic_gate_lists"])
-	}
-	if !tables["evidence_runs"] || !tables["evidence_artifacts"] {
-		t.Errorf("evidence tables after Up: evidence_runs %v, evidence_artifacts %v; want both",
-			tables["evidence_runs"], tables["evidence_artifacts"])
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "base") {
-		t.Errorf("epics columns after Up = %v, want base", columnsOf(t, s, "epics"))
-	}
-	if !hasAll(columnsOf(t, s, "epic_requirements"), "item") {
-		t.Errorf("epic_requirements columns after Up = %v, want item", columnsOf(t, s, "epic_requirements"))
+// evidenceDownAndUp is the walk's check of 00020_evidence.sql: its Down removes the epic gate tables, the base and item
+// columns, the task gate and evidence, and the evidence tables, and its Up restores them. The task it stores with an
+// evidence item reads its conclusion back as task_check after the Down.
+func evidenceDownAndUp() migrationCheck {
+	return migrationCheck{
+		seed: func(t *testing.T, s *Store) {
+			t.Helper()
+			if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_tasks
+				(epic, seq, turn, title, deliverable, status, gate, evidence)
+				VALUES ('orrery-0123456/epic-one', 1, 1, 'Build it', 'the down', 'open', 'check',
+				'{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,"conclusion":"go test ./restored",
+				"judge":"a judge"}')`); err != nil {
+				t.Fatalf("insert task: %v", err)
+			}
+		},
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			var check string
+			if err := s.db.QueryRowContext(context.Background(),
+				`SELECT task_check FROM epic_tasks WHERE seq = 1`).Scan(&check); err != nil {
+				t.Fatalf("read task_check after Down: %v", err)
+			}
+			if want := "go test ./restored"; check != want {
+				t.Errorf("task_check after Down = %q, want %q", check, want)
+			}
+			if columns := columnsOf(t, s, "epic_tasks"); hasAny(columns, "gate", "evidence") {
+				t.Errorf("epic_tasks columns after Down = %v, want no gate or evidence", columns)
+			}
+			tables := tableNames(t, s)
+			if tables["epic_gates"] || tables["epic_gate_lists"] {
+				t.Errorf(
+					"gate tables after Down: epic_gates %v, epic_gate_lists %v; want neither",
+					tables["epic_gates"],
+					tables["epic_gate_lists"],
+				)
+			}
+			if hasAny(columnsOf(t, s, "epics"), "base") {
+				t.Errorf("epics columns after Down still hold base")
+			}
+			if hasAny(columnsOf(t, s, "epic_requirements"), "item") {
+				t.Errorf("epic_requirements columns after Down still hold item")
+			}
+			if tables["evidence_runs"] || tables["evidence_artifacts"] {
+				t.Errorf("evidence tables after Down: evidence_runs %v, evidence_artifacts %v; want neither",
+					tables["evidence_runs"], tables["evidence_artifacts"])
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			tables := tableNames(t, s)
+			if !tables["epic_gates"] || !tables["epic_gate_lists"] {
+				t.Errorf("gate tables after Up: epic_gates %v, epic_gate_lists %v; want both", tables["epic_gates"],
+					tables["epic_gate_lists"])
+			}
+			if !tables["evidence_runs"] || !tables["evidence_artifacts"] {
+				t.Errorf("evidence tables after Up: evidence_runs %v, evidence_artifacts %v; want both",
+					tables["evidence_runs"], tables["evidence_artifacts"])
+			}
+			if !hasAll(columnsOf(t, s, "epics"), "base") {
+				t.Errorf("epics columns after Up = %v, want base", columnsOf(t, s, "epics"))
+			}
+			if !hasAll(columnsOf(t, s, "epic_requirements"), "item") {
+				t.Errorf("epic_requirements columns after Up = %v, want item", columnsOf(t, s, "epic_requirements"))
+			}
+		},
 	}
 }
 
-// TestQuestionsMigrationDownAndUp removes the question columns and the tell's question column with the Down of
-// 00039_questions.sql, and Up restores them.
-func TestQuestionsMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
+// questionsDownAndUp is the walk's check of 00039_questions.sql: its Down removes the question columns and the tell's
+// question column, and its Up restores them.
+func questionsDownAndUp() migrationCheck {
 	questionColumns := []string{
 		"label", "choices", "recommended", "why", "confidence", "replaces", "replaced_by", "choice",
 	}
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 38); err != nil {
-		t.Fatalf("DownTo 38: %v", err)
-	}
-	if hasAny(columnsOf(t, s, "epic_questions"), questionColumns...) {
-		t.Errorf("epic_questions columns after Down = %v, want no question columns", columnsOf(t, s, "epic_questions"))
-	}
-	if hasAny(columnsOf(t, s, "epic_tells"), "question") {
-		t.Errorf("epic_tells columns after Down = %v, want no question column", columnsOf(t, s, "epic_tells"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(columnsOf(t, s, "epic_questions"), questionColumns...) {
-		t.Errorf("epic_questions columns after Up = %v, want the question columns", columnsOf(t, s, "epic_questions"))
-	}
-	if !hasAll(columnsOf(t, s, "epic_tells"), "question") {
-		t.Errorf("epic_tells columns after Up = %v, want the question column", columnsOf(t, s, "epic_tells"))
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if hasAny(columnsOf(t, s, "epic_questions"), questionColumns...) {
+				t.Errorf("epic_questions columns after Down = %v, want no question columns",
+					columnsOf(t, s, "epic_questions"))
+			}
+			if hasAny(columnsOf(t, s, "epic_tells"), "question") {
+				t.Errorf("epic_tells columns after Down = %v, want no question column", columnsOf(t, s, "epic_tells"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !hasAll(columnsOf(t, s, "epic_questions"), questionColumns...) {
+				t.Errorf("epic_questions columns after Up = %v, want the question columns",
+					columnsOf(t, s, "epic_questions"))
+			}
+			if !hasAll(columnsOf(t, s, "epic_tells"), "question") {
+				t.Errorf("epic_tells columns after Up = %v, want the question column", columnsOf(t, s, "epic_tells"))
+			}
+		},
 	}
 }
 
-// TestTaskBuildMigrationDownAndUp removes the branch and build columns and the review, finding and tell tables with
-// the Down of 00021_task_build.sql, and Up restores them.
-func TestTaskBuildMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 21)
+// taskBuildDownAndUp is the walk's check of 00021_task_build.sql: its Down removes the branch and build columns and the
+// review, finding and tell tables, and its Up restores them.
+func taskBuildDownAndUp() migrationCheck {
 	buildColumns := []string{
 		"stage", "base", "attempt", "rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision",
 		"failure", "review", "refs", "gate_pos", "finding_pos",
 	}
-
-	if _, err := provider.DownTo(ctx, 20); err != nil {
-		t.Fatalf("DownTo 20: %v", err)
-	}
-	tables := tableNames(t, s)
-	if tables["epic_task_reviews"] || tables["epic_task_findings"] || tables["epic_tells"] {
-		t.Errorf("build tables after Down: epic_task_reviews %v, epic_task_findings %v, epic_tells %v; want none",
-			tables["epic_task_reviews"], tables["epic_task_findings"], tables["epic_tells"])
-	}
-	if hasAny(columnsOf(t, s, "epics"), "branch") {
-		t.Errorf("epics columns after Down = %v, want no branch", columnsOf(t, s, "epics"))
-	}
-	if hasAny(columnsOf(t, s, "epic_tasks"), buildColumns...) {
-		t.Errorf("epic_tasks columns after Down = %v, want no build columns", columnsOf(t, s, "epic_tasks"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	tables = tableNames(t, s)
-	if !tables["epic_task_reviews"] || !tables["epic_task_findings"] || !tables["epic_tells"] {
-		t.Errorf("build tables after Up: epic_task_reviews %v, epic_task_findings %v, epic_tells %v; want all",
-			tables["epic_task_reviews"], tables["epic_task_findings"], tables["epic_tells"])
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "branch") {
-		t.Errorf("epics columns after Up = %v, want branch", columnsOf(t, s, "epics"))
-	}
-	if !hasAll(columnsOf(t, s, "epic_tasks"), buildColumns...) {
-		t.Errorf("epic_tasks columns after Up = %v, want the build columns", columnsOf(t, s, "epic_tasks"))
-	}
-}
-
-// TestWorkflowMigrationDownAndUp removes the workflow columns and the node table with the Down of 00022_workflow.sql,
-// and Up restores them and pins the built-in epic to the epic stored before the Down.
-func TestWorkflowMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 22)
-	seedEpic(t, s.db.DB)
-
-	if _, err := provider.DownTo(ctx, 21); err != nil {
-		t.Fatalf("DownTo 21: %v", err)
-	}
-	if tables := tableNames(t, s); tables["epic_workflow_nodes"] {
-		t.Errorf("epic_workflow_nodes after Down: present, want absent")
-	}
-	if hasAny(columnsOf(t, s, "epics"), "workflow", "workflow_text", "workflow_sha256") {
-		t.Errorf("epics columns after Down = %v, want no workflow columns", columnsOf(t, s, "epics"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if tables := tableNames(t, s); !tables["epic_workflow_nodes"] {
-		t.Errorf("epic_workflow_nodes after Up: absent, want present")
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "workflow", "workflow_text", "workflow_sha256") {
-		t.Errorf("epics columns after Up = %v, want the workflow columns", columnsOf(t, s, "epics"))
-	}
-	got, err := s.Epic(ctx, seededEpic)
-	if err != nil {
-		t.Fatalf("Epic after Up: %v", err)
-	}
-	if want := builtInEpicWorkflow(); !reflect.DeepEqual(got.Workflow, want) {
-		t.Errorf("workflow of seeded epic after Up = %+v, want %+v", got.Workflow, want)
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			tables := tableNames(t, s)
+			if tables["epic_task_reviews"] || tables["epic_task_findings"] || tables["epic_tells"] {
+				t.Errorf("build tables after Down: epic_task_reviews %v, epic_task_findings %v, epic_tells %v; "+
+					"want none", tables["epic_task_reviews"], tables["epic_task_findings"], tables["epic_tells"])
+			}
+			if hasAny(columnsOf(t, s, "epics"), "branch") {
+				t.Errorf("epics columns after Down = %v, want no branch", columnsOf(t, s, "epics"))
+			}
+			if hasAny(columnsOf(t, s, "epic_tasks"), buildColumns...) {
+				t.Errorf("epic_tasks columns after Down = %v, want no build columns", columnsOf(t, s, "epic_tasks"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			tables := tableNames(t, s)
+			if !tables["epic_task_reviews"] || !tables["epic_task_findings"] || !tables["epic_tells"] {
+				t.Errorf("build tables after Up: epic_task_reviews %v, epic_task_findings %v, epic_tells %v; want all",
+					tables["epic_task_reviews"], tables["epic_task_findings"], tables["epic_tells"])
+			}
+			if !hasAll(columnsOf(t, s, "epics"), "branch") {
+				t.Errorf("epics columns after Up = %v, want branch", columnsOf(t, s, "epics"))
+			}
+			if !hasAll(columnsOf(t, s, "epic_tasks"), buildColumns...) {
+				t.Errorf("epic_tasks columns after Up = %v, want the build columns", columnsOf(t, s, "epic_tasks"))
+			}
+		},
 	}
 }
 
-// TestDueResumesMigrationDownAndUp removes the due_resumes table and the epics pause_source column with the Down of
-// 00025_due_resumes.sql, and Up restores them.
-func TestDueResumesMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 25)
-
-	if _, err := provider.DownTo(ctx, 24); err != nil {
-		t.Fatalf("DownTo 24: %v", err)
-	}
-	if tableNames(t, s)["due_resumes"] {
-		t.Errorf("due_resumes after Down: present, want removed")
-	}
-	if hasAny(columnsOf(t, s, "epics"), "pause_source") {
-		t.Errorf("epics columns after Down = %v, want no pause_source", columnsOf(t, s, "epics"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["due_resumes"] {
-		t.Errorf("due_resumes after Up: absent, want present")
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "pause_source") {
-		t.Errorf("epics columns after Up = %v, want pause_source", columnsOf(t, s, "epics"))
-	}
-}
-
-// TestLimitToldMigrationDownAndUp removes the told limit steps table and the limit key column with the Down of
-// 00026_limit_told.sql, and Up restores them.
-func TestLimitToldMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, provider := storeAtVersion(t, 26)
-
-	if _, err := provider.DownTo(ctx, 25); err != nil {
-		t.Fatalf("DownTo 25: %v", err)
-	}
-	if tableNames(t, s)["told_limit_steps"] {
-		t.Errorf("told_limit_steps after Down: want no table")
-	}
-	if hasAny(columnsOf(t, s, "pending_notices"), "limit_key") {
-		t.Errorf("pending_notices columns after Down = %v, want no limit_key", columnsOf(t, s, "pending_notices"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["told_limit_steps"] {
-		t.Errorf("told_limit_steps after Up: want the table")
-	}
-	if !hasAll(columnsOf(t, s, "pending_notices"), "limit_key") {
-		t.Errorf("pending_notices columns after Up = %v, want limit_key", columnsOf(t, s, "pending_notices"))
+// workflowDownAndUp is the walk's check of 00022_workflow.sql: its Down removes the workflow columns and the node
+// table, and its Up restores them and pins the built-in epic workflow, its text, the text's sha256 and its two nodes,
+// to the epic stored before the Down.
+func workflowDownAndUp() migrationCheck {
+	return migrationCheck{
+		seed: func(t *testing.T, s *Store) {
+			t.Helper()
+			seedEpic(t, s.db.DB)
+		},
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tables := tableNames(t, s); tables["epic_workflow_nodes"] {
+				t.Errorf("epic_workflow_nodes after Down: present, want absent")
+			}
+			if hasAny(columnsOf(t, s, "epics"), "workflow", "workflow_text", "workflow_sha256") {
+				t.Errorf("epics columns after Down = %v, want no workflow columns", columnsOf(t, s, "epics"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tables := tableNames(t, s); !tables["epic_workflow_nodes"] {
+				t.Fatalf("epic_workflow_nodes after Up: absent, want present")
+			}
+			if !hasAll(columnsOf(t, s, "epics"), "workflow", "workflow_text", "workflow_sha256") {
+				t.Fatalf("epics columns after Up = %v, want the workflow columns", columnsOf(t, s, "epics"))
+			}
+			want := builtInEpicWorkflow()
+			var got EpicWorkflow
+			if err := s.db.QueryRowContext(context.Background(),
+				`SELECT workflow, workflow_text, workflow_sha256 FROM epics WHERE id = ?`, seededEpic).Scan(
+				&got.Name, &got.Text, &got.SHA256); err != nil {
+				t.Fatalf("read workflow of seeded epic after Up: %v", err)
+			}
+			if got.Name != want.Name || got.Text != want.Text || got.SHA256 != want.SHA256 {
+				t.Errorf("workflow of seeded epic after Up = %+v, want %+v", got, want)
+			}
+			// A node row is the epic, the node's position, its id, its parent and its kind.
+			wantNodes := make([][]any, 0, len(want.Nodes))
+			for position, node := range want.Nodes {
+				wantNodes = append(wantNodes, []any{seededEpic, int64(position), node.ID, node.Parent, node.Kind})
+			}
+			if nodes := rowsOf(t, s.db.DB, "epic_workflow_nodes"); !reflect.DeepEqual(nodes, wantNodes) {
+				t.Errorf("workflow nodes after Up = %v, want %v", nodes, wantNodes)
+			}
+		},
 	}
 }
 
-// TestReleaseMigrationDownAndUp removes the release run and release slot tables with the Down of 00038_release.sql,
-// and Up restores them.
-func TestReleaseMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 37); err != nil {
-		t.Fatalf("DownTo 37: %v", err)
-	}
-	if tables := tableNames(t, s); tables["epic_release_runs"] || tables["epic_release_slots"] {
-		t.Errorf("release tables after Down: epic_release_runs %v, epic_release_slots %v; want neither",
-			tables["epic_release_runs"], tables["epic_release_slots"])
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if tables := tableNames(t, s); !tables["epic_release_runs"] || !tables["epic_release_slots"] {
-		t.Errorf("release tables after Up: epic_release_runs %v, epic_release_slots %v; want both",
-			tables["epic_release_runs"], tables["epic_release_slots"])
+// dueResumesDownAndUp is the walk's check of 00025_due_resumes.sql: its Down removes the due_resumes table and the
+// epics pause_source column, and its Up restores them.
+func dueResumesDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tableNames(t, s)["due_resumes"] {
+				t.Errorf("due_resumes after Down: present, want removed")
+			}
+			if hasAny(columnsOf(t, s, "epics"), "pause_source") {
+				t.Errorf("epics columns after Down = %v, want no pause_source", columnsOf(t, s, "epics"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["due_resumes"] {
+				t.Errorf("due_resumes after Up: absent, want present")
+			}
+			if !hasAll(columnsOf(t, s, "epics"), "pause_source") {
+				t.Errorf("epics columns after Up = %v, want pause_source", columnsOf(t, s, "epics"))
+			}
+		},
 	}
 }
 
-// TestPlannerActionsMigrationDownAndUp removes the planner_actions table with the Down of 00049_planner_actions.sql, and Up
-// restores it.
-func TestPlannerActionsMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 48); err != nil {
-		t.Fatalf("DownTo 48: %v", err)
-	}
-	if tableNames(t, s)["planner_actions"] {
-		t.Errorf("planner_actions after Down = present, want absent")
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["planner_actions"] {
-		t.Errorf("planner_actions after Up = absent, want present")
+// limitToldDownAndUp is the walk's check of 00026_limit_told.sql: its Down removes the told limit steps table and the
+// limit key column, and its Up restores them.
+func limitToldDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tableNames(t, s)["told_limit_steps"] {
+				t.Errorf("told_limit_steps after Down: want no table")
+			}
+			if hasAny(columnsOf(t, s, "pending_notices"), "limit_key") {
+				t.Errorf("pending_notices columns after Down = %v, want no limit_key",
+					columnsOf(t, s, "pending_notices"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["told_limit_steps"] {
+				t.Errorf("told_limit_steps after Up: want the table")
+			}
+			if !hasAll(columnsOf(t, s, "pending_notices"), "limit_key") {
+				t.Errorf("pending_notices columns after Up = %v, want limit_key", columnsOf(t, s, "pending_notices"))
+			}
+		},
 	}
 }
 
-// TestEpicCloseMigrationDownAndUp removes the closer and the replacing epic from the epics table with the Down of
-// 00048_epic_close.sql, and Up restores them.
-func TestEpicCloseMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 47); err != nil {
-		t.Fatalf("DownTo 47: %v", err)
-	}
-	if hasAny(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
-		t.Errorf("epics columns after Down = %v, want no closed_by or superseded_by", columnsOf(t, s, "epics"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
-		t.Errorf("epics columns after Up = %v, want closed_by and superseded_by", columnsOf(t, s, "epics"))
+// releaseDownAndUp is the walk's check of 00038_release.sql: its Down removes the release run and release slot tables,
+// and its Up restores them.
+func releaseDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tables := tableNames(t, s); tables["epic_release_runs"] || tables["epic_release_slots"] {
+				t.Errorf("release tables after Down: epic_release_runs %v, epic_release_slots %v; want neither",
+					tables["epic_release_runs"], tables["epic_release_slots"])
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tables := tableNames(t, s); !tables["epic_release_runs"] || !tables["epic_release_slots"] {
+				t.Errorf("release tables after Up: epic_release_runs %v, epic_release_slots %v; want both",
+					tables["epic_release_runs"], tables["epic_release_slots"])
+			}
+		},
 	}
 }
 
-// TestParkClassMigrationDownAndUp removes the park class from the epics table with the Down of 00050_park_class.sql, and Up
-// restores it.
-func TestParkClassMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 49); err != nil {
-		t.Fatalf("DownTo 49: %v", err)
-	}
-	if hasAny(columnsOf(t, s, "epics"), "park_class") {
-		t.Errorf("epics columns after Down = %v, want no park_class", columnsOf(t, s, "epics"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !hasAll(columnsOf(t, s, "epics"), "park_class") {
-		t.Errorf("epics columns after Up = %v, want park_class", columnsOf(t, s, "epics"))
+// plannerActionsDownAndUp is the walk's check of 00049_planner_actions.sql: its Down removes the planner_actions table,
+// and its Up restores it.
+func plannerActionsDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tableNames(t, s)["planner_actions"] {
+				t.Errorf("planner_actions after Down = present, want absent")
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["planner_actions"] {
+				t.Errorf("planner_actions after Up = absent, want present")
+			}
+		},
 	}
 }
 
-// TestParkBoundMigrationDownAndUp removes the planner parks table and the park of planner_actions with the Down of
-// 00051_park_bound.sql, and Up restores them.
-func TestParkBoundMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
-
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
-
-	if _, err := provider.DownTo(ctx, 50); err != nil {
-		t.Fatalf("DownTo 50: %v", err)
-	}
-	if tableNames(t, s)["epic_parks"] {
-		t.Errorf("epic_parks after Down = present, want absent")
-	}
-	if hasAny(columnsOf(t, s, "planner_actions"), "park") {
-		t.Errorf("planner_actions columns after Down = %v, want no park", columnsOf(t, s, "planner_actions"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["epic_parks"] {
-		t.Errorf("epic_parks after Up = absent, want present")
-	}
-	if !hasAll(columnsOf(t, s, "planner_actions"), "park") {
-		t.Errorf("planner_actions columns after Up = %v, want park", columnsOf(t, s, "planner_actions"))
+// epicCloseDownAndUp is the walk's check of 00048_epic_close.sql: its Down removes the closer and the replacing epic
+// from the epics table, and its Up restores them.
+func epicCloseDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if hasAny(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
+				t.Errorf("epics columns after Down = %v, want no closed_by or superseded_by", columnsOf(t, s, "epics"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !hasAll(columnsOf(t, s, "epics"), "closed_by", "superseded_by") {
+				t.Errorf("epics columns after Up = %v, want closed_by and superseded_by", columnsOf(t, s, "epics"))
+			}
+		},
 	}
 }
 
-// TestEvidenceAmendmentsMigrationDownAndUp removes the amendments table and the requirement and item of planner_actions
-// with the Down of 00052_evidence_amendments.sql, and Up restores them.
-func TestEvidenceAmendmentsMigrationDownAndUp(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openEpicStore(t)
+// parkClassDownAndUp is the walk's check of 00050_park_class.sql: its Down removes the park class from the epics
+// table, and its Up restores it.
+func parkClassDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if hasAny(columnsOf(t, s, "epics"), "park_class") {
+				t.Errorf("epics columns after Down = %v, want no park_class", columnsOf(t, s, "epics"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !hasAll(columnsOf(t, s, "epics"), "park_class") {
+				t.Errorf("epics columns after Up = %v, want park_class", columnsOf(t, s, "epics"))
+			}
+		},
+	}
+}
 
-	migrationsFS, err := fs.Sub(migrationFS, "migrations")
-	if err != nil {
-		t.Fatalf("sub migrations fs: %v", err)
+// parkBoundDownAndUp is the walk's check of 00051_park_bound.sql: its Down removes the planner parks table and the park
+// of planner_actions, and its Up restores them.
+func parkBoundDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tableNames(t, s)["epic_parks"] {
+				t.Errorf("epic_parks after Down = present, want absent")
+			}
+			if hasAny(columnsOf(t, s, "planner_actions"), "park") {
+				t.Errorf("planner_actions columns after Down = %v, want no park", columnsOf(t, s, "planner_actions"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["epic_parks"] {
+				t.Errorf("epic_parks after Up = absent, want present")
+			}
+			if !hasAll(columnsOf(t, s, "planner_actions"), "park") {
+				t.Errorf("planner_actions columns after Up = %v, want park", columnsOf(t, s, "planner_actions"))
+			}
+		},
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
-	if err != nil {
-		t.Fatalf("create goose provider: %v", err)
-	}
+}
 
-	if _, err := provider.DownTo(ctx, 51); err != nil {
-		t.Fatalf("DownTo 51: %v", err)
-	}
-	if tableNames(t, s)["epic_amendments"] {
-		t.Errorf("epic_amendments after Down = present, want absent")
-	}
-	if hasAny(columnsOf(t, s, "planner_actions"), "requirement", "item") {
-		t.Errorf("planner_actions columns after Down = %v, want no requirement or item",
-			columnsOf(t, s, "planner_actions"))
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["epic_amendments"] {
-		t.Errorf("epic_amendments after Up = absent, want present")
-	}
-	if !hasAll(columnsOf(t, s, "planner_actions"), "requirement", "item") {
-		t.Errorf("planner_actions columns after Up = %v, want requirement and item", columnsOf(t, s, "planner_actions"))
+// evidenceAmendmentsDownAndUp is the walk's check of 00052_evidence_amendments.sql: its Down removes the amendments
+// table and the requirement and item of planner_actions, and its Up restores them.
+func evidenceAmendmentsDownAndUp() migrationCheck {
+	return migrationCheck{
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if tableNames(t, s)["epic_amendments"] {
+				t.Errorf("epic_amendments after Down = present, want absent")
+			}
+			if hasAny(columnsOf(t, s, "planner_actions"), "requirement", "item") {
+				t.Errorf("planner_actions columns after Down = %v, want no requirement or item",
+					columnsOf(t, s, "planner_actions"))
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["epic_amendments"] {
+				t.Errorf("epic_amendments after Up = absent, want present")
+			}
+			if !hasAll(columnsOf(t, s, "planner_actions"), "requirement", "item") {
+				t.Errorf("planner_actions columns after Up = %v, want requirement and item",
+					columnsOf(t, s, "planner_actions"))
+			}
+		},
 	}
 }
 

@@ -75,8 +75,7 @@ func TestSetTaskBuildStoresGuardAndRefusesAnotherGuard(t *testing.T) {
 }
 
 // TestGuardsMigrationGivesVersion37TasksNoGuardOrTestChanges stores a task at migration 37 and reads it back after
-// Open migrates the store: its guard is empty and it has no test changes. Down to 37 removes the guard column and the
-// test changes table, and Up restores them, so the epic reads back as it did before.
+// Open migrates the store: its guard is empty and it has no test changes.
 func TestGuardsMigrationGivesVersion37TasksNoGuardOrTestChanges(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -100,42 +99,62 @@ func TestGuardsMigrationGivesVersion37TasksNoGuardOrTestChanges(t *testing.T) {
 	}
 	defer s.Close()
 
-	before, err := s.Epic(ctx, id)
+	got, err := s.Epic(ctx, id)
 	if err != nil {
 		t.Fatalf("Epic: %v", err)
 	}
-	if len(before.Tasks) != 1 {
-		t.Fatalf("tasks after Open = %d, want 1", len(before.Tasks))
+	if len(got.Tasks) != 1 {
+		t.Fatalf("tasks after Open = %d, want 1", len(got.Tasks))
 	}
-	if guard := before.Tasks[0].Build.Guard; guard != "" {
+	if guard := got.Tasks[0].Build.Guard; guard != "" {
 		t.Errorf("guard after Open = %q, want empty", guard)
 	}
-	if changes := before.Tasks[0].TestChanges; len(changes) != 0 {
+	if changes := got.Tasks[0].TestChanges; len(changes) != 0 {
 		t.Errorf("test changes after Open = %v, want none", changes)
 	}
+}
 
-	provider := migrationProvider(t, s.db.DB)
-	if _, err := provider.DownTo(ctx, 37); err != nil {
-		t.Fatalf("DownTo 37: %v", err)
-	}
-	if hasAny(columnsOf(t, s, "epic_tasks"), "guard") {
-		t.Errorf("epic_tasks columns after Down = %v, want no guard", columnsOf(t, s, "epic_tasks"))
-	}
-	if tableNames(t, s)["epic_task_test_changes"] {
-		t.Errorf("epic_task_test_changes after Down: present, want absent")
-	}
-
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
-	}
-	if !tableNames(t, s)["epic_task_test_changes"] {
-		t.Errorf("epic_task_test_changes after Up: absent, want present")
-	}
-	after, err := s.Epic(ctx, id)
-	if err != nil {
-		t.Fatalf("Epic after Up: %v", err)
-	}
-	if !reflect.DeepEqual(after, before) {
-		t.Errorf("epic after Down and Up = %+v, want %+v", after, before)
+// guardsDownAndUp is the walk's check of 00040_guards.sql. It stores an epic with a task at version 40. The Down
+// removes the guard column and the test changes table, and the Up restores them, and the epic, its decision and its
+// task are stored as they were.
+func guardsDownAndUp() migrationCheck {
+	kept := []string{"epics", "epic_decisions", "epic_tasks"}
+	before := map[string][][]any{}
+	return migrationCheck{
+		seed: func(t *testing.T, s *Store) {
+			t.Helper()
+			seedEpic(t, s.db.DB)
+			if _, err := s.db.ExecContext(context.Background(), `INSERT INTO epic_tasks
+				(epic, seq, turn, title, deliverable, status) VALUES (?, 1, 1, 'Build it', 'the migration', 'open')`,
+				seededEpic); err != nil {
+				t.Fatalf("seed task: %v", err)
+			}
+			for _, table := range kept {
+				before[table] = rowsOf(t, s.db.DB, table)
+			}
+		},
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			if hasAny(columnsOf(t, s, "epic_tasks"), "guard") {
+				t.Errorf("epic_tasks columns after Down = %v, want no guard", columnsOf(t, s, "epic_tasks"))
+			}
+			if tableNames(t, s)["epic_task_test_changes"] {
+				t.Errorf("epic_task_test_changes after Down: present, want absent")
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			if !tableNames(t, s)["epic_task_test_changes"] {
+				t.Errorf("epic_task_test_changes after Up: absent, want present")
+			}
+			if !hasAll(columnsOf(t, s, "epic_tasks"), "guard") {
+				t.Errorf("epic_tasks columns after Up = %v, want guard", columnsOf(t, s, "epic_tasks"))
+			}
+			for _, table := range kept {
+				if got := rowsOf(t, s.db.DB, table); !reflect.DeepEqual(got, before[table]) {
+					t.Errorf("%s after Down and Up = %v, want %v", table, got, before[table])
+				}
+			}
+		},
 	}
 }
