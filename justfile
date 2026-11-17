@@ -48,7 +48,10 @@ cover:
     # so a run that fails or times out leaves them on disk.
     artifacts="$PWD/test-artifacts"
     rm -rf "$artifacts" && mkdir "$artifacts"
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
+    # scripts/test-deadline.sh appends each package's CPU seconds to the record, checked against the baseline below.
+    record="$artifacts/test-budget.record"
+    : >"$record"
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$record" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
     if [ "$rc" -eq 124 ] || { [ "$rc" -ne 0 ] && [ "$(date +%s)" -ge "$deadline" ]; }; then
         echo "tests exceeded {{TEST_BUDGET}}s budget" >&2
         exit 124
@@ -81,6 +84,9 @@ cover:
         exit 1
     fi
     echo "coverage: ${pct}% (>= 80% OK)"
+
+    # One line per package over its CPU budget; exit 3 when one is over twice its baseline.
+    scripts/test-budget.sh check "$record"
 
 # Lint the protobuf contract in proto/.
 proto-lint:
@@ -299,8 +305,8 @@ test-deadline-test:
 test-budget-test:
     scripts/test-budget-test.sh
 
-# Two runs of `go test -count=1 -race ./...`, check-changed's tests over every package, each package keeping the lower
-# of its two CPU seconds. A failing or timed-out run writes nothing. Run it on an idle machine, as load inflates CPU.
+# Two runs of cover's `go test -race -coverpkg=./... ./...`, the gate's full test run, each package keeping the lower of
+# its two CPU seconds. A failing or timed-out run writes nothing. Run it on an idle machine, as load inflates CPU.
 # Re-measure every package's test CPU seconds and rewrite the baseline, testdata/test-budget.json.
 [script]
 test-budget-update: reap-test-tmux
@@ -311,7 +317,7 @@ test-budget-update: reap-test-tmux
         : >"$dir/run$run"
         deadline=$(($(date +%s) + {{TEST_BUDGET}} - 10))
         rc=0
-        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$dir/run$run" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race ./... || rc=$?
+        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$dir/run$run" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$dir/cover$run.out" ./... || rc=$?
         if [ "$rc" -ne 0 ]; then
             echo "test-budget-update: run $run failed (exit $rc); testdata/test-budget.json is unchanged" >&2
             exit "$rc"
