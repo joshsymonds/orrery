@@ -133,6 +133,9 @@ subcommands:
   gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
+  step status ID                                print a step as one line of JSON, through orreryd
+  step wait [--all] ID...                       wait until one named step ends and print it as JSON; with --all,
+                                                wait until every named step has ended, printing each as it ends
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
@@ -266,7 +269,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
-		return runOwnerAction(ctx, opts, name, args, stderr, getenv)
+		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
 	case "session":
@@ -289,11 +292,11 @@ func dispatchTmux(ctx context.Context, opts globals, name string, args []string,
 }
 
 // runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket
-// and that retry a call orreryd answers Unavailable.
-func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stderr io.Writer,
+// and that retry a call orreryd answers Unavailable. Only step writes to stdout.
+func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stdout, stderr io.Writer,
 	getenv func(string) string) error {
 	if name == "step" {
-		return runStep(ctx, opts, args, stderr, getenv)
+		return runStep(ctx, opts, args, stdout, stderr, getenv)
 	}
 	return runHold(ctx, opts, args, stderr, getenv)
 }
