@@ -1,5 +1,5 @@
-import type { ComponentChildren, JSX } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { Component, createElement, type ComponentChildren, type JSX } from "preact";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
 import { useFlash } from "./flash";
@@ -63,7 +63,31 @@ export function Reader({
   // pinned is whether the owner last left the reader within nearBottomPixels of its bottom. Only the owner's scrolls set
   // it: a render or a size change moves the content under the reader without the owner, so it does not.
   const pinned = useRef(true);
-  const keys = conversation === null ? [] : itemKeys(conversation.items);
+  // The derivations of the items are made once per items array, so a redraw that holds the same array reuses them.
+  const conversationItems = conversation?.items;
+  const keys = useMemo(() => (conversationItems === undefined ? [] : itemKeys(conversationItems)), [conversationItems]);
+  const results = useMemo(
+    () => (conversationItems === undefined ? new Map<number, ConversationItem>() : resultsByCall(conversationItems)),
+    [conversationItems],
+  );
+  const newIndex = useMemo(
+    () =>
+      conversationItems === undefined
+        ? -1
+        : conversationItems.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt),
+    [conversationItems, seenAt],
+  );
+  const groups = useMemo(
+    () => (conversationItems === undefined ? [] : groupRows(conversationItems, newIndex)),
+    [conversationItems, newIndex],
+  );
+  // The rows reach onToggleOpen through toggle, so the callback a row holds is the same function on every render, and a
+  // caller's new callback does not make a row draw again. A row gets a toggle only when the caller passed one, since a
+  // compaction row draws its rule as a button only then.
+  const toggle = useRef(onToggleOpen);
+  toggle.current = onToggleOpen;
+  const toggleOpen = useCallback(() => toggle.current?.(), []);
+  const rowToggle = onToggleOpen === undefined ? undefined : toggleOpen;
   // The position is read before this render changes the DOM, so it is where the reader sat before the new items. A size
   // change the observer has not reported yet is not in that reading, so the observer follows it.
   const element = root.current;
@@ -137,14 +161,12 @@ export function Reader({
       </div>
     );
   }
-  const newIndex = conversation.items.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt);
-  const results = resultsByCall(conversation.items);
   const items = conversation.items;
   const liveBlocks = conversation.unfinished.filter((block) => block.kind === "text" || block.kind === "thinking");
   // A question or live text drawn after the items ends the calls, so none of them is running.
   const running = runningCalls(items, results, question !== null || liveBlocks.length > 0);
   const rows: JSX.Element[] = [];
-  groupRows(items, newIndex).forEach((group) => {
+  groups.forEach((group) => {
     const [first] = group;
     if (first === newIndex) {
       rows.push(<NewRule key="new-rule" />);
@@ -156,18 +178,19 @@ export function Reader({
         result: results.get(index),
         running: running.has(index),
       }));
-      rows.push(<ToolRun key={keys[first]} calls={calls} />);
+      rows.push(<MemoToolRun key={keys[first]} calls={calls} />);
       return;
     }
+    // Only a compaction row draws the open state, so a toggle of it leaves every other row as it was.
     rows.push(
-      <ItemRow
+      <MemoItemRow
         key={keys[first]}
         item={items[first]}
         result={results.get(first)}
         running={running.has(first)}
-        open={open}
+        open={open && items[first].kind === "compaction"}
         step={step}
-        onToggleOpen={onToggleOpen}
+        onToggleOpen={rowToggle}
       />,
     );
   });
@@ -313,21 +336,16 @@ function SendingRow({ text }: { text: string }) {
   );
 }
 
-function ItemRow({
-  item,
-  result,
-  running,
-  open,
-  step,
-  onToggleOpen,
-}: {
+interface ItemRowProps {
   item: ConversationItem;
   result: ConversationItem | undefined;
   running: boolean;
   open: boolean;
   step?: EpicStep;
   onToggleOpen?: () => void;
-}) {
+}
+
+function ItemRow({ item, result, running, open, step, onToggleOpen }: ItemRowProps) {
   // Its row carries the owner-turn class, which sets the gap above it.
   return (
     <div class={ownersTurn(item, step) ? "t owner-turn" : "t"}>
@@ -337,6 +355,52 @@ function ItemRow({
       </div>
     </div>
   );
+}
+
+// MemoItemRow draws an ItemRow again only when sameItemRow finds its props changed.
+const MemoItemRow = memo(ItemRow, sameItemRow);
+
+// sameItemRow is whether new props draw the row the old ones drew: the same item, result, running and open state and
+// toggle, and a step that reads the same. An item or result is compared by its object, which the held items keep from
+// one delta to the next.
+function sameItemRow(previous: ItemRowProps, next: ItemRowProps): boolean {
+  return (
+    previous.item === next.item &&
+    previous.result === next.result &&
+    previous.running === next.running &&
+    previous.open === next.open &&
+    previous.onToggleOpen === next.onToggleOpen &&
+    sameStep(previous.step, next.step)
+  );
+}
+
+// sameStep is whether two steps read the same to a row: both absent, or both present with checks that match in order by
+// name, round and ok. A row reads nothing else of a step, so a step rebuilt with the same checks is the same step.
+function sameStep(previous: EpicStep | undefined, next: EpicStep | undefined): boolean {
+  if (previous === undefined || next === undefined) {
+    return previous === next;
+  }
+  return (
+    previous.checks.length === next.checks.length &&
+    previous.checks.every((check, index) => {
+      const other = next.checks[index];
+      return other !== undefined && check.name === other.name && check.round === other.round && check.ok === other.ok;
+    })
+  );
+}
+
+// memo draws a component again only when same finds its props changed, as preact/compat's memo does. It is written here
+// because importing preact/compat installs its option hooks on every vnode of the app.
+function memo<P extends object>(component: (props: P) => JSX.Element, same: (previous: P, next: P) => boolean) {
+  return class Memoed extends Component<P> {
+    shouldComponentUpdate(next: Readonly<P>): boolean {
+      return !same(this.props, next);
+    }
+
+    render(): JSX.Element {
+      return createElement(component, this.props);
+    }
+  };
 }
 
 function ItemBody({
@@ -577,6 +641,27 @@ function ToolRun({ calls }: { calls: RunCall[] }) {
   );
 }
 
+// MemoToolRun draws a ToolRun again only when its calls change: sameCalls compares them by content.
+const MemoToolRun = memo(ToolRun, (previous, next) => sameCalls(previous.calls, next.calls));
+
+// sameCalls is whether two runs hold the same calls in the same order: each call has the same key, item, result and
+// running state. A run's calls array is rebuilt on each render, so the calls are what is compared, not the array.
+function sameCalls(previous: RunCall[], next: RunCall[]): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every((call, index) => {
+      const other = next[index];
+      return (
+        other !== undefined &&
+        call.key === other.key &&
+        call.item === other.item &&
+        call.result === other.result &&
+        call.running === other.running
+      );
+    })
+  );
+}
+
 // toolCounts names each tool of a run once, in first-seen order, with its count when it is more than one.
 function toolCounts(calls: RunCall[]): string {
   const counts = new Map<string, number>();
@@ -788,13 +873,13 @@ function itemKeys(items: ConversationItem[]): string[] {
   return keys;
 }
 
+// clockFormat is the formatter of every gutter time: 24-hour hours and minutes in the local zone. One formatter serves
+// all rows, since a formatter built per call costs far more than the format it makes.
+const clockFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
 export function clock(time: bigint): string {
   if (time === 0n) {
     return "";
   }
-  return new Date(Number(time) * secondsToMillis).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+  return clockFormat.format(new Date(Number(time) * secondsToMillis));
 }

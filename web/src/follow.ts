@@ -1,12 +1,16 @@
+import { equals, type DescMessage, type MessageShape } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import type { createClients } from "./client";
 import { applyDelta, type Conversation, prependOlder } from "./conversation";
-import type {
-  OlderResponse,
-  SessionsOlderResponse,
-  SessionsWatchConversationResponse,
-  WatchConversationResponse,
+import {
+  ConversationStateSchema,
+  EngineTextSchema,
+  HeldMessageSchema,
+  type OlderResponse,
+  type SessionsOlderResponse,
+  type SessionsWatchConversationResponse,
+  type WatchConversationResponse,
 } from "./gen/orrery/v1/orrery_pb";
 
 export interface Followed {
@@ -29,6 +33,45 @@ const timerSchedule: Schedule = (run, ms) => {
   const timer = setTimeout(run, ms);
   return () => clearTimeout(timer);
 };
+
+type Delta = WatchConversationResponse | SessionsWatchConversationResponse;
+
+// changesDrawn is whether a delta, folded from previous into next, changes what a reader draws: it resets the held
+// conversation, adds items, or changes the state, the unfinished set or the held set. A delta that changes none of them
+// is a keepalive, and reaches no onChange.
+function changesDrawn(previous: Conversation | null, delta: Delta, next: Conversation): boolean {
+  return (
+    previous === null ||
+    delta.reset ||
+    delta.items.length > 0 ||
+    !sameState(previous.state, next.state) ||
+    !sameMessages(EngineTextSchema, previous.unfinished, next.unfinished) ||
+    !sameMessages(HeldMessageSchema, previous.held, next.held)
+  );
+}
+
+// sameState is whether two conversation states are equal: both absent, or equal in content.
+function sameState(previous: Conversation["state"], next: Conversation["state"]): boolean {
+  if (previous === undefined || next === undefined) {
+    return previous === next;
+  }
+  return equals(ConversationStateSchema, previous, next);
+}
+
+// sameMessages is whether two lists hold equal messages in the same order.
+function sameMessages<Desc extends DescMessage>(
+  schema: Desc,
+  previous: MessageShape<Desc>[],
+  next: MessageShape<Desc>[],
+): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every((message, index) => {
+      const other = next[index];
+      return other !== undefined && equals(schema, message, other);
+    })
+  );
+}
 
 // follow streams one row's conversation into onChange and keeps it current. A stream that ends or fails is retried
 // after retryMs, waited through schedule, resuming from the held transcript and seq, so the server answers with only
@@ -75,8 +118,16 @@ export function follow(
           if (stopped) {
             return;
           }
-          held = applyDelta(held, delta);
-          onChange(held);
+          const previous = held;
+          const folded = applyDelta(previous, delta);
+          // A delta that resets nothing and adds no items keeps the held items array it came with, so the reader does
+          // not derive its rows again for it.
+          const keepsItems = previous !== null && !delta.reset && delta.items.length === 0;
+          const next: Conversation = keepsItems ? { ...folded, items: previous.items } : folded;
+          held = next;
+          if (changesDrawn(previous, delta, next)) {
+            onChange(next);
+          }
         }
       } catch {
         // A failed stream is retried below, with the held transcript and seq.
