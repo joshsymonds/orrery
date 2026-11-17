@@ -62,14 +62,17 @@ async function type(box: HTMLTextAreaElement, text: string): Promise<void> {
   });
 }
 
+// press dispatches a keydown and reports whether the composer prevented it.
 async function press(
   box: HTMLTextAreaElement,
   key: string,
   modifiers: { shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {},
-): Promise<void> {
+): Promise<boolean> {
+  const event = new KeyboardEvent("keydown", { key, cancelable: true, ...modifiers });
   await act(() => {
-    box.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true, ...modifiers }));
+    box.dispatchEvent(event);
   });
+  return event.defaultPrevented;
 }
 
 // settle lets a pending send or pull resolve and its state update render.
@@ -539,6 +542,134 @@ test("Up with text in the box does not flash", async (t) => {
     await press(box, "ArrowUp");
     assert.equal(flashing(container), false, "a box with text does not flash on Up");
   });
+});
+
+test("ReaderPaging: Page Up and Page Down in an empty box call onPage with their direction and are prevented", async () => {
+  const directions: string[] = [];
+  await withComposer(
+    {
+      onPage: (direction) => {
+        directions.push(direction);
+        return true;
+      },
+    },
+    async (box) => {
+      assert.equal(await press(box, "PageUp"), true, "Page Up is prevented");
+      assert.equal(await press(box, "PageDown"), true, "Page Down is prevented");
+      assert.deepEqual(directions, ["up", "down"]);
+    },
+  );
+});
+
+test("ReaderPaging: Page Up and Page Down with text in the box call nothing and are not prevented", async () => {
+  let calls = 0;
+  await withComposer(
+    {
+      onPage: () => {
+        calls++;
+        return true;
+      },
+    },
+    async (box) => {
+      await type(box, "typed");
+      assert.equal(await press(box, "PageUp"), false, "Page Up is not prevented");
+      assert.equal(await press(box, "PageDown"), false, "Page Down is not prevented");
+      assert.equal(calls, 0);
+      assert.equal(box.value, "typed");
+    },
+  );
+});
+
+test("ReaderPaging: a Page key that onPage does not take, or with no onPage, is not prevented", async () => {
+  const directions: string[] = [];
+  await withComposer(
+    {
+      onPage: (direction) => {
+        directions.push(direction);
+        return false;
+      },
+    },
+    async (box) => {
+      assert.equal(await press(box, "PageUp"), false, "a declined Page Up is not prevented");
+      assert.equal(await press(box, "PageDown"), false, "a declined Page Down is not prevented");
+      assert.deepEqual(directions, ["up", "down"]);
+    },
+  );
+  await withComposer({}, async (box) => {
+    assert.equal(await press(box, "PageUp"), false, "Page Up with no onPage is not prevented");
+    assert.equal(await press(box, "PageDown"), false, "Page Down with no onPage is not prevented");
+  });
+});
+
+test("ReaderPaging: a Page key with a modifier held calls nothing and is not prevented", async () => {
+  let calls = 0;
+  await withComposer(
+    {
+      onPage: () => {
+        calls++;
+        return true;
+      },
+    },
+    async (box) => {
+      for (const modifiers of [{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+        const held = Object.keys(modifiers).join();
+        assert.equal(await press(box, "PageUp", modifiers), false, `Page Up with ${held} is not prevented`);
+        assert.equal(await press(box, "PageDown", modifiers), false, `Page Down with ${held} is not prevented`);
+      }
+      assert.equal(calls, 0);
+    },
+  );
+});
+
+test("/ in an empty box calls onFind, is prevented, and leaves the box empty", async () => {
+  let finds = 0;
+  await withComposer(
+    {
+      onFind: () => {
+        finds++;
+      },
+    },
+    async (box) => {
+      assert.equal(await press(box, "/"), true, "the slash is prevented");
+      assert.equal(finds, 1);
+      assert.equal(box.value, "");
+    },
+  );
+});
+
+test("/ with text in the box calls nothing and is not prevented", async () => {
+  let finds = 0;
+  await withComposer(
+    {
+      onFind: () => {
+        finds++;
+      },
+    },
+    async (box) => {
+      await type(box, "typed");
+      assert.equal(await press(box, "/"), false, "the slash is not prevented");
+      assert.equal(finds, 0);
+      assert.equal(box.value, "typed");
+    },
+  );
+});
+
+test("/ with a modifier held calls nothing and is not prevented", async () => {
+  let finds = 0;
+  await withComposer(
+    {
+      onFind: () => {
+        finds++;
+      },
+    },
+    async (box) => {
+      for (const modifiers of [{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+        const held = Object.keys(modifiers).join();
+        assert.equal(await press(box, "/", modifiers), false, `/ with ${held} is not prevented`);
+      }
+      assert.equal(finds, 0);
+    },
+  );
 });
 
 // The state cases: working queues the text, waiting answers, and any other state, known or not, replies.

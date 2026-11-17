@@ -65,10 +65,11 @@ export interface ComposerHandle {
 // Composer is the send box under the reader. Enter and the send button send the text once; Shift+Enter or Alt+Enter
 // puts a line break at the cursor instead. A send reports itself to onSending as it starts, and to onUnsent if it
 // rejects. A failed send keeps the draft and its prompt id and is never resent by the composer. Up in an empty box pulls
-// the newest queued text back. The queue draws above the box under one head that counts its rows, oldest first, each
-// message as its text: the conversation's waiting messages, then its held messages, then the messages this composer
-// sent while the conversation was working, except those the held set now carries under their prompt id. A canceled
-// message is tagged. Its edge and placeholder follow the conversation's state.
+// the newest queued text back. In an empty box with no modifier held, Page Up and Page Down go to onPage, and / goes to
+// onFind. The queue draws above the box under one head that counts its rows, oldest first, each message as its text:
+// the conversation's waiting messages, then its held messages, then the messages this composer sent while the
+// conversation was working, except those the held set now carries under their prompt id. A canceled message is tagged.
+// Its edge and placeholder follow the conversation's state.
 export function Composer(props: {
   label: string; // the row's label, named in the placeholder
   state: string; // the conversation's state: working, waiting, or any other
@@ -81,9 +82,24 @@ export function Composer(props: {
   held?: HeldMessage[]; // the row's held messages, oldest first, each drawn as a queued row; none drawn when absent
   onSending?: (entry: SentText) => void; // called as a send starts, before it is awaited
   onUnsent?: (promptId: string) => void; // called when a send rejects
+  onPage?: (direction: "up" | "down") => boolean; // an empty box's Page Up or Page Down; true prevents the key
+  onFind?: () => void; // an empty box's /; the key is always prevented, so no slash is typed
 }): JSX.Element {
-  const { label, state, send, pull, newPromptId, inputRef, register, queued = [], held = [], onSending, onUnsent } =
-    props;
+  const {
+    label,
+    state,
+    send,
+    pull,
+    newPromptId,
+    inputRef,
+    register,
+    queued = [],
+    held = [],
+    onSending,
+    onUnsent,
+    onPage,
+    onFind,
+  } = props;
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [local, setLocal] = useState<LocalQueued[]>([]);
@@ -184,6 +200,15 @@ export function Composer(props: {
     } else if (event.key === "ArrowUp" && text === "" && pull !== null) {
       event.preventDefault();
       void pullBack();
+    } else if (text === "" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      if ((event.key === "PageUp" || event.key === "PageDown") && onPage !== undefined) {
+        if (onPage(event.key === "PageUp" ? "up" : "down")) {
+          event.preventDefault();
+        }
+      } else if (event.key === "/" && onFind !== undefined) {
+        event.preventDefault();
+        onFind();
+      }
     }
   }
 
