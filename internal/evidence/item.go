@@ -11,16 +11,19 @@ import (
 	"time"
 )
 
-// Kind is how an item shows its evidence: a test, a capture or supplied files. An item stored before kinds is
-// kindless, the empty Kind.
+// Kind is how an item shows its evidence: a test, a capture, supplied files or a closure. An item stored before kinds
+// is kindless, the empty Kind.
 type Kind string
 
 // The kinds an item may state. A test runs a capture beside the test files it lists in Tests, a capture runs a capture
-// alone, and supplied evidence is files a person supplies.
+// alone, supplied evidence is files a person supplies, and a closure is a correction-round task's evidence.
 const (
 	KindTest     Kind = "test"
 	KindCapture  Kind = "capture"
 	KindSupplied Kind = "supplied"
+	// KindClosure is a correction-round task's evidence: a closure item has no capture, runs no red and no green, and
+	// the round's closure check settles it. Only CheckTask accepts it; Check refuses it.
+	KindClosure Kind = "closure"
 )
 
 // Item is the evidence a Requirement or task names: the capture a run executes, the limit it runs under in seconds,
@@ -76,12 +79,48 @@ func Check(item Item) []string {
 	return lines
 }
 
-// kindLines returns the refusal of the kind field: no kind, a kind that is none of the three, or a kind whose field
-// the item lacks.
+// CheckTask returns one line per refusal of item as a task's evidence, and nil when it is well formed. It is Check for
+// every kind but closure. A closure item is well formed when its conclusion is not blank and it sets no capture, limit,
+// artifacts, supplied files, tests or judge; otherwise it gets one line per field it breaks, the conclusion line when
+// the conclusion is blank.
+func CheckTask(item Item) []string {
+	if item.Kind != KindClosure {
+		return Check(item)
+	}
+	var lines []string
+	if len(item.Capture) > 0 {
+		lines = append(lines, "capture: set on a closure item")
+	}
+	if item.Limit != 0 {
+		lines = append(lines, "limit: set on a closure item")
+	}
+	if len(item.Artifacts) > 0 {
+		lines = append(lines, "artifacts: set on a closure item")
+	}
+	if len(item.Supplied) > 0 {
+		lines = append(lines, "supplied: set on a closure item")
+	}
+	if strings.TrimSpace(item.Conclusion) == "" {
+		lines = append(lines, "conclusion: empty or blank")
+	}
+	if item.Judge != "" {
+		lines = append(lines, "judge: set on a closure item; the round's closure check settles it")
+	}
+	if len(item.Tests) > 0 {
+		lines = append(lines, "tests: set on a closure item")
+	}
+	return lines
+}
+
+// kindLines returns the refusal of the kind field: no kind, a closure kind, a kind that is none of the three, or a kind
+// whose field the item lacks.
 func kindLines(item Item) []string {
 	switch item.Kind {
 	case "":
 		return []string{"kind: none, name test, capture or supplied"}
+	case KindClosure:
+		return []string{"kind: closure is for a task in a correction round only; " +
+			"a Requirement's or an amendment's item is test, capture or supplied"}
 	case KindTest:
 		if len(item.Capture) == 0 {
 			return []string{"kind: test without a capture"}
@@ -210,4 +249,15 @@ func inGitDir(file string) bool {
 		}
 	}
 	return false
+}
+
+// TestFile reports whether file names a test file: a Go _test.go, a web .test.ts or .test.tsx, or a Kotlin .kt file
+// under android/app/src/test/.
+func TestFile(file string) bool {
+	for _, suffix := range []string{"_test.go", ".test.ts", ".test.tsx"} {
+		if strings.HasSuffix(file, suffix) {
+			return true
+		}
+	}
+	return strings.HasPrefix(file, "android/app/src/test/") && strings.HasSuffix(file, ".kt")
 }
