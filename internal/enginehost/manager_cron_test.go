@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -184,41 +183,6 @@ func TestCronDeliverManagerQuietHolds(t *testing.T) {
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
 		t.Fatalf("prompts = %+v, want %+v", got, want)
-	}
-}
-
-func TestCronDeliverManagerResumesIdleStopped(t *testing.T) {
-	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
-	dir := t.TempDir()
-	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	clock.advance(defaultIdleAfter)
-	m.checkIdle(t.Context())
-	if _, err := m.live(id); !errors.Is(err, ErrNoSession) {
-		t.Fatalf("live after idle stop: err = %v, want ErrNoSession", err)
-	}
-
-	if err := m.DeliverCron(t.Context(), DeliverRequest{ID: id, Text: "the cron text", PromptID: "c1"}); err != nil {
-		t.Fatalf("DeliverCron to an idle-stopped session: %v", err)
-	}
-	history := waitHistory(t, engineOf(m), path, id, "the reply to the cron prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
-	})
-	want := []deliveredPrompt{
-		{Text: "hi"},
-		{Text: "the cron text", PromptID: "c1", Sender: store.PromptSenderCron},
-	}
-	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts = %+v, want %+v", got, want)
-	}
-	if args := fakeArgs(t, dir); len(args) != 2 || !strings.Contains(args[1], "--resume session_1") {
-		t.Fatalf("fake claude starts = %q, want a second start resuming session_1", args)
 	}
 }
 

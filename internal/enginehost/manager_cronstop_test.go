@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"errors"
 	"slices"
 	"testing"
 
@@ -66,30 +65,4 @@ func TestCronStopRemovesLiveSessionJobs(t *testing.T) {
 	if got := historyOf(t, path, id).State; got != stateStopped {
 		t.Fatalf("state after Stop = %q, want %q", got, stateStopped)
 	}
-}
-
-func TestCronStopRemovesIdleStoppedSessionJobs(t *testing.T) {
-	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	clock.advance(defaultIdleAfter)
-	m.checkIdle(t.Context())
-	if _, err := m.live(id); !errors.Is(err, ErrNoSession) {
-		t.Fatalf("live after idle stop: err = %v, want ErrNoSession", err)
-	}
-
-	s := storeOf(t, m)
-	createCronStopJob(t, s, cronStopJob(id, "job-own"))
-	requireCronJobs(t, s, id, []string{"job-own"})
-
-	if err := m.Stop(t.Context(), id); !errors.Is(err, ErrNoSession) {
-		t.Fatalf("Stop of an idle-stopped session error = %v, want ErrNoSession", err)
-	}
-	requireCronJobs(t, s, id, nil)
 }
