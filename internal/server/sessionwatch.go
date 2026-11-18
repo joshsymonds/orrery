@@ -117,11 +117,13 @@ type sessionWatch struct {
 	request *orreryv1.OpenRequest
 	// interruptSeq is the seq of the newest engine_interrupt the stream has read, and interruptTurning is whether that
 	// record says a turn ran. turnEndSeq is the seq of the newest engine_turn_ended, and ownerPromptSeq the seq of the
-	// newest engine_prompt whose sender is the owner. A seq of 0 means the stream has read no such event.
+	// newest engine_prompt whose sender is the owner. leaveSeq is the seq of the newest engine_changed whose fields set
+	// state to a value other than working. A seq of 0 means the stream has read no such event.
 	interruptSeq     int64
 	interruptTurning bool
 	turnEndSeq       int64
 	ownerPromptSeq   int64
+	leaveSeq         int64
 	// now is the clock the background window is read against. tasks holds each background task the stream has folded, by
 	// task id, and taskOrder holds the same tasks in the order the stream first saw them (see foldTask).
 	now       func() time.Time
@@ -259,9 +261,12 @@ func (w *sessionWatch) waitsLabel(holds bool) string {
 }
 
 // interrupting reports whether the owner's Interrupt of the session is recorded and its turn still runs: the state is
-// working, the newest engine_interrupt has turning set, and no engine_turn_ended follows it.
+// working, the newest engine_interrupt has turning set, and neither an engine_turn_ended nor an engine_changed that
+// leaves working follows it. A session that left working after the interrupt does not read interrupting when it
+// returns to working.
 func (w *sessionWatch) interrupting(state string) bool {
-	return state == string(protocol.StateWorking) && w.interruptTurning && w.turnEndSeq < w.interruptSeq
+	return state == string(protocol.StateWorking) && w.interruptTurning &&
+		w.turnEndSeq < w.interruptSeq && w.leaveSeq < w.interruptSeq
 }
 
 // backgroundWindow is how many seconds an ended background task stays in the state after its end, either side of the
@@ -490,9 +495,9 @@ func (w *sessionWatch) collect(
 }
 
 // track records what an event sets for the stream: the origin, from the session's first prompt; the request, from each
-// unrefused request; the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended and
-// owner prompt; and the background task, from each engine_task (see foldTask). item and ok are sessionItem's result for
-// event. It returns the decode error of a request, interrupt or task.
+// unrefused request; the seqs that interrupting and pending read, from each engine_interrupt, engine_turn_ended, owner
+// prompt and engine_changed that leaves working; and the background task, from each engine_task (see foldTask). item
+// and ok are sessionItem's result for event. It returns the decode error of a request, interrupt, state change or task.
 func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.ConversationItem, ok bool) error {
 	switch event.Kind {
 	case store.EventEnginePrompt:
@@ -505,6 +510,8 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 		}
 	case store.EventEngineTurnEnded:
 		w.turnEndSeq = event.Seq
+	case store.EventEngineChanged:
+		return w.trackChange(event)
 	case store.EventEngineInterrupt:
 		turning, err := sessionInterruptTurning(event.Payload)
 		if err != nil {
@@ -521,6 +528,19 @@ func (w *sessionWatch) track(event store.EngineEvent, item *orreryv1.Conversatio
 		}
 	case store.EventEngineTask:
 		return w.foldTask(event)
+	}
+	return nil
+}
+
+// trackChange records the seq of an engine_changed whose fields set state to a value other than working, as leaveSeq.
+// It returns the decode error of the payload.
+func (w *sessionWatch) trackChange(event store.EngineEvent) error {
+	changed, err := engineChanged(event.Payload)
+	if err != nil {
+		return err
+	}
+	if changed.State != nil && *changed.State != string(protocol.StateWorking) {
+		w.leaveSeq = event.Seq
 	}
 	return nil
 }

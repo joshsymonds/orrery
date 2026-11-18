@@ -157,3 +157,53 @@ func TestSessionWatchInterruptMarkOtherTurnEndServesNoItem(t *testing.T) {
 		State:      &orreryv1.ConversationState{Session: engineSession("idle")},
 	})
 }
+
+// TestSessionWatchInterruptMarkStaysClearedAfterLeavingWorking records an interrupt that found a turn running, then the
+// session's move to stopped with no turn end, then its return to working. The first delta carries no mark.
+func TestSessionWatchInterruptMarkStaysClearedAfterLeavingWorking(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	addEngine(t, s)
+	applyEngineOps(t, s,
+		interruptMarkSetState("working"),
+		store.EngineInterrupt{ID: eventEngine, Turning: true},
+		interruptMarkSetState("stopped"),
+		interruptMarkSetState("working"),
+	)
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+
+	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
+	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
+		Transcript: eventEngine,
+		Seq:        5,
+		Reset_:     true,
+		State:      interruptMarkState("working", false),
+	})
+}
+
+// TestSessionWatchInterruptMarkReturnsOnNewInterrupt records the interrupt, the move to stopped and the return to
+// working of TestSessionWatchInterruptMarkStaysClearedAfterLeavingWorking, then a new owner interrupt that found a turn
+// running. The first delta carries the mark again, and the state stays working.
+func TestSessionWatchInterruptMarkReturnsOnNewInterrupt(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	addEngine(t, s)
+	applyEngineOps(t, s,
+		interruptMarkSetState("working"),
+		store.EngineInterrupt{ID: eventEngine, Turning: true},
+		interruptMarkSetState("stopped"),
+		interruptMarkSetState("working"),
+		store.EngineInterrupt{ID: eventEngine, Turning: true},
+	)
+	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), nil, 0))
+
+	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
+	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
+		Transcript: eventEngine,
+		Seq:        6,
+		Reset_:     true,
+		State:      interruptMarkState("working", true),
+	})
+}
