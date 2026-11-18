@@ -11,3 +11,4 @@ coverage.cov.out
 .golangci-cache/
 web/node_modules/
 web/build/
+web/src/catalog/registry.gen.ts

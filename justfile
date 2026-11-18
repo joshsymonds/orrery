@@ -200,6 +200,7 @@ bump-nix $ref="nixpkgs-unstable":
 # dependencies come from the web/node_modules the devenv shell links from nix.
 [script]
 web-check:
+    scripts/gen-stories.sh
     tsc --noEmit -p web
     rm -rf web/build
     tests=$(find web/src \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
@@ -223,6 +224,32 @@ web-check:
 # bundle command, which the flake calls too.
 web-page:
     scripts/build-web.sh web/build/page
+
+# Build the story catalog into web/build/catalog: the registry of every *.stories.tsx, the index page, and the bundle of
+# the catalog's main.tsx with the stylesheet. scripts/gen-stories.sh writes the registry first. The catalog recipes run
+# this one first.
+[script]
+_catalog-build:
+    scripts/gen-stories.sh
+    rm -rf web/build/catalog
+    mkdir -p web/build/catalog
+    cp web/src/catalog/index.html web/build/catalog/index.html
+    esbuild web/src/catalog/main.tsx web/src/style.css --bundle --format=esm --outdir=web/build/catalog "--entry-names=[name]" "--loader:.ttf=file" "--asset-names=[name]" --log-level=warning
+
+# Serve the story catalog at HOST:PORT and rebuild it on each edit. The index lists every story and frames the one the hash
+# names at 1600, 1000 and 412 wide. A story's own address, ?story=<name>, draws it alone. Open the address it serves.
+catalog HOST="127.0.0.1" PORT="8123": _catalog-build
+    esbuild web/src/catalog/main.tsx web/src/style.css --bundle --format=esm --outdir=web/build/catalog "--entry-names=[name]" "--loader:.ttf=file" "--asset-names=[name]" --log-level=warning --watch --serve={{HOST}}:{{PORT}} --servedir=web/build/catalog
+
+# Write a screenshot of each named story of the catalog at each --width, into web/build/shots/<component>/<state>-<width>.png,
+# with motion frozen. A NAME is component/state, or a bare component for all its states; without --width the width is
+# 1600. An unknown name, or no name, fails with exit 1. It runs under the visual devenv profile, which carries the Chromium
+# that playwright-core drives. The driver is web/src/shoot/shoot.ts.
+[positional-arguments]
+[script("devenv", "--profile", "visual", "shell", "--", "bash", "-euo", "pipefail")]
+shoot *ARGS: _catalog-build
+    esbuild web/src/shoot/shoot.ts --bundle --platform=node --format=esm --external:playwright-core --outfile=web/build/shoot-tool/shoot.mjs --log-level=warning
+    node web/build/shoot-tool/shoot.mjs web/build/catalog "$@"
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first. cover's test-budget lines are
 # printed again last: a gate keeps only the tail of its output, and the checks after cover print far more than it keeps.
