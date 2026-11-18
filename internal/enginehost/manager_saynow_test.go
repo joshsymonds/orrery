@@ -28,16 +28,9 @@ func isInterrupt(line string) bool {
 	return strings.Contains(line, `"subtype":"interrupt"`)
 }
 
-// assertWrittenNotHeld checks, as a Say returns, that session id holds no message and has the prompt promptID written.
-func assertWrittenNotHeld(t *testing.T, m *Manager, id, promptID string) {
+// assertWritten checks, as a Say returns, that session id has the prompt promptID written.
+func assertWritten(t *testing.T, m *Manager, id, promptID string) {
 	t.Helper()
-	held, err := storeOf(t, m).HeldPrompts(t.Context(), id)
-	if err != nil {
-		t.Fatalf("HeldPrompts: %v", err)
-	}
-	if len(held) != 0 {
-		t.Fatalf("held messages after the Say = %+v, want none", held)
-	}
 	sent, err := storeOf(t, m).EnginePromptSent(t.Context(), id, promptID)
 	if err != nil {
 		t.Fatalf("EnginePromptSent: %v", err)

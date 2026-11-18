@@ -71,7 +71,7 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "hello", PromptID: "p-hello"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	assertWrittenNotHeld(t, m, id, "p-hello")
+	assertWritten(t, m, id, "p-hello")
 	waitHistory(t, engineOf(m), path, id, "the Say's answer", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 2 && h.State == "done"
 	})
@@ -112,7 +112,7 @@ func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "hello", PromptID: "p-hello"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	assertWrittenNotHeld(t, m, id, "p-hello")
+	assertWritten(t, m, id, "p-hello")
 	waitUntil(t, engineOf(m), "the fake to read the Say", func() bool { return stdinLinesWith(t, dir, "hello") > 0 })
 	if got := promptTexts(t, path, id); !slices.Equal(got, []string{"SUBAGENTSELF", "hello"}) {
 		t.Fatalf("prompts = %q, want [SUBAGENTSELF hello]", got)

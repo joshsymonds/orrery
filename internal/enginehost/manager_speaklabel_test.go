@@ -28,7 +28,7 @@ func TestSpeakLabelSayWrittenAtOnceStoresOwnerSender(t *testing.T) {
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "owner words", PromptID: "p-owner"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	assertWrittenNotHeld(t, m, id, "p-owner")
+	assertWritten(t, m, id, "p-owner")
 	history := waitHistory(t, engineOf(m), path, id, "the owner's answer", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 2 && h.State == "done"
 	})

@@ -83,7 +83,7 @@ func (op EnginePromptsDiscard) applyEngine(ctx context.Context, queries *sqlcgen
 
 // PromptStates returns the prompts of the engine session id that have a lifecycle state, each with its newest state, in
 // the order they were sent. A prompt is matched to its engine_prompt event by write id, and a prompt with no state is
-// absent. It reads the writer's database, as HeldPrompts does.
+// absent. It reads the writer's database, as EnginePromptSent does.
 func (s *Store) PromptStates(ctx context.Context, id string) ([]PromptState, error) {
 	rows, err := sqlcgen.New(s.db).ListPromptStates(ctx, id)
 	if err != nil {
