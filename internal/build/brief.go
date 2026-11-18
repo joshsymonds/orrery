@@ -24,13 +24,13 @@ const redLogTailBytes = 8192
 
 // Brief renders the prompt of an implementer step for task T<seq> of epic: the task, the standing rules a commit is
 // rejected for, its Deliverable and files, with the rule for a file beyond them, its test changes and the guard's
-// rules, its gate with the command orreryd runs and what happens when it fails, its evidence, the Requirements it
-// covers, the epic's exclusions, the rules the epic's task-stage reviewers judge by, the red run's exit and verdict
-// with the end of its stdout log and, when redStderr is not empty, the end of its stderr log, the note from the
-// previous try when failure is set, and the closing instructions: continue from the worktree's earlier work, finish
-// every command before returning, run the Capture, commit on top of the start commit, and what each return status
-// means. The brief names no epic, turn or owner decision: the Deliverable carries every decision the implementer must
-// follow.
+// rules, its gate with the command orreryd runs and what happens when it fails, its evidence with the line on how the
+// evidence judge reads it, the Requirements it covers, the epic's exclusions, the rules the epic's task-stage
+// reviewers judge by, the red run's exit and verdict with the end of its stdout log and, when redStderr is not empty,
+// the end of its stderr log, the note from the previous try when failure is set, and the closing instructions:
+// continue from the worktree's earlier work, finish every command before returning, run the Capture, commit on top of
+// the start commit, and what each return status means. The brief names no epic, turn or owner decision: the
+// Deliverable carries every decision the implementer must follow.
 func Brief(
 	epic store.EpicRow, task store.EpicTask, gate gates.Gate, red store.EvidenceRun, redLog, redStderr []byte,
 	failure string,
@@ -208,12 +208,22 @@ func requirementLines(declared []store.EpicRequirement, ids []string) []string {
 }
 
 // evidenceLines renders the conclusion of a task's evidence item, then the capture it runs or the files a person
-// supplies in its place.
+// supplies in its place, then the line on how the evidence judge reads that capture's output or those files.
 func evidenceLines(item evidence.Item) []string {
 	if len(item.Capture) > 0 {
-		return []string{"Evidence: " + item.Conclusion, "Capture: " + shellWords(item.Capture)}
+		return []string{
+			"Evidence: " + item.Conclusion,
+			"Capture: " + shellWords(item.Capture),
+			"The evidence judge reads only the Capture's exit and output, strictly: every clause of Evidence must be " +
+				"visibly shown there, such as a named test the -v output shows passing.",
+		}
 	}
-	return []string{"Evidence: " + item.Conclusion, "Supplied: " + strings.Join(item.Supplied, ", ")}
+	return []string{
+		"Evidence: " + item.Conclusion,
+		"Supplied: " + strings.Join(item.Supplied, ", "),
+		"The evidence judge reads only the Supplied files, strictly: every clause of Evidence must be visibly shown " +
+			"in them.",
+	}
 }
 
 // logTail returns the last redLogTailBytes bytes of log, or all of log when it is shorter.

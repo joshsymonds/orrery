@@ -132,6 +132,8 @@ func TestBriefRendersEverySectionInOrder(t *testing.T) {
 		briefGuardAndGate +
 		"Evidence: the brief renders\n" +
 		"Capture: scripts/in-devenv -c 'go test -run Brief ./internal/build/'\n" +
+		"The evidence judge reads only the Capture's exit and output, strictly: every clause of Evidence must be " +
+		"visibly shown there, such as a named test the -v output shows passing.\n" +
 		"Requirements:\n" +
 		"- R3: three\n" +
 		"- R1: one\n" +
@@ -176,6 +178,8 @@ func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) 
 		briefGuardAndGate +
 		"Evidence: the brief renders\n" +
 		"Supplied: a/one.txt, b/two.txt\n" +
+		"The evidence judge reads only the Supplied files, strictly: every clause of Evidence must be visibly shown " +
+		"in them.\n" +
 		"Requirements:\n" +
 		"- none\n" +
 		"Exclusions:\n" +
@@ -190,6 +194,41 @@ func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) 
 	if rest := briefRest(t, got); rest != want {
 		t.Fatalf("brief\n got:\n%s\nwant:\n%s", rest, want)
 	}
+}
+
+// TestBriefEvidenceShown: the brief says how its Evidence is judged, beside the Evidence line: a capture item's brief
+// holds the line on the capture, and a supplied item's brief holds the line on the supplied files.
+func TestBriefEvidenceShown(t *testing.T) {
+	t.Parallel()
+	t.Run("the brief says how its Evidence is judged", func(t *testing.T) {
+		t.Parallel()
+		supplied := briefTask()
+		supplied.Evidence = evidence.Item{Supplied: []string{"a/one.txt"}, Conclusion: "the brief renders"}
+		cases := []struct {
+			name string
+			task store.EpicTask
+			want string
+		}{
+			{
+				name: "capture item",
+				task: briefTask(),
+				want: "The evidence judge reads only the Capture's exit and output, strictly: every clause of " +
+					"Evidence must be visibly shown there, such as a named test the -v output shows passing.",
+			},
+			{
+				name: "supplied item",
+				task: supplied,
+				want: "The evidence judge reads only the Supplied files, strictly: every clause of Evidence must be " +
+					"visibly shown in them.",
+			},
+		}
+		for _, tc := range cases {
+			got := Brief(briefEpic(), tc.task, briefGate(), store.EvidenceRun{}, nil, nil, "")
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("%s: brief lacks %q; brief:\n%s", tc.name, tc.want, got)
+			}
+		}
+	})
 }
 
 func TestBriefShellWordsQuoteOnlyWhatAShellWouldSplit(t *testing.T) {
