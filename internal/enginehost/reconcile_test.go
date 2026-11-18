@@ -212,6 +212,10 @@ func (f failingStore) PromptWrite(context.Context, string, string) (store.Prompt
 	return store.PromptWrite{}, false, f.err
 }
 
+func (f failingStore) PromptsOfWrites(context.Context, string, []string) ([]store.WritePrompt, error) {
+	return nil, f.err
+}
+
 func (f failingStore) HolderPrompts(context.Context, string) ([]store.HolderPrompt, error) {
 	return nil, f.err
 }

@@ -441,6 +441,26 @@ func TestFakeClaudeQueueLifecyclePlainInterrupt(t *testing.T) {
 	}
 }
 
+// TestFakeClaudeQueueLifecycleIdleCancelQueued checks that an interrupt read while no turn runs answers an interrupt with
+// cancel_queued under its request id with an empty list, and that a plain interrupt answers nothing. Each run ends with a
+// prompt, so the trace shows what the interrupt wrote before that prompt's lines and nothing after the interrupt's.
+func TestFakeClaudeQueueLifecycleIdleCancelQueued(t *testing.T) {
+	t.Parallel()
+	prompt := queuedLine("queue-a", "plain one")
+	want := []string{
+		"queued queue-a", "started queue-a", "completed queue-a", "result success is_error=false",
+	}
+	_, lines := fakeClaudeRun(t, interruptRequest("req-idle", true)+prompt)
+	wantCancel := append([]string{`control req-idle {"still_queued":[],"cancelled":[]}`}, want...)
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, wantCancel) {
+		t.Fatalf("trace after an idle cancel_queued interrupt = %q, want %q", got, wantCancel)
+	}
+	_, lines = fakeClaudeRun(t, interruptRequest("req-idle", false)+prompt)
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace after an idle plain interrupt = %q, want %q", got, want)
+	}
+}
+
 // TestFakeClaudeQueueLifecycleEndsWithLineQueued checks that a DIEQUEUED prompt reads the line after it while its turn
 // runs, which queues that line and never starts it, and that the fake then exits on its own, so the trace ends with the
 // queued line and nothing after it.

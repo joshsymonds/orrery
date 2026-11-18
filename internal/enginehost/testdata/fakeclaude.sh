@@ -56,7 +56,8 @@
 # uuid it answers, just before its result. A cancel_async_message request cancels a queued line, writing cancelled
 # before {"cancelled":true}; for any other line it answers {"cancelled":false} and writes nothing. An interrupt with
 # cancel_queued cancels every queued line, answers with the list, ends the turn with its error result, then cancels the
-# opening line. A plain interrupt writes no lifecycle line.
+# opening line. A plain interrupt writes no lifecycle line. An interrupt with cancel_queued that is read while no turn runs
+# answers with an empty list, {"still_queued":[],"cancelled":[]}, and writes nothing else; a plain one writes nothing.
 # DIEQUEUED streams a text block and reads the next line from stdin while its turn runs, which queues that line. It then
 # exits with status 0 without starting the line, so the process ends on its own with the line still queued (diequeued).
 #
@@ -799,5 +800,11 @@ while next; do
 			esac
 			;;
 		*'"cancel_async_message"'*) cancel_async ;;
+		*'"subtype":"interrupt"'*)
+			# No turn runs, so an interrupt has no turn to end and no queue to cancel: only cancel_queued is answered.
+			case $line in
+				*'"cancel_queued":true'*) control_success '{"still_queued":[],"cancelled":[]}' ;;
+			esac
+			;;
 	esac
 done

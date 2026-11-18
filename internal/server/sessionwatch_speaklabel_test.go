@@ -105,7 +105,7 @@ func TestSpeakLabelOwnerSayEndsWaitsSpeak(t *testing.T) {
 	stream := openSessionStream(t, client, sessionReq(id, 0, 0))
 	wantPendingEvents(t, stream.next(t), speakPending(cardFree))
 
-	if err = m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	wantPendingEvents(t, stream.nextDelta(t), speakPending(cardSpeak))

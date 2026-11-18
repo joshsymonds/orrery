@@ -61,8 +61,7 @@ var ErrUnknownPrompt = errors.New("no owner prompt of the session has that promp
 // and delivers once more.
 var errSessionEnded = errors.New("session ended before the message was delivered")
 
-// ErrSessionBusy reports a Deliver to a live session that has a turn running, a request open, a background task or a
-// hand-off. Deliver stores and sends nothing for it.
+// ErrSessionBusy reports a Deliver to a live session that has a request open. Deliver stores and sends nothing for it.
 var ErrSessionBusy = errors.New("session is busy")
 
 // ErrCallerStopped reports a Deliver to a session whose row is stopped, as the owner's Stop leaves it. Deliver resumes
@@ -112,8 +111,9 @@ type NoticeSink interface {
 
 // Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
 // rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written and how many prompts were written
-// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, and the prompt
-// Withdraw names, by its prompt id, for its write id and text. *store.Store satisfies it.
+// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, the prompt
+// Withdraw names, by its prompt id, for its write id and text, and the prompts OwnerInterrupt reads for the texts of the
+// write ids Claude cancelled. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineTextSessions(ctx context.Context) (map[string]bool, error)
@@ -124,6 +124,7 @@ type Store interface {
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
 	PromptWrite(ctx context.Context, id, promptID string) (store.PromptWrite, bool, error)
+	PromptsOfWrites(ctx context.Context, id string, writeIDs []string) ([]store.WritePrompt, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -737,17 +738,18 @@ type DeliverRequest struct {
 	PromptID string
 }
 
-// Deliver sends req.Text to the headless session req.ID as its next prompt, stored with the sender event and
-// req.PromptID. Unlike Say, it never answers, denies or declines a request the session has open. A live session that
-// is busy, with a turn running, a request open, a background task or a hand-off, returns ErrSessionBusy and stores and
-// sends nothing, so the caller delivers the text once the session is not busy. A live session that the owner
-// interrupted and has said nothing to since returns ErrCallerQuiet and stores and sends nothing, so the caller delivers
-// the text once the owner has spoken. A session that is not live is resumed from its row, as Say resumes one, unless its
-// row is stopped, which returns ErrCallerStopped, or the owner interrupted it and has said nothing to it since, as when
-// the idle check stopped it after his Interrupt, which returns ErrCallerQuiet and resumes nothing. A step session returns
-// an error naming it. A non-empty req.PromptID that an engine_prompt of the session already carries makes Deliver
-// return nil and do nothing else, also after a restart. It returns ErrEmptyPrompt for empty text. A non-empty
-// req.PromptID runs as one attempt per session and prompt id, as Say's does (see keyed).
+// Deliver sends req.Text to the headless session req.ID as its next prompt at once, stored with the sender event and
+// req.PromptID. Whatever the session is doing takes it: a turn running, whoever started it, a background task listed,
+// or an idle session. Unlike Say, it never answers, denies or declines a request the session has open. A live session
+// that has a request open returns ErrSessionBusy and stores and sends nothing, so the caller delivers the text once the
+// request is answered. A live session that the owner interrupted and has said nothing to since returns ErrCallerQuiet
+// and stores and sends nothing, so the caller delivers the text once the owner has spoken. A session that is not live is
+// resumed from its row, as Say resumes one, unless its row is stopped, which returns ErrCallerStopped, or the owner
+// interrupted it and has said nothing to it since, as when the idle check stopped it after his Interrupt, which returns
+// ErrCallerQuiet and resumes nothing. A step session returns an error naming it. A non-empty req.PromptID that an
+// engine_prompt of the session already carries makes Deliver return nil and do nothing else, also after a restart. It
+// returns ErrEmptyPrompt for empty text. A non-empty req.PromptID runs as one attempt per session and prompt id, as
+// Say's does (see keyed).
 func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 	defer m.calls.enter()()
 	if req.Text == "" {
@@ -777,22 +779,21 @@ func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 	return err
 }
 
-// deliverEvent sends req as Deliver does, without the check of its prompt id. The session is claimed only when it is
-// not busy and not quiet, and a session that is not live is resumed from its row first, so a busy, stopped or quiet
-// session is left as it is.
+// deliverEvent sends req as Deliver does, without the check of its prompt id. The event is claimed and written at once (see
+// claimFree), and a session that is not live is resumed from its row first, so a session with a request open or quiet
+// from the owner's interrupt is left as it is.
 func (m *Manager) deliverEvent(ctx context.Context, req DeliverRequest) error {
-	live, err := m.claimFree(req.ID)
+	message := store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderEvent}
+	send, err := m.claimFree(ctx, req.ID, message)
 	if errors.Is(err, ErrNoSession) {
 		if _, err = m.resumeSession(ctx, req.ID, m.admitEvent); err == nil {
-			live, err = m.claimFree(req.ID)
+			send, err = m.claimFree(ctx, req.ID, message)
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("deliver to session %s: %w", req.ID, err)
 	}
-	return m.send(ctx, live, store.EnginePrompt{
-		ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderEvent,
-	})
+	return send()
 }
 
 // admitEvent returns ErrCallerStopped for a row the owner's Stop recorded stopped, and ErrCallerQuiet for a session the
@@ -810,31 +811,47 @@ func (m *Manager) admitEvent(row store.EngineRow) error {
 	return nil
 }
 
-// claimFree returns the live session id with its turn marked running, started by a caller event, and a send begun, as
-// markSending does, but only while the session is not busy and not quiet. The check and the claim are one step under the
-// lock, so a delivery that claims the session leaves every other delivery to find it busy. It returns ErrNoSession when no
-// session with that id is live, or when it is closing or its exit is recorded, ErrSessionBusy when it is busy,
+// claimFree returns the send that writes message, a caller event, to the live session id at once as its next prompt. The
+// check is made under the session's order lock, as decide makes a Say's, so it is made against the turn as the pump leaves
+// it. A turn running, whoever started it, and a background task listed do not refuse. The send is begun by markSending
+// and ends in sendSay, which restores whether a turn ran when its record fails. It returns ErrNoSession when no session
+// with that id is live, or when it is closing or its exit is recorded, ErrSessionBusy when a request is open,
 // ErrCallerQuiet when the owner's Interrupt left it quiet, and an error naming it when it is a step.
-func (m *Manager) claimFree(id string) (*liveSession, error) {
+func (m *Manager) claimFree(ctx context.Context, id string, message store.EnginePrompt) (func() error, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	live, ok := m.sessions[id]
-	if !ok || live.closing || live.exited {
+	m.mu.Unlock()
+	if !ok {
 		return nil, ErrNoSession
 	}
+	live.order.Lock()
+	defer live.order.Unlock()
+	if err := m.eventRefusal(live); err != nil {
+		return nil, err
+	}
+	wasTurning := m.markSending(live)
+	return func() error { return m.sendSay(ctx, live, message, wasTurning) }, nil
+}
+
+// eventRefusal returns the error that refuses live a caller event, or nil when it takes one: ErrNoSession when live is no
+// longer the session the manager runs, or is closing or exited, an error naming it when it is a step, ErrSessionBusy when a
+// request is open, and ErrCallerQuiet when the owner's Interrupt left it quiet.
+func (m *Manager) eventRefusal(live *liveSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessions[live.id] != live || live.closing || live.exited {
+		return ErrNoSession
+	}
 	if live.step {
-		return nil, fmt.Errorf("session %s is a step session, which takes no event", id)
+		return fmt.Errorf("session %s is a step session, which takes no event", live.id)
 	}
-	if live.busy() {
-		return nil, ErrSessionBusy
+	if len(live.requests) > 0 {
+		return ErrSessionBusy
 	}
-	if _, quiet := m.quiet[id]; quiet {
-		return nil, ErrCallerQuiet
+	if _, quiet := m.quiet[live.id]; quiet {
+		return ErrCallerQuiet
 	}
-	live.turning = true
-	live.sending++
-	m.updateIdleLocked(live)
-	return live, nil
+	return nil
 }
 
 // send records prompt as the next prompt of live, with the working state and the ops with it, in one write, and then sends
@@ -1113,30 +1130,61 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 	m.mu.Lock()
 	m.quiet[id] = struct{}{}
 	m.mu.Unlock()
-	return m.interruptLive(ctx, live)
+	return m.interruptLive(ctx, live, live.sess.Interrupt)
 }
 
-// OwnerInterrupt is the owner's Interrupt of the live session id (see Interrupt), which also records it. The quiet is
-// set, and the interrupt is recorded as an engine_interrupt that says whether a turn runs (see recordOwnerInterrupt). A
-// turn that runs is then marked as the owner's, so its end is recorded as ownerInterrupted. When the interrupt fails, it
-// is recorded as not turning, and the quiet stays. It returns an error wrapping ErrNoSession when id is not live.
-func (m *Manager) OwnerInterrupt(ctx context.Context, id string) error {
+// OwnerInterrupt is the owner's Interrupt of the live session id (see Interrupt), which also records it, and cancels the
+// owner's messages Claude has queued. The quiet is set, and the interrupt is recorded as an engine_interrupt that says
+// whether a turn runs (see recordOwnerInterrupt). A turn that runs is then marked as the owner's, so its end is recorded as
+// ownerInterrupted. The interrupt asks Claude to cancel its queue as well (cancel_queued) and waits for Claude's reply,
+// which lists the write ids it cancelled. It returns the texts of the owner's prompts among them, in send order, so the
+// owner can take them back. A caller event's text is never among them. Nothing is stored for the cancellation: Claude's
+// cancelled lifecycle lines make each cancelled prompt answered (see the recorder). When the interrupt fails, it is
+// recorded as not turning, the quiet stays, and the error is returned. A failed read of the cancelled prompts returns its
+// error, though the interrupt was sent. It returns an error wrapping ErrNoSession when id is not live. The caller holds no
+// lock, since the reply reaches the wait through the session's reader.
+func (m *Manager) OwnerInterrupt(ctx context.Context, id string) ([]string, error) {
 	defer m.calls.enter()()
 	live, err := m.live(id)
 	if err != nil {
-		return fmt.Errorf("interrupt session %s: %w", id, err)
+		return nil, fmt.Errorf("interrupt session %s: %w", id, err)
 	}
 	m.mu.Lock()
 	m.quiet[id] = struct{}{}
 	m.mu.Unlock()
 	if err = m.recordOwnerInterrupt(ctx, live); err != nil {
-		return fmt.Errorf("interrupt session %s: %w", id, err)
+		return nil, fmt.Errorf("interrupt session %s: %w", id, err)
 	}
-	if err = m.interruptLive(ctx, live); err != nil {
+	var cancelled []string
+	err = m.interruptLive(ctx, live, func() error {
+		var sendErr error
+		cancelled, sendErr = live.sess.InterruptCancelQueued(ctx)
+		if sendErr != nil {
+			return fmt.Errorf("send interrupt: %w", sendErr)
+		}
+		return nil
+	})
+	if err != nil {
 		m.recordFailedInterrupt(ctx, live)
-		return err
+		return nil, err
 	}
-	return nil
+	return m.ownerTexts(ctx, id, cancelled)
+}
+
+// ownerTexts returns the texts of the owner's prompts of session id among the write ids cancelled, in the order they were
+// sent. A caller event's prompt is left out. It returns no texts when no write id is one of those prompts.
+func (m *Manager) ownerTexts(ctx context.Context, id string, cancelled []string) ([]string, error) {
+	prompts, err := m.store.PromptsOfWrites(ctx, id, cancelled)
+	if err != nil {
+		return nil, fmt.Errorf("read the cancelled prompts of session %s: %w", id, err)
+	}
+	var texts []string
+	for _, prompt := range prompts {
+		if prompt.Sender == store.PromptSenderOwner {
+			texts = append(texts, prompt.Text)
+		}
+	}
+	return texts, nil
 }
 
 // recordOwnerInterrupt stores the owner's interrupt of live as engine_interrupt, whose turning is whether a turn runs.
@@ -1174,9 +1222,10 @@ func (m *Manager) recordFailedInterrupt(ctx context.Context, live *liveSession) 
 	}
 }
 
-// interruptLive denies each request live has open, marks its running turn interrupted and sends the interrupt.
-// Interrupt and OwnerInterrupt both send through it. The caller holds no lock.
-func (m *Manager) interruptLive(ctx context.Context, live *liveSession) error {
+// interruptLive denies each request live has open, marks its running turn interrupted and sends the interrupt through send.
+// Interrupt sends a plain interrupt and OwnerInterrupt one that cancels the queue; both share this. The caller holds no
+// lock, since send may wait for Claude's reply.
+func (m *Manager) interruptLive(ctx context.Context, live *liveSession, send func() error) error {
 	if err := m.declineOpen(context.WithoutCancel(ctx), live); err != nil {
 		return fmt.Errorf("interrupt session %s: %w", live.id, err)
 	}
@@ -1184,7 +1233,7 @@ func (m *Manager) interruptLive(ctx context.Context, live *liveSession) error {
 	if m.interruptWritten != nil {
 		m.interruptWritten(live.id)
 	}
-	if err := live.sess.Interrupt(); err != nil {
+	if err := send(); err != nil {
 		m.setInterrupting(live, false)
 		return fmt.Errorf("interrupt session %s: %w", live.id, err)
 	}

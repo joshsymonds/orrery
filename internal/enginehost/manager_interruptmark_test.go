@@ -71,7 +71,7 @@ func TestInterruptMarkOwnerInterruptOfRunningTurn(t *testing.T) {
 
 	var pending store.EngineHistory
 	m.interruptWritten = func(string) { pending = historyOf(t, path, id) }
-	if err = m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	if got := interruptMarks(t, pending); !slices.Equal(got, []bool{true}) {
@@ -105,7 +105,7 @@ func TestInterruptMarkOwnerInterruptWithNoTurnRunning(t *testing.T) {
 		return turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
 	})
 
-	if err = m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	history := historyOf(t, path, id)
@@ -203,7 +203,7 @@ func TestInterruptMarkFailedInterruptStoresNotTurning(t *testing.T) {
 		}
 	}
 
-	if err = m.OwnerInterrupt(t.Context(), id); err == nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err == nil {
 		t.Fatal("OwnerInterrupt of a stopped session returned nil, want the send's error")
 	}
 	history := historyOf(t, path, id)

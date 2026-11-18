@@ -31,7 +31,7 @@ type Commands interface {
 	Start(ctx context.Context, req StartRequest) (string, error)
 	Say(ctx context.Context, req SayRequest) error
 	Answer(ctx context.Context, id, requestID, answer string) error
-	OwnerInterrupt(ctx context.Context, id string) error
+	OwnerInterrupt(ctx context.Context, id string) ([]string, error)
 	Stop(ctx context.Context, id string) error
 	Seen(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
@@ -207,10 +207,11 @@ func (s *service) Interrupt(
 	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
 		return nil, err
 	}
-	if err := s.commands.OwnerInterrupt(ctx, req.Msg.GetId()); err != nil {
+	texts, err := s.commands.OwnerInterrupt(ctx, req.Msg.GetId())
+	if err != nil {
 		return nil, commandError(err)
 	}
-	return connect.NewResponse(&v1.InterruptResponse{}), nil
+	return connect.NewResponse(&v1.InterruptResponse{Texts: texts}), nil
 }
 
 func (s *service) Stop(

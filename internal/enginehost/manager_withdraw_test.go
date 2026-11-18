@@ -103,7 +103,7 @@ func TestWithdrawQueuedTurnEndLeavesSessionDoneAndRunsNoWithdrawnLine(t *testing
 	if _, err := m.Withdraw(t.Context(), id, "p-held"); err != nil {
 		t.Fatalf("Withdraw: %v", err)
 	}
-	if err := m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err := m.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	history := waitHistory(t, engineOf(m), path, id, "the interrupted turn's end", func(h store.EngineHistory) bool {
@@ -128,7 +128,7 @@ func TestWithdrawQueuedReadoptedSessionOwesNoPrompt(t *testing.T) {
 	if _, err := rig.manager.Withdraw(t.Context(), id, "p-held"); err != nil {
 		t.Fatalf("Withdraw: %v", err)
 	}
-	if err := rig.manager.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err := rig.manager.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	waitHistory(t, engineOf(rig.manager), rig.path, id, "the interrupted turn's end", func(h store.EngineHistory) bool {
