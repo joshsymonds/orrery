@@ -22,12 +22,15 @@ var ImplementerSchema string
 // failure is.
 const redLogTailBytes = 8192
 
-// Brief renders the prompt of an implementer step for task T<seq> of epic: the task and its files, with the rule for
-// a file beyond them, its test changes and the guard's rules, its gate with the command orreryd runs and what happens
-// when it fails, its evidence, the Requirements it covers, the epic's exclusions and decisions, the rules the epic's
-// task-stage reviewers judge by, the red run's exit and verdict with the end of its stdout log and, when redStderr is
-// not empty, the end of its stderr log, the note from the previous try when failure is set, and the closing
-// instructions: continue from the worktree's earlier work, finish every command before returning, and commit.
+// Brief renders the prompt of an implementer step for task T<seq> of epic: the task, the standing rules a commit is
+// rejected for, its Deliverable and files, with the rule for a file beyond them, its test changes and the guard's
+// rules, its gate with the command orreryd runs and what happens when it fails, its evidence, the Requirements it
+// covers, the epic's exclusions, the rules the epic's task-stage reviewers judge by, the red run's exit and verdict
+// with the end of its stdout log and, when redStderr is not empty, the end of its stderr log, the note from the
+// previous try when failure is set, and the closing instructions: continue from the worktree's earlier work, finish
+// every command before returning, run the Capture, commit on top of the start commit, and what each return status
+// means. The brief names no epic, turn or owner decision: the Deliverable carries every decision the implementer must
+// follow.
 func Brief(
 	epic store.EpicRow, task store.EpicTask, gate gates.Gate, red store.EvidenceRun, redLog, redStderr []byte,
 	failure string,
@@ -42,6 +45,20 @@ func Brief(
 				task.Build.Base,
 			),
 			"Task: " + task.Title,
+		},
+		[]string{
+			"Standing rules a commit is rejected for:",
+		},
+		bullets([]string{
+			"changing anything the Deliverable does not ask for, including tidying, reformatting, or fixing code or " +
+				"tests that are already broken; this overrides any standing instruction to fix what you find",
+			"editing, renaming, or deleting an existing test the Deliverable does not name",
+			"a test that repeats an existing assertion or passes with the change removed",
+			"a real timer or clock in a test",
+			"an Evidence clause left unproved",
+			"dead code, an unhandled error, a skip, or a suppressed check",
+		}),
+		[]string{
 			"Deliverable: " + task.Deliverable,
 			"Change only these files:",
 		},
@@ -58,7 +75,7 @@ func Brief(
 				"file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file " +
 				"a capture runs.",
 			fmt.Sprintf("Gate: %s. After you return done, orreryd runs `%s` on your commit. Do not run the gate "+
-				"yourself. When it fails, orreryd sends you its output: fix the cause, amend your commit, and return "+
+				"yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, and return "+
 				"done again.", task.Gate, shellWords(gate.Argv)),
 		},
 		evidenceLines(task.Evidence),
@@ -66,8 +83,6 @@ func Brief(
 		requirementLines(epic.Requirements, task.Requirements),
 		[]string{"Exclusions:"},
 		bullets(epic.Exclusions),
-		[]string{"Decisions:"},
-		bullets(decisionTexts(epic)),
 		[]string{"After the gate passes, reviewers judge your commit by these rules:"},
 		bullets(reviewerRules(epic.Reviewers)),
 		[]string{
@@ -89,9 +104,15 @@ func Brief(
 			"`git log --oneline %s..HEAD` first, and continue from what is there.", task.Build.Base),
 		"Finish every command you start before you return: run nothing in the background and wait on no monitor. "+
 			"Ending your turn is your return.",
-		"Commit your work, then return status done with commit set to the full id of HEAD and a short summary. "+
-			"Return needs_context or blocked, with the reason in summary, when you cannot. When the work needs "+
-			"files beyond the owned list, return needs_context and name each one in needs_files.",
+		"Run the Capture, when Evidence names one, and wait for it to finish before committing.",
+		fmt.Sprintf("Commit your work on top of the start commit %s, never amend or rewrite a commit, then return "+
+			"status done with commit set to the full id of HEAD and a short summary.", task.Build.Base),
+		"needs_context means the work needs files or facts you do not have, named in needs_files or in summary. "+
+			"blocked means the task cannot be done as written. Return one of them, with the reason in summary, when "+
+			"you cannot finish.",
+		"A commit that changes a file outside the owned files is sent back: take that file out of the commit, or "+
+			"return needs_context naming it. When the work needs files beyond the owned list, return needs_context and "+
+			"name each one in needs_files.",
 	)
 	return strings.Join(lines, "\n")
 }
@@ -132,10 +153,10 @@ func shellWord(arg string) string {
 // plainShellChars are the characters a shell word may hold unquoted.
 const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-"
 
-// ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, its files and
-// Requirements, and the range the change under review spans from base to revision. The test_parsimony reviewer's prompt
-// ends with the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is
-// the zero check when the task has none.
+// ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, its files, its test
+// changes and Requirements, and the range the change under review spans from base to revision. The test_parsimony
+// reviewer's prompt ends with the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's
+// commit passed, which is the zero check when the task has none.
 func ReviewPrompt(
 	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
 ) string {
@@ -149,6 +170,8 @@ func ReviewPrompt(
 			"Files:",
 		},
 		bullets(task.Files),
+		[]string{"Test changes:"},
+		bullets(task.TestChanges),
 		[]string{"Requirements:"},
 		requirementLines(epic.Requirements, task.Requirements),
 		[]string{change},
@@ -182,18 +205,6 @@ func requirementLines(declared []store.EpicRequirement, ids []string) []string {
 		}
 	}
 	return bullets(items)
-}
-
-// decisionTexts returns the epic's decisions, then each turn's decisions in turn order.
-func decisionTexts(epic store.EpicRow) []string {
-	var texts []string
-	for _, decision := range epic.Decisions {
-		texts = append(texts, decision.Text)
-	}
-	for _, turn := range epic.Turns {
-		texts = append(texts, turn.Decisions...)
-	}
-	return texts
 }
 
 // evidenceLines renders the conclusion of a task's evidence item, then the capture it runs or the files a person

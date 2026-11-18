@@ -69,13 +69,23 @@ const briefRules = "Do not edit any other file. When the work needs a file that 
 	"needs_context with each such path in needs_files. orreryd gives you every path no other task owns and sends you " +
 	"back to this same worktree with your work kept.\n"
 
+// briefStanding is the standing rules block every brief gives, before the Deliverable.
+const briefStanding = "Standing rules a commit is rejected for:\n" +
+	"- changing anything the Deliverable does not ask for, including tidying, reformatting, or fixing code or tests " +
+	"that are already broken; this overrides any standing instruction to fix what you find\n" +
+	"- editing, renaming, or deleting an existing test the Deliverable does not name\n" +
+	"- a test that repeats an existing assertion or passes with the change removed\n" +
+	"- a real timer or clock in a test\n" +
+	"- an Evidence clause left unproved\n" +
+	"- dead code, an unhandled error, a skip, or a suppressed check\n"
+
 // briefGuardAndGate are the guard line and the gate line for briefGate.
 const briefGuardAndGate = "Outside those test changes, orreryd's guard refuses a commit that deletes or renames a guarded " +
 	"test file, removes a test present at the base, lowers a test's assertions, adds a skip, or changes a file a " +
 	"capture runs.\n" +
 	"Gate: check. After you return done, orreryd runs `scripts/in-devenv -c 'just remote just check'` on your commit. " +
-	"Do not run the gate yourself. When it fails, orreryd sends you its output: fix the cause, amend your commit, and " +
-	"return done again.\n"
+	"Do not run the gate yourself. When it fails, orreryd sends you its output: fix the cause, commit the fix on top, " +
+	"and return done again.\n"
 
 // briefClose is the closing of a brief for a task at base.
 func briefClose(base string) string {
@@ -83,9 +93,15 @@ func briefClose(base string) string {
 		"..HEAD` first, and continue from what is there.\n" +
 		"Finish every command you start before you return: run nothing in the background and wait on no monitor. " +
 		"Ending your turn is your return.\n" +
-		"Commit your work, then return status done with commit set to the full id of HEAD and a short summary. " +
-		"Return needs_context or blocked, with the reason in summary, when you cannot. When the work needs files " +
-		"beyond the owned list, return needs_context and name each one in needs_files."
+		"Run the Capture, when Evidence names one, and wait for it to finish before committing.\n" +
+		"Commit your work on top of the start commit " + base + ", never amend or rewrite a commit, then return status " +
+		"done with commit set to the full id of HEAD and a short summary.\n" +
+		"needs_context means the work needs files or facts you do not have, named in needs_files or in summary. " +
+		"blocked means the task cannot be done as written. Return one of them, with the reason in summary, when you " +
+		"cannot finish.\n" +
+		"A commit that changes a file outside the owned files is sent back: take that file out of the commit, or " +
+		"return needs_context naming it. When the work needs files beyond the owned list, return needs_context and " +
+		"name each one in needs_files."
 }
 
 func TestBriefRendersEverySectionInOrder(t *testing.T) {
@@ -94,6 +110,7 @@ func TestBriefRendersEverySectionInOrder(t *testing.T) {
 	got := Brief(briefEpic(), briefTask(), briefGate(), red, []byte("first line\nlast line\n"), nil, "boom")
 	want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
 		"Task: Render brief\n" +
+		briefStanding +
 		"Deliverable: brief.go\n" +
 		"Change only these files:\n" +
 		"- internal/build/brief.go\n" +
@@ -109,10 +126,6 @@ func TestBriefRendersEverySectionInOrder(t *testing.T) {
 		"- R1: one\n" +
 		"Exclusions:\n" +
 		"- no network\n" +
-		"Decisions:\n" +
-		"- use sqlite\n" +
-		"- keep it simple\n" +
-		"- split later\n" +
 		"After the gate passes, reviewers judge your commit by these rules:\n" +
 		"- floor must: tests use fakes\n" +
 		"- floor must not: a real sleep\n" +
@@ -143,6 +156,7 @@ func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) 
 	got := Brief(epic, task, briefGate(), red, nil, nil, "")
 	want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
 		"Task: Render brief\n" +
+		briefStanding +
 		"Deliverable: brief.go\n" +
 		"Change only these files:\n" +
 		"- none\n" +
@@ -155,8 +169,6 @@ func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) 
 		"Requirements:\n" +
 		"- none\n" +
 		"Exclusions:\n" +
-		"- none\n" +
-		"Decisions:\n" +
 		"- none\n" +
 		"After the gate passes, reviewers judge your commit by these rules:\n" +
 		"- none\n" +
@@ -246,6 +258,8 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 		"Files:\n" +
 		"- internal/build/brief.go\n" +
 		"- internal/build/brief_test.go\n" +
+		"Test changes:\n" +
+		"- internal/build/brief_test.go\n" +
 		"Requirements:\n" +
 		"- R3: three\n" +
 		"- R1: one\n" +
@@ -263,6 +277,8 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
 		"Files:\n" +
+		"- none\n" +
+		"Test changes:\n" +
 		"- none\n" +
 		"Requirements:\n" +
 		"- none\n" +
@@ -341,6 +357,108 @@ func TestReviewPromptGivesNoOtherReviewerTheTestCost(t *testing.T) {
 	if strings.Contains(got, "Test cost") || strings.Contains(got, "test-budget") {
 		t.Fatalf("floor review prompt carries the Test cost section:\n%s", got)
 	}
+}
+
+// fixtureBrief is the brief of briefTask under briefEpic, with no red stderr and no previous try.
+func fixtureBrief() string {
+	return Brief(briefEpic(), briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
+}
+
+// assertBriefHas fails the test for each of texts the brief does not contain.
+func assertBriefHas(t *testing.T, got string, texts ...string) {
+	t.Helper()
+	for _, text := range texts {
+		if !strings.Contains(got, text) {
+			t.Errorf("brief lacks %q; brief:\n%s", text, got)
+		}
+	}
+}
+
+// TestBriefCarriesTaskAndStandingRules: the brief carries the task and the rules a commit is rejected for, and no
+// decision the epic or its turns hold.
+func TestBriefCarriesTaskAndStandingRules(t *testing.T) {
+	t.Parallel()
+	t.Run("a brief for a task whose epic and turns hold decisions lists none of them", func(t *testing.T) {
+		t.Parallel()
+		epic := briefEpic()
+		if len(epic.Decisions) == 0 || len(epic.Turns[0].Decisions) == 0 {
+			t.Fatal("the fixture holds no decisions to test against")
+		}
+		got := Brief(epic, briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
+		for _, text := range []string{"use sqlite", "keep it simple", "split later", "Decisions:"} {
+			if strings.Contains(got, text) {
+				t.Errorf("brief carries %q; brief:\n%s", text, got)
+			}
+		}
+	})
+	t.Run("the standing rules come before the Deliverable", func(t *testing.T) {
+		t.Parallel()
+		got := fixtureBrief()
+		rules, deliverable := strings.Index(got, briefStanding), strings.Index(got, "Deliverable: ")
+		if rules < 0 || deliverable < 0 || rules > deliverable {
+			t.Fatalf("standing rules at %d, Deliverable at %d; brief:\n%s", rules, deliverable, got)
+		}
+	})
+	t.Run("the standing rules name tidying and already-broken code as rejected", func(t *testing.T) {
+		t.Parallel()
+		assertBriefHas(t, fixtureBrief(),
+			"- changing anything the Deliverable does not ask for, including tidying, reformatting, or fixing code or "+
+				"tests that are already broken; this overrides any standing instruction to fix what you find\n")
+	})
+	t.Run("the brief says to run the Capture before committing", func(t *testing.T) {
+		t.Parallel()
+		got := fixtureBrief()
+		assertBriefHas(t, got, "Run the Capture, when Evidence names one, and wait for it to finish before committing.")
+		run := strings.Index(got, "Run the Capture")
+		commit := strings.Index(got, "Commit your work")
+		if run < 0 || commit < 0 || run > commit {
+			t.Fatalf("Capture run at %d, commit instruction at %d; brief:\n%s", run, commit, got)
+		}
+	})
+	t.Run("the brief says to commit on top and never amend", func(t *testing.T) {
+		t.Parallel()
+		assertBriefHas(t, fixtureBrief(),
+			"Commit your work on top of the start commit b4se, never amend or rewrite a commit,",
+			"commit the fix on top, and return done again.",
+		)
+	})
+	t.Run("the brief defines needs_context and blocked", func(t *testing.T) {
+		t.Parallel()
+		assertBriefHas(t, fixtureBrief(),
+			"needs_context means the work needs files or facts you do not have, named in needs_files or in summary.",
+			"blocked means the task cannot be done as written.",
+		)
+	})
+	const takenOut = "the brief says files outside the owned files may be taken out or returned as needs_context"
+	t.Run(takenOut, func(t *testing.T) {
+		t.Parallel()
+		assertBriefHas(t, fixtureBrief(),
+			"A commit that changes a file outside the owned files is sent back: take that file out of the commit, or "+
+				"return needs_context naming it.",
+		)
+	})
+}
+
+// TestStepSendBackReviewPromptCarriesTestChanges: the review a send-back's reviewers judge by names the task's test
+// changes, after its files.
+func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
+	t.Parallel()
+	t.Run("ReviewPrompt carries the task's Test changes", func(t *testing.T) {
+		t.Parallel()
+		task := briefTask()
+		task.TestChanges = []string{"internal/build/brief_test.go", "internal/build/floor_test.go"}
+		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
+		want := "Files:\n" +
+			"- internal/build/brief.go\n" +
+			"- internal/build/brief_test.go\n" +
+			"Test changes:\n" +
+			"- internal/build/brief_test.go\n" +
+			"- internal/build/floor_test.go\n" +
+			"Requirements:\n"
+		if !strings.Contains(got, want) {
+			t.Fatalf("review prompt lacks the Test changes after Files; review prompt:\n%s", got)
+		}
+	})
 }
 
 func TestImplementerSchemaRequiresStatusAndSummary(t *testing.T) {

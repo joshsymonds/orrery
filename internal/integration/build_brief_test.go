@@ -8,8 +8,8 @@ import (
 // TestBuildImplementerStartsWithItsBrief proves that orreryd starts a planned task's implementer step from the build
 // the store holds. The step runs the agent the roles file names, in a worktree under the task's directory at the base.
 // The fake claude reads a brief with the task's title, deliverable, files and gate, its Requirement, and the epic's
-// exclusion and decision. The step's owned paths are not in its row, so the brief's list of files is their observable
-// form.
+// exclusion, and no decision the epic holds. The step's owned paths are not in its row, so the brief's list of files is
+// their observable form.
 func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 	t.Parallel()
 	r := newBuildRig(t)
@@ -55,12 +55,14 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 		"Gate: " + buildRigGate + ". After you return done, orreryd runs",
 		"R1: " + buildRigRequirement,
 		"- " + buildRigExclusion,
-		"- " + buildRigDecision,
 	}
 	for _, want := range wantBrief {
 		if !fileContains(t, stdin, want) {
 			t.Errorf("the brief the fake claude read lacks %q", want)
 		}
+	}
+	if fileContains(t, stdin, buildRigDecision) {
+		t.Errorf("the brief the fake claude read carries the epic decision %q", buildRigDecision)
 	}
 	wantExit(t, daemon.stop(t), 0)
 }
