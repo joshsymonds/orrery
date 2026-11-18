@@ -63,7 +63,9 @@ func (s *Store) CallerSteps(ctx context.Context) ([]CallerStep, error) {
 }
 
 // MarkCallerEvent records that the event was delivered to the session, at at. A repeat of the mark is a no-op, and it
-// keeps the time of the first.
+// keeps the time of the first. It records no mark while the session's newest engine_prompt carrying the event as its
+// prompt id is an event prompt whose newest state is canceled or discarded: that prompt never reached Claude, so the
+// event stays owed. An event no engine_prompt of the session carries is marked as before.
 func (s *Store) MarkCallerEvent(ctx context.Context, event, session string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.InsertCallerEvent(ctx, sqlcgen.InsertCallerEventParams{

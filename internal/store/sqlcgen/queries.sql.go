@@ -269,8 +269,16 @@ func (q *Queries) CountCallerEvent(ctx context.Context, arg CountCallerEventPara
 }
 
 const countEnginePrompts = `-- name: CountEnginePrompts :one
-SELECT COUNT(*) FROM events
-WHERE session_id = ?1 AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = ?2
+SELECT COUNT(*) FROM events AS prompts
+WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+  AND json_extract(prompts.payload, '$.promptId') = ?2
+  AND NOT (COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event' AND EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
+  ))
 `
 
 type CountEnginePromptsParams struct {
@@ -1766,7 +1774,24 @@ func (q *Queries) GrantEpicParkedLoops(ctx context.Context, epic string) error {
 }
 
 const insertCallerEvent = `-- name: InsertCallerEvent :exec
-INSERT INTO caller_events (event, session, at) VALUES (?, ?, ?)
+INSERT INTO caller_events (event, session, at)
+SELECT ?1, ?2, ?3
+WHERE NOT EXISTS (
+    SELECT 1 FROM events AS prompts
+    WHERE prompts.session_id = ?2 AND prompts.kind = 'engine_prompt'
+      AND json_extract(prompts.payload, '$.promptId') = ?1
+      AND prompts.seq = (SELECT MAX(newest.seq) FROM events AS newest
+                         WHERE newest.session_id = prompts.session_id AND newest.kind = 'engine_prompt'
+                           AND json_extract(newest.payload, '$.promptId') = ?1)
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND EXISTS (
+          SELECT 1 FROM prompt_states AS states
+          WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+            AND states.state IN ('canceled', 'discarded')
+            AND states.seq = (SELECT MAX(latest.seq) FROM prompt_states AS latest
+                              WHERE latest.session_id = states.session_id AND latest.write_id = states.write_id)
+      )
+)
 ON CONFLICT (event, session) DO NOTHING
 `
 
@@ -3180,7 +3205,7 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 	return err
 }
 
-const insertPromptState = `-- name: InsertPromptState :exec
+const insertPromptState = `-- name: InsertPromptState :execrows
 INSERT INTO prompt_states (session_id, write_id, state)
 SELECT ?1, ?2, ?3
 WHERE NOT EXISTS (
@@ -3196,9 +3221,12 @@ type InsertPromptStateParams struct {
 	State     string
 }
 
-func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStateParams) error {
-	_, err := q.db.ExecContext(ctx, insertPromptState, arg.SessionID, arg.WriteID, arg.State)
-	return err
+func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertPromptState, arg.SessionID, arg.WriteID, arg.State)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertSession = `-- name: InsertSession :exec
@@ -6603,6 +6631,56 @@ func (q *Queries) ListPromptStates(ctx context.Context, id string) ([]ListPrompt
 	return items, nil
 }
 
+const listPromptsOfWrites = `-- name: ListPromptsOfWrites :many
+SELECT events.write_id, CAST(COALESCE(json_extract(events.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt'
+  AND events.write_id IN (SELECT value FROM json_each(?2))
+ORDER BY events.seq
+`
+
+type ListPromptsOfWritesParams struct {
+	ID       string
+	WriteIds interface{}
+}
+
+type ListPromptsOfWritesRow struct {
+	WriteID  string
+	PromptID string
+	Text     string
+	Sender   string
+}
+
+func (q *Queries) ListPromptsOfWrites(ctx context.Context, arg ListPromptsOfWritesParams) ([]ListPromptsOfWritesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPromptsOfWrites, arg.ID, arg.WriteIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPromptsOfWritesRow
+	for rows.Next() {
+		var i ListPromptsOfWritesRow
+		if err := rows.Scan(
+			&i.WriteID,
+			&i.PromptID,
+			&i.Text,
+			&i.Sender,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPushedAlertNotices = `-- name: ListPushedAlertNotices :many
 SELECT alert, time FROM pushed_alert_notices ORDER BY alert
 `
@@ -8537,6 +8615,48 @@ type SyncEpicStoredBaseParams struct {
 
 func (q *Queries) SyncEpicStoredBase(ctx context.Context, arg SyncEpicStoredBaseParams) error {
 	_, err := q.db.ExecContext(ctx, syncEpicStoredBase, arg.StoredBase, arg.Synced, arg.ID)
+	return err
+}
+
+const unmarkEventOfWrite = `-- name: UnmarkEventOfWrite :exec
+DELETE FROM caller_events
+WHERE caller_events.session = ?1 AND caller_events.event IN (
+    SELECT json_extract(prompts.payload, '$.promptId') FROM events AS prompts
+    WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+      AND prompts.write_id <> '' AND prompts.write_id = ?2
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND COALESCE(json_extract(prompts.payload, '$.promptId'), '') <> ''
+)
+`
+
+type UnmarkEventOfWriteParams struct {
+	SessionID string
+	WriteID   string
+}
+
+func (q *Queries) UnmarkEventOfWrite(ctx context.Context, arg UnmarkEventOfWriteParams) error {
+	_, err := q.db.ExecContext(ctx, unmarkEventOfWrite, arg.SessionID, arg.WriteID)
+	return err
+}
+
+const unmarkUnstartedEvents = `-- name: UnmarkUnstartedEvents :exec
+DELETE FROM caller_events
+WHERE caller_events.session = ?1 AND caller_events.event IN (
+    SELECT json_extract(prompts.payload, '$.promptId') FROM events AS prompts
+    WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+      AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND COALESCE(json_extract(prompts.payload, '$.promptId'), '') <> ''
+      AND NOT EXISTS (
+          SELECT 1 FROM prompt_states AS states
+          WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+            AND states.state <> 'queued'
+      )
+)
+`
+
+func (q *Queries) UnmarkUnstartedEvents(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, unmarkUnstartedEvents, id)
 	return err
 }
 

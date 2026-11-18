@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -33,6 +34,10 @@ type PromptState struct {
 // canceled or discarded state is not recorded for a prompt that already has a started state: claude reports an
 // interrupted opener that had started as cancelled after its turn's result, and that report must not make a message
 // taken in read as not delivered. It appends no event.
+//
+// A canceled or discarded state that is recorded for the write of an event prompt, one with sender event and a prompt
+// id, also deletes the caller_events mark of that prompt id under the session, so the event is owed to the session
+// again. A state that the started rule drops deletes no mark.
 type EnginePromptState struct {
 	ID      string
 	WriteID string
@@ -41,21 +46,35 @@ type EnginePromptState struct {
 
 // EnginePromptsDiscard records PromptDiscarded for every prompt of the engine session ID above the session's
 // prompts_from whose newest state is queued or that has no state, so a prompt the session has started or finished keeps
-// its state. It appends no event.
+// its state. It appends no event. It also deletes the caller_events mark of each event prompt it discards, as
+// EnginePromptState does for a state it records.
 type EnginePromptsDiscard struct {
 	ID string
 }
 
 func (op EnginePromptState) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
-	if err := queries.InsertPromptState(ctx, sqlcgen.InsertPromptStateParams{
+	recorded, err := queries.InsertPromptState(ctx, sqlcgen.InsertPromptStateParams{
 		SessionID: op.ID, WriteID: op.WriteID, State: op.State,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("record state %s of prompt %s of session %s: %w", op.State, op.WriteID, op.ID, err)
+	}
+	if recorded == 0 || (op.State != PromptCancelled && op.State != PromptDiscarded) {
+		return nil
+	}
+	err = queries.UnmarkEventOfWrite(ctx, sqlcgen.UnmarkEventOfWriteParams{SessionID: op.ID, WriteID: op.WriteID})
+	if err != nil {
+		return fmt.Errorf("unmark event of prompt %s of session %s: %w", op.WriteID, op.ID, err)
 	}
 	return nil
 }
 
 func (op EnginePromptsDiscard) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	// The marks come off before the discard: the event prompts they belong to are found among the prompts with no state
+	// but queued, and the discard makes those discarded.
+	if err := queries.UnmarkUnstartedEvents(ctx, op.ID); err != nil {
+		return fmt.Errorf("unmark unstarted events of session %s: %w", op.ID, err)
+	}
 	if err := queries.DiscardUnstartedPrompts(ctx, op.ID); err != nil {
 		return fmt.Errorf("discard unstarted prompts of session %s: %w", op.ID, err)
 	}
@@ -114,6 +133,39 @@ func (s *Store) PromptWrite(ctx context.Context, id, promptID string) (PromptWri
 		return PromptWrite{}, false, fmt.Errorf("read prompt %s of engine session %s: %w", promptID, id, err)
 	}
 	return PromptWrite{WriteID: row.WriteID, Text: row.Text, Sender: row.Sender}, true, nil
+}
+
+// WritePrompt is an engine prompt of a session as PromptsOfWrites reads it: the write id it was sent under, its prompt
+// id, its text and its sender. PromptID and Sender are "" when the prompt carried none.
+type WritePrompt struct {
+	WriteID  string
+	PromptID string
+	Text     string
+	Sender   string
+}
+
+// PromptsOfWrites returns the engine_prompt events of the engine session id whose write id is one of writeIDs, in the
+// order they were sent. A write id that no prompt of the session carries is skipped, and an empty writeIDs returns
+// none. It reads the writer's database, as EnginePromptSent does.
+func (s *Store) PromptsOfWrites(ctx context.Context, id string, writeIDs []string) ([]WritePrompt, error) {
+	if len(writeIDs) == 0 {
+		return nil, nil
+	}
+	list, err := json.Marshal(writeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("encode write ids of engine session %s: %w", id, err)
+	}
+	rows, err := sqlcgen.New(s.db).ListPromptsOfWrites(ctx, sqlcgen.ListPromptsOfWritesParams{
+		ID: id, WriteIds: string(list),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list prompts of writes of engine session %s: %w", id, err)
+	}
+	out := make([]WritePrompt, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, WritePrompt{WriteID: row.WriteID, PromptID: row.PromptID, Text: row.Text, Sender: row.Sender})
+	}
+	return out, nil
 }
 
 // toPromptStates converts the rows a query read, in their order.
