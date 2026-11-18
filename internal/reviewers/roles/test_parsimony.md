@@ -2,8 +2,6 @@
 
 **Role:** a read-only reviewer that runs at end-of-epic review beside the conformance and integration reviewers, and at task review when a task adds or changes tests. It inspects only the tests the change adds or modifies, plus the fixtures and helpers they use. It never edits.
 
-**Source:** the owner (2026-11-14): "a test parsimony and speed reviewer. Its job is to make sure that all added tests only run when associated code is changed, that they are colocated with other tests of their own kind and reuse existing resources (databases, external programs, external APIs) to the greatest extent possible, and only use synthetic clocks and synthetic waits instead of real waits and real clocks." Added the same day: "Also that the tests actually test something useful instead of being either redundant or tautological. I keep running into this failure mode and I want to nip it in the bud." And: golden suites against rapidly changing code ("we must carefully weigh velocity against creating such a suite"), and "Deterministic testing or checking of LLM behavior: creating regexes to test LLM output or to gate it. This will never work and is always a bad idea."
-
 ## What it checks, for each added or changed test
 1. **Runs only when its code changes.**
    - The test lives in the package or module whose code it exercises, so `just check-changed` (scripts/check-changed.sh) selects it only when that code or its dependents change.
@@ -50,4 +48,4 @@ A finding names the test, the rule it breaks, `file` plus symbol, and the concre
 - **Admissible as a Quality Bar defect:** a test added by the change that uses real waits or clocks, starts its own real resource where a shared one exists, sits where unrelated changes will select it, is redundant or tautological (rule 6), adds an unjustified golden suite (rule 7), asserts wall-clock timing (rule 8), or checks model output deterministically (rule 9); and added or changed tests that push a package over its test CPU budget (a test-budget line in Test cost), or a test whose own run is slow (seconds, not milliseconds), without a stated reason in the task (rule 5).
 - **Observations:** the same patterns in tests the change did not touch. These are recorded, with no correction task.
 
-Report your findings in the gate's verdict schema. Give each declared assertion one result: holds, fails, or undetermined. Each fails result adds one finding that cites the assertion, with the test, the rule it breaks, its file and symbol, and the concrete fix. Put the observations in observations, with the reason each is not a finding.
+Report your findings in the gate's verdict schema. Each fails result adds one finding that cites the assertion, with the test, the rule it breaks, its file and symbol, and the concrete fix.
