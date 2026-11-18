@@ -1154,8 +1154,9 @@ func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
 	return out, nil
 }
 
-// taskMessage returns the EpicTask message of task, its id T<seq>: its status, its build, its reviews in order, and the
-// evidence runs its build names as red and green. It fails when one of those runs fails to convert.
+// taskMessage returns the EpicTask message of task, its id T<seq>: its status, its build, its reviews in order, the
+// evidence runs its build names as red and green, and its current version and the versions stored after the planner's.
+// It fails when one of those runs fails to convert.
 func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 	message := &v1.EpicTask{
 		Id:           fmt.Sprintf("T%d", task.Seq),
@@ -1179,6 +1180,8 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		Review:       task.Build.Review,
 		Held:         task.Build.Held,
 		Reviews:      epicMap(task.Reviews, taskReviewMessage),
+		Version:      task.Version,
+		Versions:     epicMap(task.Versions, taskVersionMessage),
 	}
 	if task.Red != nil {
 		red, err := evidenceServiceRunMessage(*task.Red)
@@ -1195,6 +1198,41 @@ func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
 		message.Green = green
 	}
 	return message, nil
+}
+
+// taskVersionMessage returns the EpicTaskVersion message of version: its source, decision, step, reason, state and
+// red run, its refusal, the fields it changes in order and the values it sets, and its times. A field it does not
+// change is empty.
+func taskVersionMessage(version store.TaskVersion) *v1.EpicTaskVersion {
+	message := &v1.EpicTaskVersion{
+		Version:  version.Version,
+		Source:   version.Source,
+		Decision: version.Decision,
+		Step:     version.Step,
+		Reason:   version.Reason,
+		State:    version.State,
+		Changed:  version.Changed(),
+		RedRun:   version.RedRun,
+		Refusal:  version.Refusal,
+		Created:  version.Created.Unix(),
+		Settled:  unixOrZero(version.Settled),
+	}
+	if version.Deliverable != nil {
+		message.Deliverable = *version.Deliverable
+	}
+	if version.Files != nil {
+		message.Files = *version.Files
+	}
+	if version.TestChanges != nil {
+		message.TestChanges = *version.TestChanges
+	}
+	if version.Gate != nil {
+		message.Gate = *version.Gate
+	}
+	if version.Evidence != nil {
+		message.Evidence = evidenceItemMessage(*version.Evidence)
+	}
+	return message
 }
 
 // taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in

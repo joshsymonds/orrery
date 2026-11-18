@@ -556,6 +556,65 @@ message EpicTask {
   // The guard's last refusal of the task's build, each refused file, test and rule; empty when the guard refused
   // nothing.
   string guard = 24;
+
+  // The number of the task's current spec version: 1 for the planner's, and the number of the last applied version
+  // once a stored version is applied.
+  int64 version = 25;
+
+  // Every stored version after the planner's, in version order, whatever its state.
+  repeated EpicTaskVersion versions = 26;
+}
+
+// EpicTaskVersion is one stored version of a task's spec after the planner's: the source and epic decision that wrote
+// it, the fields it changes and its state. A field the version does not change is empty.
+message EpicTaskVersion {
+  // The version's number on its task, from 2.
+  int64 version = 1;
+
+  // The source that wrote the version: orchestrator or grant; rescue, approach and carry are reserved.
+  string source = 2;
+
+  // The id of the epic decision that wrote the version; empty for orreryd's rule grant.
+  string decision = 3;
+
+  // The step that wrote the version.
+  string step = 4;
+
+  // The reason the version gives.
+  string reason = 5;
+
+  // The version's state: checking, applied or refused.
+  string state = 6;
+
+  // The names of the fields the version changes, in the order deliverable, files, test_changes, gate, evidence.
+  repeated string changed = 7;
+
+  // The deliverable the version sets; empty when it does not change the deliverable.
+  string deliverable = 8;
+
+  // The task's whole file list after the version; empty when the version does not change the files.
+  repeated string files = 9;
+
+  // The task's whole test_changes list after the version; empty when the version does not change them.
+  repeated string test_changes = 10;
+
+  // The gate the version sets; empty when it does not change the gate.
+  string gate = 11;
+
+  // The evidence the version sets; absent when the version does not change the evidence.
+  EvidenceItem evidence = 12;
+
+  // The red run the version names; empty until it names one.
+  string red_run = 13;
+
+  // Why the version was refused; empty unless it is refused.
+  string refusal = 14;
+
+  // When the version was stored, in unix seconds.
+  int64 created = 15;
+
+  // When the version left checking, in unix seconds; 0 while it is checking.
+  int64 settled = 16;
 }
 
 // EpicTaskReview is one review of a task's build: its attempt, the gate it ran, its step, its verdict and its findings.

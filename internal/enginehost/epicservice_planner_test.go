@@ -183,7 +183,7 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 				Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{"out/one.txt"},
 				Conclusion: "Synthetic conclusion one.", Judge: "Synthetic judge one.",
 			},
-			Status: "open",
+			Status: "open", Version: 1,
 		},
 		{
 			Id: "T2", Turn: 1, Title: "Synthetic task two.", Deliverable: "Synthetic deliverable two.",
@@ -192,7 +192,7 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 				Supplied: []string{"docs/two.md"}, Conclusion: "Synthetic conclusion two.",
 				Judge: "Synthetic judge two.",
 			},
-			Status: "open",
+			Status: "open", Version: 1,
 		},
 	})
 	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{
