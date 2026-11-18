@@ -83,6 +83,37 @@ func checkAmendKeeps(ret Return, requirements []store.EpicRequirement) []string 
 	return refusals
 }
 
+// phaseCorrecting is the phase store.EndReview sets while a review's ledger is corrected, the only phase in which a
+// closure-kind task may be planned.
+const phaseCorrecting = "correcting"
+
+// checkClosureTasks returns the refusals of the tasks of ret whose evidence is of kind closure, for an epic in phase. A
+// closure task is planned only in a correction round, so each such task gets one line outside phaseCorrecting. It names
+// only test files, so each file it names that is not a test file gets one line, named by its index in files.
+func checkClosureTasks(ret Return, phase string) []string {
+	var refusals []string
+	for i, task := range ret.Tasks {
+		if task.Evidence.Kind != evidence.KindClosure {
+			continue
+		}
+		if phase != phaseCorrecting {
+			refusals = append(refusals, fmt.Sprintf(
+				`tasks[%d] "%s" evidence.kind: closure is only for a task planned in a correction round; `+
+					`this epic is in phase %s`,
+				i, task.Title, phase))
+		}
+		for j, file := range task.Files {
+			if !evidence.TestFile(file) {
+				refusals = append(refusals, fmt.Sprintf(
+					`tasks[%d] "%s" files[%d]: not a test file; a closure-kind task names only test files `+
+						`(Go _test.go, web .test.ts or .test.tsx, Kotlin under android/app/src/test/)`,
+					i, task.Title, j))
+			}
+		}
+	}
+	return refusals
+}
+
 // checkPark returns the refusal of a return that answers no park: one with no action and no question. park is the
 // reason of the planner-class park the epic holds, or "" when it holds none, and then every return passes. The line names
 // the actions field and the reason, so the planner sees which park its return must answer.
@@ -124,7 +155,7 @@ func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judg
 	if strings.TrimSpace(task.Gate) == "" {
 		refusals = append(refusals, prefix+" gate: "+reasonEmpty)
 	}
-	for _, line := range evidence.Check(task.Evidence) {
+	for _, line := range evidence.CheckTask(task.Evidence) {
 		refusals = append(refusals, prefix+" evidence."+line)
 	}
 	if strings.TrimSpace(task.Gate) != "" {
