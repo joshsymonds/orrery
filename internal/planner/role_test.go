@@ -141,6 +141,28 @@ func TestRoleBriefCarriesTaskDecisionsInTheDeliverable(t *testing.T) {
 	)
 }
 
+// TestRoleDeliverableStatesOutcomesAndChecksRuntimeFacts asserts that the role text says a deliverable states outcomes,
+// and that a runtime fact it names is either checked, with the command or file:line that showed it at the base, or
+// marked unchecked in the deliverable's own words.
+func TestRoleDeliverableStatesOutcomesAndChecksRuntimeFacts(t *testing.T) {
+	t.Parallel()
+	t.Run(
+		"the planner role says a deliverable states outcomes and checks or marks its runtime facts",
+		func(t *testing.T) {
+			t.Parallel()
+			for _, want := range []string{
+				"a deliverable states outcomes",
+				"the command or file:line that showed it at the base",
+				"marked unchecked in the deliverable's own words",
+			} {
+				if !strings.Contains(role, want) {
+					t.Errorf("role text lacks %q", want)
+				}
+			}
+		},
+	)
+}
+
 // TestRoleEvidenceShown: the role text says how the evidence judge reads a capture, so a conclusion is a list of what
 // the output shows.
 func TestRoleEvidenceShown(t *testing.T) {
