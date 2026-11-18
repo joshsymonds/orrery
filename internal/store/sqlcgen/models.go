@@ -747,7 +747,6 @@ type Step struct {
 	Agents          string
 	Unowned         int64
 	Caller          string
-	CallerRead      int64
 }
 
 type ToldLimitStep struct {

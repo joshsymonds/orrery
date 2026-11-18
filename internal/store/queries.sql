@@ -300,7 +300,7 @@ SELECT sqlc.embed(steps), sessions.id AS caller_id, sessions.kind AS caller_kind
        sessions.pane AS caller_pane, sessions.state AS caller_state
 FROM steps
 JOIN sessions ON sessions.id = steps.caller
-WHERE steps.end_value <> '' AND steps.caller <> '' AND steps.caller_read = 0
+WHERE steps.end_value <> '' AND steps.caller <> ''
   AND NOT EXISTS (
       SELECT 1 FROM caller_events
       WHERE caller_events.event = 'step:' || steps.id AND caller_events.session = steps.caller
@@ -309,15 +309,15 @@ ORDER BY steps.ended, steps.id;
 
 -- name: ListPendingCallerSteps :many
 SELECT * FROM steps
-WHERE steps.end_value <> '' AND steps.caller = ? AND steps.caller_read = 0
+WHERE steps.end_value <> '' AND steps.caller = ?
   AND NOT EXISTS (
       SELECT 1 FROM caller_events
       WHERE caller_events.event = 'step:' || steps.id AND caller_events.session = steps.caller
   )
 ORDER BY steps.ended, steps.id;
 
--- name: MarkStepRead :execrows
-UPDATE steps SET caller_read = 1 WHERE id = ? AND end_value <> '' AND caller = ?;
+-- name: ListRunningCallerSteps :many
+SELECT * FROM steps WHERE end_value = '' AND caller = ? ORDER BY started, id;
 
 -- name: UpdateStepReturn :exec
 UPDATE steps

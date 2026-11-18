@@ -257,15 +257,15 @@ func TestCallerEventStepReadStepSendsNothing(t *testing.T) {
 	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && h.State == string(protocol.StateDone)
 	})
-	caller := store.EpicCaller{Session: id}
-	addEndedCallerStep(t, s, caller, "all green")
-	if marked, err := s.MarkStepRead(t.Context(), callerStepID, caller); err != nil || !marked {
-		t.Fatalf("MarkStepRead = %v, %v, want the caller to read its step", marked, err)
-	}
+	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, "all green")
 
 	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, []deliveredPrompt{{Text: "hi"}}) {
-		t.Fatalf("prompts = %+v, want only the start's prompt", got)
+	want := []deliveredPrompt{
+		{Text: "hi"},
+		{Text: wantStepEndBlock("all green"), PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
+	}
+	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("prompts = %+v, want %+v", got, want)
 	}
 }
 

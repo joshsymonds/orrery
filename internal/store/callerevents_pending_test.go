@@ -210,24 +210,21 @@ func TestStepEventCardPendingDropsReadAndMarkedEvents(t *testing.T) {
 		t.Fatalf("PendingCallerEvents before any read or mark = %v, want %v", got, all)
 	}
 
-	// A step read through MarkStepRead drops its step end; a mark of the step's event drops the other.
-	if marked, err := s.MarkStepRead(ctx, "step-b", EpicCaller{Session: "engine-1"}); err != nil || !marked {
-		t.Fatalf("MarkStepRead step-b = %v, %v, want true, nil", marked, err)
-	}
+	// A mark of the step's event drops its step end, and a mark of the event under another session drops nothing of
+	// engine-1's. step-b has no mark, so its step end stays listed.
 	if err := s.MarkCallerEvent(ctx, "step:step-a", "engine-1", pendingAt()); err != nil {
 		t.Fatalf("MarkCallerEvent step-a: %v", err)
 	}
-	// A mark of the event under another session drops nothing of engine-1's.
 	if err := s.MarkCallerEvent(ctx, questionID, "engine-2", pendingAt()); err != nil {
 		t.Fatalf("MarkCallerEvent question under engine-2: %v", err)
 	}
-	epicIDs := []string{endID, parkID, releaseID, questionID}
-	if got := pendingIDs(readPending(t, path, "engine-1")); !reflect.DeepEqual(got, epicIDs) {
-		t.Fatalf("PendingCallerEvents after the step reads and a mark of another session = %v, want %v", got, epicIDs)
+	unmarked := []string{"step:step-b", endID, parkID, releaseID, questionID}
+	if got := pendingIDs(readPending(t, path, "engine-1")); !reflect.DeepEqual(got, unmarked) {
+		t.Fatalf("PendingCallerEvents after a mark of step-a and of another session = %v, want %v", got, unmarked)
 	}
 
-	// Marks of the end and the park, through MarkCallerEvent, drop them.
-	for _, id := range []string{endID, parkID} {
+	// Marks of step-b's end, the end and the park, through MarkCallerEvent, drop them.
+	for _, id := range []string{"step:step-b", endID, parkID} {
 		if err := s.MarkCallerEvent(ctx, id, "engine-1", pendingAt()); err != nil {
 			t.Fatalf("MarkCallerEvent %s: %v", id, err)
 		}
