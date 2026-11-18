@@ -79,6 +79,47 @@ func Settings(disableAllHooks bool, env map[string]string, claudeMdExcludes []st
 	return string(data)
 }
 
+// HeadlessSettings returns the settings document, as JSON, of a headless session: env, omitted when empty, and a
+// PreToolUse hook on the cron tools, CronCreate, CronDelete and CronList. The hook runs orrery hook cron, with orrery
+// quoted for a POSIX shell, and blocks the tool call when the hook fails.
+func HeadlessSettings(env map[string]string, orrery string) string {
+	type command struct {
+		Type      string `json:"type"`
+		Command   string `json:"command"`
+		Timeout   int    `json:"timeout"`
+		OnFailure string `json:"onFailure"`
+	}
+	type matcher struct {
+		Matcher string    `json:"matcher"`
+		Hooks   []command `json:"hooks"`
+	}
+	doc := struct {
+		Env   map[string]string    `json:"env,omitempty"`
+		Hooks map[string][]matcher `json:"hooks"`
+	}{env, map[string][]matcher{"PreToolUse": {{
+		Matcher: "CronCreate|CronDelete|CronList",
+		Hooks: []command{{
+			Type:      "command",
+			Command:   shellQuote(orrery) + " hook cron",
+			Timeout:   10,
+			OnFailure: "block",
+		}},
+	}}}}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		// Unreachable: strings, ints and maps of strings always marshal. An empty result is not a settings document, so
+		// a caller fails visibly rather than running with settings it did not mean to set.
+		return ""
+	}
+	return string(data)
+}
+
+// shellQuote quotes s as one single-quoted POSIX shell word. Each embedded single quote closes the quoting, is escaped,
+// and reopens it.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // UserMemory returns the path of the user's CLAUDE.md, the memory file claude loads from its config directory. When
 // configDir is set, the path is configDir made absolute with CLAUDE.md joined to it; otherwise it is .claude/CLAUDE.md
 // under home, which must be an absolute path. Neither form resolves symlinks, so the path names the file as the

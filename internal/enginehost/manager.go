@@ -2025,10 +2025,12 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 }
 
 // spawnSettings returns the --settings JSON of a spawn in dir. The stamp is looked up under the HOME entry of the
-// manager's environment, which must be an absolute path. A session the owner talks to takes the stamp's whole env, and
-// "" when no stamp applies. A step always takes settings: the stamp's env when one applies, and claudeMdExcludes naming
-// the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from m.environ, and a step whose
-// path cannot be resolved fails here, before claude runs.
+// manager's environment, which must be an absolute path. A session the owner talks to, a resume included, always takes
+// stamp.HeadlessSettings: the stamp's env when one applies, and nothing otherwise, plus the PreToolUse hook that
+// carries its cron tools to orrery. The orrery that runs the hook is holder.Binary(""), and one that cannot be resolved
+// fails here, before claude runs. A step takes settings with no hook: the stamp's env when one applies, and
+// claudeMdExcludes naming the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from
+// m.environ, and a step whose path cannot be resolved fails here, before claude runs.
 func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
 	home, err := stampHome(m.environ)
 	if err != nil {
@@ -2039,10 +2041,11 @@ func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
 		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
 	}
 	if !step {
-		if found.Folder == "" {
-			return "", nil
+		var orrery string
+		if orrery, err = holder.Binary(""); err != nil {
+			return "", fmt.Errorf("cron hook for %s: %w", dir, err)
 		}
-		return stamp.Settings(false, found.Env, nil), nil
+		return stamp.HeadlessSettings(found.Env, orrery), nil
 	}
 	memory, err := userMemoryOf(m.environ)
 	if err != nil {
