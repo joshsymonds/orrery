@@ -316,10 +316,12 @@ test("StepEventCard: a step whose event names an epic opens its page through ope
 
     await click(headOf(withoutEpic));
     assert.deepEqual(opened.steps, [[epic, "s1"]], "a card with no epic opens nothing");
+    assert.deepEqual(textsOf(withoutEpic, ".step-summary"), ["Refreshed the cache."], "the card draws the headline");
+    assert.equal(withoutEpic.querySelector("details")?.open, false, "a click on the head leaves the return folded");
     assert.deepEqual(
-      textsOf(withoutEpic, ".step-summary"),
+      textsOf(withoutEpic, ".step-return pre"),
       ["Refreshed the cache.\nNo change needed."],
-      "the click expands the card to its whole summary",
+      "the return's fold holds the whole return",
     );
   });
 });

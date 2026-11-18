@@ -544,8 +544,8 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .event-ring .ring-slug { flex: none; color: var(--blue); }
 .reader .event-ring .settled { margin: 0; color: var(--overlay1); }
 .reader .event-ring .answer .question { margin: 0; padding: 0; font: 700 14px/1.45 var(--mono); }
-/* A step's end an event sent its caller: its agent, end, status and reason on the head, and the first line of its summary
-   under it. A click opens the step's page, or else expands the card to its whole summary. */
+/* A step's end an event sent its caller: its agent, end, status and reason on the head, the headline under it, and the
+   full return in a fold under that. A click opens the step's page. */
 .reader .step-card {
   display: flex; flex-direction: column; gap: 4px; padding: 9px 12px 10px; border-radius: 3px 10px 10px 3px;
   background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); font: 12px/18px var(--mono); color: var(--subtext0);
@@ -557,6 +557,12 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .step-card .step-agent { color: var(--text); }
 .reader .step-card .step-reason { min-width: 0; overflow-wrap: anywhere; color: var(--overlay1); }
 .reader .step-card .step-summary { margin: 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.reader .step-card .step-return { min-width: 0; }
+.reader .step-card .step-return > summary { color: var(--overlay1); cursor: pointer; }
+.reader .step-card .step-return > pre {
+  margin: 4px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--mantle); color: var(--subtext0);
+  font: 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
 /* A caller event the session holds and has not taken draws dimmed, until its prompt arrives or the session takes it. */
 .reader .step-card.waiting, .reader .event-ring.waiting { opacity: .55; }
 .reader .event-ring.waiting .ring-line { cursor: default; }
