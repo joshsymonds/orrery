@@ -242,6 +242,33 @@ func TestSendsWriteExactEnvelopes(t *testing.T) {
 	}
 }
 
+func TestControlReplyRequestEnvelopesNameTheirSubtypes(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeProcess(t)
+	transport := startTransport(t, fake)
+	lines := stdinLines(fake, 2)
+
+	if err := transport.SendCancelAsyncMessage(fixedUUIDTwo, fixedUUIDOne); err != nil {
+		t.Fatalf("SendCancelAsyncMessage() error = %v", err)
+	}
+	if err := transport.SendInterruptCancelQueued(fixedUUIDTwo); err != nil {
+		t.Fatalf("SendInterruptCancelQueued() error = %v", err)
+	}
+
+	want := []string{
+		`{"type":"control_request","request_id":"00000000-0000-4000-8000-000000000002",` +
+			`"request":{"subtype":"cancel_async_message","message_uuid":"00000000-0000-4000-8000-000000000001"}}` + "\n",
+		`{"type":"control_request","request_id":"00000000-0000-4000-8000-000000000002",` +
+			`"request":{"subtype":"interrupt","cancel_queued":true}}` + "\n",
+	}
+	for i, expected := range want {
+		if got := string(receive(t, lines)); got != expected {
+			t.Fatalf("envelope %d = %q, want %q", i, got, expected)
+		}
+	}
+}
+
 func TestSendUserMessageNearMaxLineBytesReachesProcessWhole(t *testing.T) {
 	t.Parallel()
 

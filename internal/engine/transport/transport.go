@@ -246,6 +246,47 @@ func (transport *Transport) SendInterrupt(requestID string) error {
 	return transport.writeLocked(envelope)
 }
 
+// SendInterruptCancelQueued writes one caller-correlated interrupt control request that also cancels the
+// queued user messages.
+func (transport *Transport) SendInterruptCancelQueued(requestID string) error {
+	transport.writeMu.Lock()
+	defer transport.writeMu.Unlock()
+
+	encodedID, err := json.Marshal(requestID)
+	if err != nil {
+		return fmt.Errorf("transport: marshal interrupt request ID: %w", err)
+	}
+	envelope := make([]byte, 0, len(encodedID)+96)
+	envelope = append(envelope, `{"type":"control_request","request_id":`...)
+	envelope = append(envelope, encodedID...)
+	envelope = append(envelope, `,"request":{"subtype":"interrupt","cancel_queued":true}}`...)
+	envelope = append(envelope, '\n')
+	return transport.writeLocked(envelope)
+}
+
+// SendCancelAsyncMessage writes one caller-correlated control request that cancels the queued user message
+// messageUUID.
+func (transport *Transport) SendCancelAsyncMessage(requestID, messageUUID string) error {
+	transport.writeMu.Lock()
+	defer transport.writeMu.Unlock()
+
+	encodedID, err := json.Marshal(requestID)
+	if err != nil {
+		return fmt.Errorf("transport: marshal cancel request ID: %w", err)
+	}
+	encodedUUID, err := json.Marshal(messageUUID)
+	if err != nil {
+		return fmt.Errorf("transport: marshal cancel message UUID: %w", err)
+	}
+	envelope := make([]byte, 0, len(encodedID)+len(encodedUUID)+128)
+	envelope = append(envelope, `{"type":"control_request","request_id":`...)
+	envelope = append(envelope, encodedID...)
+	envelope = append(envelope, `,"request":{"subtype":"cancel_async_message","message_uuid":`...)
+	envelope = append(envelope, encodedUUID...)
+	envelope = append(envelope, '}', '}', '\n')
+	return transport.writeLocked(envelope)
+}
+
 // SendInitialize advertises the dialog kinds supported by this client.
 func (transport *Transport) SendInitialize(
 	requestID string,
