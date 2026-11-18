@@ -1059,7 +1059,8 @@ message PendingEvent {
   // The step's reason, for a step_end.
   string reason = 7;
 
-  // The first line of the step's result, for a step_end.
+  // The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+  // JSON object that has one, in that order, else the result's first line.
   string summary = 8;
 
   // The epic that holds the step, for a step_end an epic holds, or the epic of an epic event.
@@ -1070,6 +1071,9 @@ message PendingEvent {
 
   // How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
   string waits = 11;
+
+  // The step's full result, for a step_end.
+  string result = 12;
 }
 
 // BackgroundTask is a background task that a headless session reported, with the times it started and ended.

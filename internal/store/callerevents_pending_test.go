@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -138,7 +139,8 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	want := []PendingEvent{
 		{
 			ID: "step:step-a", Kind: CallerKindStepEnd, Step: "step-a", Agent: "implementer", End: "done",
-			Status: "passed", Reason: "gate green", Summary: "First line", Epic: claimEpic,
+			Status: "passed", Reason: "gate green", Summary: "First line", Result: "First line\nSecond line",
+			Epic: claimEpic,
 		},
 		{
 			ID: "epic:orrery-1a2b3c4/epic-ended:done", Kind: CallerKindEnd, Epic: pendingEnded, Title: "Synthetic epic",
@@ -164,7 +166,7 @@ func TestStepEventCardPendingListsOwedStepEndsAndEpicEvents(t *testing.T) {
 	gotOther := readPending(t, path, "engine-2")
 	wantOther := []PendingEvent{
 		{ID: "step:step-b", Kind: CallerKindStepEnd, Step: "step-b", Agent: "implementer", End: "done",
-			Status: "passed", Reason: "gate green", Summary: "Other"},
+			Status: "passed", Reason: "gate green", Summary: "Other", Result: "Other"},
 		{ID: "epic:orrery-1a2b3c4/epic-other:released", Kind: CallerKindRelease, Epic: pendingOther,
 			Title: "Synthetic epic"},
 	}
@@ -242,5 +244,41 @@ func TestStepEventCardPendingDropsReadAndMarkedEvents(t *testing.T) {
 	}
 	if got := readPending(t, path, "engine-1"); len(got) != 0 {
 		t.Fatalf("PendingCallerEvents after every event is marked or read = %v, want none", pendingIDs(got))
+	}
+}
+
+// TestStepEndTextPendingHeadlines ends a step under engine-1 for each result of cases, in order, and reads the pending
+// step ends. Each carries the headline its result gives and the full result.
+func TestStepEndTextPendingHeadlines(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		result   string
+		headline string
+	}{
+		{`{"answer":"Yes, it works"}`, "Yes, it works"},
+		{`{"summary":"Summary line"}`, "Summary line"},
+		{`{"verdict":"pass"}`, "pass"},
+		{`{"verdict":"V","summary":"S","answer":"A"}`, "A"},
+		{`{"verdict":"V","summary":"S"}`, "S"},
+		{`{"answer":3,"summary":"S","verdict":"pass"}`, "S"},
+		{`{"answer":"Yes\nwith detail"}`, "Yes\nwith detail"},
+		{`{"answer":"\nDetail","verdict":"pass"}`, "\nDetail"},
+		{"Plain first\nPlain second", "Plain first"},
+		{`{"other":"x"}`, `{"other":"x"}`},
+	}
+	s, path := openPendingStore(t)
+	addPendingEngines(t, s, "engine-1")
+	want := make([]PendingEvent, 0, len(cases))
+	for i, c := range cases {
+		id := fmt.Sprintf("step-text-%d", i)
+		startPendingStep(t, s, id, "", "engine-1")
+		endPendingStep(t, s, id, c.result, pendingAt().Add(time.Duration(i+1)*time.Minute))
+		want = append(want, PendingEvent{
+			ID: stepEventPrefix + id, Kind: CallerKindStepEnd, Step: id, Agent: "implementer", End: "done",
+			Status: "passed", Reason: "gate green", Summary: c.headline, Result: c.result,
+		})
+	}
+	if got := readPending(t, path, "engine-1"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("PendingCallerEvents(engine-1) =\n %+v\nwant\n %+v", got, want)
 	}
 }

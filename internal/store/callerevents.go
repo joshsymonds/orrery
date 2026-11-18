@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -117,9 +118,9 @@ func EpicPhaseEventKind(phase string) (string, bool) {
 // PendingEvent is a caller event still owed to a session, as PendingCallerEvents lists it. ID is the id the event is
 // marked under once it is delivered, and Kind is the kind its block names.
 //
-// A step_end carries the step: Step is its id, Agent its agent, End, Status and Reason how it ended, Summary the first
-// line of its result, and Epic the epic that holds it, empty when none does. An epic event carries Epic, the epic's id,
-// and Title, the epic's title.
+// A step_end carries the step: Step is its id, Agent its agent, End, Status and Reason how it ended, Summary the
+// headline of its result (see stepHeadline), Result the full result, and Epic the epic that holds it, empty when none
+// does. An epic event carries Epic, the epic's id, and Title, the epic's title.
 type PendingEvent struct {
 	ID      string
 	Kind    string
@@ -129,6 +130,7 @@ type PendingEvent struct {
 	Status  string
 	Reason  string
 	Summary string
+	Result  string
 	Epic    string
 	Title   string
 }
@@ -193,7 +195,8 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 		}
 		events = append(events, PendingEvent{
 			ID: stepEventPrefix + step.ID, Kind: CallerKindStepEnd, Step: step.ID, Agent: step.Agent,
-			End: step.End, Status: step.Status, Reason: step.Reason, Summary: firstLine(step.Result), Epic: step.Epic,
+			End: step.End, Status: step.Status, Reason: step.Reason, Summary: stepHeadline(step.Result),
+			Result: step.Result, Epic: step.Epic,
 		})
 	}
 
@@ -256,6 +259,27 @@ func unmarkedEvents(
 		}
 	}
 	return out, nil
+}
+
+// The fields of a JSON object result that its headline may come from.
+const (
+	answerField  = "answer"
+	summaryField = "summary"
+	verdictField = "verdict"
+)
+
+// stepHeadline returns the headline of a step's result. When the result is a JSON object, it is the string of the first
+// of answer, summary and verdict that holds a string; otherwise it is the result's first line.
+func stepHeadline(result string) string {
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(result), &fields); err == nil {
+		for _, key := range []string{answerField, summaryField, verdictField} {
+			if text, ok := fields[key].(string); ok {
+				return text
+			}
+		}
+	}
+	return firstLine(result)
 }
 
 // firstLine returns the text of s before its first line break.

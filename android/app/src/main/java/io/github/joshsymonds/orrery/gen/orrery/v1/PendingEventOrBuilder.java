@@ -152,7 +152,8 @@ public interface PendingEventOrBuilder extends
 
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -161,7 +162,8 @@ public interface PendingEventOrBuilder extends
   java.lang.String getSummary();
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -229,4 +231,24 @@ public interface PendingEventOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWaitsBytes();
+
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   * @return The result.
+   */
+  java.lang.String getResult();
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   * @return The bytes for result.
+   */
+  com.google.protobuf.ByteString
+      getResultBytes();
 }

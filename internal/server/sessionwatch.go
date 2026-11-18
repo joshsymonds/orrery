@@ -243,6 +243,7 @@ func (w *sessionWatch) pendingEvents(
 			Status:  event.Status,
 			Reason:  event.Reason,
 			Summary: event.Summary,
+			Result:  event.Result,
 			Epic:    event.Epic,
 			Title:   event.Title,
 			Waits:   waits,

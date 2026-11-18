@@ -64,7 +64,7 @@ func cardPending(waits string) []*orreryv1.PendingEvent {
 func cardStepEnd(waits string) *orreryv1.PendingEvent {
 	return &orreryv1.PendingEvent{
 		Id: cardStepEvent, Kind: "step_end", Step: cardStep, Agent: "implementer", End: "done", Status: "passed",
-		Reason: "gate green", Summary: "First line", Epic: cardEpic, Waits: waits,
+		Reason: "gate green", Summary: "First line", Result: "First line\nSecond line", Epic: cardEpic, Waits: waits,
 	}
 }
 

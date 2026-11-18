@@ -4408,14 +4408,17 @@ type PendingEvent struct {
 	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
 	// The step's reason, for a step_end.
 	Reason string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	// The first line of the step's result, for a step_end.
+	// The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+	// JSON object that has one, in that order, else the result's first line.
 	Summary string `protobuf:"bytes,8,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The epic that holds the step, for a step_end an epic holds, or the epic of an epic event.
 	Epic string `protobuf:"bytes,9,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The epic's title, for an epic event.
 	Title string `protobuf:"bytes,10,opt,name=title,proto3" json:"title,omitempty"`
 	// How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
-	Waits         string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
+	Waits string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
+	// The step's full result, for a step_end.
+	Result        string `protobuf:"bytes,12,opt,name=result,proto3" json:"result,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4523,6 +4526,13 @@ func (x *PendingEvent) GetTitle() string {
 func (x *PendingEvent) GetWaits() string {
 	if x != nil {
 		return x.Waits
+	}
+	return ""
+}
+
+func (x *PendingEvent) GetResult() string {
+	if x != nil {
+		return x.Result
 	}
 	return ""
 }
@@ -6768,7 +6778,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"background\x18\n" +
 	" \x03(\v2\x19.orrery.v1.BackgroundTaskR\n" +
-	"background\"\xf8\x01\n" +
+	"background\"\x90\x02\n" +
 	"\fPendingEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
@@ -6781,7 +6791,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04epic\x18\t \x01(\tR\x04epic\x12\x14\n" +
 	"\x05title\x18\n" +
 	" \x01(\tR\x05title\x12\x14\n" +
-	"\x05waits\x18\v \x01(\tR\x05waits\"\xff\x01\n" +
+	"\x05waits\x18\v \x01(\tR\x05waits\x12\x16\n" +
+	"\x06result\x18\f \x01(\tR\x06result\"\xff\x01\n" +
 	"\x0eBackgroundTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\vtool_use_id\x18\x02 \x01(\tR\ttoolUseId\x12 \n" +
