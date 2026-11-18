@@ -26,11 +26,10 @@ const originRunes = 300
 
 // WatchConversation answers Sessions.WatchConversation with the stream of one headless session or one labeled step.
 // The limit is checked as Panes.WatchConversation checks it. The stream sends its first delta at once, then a delta for
-// each poll that finds new main-thread items, a changed state, a changed unfinished set, a changed held set or a
-// changed queued set, and a keepalive once keepalive has passed without a delta. A step session is admitted once, by
-// StepStatus, before its first delta. The stream ends with the error the session read gives, when serve shuts down, or
-// when a send stays blocked past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are
-// (see endWithin).
+// each poll that finds new main-thread items, a changed state, a changed unfinished set or a changed queued set, and a
+// keepalive once keepalive has passed without a delta. A step session is admitted once, by StepStatus, before its first
+// delta. The stream ends with the error the session read gives, when serve shuts down, or when a send stays blocked
+// past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
 func (s sessionsServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[orreryv1.SessionsWatchConversationRequest],
@@ -130,11 +129,10 @@ type sessionWatch struct {
 	now       func() time.Time
 	tasks     map[string]*backgroundTask
 	taskOrder []*backgroundTask
-	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished, sentHeld and sentQueued
-	// are the unfinished, held and queued sets it last sent.
+	// sent is the state the stream last sent, or nil before its first delta. sentUnfinished and sentQueued are the
+	// unfinished and queued sets it last sent.
 	sent           *orreryv1.ConversationState
 	sentUnfinished []*orreryv1.EngineText
-	sentHeld       []*orreryv1.HeldMessage
 	sentQueued     []*orreryv1.QueuedMessage
 	// prompts is the prompts of the session with a lifecycle state, in send order, as the step's read found them, and
 	// withheld holds the ids of the owner prompts whose newest state is canceled or discarded (see readPrompts).
@@ -143,9 +141,8 @@ type sessionWatch struct {
 }
 
 // step reads the session once. It returns the message for the read, and true when the message is a delta: the first
-// message, a read with new items, a changed state, or a changed unfinished, held or queued set. Otherwise the message
-// carries neither items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its oldest
-// item.
+// message, a read with new items, a changed state, or a changed unfinished or queued set. Otherwise the message carries
+// neither items nor state, and the caller sends it only as a keepalive. A reset carries the seq of its oldest item.
 func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConversationResponse, bool, error) {
 	first := w.sent == nil
 	items, oldest, history, err := w.read(ctx, first)
@@ -153,11 +150,7 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 		return nil, false, err
 	}
 	w.readFigure(history)
-	held, err := w.held(ctx, history)
-	if err != nil {
-		return nil, false, err
-	}
-	pending, err := w.pendingEvents(ctx, history, len(held) > 0)
+	pending, err := w.pendingEvents(ctx, history)
 	if err != nil {
 		return nil, false, err
 	}
@@ -174,20 +167,16 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	unfinishedChanged := !slices.EqualFunc(unfinished, w.sentUnfinished, func(a, b *orreryv1.EngineText) bool {
 		return proto.Equal(a, b)
 	})
-	heldChanged := !slices.EqualFunc(held, w.sentHeld, func(a, b *orreryv1.HeldMessage) bool {
-		return proto.Equal(a, b)
-	})
 	queuedChanged := !slices.EqualFunc(queued, w.sentQueued, func(a, b *orreryv1.QueuedMessage) bool {
 		return proto.Equal(a, b)
 	})
-	changed := stateChanged || unfinishedChanged || heldChanged || queuedChanged || len(items) > 0
+	changed := stateChanged || unfinishedChanged || queuedChanged || len(items) > 0
 	msg := &orreryv1.SessionsWatchConversationResponse{
 		Transcript: w.id,
 		Seq:        w.seq,
 		Reset_:     first && w.after == 0,
 		Items:      items,
 		Unfinished: unfinished,
-		Held:       held,
 		Queued:     queued,
 	}
 	msg.Oldest = oldest
@@ -197,7 +186,6 @@ func (w *sessionWatch) step(ctx context.Context) (*orreryv1.SessionsWatchConvers
 	if changed {
 		w.sent = state
 		w.sentUnfinished = unfinished
-		w.sentHeld = held
 		w.sentQueued = queued
 	}
 	return msg, changed, nil
@@ -232,7 +220,7 @@ func (w *sessionWatch) withholds(item *orreryv1.ConversationItem) bool {
 }
 
 // queued returns the owner messages the session has not started, as the stream serves them (see queuedMessages). A step
-// session serves none, as it holds none (see held).
+// session serves none.
 func (w *sessionWatch) queued(history store.EngineHistory) []*orreryv1.QueuedMessage {
 	if history.Kind == store.KindStep {
 		return nil
@@ -272,38 +260,18 @@ func queuedMessages(prompts []store.PromptState) []*orreryv1.QueuedMessage {
 	return served
 }
 
-// held returns the held set of the session history describes, oldest first, as store.Reader.HeldPrompts reads it. A
-// step session holds nothing: the store would accept a hold on a step's row, but the stream never reads one for it. A
-// failed read is answered as a failed session read is.
-func (w *sessionWatch) held(ctx context.Context, history store.EngineHistory) ([]*orreryv1.HeldMessage, error) {
-	if history.Kind == store.KindStep {
-		return nil, nil
-	}
-	prompts, err := w.reader.HeldPrompts(ctx, w.id)
-	if err != nil {
-		return nil, sessionReadError(err)
-	}
-	held := make([]*orreryv1.HeldMessage, 0, len(prompts))
-	for _, prompt := range prompts {
-		held = append(held, &orreryv1.HeldMessage{PromptId: prompt.PromptID, Text: prompt.Text})
-	}
-	return held, nil
-}
-
 // The waits labels of a PendingEvent: speak when the owner's interrupt keeps the session quiet, and free otherwise.
 const (
 	waitsSpeak = "speak"
 	waitsFree  = "free"
 )
 
-// pendingEvents returns the caller events the session is owed, as store.Reader.PendingCallerEvents reads them. holds is
-// whether the session holds a message, and it sets the waits label of each event (see waitsLabel). A step session is
-// owed none, since caller events go to the sessions that start steps or create epics. A failed read is answered as a
-// failed session read is.
+// pendingEvents returns the caller events the session is owed, as store.Reader.PendingCallerEvents reads them. It sets
+// the waits label of each event (see waitsLabel). A step session is owed none, since caller events go to the sessions
+// that start steps or create epics. A failed read is answered as a failed session read is.
 func (w *sessionWatch) pendingEvents(
 	ctx context.Context,
 	history store.EngineHistory,
-	holds bool,
 ) ([]*orreryv1.PendingEvent, error) {
 	if history.Kind == store.KindStep {
 		return nil, nil
@@ -312,7 +280,7 @@ func (w *sessionWatch) pendingEvents(
 	if err != nil {
 		return nil, sessionReadError(err)
 	}
-	waits := w.waitsLabel(holds)
+	waits := w.waitsLabel()
 	pending := make([]*orreryv1.PendingEvent, 0, len(events))
 	for _, event := range events {
 		pending = append(pending, &orreryv1.PendingEvent{
@@ -334,9 +302,9 @@ func (w *sessionWatch) pendingEvents(
 }
 
 // waitsLabel returns the waits label of the session's caller events: speak when its newest engine_interrupt is newer
-// than its newest owner prompt and it holds no message, and free otherwise.
-func (w *sessionWatch) waitsLabel(holds bool) string {
-	if w.interruptSeq > w.ownerPromptSeq && !holds {
+// than its newest owner prompt, and free otherwise.
+func (w *sessionWatch) waitsLabel() string {
+	if w.interruptSeq > w.ownerPromptSeq {
 		return waitsSpeak
 	}
 	return waitsFree

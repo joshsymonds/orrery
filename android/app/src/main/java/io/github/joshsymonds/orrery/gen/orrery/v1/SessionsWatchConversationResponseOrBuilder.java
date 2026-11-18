@@ -136,35 +136,6 @@ public interface SessionsWatchConversationResponseOrBuilder extends
 
   /**
    * <pre>
-   * The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
-   * holds with it.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.HeldMessage held = 8 [json_name = "held"];</code>
-   */
-  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage> 
-      getHeldList();
-  /**
-   * <pre>
-   * The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
-   * holds with it.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.HeldMessage held = 8 [json_name = "held"];</code>
-   */
-  io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage getHeld(int index);
-  /**
-   * <pre>
-   * The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
-   * holds with it.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.HeldMessage held = 8 [json_name = "held"];</code>
-   */
-  int getHeldCount();
-
-  /**
-   * <pre>
    * The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
    * client replaces the queued set it holds with it.
    * </pre>

@@ -200,22 +200,12 @@ message SessionsWatchConversationResponse {
   // reset, and on a reset that carries no item.
   int64 oldest = 7;
 
-  // The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
-  // holds with it.
-  repeated HeldMessage held = 8;
+  reserved 8;
+  reserved "held";
 
   // The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
   // client replaces the queued set it holds with it.
   repeated QueuedMessage queued = 9;
-}
-
-// HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
-message HeldMessage {
-  // The prompt id the message is held under: the Say's own, or one orreryd assigned.
-  string prompt_id = 1;
-
-  // The message text.
-  string text = 2;
 }
 
 // QueuedMessage is one owner message a headless session has not started to Claude.
