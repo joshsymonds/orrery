@@ -31,10 +31,26 @@ const redLogTailBytes = 8192
 // continue from the worktree's earlier work, finish every command before returning, run the Capture, commit on top of
 // the start commit, and what each return status means. The brief names no epic, turn or owner decision: the
 // Deliverable carries every decision the implementer must follow.
+//
+// A closure-kind task's brief differs in three ways: it has no red block (neither the red run's exit and verdict nor
+// its logs), its evidence is the closure lines of evidenceLines, and it leaves out the standing rule on an Evidence
+// clause and the closing line on the Capture, since the round's closure check settles it, not an evidence judge.
 func Brief(
 	epic store.EpicRow, task store.EpicTask, gate gates.Gate, red store.EvidenceRun, redLog, redStderr []byte,
 	failure string,
 ) string {
+	closure := task.Evidence.Kind == evidence.KindClosure
+	rules := []string{
+		"changing anything the Deliverable does not ask for, including tidying, reformatting, or fixing code or " +
+			"tests that are already broken; this overrides any standing instruction to fix what you find",
+		"editing, renaming, or deleting an existing test the Deliverable does not name",
+		"a test that repeats an existing assertion or passes with the change removed",
+		"a real timer or clock in a test",
+	}
+	if !closure {
+		rules = append(rules, "an Evidence clause left unproved")
+	}
+	rules = append(rules, "dead code, an unhandled error, a skip, or a suppressed check")
 	lines := slices.Concat(
 		[]string{
 			fmt.Sprintf(
@@ -49,15 +65,7 @@ func Brief(
 		[]string{
 			"Standing rules a commit is rejected for:",
 		},
-		bullets([]string{
-			"changing anything the Deliverable does not ask for, including tidying, reformatting, or fixing code or " +
-				"tests that are already broken; this overrides any standing instruction to fix what you find",
-			"editing, renaming, or deleting an existing test the Deliverable does not name",
-			"a test that repeats an existing assertion or passes with the change removed",
-			"a real timer or clock in a test",
-			"an Evidence clause left unproved",
-			"dead code, an unhandled error, a skip, or a suppressed check",
-		}),
+		bullets(rules),
 		[]string{
 			"Deliverable: " + task.Deliverable,
 			"Change only these files:",
@@ -85,16 +93,18 @@ func Brief(
 		bullets(epic.Exclusions),
 		[]string{"After the gate passes, reviewers judge your commit by these rules:"},
 		bullets(reviewerRules(epic.Reviewers)),
-		[]string{
+	)
+	if !closure {
+		lines = append(lines,
 			fmt.Sprintf("Red at the base: exit %d, verdict %s", red.Exit, red.Verdict),
 			"Red log (last 8 KiB):",
 			"```",
 			string(logTail(redLog)),
 			"```",
-		},
-	)
-	if len(redStderr) > 0 {
-		lines = append(lines, "Red stderr (last 8 KiB):", "```", string(logTail(redStderr)), "```")
+		)
+		if len(redStderr) > 0 {
+			lines = append(lines, "Red stderr (last 8 KiB):", "```", string(logTail(redStderr)), "```")
+		}
 	}
 	if failure != "" {
 		lines = append(lines, "From your previous try on this task: "+failure)
@@ -104,7 +114,11 @@ func Brief(
 			"`git log --oneline %s..HEAD` first, and continue from what is there.", task.Build.Base),
 		"Finish every command you start before you return: run nothing in the background and wait on no monitor. "+
 			"Ending your turn is your return.",
-		"Run the Capture, when Evidence names one, and wait for it to finish before committing.",
+	)
+	if !closure {
+		lines = append(lines, "Run the Capture, when Evidence names one, and wait for it to finish before committing.")
+	}
+	lines = append(lines,
 		fmt.Sprintf("Commit your work on top of the start commit %s, never amend or rewrite a commit, then return "+
 			"status done with commit set to the full id of HEAD and a short summary.", task.Build.Base),
 		"needs_context means the work needs files or facts you do not have, named in needs_files or in summary. "+
@@ -208,8 +222,18 @@ func requirementLines(declared []store.EpicRequirement, ids []string) []string {
 }
 
 // evidenceLines renders the conclusion of a task's evidence item, then the capture it runs or the files a person
-// supplies in its place, then the line on how the evidence judge reads that capture's output or those files.
+// supplies in its place, then the line on how the evidence judge reads that capture's output or those files. A closure
+// item has neither: evidenceLines renders instead the line that it runs no red and no green and that the round's
+// closure check settles it, then the conclusion that check must find.
 func evidenceLines(item evidence.Item) []string {
+	if item.Kind == evidence.KindClosure {
+		return []string{
+			"Closure: this task runs no red and no green, and no evidence judge reads it. After the gate passes and " +
+				"the reviewers judge your commit, the round's closure check settles it: it judges each open finding " +
+				"of the round again on the integrated change.",
+			"What that check must find: " + item.Conclusion,
+		}
+	}
 	if len(item.Capture) > 0 {
 		return []string{
 			"Evidence: " + item.Conclusion,
