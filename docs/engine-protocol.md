@@ -509,3 +509,23 @@ The findings of this section come from live probes on Claude Code 2.1.321 with `
   - A second `unmet` ends the step `goal_unmet`, and the step's return is kept (`enginehost.stepRun.judgeReturn`).
   - A failed diff stat, a failed call or an unparsable reply stores its error with no verdict and action `none`, and ends the step `done` (`enginehost.stepRun.judgeReturn`, `enginehost.stepRun.judgeCall`).
   - A failed `Continue` of the judge's send-back ends the step `failed` (`enginehost.stepRun.judgeReturn`).
+
+## 16. Cron takeover
+
+A headless session's cron tools, `CronCreate`, `CronDelete` and `CronList`, are answered by orreryd, so that orreryd keeps each job and the session can sleep until one is due. The `Crons` service is the RPC that carries these calls, and `orrery hook cron` is the PreToolUse hook that makes them. No handler serves the service yet, so every call fails, and the hook denies each one.
+
+The service is `orrery.engine.v1.Crons`, with one method, `CronCall` (`proto/orrery/engine/v1/cron.proto: Crons`). Its request `CronCallRequest` has `tool_name`, the tool the call names, which is `CronCreate`, `CronDelete` or `CronList`; `tool_use_id`, the id of the tool call the hook is for; and `tool_input`, the tool's input object as JSON text (`proto/orrery/engine/v1/cron.proto: CronCallRequest`). Its response `CronCallResponse` has `reason`, the full text the agent reads (`proto/orrery/engine/v1/cron.proto: CronCallResponse`). The message names no session. The calling session travels in the `Orrery-Session` header, which carries the session's `ORRERY_SESSION` value and is set by `stepmcp.CallerInterceptor`, the interceptor `orrery hook cron` uses (`protocol.HeaderSession`; `stepmcp.stampCaller`; `cmd/orrery.runHook`). The client dials the session socket beside the daemon socket (`protocol.SessionSocketPath`; `cmd/orrery.runHook`).
+
+`orrery hook cron` reads the PreToolUse hook's JSON from stdin, and decodes its `tool_name`, `tool_use_id` and `tool_input` with their wire tags (`hook.cronInput`; `wire.UnmarshalControlJSON`). It calls `CronCall` with a deadline of five seconds (`cmd/orrery.cronWait`; `hook.Cron`). It writes exactly one decision to stdout, and it exits 0 whatever happens (`hook.Cron`, `hook.writeDeny`, `cmd/orrery.hookCron`). The decision is always a deny:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"…"}}
+```
+
+When orreryd answers, the reason is the response's `reason`, verbatim (`hook.cronReason`). Otherwise the reason says that the job was not scheduled, names the cause, and tells the agent to call the tool again (`hook.notScheduled`):
+
+```text
+orrery could not reach orreryd, so the job was not scheduled (<cause>). Call CronCreate again.
+```
+
+The causes are these. Stdin that cannot be read or parsed gives `could not read the hook input` or `could not parse the hook input`, and the reason ends `Call the tool again.`, since no tool name was read. An RPC error names its code and message. A deadline that passes with no answer names `context deadline exceeded`. A command line that names no daemon socket, or whose global flags fail to parse, is answered by a client whose every call fails with that cause (`cmd/orrery.runHook`, `cmd/orrery.run`, `cmd/orrery.unreachableCrons`). Plain `orrery hook` is unchanged: it forwards the event to the daemon and prints nothing (`cmd/orrery.runHook`; `hook.Run`).
