@@ -106,6 +106,12 @@ func TestTaskVersionReadOverlaysTheCurrentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RerunTask: %v", err)
 	}
+	err = s.SettleTaskVersion(ctx, buildEpic, 1, openBuildOf(), openBuildOf(), store.TaskVersionSettle{
+		Version: 2, State: store.VersionApplied,
+	}, writtenAt())
+	if err != nil {
+		t.Fatalf("SettleTaskVersion: %v", err)
+	}
 	// A refused version after the applied one is listed but never overlaid, so the read keeps the applied values.
 	if _, err = raw.Exec(`INSERT INTO epic_task_versions
 		(epic, task, version, source, decision, step, reason, deliverable, state, refusal, created)

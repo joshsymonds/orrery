@@ -44,13 +44,16 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 	}
 }
 
-// record carries out an action that is one store write of the task's build: a move, a pause, a park, a review or a
-// finding. Any other action does nothing and reports false.
+// record carries out an action that is one store write of the task's build: a move, a settle of a checking version, a
+// pause, a park, a review or a finding. Any other action does nothing and reports false.
 func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
 	case ActMove:
 		return r.written(ctx, epic.ID, seq, "move build", r.store.SetTaskBuild(ctx, epic.ID, seq, from, action.Next))
+	case ActSettleVersion:
+		err := r.store.SettleTaskVersion(ctx, epic.ID, seq, from, action.Next, *action.Settle, r.now())
+		return r.written(ctx, epic.ID, seq, "settle version", err)
 	case ActPause:
 		err := r.store.StopTask(ctx, epic.ID, seq, from, action.Next)
 		return r.written(ctx, epic.ID, seq, "pause task", err)

@@ -115,7 +115,9 @@ func decideFresh(view View) Action {
 
 // decideRed returns the action for the red unit: its evidence run at the base, once it has ended. A red run that
 // exited store.EnvironmentExit reruns or parks the unit as environmentRerun decides. A red run that fails at the base
-// passes into implement with the run kept. One whose conclusion holds at the base fails the task.
+// passes into implement with the run kept. One whose conclusion holds at the base fails the task. While the task has a
+// checking version, the run judges that version instead: a conclusion that holds at the base, or a run not captured,
+// settles it refused, and a conclusion that does not hold settles it applied (settleVersion). Neither fails the task.
 func decideRed(view View) Action {
 	build := view.Task.Build
 	run := view.Run
@@ -125,7 +127,7 @@ func decideRed(view View) Action {
 		}
 		return Action{
 			Kind: ActStartRun, Phase: StageRed, Revision: build.Base,
-			ID: RunID(view.Epic, view.Task.Seq, StageRed, 0, build.Rerun),
+			ID: RunID(view.Epic, view.Task.Seq, StageRed, build.Attempt, build.Rerun),
 		}
 	}
 	if run.Ended.IsZero() {
@@ -135,13 +137,18 @@ func decideRed(view View) Action {
 		return environmentRerun(view, StageRed+" capture")
 	}
 	if run.NotCaptured != "" {
-		return Action{Kind: ActFail, Reason: "red not captured: " + run.NotCaptured}
+		return redNotHolding(view, run.ID, "red not captured: "+run.NotCaptured)
 	}
 	if run.Verdict == "" {
 		return noVerdict(view, StageRed, run.JudgeReason)
 	}
 	if !run.Passed {
-		return Action{Kind: ActFail, Reason: "red: the conclusion holds at the base"}
+		return redNotHolding(view, run.ID, "red: the conclusion holds at the base")
+	}
+	if version, ok := view.Task.Checking(); ok {
+		return settleVersion(view, store.TaskVersionSettle{
+			Version: version.Version, State: store.VersionApplied, RedRun: run.ID,
+		})
 	}
 	build.Stage = StageImplement
 	build.Attempt = 1
@@ -149,6 +156,40 @@ func decideRed(view View) Action {
 	build.NoVerdict = 0
 	build.RedRun = run.ID
 	return Action{Kind: ActMove, Next: build}
+}
+
+// redNotHolding returns the action for a red run that ended without passing, for reason, with id the run. Without a
+// checking version it fails the task. With one, the version is refused for reason and the task carries on, as
+// settleVersion gives.
+func redNotHolding(view View, id, reason string) Action {
+	version, ok := view.Task.Checking()
+	if !ok {
+		return Action{Kind: ActFail, Reason: reason}
+	}
+	return settleVersion(view, store.TaskVersionSettle{
+		Version: version.Version, State: store.VersionRefused, RedRun: id, Refusal: reason,
+	})
+}
+
+// settleVersion returns the action that settles the checking version settle names and moves the build to implement,
+// with its attempt, its rerun and its refs kept, its verdict counted from zero and no step. An applied version's red
+// run is the build's RedRun. A refused version keeps the build's RedRun, and its failure gains the final line that
+// names the version and its refusal.
+func settleVersion(view View, settle store.TaskVersionSettle) Action {
+	build := view.Task.Build
+	build.Stage = StageImplement
+	build.NoVerdict = 0
+	build.Step = ""
+	if settle.State == store.VersionApplied {
+		build.RedRun = settle.RedRun
+	} else {
+		line := fmt.Sprintf("orreryd refused version %d of the spec: %s", settle.Version, settle.Refusal)
+		if build.Failure != "" {
+			build.Failure += "\n"
+		}
+		build.Failure += line
+	}
+	return Action{Kind: ActSettleVersion, Next: build, Settle: &settle}
 }
 
 // decideImplement returns the action for the implement unit. Without a step, the refs are snapshotted and then the

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,8 +21,18 @@ const (
 	SourceCarry        = "carry"
 )
 
-// VersionApplied is the state of a version the task's spec takes. The planner's read overlays applied versions only.
-const VersionApplied = "applied"
+// The states a task spec version is in. VersionApplied is the state of a version the task's spec takes, and the
+// planner's read overlays applied versions only. VersionChecking is a version whose new evidence is judged at the
+// task's base, and VersionRefused one that did not take.
+const (
+	VersionApplied  = "applied"
+	VersionChecking = "checking"
+	VersionRefused  = "refused"
+)
+
+// ErrVersionNotChecking reports that a task has no version in state checking under the number a settle names, so the
+// settle wrote nothing.
+var ErrVersionNotChecking = errors.New("version not checking")
 
 // TaskVersion is one stored version of a task's spec: the number the row stores, 2 or more, the source that wrote
 // it, the epic decision that did (Decision, empty for orreryd's rule grant), the step that did, and why. A field the
@@ -45,6 +56,17 @@ type TaskVersion struct {
 	Refusal     string
 	Created     time.Time
 	Settled     time.Time
+}
+
+// Checking returns the task's version in state checking, and false when it has none. A version that changes the
+// evidence is checking until its red run settles it.
+func (task EpicTask) Checking() (TaskVersion, bool) {
+	for _, version := range task.Versions {
+		if version.State == VersionChecking {
+			return version, true
+		}
+	}
+	return TaskVersion{}, false
 }
 
 // Changed returns the names of the fields the version changes, in the order deliverable, files, test_changes, gate,
@@ -90,7 +112,9 @@ func (in TaskVersionInput) changesAny() bool {
 
 // appendTaskVersion stores in as the next version of task seq of epic, in the caller's write, applied by the epic
 // decision decision, or by none when decision is empty. Its files are added after the task's last file, and the
-// version stores the task's whole file list. It writes nothing when in changes no field.
+// version stores the task's whole file list. A version that changes the evidence is stored checking, unsettled, and
+// every other version applied and settled at at. It writes nothing when in changes no field, and an input that sets
+// both evidence and files is an error that writes nothing.
 func appendTaskVersion(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -100,6 +124,9 @@ func appendTaskVersion(
 	in TaskVersionInput,
 	at time.Time,
 ) error {
+	if err := checkVersionChanges(epic, seq, in); err != nil {
+		return err
+	}
 	if !in.changesAny() {
 		return nil
 	}
@@ -107,9 +134,10 @@ func appendTaskVersion(
 	if err != nil {
 		return fmt.Errorf("read versions of task %d of epic %s: %w", seq, epic, err)
 	}
+	state, settled := storedState(in, at)
 	params := sqlcgen.InsertEpicTaskVersionParams{
 		Epic: epic, Task: seq, Version: highest + 1, Source: in.Source, Decision: decision, Step: in.Step,
-		Reason: in.Reason, Created: at.Unix(), Settled: at.Unix(),
+		Reason: in.Reason, State: state, Created: at.Unix(), Settled: settled,
 	}
 	if len(in.Files) > 0 {
 		whole, filesErr := appendTaskFiles(ctx, queries, epic, seq, in.Files)
@@ -146,6 +174,23 @@ func appendTaskVersion(
 		return fmt.Errorf("insert version %d of task %d of epic %s: %w", params.Version, seq, epic, err)
 	}
 	return nil
+}
+
+// checkVersionChanges returns an error when in sets both evidence and files, which one version may not do.
+func checkVersionChanges(epic string, seq int64, in TaskVersionInput) error {
+	if in.Evidence != nil && len(in.Files) > 0 {
+		return fmt.Errorf("version of task %d of epic %s sets both evidence and files", seq, epic)
+	}
+	return nil
+}
+
+// storedState returns the state in is stored in and the time it is settled at: a version that changes the evidence is
+// checking and unsettled, and any other version is applied and settled at at.
+func storedState(in TaskVersionInput, at time.Time) (string, int64) {
+	if in.Evidence != nil {
+		return VersionChecking, 0
+	}
+	return VersionApplied, at.Unix()
 }
 
 // appendTaskFiles adds files, in order, after the last file of task seq of epic, and returns the task's whole file
@@ -234,6 +279,52 @@ func taskVersionOf(stored sqlcgen.EpicTaskVersion) (TaskVersion, error) {
 		version.Evidence = &item
 	}
 	return version, nil
+}
+
+// TaskVersionSettle is how a checking version leaves checking: the Version it settles, the State it settles to, applied
+// or refused, the RedRun that judged its evidence, and the Refusal it was refused for, empty when it applies.
+type TaskVersionSettle struct {
+	Version int64
+	State   string
+	RedRun  string
+	Refusal string
+}
+
+// SettleTaskVersion moves the build of task seq of epic from from to to and settles its version settle.Version to
+// settle.State, with settle.RedRun and settle.Refusal, at at, in one write, when the stored build is from, as
+// SetTaskBuild does. A State other than applied or refused is an error. A task with no checking version under
+// settle.Version is ErrVersionNotChecking. Both write nothing. A task that is not open, or whose stored build is not
+// from, is ErrTaskMoved and writes nothing.
+func (s *Store) SettleTaskVersion(
+	ctx context.Context,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	settle TaskVersionSettle,
+	at time.Time,
+) error {
+	if settle.State != VersionApplied && settle.State != VersionRefused {
+		return fmt.Errorf(
+			"settle version %d of task %d of epic %s to %q: not applied or refused",
+			settle.Version, seq, epic, settle.State,
+		)
+	}
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+			return err
+		}
+		rows, err := queries.SettleEpicTaskVersion(ctx, sqlcgen.SettleEpicTaskVersionParams{
+			State: settle.State, RedRun: settle.RedRun, Refusal: settle.Refusal, Settled: at.Unix(),
+			Epic: epic, Task: seq, Version: settle.Version,
+		})
+		if err != nil {
+			return fmt.Errorf("settle version %d of task %d of epic %s: %w", settle.Version, seq, epic, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("version %d of task %d of epic %s: %w", settle.Version, seq, epic, ErrVersionNotChecking)
+		}
+		return nil
+	})
 }
 
 // nullText returns text as a stored value that is not NULL.

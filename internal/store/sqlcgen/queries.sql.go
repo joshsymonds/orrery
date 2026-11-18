@@ -2946,7 +2946,7 @@ const insertEpicTaskVersion = `-- name: InsertEpicTaskVersion :exec
 INSERT INTO epic_task_versions (
     epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
     state, created, settled
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'applied', ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicTaskVersionParams struct {
@@ -2962,6 +2962,7 @@ type InsertEpicTaskVersionParams struct {
 	TestChanges sql.NullString
 	Gate        sql.NullString
 	Evidence    sql.NullString
+	State       string
 	Created     int64
 	Settled     int64
 }
@@ -2980,6 +2981,7 @@ func (q *Queries) InsertEpicTaskVersion(ctx context.Context, arg InsertEpicTaskV
 		arg.TestChanges,
 		arg.Gate,
 		arg.Evidence,
+		arg.State,
 		arg.Created,
 		arg.Settled,
 	)
@@ -8789,6 +8791,37 @@ type SetSessionTitleParams struct {
 func (q *Queries) SetSessionTitle(ctx context.Context, arg SetSessionTitleParams) error {
 	_, err := q.db.ExecContext(ctx, setSessionTitle, arg.Title, arg.ID)
 	return err
+}
+
+const settleEpicTaskVersion = `-- name: SettleEpicTaskVersion :execrows
+UPDATE epic_task_versions SET state = ?, red_run = ?, refusal = ?, settled = ?
+WHERE epic = ? AND task = ? AND version = ? AND state = 'checking'
+`
+
+type SettleEpicTaskVersionParams struct {
+	State   string
+	RedRun  string
+	Refusal string
+	Settled int64
+	Epic    string
+	Task    int64
+	Version int64
+}
+
+func (q *Queries) SettleEpicTaskVersion(ctx context.Context, arg SettleEpicTaskVersionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, settleEpicTaskVersion,
+		arg.State,
+		arg.RedRun,
+		arg.Refusal,
+		arg.Settled,
+		arg.Epic,
+		arg.Task,
+		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const startEpicRelease = `-- name: StartEpicRelease :exec

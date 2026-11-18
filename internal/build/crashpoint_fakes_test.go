@@ -654,6 +654,15 @@ func (s crashStore) AskTask(
 	})
 }
 
+func (s crashStore) SettleTaskVersion(
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, settle store.TaskVersionSettle,
+	at time.Time,
+) error {
+	return s.w.act("SettleTaskVersion", func() error {
+		return wrapErr("settle version", s.Store.SettleTaskVersion(ctx, epic, seq, from, to, settle, at))
+	})
+}
+
 func (s crashStore) AcceptTask(ctx context.Context, epic string, seq int64, from store.TaskBuild, review string) error {
 	return s.w.act("AcceptTask", func() error {
 		return wrapErr("accept task", s.Store.AcceptTask(ctx, epic, seq, from, review))

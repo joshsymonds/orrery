@@ -570,7 +570,8 @@ func versionShape(decision string, version orchestratorVersion) []string {
 }
 
 // namedShape returns the refusals of the fields a version names: a blank deliverable or gate, a grant that names no
-// file or names none to add, a rerun that names files, and a named evidence item (evidenceShape).
+// file or names none to add, a grant that names evidence, a rerun that names files, and a named evidence item
+// (evidenceShape).
 func namedShape(decision string, version orchestratorVersion) []string {
 	var refusals []string
 	if slices.Contains(version.Changed, "deliverable") {
@@ -581,6 +582,9 @@ func namedShape(decision string, version orchestratorVersion) []string {
 	}
 	if slices.Contains(version.Changed, "evidence") {
 		refusals = append(refusals, evidenceShape(version.Evidence)...)
+		if decision == decisionGrant {
+			refusals = append(refusals, "version.evidence: not changed on a grant")
+		}
 	}
 	switch {
 	case decision == decisionGrant && !slices.Contains(version.Changed, "files"):
@@ -823,7 +827,9 @@ func decideOrchestrate(view View) Action {
 // the refusal added to its reason. Every decision counts one more decision on the build and records an epic decision
 // (decisionText). A rerun or grant moves the build to implement at its next rerun, with no step and the failure
 // fallbackText gives, held waiting when it names tasks to wait for, and stores the version it returns (versionInput). A
-// fail fails the task with its failure and needs_files. An ask holds the build until the owner answers its question.
+// rerun that changes the evidence moves the build to red at that rerun instead, so the new evidence is judged at the
+// base before the implementer runs again, and keeps its attempt. A fail fails the task with its failure and
+// needs_files. An ask holds the build until the owner answers its question.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
@@ -850,6 +856,9 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 		}
 	}
 	next.Stage = StageImplement
+	if ret.Decision == decisionRerun && slices.Contains(ret.Version.Changed, "evidence") {
+		next.Stage = StageRed
+	}
 	next.Rerun++
 	next.NoVerdict = 0
 	next.Step = ""

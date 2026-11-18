@@ -928,7 +928,11 @@ SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, 
 INSERT INTO epic_task_versions (
     epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
     state, created, settled
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'applied', ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SettleEpicTaskVersion :execrows
+UPDATE epic_task_versions SET state = ?, red_run = ?, refusal = ?, settled = ?
+WHERE epic = ? AND task = ? AND version = ? AND state = 'checking';
 
 -- name: ListEpicTaskVersions :many
 SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
