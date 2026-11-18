@@ -1,7 +1,6 @@
 package open
 
 import (
-	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -9,8 +8,8 @@ import (
 )
 
 // TestStepMemoryExcluded checks that the picker's intent call names the user CLAUDE.md under claudeMdExcludes, the one
-// the claude under its CLAUDE_CONFIG_DIR loads, that a call whose path cannot resolve runs no claude, and that a pane
-// launcher's settings carry no claudeMdExcludes.
+// the claude under its CLAUDE_CONFIG_DIR loads, that a call whose path cannot resolve runs no claude, and that the
+// claude argv a pane launcher builds through stampedArgv carries no claudeMdExcludes.
 func TestStepMemoryExcluded(t *testing.T) {
 	t.Run("the picker's intent call's settings name it", func(t *testing.T) {
 		configDir := t.TempDir()
@@ -51,19 +50,12 @@ func TestStepMemoryExcluded(t *testing.T) {
 
 	t.Run("a pane launcher's settings carry no claudeMdExcludes", func(t *testing.T) {
 		home, stamped, _ := stampedHome(t)
-		pane := stampPane{
-			name: "pane launcher",
-			start: func(ctx context.Context, cfg Config, dir string) (Target, error) {
-				return ExecuteAction(ctx, cfg, Action{Kind: ActionPane, Dir: dir})
-			},
-		}
-		claude, err := openStampPane(t, pane, home, stamped)
+		argv, err := stampedArgv(Config{Home: home}, stamped, claudeCommand("claude", ""))
 		if err != nil {
-			t.Fatalf("open pane launcher: %v", err)
+			t.Fatalf("stampedArgv: %v", err)
 		}
-		run := waitClaudeRun(t, claude)
-		if want := []string{"--settings", stampEnvJSON}; !slices.Equal(run.args, want) {
-			t.Fatalf("pane claude argv = %q, want %q", run.args, want)
+		if want := []string{"claude", "--settings", stampEnvJSON}; !slices.Equal(argv, want) {
+			t.Fatalf("pane claude argv = %q, want %q", argv, want)
 		}
 	})
 }
