@@ -90,7 +90,7 @@ func stepEndTextOfResultToPane(t *testing.T, s *store.Store, add store.StepAdd, 
 		Store: s,
 		Now:   fixedClock,
 	})
-	stepEndPass(sender, s).Pass(t.Context())
+	passStep(t, stepEndPass(sender, s))
 	if len(woken) != 1 {
 		t.Fatalf("wakes = %d, want 1 for the step end", len(woken))
 	}
@@ -125,6 +125,14 @@ func newStepEndSender(t *testing.T, m *Manager, marks CallerEventStore) *CallerS
 // stepEndPass returns a StepCallerEvents over steps that sends through sender.
 func stepEndPass(sender *CallerSender, steps StepCallerStore) *StepCallerEvents {
 	return NewStepCallerEvents(StepCallerEventsConfig{Store: steps, Sender: sender})
+}
+
+// passStep runs pass once over the test's context, and fails the test on its error.
+func passStep(t *testing.T, pass *StepCallerEvents) {
+	t.Helper()
+	if err := pass.Pass(t.Context()); err != nil {
+		t.Fatalf("step caller-event pass: %v", err)
+	}
 }
 
 // lostMark is a CallerEventStore whose first mark fails, as a write that fails after a delivery does.
@@ -165,7 +173,7 @@ func TestCallerEventStepDeliveredOnceWhileTurnRuns(t *testing.T) {
 		t.Fatalf("step end not marked after its delivery")
 	}
 	// A pass over the same store lists the step no more, so it sends nothing.
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	want := []deliveredPrompt{
 		{Text: "WAITOPEN"},
 		{
@@ -195,7 +203,7 @@ func TestCallerEventStepDeliveredOnceWhileTurnRuns(t *testing.T) {
 	}
 
 	// A later pass over the same store sends the step end no second time.
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
 		t.Fatalf("prompts after a later pass = %+v, want %+v", got, want)
 	}
@@ -214,7 +222,9 @@ func TestCallerEventStepLostMarkNotDeliveredAgain(t *testing.T) {
 	})
 	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, "all green")
 
-	stepEndPass(newStepEndSender(t, m, &lostMark{Store: s}), s).Pass(t.Context())
+	if err = stepEndPass(newStepEndSender(t, m, &lostMark{Store: s}), s).Pass(t.Context()); err == nil {
+		t.Fatalf("pass whose mark was refused returned no error")
+	}
 	waitHistory(t, engineOf(m), path, id, "the reply to the step end done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2") && h.State == string(protocol.StateDone)
 	})
@@ -223,7 +233,7 @@ func TestCallerEventStepLostMarkNotDeliveredAgain(t *testing.T) {
 	}
 
 	// The step is still listed, and its prompt id is already stored, so the send repeats nothing and marks the event.
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	want := []deliveredPrompt{
 		{Text: "hi"},
 		{Text: wantStepEndBlock("all green"), PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
@@ -253,7 +263,7 @@ func TestCallerEventStepReadStepSendsNothing(t *testing.T) {
 		t.Fatalf("MarkStepRead = %v, %v, want the caller to read its step", marked, err)
 	}
 
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, []deliveredPrompt{{Text: "hi"}}) {
 		t.Fatalf("prompts = %+v, want only the start's prompt", got)
 	}
@@ -269,7 +279,7 @@ func TestCallerEventStepStepCallerReceivesNothing(t *testing.T) {
 	}
 	addEndedCallerStep(t, s, store.EpicCaller{Session: "step-caller"}, "all green")
 
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	// A step caller is marked without a delivery, as a delivery to it would fail with no resumable session.
 	if !eventMarked(t, s, "step-caller") {
 		t.Fatalf("step end of a step caller not marked")
@@ -294,7 +304,7 @@ func TestCallerEventStepIdleStoppedCallerResumed(t *testing.T) {
 	}
 	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, "all green")
 
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	history := waitHistory(t, engineOf(m), path, id, "the reply to the step end", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
@@ -329,7 +339,7 @@ func TestCallerEventStepOwnerStoppedCallerNotRestarted(t *testing.T) {
 	if sent, err := newStepEndSender(t, m, s).Send(t.Context(), caller, callerStepEvent, block); sent || err != nil {
 		t.Fatalf("Send to an owner-stopped caller = %v, %v, want false, nil", sent, err)
 	}
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
+	passStep(t, stepEndPass(newStepEndSender(t, m, s), s))
 	if args := fakeArgs(t, dir); len(args) != 1 {
 		t.Fatalf("fake claude starts = %q, want the start only: the stopped caller is not restarted", args)
 	}
@@ -369,7 +379,7 @@ func TestPaneWakeStepHeldUntilKeysSentThenMarked(t *testing.T) {
 	})
 	pass := NewStepCallerEvents(StepCallerEventsConfig{Store: s, Sender: sender})
 
-	pass.Pass(t.Context())
+	passStep(t, pass)
 	if len(woken) != 1 {
 		t.Fatalf("wakes while the pane is not idle = %d, want 1", len(woken))
 	}
@@ -378,7 +388,7 @@ func TestPaneWakeStepHeldUntilKeysSentThenMarked(t *testing.T) {
 	}
 
 	idle = true
-	pass.Pass(t.Context())
+	passStep(t, pass)
 	if len(woken) != 2 {
 		t.Fatalf("wakes after the pane is idle = %d, want 2", len(woken))
 	}
@@ -389,7 +399,7 @@ func TestPaneWakeStepHeldUntilKeysSentThenMarked(t *testing.T) {
 		t.Fatalf("step end not marked after its keys were sent")
 	}
 
-	pass.Pass(t.Context())
+	passStep(t, pass)
 	if len(woken) != 2 {
 		t.Fatalf("wakes after the mark = %d, want still 2", len(woken))
 	}

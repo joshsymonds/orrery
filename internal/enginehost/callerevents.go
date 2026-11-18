@@ -18,8 +18,9 @@ const stepEndKind = "step_end"
 // steps whose end has no mark under this id.
 const stepEventPrefix = "step:"
 
-// callerEventTick is how often a StepCallerEvents passes when its Tick is not positive.
-const callerEventTick = 5 * time.Second
+// callerEventRetry is how long a CallerEvents waits before it runs a round again after a round failed, when its Retry
+// is not positive.
+const callerEventRetry = 5 * time.Second
 
 // CallerEventBlock returns the block that carries an event of kind, with id, to its caller: an <orrery-event> opening
 // tag, the body on a line of its own, and the closing tag.
@@ -126,79 +127,46 @@ type StepCallerStore interface {
 	CallerSteps(ctx context.Context) ([]store.CallerStep, error)
 }
 
-// StepCallerEventsConfig configures a StepCallerEvents. A Tick that is not positive means five seconds. Ticks, when not
-// nil, is where Run takes its ticks in place of a ticker every Tick. A nil Logger discards.
+// StepCallerEventsConfig configures a StepCallerEvents. Store lists the ended steps, and Sender sends each step's end.
 type StepCallerEventsConfig struct {
 	Store  StepCallerStore
 	Sender *CallerSender
-	Tick   time.Duration
-	Ticks  <-chan time.Time
-	Logger *slog.Logger
 }
 
 // StepCallerEvents tells the caller of each step that has ended, once, that the step has ended.
 type StepCallerEvents struct {
 	store  StepCallerStore
 	sender *CallerSender
-	tick   time.Duration
-	ticks  <-chan time.Time
-	logger *slog.Logger
 }
 
 // NewStepCallerEvents returns a StepCallerEvents for cfg.
 func NewStepCallerEvents(cfg StepCallerEventsConfig) *StepCallerEvents {
-	events := &StepCallerEvents{
-		store: cfg.Store, sender: cfg.Sender, tick: cfg.Tick, ticks: cfg.Ticks, logger: cfg.Logger,
-	}
-	if events.tick <= 0 {
-		events.tick = callerEventTick
-	}
-	if events.logger == nil {
-		events.logger = slog.New(slog.DiscardHandler)
-	}
-	return events
+	return &StepCallerEvents{store: cfg.Store, sender: cfg.Sender}
 }
 
-// Run passes at once, then once per tick, until ctx ends.
-func (e *StepCallerEvents) Run(ctx context.Context) {
-	ticks := e.ticks
-	if ticks == nil {
-		ticker := time.NewTicker(e.tick)
-		defer ticker.Stop()
-		ticks = ticker.C
-	}
-	for {
-		e.Pass(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticks:
-		}
-	}
-}
-
-// Pass sends the end of each listed step to its caller, as Run does on each tick. A send that fails is logged, and the
-// pass goes on to the next step.
-func (e *StepCallerEvents) Pass(ctx context.Context) {
+// Pass sends the end of each listed step to its caller. It returns the read error of the steps, or else the errors of
+// the sends that failed, joined. A send that holds the end is no error. A failed send does not stop the pass: it goes on
+// to the next step.
+func (e *StepCallerEvents) Pass(ctx context.Context) error {
 	steps, err := e.store.CallerSteps(ctx)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "list caller steps", "err", err)
-		return
+		return fmt.Errorf("read caller steps: %w", err)
 	}
+	errs := make([]error, 0, len(steps))
 	for _, step := range steps {
-		e.send(ctx, step)
+		errs = append(errs, e.send(ctx, step))
 	}
+	return errors.Join(errs...)
 }
 
-// send sends the end of step to its caller as a step_end event.
-func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) {
+// send sends the end of step to its caller as a step_end event, and returns the error of the send.
+func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) error {
 	event := stepEventPrefix + step.Step.ID
 	text := CallerEventBlock(stepEndKind, event, stepEndBody(step.Step))
 	if _, err := e.sender.Send(ctx, step.Caller, event, text); err != nil {
-		e.logger.ErrorContext(
-			ctx, "send step end", "step", step.Step.ID, "caller", step.Caller.ID, "err", err,
-		)
+		return fmt.Errorf("send step end of %s to caller %s: %w", step.Step.ID, step.Caller.ID, err)
 	}
+	return nil
 }
 
 // stepEndBody returns the body of the event of step's end: the step, its end, status and reason, its agent, the epic
@@ -212,4 +180,101 @@ func stepEndBody(step store.StepRow) string {
 		lines = append(lines, "Epic: "+step.Epic)
 	}
 	return strings.Join(append(lines, "Summary: "+step.Result), "\n")
+}
+
+// CallerPass is one pass over the caller events. It sends what is due, and returns the read error or the joined send
+// errors of the pass.
+type CallerPass interface {
+	Pass(ctx context.Context) error
+}
+
+// CallerEventsConfig configures a CallerEvents. Passes are the passes each round runs, in order. Retry is how long a
+// retry waits after a failed round, and a Retry that is not positive means callerEventRetry. NewTimer arms a timer that
+// sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. A nil
+// Logger discards.
+type CallerEventsConfig struct {
+	Passes   []CallerPass
+	Retry    time.Duration
+	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
+	Logger   *slog.Logger
+}
+
+// CallerEvents runs the caller-event passes on one goroutine: once when Run starts, once on each Wake, and once when a
+// retry fires. There is no ticker, so a pass runs only when it is woken. A round with a failed pass arms one retry when
+// none is armed; the retry, when it fires, runs one round. A round that fails again arms the next retry, and a clean
+// round arms none. Only Run sends, so a caller is never sent to twice at once.
+type CallerEvents struct {
+	passes   []CallerPass
+	retry    time.Duration
+	newTimer func(time.Duration) (<-chan time.Time, func() bool)
+	logger   *slog.Logger
+	// wakes holds one pending wake, so a wake that comes while one is pending is absorbed.
+	wakes chan struct{}
+}
+
+// NewCallerEvents returns the CallerEvents that cfg describes.
+func NewCallerEvents(cfg CallerEventsConfig) *CallerEvents {
+	events := &CallerEvents{
+		passes: cfg.Passes, retry: cfg.Retry, newTimer: cfg.NewTimer, logger: cfg.Logger,
+		wakes: make(chan struct{}, 1),
+	}
+	if events.retry <= 0 {
+		events.retry = callerEventRetry
+	}
+	if events.newTimer == nil {
+		events.newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			timer := time.NewTimer(d)
+			return timer.C, timer.Stop
+		}
+	}
+	if events.logger == nil {
+		events.logger = slog.New(slog.DiscardHandler)
+	}
+	return events
+}
+
+// Run runs every pass once at once, then once on each wake and each retry, until ctx ends. It stops the armed retry
+// when it returns.
+func (e *CallerEvents) Run(ctx context.Context) {
+	var fire <-chan time.Time
+	var stopRetry func() bool
+	defer func() {
+		if stopRetry != nil {
+			stopRetry()
+		}
+	}()
+	failed := e.round(ctx)
+	for {
+		if failed && fire == nil {
+			fire, stopRetry = e.newTimer(e.retry)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.wakes:
+		case <-fire:
+			fire = nil
+		}
+		failed = e.round(ctx)
+	}
+}
+
+// round runs each pass once, logs the error of each pass that fails, and reports whether any failed.
+func (e *CallerEvents) round(ctx context.Context) bool {
+	failed := false
+	for _, pass := range e.passes {
+		if err := pass.Pass(ctx); err != nil {
+			e.logger.ErrorContext(ctx, "caller event pass failed", "err", err)
+			failed = true
+		}
+	}
+	return failed
+}
+
+// Wake asks Run for a round, without blocking. A wake that comes while one is pending is absorbed by that one.
+func (e *CallerEvents) Wake() {
+	select {
+	case e.wakes <- struct{}{}:
+	default:
+	}
 }

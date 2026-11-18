@@ -199,12 +199,9 @@ type options struct {
 	flowTicks string
 	flight    *telemetry.Flight // the flight recorder run starts, nil when it could not start
 	started   time.Time         // when run began, the start of the start phase
-	// stepEventTicks is a test seam: when set, the step caller-event pass passes at each value it delivers in place of
-	// every five seconds, and production leaves it nil.
-	stepEventTicks <-chan time.Time
-	// epicEventTicks is a test seam: when set, the epic caller-event pass passes at each value it delivers in place of
-	// every five seconds, and production leaves it nil.
-	epicEventTicks <-chan time.Time
+	// callerEventPassed is a test seam: the function the caller-event delivery calls after each of its passes returns, so
+	// a test counts the passes. Production leaves it nil.
+	callerEventPassed func()
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -824,10 +821,11 @@ type sessionHost struct {
 	reportsDone   chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
-	// stopCallerEvents cancels the caller-event passes, each of which closes its done channel when it returns.
+	// callerEvents is the caller-event delivery. Its Wake asks for a round. stopCallerEvents cancels its Run, which closes
+	// callerEventsDone when it returns.
+	callerEvents     *enginehost.CallerEvents
 	stopCallerEvents context.CancelFunc
-	stepEventsDone   chan struct{}
-	epicEventsDone   chan struct{}
+	callerEventsDone chan struct{}
 	// logger logs each phase of the shutdown.
 	logger *slog.Logger
 }
@@ -877,8 +875,9 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
 // limitTick until stop; the session titles write each headless session's missing title through haiku, every limitTick
 // until stop; the session headlines refresh each headless session's headline once its turns have ended, through haiku,
-// every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event passes tell each step's
-// caller when the step ends, and each epic's creator of its events, every five seconds until stop (startCallerEvents);
+// every limitTick until stop; the manager stops idle sessions, until stop; and the caller-event delivery tells each
+// step's caller when the step ends, and each epic's creator of its events, on its start, on each wake, and once more
+// after a failed round, until stop (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
 // from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
 // logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
@@ -1360,11 +1359,11 @@ func (h *sessionHost) startLimits(
 	}()
 }
 
-// startCallerEvents runs the step caller-event pass and the epic caller-event pass over st until shutdown, each every
-// five seconds, or at each value of opts.stepEventTicks and opts.epicEventTicks when those are not nil. Both send
-// through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane caller gets it
-// through cli.WakePane, and a step caller is only marked. Neither depends on a router, since a caller event goes to its
-// caller alone.
+// startCallerEvents runs the caller-event delivery over st until shutdown, on one goroutine: the step caller-event pass
+// and the epic caller-event pass, once at its start, on each wake of h.callerEvents, and once more after a failed round.
+// Both passes send through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane
+// caller gets it through cli.WakePane, and a step caller is only marked. Neither depends on a router, since a caller
+// event goes to its caller alone. When opts.callerEventPassed is not nil, it is called after each pass returns.
 func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, opts options, logger *slog.Logger) {
 	sender := enginehost.NewCallerSender(enginehost.CallerSenderConfig{
 		Deliver:  h.manager.Deliver,
@@ -1373,24 +1372,39 @@ func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, op
 		Now:      time.Now,
 		Logger:   logger,
 	})
-	steps := enginehost.NewStepCallerEvents(enginehost.StepCallerEventsConfig{
-		Store: st, Sender: sender, Ticks: opts.stepEventTicks, Logger: logger,
-	})
-	epics := planner.NewEpicCallerEvents(planner.EpicCallerEventsConfig{
-		Store: st, Sender: sender, Ticks: opts.epicEventTicks, Logger: logger,
-	})
+	passes := []enginehost.CallerPass{
+		enginehost.NewStepCallerEvents(enginehost.StepCallerEventsConfig{Store: st, Sender: sender}),
+		planner.NewEpicCallerEvents(planner.EpicCallerEventsConfig{Store: st, Sender: sender}),
+	}
+	if opts.callerEventPassed != nil {
+		for i, pass := range passes {
+			passes[i] = passedPass{pass: pass, passed: opts.callerEventPassed}
+		}
+	}
+	h.callerEvents = enginehost.NewCallerEvents(enginehost.CallerEventsConfig{Passes: passes, Logger: logger})
 	var eventsCtx context.Context
 	eventsCtx, h.stopCallerEvents = context.WithCancel(ctx)
-	h.stepEventsDone = make(chan struct{})
-	h.epicEventsDone = make(chan struct{})
+	h.callerEventsDone = make(chan struct{})
 	go func() {
-		defer close(h.stepEventsDone)
-		steps.Run(eventsCtx)
+		defer close(h.callerEventsDone)
+		h.callerEvents.Run(eventsCtx)
 	}()
-	go func() {
-		defer close(h.epicEventsDone)
-		epics.Run(eventsCtx)
-	}()
+}
+
+// passedPass is a caller-event pass that calls passed after each run of pass returns.
+type passedPass struct {
+	pass   enginehost.CallerPass
+	passed func()
+}
+
+// Pass runs the pass, then calls passed, and returns the pass's error.
+func (p passedPass) Pass(ctx context.Context) error {
+	err := p.pass.Pass(ctx)
+	p.passed()
+	if err != nil {
+		return fmt.Errorf("caller event pass: %w", err)
+	}
+	return nil
 }
 
 // newCron builds the host's cron scheduler over st, and stores it as h.cron. Each due fire goes through the manager's
@@ -1564,8 +1578,8 @@ func (h *sessionHost) startReports(
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries, the session titles, the session headlines and the epic reports to return, stops the caller-event passes
-// and waits for each to return, closes the node checks and the evidence runner and waits for their drives, ends every
+// summaries, the session titles, the session headlines and the epic reports to return, stops the caller-event delivery
+// and waits for it to return, closes the node checks and the evidence runner and waits for their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
 // waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -1612,11 +1626,10 @@ func (h *sessionHost) shutdown() {
 			h.stopReports()
 			<-h.reportsDone
 		})
-		h.phase("step caller events", func() {
+		h.phase("caller events", func() {
 			h.stopCallerEvents()
-			<-h.stepEventsDone
+			<-h.callerEventsDone
 		})
-		h.phase("epic caller events", func() { <-h.epicEventsDone })
 		h.phase("steps", h.steps.Close)
 		h.phase("sessions", h.manager.Close)
 	}
