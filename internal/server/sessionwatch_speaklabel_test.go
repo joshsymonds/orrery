@@ -5,13 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // The step whose end is the caller event the speak-label test leaves owed to its session, and the event's id.
@@ -19,6 +19,10 @@ const (
 	speakStep  = "step-speak"
 	speakEvent = "step:step-speak"
 )
+
+// speakSession is the id the speak-label test starts its session with, so its notice sink can tell the session's
+// notices from any other notice.
+const speakSession = "5e1f0a9c2b7d4e6f8a3c1b0d9e7f2a4c"
 
 // speakPending is the one pending event of the speak-label test, labeled waits.
 func speakPending(waits string) *orreryv1.PendingEvent {
@@ -31,25 +35,38 @@ func speakPending(waits string) *orreryv1.PendingEvent {
 // speakFixedClock is the clock the speak-label test gives the writer and the manager, so every stored time is known.
 func speakFixedClock() time.Time { return time.Unix(eventAt, 0) }
 
-// installOrrery builds cmd/orrery into a directory of the test's own and puts it first on PATH. A session's holder is
-// the orrery that LookPath finds on PATH, since the test binary is not beside one, and the host's orrery may be absent
-// or not this tree's.
-func installOrrery(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", filepath.Join(dir, "orrery"),
-		"github.com/joshsymonds/orrery/cmd/orrery")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build orrery: %v\n%s", err, out)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+// speakNotices is the NoticeSink of the speak-label test. Its Notify closes done once, on the first done notice of
+// speakSession. The manager sends a turn's end only after the writer has committed it, so the close means the store
+// holds the first turn's end. Changed and Seen do nothing.
+type speakNotices struct {
+	once sync.Once
+	done chan struct{}
 }
+
+// Notify closes done on the first done notice of speakSession.
+func (n *speakNotices) Notify(_ context.Context, notice enginehost.Notice) {
+	if notice.Session == speakSession && notice.State == "done" {
+		n.once.Do(func() { close(n.done) })
+	}
+}
+
+// Changed does nothing.
+func (n *speakNotices) Changed(_ context.Context, _ string) {}
+
+// Seen does nothing.
+func (n *speakNotices) Seen(_ context.Context, _ string, _ time.Time) {}
 
 // TestSpeakLabelOwnerSayEndsWaitsSpeak runs one headless session on the fake claude, owes it a caller event, and has
 // the owner interrupt it and then Say to it through the manager that writes the store the session stream reads. The
 // stream labels the pending event speak after the interrupt, and free again after the owner's Say.
+//
+// The test's only waits are the first turn's done notice and the stream's messages. The writer's tick is the production
+// writer loop the Manager stores through, so the test runs the Manager with a running Writer, as production does.
+//
+// The test runs a real session because R6 requires an owner Say through the production Manager.Say and the waits label
+// as the session stream serves it, and only a Manager with a live session under orrery holder reaches that. The cost is
+// one orrery build per package run, shared through TestMain, plus one fake-Claude session.
 func TestSpeakLabelOwnerSayEndsWaitsSpeak(t *testing.T) {
-	installOrrery(t)
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 
@@ -75,42 +92,49 @@ func TestSpeakLabelOwnerSayEndsWaitsSpeak(t *testing.T) {
 	if err != nil {
 		t.Fatalf("absolute fake claude path: %v", err)
 	}
+	sink := &speakNotices{done: make(chan struct{})}
 	m := enginehost.NewManager(enginehost.Config{
-		Shell:   sh,
-		Claude:  claude,
-		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:     1,
-		Writer:  writer,
-		Now:     speakFixedClock,
-		Store:   s,
+		Shell:    sh,
+		Claude:   claude,
+		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Cap:      1,
+		Writer:   writer,
+		Now:      speakFixedClock,
+		Notifier: sink,
+		Store:    s,
 	})
 	t.Cleanup(m.Close)
 
-	id, err := m.Start(t.Context(), enginehost.StartRequest{Dir: t.TempDir(), Prompt: "start"})
-	if err != nil {
+	if _, err = m.Start(t.Context(), enginehost.StartRequest{
+		ID: speakSession, Dir: t.TempDir(), Prompt: "start",
+	}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	reader := store.NewReader(path)
-	waittest.Until(t, writerDone, "the first turn's end", func() bool {
-		h, err := reader.EngineHistory(t.Context(), id, 0, 10_000)
-		return err == nil && h.State == "done"
-	})
+	select {
+	case <-sink.done:
+	case <-writerDone:
+		t.Fatal("the writer stopped before the first turn's end")
+	}
 
 	applyEngineOps(t, s,
-		store.StepAdd{ID: speakStep, Agent: "implementer", Prompt: "do it", Caller: store.EpicCaller{Session: id}},
+		store.StepAdd{
+			ID: speakStep, Agent: "implementer", Prompt: "do it", Caller: store.EpicCaller{Session: speakSession},
+		},
 		store.StepReturn{ID: speakStep, Result: "First line\nSecond line"},
 		store.StepEnd{ID: speakStep, End: "done", Status: "passed", Reason: "gate green"},
 	)
+	reader := store.NewReader(path)
 	client := sessionsWatchClient(t, sessionsHandler(t, reader, nil, 0))
-	stream := openSessionStream(t, client, sessionReq(id, 0, 0))
+	stream := openSessionStream(t, client, sessionReq(speakSession, 0, 0))
 	wantPendingEvents(t, stream.next(t), speakPending(cardFree))
 
-	if _, err = m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err = m.OwnerInterrupt(t.Context(), speakSession); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	wantPendingEvents(t, stream.nextDelta(t), speakPending(cardSpeak))
 
-	if err = m.Say(t.Context(), enginehost.SayRequest{ID: id, Text: "owner words", PromptID: "p-owner"}); err != nil {
+	say := enginehost.SayRequest{ID: speakSession, Text: "owner words", PromptID: "p-owner"}
+	if err = m.Say(t.Context(), say); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
 	wantPendingEvents(t, stream.nextDelta(t), speakPending(cardFree))
