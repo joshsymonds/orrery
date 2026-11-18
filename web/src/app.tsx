@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { epicCallsOf } from "./card";
-import { type ComposerHandle, Composer } from "./composer";
+import type { ComposerHandle } from "./composer";
 import { ContractBody } from "./contract";
 import type { Conversation } from "./conversation";
 import { type ArchiveControl, EpicLine } from "./epicline";
@@ -22,11 +22,11 @@ import {
   type StepItem,
   withEpicsGroup,
 } from "./epics";
-import { FindBar, findMatches } from "./find";
+import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
 import type { EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
-import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
+import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { HelpPanel } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
@@ -39,19 +39,17 @@ import { phaseOutputOf } from "./phaserows";
 import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
-import { ConversationHead, Reader, type ReaderHandle } from "./reader";
+import type { ReaderHandle } from "./reader";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
-import { StepBox } from "./stepbox";
+import { type FindState, headState, ReaderColumn, stepCalls } from "./readercolumn";
 import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
-import { lastPathElement } from "./titleparts";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
-import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project" | "archived";
 
@@ -80,14 +78,6 @@ interface EscapeTarget {
 interface BoxOpen {
   column: "cursor" | "pinned";
   key: string;
-}
-
-// A column's find bar, open on the row it was opened on: the query typed in it, and the match it shows, an index into
-// the matches the query finds in that row's conversation. A bar whose row leaves its column is closed.
-interface FindState {
-  key: string;
-  query: string;
-  current: number;
 }
 
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
@@ -174,9 +164,6 @@ const archivedTitle = "Archived";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
 const heldMark = "‖";
-
-// A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
-const stepSeenAt = Number.POSITIVE_INFINITY;
 
 // The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
 const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
@@ -1570,235 +1557,61 @@ export function App({
             ))}
           </div>
         </div>
-        <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
-          {cursorRow !== null && (
-            <ConversationHead
-              dir={cursorRow.project}
-              line={cursorRow.label}
-              state={headState(cursorRow, cursorConversation?.state?.pane)}
-              onBack={focusCursorRow}
-              mark={inboxMark}
-              strip={pageStrip(cursorRow, cursorConversation)}
-            >
-              <Pill
-                model={rowPill(
-                  cursorRow.state,
-                  cursorConversation?.state?.pane,
-                  interrupts.has(cursorRow.key) || cursorConversation?.state?.interrupting === true,
-                )}
-                now={now}
-              />
-            </ConversationHead>
-          )}
-          {cursorFinding !== null && (
-            <FindBar
-              query={cursorFinding.query}
-              matches={cursorMatches.length}
-              current={cursorCurrent}
-              onQuery={(query) => setCursorFind({ key: cursorFinding.key, query, current: 0 })}
-              onNext={() =>
-                setCursorFind({
-                  ...cursorFinding,
-                  current: stepCurrent(cursorCurrent, cursorMatches.length, 1),
-                })
-              }
-              onPrevious={() =>
-                setCursorFind({
-                  ...cursorFinding,
-                  current: stepCurrent(cursorCurrent, cursorMatches.length, -1),
-                })
-              }
-              onClose={() => {
-                setCursorFind(null);
-                composerInputs.current.get(cursorRowKey)?.focus();
-              }}
-            />
-          )}
-          {cursorStep !== null && (
-            <TitleRow
-              crumbs={[{ label: stepWhere(cursorStep) }, { label: cursorStep.label }]}
-              onBack={focusCursorRow}
-              mark={inboxMark}
-              strip={pageStrip(null, null)}
-            >
-              <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
-            </TitleRow>
-          )}
-          {cursorRow !== null && (
-            <Reader
-              conversation={cursorConversation}
-              seenAt={cursorRow.seen}
-              open={open}
-              question={readerQuestion(cursorRow, cursorConversation)}
-              onAnswer={answerCursor}
-              onToggleOpen={toggleOpen}
-              onOlder={() => cursorOlder.current()}
-              register={(handle) => {
-                cursorReader.current = handle;
-              }}
-              sending={cursorSending}
-              find={
-                cursorFinding === null
-                  ? undefined
-                  : { query: cursorFinding.query, matches: cursorMatches, current: cursorCurrent }
-              }
-              epicCalls={epicCalls}
-            />
-          )}
-          {cursorStep !== null && (
-            <Reader
-              conversation={cursorConversation}
-              seenAt={stepSeenAt}
-              open={open}
-              step={cursorStep.step}
-              onToggleOpen={toggleOpen}
-              onOlder={() => cursorOlder.current()}
-              register={(handle) => {
-                cursorReader.current = handle;
-              }}
-            />
-          )}
-          <div class="send">
-            {composerRows(visited, cursorRow).map((row) => (
-              <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
-                <Composer
-                  label={rowName(row)}
-                  state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
-                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                  newPromptId={actions.newPromptId}
-                  register={(handle) => registerHandle(composerHandles, row.key, handle)}
-                  onPage={(direction) => cursorReader.current?.page(direction) ?? false}
-                  onFind={() => setCursorFind({ key: row.key, query: "", current: 0 })}
-                  queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
-                  held={row.key === cursorRowKey ? cursorConversation?.held : undefined}
-                  items={row.key === cursorRowKey ? cursorConversation?.items : undefined}
-                  onSending={(sent) => addSending(row.key, sent, row.key === cursorRowKey ? cursorConversation : null)}
-                  onUnsent={(promptId) => retractSending(row.key, promptId)}
-                  inputRef={(element) => {
-                    if (element === null) {
-                      composerInputs.current.delete(row.key);
-                    } else {
-                      composerInputs.current.set(row.key, element);
-                    }
-                  }}
-                />
-              </div>
-            ))}
-            {composerRows(visitedSteps, cursorStep).map((step) => {
-              const calls = stepCalls(clients, step.id);
-              return (
-                <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
-                  <StepBox
-                    label={step.label}
-                    held={step.held}
-                    nudge={calls.nudge}
-                    hold={calls.hold}
-                    stop={calls.stop}
-                    inputRef={(element) => {
-                      if (element === null) {
-                        stepInputs.current.delete(step.key);
-                      } else {
-                        stepInputs.current.set(step.key, element);
-                      }
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-        <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
-          {pinned !== null && (
-            <ConversationHead
-              dir={pinned.project}
-              line={pinned.label}
-              state={headState(pinned, pinnedConversation?.state?.pane)}
-              onBack={closePin}
-              mark={inboxMark}
-              strip={pageStrip(pinned, pinnedConversation)}
-            >
-              <Pill
-                model={rowPill(
-                  pinned.state,
-                  pinnedConversation?.state?.pane,
-                  interrupts.has(pinned.key) || pinnedConversation?.state?.interrupting === true,
-                )}
-                now={now}
-              />
-            </ConversationHead>
-          )}
-          {pinnedFinding !== null && (
-            <FindBar
-              query={pinnedFinding.query}
-              matches={pinnedMatches.length}
-              current={pinnedCurrent}
-              onQuery={(query) => setPinnedFind({ key: pinnedFinding.key, query, current: 0 })}
-              onNext={() =>
-                setPinnedFind({
-                  ...pinnedFinding,
-                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, 1),
-                })
-              }
-              onPrevious={() =>
-                setPinnedFind({
-                  ...pinnedFinding,
-                  current: stepCurrent(pinnedCurrent, pinnedMatches.length, -1),
-                })
-              }
-              onClose={() => {
-                setPinnedFind(null);
-                pinnedInputs.current.get(pinnedKey)?.focus();
-              }}
-            />
-          )}
-          {pinned !== null && (
-            <Reader
-              conversation={pinnedConversation}
-              seenAt={pinned.seen}
-              open={false}
-              onOlder={() => pinnedOlder.current()}
-              register={(handle) => {
-                pinnedReader.current = handle;
-              }}
-              sending={pinnedSending}
-              find={
-                pinnedFinding === null
-                  ? undefined
-                  : { query: pinnedFinding.query, matches: pinnedMatches, current: pinnedCurrent }
-              }
-              epicCalls={epicCalls}
-            />
-          )}
-          <div class="send">
-            {composerRows(pinnedRows, pinned).map((row) => (
-              <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
-                <Composer
-                  label={rowName(row)}
-                  state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
-                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                  newPromptId={actions.newPromptId}
-                  register={(handle) => registerHandle(pinnedHandles, row.key, handle)}
-                  onPage={(direction) => pinnedReader.current?.page(direction) ?? false}
-                  onFind={() => setPinnedFind({ key: row.key, query: "", current: 0 })}
-                  queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
-                  held={row.key === pinnedKey ? pinnedConversation?.held : undefined}
-                  items={row.key === pinnedKey ? pinnedConversation?.items : undefined}
-                  onSending={(sent) => addSending(row.key, sent, row.key === pinnedKey ? pinnedConversation : null)}
-                  onUnsent={(promptId) => retractSending(row.key, promptId)}
-                  inputRef={(element) => {
-                    if (element === null) {
-                      pinnedInputs.current.delete(row.key);
-                    } else {
-                      pinnedInputs.current.set(row.key, element);
-                    }
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
+        <ReaderColumn
+          column="cursor"
+          clients={clients}
+          now={now}
+          row={cursorRow}
+          conversation={cursorConversation}
+          rows={visited}
+          interrupts={interrupts}
+          mark={inboxMark}
+          pageStrip={pageStrip}
+          onBack={focusCursorRow}
+          finding={cursorFinding}
+          matches={cursorMatches}
+          current={cursorCurrent}
+          onFind={setCursorFind}
+          inputs={composerInputs}
+          handles={composerHandles}
+          reader={cursorReader}
+          older={cursorOlder}
+          sending={cursorSending}
+          epicCalls={epicCalls}
+          addSending={addSending}
+          retractSending={retractSending}
+          open={open}
+          onToggleOpen={toggleOpen}
+          onAnswer={answerCursor}
+          step={cursorStep}
+          steps={visitedSteps}
+          stepInputs={stepInputs}
+        />
+        <ReaderColumn
+          column="pinned"
+          clients={clients}
+          now={now}
+          row={pinned}
+          conversation={pinnedConversation}
+          rows={pinnedRows}
+          interrupts={interrupts}
+          mark={inboxMark}
+          pageStrip={pageStrip}
+          onBack={closePin}
+          finding={pinnedFinding}
+          matches={pinnedMatches}
+          current={pinnedCurrent}
+          onFind={setPinnedFind}
+          inputs={pinnedInputs}
+          handles={pinnedHandles}
+          reader={pinnedReader}
+          older={pinnedOlder}
+          sending={pinnedSending}
+          epicCalls={epicCalls}
+          addSending={addSending}
+          retractSending={retractSending}
+          open={false}
+        />
         <section
           class={pageClasses(epicPage.move, docked !== null)}
           aria-label="epic"
@@ -1998,23 +1811,11 @@ function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost 
   return host;
 }
 
-// headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
-// own state.
-function headState(row: Row, pane: Pane | undefined): string {
-  return pane?.state ?? row.state;
-}
-
 // withoutKey is a copy of keys without key.
 function withoutKey(keys: Set<string>, key: string): Set<string> {
   const next = new Set(keys);
   next.delete(key);
   return next;
-}
-
-// rowName names a row in its composer's placeholder by its directory's last element, or by its line when it has no
-// directory.
-function rowName(row: Row): string {
-  return lastPathElement(row.project) || row.label;
 }
 
 // pruneSent drops the sent entries of each row whose conversation is held, and returns previous itself when none is sent.
@@ -2044,15 +1845,6 @@ function pruneSent(
   return next;
 }
 
-// registerHandle keeps a composer's handle under its row key while the composer is mounted, and drops it on null.
-function registerHandle(handles: { current: Map<string, ComposerHandle> }, key: string, handle: ComposerHandle | null) {
-  if (handle === null) {
-    handles.current.delete(key);
-  } else {
-    handles.current.set(key, handle);
-  }
-}
-
 // withoutSent drops the texts from the sending entries of one row, and returns previous itself when none is dropped.
 function withoutSent(previous: Map<string, Sending[]>, key: string, texts: string[]): Map<string, Sending[]> {
   const entries = previous.get(key);
@@ -2072,36 +1864,11 @@ function withoutSent(previous: Map<string, Sending[]>, key: string, texts: strin
   return next;
 }
 
-// composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
-// it.
-function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
-  if (shown === null || kept.some((entry) => entry.key === shown.key)) {
-    return kept;
-  }
-  return [...kept, shown];
-}
-
 // phaseOfStep is the phase a step's session page names: the phase whose row opens the step, as the epic page's phase rows
 // open it, or else reviewing for a read-only step and implementing for any other step.
 function phaseOfStep(detail: EpicsGetResponse, step: EpicStep): Phase {
   const row = phaseOutputOf(detail, step.task)?.rows.find((candidate) => candidate.session === step.id);
   return row?.phase ?? (step.readOnly ? "reviewing" : "implementing");
-}
-
-// stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,
-// and Steps.Stop. The page has no other call on a step.
-function stepCalls(clients: Clients, id: string) {
-  return {
-    nudge: async (text: string): Promise<void> => {
-      await clients.steps.nudge({ id, text });
-    },
-    hold: async (): Promise<void> => {
-      await clients.steps.hold({ id });
-    },
-    stop: async (): Promise<void> => {
-      await clients.steps.stop({ id });
-    },
-  };
 }
 
 // resolveIndex finds the cursor's entry, or the index it sat at, clamped into the entries; -1 when there are none.
@@ -2243,11 +2010,6 @@ function findCurrent(stored: number, matches: number): number {
   return matches === 0 ? -1 : clamp(stored, matches);
 }
 
-// stepCurrent moves the current match by step, wrapping past either end. With no matches there is no match to move to.
-function stepCurrent(current: number, matches: number, step: number): number {
-  return matches === 0 ? -1 : (((current + step) % matches) + matches) % matches;
-}
-
 function sectionTitle(section: EpicSection): string {
   if (section.title !== "") {
     return section.title;
@@ -2273,11 +2035,6 @@ function sectionClass(title: string): string {
     return "b-sec fresh";
   }
   return "b-sec";
-}
-
-// stepWhere is a step's where line: its epic, its agent, and its round.
-function stepWhere(step: StepItem): string {
-  return `${step.epicSlug} › ${step.agent} · step · round ${step.round}`;
 }
 
 // pageClasses are the classes of the epic page section: its move, and docked while a conversation docks beside it.
