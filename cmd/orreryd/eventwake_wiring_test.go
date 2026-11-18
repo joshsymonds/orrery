@@ -1,16 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -19,6 +24,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/holdertest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
@@ -33,8 +39,6 @@ func TestMain(m *testing.M) {
 const (
 	eventWakeStep      = "wake-wiring-step"
 	eventWakeStepEvent = "step:" + eventWakeStep
-	eventWakeServer    = "-L orrery-wake"
-	eventWakePane      = "%9"
 	eventWakePaneID    = "orrery-wake-pane"
 	// eventWakeSeeded is the id of a headless session row that no process runs. It is 32 lowercase hex digits, as the
 	// holder directory of a resumed session needs.
@@ -261,14 +265,15 @@ func seedIdleCaller(t *testing.T, st *store.Store, id string) {
 	}
 }
 
-// syncWakePane stores the pane caller of the event-wake tests, and returns the caller that names its pane.
-func syncWakePane(t *testing.T, st *store.Store) store.EpicCaller {
+// syncWakePane stores the pane caller of the event-wake tests, which names pane on the tmux server that the store
+// column server names, and returns the caller that names it.
+func syncWakePane(t *testing.T, st *store.Store, server, pane string) store.EpicCaller {
 	t.Helper()
-	pane := store.Pane{ID: eventWakePaneID, Pane: eventWakePane}
-	if err := st.SyncPane(t.Context(), eventWakeServer, pane, time.Unix(attentionWiringStamp, 0)); err != nil {
-		t.Fatalf("sync pane %s: %v", eventWakePane, err)
+	row := store.Pane{ID: eventWakePaneID, Pane: pane}
+	if err := st.SyncPane(t.Context(), server, row, time.Unix(attentionWiringStamp, 0)); err != nil {
+		t.Fatalf("sync pane %s: %v", pane, err)
 	}
-	return store.EpicCaller{Server: eventWakeServer, Pane: eventWakePane}
+	return store.EpicCaller{Server: server, Pane: pane}
 }
 
 // recordWakeCreator records session as the creator of the synthetic epic, by its epic_create call.
@@ -425,16 +430,101 @@ func TestStepEndPushWiringSlotFreed(t *testing.T) {
 	}
 }
 
-// TestStepEndPushWiringPaneDone checks that a step end held by a pane caller that is working is sent once that pane's
-// Stop transition to done is observed, with no wake from the test. The observer is the one run builds, over the host's
-// wake, and the pane's keys are sent through the rig's seam, which replaces cli.WakePane.
-func TestStepEndPushWiringPaneDone(t *testing.T) {
+// serveWakeDaemon serves a daemon with cfg on a socket in a directory of its own, and returns the socket's path. The
+// daemon stops at cleanup, and its Serve must return nil.
+func serveWakeDaemon(t *testing.T, cfg daemon.Config) string {
+	t.Helper()
+	root, err := shortStateRoot()
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove %s: %v", root, err)
+		}
+	})
+	socket := filepath.Join(root, "orreryd.sock")
+	ln, err := daemon.Listen(socket)
+	if err != nil {
+		t.Fatalf("listen on %s: %v", socket, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := serveInBackground(ctx, ln, cfg)
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("serve daemon: %v", err)
+		}
+	})
+	return socket
+}
+
+// tmuxSocketOf returns the socket path of the tmux server client talks to, which a frame names in its Tmux.
+func tmuxSocketOf(t *testing.T, client *tmuxctl.Client) string {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display", "-p", "#{socket_path}")
+	if err != nil {
+		t.Fatalf("display socket_path: %v", err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// paneHookFrame returns the frame of pane on the tmux server at socket that carries hook, the way the hook sends it.
+func paneHookFrame(hook, pane, socket string) protocol.HookFrame {
+	return protocol.HookFrame{
+		Hook:     json.RawMessage(hook),
+		TmuxPane: pane,
+		Tmux:     fmt.Sprintf("%s,1234,0", socket),
+	}
+}
+
+// sendHookFrame writes frame to the daemon socket as one newline-delimited frame, and returns once the daemon closes
+// the connection, which it does after it applies the frame.
+func sendHookFrame(t *testing.T, socket string, frame protocol.HookFrame) {
+	t.Helper()
+	var line bytes.Buffer
+	if err := protocol.WriteFrame(&line, frame); err != nil {
+		t.Fatalf("encode hook frame: %v", err)
+	}
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(t.Context(), "unix", socket)
+	if err != nil {
+		t.Fatalf("dial %s: %v", socket, err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close connection: %v", err)
+		}
+	}()
+	if _, err := conn.Write(line.Bytes()); err != nil {
+		t.Fatalf("write hook frame: %v", err)
+	}
+	// The read ends once the daemon closes the connection. A reset from input the daemon left unread also means closed.
+	if _, err := conn.Read(make([]byte, 1)); err != nil &&
+		!errors.Is(err, io.EOF) && !errors.Is(err, syscall.ECONNRESET) {
+		t.Fatalf("wait for the daemon to close: %v", err)
+	}
+}
+
+// TestStepEndPushWiringPaneStopFrame checks that a step end held by a working pane caller is sent once a Stop frame the
+// daemon applies turns the pane done, which wakes delivery with no wake from the test. The frames are sent over a daemon
+// socket whose observer is the one run builds, and the pane's keys go through a seam that reports the pane idle only
+// when its state option reads done.
+func TestStepEndPushWiringPaneStopFrame(t *testing.T) {
+	const (
+		submitHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt"}`
+		stopHook   = `{"hook_event_name":"Stop","stop_hook_active":false}`
+	)
 	st, getenv, path := openEventWakeStore(t)
 	passed := make(chan struct{}, eventWakeSignals)
-	var idle atomic.Bool
 	sent := make(chan string, eventWakeSignals)
-	wakePane := func(_ context.Context, _, _, text string) (bool, error) {
-		if !idle.Load() {
+	_, client, pane := startPane(t, t.TempDir())
+	wakePane := func(ctx context.Context, _, target, text string) (bool, error) {
+		state, _, err := client.PaneOption(ctx, target, protocol.OptionState)
+		if err != nil {
+			return false, fmt.Errorf("read %s of pane %s: %w", protocol.OptionState, target, err)
+		}
+		if state != string(protocol.StateDone) {
 			return false, nil
 		}
 		sent <- text
@@ -445,19 +535,20 @@ func TestStepEndPushWiringPaneDone(t *testing.T) {
 	})
 	awaitCallerRound(passed)
 
-	pane := syncWakePane(t, st)
-	stopStepUnder(t, st, host, pane)
+	var wake atomic.Pointer[func()]
+	publishCallerWake(&wake, host)
+	socket := serveWakeDaemon(t, daemon.Config{Observers: []daemon.Observer{callerWakeOnDone(&wake)}})
+	tmuxSocket := tmuxSocketOf(t, client)
+	caller := syncWakePane(t, st, tmuxctl.Server{Socket: tmuxSocket}.Column(), pane)
+
+	sendHookFrame(t, socket, paneHookFrame(submitHook, pane, tmuxSocket))
+	stopStepUnder(t, st, host, caller)
 	awaitCallerRound(passed)
 	if markedIn(t, st, eventWakeStepEvent, eventWakePaneID) {
 		t.Fatalf("step end marked while its pane was working")
 	}
 
-	idle.Store(true)
-	var wake atomic.Pointer[func()]
-	publishCallerWake(&wake, host)
-	callerWakeOnDone(&wake)(daemon.Transition{
-		PaneID: eventWakePane, From: protocol.StateWorking, To: protocol.StateDone,
-	})
+	sendHookFrame(t, socket, paneHookFrame(stopHook, pane, tmuxSocket))
 	awaitMarked(t, st, passed, eventWakeStepEvent, eventWakePaneID)
 	if text := <-sent; !strings.Contains(text, eventWakeStepEvent) {
 		t.Fatalf("pane woken with %q, want the step end block", text)
