@@ -36,7 +36,7 @@ class ToolWordsTest {
 
     @Test
     fun backgroundWaitsReadApartFromActiveWork() {
-        val waits = listOf("step_wait", "Monitor", "mcp__orrery__step_wait", "mcp__orrery__Monitor")
+        val waits = listOf("Monitor", "mcp__orrery__Monitor")
         for (name in waits) {
             assertEquals(name, ToolWords("waiting on background work", background = true), toolWords(name))
         }

@@ -22,12 +22,11 @@ private val wordsByShortName: Map<String, ToolWords> = mapOf(
     "Skill" to ToolWords("loading a skill", background = false),
     "ToolSearch" to ToolWords("loading tools", background = false),
     "AskUserQuestion" to ToolWords("asking you", background = false),
-    "step_wait" to waiting,
     "Monitor" to waiting,
 )
 
 /**
- * The tool named in plain words. An MCP name such as `mcp__orrery__step_wait`
+ * The tool named in plain words. An MCP name such as `mcp__orrery__step_start`
  * is read by its short name, the part after its last `__`; a tool not in the
  * table answers its short name.
  */
