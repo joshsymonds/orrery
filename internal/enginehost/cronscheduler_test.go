@@ -486,15 +486,7 @@ func TestCronFireResumesIdleStopped(t *testing.T) {
 		t.Fatalf("live after idle stop: err = %v, want ErrNoSession", err)
 	}
 
-	st, err := store.Open(t.Context(), path, storetest.NoSync())
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := st.Close(); err != nil {
-			t.Errorf("close store: %v", err)
-		}
-	})
+	st := storeOf(t, m)
 	job := store.CronJob{
 		ID: cronFireJob, Session: id, ToolUseID: cronFireTool, Cron: cronFireDaily, Prompt: cronFirePrompt,
 		Created: cronTestNow(),

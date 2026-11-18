@@ -29,7 +29,8 @@ type deliverBlock struct {
 }
 
 // cronDeliverRig wires a real Manager to a real CronScheduler for one test. The scheduler reads and deletes the jobs
-// through a second handle on the manager's store, and its clock and timers are the test's.
+// through the manager's own store, as orreryd gives the scheduler and the manager one store, and its clock and timers
+// are the test's.
 type cronDeliverRig struct {
 	m      *Manager
 	path   string
@@ -45,15 +46,7 @@ type cronDeliverRig struct {
 func newCronDeliverRig(t *testing.T) *cronDeliverRig {
 	t.Helper()
 	m, path, idle := newIdleManager(t, 1)
-	st, err := store.Open(t.Context(), path, storetest.NoSync())
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := st.Close(); err != nil {
-			t.Errorf("close store: %v", err)
-		}
-	})
+	st := storeOf(t, m)
 	rig := &cronDeliverRig{
 		m: m, path: path, idle: idle, clock: &fireClock{at: cronTestNow()}, timers: newFakeFireTimers(), st: st,
 	}
