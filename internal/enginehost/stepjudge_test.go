@@ -48,14 +48,53 @@ func TestStepJudgeSchemaIsTwoVerdictObject(t *testing.T) {
 	}
 }
 
+func TestStepJudgeNeutralInstruction(t *testing.T) {
+	t.Parallel()
+	t.Run("answers unmet only for undone work or a reported failure", func(t *testing.T) {
+		t.Parallel()
+		want := "Answer unmet only when the return says part of the task is not done or reports a failure."
+		if !strings.Contains(stepJudgeInstruction, want) {
+			t.Fatalf("instruction does not confine unmet to undone work or failure:\n%s", stepJudgeInstruction)
+		}
+	})
+	t.Run("omitted proof output or counts are not unmet", func(t *testing.T) {
+		t.Parallel()
+		want := "A return that omits proof, output or counts is not unmet."
+		if !strings.Contains(stepJudgeInstruction, want) {
+			t.Fatalf(
+				"instruction does not say omitted proof, output or counts are not unmet:\n%s",
+				stepJudgeInstruction,
+			)
+		}
+	})
+	t.Run("never asks for a change the task does not name", func(t *testing.T) {
+		t.Parallel()
+		want := "Never ask for a change the task does not name."
+		if !strings.Contains(stepJudgeInstruction, want) {
+			t.Fatalf("instruction does not forbid asking for changes the task does not name:\n%s", stepJudgeInstruction)
+		}
+	})
+	t.Run("says the task, not the Deliverable", func(t *testing.T) {
+		t.Parallel()
+		if !strings.Contains(stepJudgeInstruction, "the task") {
+			t.Fatalf("instruction does not name the task:\n%s", stepJudgeInstruction)
+		}
+		if strings.Contains(strings.ToLower(stepJudgeInstruction), "deliverable") {
+			t.Fatalf("instruction names the Deliverable, but judges every kind of step:\n%s", stepJudgeInstruction)
+		}
+	})
+}
+
 func TestStepJudgeInputCarriesInstructionAndSections(t *testing.T) {
 	t.Parallel()
 	got := stepJudgeInput("write the parser", "parser written", "parser.go | 12 +", "PASS go test", "warn: slow")
 	for _, want := range []string{
 		"mechanical checks already passed",
-		"meet the task's goal",
+		"Answer unmet only when the return says part of the task is not done or reports a failure",
 		"one-line reason",
 		"naming what is missing",
+		"A return that omits proof, output or counts is not unmet",
+		"Never ask for a change the task does not name",
 		"lost only its middle, which does not mean the return was cut off",
 		"## Task\nwrite the parser",
 		"## Return\nparser written",
