@@ -24,7 +24,7 @@ const (
 func speakPending(waits string) *orreryv1.PendingEvent {
 	return &orreryv1.PendingEvent{
 		Id: speakEvent, Kind: "step_end", Step: speakStep, Agent: "implementer", End: "done", Status: "passed",
-		Reason: "gate green", Summary: "First line", Waits: waits,
+		Reason: "gate green", Summary: "First line", Waits: waits, Result: "First line\nSecond line",
 	}
 }
 
