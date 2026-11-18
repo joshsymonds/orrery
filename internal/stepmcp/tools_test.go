@@ -22,6 +22,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -170,9 +171,26 @@ func limitedRow(id string) store.StepRow {
 	return row
 }
 
-// startDaemon serves steps on a socket in a temporary directory and returns a client
-// that dials it the way the session client does.
+// daemonSession is the session the test client runs in, the caller every step_start it makes names.
+const daemonSession = "session-7"
+
+// startDaemon serves steps on a socket in a temporary directory and returns a client that dials it the way the session
+// client does, in the session daemonSession: each call carries it as its caller.
 func startDaemon(t *testing.T, steps enginehost.StepCommands) enginev1connect.StepsClient {
+	t.Helper()
+	return startDaemonWithEnv(t, steps, func(name string) string {
+		if name == protocol.EnvSession {
+			return daemonSession
+		}
+		return ""
+	})
+}
+
+// startDaemonWithEnv is startDaemon with a client whose environment is getenv, which CallerInterceptor stamps each call
+// with.
+func startDaemonWithEnv(
+	t *testing.T, steps enginehost.StepCommands, getenv func(string) string,
+) enginev1connect.StepsClient {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sessions.sock")
 	ln, err := enginehost.Listen(path)
@@ -188,7 +206,8 @@ func startDaemon(t *testing.T, steps enginehost.StepCommands) enginev1connect.St
 			t.Errorf("Serve: %v", err)
 		}
 	})
-	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(path), cli.SessionBaseURL)
+	return enginev1connect.NewStepsClient(cli.SessionHTTPClient(path), cli.SessionBaseURL,
+		connect.WithInterceptors(CallerInterceptor(getenv)))
 }
 
 // rpcReply is one JSON-RPC response read from the server.
@@ -456,6 +475,7 @@ func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 		DoneValue: "pass",
 		Epic:      "repo-1/epic-one",
 		Task:      "task-two",
+		Caller:    store.EpicCaller{Session: daemonSession},
 	}}
 	if got := fake.calls().starts; !reflect.DeepEqual(got, want) {
 		t.Fatalf("step_start reached the daemon as %+v, want %+v", got, want)
@@ -582,6 +602,7 @@ func TestStepStartWithoutAgentAndSchemaReachesTheDaemon(t *testing.T) {
 		Workspace: "/work",
 		GateName:  "lint",
 		GatesFile: "/repo/gates.toml",
+		Caller:    store.EpicCaller{Session: daemonSession},
 	}}
 	if got := fake.calls().starts; !reflect.DeepEqual(got, want) {
 		t.Fatalf("step_start reached the daemon as %+v, want %+v", got, want)

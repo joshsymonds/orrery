@@ -71,6 +71,16 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 	return id, nil
 }
 
+// CallerSession returns the id of the sessions row caller names, and true. It returns "" and false, and no error,
+// when no row matches caller. It reads the store without writing it.
+func (s *Store) CallerSession(ctx context.Context, caller EpicCaller) (string, bool, error) {
+	session, err := resolveEpicCaller(ctx, sqlcgen.New(s.db), caller)
+	if err != nil {
+		return "", false, err
+	}
+	return session, session != "", nil
+}
+
 // EpicCreator returns the sessions row of the session marked the creator of epic, and true. It returns false, and no
 // error, when no row of epic is marked creator or when the marked session's row is gone. When more than one row is
 // marked, it returns the one of the newest call.

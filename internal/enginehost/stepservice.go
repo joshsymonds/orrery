@@ -71,8 +71,11 @@ func (s *stepService) StartStep(
 		return nil, stepCommandError(fmt.Errorf(
 			"%w: a step names its gate with gate_name and gates_file, not gate or gate_limit_seconds", ErrBadGate))
 	}
-	// A call with no caller header has the zero caller, which resolves to no row.
-	caller, _ := epicCallerOf(req.Header())
+	// A step's end goes back to its caller, so a call that names no caller is refused before anything is started.
+	caller, ok := epicCallerOf(req.Header())
+	if !ok {
+		return nil, stepCommandError(fmt.Errorf("%w: the call carries no caller headers", ErrNoCaller))
+	}
 	id, err := s.steps.Start(ctx, StepStart{
 		Agent:      req.Msg.GetAgent(),
 		Prompt:     req.Msg.GetPrompt(),
@@ -303,7 +306,7 @@ func stepCommandError(err error) error {
 	case errors.Is(err, store.ErrNoStep):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrStepNoTurn), errors.Is(err, ErrStepHeld), errors.Is(err, ErrStepGating),
-		errors.Is(err, ErrStepNotRunning), errors.Is(err, ErrStepNotLimited):
+		errors.Is(err, ErrStepNotRunning), errors.Is(err, ErrStepNotLimited), errors.Is(err, ErrNoCaller):
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),

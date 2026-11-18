@@ -10,8 +10,6 @@ import (
 	"syscall"
 	"testing"
 
-	"connectrpc.com/connect"
-
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -49,7 +47,7 @@ func TestOrrerydStopEndsWithJudgesAndSummaryInFlight(t *testing.T) {
 	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope, "--judge-delay", judgeDelay)
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 
-	resp, err := r.steps().StartStep(t.Context(), connect.NewRequest(&v1.StartStepRequest{
+	resp, err := r.steps().StartStep(t.Context(), r.startRequest(t, &v1.StartStepRequest{
 		Agent: stepReadoptAgent, Prompt: stepReadoptPrompt, Schema: stepReadoptSchema, Workspace: r.worktree,
 		OwnedPaths: []string{stepReadoptOwned},
 	}))

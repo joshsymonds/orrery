@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/agents"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -240,13 +241,16 @@ func fullStep() *v1.Step {
 }
 
 // callAllSteps calls each of the eight step RPCs once with fixed arguments and returns each error in order: StartStep,
-// StopStep, StepStatus, WaitSteps, ListSteps, HoldStep, NudgeStep, ResumeStep.
+// StopStep, StepStatus, WaitSteps, ListSteps, HoldStep, NudgeStep, ResumeStep. The StartStep names session-7 as its
+// caller.
 func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 	t.Helper()
 	ctx := context.Background()
-	_, startErr := client.StartStep(ctx, connect.NewRequest(&v1.StartStepRequest{
+	start := connect.NewRequest(&v1.StartStepRequest{
 		Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
-	}))
+	})
+	start.Header().Set(protocol.HeaderSession, "session-7")
+	_, startErr := client.StartStep(ctx, start)
 	_, stopErr := client.StopStep(ctx, connect.NewRequest(&v1.StopStepRequest{Id: "s1"}))
 	_, statusErr := client.StepStatus(ctx, connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
 	_, waitErr := client.WaitSteps(ctx, connect.NewRequest(&v1.WaitStepsRequest{Ids: []string{"s1"}}))
@@ -263,7 +267,7 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
 
-	started, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
+	req := connect.NewRequest(&v1.StartStepRequest{
 		Agent:             "reviewer",
 		Prompt:            "check the change",
 		Schema:            `{"type":"object"}`,
@@ -277,7 +281,9 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		ModelLimitSeconds: 90,
 		Epic:              "orrery",
 		Task:              "h3e1",
-	}))
+	})
+	req.Header().Set(protocol.HeaderSession, "session-7")
+	started, err := client.StartStep(context.Background(), req)
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
@@ -302,6 +308,7 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		DoneValue:  "pass",
 		Epic:       "orrery",
 		Task:       "h3e1",
+		Caller:     store.EpicCaller{Session: "session-7"},
 	}}
 	if got := fake.recordedStarts(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("StartStep reached commands as %+v, want %+v", got, want)
@@ -352,9 +359,11 @@ func TestStartStepZeroModelLimitHandsZero(t *testing.T) {
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
 
-	if _, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
+	req := connect.NewRequest(&v1.StartStepRequest{
 		Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
-	})); err != nil {
+	})
+	req.Header().Set(protocol.HeaderSession, "session-7")
+	if _, err := client.StartStep(context.Background(), req); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
 	if err := stop(); err != nil {
