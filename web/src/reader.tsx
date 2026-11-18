@@ -55,7 +55,8 @@ interface CallReveal {
 // a button. A prompt whose text is an epic's event block draws as the event's ring when the reader holds epic calls. An
 // event prompt whose text is a step's end block draws as its step card, and never as an EVENT row; each such prompt draws
 // its own card. Any other prompt an event sent draws as an EVENT row, with or without a step, and never as YOU or a step
-// prompt. With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
+// prompt. A prompt a cron sent draws as a CRON row the same way, and never as YOU, with or without a step.
+// With a step, any other prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
 // round's checks, any other prompt as an engine fold. An owner's prompt, and every other prompt without a step, is YOU.
 // The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, pinned there. A
 // reader pinned to its bottom, within nearBottomPixels of it as the owner last scrolled, stays there: after a render
@@ -66,10 +67,10 @@ interface CallReveal {
 // screen at a time through the handle register gets.
 // With find, every case-insensitive occurrence of its query is a mark in what the reader draws of a reply, a prompt, a
 // call's input and result, and a notice. Compaction, check cards, epic cards, event rings, step cards, waiting cards,
-// background rows, live text, thinking, the question card, sending rows, event lines and agent-finished lines are not
-// searched. The current match, find.current's index in find.matches, is the mark with class current: it is scrolled
-// into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current match moves
-// into it, and the owner can close it; it opens again only when the current match moves into it once more.
+// background rows, live text, thinking, the question card, sending rows, event lines, cron rows and agent-finished
+// lines are not searched. The current match, find.current's index in find.matches, is the mark with class current: it
+// is scrolled into view as it arrives, and the fold, call or run that holds it opens. A fold opens when the current
+// match moves into it, and the owner can close it; it opens again only when the current match moves into it once more.
 // After the items and live text, the reader draws a waiting card for each caller event the conversation holds pending,
 // oldest first, except one whose id an event prompt already drawn holds. Then it draws a row for each background task
 // the conversation's state holds, in the state's order. The sending entries draw after them, each as a dimmed prompt
@@ -621,6 +622,14 @@ function ItemBody({
           return <StepCard event={stepEnd} calls={epicCalls} />;
         }
       }
+      if (item.sender === "cron") {
+        return (
+          <div class="cron">
+            <small>CRON</small>
+            <ReplyMarkdown text={item.text} />
+          </div>
+        );
+      }
       if (epicCalls !== undefined) {
         const event = epicEventOf(item.text);
         if (event !== null) {
@@ -703,9 +712,14 @@ function agentFinishedLine(item: ConversationItem): string {
 }
 
 // ownersTurn is whether an item is the owner's turn, YOU: a prompt the owner sent, or any prompt without a step that
-// an event did not send. Its row carries the owner-turn class, and its body draws as YOU.
+// neither an event nor a cron sent. Its row carries the owner-turn class, and its body draws as YOU.
 function ownersTurn(item: ConversationItem, step?: EpicStep): boolean {
-  return item.kind === "prompt" && item.sender !== "event" && (step === undefined || item.sender === "owner");
+  return (
+    item.kind === "prompt" &&
+    item.sender !== "event" &&
+    item.sender !== "cron" &&
+    (step === undefined || item.sender === "owner")
+  );
 }
 
 // ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles

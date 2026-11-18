@@ -421,6 +421,9 @@ button, input, textarea, select { font-family: var(--mono); }
 /* A prompt an event sent to the caller: teal, not the owner's mauve, so an event never reads as the owner's message. */
 .reader .event { padding: 8px 14px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); }
 .reader .event small { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--teal); }
+/* A prompt the session's cron sent: drawn as an event is, teal, so an automatic prompt never reads as the owner's. */
+.reader .cron { padding: 8px 14px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); }
+.reader .cron small { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--teal); }
 .reader .rule { display: flex; align-items: center; gap: 10px; font: 11.5px/23px var(--mono); color: var(--overlay0); white-space: nowrap; }
 .reader .rule::after { content: ""; flex: 1; height: 1px; background: var(--surface0); }
 .reader .compaction button.rule { width: 100%; margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
@@ -544,8 +547,8 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .event-ring .ring-slug { flex: none; color: var(--blue); }
 .reader .event-ring .settled { margin: 0; color: var(--overlay1); }
 .reader .event-ring .answer .question { margin: 0; padding: 0; font: 700 14px/1.45 var(--mono); }
-/* A step's end an event sent its caller: its agent, end, status and reason on the head, and the first line of its summary
-   under it. A click opens the step's page, or else expands the card to its whole summary. */
+/* A step's end an event sent its caller: its agent, end, status and reason on the head, the headline under it, and the
+   full return in a fold under that. A click opens the step's page. */
 .reader .step-card {
   display: flex; flex-direction: column; gap: 4px; padding: 9px 12px 10px; border-radius: 3px 10px 10px 3px;
   background: var(--mantle); box-shadow: inset 3px 0 0 var(--teal); font: 12px/18px var(--mono); color: var(--subtext0);
@@ -557,6 +560,12 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .step-card .step-agent { color: var(--text); }
 .reader .step-card .step-reason { min-width: 0; overflow-wrap: anywhere; color: var(--overlay1); }
 .reader .step-card .step-summary { margin: 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.reader .step-card .step-return { min-width: 0; }
+.reader .step-card .step-return > summary { color: var(--overlay1); cursor: pointer; }
+.reader .step-card .step-return > pre {
+  margin: 4px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--mantle); color: var(--subtext0);
+  font: 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
 /* A caller event the session holds and has not taken draws dimmed, until its prompt arrives or the session takes it. */
 .reader .step-card.waiting, .reader .event-ring.waiting { opacity: .55; }
 .reader .event-ring.waiting .ring-line { cursor: default; }
@@ -582,6 +591,17 @@ button, input, textarea, select { font-family: var(--mono); }
 .compose .queued > .text { min-width: 0; color: var(--subtext0); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .compose .queued.canceled > .text { color: var(--overlay0); text-decoration: line-through; }
 .compose .queued.canceled > .tag { color: var(--maroon); }
+/* A session's queued message says what Claude does with it, and carries a withdraw that takes it back into the box. A
+   discarded message never reached Claude: its maroon edge and tag mark it, and its control puts it back in the box. */
+.compose .queued > .note { display: block; min-width: 0; font: 400 11px/1.45 var(--mono); color: var(--overlay1); }
+.compose .queued > .withdraw, .compose .undelivered > .put-back {
+  justify-self: start; margin-top: 4px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
+  background: var(--surface0); font: 400 11px/20px var(--mono); color: var(--subtext0);
+  appearance: none; -webkit-appearance: none;
+}
+.compose .undelivered { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; padding: 6px 12px; border-left: 2px solid var(--maroon); }
+.compose .undelivered > .tag { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--maroon); }
+.compose .undelivered > .text { min-width: 0; color: var(--subtext0); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The find bar is a mantle field over the transcript, its query in mono and its count in overlay1 at the right. It takes
    the mauve ring while it has focus, as the composer does. */

@@ -63,7 +63,7 @@ func TestCallerEventDeliverStoresEventPrompt(t *testing.T) {
 	}
 }
 
-func TestCallerEventDeliverHeldWhileTurnRuns(t *testing.T) {
+func TestCallerEventDeliverWhileTurnRuns(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
@@ -74,35 +74,33 @@ func TestCallerEventDeliverHeldWhileTurnRuns(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	if err = m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "the event text", PromptID: "e1"}); !errors.Is(
-		err, ErrSessionBusy,
-	) {
-		t.Fatalf("Deliver during a turn error = %v, want ErrSessionBusy", err)
+	event := DeliverRequest{ID: id, Text: "the event text", PromptID: "e1"}
+	if err = m.Deliver(t.Context(), event); err != nil {
+		t.Fatalf("Deliver during a turn: %v", err)
 	}
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(
-		got, []deliveredPrompt{{Text: "WAITOPEN"}},
-	) {
-		t.Fatalf("prompts after held Deliver = %+v, want only the start's prompt", got)
+	want := []deliveredPrompt{
+		{Text: "WAITOPEN"},
+		{Text: "the event text", PromptID: "e1", Sender: store.PromptSenderEvent},
+	}
+	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("prompts after the Deliver during the turn = %+v, want %+v", got, want)
 	}
 
 	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
 		t.Fatalf("open the turn: %v", err)
 	}
-	waitHistory(t, engineOf(m), path, id, "the turn ended and the session is done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
-	})
-	if err := m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "the event text", PromptID: "e1"}); err != nil {
-		t.Fatalf("Deliver after the turn ended: %v", err)
-	}
 	history := waitHistory(t, engineOf(m), path, id, "the reply to the event prompt", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2")
+		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 2 && h.State == string(protocol.StateDone)
 	})
-	want := []deliveredPrompt{
-		{Text: "WAITOPEN"},
-		{Text: "the event text", PromptID: "e1", Sender: store.PromptSenderEvent},
-	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
 		t.Fatalf("prompts = %+v, want %+v", got, want)
+	}
+	// The event is answered once: its prompt id is stored, so a repeat sends nothing.
+	if err = m.Deliver(t.Context(), event); err != nil {
+		t.Fatalf("repeated Deliver: %v", err)
+	}
+	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("prompts after a repeated Deliver = %+v, want %+v", got, want)
 	}
 }
 

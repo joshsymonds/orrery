@@ -55,7 +55,8 @@ const openConversation: Conversation = {
   oldest: 0n,
   more: false,
   unfinished: [],
-  held: [],
+  queued: [],
+  unsent: [],
   state: create(ConversationStateSchema, {
     request: create(OpenRequestSchema, {
       id: "req-7",
@@ -208,10 +209,8 @@ test("pullQueued on a session resolves empty and sends nothing", async () => {
 test("withdraw on a session calls Control.Withdraw with every held message and resolves their texts in order", async () => {
   const { clients, calls } = fakeClients(() => okJSON({ texts: ["first", "second"] }));
   const texts = await withdraw(clients, sessionRow);
-  assert.deepEqual(texts, ["first", "second"]);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].path, "/orrery.v1.Control/Withdraw");
-  assert.deepEqual(calls[0].body, { id: "s1" }, "an empty prompt id is left off the wire");
+  assert.deepEqual(texts, [], "a session resolves none");
+  assert.equal(calls.length, 0, "a session makes no withdraw call: interrupt takes its queued messages back");
 });
 
 test("withdraw on a session with nothing held resolves no texts", async () => {
@@ -229,8 +228,8 @@ test("withdraw on a pane resolves its pulled text as one message, and none when 
 });
 
 test("interrupt on a session calls Control.Interrupt with the session id", async () => {
-  const { clients, calls } = fakeClients();
-  await interrupt(clients, sessionRow);
+  const { clients, calls } = fakeClients(() => okJSON({ texts: ["first", "second"] }));
+  assert.deepEqual(await interrupt(clients, sessionRow), ["first", "second"], "the texts it cancelled, in order");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, "/orrery.v1.Control/Interrupt");
   assert.deepEqual(calls[0].body, { id: "s1" });

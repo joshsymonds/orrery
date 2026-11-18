@@ -1,10 +1,11 @@
 import type { ComponentChildren, JSX } from "preact";
+import { useMemo } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import type { EpicCalls } from "./card";
 import { Composer, type ComposerHandle } from "./composer";
-import type { Conversation } from "./conversation";
+import { type Conversation, shownConversation } from "./conversation";
 import type { StepItem } from "./epics";
 import { FindBar, type Match } from "./find";
 import type { Pane } from "./gen/orrery/v1/orrery_pb";
@@ -114,6 +115,8 @@ export function ReaderColumn({
   const names = columnNames[column];
   const rowKey = row?.key ?? "";
   const stepKey = step?.key ?? "";
+  // The conversation the readers and the shown composer draw, without the prompts its queue still holds or has discarded.
+  const shown = useMemo(() => shownConversation(conversation), [conversation]);
   return (
     <section class={names.section} aria-label={names.label} hidden={row === null && step === null}>
       {row !== null && (
@@ -161,7 +164,7 @@ export function ReaderColumn({
       )}
       {row !== null && (
         <Reader
-          conversation={conversation}
+          conversation={shown}
           seenAt={row.seen}
           open={open}
           question={column === "cursor" ? readerQuestion(row, conversation) : null}
@@ -178,7 +181,7 @@ export function ReaderColumn({
       )}
       {step !== null && (
         <Reader
-          conversation={conversation}
+          conversation={shown}
           seenAt={stepSeenAt}
           open={open}
           step={step.step}
@@ -202,8 +205,11 @@ export function ReaderColumn({
               onPage={(direction) => reader.current?.page(direction) ?? false}
               onFind={() => onFind({ key: entry.key, query: "", current: 0 })}
               queued={entry.key === rowKey ? conversation?.state?.waiting : undefined}
-              held={entry.key === rowKey ? conversation?.held : undefined}
-              items={entry.key === rowKey ? conversation?.items : undefined}
+              sessionQueue={entry.key === rowKey ? conversation?.queued : undefined}
+              withdraw={
+                entry.kind === "session" ? (promptId) => actions.withdrawQueued(clients, entry, promptId) : undefined
+              }
+              items={entry.key === rowKey ? shown?.items : undefined}
               onSending={(sent) => addSending(entry.key, sent, entry.key === rowKey ? conversation : null)}
               onUnsent={(promptId) => retractSending(entry.key, promptId)}
               inputRef={(element) => {

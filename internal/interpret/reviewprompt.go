@@ -4,18 +4,26 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// closureRole is the role text of a closure verifier step: the read-only role that decides whether one confirmed finding
-// still holds at the corrected revision.
+// closureOwn is the text of the closure verifier role that only it has: its title and intro, how it closes, and its
+// closed and open results.
 //
 //go:embed closure.md
-var closureRole string
+var closureOwn string
+
+// closureRole returns the role text of a closure verifier step: the read-only role that decides whether one confirmed
+// finding still holds at the corrected revision. It is closure.md's own text followed by build.VerifierCommon.
+func closureRole() string {
+	return closureOwn + build.VerifierCommon
+}
 
 // ClosureSchema is the schema a closure verifier step's return must match: its status and one result for the finding,
 // closed, open or undetermined.
@@ -72,28 +80,38 @@ func closureStart(
 		Revision:    revision,
 		Agent:       agent,
 		Schema:      ClosureSchema,
-		Prompt:      closurePrompt(frozen, revision, finding),
+		Prompt:      closurePrompt(epic, frozen, revision, finding),
 		ReturnCheck: closureCheck,
 		DoneValue:   "done",
 		Epic:        epic.ID,
 	}
 }
 
-// closurePrompt renders the prompt of the closure verifier for finding: the role, the range the change spans from frozen
-// to revision, and the finding with its claim, citation, location, evidence, verify-by step and the confirmation that
-// stood at the freeze.
-func closurePrompt(frozen, revision string, finding store.LedgerFinding) string {
-	body := []string{
-		fmt.Sprintf("The change is %s..%s; this worktree is checked out at %s.", frozen, revision, revision),
-		"Finding " + finding.ID + ": " + finding.Claim,
-		"Citation: " + finding.Citation,
-		"Location: " + finding.Location,
-		"Evidence: " + finding.Evidence,
-		"Verify by: " + finding.VerifyBy,
-		"Confirmation: " + finding.Reason,
-		"Return exactly one result, for " + finding.ID + ".",
+// closurePrompt renders the prompt of the closure verifier for finding of epic: the role, the range the change spans
+// from frozen to revision, the owner decisions of epic, and the finding with its claim, citation, location, evidence,
+// verify-by step and the confirmation that stood at the freeze.
+func closurePrompt(epic store.EpicRow, frozen, revision string, finding store.LedgerFinding) string {
+	decisions := planner.DecisionLines(epic, 0)
+	if len(decisions) == 0 {
+		decisions = []string{"- none"}
 	}
-	return closureRole + "\n" + strings.Join(body, "\n")
+	body := slices.Concat(
+		[]string{
+			fmt.Sprintf("The change is %s..%s; this worktree is checked out at %s.", frozen, revision, revision),
+			"Owner decisions:",
+		},
+		decisions,
+		[]string{
+			"Finding " + finding.ID + ": " + finding.Claim,
+			"Citation: " + finding.Citation,
+			"Location: " + finding.Location,
+			"Evidence: " + finding.Evidence,
+			"Verify by: " + finding.VerifyBy,
+			"Confirmation: " + finding.Reason,
+			"Return exactly one result, for " + finding.ID + ".",
+		},
+	)
+	return closureRole() + "\n" + strings.Join(body, "\n")
 }
 
 // closureCheck is the return check of a closure verifier step. It refuses a return that does not hold exactly one result,

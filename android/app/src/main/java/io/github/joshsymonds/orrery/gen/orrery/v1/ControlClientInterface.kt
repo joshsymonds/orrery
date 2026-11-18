@@ -48,9 +48,9 @@ public interface ControlClientInterface {
   public suspend fun resume(request: ResumeRequest, headers: Headers = emptyMap()): ResponseMessage<ResumeResponse>
 
   /**
-   *  Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
-   *  prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
-   *  back, so a prompt_id that is not held is refused.
+   *  Withdraw asks Claude to cancel one queued owner message of a headless session by its prompt_id
+   *  (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
+   *  already taken it in, when the session is not running, or when prompt_id is empty.
    */
   public suspend fun withdraw(request: WithdrawRequest, headers: Headers = emptyMap()): ResponseMessage<WithdrawResponse>
 }

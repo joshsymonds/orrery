@@ -18,9 +18,6 @@ const stepEndKind = "step_end"
 // steps whose end has no mark under this id.
 const stepEventPrefix = "step:"
 
-// stepSummaryCap is the most runes of a step's result that its end's event carries as its summary.
-const stepSummaryCap = 500
-
 // callerEventTick is how often a StepCallerEvents passes when its Tick is not positive.
 const callerEventTick = 5 * time.Second
 
@@ -205,7 +202,7 @@ func (e *StepCallerEvents) send(ctx context.Context, step store.CallerStep) {
 }
 
 // stepEndBody returns the body of the event of step's end: the step, its end, status and reason, its agent, the epic
-// that holds it when one does, the start of its result, and where its full result is read.
+// that holds it when one does, and the step's whole result.
 func stepEndBody(step store.StepRow) string {
 	lines := []string{
 		fmt.Sprintf("Step %s ended: end %s, status %s, reason %s.", step.ID, step.End, step.Status, step.Reason),
@@ -214,17 +211,5 @@ func stepEndBody(step store.StepRow) string {
 	if step.Epic != "" {
 		lines = append(lines, "Epic: "+step.Epic)
 	}
-	return strings.Join(append(lines,
-		"Summary: "+capped(step.Result, stepSummaryCap),
-		"step_status gives the full result.",
-	), "\n")
-}
-
-// capped returns the first n runes of s, or s whole when it has no more than n. A result cut short ends with "...".
-func capped(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n]) + "..."
+	return strings.Join(append(lines, "Summary: "+step.Result), "\n")
 }

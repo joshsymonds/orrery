@@ -31,6 +31,7 @@ public  final class PendingEvent extends
     epic_ = "";
     title_ = "";
     waits_ = "";
+    result_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -505,7 +506,8 @@ public  final class PendingEvent extends
   private java.lang.String summary_;
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -517,7 +519,8 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -530,7 +533,8 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -544,7 +548,8 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -555,7 +560,8 @@ public  final class PendingEvent extends
   }
   /**
    * <pre>
-   * The first line of the step's result, for a step_end.
+   * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+   * JSON object that has one, in that order, else the result's first line.
    * </pre>
    *
    * <code>string summary = 8 [json_name = "summary"];</code>
@@ -766,6 +772,73 @@ public  final class PendingEvent extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     waits_ = value.toStringUtf8();
+
+  }
+
+  public static final int RESULT_FIELD_NUMBER = 12;
+  private java.lang.String result_;
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   * @return The result.
+   */
+  @java.lang.Override
+  public java.lang.String getResult() {
+    return result_;
+  }
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   * @return The bytes for result.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getResultBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(result_);
+  }
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   * @param value The result to set.
+   */
+  private void setResult(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    result_ = value;
+  }
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   */
+  private void clearResult() {
+
+    result_ = getDefaultInstance().getResult();
+  }
+  /**
+   * <pre>
+   * The step's full result, for a step_end.
+   * </pre>
+   *
+   * <code>string result = 12 [json_name = "result"];</code>
+   * @param value The bytes for result to set.
+   */
+  private void setResultBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    result_ = value.toStringUtf8();
 
   }
 
@@ -1356,7 +1429,8 @@ public  final class PendingEvent extends
 
     /**
      * <pre>
-     * The first line of the step's result, for a step_end.
+     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+     * JSON object that has one, in that order, else the result's first line.
      * </pre>
      *
      * <code>string summary = 8 [json_name = "summary"];</code>
@@ -1368,7 +1442,8 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The first line of the step's result, for a step_end.
+     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+     * JSON object that has one, in that order, else the result's first line.
      * </pre>
      *
      * <code>string summary = 8 [json_name = "summary"];</code>
@@ -1381,7 +1456,8 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The first line of the step's result, for a step_end.
+     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+     * JSON object that has one, in that order, else the result's first line.
      * </pre>
      *
      * <code>string summary = 8 [json_name = "summary"];</code>
@@ -1396,7 +1472,8 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The first line of the step's result, for a step_end.
+     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+     * JSON object that has one, in that order, else the result's first line.
      * </pre>
      *
      * <code>string summary = 8 [json_name = "summary"];</code>
@@ -1409,7 +1486,8 @@ public  final class PendingEvent extends
     }
     /**
      * <pre>
-     * The first line of the step's result, for a step_end.
+     * The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+     * JSON object that has one, in that order, else the result's first line.
      * </pre>
      *
      * <code>string summary = 8 [json_name = "summary"];</code>
@@ -1630,6 +1708,75 @@ public  final class PendingEvent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The step's full result, for a step_end.
+     * </pre>
+     *
+     * <code>string result = 12 [json_name = "result"];</code>
+     * @return The result.
+     */
+    @java.lang.Override
+    public java.lang.String getResult() {
+      return instance.getResult();
+    }
+    /**
+     * <pre>
+     * The step's full result, for a step_end.
+     * </pre>
+     *
+     * <code>string result = 12 [json_name = "result"];</code>
+     * @return The bytes for result.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getResultBytes() {
+      return instance.getResultBytes();
+    }
+    /**
+     * <pre>
+     * The step's full result, for a step_end.
+     * </pre>
+     *
+     * <code>string result = 12 [json_name = "result"];</code>
+     * @param value The result to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResult(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setResult(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's full result, for a step_end.
+     * </pre>
+     *
+     * <code>string result = 12 [json_name = "result"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearResult() {
+      copyOnWrite();
+      instance.clearResult();
+      return this;
+    }
+    /**
+     * <pre>
+     * The step's full result, for a step_end.
+     * </pre>
+     *
+     * <code>string result = 12 [json_name = "result"];</code>
+     * @param value The bytes for result to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResultBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setResultBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.PendingEvent)
   }
   @java.lang.Override
@@ -1657,11 +1804,12 @@ public  final class PendingEvent extends
             "epic_",
             "title_",
             "waits_",
+            "result_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
-              "\u000b\u0208";
+              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
+              "\f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -269,8 +269,16 @@ func (q *Queries) CountCallerEvent(ctx context.Context, arg CountCallerEventPara
 }
 
 const countEnginePrompts = `-- name: CountEnginePrompts :one
-SELECT COUNT(*) FROM events
-WHERE session_id = ?1 AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = ?2
+SELECT COUNT(*) FROM events AS prompts
+WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+  AND json_extract(prompts.payload, '$.promptId') = ?2
+  AND NOT (COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event' AND EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
+  ))
 `
 
 type CountEnginePromptsParams struct {
@@ -348,6 +356,13 @@ WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.wri
       WHERE turns.session_id = ?1 AND turns.kind = 'engine_turn_ended' AND turns.seq > prompts.seq
         AND (turns.answered IS NULL OR EXISTS (
             SELECT 1 FROM json_each(turns.answered) WHERE json_each.value = prompts.write_id))
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = ?1 AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   )
 `
 
@@ -459,6 +474,23 @@ func (q *Queries) CountWorkingEvidenceNodeRuns(ctx context.Context, epic string)
 	return count, err
 }
 
+const deleteCronJob = `-- name: DeleteCronJob :execrows
+DELETE FROM cron_jobs WHERE session = ? AND job_id = ?
+`
+
+type DeleteCronJobParams struct {
+	Session string
+	JobID   string
+}
+
+func (q *Queries) DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteCronJob, arg.Session, arg.JobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteEngineRateLimit = `-- name: DeleteEngineRateLimit :exec
 DELETE FROM engine_rate_limits WHERE session_id = ?
 `
@@ -505,20 +537,6 @@ DELETE FROM grant_members WHERE grant_id = ?
 
 func (q *Queries) DeleteGrantMembers(ctx context.Context, grantID string) error {
 	_, err := q.db.ExecContext(ctx, deleteGrantMembers, grantID)
-	return err
-}
-
-const deleteHeldPrompt = `-- name: DeleteHeldPrompt :exec
-DELETE FROM engine_held WHERE session_id = ? AND prompt_id = ?
-`
-
-type DeleteHeldPromptParams struct {
-	SessionID string
-	PromptID  string
-}
-
-func (q *Queries) DeleteHeldPrompt(ctx context.Context, arg DeleteHeldPromptParams) error {
-	_, err := q.db.ExecContext(ctx, deleteHeldPrompt, arg.SessionID, arg.PromptID)
 	return err
 }
 
@@ -590,6 +608,18 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteSessionCronJobs = `-- name: DeleteSessionCronJobs :execrows
+DELETE FROM cron_jobs WHERE session = ?
+`
+
+func (q *Queries) DeleteSessionCronJobs(ctx context.Context, session string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteSessionCronJobs, session)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteStaleEnginePromptFailures = `-- name: DeleteStaleEnginePromptFailures :exec
 DELETE FROM engine_prompt_failed
 WHERE session_id IN (
@@ -614,7 +644,6 @@ const deleteStaleEngineSessions = `-- name: DeleteStaleEngineSessions :exec
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
   AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
-  AND NOT EXISTS (SELECT 1 FROM engine_held WHERE engine_held.session_id = sessions.id)
   AND sessions.id NOT IN (SELECT value FROM json_each(?2))
 `
 
@@ -654,6 +683,23 @@ DELETE FROM told_limit_steps WHERE limit_key = ?
 
 func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
 	_, err := q.db.ExecContext(ctx, deleteToldLimit, limitKey)
+	return err
+}
+
+const discardUnstartedPrompts = `-- name: DiscardUnstartedPrompts :exec
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT prompts.session_id, prompts.write_id, 'discarded' FROM events AS prompts
+WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+  AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state <> 'queued'
+  )
+`
+
+func (q *Queries) DiscardUnstartedPrompts(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, discardUnstartedPrompts, id)
 	return err
 }
 
@@ -901,6 +947,31 @@ func (q *Queries) GetActionAmendment(ctx context.Context, arg GetActionAmendment
 		&i.Refusal,
 		&i.Created,
 		&i.Settled,
+	)
+	return i, err
+}
+
+const getCronJobByToolUse = `-- name: GetCronJobByToolUse :one
+SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs WHERE session = ? AND tool_use_id = ?
+`
+
+type GetCronJobByToolUseParams struct {
+	Session   string
+	ToolUseID string
+}
+
+func (q *Queries) GetCronJobByToolUse(ctx context.Context, arg GetCronJobByToolUseParams) (CronJob, error) {
+	row := q.db.QueryRowContext(ctx, getCronJobByToolUse, arg.Session, arg.ToolUseID)
+	var i CronJob
+	err := row.Scan(
+		&i.JobID,
+		&i.Session,
+		&i.ToolUseID,
+		&i.Cron,
+		&i.Prompt,
+		&i.Recurring,
+		&i.CreatedAt,
+		&i.LastFireAt,
 	)
 	return i, err
 }
@@ -1520,6 +1591,34 @@ func (q *Queries) GetPlannerActionPark(ctx context.Context, arg GetPlannerAction
 	return park, err
 }
 
+const getPromptWrite = `-- name: GetPromptWrite :one
+SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt'
+  AND json_extract(events.payload, '$.promptId') = ?2
+ORDER BY events.seq
+LIMIT 1
+`
+
+type GetPromptWriteParams struct {
+	SessionID string
+	PromptID  string
+}
+
+type GetPromptWriteRow struct {
+	WriteID string
+	Text    string
+	Sender  string
+}
+
+func (q *Queries) GetPromptWrite(ctx context.Context, arg GetPromptWriteParams) (GetPromptWriteRow, error) {
+	row := q.db.QueryRowContext(ctx, getPromptWrite, arg.SessionID, arg.PromptID)
+	var i GetPromptWriteRow
+	err := row.Scan(&i.WriteID, &i.Text, &i.Sender)
+	return i, err
+}
+
 const getRunningEpicTurn = `-- name: GetRunningEpicTurn :one
 SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state = 'running'
 `
@@ -1714,7 +1813,24 @@ func (q *Queries) GrantEpicParkedLoops(ctx context.Context, epic string) error {
 }
 
 const insertCallerEvent = `-- name: InsertCallerEvent :exec
-INSERT INTO caller_events (event, session, at) VALUES (?, ?, ?)
+INSERT INTO caller_events (event, session, at)
+SELECT ?1, ?2, ?3
+WHERE NOT EXISTS (
+    SELECT 1 FROM events AS prompts
+    WHERE prompts.session_id = ?2 AND prompts.kind = 'engine_prompt'
+      AND json_extract(prompts.payload, '$.promptId') = ?1
+      AND prompts.seq = (SELECT MAX(newest.seq) FROM events AS newest
+                         WHERE newest.session_id = prompts.session_id AND newest.kind = 'engine_prompt'
+                           AND json_extract(newest.payload, '$.promptId') = ?1)
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND EXISTS (
+          SELECT 1 FROM prompt_states AS states
+          WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+            AND states.state IN ('canceled', 'discarded')
+            AND states.seq = (SELECT MAX(latest.seq) FROM prompt_states AS latest
+                              WHERE latest.session_id = states.session_id AND latest.write_id = states.write_id)
+      )
+)
 ON CONFLICT (event, session) DO NOTHING
 `
 
@@ -1727,6 +1843,40 @@ type InsertCallerEventParams struct {
 func (q *Queries) InsertCallerEvent(ctx context.Context, arg InsertCallerEventParams) error {
 	_, err := q.db.ExecContext(ctx, insertCallerEvent, arg.Event, arg.Session, arg.At)
 	return err
+}
+
+const insertCronJob = `-- name: InsertCronJob :execrows
+INSERT INTO cron_jobs (job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (session, tool_use_id) DO NOTHING
+`
+
+type InsertCronJobParams struct {
+	JobID      string
+	Session    string
+	ToolUseID  string
+	Cron       string
+	Prompt     string
+	Recurring  int64
+	CreatedAt  int64
+	LastFireAt int64
+}
+
+func (q *Queries) InsertCronJob(ctx context.Context, arg InsertCronJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertCronJob,
+		arg.JobID,
+		arg.Session,
+		arg.ToolUseID,
+		arg.Cron,
+		arg.Prompt,
+		arg.Recurring,
+		arg.CreatedAt,
+		arg.LastFireAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertDueResume = `-- name: InsertDueResume :exec
@@ -1753,22 +1903,6 @@ func (q *Queries) InsertDueResume(ctx context.Context, arg InsertDueResumeParams
 		arg.Target,
 		arg.Resets,
 	)
-	return err
-}
-
-const insertEngineHeld = `-- name: InsertEngineHeld :exec
-INSERT INTO engine_held (session_id, prompt_id, text) VALUES (?, ?, ?)
-ON CONFLICT (session_id, prompt_id) DO NOTHING
-`
-
-type InsertEngineHeldParams struct {
-	SessionID string
-	PromptID  string
-	Text      string
-}
-
-func (q *Queries) InsertEngineHeld(ctx context.Context, arg InsertEngineHeldParams) error {
-	_, err := q.db.ExecContext(ctx, insertEngineHeld, arg.SessionID, arg.PromptID, arg.Text)
 	return err
 }
 
@@ -3128,6 +3262,30 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 	return err
 }
 
+const insertPromptState = `-- name: InsertPromptState :execrows
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT ?1, ?2, ?3
+WHERE NOT EXISTS (
+    SELECT 1 FROM prompt_states AS states
+    WHERE states.session_id = ?1 AND states.write_id = ?2
+      AND states.state = 'started')
+   OR ('canceled' <> ?3 AND 'discarded' <> ?3)
+`
+
+type InsertPromptStateParams struct {
+	SessionID string
+	WriteID   string
+	State     string
+}
+
+func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertPromptState, arg.SessionID, arg.WriteID, arg.State)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertSession = `-- name: InsertSession :exec
 INSERT INTO sessions (id, server, pane) VALUES (?, ?, ?)
 `
@@ -3507,6 +3665,42 @@ func (q *Queries) ListCreatedEpics(ctx context.Context, session string) ([]Epic,
 			&i.OriginReadCommit,
 			&i.OriginReadState,
 			&i.OriginReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCronJobs = `-- name: ListCronJobs :many
+SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listCronJobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CronJob
+	for rows.Next() {
+		var i CronJob
+		if err := rows.Scan(
+			&i.JobID,
+			&i.Session,
+			&i.ToolUseID,
+			&i.Cron,
+			&i.Prompt,
+			&i.Recurring,
+			&i.CreatedAt,
+			&i.LastFireAt,
 		); err != nil {
 			return nil, err
 		}
@@ -5655,38 +5849,6 @@ func (q *Queries) ListHeadlineDueSessions(ctx context.Context) ([]ListHeadlineDu
 	return items, nil
 }
 
-const listHeldPrompts = `-- name: ListHeldPrompts :many
-SELECT prompt_id, text FROM engine_held WHERE session_id = ? ORDER BY seq
-`
-
-type ListHeldPromptsRow struct {
-	PromptID string
-	Text     string
-}
-
-func (q *Queries) ListHeldPrompts(ctx context.Context, sessionID string) ([]ListHeldPromptsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listHeldPrompts, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListHeldPromptsRow
-	for rows.Next() {
-		var i ListHeldPromptsRow
-		if err := rows.Scan(&i.PromptID, &i.Text); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listHolderPrompts = `-- name: ListHolderPrompts :many
 SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events
 WHERE events.session_id = ?1 AND events.kind = 'engine_prompt' AND events.write_id <> ''
@@ -6481,6 +6643,105 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 	return items, nil
 }
 
+const listPromptStates = `-- name: ListPromptStates :many
+SELECT CAST(COALESCE(json_extract(prompts.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(prompts.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(prompts.payload, '$.sender'), '') AS TEXT) AS sender,
+       states.state
+FROM prompt_states AS states
+JOIN events AS prompts ON prompts.session_id = states.session_id AND prompts.kind = 'engine_prompt'
+  AND prompts.write_id = states.write_id
+WHERE states.session_id = ?1
+  AND states.seq IN (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                     WHERE newest.session_id = ?1 GROUP BY newest.write_id)
+ORDER BY prompts.seq
+`
+
+type ListPromptStatesRow struct {
+	PromptID string
+	Text     string
+	Sender   string
+	State    string
+}
+
+func (q *Queries) ListPromptStates(ctx context.Context, id string) ([]ListPromptStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPromptStates, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPromptStatesRow
+	for rows.Next() {
+		var i ListPromptStatesRow
+		if err := rows.Scan(
+			&i.PromptID,
+			&i.Text,
+			&i.Sender,
+			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPromptsOfWrites = `-- name: ListPromptsOfWrites :many
+SELECT events.write_id, CAST(COALESCE(json_extract(events.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt'
+  AND events.write_id IN (SELECT value FROM json_each(?2))
+ORDER BY events.seq
+`
+
+type ListPromptsOfWritesParams struct {
+	ID       string
+	WriteIds interface{}
+}
+
+type ListPromptsOfWritesRow struct {
+	WriteID  string
+	PromptID string
+	Text     string
+	Sender   string
+}
+
+func (q *Queries) ListPromptsOfWrites(ctx context.Context, arg ListPromptsOfWritesParams) ([]ListPromptsOfWritesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPromptsOfWrites, arg.ID, arg.WriteIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPromptsOfWritesRow
+	for rows.Next() {
+		var i ListPromptsOfWritesRow
+		if err := rows.Scan(
+			&i.WriteID,
+			&i.PromptID,
+			&i.Text,
+			&i.Sender,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPushedAlertNotices = `-- name: ListPushedAlertNotices :many
 SELECT alert, time FROM pushed_alert_notices ORDER BY alert
 `
@@ -6746,6 +7007,42 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.Title,
 			&i.Headline,
 			&i.HeadlineAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionCronJobs = `-- name: ListSessionCronJobs :many
+SELECT job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at FROM cron_jobs WHERE session = ? ORDER BY created_at, rowid
+`
+
+func (q *Queries) ListSessionCronJobs(ctx context.Context, session string) ([]CronJob, error) {
+	rows, err := q.db.QueryContext(ctx, listSessionCronJobs, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CronJob
+	for rows.Next() {
+		var i CronJob
+		if err := rows.Scan(
+			&i.JobID,
+			&i.Session,
+			&i.ToolUseID,
+			&i.Cron,
+			&i.Prompt,
+			&i.Recurring,
+			&i.CreatedAt,
+			&i.LastFireAt,
 		); err != nil {
 			return nil, err
 		}
@@ -7825,6 +8122,20 @@ func (q *Queries) SessionEventsBefore(ctx context.Context, arg SessionEventsBefo
 	return items, nil
 }
 
+const setCronJobFired = `-- name: SetCronJobFired :exec
+UPDATE cron_jobs SET last_fire_at = ? WHERE job_id = ?
+`
+
+type SetCronJobFiredParams struct {
+	LastFireAt int64
+	JobID      string
+}
+
+func (q *Queries) SetCronJobFired(ctx context.Context, arg SetCronJobFiredParams) error {
+	_, err := q.db.ExecContext(ctx, setCronJobFired, arg.LastFireAt, arg.JobID)
+	return err
+}
+
 const setEpicBranch = `-- name: SetEpicBranch :exec
 UPDATE epics SET branch = ? WHERE id = ?
 `
@@ -8415,6 +8726,48 @@ type SyncEpicStoredBaseParams struct {
 
 func (q *Queries) SyncEpicStoredBase(ctx context.Context, arg SyncEpicStoredBaseParams) error {
 	_, err := q.db.ExecContext(ctx, syncEpicStoredBase, arg.StoredBase, arg.Synced, arg.ID)
+	return err
+}
+
+const unmarkEventOfWrite = `-- name: UnmarkEventOfWrite :exec
+DELETE FROM caller_events
+WHERE caller_events.session = ?1 AND caller_events.event IN (
+    SELECT json_extract(prompts.payload, '$.promptId') FROM events AS prompts
+    WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+      AND prompts.write_id <> '' AND prompts.write_id = ?2
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND COALESCE(json_extract(prompts.payload, '$.promptId'), '') <> ''
+)
+`
+
+type UnmarkEventOfWriteParams struct {
+	SessionID string
+	WriteID   string
+}
+
+func (q *Queries) UnmarkEventOfWrite(ctx context.Context, arg UnmarkEventOfWriteParams) error {
+	_, err := q.db.ExecContext(ctx, unmarkEventOfWrite, arg.SessionID, arg.WriteID)
+	return err
+}
+
+const unmarkUnstartedEvents = `-- name: UnmarkUnstartedEvents :exec
+DELETE FROM caller_events
+WHERE caller_events.session = ?1 AND caller_events.event IN (
+    SELECT json_extract(prompts.payload, '$.promptId') FROM events AS prompts
+    WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+      AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND COALESCE(json_extract(prompts.payload, '$.promptId'), '') <> ''
+      AND NOT EXISTS (
+          SELECT 1 FROM prompt_states AS states
+          WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+            AND states.state <> 'queued'
+      )
+)
+`
+
+func (q *Queries) UnmarkUnstartedEvents(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, unmarkUnstartedEvents, id)
 	return err
 }
 

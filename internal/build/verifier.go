@@ -44,11 +44,23 @@ func VerifierStart(subject Subject, finding store.TaskFinding, id, agent string)
 	return start
 }
 
-// VerifierRole is the role text of a verifier step: the read-only role that confirms or drops one finding a review
-// raised.
+// VerifierCommon is the text the finding verifier and the closure verifier roles share: the Freeze, Evidence and Return
+// sections and the undetermined result line. It is embedded from verifier_common.md, and each role's text ends with it.
+//
+//go:embed verifier_common.md
+var VerifierCommon string
+
+// verifierOwn is the text of the finding verifier role that only it has: its title and intro, how it decides, and its
+// confirmed and dropped results.
 //
 //go:embed verifier.md
-var VerifierRole string
+var verifierOwn string
+
+// VerifierRole returns the role text of a verifier step: the read-only role that confirms or drops one finding a review
+// raised. It is verifier.md's own text followed by VerifierCommon.
+func VerifierRole() string {
+	return verifierOwn + VerifierCommon
+}
 
 // requirementsHeading opens the Requirements block of a verifier prompt.
 const requirementsHeading = "Requirements:"
@@ -92,7 +104,7 @@ func VerifierPrompt(
 		requirementLines(epic.Requirements, task.Requirements),
 		findingLines(base, revision, finding),
 	)
-	return VerifierRole + "\n" + strings.Join(body, "\n")
+	return VerifierRole() + "\n" + strings.Join(body, "\n")
 }
 
 // epicVerifierPrompt renders the prompt of a verifier step for one finding of epic: the role, the epic and every
@@ -110,7 +122,7 @@ func epicVerifierPrompt(epic store.EpicRow, base, revision string, finding store
 		requirementLines(epic.Requirements, ids),
 		findingLines(base, revision, finding),
 	)
-	return VerifierRole + "\n" + strings.Join(body, "\n")
+	return VerifierRole() + "\n" + strings.Join(body, "\n")
 }
 
 // findingLines renders the range the change spans from base to revision, the finding with its citation, location,

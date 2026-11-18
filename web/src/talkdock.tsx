@@ -1,10 +1,10 @@
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { type Clients, newPromptId } from "./actions";
 import { epicCallsOf } from "./card";
 import { Composer } from "./composer";
-import type { Conversation } from "./conversation";
+import { type Conversation, shownConversation } from "./conversation";
 import { follow } from "./follow";
 import { Reader, ReaderHead } from "./reader";
 import type { Row } from "./rows";
@@ -33,9 +33,9 @@ function plainTitle(title: { dir: string; line: string }): string {
 // reader and composer draw the conversation as the pinned reader does. While the session is interrupted, Resume resumes
 // its turn; a refusal shows its message under the reader. The reader's "since you looked" rule marks what arrives after
 // the dock opened on the target. A message sent to the target shows in its reader as sending until its stored prompt
-// arrives, and above the box as queued while the target is working or holds it. The reader draws an epic a call created
-// as its card, through the openers openEpic and openStep and the clock tick that the app hands the dock; the reader holds
-// epic calls only when it is given both openers.
+// arrives, and above the box as queued while the target is working or queues it, and as not delivered once it discards
+// it. The reader draws an epic a call created as its card, through the openers openEpic and openStep and the clock tick
+// that the app hands the dock; the reader holds epic calls only when it is given both openers.
 export function TalkDock({
   clients,
   rows,
@@ -77,6 +77,8 @@ export function TalkDock({
     setSending((previous) => unsentEntries(previous, conversation, target.kind));
   }, [conversation, target.kind]);
 
+  // The reader draws the conversation without the prompts its queue still holds or has discarded.
+  const shown = useMemo(() => shownConversation(conversation), [conversation]);
   const interrupted = conversation?.state?.session?.state === "interrupted";
   const state = conversation?.state?.pane?.state ?? conversation?.state?.session?.state ?? "";
 
@@ -107,6 +109,11 @@ export function TalkDock({
     return reply.text;
   }
 
+  async function withdraw(promptId: string): Promise<string[]> {
+    const reply = await clients.control.withdraw({ id: target.id, promptId });
+    return reply.texts;
+  }
+
   return (
     <aside class="dock" aria-label="talk">
       <ReaderHead label={<TitleParts dir={title.dir} line={title.line} />} where="">
@@ -115,7 +122,7 @@ export function TalkDock({
         </button>
       </ReaderHead>
       <Reader
-        conversation={conversation}
+        conversation={shown}
         seenAt={seenAt}
         open={false}
         onOlder={() => olderPage.current()}
@@ -137,7 +144,8 @@ export function TalkDock({
         pull={target.kind === "pane" ? pull : null}
         newPromptId={newPromptId}
         queued={conversation?.state?.waiting}
-        held={conversation?.held}
+        sessionQueue={conversation?.queued}
+        withdraw={target.kind === "session" ? withdraw : undefined}
         onSending={(entry) => setSending((previous) => [...previous, sendingEntry(entry, conversation)])}
         onUnsent={(promptId) => setSending((previous) => previous.filter((entry) => entry.promptId !== promptId))}
       />

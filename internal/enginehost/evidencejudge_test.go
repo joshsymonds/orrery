@@ -266,6 +266,35 @@ func TestEvidenceJudgePromptRefusesBadNames(t *testing.T) {
 	}
 }
 
+// TestJudgePromptEvidenceShown: the judge prompt lets the judge read the source of a test the output shows passing, at
+// the judged revision, and still tells it to fail a clause neither the output nor those tests show.
+func TestJudgePromptEvidenceShown(t *testing.T) {
+	t.Parallel()
+	prompt, err := judgePrompt(judgeTestRun(), evidenceBlobs{dir: judgeTestBlobDir})
+	if err != nil {
+		t.Fatalf("judgePrompt: %v", err)
+	}
+	t.Run(
+		"the evidence judge's prompt allows reading the source of a test the output shows passing "+
+			"at the judged revision",
+		func(t *testing.T) {
+			t.Parallel()
+			want := "When a log shows a named test passing, you may read that test's source in this worktree, " +
+				"which is at the judged revision, to see what it asserts."
+			if !strings.Contains(prompt, want) {
+				t.Errorf("judge prompt lacks %q:\n%s", want, prompt)
+			}
+		},
+	)
+	t.Run("the evidence judge's prompt still fails an unshown clause", func(t *testing.T) {
+		t.Parallel()
+		want := "Fail any clause of the conclusion that neither the logs and artifacts nor those passing tests show."
+		if !strings.Contains(prompt, want) {
+			t.Errorf("judge prompt lacks %q:\n%s", want, prompt)
+		}
+	})
+}
+
 func TestEvidenceJudgeStartFields(t *testing.T) {
 	t.Parallel()
 	run := judgeTestRun()

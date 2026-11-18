@@ -154,6 +154,7 @@ func TestStartWithHolderScopeRunsSessionUnderScopedHolder(t *testing.T) {
 	}
 	child, err := session.Command(session.Config{
 		Shell: sh, Claude: fakeClaudePath(t), Dir: dir, PermissionMode: permissionMode, Name: id,
+		Settings: cronSettingsWant("", orrery),
 	})
 	if err != nil {
 		t.Fatalf("session command: %v", err)

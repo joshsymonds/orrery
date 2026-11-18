@@ -40,7 +40,12 @@ func TestItemStoredWithoutKindRoundTrips(t *testing.T) {
 
 func TestItemKindAndTestsRoundTrip(t *testing.T) {
 	t.Parallel()
-	for kind, want := range map[Kind]string{KindTest: "test", KindCapture: "capture", KindSupplied: "supplied"} {
+	for kind, want := range map[Kind]string{
+		KindTest:     "test",
+		KindCapture:  "capture",
+		KindSupplied: "supplied",
+		KindClosure:  "closure",
+	} {
 		text := `{"capture":["scripts/gate"],"limit":60,"artifacts":null,"supplied":null,` +
 			`"conclusion":"the gate holds","judge":"a reviewer","kind":"` + want + `","tests":["internal/a/a_test.go"]}`
 		item, back := storedForm(t, text)

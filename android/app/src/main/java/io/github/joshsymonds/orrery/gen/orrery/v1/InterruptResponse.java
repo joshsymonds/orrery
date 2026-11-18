@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * InterruptResponse is the reply to an Interrupt. It has no fields.
+ * InterruptResponse is the reply to an Interrupt.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.InterruptResponse}
@@ -19,7 +19,146 @@ public  final class InterruptResponse extends
     // @@protoc_insertion_point(message_implements:orrery.v1.InterruptResponse)
     InterruptResponseOrBuilder {
   private InterruptResponse() {
+    texts_ = emptyProtobufList();
   }
+  public static final int TEXTS_FIELD_NUMBER = 1;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> texts_;
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @return A list containing the texts.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getTextsList() {
+    return texts_;
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @return The count of texts.
+   */
+  @java.lang.Override
+  public int getTextsCount() {
+    return texts_.size();
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param index The index of the element to return.
+   * @return The texts at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getTexts(int index) {
+    return texts_.get(index);
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the texts at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTextsBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        texts_.get(index));
+  }
+  private void ensureTextsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        texts_;  if (!tmp.isModifiable()) {
+      texts_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param index The index to set the value at.
+   * @param value The texts to set.
+   */
+  private void setTexts(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureTextsIsMutable();
+    texts_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param value The texts to add.
+   */
+  private void addTexts(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureTextsIsMutable();
+    texts_.add(value);
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param values The texts to add.
+   */
+  private void addAllTexts(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureTextsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, texts_);
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   */
+  private void clearTexts() {
+    texts_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param value The bytes of the texts to add.
+   */
+  private void addTextsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureTextsIsMutable();
+    texts_.add(value.toStringUtf8());
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -105,7 +244,7 @@ public  final class InterruptResponse extends
 
   /**
    * <pre>
-   * InterruptResponse is the reply to an Interrupt. It has no fields.
+   * InterruptResponse is the reply to an Interrupt.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.InterruptResponse}
@@ -120,6 +259,143 @@ public  final class InterruptResponse extends
       super(DEFAULT_INSTANCE);
     }
 
+
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @return A list containing the texts.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getTextsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getTextsList());
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @return The count of texts.
+     */
+    @java.lang.Override
+    public int getTextsCount() {
+      return instance.getTextsCount();
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @param index The index of the element to return.
+     * @return The texts at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getTexts(int index) {
+      return instance.getTexts(index);
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the texts at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTextsBytes(int index) {
+      return instance.getTextsBytes(index);
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @param index The index to set the value at.
+     * @param value The texts to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTexts(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setTexts(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @param value The texts to add.
+     * @return This builder for chaining.
+     */
+    public Builder addTexts(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addTexts(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @param values The texts to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllTexts(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllTexts(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTexts() {
+      copyOnWrite();
+      instance.clearTexts();
+      return this;
+    }
+    /**
+     * <pre>
+     * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+     * event's text is never among them.
+     * </pre>
+     *
+     * <code>repeated string texts = 1 [json_name = "texts"];</code>
+     * @param value The bytes of the texts to add.
+     * @return This builder for chaining.
+     */
+    public Builder addTextsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addTextsBytes(value);
+      return this;
+    }
 
     // @@protoc_insertion_point(builder_scope:orrery.v1.InterruptResponse)
   }
@@ -136,9 +412,11 @@ public  final class InterruptResponse extends
         return new Builder();
       }
       case BUILD_MESSAGE_INFO: {
-          java.lang.Object[] objects = null;
+          java.lang.Object[] objects = new java.lang.Object[] {
+            "texts_",
+          };
           java.lang.String info =
-              "\u0000\u0000";
+              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0001\u0000\u0001\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

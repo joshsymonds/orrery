@@ -71,7 +71,7 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "hello", PromptID: "p-hello"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	assertWrittenNotHeld(t, m, id, "p-hello")
+	assertWritten(t, m, id, "p-hello")
 	waitHistory(t, engineOf(m), path, id, "the Say's answer", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 2 && h.State == "done"
 	})
@@ -82,8 +82,8 @@ func TestSubagentBlocksAfterTurnEndLeaveSessionIdleAndSayIsSent(t *testing.T) {
 
 // TestTurnClaudeStartsAfterSubagentBlocksStillOpens runs SUBAGENTSELF: the subagent's blocks leave the session done,
 // and once the task ends, the turn claude starts by itself on its main-conversation text block records the session
-// working. That turn is claude's own, so the owner's Say made then is not held: the turn is interrupted and the Say is
-// written as the next prompt at once, and is answered.
+// working. That turn is claude's own, so the owner's Say made then is not held and interrupts nothing: the Say is written as
+// the next prompt at once, and the turn reads it from stdin, which ends only at an interrupt.
 func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
@@ -112,12 +112,12 @@ func TestTurnClaudeStartsAfterSubagentBlocksStillOpens(t *testing.T) {
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "hello", PromptID: "p-hello"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	assertWrittenNotHeld(t, m, id, "p-hello")
-	waitHistory(t, engineOf(m), path, id, "the Say's answer", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 2") && turnEndCount(h) == 3 && h.State == "done"
-	})
+	assertWritten(t, m, id, "p-hello")
+	waitUntil(t, engineOf(m), "the fake to read the Say", func() bool { return stdinLinesWith(t, dir, "hello") > 0 })
 	if got := promptTexts(t, path, id); !slices.Equal(got, []string{"SUBAGENTSELF", "hello"}) {
 		t.Fatalf("prompts = %q, want [SUBAGENTSELF hello]", got)
 	}
-	assertInterruptBefore(t, dir, "hello")
+	if n := interruptsWritten(t, dir); n != 0 {
+		t.Fatalf("interrupts written for the Say = %d, want none", n)
+	}
 }

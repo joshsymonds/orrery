@@ -7,3 +7,6 @@ lint:
   except:
     # The API names its services `Sessions` and `Events` (docs/contract.md), not `SessionsService` or `EventsService`.
     - SERVICE_SUFFIX
+breaking:
+  use:
+    - WIRE_JSON

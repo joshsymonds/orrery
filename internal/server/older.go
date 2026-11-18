@@ -44,12 +44,16 @@ func (s sessionsServer) Older(
 
 // older returns the newest limit main-thread items of the session with a seq below before, oldest first, the seq of the
 // oldest of them, and whether items older than them remain. It reads the events backward in pages of eventPageSize. It
-// stops at the first item past limit, which tells it that more remain.
+// stops at the first item past limit, which tells it that more remain. It leaves out each item that withholds reports,
+// as the stream does (see readPrompts).
 func (w *sessionWatch) older(
 	ctx context.Context,
 	before int64,
 	limit int,
 ) ([]*v1.ConversationItem, int64, bool, error) {
+	if err := w.readPrompts(ctx); err != nil {
+		return nil, 0, false, err
+	}
 	var newest []keptItem
 	cursor := before
 	for {
@@ -65,7 +69,7 @@ func (w *sessionWatch) older(
 			if itemErr != nil {
 				return nil, 0, false, listError(connect.CodeInternal, "read sessions")
 			}
-			if !ok {
+			if !ok || w.withholds(item) {
 				continue
 			}
 			if len(newest) == limit {

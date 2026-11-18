@@ -114,82 +114,100 @@ func briefRest(t *testing.T, got string) string {
 	return strings.Join(kept, "\n") + "\n"
 }
 
-func TestBriefRendersEverySectionInOrder(t *testing.T) {
+// TestBriefEvidenceShown pins each whole brief exactly: a capture item's brief with every section in order, and a
+// supplied item's brief with empty sections printing none. Each holds the line saying how its Evidence is judged.
+func TestBriefEvidenceShown(t *testing.T) {
 	t.Parallel()
-	epic := briefEpic()
-	epic.Decisions, epic.Turns = nil, nil
-	red := store.EvidenceRun{Exit: 1, Verdict: "fails"}
-	got := Brief(epic, briefTask(), briefGate(), red, []byte("first line\nlast line\n"), nil, "boom")
-	want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
-		"Task: Render brief\n" +
-		"Deliverable: brief.go\n" +
-		"Change only these files:\n" +
-		"- internal/build/brief.go\n" +
-		"- internal/build/brief_test.go\n" +
-		briefRules +
-		"Test changes this task may make to the guarded tests:\n" +
-		"- internal/build/brief_test.go\n" +
-		briefGuardAndGate +
-		"Evidence: the brief renders\n" +
-		"Capture: scripts/in-devenv -c 'go test -run Brief ./internal/build/'\n" +
-		"Requirements:\n" +
-		"- R3: three\n" +
-		"- R1: one\n" +
-		"Exclusions:\n" +
-		"- no network\n" +
-		"After the gate passes, reviewers judge your commit by these rules:\n" +
-		"- floor must: tests use fakes\n" +
-		"- floor must not: a real sleep\n" +
-		"Red at the base: exit 1, verdict fails\n" +
-		"Red log (last 8 KiB):\n" +
-		"```\n" +
-		"first line\nlast line\n" +
-		"\n```\n" +
-		"From your previous try on this task: boom\n" +
-		briefClose("b4se")
-	if rest := briefRest(t, got); rest != want {
-		t.Fatalf("brief\n got:\n%s\nwant:\n%s", rest, want)
-	}
-}
-
-func TestBriefEmptySectionsPrintNoneAndSuppliedEvidenceNamesFiles(t *testing.T) {
-	t.Parallel()
-	epic := store.EpicRow{ID: "repo/epic-x", Title: "Build the task"}
-	task := store.EpicTask{
-		Seq:         4,
-		Title:       "Render brief",
-		Deliverable: "brief.go",
-		Gate:        "check",
-		Evidence:    evidence.Item{Supplied: []string{"a/one.txt", "b/two.txt"}, Conclusion: "the brief renders"},
-		Build:       store.TaskBuild{Base: "b4se"},
-	}
-	red := store.EvidenceRun{Exit: 0, Verdict: "holds"}
-	got := Brief(epic, task, briefGate(), red, nil, nil, "")
-	want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
-		"Task: Render brief\n" +
-		"Deliverable: brief.go\n" +
-		"Change only these files:\n" +
-		"- none\n" +
-		briefRules +
-		"Test changes this task may make to the guarded tests:\n" +
-		"- none\n" +
-		briefGuardAndGate +
-		"Evidence: the brief renders\n" +
-		"Supplied: a/one.txt, b/two.txt\n" +
-		"Requirements:\n" +
-		"- none\n" +
-		"Exclusions:\n" +
-		"- none\n" +
-		"After the gate passes, reviewers judge your commit by these rules:\n" +
-		"- none\n" +
-		"Red at the base: exit 0, verdict holds\n" +
-		"Red log (last 8 KiB):\n" +
-		"```\n" +
-		"\n```\n" +
-		briefClose("b4se")
-	if rest := briefRest(t, got); rest != want {
-		t.Fatalf("brief\n got:\n%s\nwant:\n%s", rest, want)
-	}
+	t.Run("the brief says how its Evidence is judged", func(t *testing.T) {
+		t.Parallel()
+		t.Run("capture item brief renders every section in order", func(t *testing.T) {
+			t.Parallel()
+			epic := briefEpic()
+			epic.Decisions, epic.Turns = nil, nil
+			red := store.EvidenceRun{Exit: 1, Verdict: "fails"}
+			got := Brief(epic, briefTask(), briefGate(), red, []byte("first line\nlast line\n"), nil, "boom")
+			want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
+				"Task: Render brief\n" +
+				"Deliverable: brief.go\n" +
+				"Owned files (change only these):\n" +
+				"- internal/build/brief.go\n" +
+				"- internal/build/brief_test.go\n" +
+				briefRules +
+				"Test changes this task may make to the guarded tests:\n" +
+				"- internal/build/brief_test.go\n" +
+				briefGuardAndGate +
+				"Evidence: the brief renders\n" +
+				"Capture: scripts/in-devenv -c 'go test -run Brief ./internal/build/'\n" +
+				"The evidence judge reads only the Capture's exit and output, strictly: every clause of Evidence must be " +
+				"visibly shown there, such as a named test the -v output shows passing.\n" +
+				"Requirements:\n" +
+				"- R3: three\n" +
+				"- R1: one\n" +
+				"Must Not Ship:\n" +
+				"- no network\n" +
+				"After the gate passes, reviewers judge your commit by these rules:\n" +
+				"- floor must: tests use fakes\n" +
+				"- floor must not: a real sleep\n" +
+				"Red at the base: exit 1, verdict fails\n" +
+				"Red log (last 8 KiB):\n" +
+				"```\n" +
+				"first line\nlast line\n" +
+				"\n```\n" +
+				"From your previous try on this task: boom\n" +
+				briefClose(
+					"b4se",
+				)
+			if rest := briefRest(t, got); rest != want {
+				t.Fatalf("brief\n got:\n%s\nwant:\n%s", rest, want)
+			}
+		})
+		t.Run("supplied item brief prints none for empty sections", func(t *testing.T) {
+			t.Parallel()
+			epic := store.EpicRow{ID: "repo/epic-x", Title: "Build the task"}
+			task := store.EpicTask{
+				Seq:         4,
+				Title:       "Render brief",
+				Deliverable: "brief.go",
+				Gate:        "check",
+				Evidence: evidence.Item{
+					Supplied:   []string{"a/one.txt", "b/two.txt"},
+					Conclusion: "the brief renders",
+				},
+				Build: store.TaskBuild{Base: "b4se"},
+			}
+			red := store.EvidenceRun{Exit: 0, Verdict: "holds"}
+			got := Brief(epic, task, briefGate(), red, nil, nil, "")
+			want := "You implement task T4 of epic repo/epic-x (Build the task) in this worktree, whose task base is b4se.\n" +
+				"Task: Render brief\n" +
+				"Deliverable: brief.go\n" +
+				"Owned files (change only these):\n" +
+				"- none\n" +
+				briefRules +
+				"Test changes this task may make to the guarded tests:\n" +
+				"- none\n" +
+				briefGuardAndGate +
+				"Evidence: the brief renders\n" +
+				"Supplied: a/one.txt, b/two.txt\n" +
+				"The evidence judge reads only the Supplied files, strictly: every clause of Evidence must be visibly shown " +
+				"in them.\n" +
+				"Requirements:\n" +
+				"- none\n" +
+				"Must Not Ship:\n" +
+				"- none\n" +
+				"After the gate passes, reviewers judge your commit by these rules:\n" +
+				"- none\n" +
+				"Red at the base: exit 0, verdict holds\n" +
+				"Red log (last 8 KiB):\n" +
+				"```\n" +
+				"\n```\n" +
+				briefClose(
+					"b4se",
+				)
+			if rest := briefRest(t, got); rest != want {
+				t.Fatalf("brief\n got:\n%s\nwant:\n%s", rest, want)
+			}
+		})
+	})
 }
 
 func TestBriefShellWordsQuoteOnlyWhatAShellWouldSplit(t *testing.T) {
@@ -267,7 +285,7 @@ func TestReviewPromptNamesRangeFilesAndRequirements(t *testing.T) {
 	got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
-		"Files:\n" +
+		"Owned files:\n" +
 		"- internal/build/brief.go\n" +
 		"- internal/build/brief_test.go\n" +
 		"Test changes:\n" +
@@ -288,7 +306,7 @@ func TestReviewPromptEmptySectionsPrintNone(t *testing.T) {
 	got := ReviewPrompt(epic, task, "floor", "base1", "rev1", store.StepCheck{})
 	want := "Task T4 of epic repo/epic-x (Build the task): Render brief\n" +
 		"Deliverable: brief.go\n" +
-		"Files:\n" +
+		"Owned files:\n" +
 		"- none\n" +
 		"Test changes:\n" +
 		"- none\n" +
@@ -467,7 +485,7 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 		task := briefTask()
 		task.TestChanges = []string{"internal/build/brief_test.go", "internal/build/floor_test.go"}
 		got := ReviewPrompt(briefEpic(), task, "floor", "base1", "rev1", store.StepCheck{})
-		want := "Files:\n" +
+		want := "Owned files:\n" +
 			"- internal/build/brief.go\n" +
 			"- internal/build/brief_test.go\n" +
 			"Test changes:\n" +
@@ -477,6 +495,62 @@ func TestStepSendBackReviewPromptCarriesTestChanges(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("review prompt lacks the Test changes after Files; review prompt:\n%s", got)
 		}
+	})
+}
+
+// bulletsUnder returns the bullet lines directly under the line heading of got, without their "- " prefix, and whether
+// got holds heading as a line.
+func bulletsUnder(got, heading string) ([]string, bool) {
+	lines := strings.Split(got, "\n")
+	at := slices.Index(lines, heading)
+	if at < 0 {
+		return nil, false
+	}
+	var items []string
+	for _, line := range lines[at+1:] {
+		item, bullet := strings.CutPrefix(line, "- ")
+		if !bullet {
+			break
+		}
+		items = append(items, item)
+	}
+	return items, true
+}
+
+// assertHeadedBy fails the test unless got holds heading as a line directly followed by the bullets want, and holds no
+// line equal to old.
+func assertHeadedBy(t *testing.T, got, heading string, want []string, old string) {
+	t.Helper()
+	items, ok := bulletsUnder(got, heading)
+	if !ok {
+		t.Fatalf("prompt lacks the line %q; prompt:\n%s", heading, got)
+	}
+	if !slices.Equal(items, want) {
+		t.Fatalf("bullets under %q = %q, want %q; prompt:\n%s", heading, items, want, got)
+	}
+	if slices.Contains(strings.Split(got, "\n"), old) {
+		t.Fatalf("prompt still holds the line %q; prompt:\n%s", old, got)
+	}
+}
+
+// TestBriefPromptsTightened: the brief and the ReviewPrompt head a task's files as owned files, and the brief says
+// Must Not Ship where it said Exclusions.
+func TestBriefPromptsTightened(t *testing.T) {
+	t.Parallel()
+	t.Run("the brief heads the task's file list as owned files", func(t *testing.T) {
+		t.Parallel()
+		got := Brief(briefEpic(), briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
+		assertHeadedBy(t, got, "Owned files (change only these):", briefTask().Files, "Change only these files:")
+	})
+	t.Run("the brief says Must Not Ship where it said Exclusions", func(t *testing.T) {
+		t.Parallel()
+		got := Brief(briefEpic(), briefTask(), briefGate(), store.EvidenceRun{}, nil, nil, "")
+		assertHeadedBy(t, got, "Must Not Ship:", briefEpic().Exclusions, "Exclusions:")
+	})
+	t.Run("ReviewPrompt heads its file list as owned files", func(t *testing.T) {
+		t.Parallel()
+		got := ReviewPrompt(briefEpic(), briefTask(), "floor", "base1", "rev1", store.StepCheck{})
+		assertHeadedBy(t, got, "Owned files:", briefTask().Files, "Files:")
 	})
 }
 

@@ -71,7 +71,7 @@ func TestInterruptMarkOwnerInterruptOfRunningTurn(t *testing.T) {
 
 	var pending store.EngineHistory
 	m.interruptWritten = func(string) { pending = historyOf(t, path, id) }
-	if err = m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	if got := interruptMarks(t, pending); !slices.Equal(got, []bool{true}) {
@@ -105,7 +105,7 @@ func TestInterruptMarkOwnerInterruptWithNoTurnRunning(t *testing.T) {
 		return turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
 	})
 
-	if err = m.OwnerInterrupt(t.Context(), id); err != nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err != nil {
 		t.Fatalf("OwnerInterrupt: %v", err)
 	}
 	history := historyOf(t, path, id)
@@ -117,8 +117,9 @@ func TestInterruptMarkOwnerInterruptWithNoTurnRunning(t *testing.T) {
 	}
 }
 
-// TestInterruptMarkPreemptingSayStoresNone delivers a caller event whose turn runs until an interrupt (HANG). The
-// owner's Say preempts that turn with an interrupt, which records no engine_interrupt and leaves the turn's end unmarked.
+// TestInterruptMarkPreemptingSayStoresNone delivers a caller event whose turn reads the next line from stdin while it runs
+// (MIDTURN). The owner's Say during it is written at once and taken in by that turn, so it interrupts nothing: no interrupt
+// is written, no engine_interrupt is recorded, and no turn's end is marked.
 func TestInterruptMarkPreemptingSayStoresNone(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
@@ -130,27 +131,23 @@ func TestInterruptMarkPreemptingSayStoresNone(t *testing.T) {
 	waitHistory(t, engineOf(m), path, id, "the first turn's end", func(h store.EngineHistory) bool {
 		return turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
 	})
-	if err = m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "HANG event", PromptID: "e1"}); err != nil {
+	if err = m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "MIDTURN event", PromptID: "e1"}); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
-	waitHistory(t, engineOf(m), path, id, "the event's hanging turn", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake hanging 2")
-	})
 
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "owner words", PromptID: "p-owner"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	history := waitHistory(t, engineOf(m), path, id, "the owner's answer", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 3") && turnEndCount(h) == 3 && h.State == string(protocol.StateDone)
+	history := waitHistory(t, engineOf(m), path, id, "the event's turn's end", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake midturn 2") && turnEndCount(h) == 2 && h.State == string(protocol.StateDone)
 	})
-	assertInterruptBefore(t, dir, "owner words")
-	if !turnEndsWithError(t, history) {
-		t.Fatal("the event's turn did not end interrupted")
+	if n := interruptsWritten(t, dir); n != 0 {
+		t.Fatalf("interrupts written for the owner's Say = %d, want none", n)
 	}
 	if got := interruptMarks(t, history); len(got) != 0 {
-		t.Fatalf("engine_interrupt records = %v, want none for a preempting Say", got)
+		t.Fatalf("engine_interrupt records = %v, want none for the owner's Say", got)
 	}
-	if got := turnEndOwnerFlags(t, history); !slices.Equal(got, []bool{false, false, false}) {
+	if got := turnEndOwnerFlags(t, history); !slices.Equal(got, []bool{false, false}) {
 		t.Fatalf("turn ends ownerInterrupted = %v, want all false", got)
 	}
 }
@@ -206,7 +203,7 @@ func TestInterruptMarkFailedInterruptStoresNotTurning(t *testing.T) {
 		}
 	}
 
-	if err = m.OwnerInterrupt(t.Context(), id); err == nil {
+	if _, err = m.OwnerInterrupt(t.Context(), id); err == nil {
 		t.Fatal("OwnerInterrupt of a stopped session returned nil, want the send's error")
 	}
 	history := historyOf(t, path, id)

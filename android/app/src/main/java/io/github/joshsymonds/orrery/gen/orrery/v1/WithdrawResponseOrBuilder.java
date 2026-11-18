@@ -12,7 +12,8 @@ public interface WithdrawResponseOrBuilder extends
 
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -22,7 +23,8 @@ public interface WithdrawResponseOrBuilder extends
       getTextsList();
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -31,7 +33,8 @@ public interface WithdrawResponseOrBuilder extends
   int getTextsCount();
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -41,7 +44,8 @@ public interface WithdrawResponseOrBuilder extends
   java.lang.String getTexts(int index);
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>

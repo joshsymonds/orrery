@@ -224,6 +224,27 @@ type TaskEnded struct {
 
 func (TaskEnded) isEvent() {}
 
+// LifecycleState names the state a queued prompt reports.
+type LifecycleState string
+
+// The states a queued prompt reports.
+const (
+	LifecycleQueued    LifecycleState = "queued"
+	LifecycleStarted   LifecycleState = "started"
+	LifecycleCompleted LifecycleState = "completed"
+	LifecycleCancelled LifecycleState = "cancelled"
+	LifecycleDiscarded LifecycleState = "discarded"
+)
+
+// Lifecycle reports the state a queued prompt reached: CommandUUID is the prompt's uuid, which is the write id the
+// session sent it under, and State is the state the wire gives. A canceled or discarded prompt counts as answered.
+type Lifecycle struct {
+	CommandUUID string
+	State       LifecycleState
+}
+
+func (Lifecycle) isEvent() {}
+
 // TurnEnded reports that a turn finished: its result subtype, whether it failed, the terminal reason
 // claude gave, the result text of a successful turn, the structured return of a successful turn (nil
 // when the turn gave none), the kind of origin that ended it and the uuids of the user messages the

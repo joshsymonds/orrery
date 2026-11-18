@@ -12,9 +12,9 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 )
 
-// TestHeldQueueControlWithdrawForwardsAndReturnsTheTexts withdraws one held message through Control. The engine receives
+// TestWithdrawQueuedControlForwardsAndReturnsTheTexts withdraws one queued message through Control. The engine receives
 // the session id and the prompt id, and the call answers with the texts the engine took back, in the engine's order.
-func TestHeldQueueControlWithdrawForwardsAndReturnsTheTexts(t *testing.T) {
+func TestWithdrawQueuedControlForwardsAndReturnsTheTexts(t *testing.T) {
 	t.Parallel()
 	fake := &fakeEngine{}
 	control := controlClient(t, newControlHandler(t, newFakeOrreryd(t, fake), 0))
@@ -34,9 +34,9 @@ func TestHeldQueueControlWithdrawForwardsAndReturnsTheTexts(t *testing.T) {
 	}
 }
 
-// TestHeldQueueControlWithdrawPassesFailedPreconditionThrough makes the engine refuse a prompt id it does not hold.
+// TestWithdrawQueuedControlPassesFailedPreconditionThrough makes the engine refuse a prompt id it does not hold.
 // Control answers the caller with the same code and the engine's message.
-func TestHeldQueueControlWithdrawPassesFailedPreconditionThrough(t *testing.T) {
+func TestWithdrawQueuedControlPassesFailedPreconditionThrough(t *testing.T) {
 	t.Parallel()
 	refusal := connect.NewError(connect.CodeFailedPrecondition, errors.New("synthetic no held message"))
 	fake := &fakeEngine{err: refusal}
@@ -48,9 +48,9 @@ func TestHeldQueueControlWithdrawPassesFailedPreconditionThrough(t *testing.T) {
 	assertConnectError(t, err, connect.CodeFailedPrecondition, "synthetic no held message")
 }
 
-// TestHeldQueueControlWithdrawRefusesAStepWithoutForward withdraws with a step id. Control refuses it as
+// TestWithdrawQueuedControlRefusesAStepWithoutForward withdraws with a step id. Control refuses it as
 // failed_precondition and forwards nothing to the engine.
-func TestHeldQueueControlWithdrawRefusesAStepWithoutForward(t *testing.T) {
+func TestWithdrawQueuedControlRefusesAStepWithoutForward(t *testing.T) {
 	t.Parallel()
 	fake := &fakeEngine{}
 	steps := &fakeSteps{known: synthStepID}

@@ -493,6 +493,7 @@ func TestRecorderOps(t *testing.T) {
 				{session.Exited{},
 					[]store.EngineOp{
 						store.EngineTextClear{ID: recorderID},
+						store.EnginePromptsDiscard{ID: recorderID},
 						store.EngineSet{ID: recorderID, Changes: store.EngineChanges{State: strPtr("stopped")}},
 					}},
 				{
@@ -509,6 +510,7 @@ func TestRecorderOps(t *testing.T) {
 				{session.Exited{ExitErr: errors.New("exit status 1"), Stderr: "warn\nfatal: bad config\n\n"},
 					[]store.EngineOp{
 						store.EngineTextClear{ID: recorderID},
+						store.EnginePromptsDiscard{ID: recorderID},
 						store.EngineSet{ID: recorderID, Changes: store.EngineChanges{State: strPtr("failed"),
 							Reason: strPtr("exit status 1: fatal: bad config")}},
 					}},
@@ -520,6 +522,7 @@ func TestRecorderOps(t *testing.T) {
 				{session.Exited{StreamErr: errors.New("read stdout: closed")},
 					[]store.EngineOp{
 						store.EngineTextClear{ID: recorderID},
+						store.EnginePromptsDiscard{ID: recorderID},
 						store.EngineSet{ID: recorderID, Changes: store.EngineChanges{State: strPtr("failed"),
 							Reason: strPtr("read stdout: closed")}},
 					}},
@@ -531,6 +534,7 @@ func TestRecorderOps(t *testing.T) {
 				{session.Exited{ExitErr: errors.New("exit status 1"), StreamErr: errors.New("read stdout: closed")},
 					[]store.EngineOp{
 						store.EngineTextClear{ID: recorderID},
+						store.EnginePromptsDiscard{ID: recorderID},
 						store.EngineSet{ID: recorderID, Changes: store.EngineChanges{State: strPtr("failed"),
 							Reason: strPtr("exit status 1\nread stdout: closed")}},
 					}},

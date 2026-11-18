@@ -1700,8 +1700,8 @@ test("ComposerFocus: Escape in the focused reply box of an idle session leaves t
     const box = composer(container);
     assert.equal(document.activeElement === box, true, "the reply box has focus");
     await pressIn(box, "Escape");
-    await untilTurn(t.signal, () => document.activeElement !== box, "the blur after the withdraw");
-    assert.equal(fake.callsTo(withdrawPath).length, 1, "the held messages were still asked for");
+    await untilTurn(t.signal, () => document.activeElement !== box, "the blur");
+    assert.equal(fake.callsTo(withdrawPath).length, 0, "an idle session asks for no withdraw");
     assert.equal(fake.callsTo(interruptPath).length, 0, "an idle session is not interrupted");
   }));
 

@@ -59,7 +59,6 @@ WHERE session_id IN (
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
   AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
-  AND NOT EXISTS (SELECT 1 FROM engine_held WHERE engine_held.session_id = sessions.id)
   AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)));
 
 -- name: InsertEngineSession :exec
@@ -226,8 +225,16 @@ GROUP BY events.session_id
 ORDER BY events.session_id;
 
 -- name: CountEnginePrompts :one
-SELECT COUNT(*) FROM events
-WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = sqlc.arg(prompt_id);
+SELECT COUNT(*) FROM events AS prompts
+WHERE prompts.session_id = sqlc.arg(session_id) AND prompts.kind = 'engine_prompt'
+  AND json_extract(prompts.payload, '$.promptId') = sqlc.arg(prompt_id)
+  AND NOT (COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event' AND EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
+  ));
 
 -- name: InsertEnginePromptEvent :exec
 INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?);
@@ -250,6 +257,13 @@ WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND p
       WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended' AND turns.seq > prompts.seq
         AND (turns.answered IS NULL OR EXISTS (
             SELECT 1 FROM json_each(turns.answered) WHERE json_each.value = prompts.write_id))
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = sqlc.arg(id) AND states.write_id = prompts.write_id
+        AND states.state IN ('canceled', 'discarded')
+        AND states.seq = (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                          WHERE newest.session_id = states.session_id AND newest.write_id = states.write_id)
   );
 
 -- name: InsertEnginePromptFailed :exec
@@ -258,16 +272,6 @@ ON CONFLICT (session_id, prompt_id) DO NOTHING;
 
 -- name: GetEnginePromptFailure :one
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
-
--- name: InsertEngineHeld :exec
-INSERT INTO engine_held (session_id, prompt_id, text) VALUES (?, ?, ?)
-ON CONFLICT (session_id, prompt_id) DO NOTHING;
-
--- name: ListHeldPrompts :many
-SELECT prompt_id, text FROM engine_held WHERE session_id = ? ORDER BY seq;
-
--- name: DeleteHeldPrompt :exec
-DELETE FROM engine_held WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
@@ -1181,7 +1185,24 @@ WHERE epic_sessions.epic = ?
 ORDER BY epic_sessions.at DESC, epic_sessions.session;
 
 -- name: InsertCallerEvent :exec
-INSERT INTO caller_events (event, session, at) VALUES (?, ?, ?)
+INSERT INTO caller_events (event, session, at)
+SELECT sqlc.arg(event), sqlc.arg(session), sqlc.arg(at)
+WHERE NOT EXISTS (
+    SELECT 1 FROM events AS prompts
+    WHERE prompts.session_id = sqlc.arg(session) AND prompts.kind = 'engine_prompt'
+      AND json_extract(prompts.payload, '$.promptId') = sqlc.arg(event)
+      AND prompts.seq = (SELECT MAX(newest.seq) FROM events AS newest
+                         WHERE newest.session_id = prompts.session_id AND newest.kind = 'engine_prompt'
+                           AND json_extract(newest.payload, '$.promptId') = sqlc.arg(event))
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND EXISTS (
+          SELECT 1 FROM prompt_states AS states
+          WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+            AND states.state IN ('canceled', 'discarded')
+            AND states.seq = (SELECT MAX(latest.seq) FROM prompt_states AS latest
+                              WHERE latest.session_id = states.session_id AND latest.write_id = states.write_id)
+      )
+)
 ON CONFLICT (event, session) DO NOTHING;
 
 -- name: CountCallerEvent :one
@@ -1355,3 +1376,102 @@ SELECT park FROM planner_actions WHERE epic = ? AND turn = ? AND position = ?;
 -- name: LinkPlannerActionPark :exec
 UPDATE planner_actions SET park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
+
+-- name: InsertCronJob :execrows
+INSERT INTO cron_jobs (job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (session, tool_use_id) DO NOTHING;
+
+-- name: GetCronJobByToolUse :one
+SELECT * FROM cron_jobs WHERE session = ? AND tool_use_id = ?;
+
+-- name: DeleteCronJob :execrows
+DELETE FROM cron_jobs WHERE session = ? AND job_id = ?;
+
+-- name: ListSessionCronJobs :many
+SELECT * FROM cron_jobs WHERE session = ? ORDER BY created_at, rowid;
+
+-- name: ListCronJobs :many
+SELECT * FROM cron_jobs ORDER BY created_at, rowid;
+
+-- name: SetCronJobFired :exec
+UPDATE cron_jobs SET last_fire_at = ? WHERE job_id = ?;
+
+-- name: DeleteSessionCronJobs :execrows
+DELETE FROM cron_jobs WHERE session = ?;
+
+-- name: InsertPromptState :execrows
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT sqlc.arg(session_id), sqlc.arg(write_id), sqlc.arg(state)
+WHERE NOT EXISTS (
+    SELECT 1 FROM prompt_states AS states
+    WHERE states.session_id = sqlc.arg(session_id) AND states.write_id = sqlc.arg(write_id)
+      AND states.state = 'started')
+   OR ('canceled' <> sqlc.arg(state) AND 'discarded' <> sqlc.arg(state));
+
+-- name: DiscardUnstartedPrompts :exec
+INSERT INTO prompt_states (session_id, write_id, state)
+SELECT prompts.session_id, prompts.write_id, 'discarded' FROM events AS prompts
+WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+  AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+  AND NOT EXISTS (
+      SELECT 1 FROM prompt_states AS states
+      WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+        AND states.state <> 'queued'
+  );
+
+-- name: ListPromptStates :many
+SELECT CAST(COALESCE(json_extract(prompts.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(prompts.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(prompts.payload, '$.sender'), '') AS TEXT) AS sender,
+       states.state
+FROM prompt_states AS states
+JOIN events AS prompts ON prompts.session_id = states.session_id AND prompts.kind = 'engine_prompt'
+  AND prompts.write_id = states.write_id
+WHERE states.session_id = sqlc.arg(id)
+  AND states.seq IN (SELECT MAX(newest.seq) FROM prompt_states AS newest
+                     WHERE newest.session_id = sqlc.arg(id) GROUP BY newest.write_id)
+ORDER BY prompts.seq;
+
+-- name: GetPromptWrite :one
+SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = sqlc.arg(session_id) AND events.kind = 'engine_prompt'
+  AND json_extract(events.payload, '$.promptId') = sqlc.arg(prompt_id)
+ORDER BY events.seq
+LIMIT 1;
+
+-- name: ListPromptsOfWrites :many
+SELECT events.write_id, CAST(COALESCE(json_extract(events.payload, '$.promptId'), '') AS TEXT) AS prompt_id,
+       CAST(json_extract(events.payload, '$.text') AS TEXT) AS text,
+       CAST(COALESCE(json_extract(events.payload, '$.sender'), '') AS TEXT) AS sender
+FROM events
+WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt'
+  AND events.write_id IN (SELECT value FROM json_each(sqlc.arg(write_ids)))
+ORDER BY events.seq;
+
+-- name: UnmarkEventOfWrite :exec
+DELETE FROM caller_events
+WHERE caller_events.session = sqlc.arg(session_id) AND caller_events.event IN (
+    SELECT json_extract(prompts.payload, '$.promptId') FROM events AS prompts
+    WHERE prompts.session_id = sqlc.arg(session_id) AND prompts.kind = 'engine_prompt'
+      AND prompts.write_id <> '' AND prompts.write_id = sqlc.arg(write_id)
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND COALESCE(json_extract(prompts.payload, '$.promptId'), '') <> ''
+);
+
+-- name: UnmarkUnstartedEvents :exec
+DELETE FROM caller_events
+WHERE caller_events.session = sqlc.arg(id) AND caller_events.event IN (
+    SELECT json_extract(prompts.payload, '$.promptId') FROM events AS prompts
+    WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+      AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+      AND COALESCE(json_extract(prompts.payload, '$.sender'), '') = 'event'
+      AND COALESCE(json_extract(prompts.payload, '$.promptId'), '') <> ''
+      AND NOT EXISTS (
+          SELECT 1 FROM prompt_states AS states
+          WHERE states.session_id = prompts.session_id AND states.write_id = prompts.write_id
+            AND states.state <> 'queued'
+      )
+);

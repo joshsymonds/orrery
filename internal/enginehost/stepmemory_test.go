@@ -118,8 +118,10 @@ func TestStepMemoryExcluded(t *testing.T) {
 		if len(args) != 1 {
 			t.Fatalf("fake claude starts = %q, want one", args)
 		}
-		if !hasFlagValue(args[0], "--settings", stampSettings) {
-			t.Fatalf("start args = %q, want --settings %s", args[0], stampSettings)
+		env := `{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9","ORRERY_STAMP_TEST":"whole"}`
+		want := cronSettingsWant(env, testOrrery(t))
+		if got := cronSettingsArg(t, args[0]); got != want {
+			t.Fatalf("start --settings = %s, want %s", got, want)
 		}
 	})
 

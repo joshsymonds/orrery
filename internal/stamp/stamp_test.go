@@ -672,3 +672,33 @@ func TestBaseURLOfZeroStampIsEmpty(t *testing.T) {
 		t.Fatalf("stamp base URL = %q, want %q", got, urlOuter)
 	}
 }
+
+func TestCronTakeoverSettingsHookShape(t *testing.T) {
+	t.Parallel()
+	// The orrery path has a space and a single quote, so the command must quote it for a POSIX shell.
+	const orrery = `/opt/my tools/orr'ery`
+	// The hook's command in JSON: the quote written as '\'' is a backslash, which JSON escapes as \\.
+	const hooks = `"hooks":{"PreToolUse":[{"matcher":"CronCreate|CronDelete|CronList","hooks":[` +
+		`{"type":"command","command":"'/opt/my tools/orr'\\''ery' hook cron","timeout":10,"onFailure":"block"}]}]}`
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "env set",
+			env:  map[string]string{"ANTHROPIC_BASE_URL": urlOuter, "ORRERY_STAMP_TEST": "whole"},
+			want: `{"env":{"ANTHROPIC_BASE_URL":"` + urlOuter + `","ORRERY_STAMP_TEST":"whole"},` + hooks + `}`,
+		},
+		{name: "env nil", want: `{` + hooks + `}`},
+		{name: "env empty", env: map[string]string{}, want: `{` + hooks + `}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := HeadlessSettings(tc.env, orrery); got != tc.want {
+				t.Fatalf("HeadlessSettings(%v, %q) = %s, want %s", tc.env, orrery, got, tc.want)
+			}
+		})
+	}
+}

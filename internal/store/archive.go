@@ -27,7 +27,8 @@ type ArchiveMark struct {
 
 // ArchiveRow marks the row of kind with id archived at at, replacing the mark an earlier ArchiveRow or UnarchiveRow
 // stored. A kind other than epic, session or headless is ErrBadRowKind, and an empty id is ErrEmptyRowID. It does not
-// require the row to exist in any table, so an epic with only a record can be archived.
+// require the row to exist in any table, so an epic with only a record can be archived. Archiving a headless row also
+// deletes that session's cron jobs, in the same write, so an archived headless session keeps none.
 func (s *Store) ArchiveRow(ctx context.Context, kind, id string, at time.Time) error {
 	if err := checkRowKey(kind, id); err != nil {
 		return err
@@ -37,6 +38,11 @@ func (s *Store) ArchiveRow(ctx context.Context, kind, id string, at time.Time) e
 			Kind: kind, ID: id, ArchivedAt: at.Unix(),
 		}); err != nil {
 			return fmt.Errorf("archive %s %s: %w", kind, id, err)
+		}
+		if kind == "headless" {
+			if _, err := queries.DeleteSessionCronJobs(ctx, id); err != nil {
+				return fmt.Errorf("delete cron jobs of archived %s: %w", id, err)
+			}
 		}
 		return nil
 	})

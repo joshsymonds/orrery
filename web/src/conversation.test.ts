@@ -7,21 +7,21 @@ import {
   ConversationItemSchema,
   ConversationStateSchema,
   EngineTextSchema,
-  HeldMessageSchema,
   OlderResponseSchema,
+  QueuedMessageSchema,
   SessionsOlderResponseSchema,
   SessionsWatchConversationResponseSchema,
   WatchConversationResponseSchema,
   type ConversationItem,
   type ConversationState,
   type EngineText,
-  type HeldMessage,
   type OlderResponse,
+  type QueuedMessage,
   type SessionsOlderResponse,
   type SessionsWatchConversationResponse,
   type WatchConversationResponse,
 } from "./gen/orrery/v1/orrery_pb";
-import { applyDelta, type Conversation, prependOlder } from "./conversation";
+import { applyDelta, type Conversation, prependOlder, shownItems } from "./conversation";
 
 function makeItem(text: string): ConversationItem {
   return create(ConversationItemSchema, { kind: "assistant", text });
@@ -57,8 +57,12 @@ function texts(conversation: Conversation): string[] {
   return conversation.items.map((item) => item.text);
 }
 
-function makeHeld(promptId: string, text: string): HeldMessage {
-  return create(HeldMessageSchema, { promptId, text });
+function makeQueued(promptId: string, text: string, state = "queued"): QueuedMessage {
+  return create(QueuedMessageSchema, { promptId, text, state });
+}
+
+function makePrompt(text: string, promptId = ""): ConversationItem {
+  return create(ConversationItemSchema, { kind: "prompt", text, promptId });
 }
 
 function held(init: Partial<Conversation> = {}): Conversation {
@@ -70,7 +74,8 @@ function held(init: Partial<Conversation> = {}): Conversation {
     more: false,
     state: makeState({ goal: "ship" }),
     unfinished: [makeUnfinished("partial")],
-    held: [],
+    queued: [],
+    unsent: [],
     ...init,
   };
 }
@@ -297,39 +302,90 @@ test("a session reset holds the held set the delta carries", () => {
       seq: 4n,
       reset: true,
       items: [makeItem("a")],
-      held: [makeHeld("p1", "first"), makeHeld("p2", "second")],
+      queued: [makeQueued("p1", "first"), makeQueued("p2", "second")],
     }),
   );
 
-  assert.deepEqual(next.held, [makeHeld("p1", "first"), makeHeld("p2", "second")]);
+  assert.deepEqual(next.queued, [makeQueued("p1", "first"), makeQueued("p2", "second")]);
 });
 
 test("a session delta replaces the held set with its own, even an empty one, and a keepalive keeps the items", () => {
   const start = applyDelta(
     null,
-    sessionDelta({ transcript: "s1", seq: 4n, items: [makeItem("a")], held: [makeHeld("p1", "first")] }),
+    sessionDelta({ transcript: "s1", seq: 4n, items: [makeItem("a")], queued: [makeQueued("p1", "first")] }),
   );
 
   const grown = applyDelta(
     start,
-    sessionDelta({ transcript: "s1", seq: 5n, held: [makeHeld("p1", "first"), makeHeld("p2", "second")] }),
+    sessionDelta({ transcript: "s1", seq: 5n, queued: [makeQueued("p1", "first"), makeQueued("p2", "second")] }),
   );
-  assert.deepEqual(grown.held, [makeHeld("p1", "first"), makeHeld("p2", "second")]);
+  assert.deepEqual(grown.queued, [makeQueued("p1", "first"), makeQueued("p2", "second")]);
   assert.deepEqual(texts(grown), ["a"]);
 
-  const taken = applyDelta(grown, sessionDelta({ transcript: "s1", seq: 6n, held: [makeHeld("p2", "second")] }));
-  assert.deepEqual(taken.held, [makeHeld("p2", "second")]);
+  const taken = applyDelta(grown, sessionDelta({ transcript: "s1", seq: 6n, queued: [makeQueued("p2", "second")] }));
+  assert.deepEqual(taken.queued, [makeQueued("p2", "second")]);
 
   const emptied = applyDelta(taken, sessionDelta({ transcript: "s1", seq: 7n }));
-  assert.deepEqual(emptied.held, []);
+  assert.deepEqual(emptied.queued, []);
   assert.deepEqual(texts(emptied), ["a"]);
 });
 
 test("a pane delta holds no messages, whatever the held set held before", () => {
-  const before = held({ held: [makeHeld("p1", "first")] });
+  const before = held({ queued: [makeQueued("p1", "first")] });
   const next = applyDelta(before, paneDelta({ transcript: "t1", seq: 6n, items: [makeItem("b")] }));
 
-  assert.deepEqual(next.held, []);
+  assert.deepEqual(next.queued, []);
+});
+
+test("a session delta adds the prompt ids of its canceled and discarded messages to unsent, and keeps them once the messages leave", () => {
+  const start = applyDelta(
+    null,
+    sessionDelta({ transcript: "s1", seq: 4n, queued: [makeQueued("p1", "first", "canceled")] }),
+  );
+  assert.deepEqual(start.unsent, ["p1"]);
+
+  const grown = applyDelta(
+    start,
+    sessionDelta({
+      transcript: "s1",
+      seq: 5n,
+      queued: [makeQueued("p1", "first", "canceled"), makeQueued("p2", "second", "discarded"), makeQueued("p3", "third")],
+    }),
+  );
+  assert.deepEqual(grown.unsent, ["p1", "p2"], "a prompt id already held is not added twice");
+
+  const emptied = applyDelta(grown, sessionDelta({ transcript: "s1", seq: 6n }));
+  assert.deepEqual(emptied.queued, []);
+  assert.deepEqual(emptied.unsent, ["p1", "p2"]);
+});
+
+test("a reset rebuilds unsent from its own queued set only", () => {
+  const before = held({ unsent: ["p1"] });
+  const next = applyDelta(
+    before,
+    sessionDelta({ transcript: "s1", seq: 9n, reset: true, queued: [makeQueued("p2", "second", "discarded")] }),
+  );
+
+  assert.deepEqual(next.unsent, ["p2"]);
+});
+
+test("shownItems leaves out each prompt item whose prompt id is queued in any state or unsent, and keeps the rest", () => {
+  const items = [
+    makePrompt("queued", "p1"),
+    makePrompt("canceled", "p2"),
+    makePrompt("unsent", "p3"),
+    makePrompt("other", "p4"),
+    makePrompt("untagged"),
+    makeItem("reply"),
+  ];
+  const conversation = held({
+    items,
+    queued: [makeQueued("p1", "queued"), makeQueued("p2", "canceled", "canceled")],
+    unsent: ["p3"],
+  });
+
+  assert.deepEqual(shownItems(conversation).map((item) => item.text), ["other", "untagged", "reply"]);
+  assert.equal(shownItems(held({ items })), items, "with nothing hidden, the items come back as they are");
 });
 
 test("prependOlder puts an older page's items before the held items", () => {
@@ -375,13 +431,13 @@ test("prependOlder takes a session page the same way", () => {
 test("prependOlder leaves the transcript, seq, state and unfinished set as they were", () => {
   const state = makeState({ goal: "kept" });
   const unfinished = [makeUnfinished("typing")];
-  const heldSet = [makeHeld("p1", "waiting")];
+  const queuedSet = [makeQueued("p1", "waiting")];
   const before = held({
     transcript: "t7",
     seq: 13n,
     state,
     unfinished,
-    held: heldSet,
+    queued: queuedSet,
     items: [makeItem("two")],
     oldest: 50n,
     more: true,
@@ -393,5 +449,5 @@ test("prependOlder leaves the transcript, seq, state and unfinished set as they 
   assert.equal(next.seq, 13n);
   assert.equal(next.state, state);
   assert.equal(next.unfinished, unfinished);
-  assert.equal(next.held, heldSet);
+  assert.equal(next.queued, queuedSet);
 });

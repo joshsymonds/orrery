@@ -73,6 +73,7 @@ type EngineSet struct {
 // Senders of an engine prompt, stored as its sender.
 const (
 	PromptSenderBrief  = "brief"
+	PromptSenderCron   = "cron"
 	PromptSenderEngine = "engine"
 	PromptSenderEvent  = "event"
 	PromptSenderOwner  = "owner"
@@ -115,8 +116,10 @@ type EnginePromptFailed struct {
 	Reason   string
 }
 
-// EnginePromptSent reports whether an engine_prompt event of the session carries promptID. It reads the writer's
-// database, as EngineSession does.
+// EnginePromptSent reports whether an engine_prompt event of the session carries promptID. An event prompt whose
+// newest state is canceled or discarded does not count, so a caller event Claude cancelled or discarded before it
+// started reads as not sent and can be sent again under the same prompt id. Prompts of other senders, and prompts
+// with no sender, count whatever their state. It reads the writer's database, as EngineSession does.
 func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error) {
 	count, err := sqlcgen.New(s.db).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
 		SessionID: sessionID, PromptID: promptID,

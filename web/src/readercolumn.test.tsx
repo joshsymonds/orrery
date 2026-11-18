@@ -50,7 +50,8 @@ function conversation(init: Partial<Conversation> = {}): Conversation {
     more: false,
     state: create(ConversationStateSchema, {}),
     unfinished: [],
-    held: [],
+    queued: [],
+    unsent: [],
     ...init,
   };
 }

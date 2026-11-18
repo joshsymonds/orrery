@@ -18,7 +18,7 @@ import (
 )
 
 // The tests in this file kill orreryd with SIGKILL while a turn's lines are not yet stored, or while a prompt is sent or
-// held, then restart it on the same store and state directory. Each line and each prompt must reach
+// still unread by claude, then restart it on the same store and state directory. Each line and each prompt must reach
 // the store and the fake claude exactly once, and each turn must complete.
 
 // TestEngineHolderScopeSigkillReplaysFloodOnce proves that a FLOOD turn whose lines the store has not all taken when
@@ -118,10 +118,10 @@ func TestEngineHolderScopeSigkillKeepsSentPromptOnce(t *testing.T) {
 	wantExit(t, restarted.stop(t), 0)
 }
 
-// TestEngineHolderScopeSigkillKeepsHeldPromptOnce proves that a prompt held while a TRICKLEHELD turn runs, and killed with
-// orreryd still held, reaches the fake claude once after the restart, and that each turn completes once. The fake holds the
-// turn's last block until the test releases it after the restart, so the turn runs across the kill, and the prompt stays
-// held until that turn ends.
+// TestEngineHolderScopeSigkillKeepsHeldPromptOnce proves that a prompt sent while a TRICKLEHELD turn runs, and killed with
+// orreryd before the fake claude reads it, is stored once as an engine_prompt, reaches the fake claude once after the
+// restart, and that each turn completes once. The fake holds the turn's last block until the test releases it after the
+// restart, so the turn runs across the kill, and the prompt waits in the holder until that turn ends.
 func TestEngineHolderScopeSigkillKeepsHeldPromptOnce(t *testing.T) {
 	t.Parallel()
 	f, scope, _ := scopedFixture(t)
@@ -134,13 +134,16 @@ func TestEngineHolderScopeSigkillKeepsHeldPromptOnce(t *testing.T) {
 	f.waitForHistory(t, id, turnDone)
 
 	// The fake numbers its replies by prompt, and TRICKLEHELD is the second prompt of the session. The prompt after it is
-	// 96 KiB, under the 128 KiB a single exec argument may hold. A Say during the turn holds it in the store, so the fake
-	// reads nothing of it until the turn ends.
+	// 96 KiB, under the 128 KiB a single exec argument may hold. A Say during the turn is written at once: it is stored as
+	// an engine_prompt, and the holder queues it for the fake. The fake reads nothing of it until the turn ends, and 96 KiB
+	// is more than the pipe to the fake holds, so the say command does not return until then. The test kills orreryd
+	// while that say is pending, as startUnstoredTurn does.
 	wantExit(t, f.orrery(t, "session", "say", id, "TRICKLEHELD"), 0)
 	f.waitForBlock(t, id, "fake trickle 2.1")
-	wantExit(t, f.orrery(t, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10)), 0)
-	if held, err := f.reader.HeldPrompts(t.Context(), id); err != nil || len(held) != 1 {
-		t.Fatalf("held prompts of %s before the kill = %d, %v; want the one BIG prompt", id, len(held), err)
+	say := startBinary(t, "orrery", f.env, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10))
+	f.waitForEvent(t, id, store.EventEnginePrompt, `"text":"BIG `)
+	if n := promptsStoredWith(t, f.historyOf(t, id), "BIG "); n != 1 {
+		t.Fatalf("engine_prompt events of the BIG prompt in %s before the kill = %d, want 1", id, n)
 	}
 	if n := promptsWritten(t, dir, "BIG"); n != 0 {
 		t.Fatalf("fake claude read the BIG prompt %d times before the kill, want none", n)
@@ -148,8 +151,11 @@ func TestEngineHolderScopeSigkillKeepsHeldPromptOnce(t *testing.T) {
 	killOrreryd(t, daemon)
 
 	restarted := f.startOrreryd(t, true, "--holder-scope", scope)
-	// The turn ran across the kill. Releasing its last block lets the turn end, and the restarted orreryd writes the held
-	// BIG prompt as the turn after it.
+	// The say command retries on the restarted orreryd with the prompt id it sent first. The store holds that prompt, so the
+	// retry sends nothing more and the command returns.
+	wantExit(t, say.exitOutcome(t), 0)
+	// The turn ran across the kill. Releasing its last block lets the turn end, and the holder, which already has the BIG
+	// prompt, writes it as the turn after it. The restarted orreryd does not write it again.
 	writeFile(t, filepath.Join(dir, "fakeclaude.release"), "", 0o600)
 	// The BIG prompt is written as the turn after TRICKLEHELD, so that turn's end is followed and records no done state of
 	// its own. Only the BIG turn's own end shows it finished.
@@ -175,6 +181,27 @@ func TestEngineHolderScopeSigkillKeepsHeldPromptOnce(t *testing.T) {
 	}
 	f.stopScoped(t, id, dir)
 	wantExit(t, restarted.stop(t), 0)
+}
+
+// promptsStoredWith returns how many engine_prompt events of history have text that starts with prefix.
+func promptsStoredWith(t *testing.T, history store.EngineHistory, prefix string) int {
+	t.Helper()
+	n := 0
+	for _, event := range history.Events {
+		if event.Kind != store.EventEnginePrompt {
+			continue
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
+			t.Fatalf("decode prompt payload %q: %v", event.Payload, err)
+		}
+		if strings.HasPrefix(payload.Text, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 // startUnstoredTurn sends prompt to session id with its holder paused and the store write-locked, so the lines the turn

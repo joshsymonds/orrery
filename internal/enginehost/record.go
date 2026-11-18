@@ -109,12 +109,7 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 	case session.Request:
 		return r.request(ev)
 	case session.RateLimit:
-		if ev.Status != rateLimitRejected {
-			return nil
-		}
-		return []store.EngineOp{
-			store.EngineRateLimited{ID: r.id, Status: ev.Status, Kind: ev.Kind, ResetsAt: ev.ResetsAt},
-		}
+		return r.rateLimit(ev)
 	case session.RequestCancelled:
 		working := string(protocol.StateWorking)
 		return []store.EngineOp{
@@ -127,14 +122,28 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 		return r.taskProgress(ev)
 	case session.TaskEnded:
 		return r.taskEnded(ev)
+	case session.Lifecycle:
+		return r.promptState(ev)
 	case session.TurnEnded:
 		return r.turnEnd(ev, protocol.StateDone, false)
 	case session.Exited:
 		clear(r.texts)
 		ops := r.stoppedTasks()
-		return append(ops, store.EngineTextClear{ID: r.id}, store.EngineSet{ID: r.id, Changes: exitChanges(ev)})
+		return append(ops, store.EngineTextClear{ID: r.id}, store.EnginePromptsDiscard{ID: r.id},
+			store.EngineSet{ID: r.id, Changes: exitChanges(ev)})
 	default:
 		return nil
+	}
+}
+
+// rateLimit returns the store op that records a rate limit that refuses the session's next turn, and nothing for any
+// other status.
+func (r *recorder) rateLimit(ev session.RateLimit) []store.EngineOp {
+	if ev.Status != rateLimitRejected {
+		return nil
+	}
+	return []store.EngineOp{
+		store.EngineRateLimited{ID: r.id, Status: ev.Status, Kind: ev.Kind, ResetsAt: ev.ResetsAt},
 	}
 }
 
@@ -172,6 +181,38 @@ func (r *recorder) taskEnded(ev session.TaskEnded) []store.EngineOp {
 		task.toolUseID = ev.ToolUseID
 	}
 	return []store.EngineOp{task.op(r.id, ev.TaskID, taskEndStatus(ev.Status), "", ev.Summary)}
+}
+
+// promptState returns the store op that records the state claude reports for the prompt whose uuid is the write id, or
+// nil when the report carries no uuid or names a state the store does not keep.
+func (r *recorder) promptState(ev session.Lifecycle) []store.EngineOp {
+	if ev.CommandUUID == "" {
+		return nil
+	}
+	state, ok := promptStateOf(ev.State)
+	if !ok {
+		return nil
+	}
+	return []store.EngineOp{store.EnginePromptState{ID: r.id, WriteID: ev.CommandUUID, State: state}}
+}
+
+// promptStateOf returns the store prompt state a lifecycle state records as, and whether it has one. Claude's cancelled
+// is the store's canceled.
+func promptStateOf(state session.LifecycleState) (string, bool) {
+	switch state {
+	case session.LifecycleQueued:
+		return store.PromptQueued, true
+	case session.LifecycleStarted:
+		return store.PromptStarted, true
+	case session.LifecycleCompleted:
+		return store.PromptCompleted, true
+	case session.LifecycleCancelled:
+		return store.PromptCancelled, true
+	case session.LifecycleDiscarded:
+		return store.PromptDiscarded, true
+	default:
+		return "", false
+	}
 }
 
 // stoppedTasks returns the store ops that record each task still running as stopped, in task id order, and forgets

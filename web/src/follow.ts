@@ -6,8 +6,8 @@ import { applyDelta, type Conversation, prependOlder } from "./conversation";
 import {
   ConversationStateSchema,
   EngineTextSchema,
-  HeldMessageSchema,
   type OlderResponse,
+  QueuedMessageSchema,
   type SessionsOlderResponse,
   type SessionsWatchConversationResponse,
   type WatchConversationResponse,
@@ -37,7 +37,7 @@ const timerSchedule: Schedule = (run, ms) => {
 type Delta = WatchConversationResponse | SessionsWatchConversationResponse;
 
 // changesDrawn is whether a delta, folded from previous into next, changes what a reader draws: it resets the held
-// conversation, adds items, or changes the state, the unfinished set or the held set. A delta that changes none of them
+// conversation, adds items, or changes the state, the unfinished set or the queued set. A delta that changes none of them
 // is a keepalive, and reaches no onChange.
 function changesDrawn(previous: Conversation | null, delta: Delta, next: Conversation): boolean {
   return (
@@ -46,7 +46,7 @@ function changesDrawn(previous: Conversation | null, delta: Delta, next: Convers
     delta.items.length > 0 ||
     !sameState(previous.state, next.state) ||
     !sameMessages(EngineTextSchema, previous.unfinished, next.unfinished) ||
-    !sameMessages(HeldMessageSchema, previous.held, next.held)
+    !sameMessages(QueuedMessageSchema, previous.queued, next.queued)
   );
 }
 

@@ -142,6 +142,8 @@ func reportEvents(variant wire.SDKMessageVariant, line []byte) []Event {
 		}}
 	case wire.SDKRateLimitEvent:
 		return []Event{rateLimitEvent(message.RateLimitInfo)}
+	case wire.SDKCommandLifecycleMessage:
+		return []Event{Lifecycle{CommandUUID: message.CommandUUID, State: LifecycleState(message.State)}}
 	default:
 		return nil
 	}

@@ -466,6 +466,9 @@ linters:
 
     misspell:
       locale: US
+      # "cancelled" is the spelling the wire gives a command's lifecycle state; the session matches that string as sent.
+      ignore-rules:
+        - cancelled
 
   exclusions:
     warn-unused: false

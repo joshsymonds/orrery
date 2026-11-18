@@ -7,26 +7,27 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
+ * QueuedMessage is one owner message a headless session has not started to Claude.
  * </pre>
  *
- * Protobuf type {@code orrery.v1.HeldMessage}
+ * Protobuf type {@code orrery.v1.QueuedMessage}
  */
 @com.google.protobuf.Generated
-public  final class HeldMessage extends
+public  final class QueuedMessage extends
     com.google.protobuf.GeneratedMessageLite<
-        HeldMessage, HeldMessage.Builder> implements
-    // @@protoc_insertion_point(message_implements:orrery.v1.HeldMessage)
-    HeldMessageOrBuilder {
-  private HeldMessage() {
+        QueuedMessage, QueuedMessage.Builder> implements
+    // @@protoc_insertion_point(message_implements:orrery.v1.QueuedMessage)
+    QueuedMessageOrBuilder {
+  private QueuedMessage() {
     promptId_ = "";
     text_ = "";
+    state_ = "";
   }
   public static final int PROMPT_ID_FIELD_NUMBER = 1;
   private java.lang.String promptId_;
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -38,7 +39,7 @@ public  final class HeldMessage extends
   }
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -51,7 +52,7 @@ public  final class HeldMessage extends
   }
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -65,7 +66,7 @@ public  final class HeldMessage extends
   }
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -76,7 +77,7 @@ public  final class HeldMessage extends
   }
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -156,50 +157,117 @@ public  final class HeldMessage extends
 
   }
 
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static final int STATE_FIELD_NUMBER = 3;
+  private java.lang.String state_;
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   * @return The state.
+   */
+  @java.lang.Override
+  public java.lang.String getState() {
+    return state_;
+  }
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   * @return The bytes for state.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getStateBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(state_);
+  }
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   * @param value The state to set.
+   */
+  private void setState(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    state_ = value;
+  }
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   */
+  private void clearState() {
+
+    state_ = getDefaultInstance().getState();
+  }
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   * @param value The bytes for state to set.
+   */
+  private void setStateBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    state_ = value.toStringUtf8();
+
+  }
+
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, data);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, data, extensionRegistry);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, data);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, data, extensionRegistry);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(byte[] data)
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, data);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, data, extensionRegistry);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(java.io.InputStream input)
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, input);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -207,24 +275,24 @@ public  final class HeldMessage extends
         DEFAULT_INSTANCE, input, extensionRegistry);
   }
 
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseDelimitedFrom(java.io.InputStream input)
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return parseDelimitedFrom(DEFAULT_INSTANCE, input);
   }
 
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseDelimitedFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessageLite.parseFrom(
         DEFAULT_INSTANCE, input);
   }
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage parseFrom(
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -235,23 +303,23 @@ public  final class HeldMessage extends
   public static Builder newBuilder() {
     return (Builder) DEFAULT_INSTANCE.createBuilder();
   }
-  public static Builder newBuilder(io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage prototype) {
+  public static Builder newBuilder(io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage prototype) {
     return DEFAULT_INSTANCE.createBuilder(prototype);
   }
 
   /**
    * <pre>
-   * HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
+   * QueuedMessage is one owner message a headless session has not started to Claude.
    * </pre>
    *
-   * Protobuf type {@code orrery.v1.HeldMessage}
+   * Protobuf type {@code orrery.v1.QueuedMessage}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessageLite.Builder<
-        io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage, Builder> implements
-      // @@protoc_insertion_point(builder_implements:orrery.v1.HeldMessage)
-      io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessageOrBuilder {
-    // Construct using io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage.newBuilder()
+        io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage, Builder> implements
+      // @@protoc_insertion_point(builder_implements:orrery.v1.QueuedMessage)
+      io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessageOrBuilder {
+    // Construct using io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage.newBuilder()
     private Builder() {
       super(DEFAULT_INSTANCE);
     }
@@ -259,7 +327,7 @@ public  final class HeldMessage extends
 
     /**
      * <pre>
-     * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+     * The prompt id the message was sent under.
      * </pre>
      *
      * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -271,7 +339,7 @@ public  final class HeldMessage extends
     }
     /**
      * <pre>
-     * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+     * The prompt id the message was sent under.
      * </pre>
      *
      * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -284,7 +352,7 @@ public  final class HeldMessage extends
     }
     /**
      * <pre>
-     * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+     * The prompt id the message was sent under.
      * </pre>
      *
      * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -299,7 +367,7 @@ public  final class HeldMessage extends
     }
     /**
      * <pre>
-     * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+     * The prompt id the message was sent under.
      * </pre>
      *
      * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -312,7 +380,7 @@ public  final class HeldMessage extends
     }
     /**
      * <pre>
-     * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+     * The prompt id the message was sent under.
      * </pre>
      *
      * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -395,7 +463,76 @@ public  final class HeldMessage extends
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:orrery.v1.HeldMessage)
+    /**
+     * <pre>
+     * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+     * </pre>
+     *
+     * <code>string state = 3 [json_name = "state"];</code>
+     * @return The state.
+     */
+    @java.lang.Override
+    public java.lang.String getState() {
+      return instance.getState();
+    }
+    /**
+     * <pre>
+     * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+     * </pre>
+     *
+     * <code>string state = 3 [json_name = "state"];</code>
+     * @return The bytes for state.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getStateBytes() {
+      return instance.getStateBytes();
+    }
+    /**
+     * <pre>
+     * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+     * </pre>
+     *
+     * <code>string state = 3 [json_name = "state"];</code>
+     * @param value The state to set.
+     * @return This builder for chaining.
+     */
+    public Builder setState(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setState(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+     * </pre>
+     *
+     * <code>string state = 3 [json_name = "state"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearState() {
+      copyOnWrite();
+      instance.clearState();
+      return this;
+    }
+    /**
+     * <pre>
+     * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+     * </pre>
+     *
+     * <code>string state = 3 [json_name = "state"];</code>
+     * @param value The bytes for state to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStateBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setStateBytes(value);
+      return this;
+    }
+
+    // @@protoc_insertion_point(builder_scope:orrery.v1.QueuedMessage)
   }
   @java.lang.Override
   @java.lang.SuppressWarnings({"ThrowNull"})
@@ -404,7 +541,7 @@ public  final class HeldMessage extends
       java.lang.Object arg0, java.lang.Object arg1) {
     switch (method) {
       case NEW_MUTABLE_INSTANCE: {
-        return new io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage();
+        return new io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage();
       }
       case NEW_BUILDER: {
         return new Builder();
@@ -413,23 +550,24 @@ public  final class HeldMessage extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "promptId_",
             "text_",
+            "state_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "";
+              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
         return DEFAULT_INSTANCE;
       }
       case GET_PARSER: {
-        com.google.protobuf.Parser<io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage> parser = PARSER;
+        com.google.protobuf.Parser<io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage> parser = PARSER;
         if (parser == null) {
-          synchronized (io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage.class) {
+          synchronized (io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage.class) {
             parser = PARSER;
             if (parser == null) {
               parser =
-                  new DefaultInstanceBasedParser<io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage>(
+                  new DefaultInstanceBasedParser<io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage>(
                       DEFAULT_INSTANCE);
               PARSER = parser;
             }
@@ -449,24 +587,24 @@ public  final class HeldMessage extends
   }
 
 
-  // @@protoc_insertion_point(class_scope:orrery.v1.HeldMessage)
-  private static final io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:orrery.v1.QueuedMessage)
+  private static final io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage DEFAULT_INSTANCE;
   static {
-    HeldMessage defaultInstance = new HeldMessage();
+    QueuedMessage defaultInstance = new QueuedMessage();
     // New instances are implicitly immutable so no need to make
     // immutable.
     DEFAULT_INSTANCE = defaultInstance;
     com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
-      HeldMessage.class, defaultInstance);
+      QueuedMessage.class, defaultInstance);
   }
 
-  public static io.github.joshsymonds.orrery.gen.orrery.v1.HeldMessage getDefaultInstance() {
+  public static io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static volatile com.google.protobuf.Parser<HeldMessage> PARSER;
+  private static volatile com.google.protobuf.Parser<QueuedMessage> PARSER;
 
-  public static com.google.protobuf.Parser<HeldMessage> parser() {
+  public static com.google.protobuf.Parser<QueuedMessage> parser() {
     return DEFAULT_INSTANCE.getParserForType();
   }
 }

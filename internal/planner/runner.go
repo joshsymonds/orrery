@@ -649,9 +649,9 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
 // gates and judges that resolve answers for epic, then the refusals of Coverage against the epic's tasks, then those of
-// checkAmendKeeps against the epic's Requirements. When epic holds
-// a planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
-// reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
+// checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase. When epic
+// holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names
+// the park reason. An owner park is not checked, since the owner answers it. The gate resolves under ctx without its
 // cancellation, so the turn that started the step ending does not refuse its return.
 func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
@@ -673,6 +673,7 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 		}
 		refusals := append(Check(ret, requirements, owned, gate, judge), Coverage(ret, requirements, epic.Tasks)...)
 		refusals = append(refusals, checkAmendKeeps(ret, epic.Requirements)...)
+		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

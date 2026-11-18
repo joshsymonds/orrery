@@ -30,6 +30,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
@@ -201,8 +202,11 @@ func run(args []string, stdin *os.File, stdout, stderr io.Writer, getenv func(st
 		return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, stderr, getenv))
 	}
 	// A hook must never fail a Claude Code turn. A refused command line that names hook exits 0 silently
-	// and forwards nothing.
+	// and forwards nothing, except that a refused `hook cron` still answers its call with a deny.
 	if slices.Contains(args, "hook") {
+		if err != nil && namesHookCron(args) {
+			hookCron(stdin, stdout, stderr, unreachableCrons{err: err})
+		}
 		return exitOK
 	}
 	if err != nil {
@@ -258,7 +262,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	name, args := rest[0], rest[1:]
 	switch name {
 	case "hook":
-		hook.Run(stdin, getenv, hookSocket(opts, getenv))
+		runHook(opts, args, stdin, stdout, stderr, getenv)
 		return nil
 	case "tmux-conf":
 		return tmuxConf(args, stdout)
@@ -318,6 +322,53 @@ func hookSocket(opts globals, getenv func(string) string) string {
 		return ""
 	}
 	return socket
+}
+
+// cronWait is how long `orrery hook cron` waits for orreryd's answer before it denies the call.
+const cronWait = 5 * time.Second
+
+// runHook runs `orrery hook`, which forwards the Claude Code hook event on stdin to the daemon, and `orrery hook cron`,
+// which answers the cron tool call on stdin. Plain hook exits 0 whatever happens, as it always has.
+func runHook(opts globals, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) {
+	if len(args) == 0 || args[0] != "cron" {
+		hook.Run(stdin, getenv, hookSocket(opts, getenv))
+		return
+	}
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		hookCron(stdin, stdout, stderr, unreachableCrons{err: err})
+		return
+	}
+	hookCron(stdin, stdout, stderr, enginev1connect.NewCronsClient(
+		cli.SessionHTTPClient(protocol.SessionSocketPath(socket)), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv))))
+}
+
+// namesHookCron reports whether args name the `hook cron` subcommand.
+func namesHookCron(args []string) bool {
+	i := slices.Index(args, "hook")
+	return i >= 0 && i+1 < len(args) && args[i+1] == "cron"
+}
+
+// hookCron has client take the cron call on stdin and writes the hook's decision to stdout. A decision that cannot be
+// written is reported on stderr, and the command still exits 0, since a hook never fails a turn.
+func hookCron(stdin io.Reader, stdout, stderr io.Writer, client enginev1connect.CronsClient) {
+	if err := hook.Cron(context.Background(), stdin, stdout, client, cronWait); err != nil {
+		fmt.Fprintf(stderr, "orrery: hook cron: %v\n", err)
+	}
+}
+
+// unreachableCrons is the client of a `orrery hook cron` that cannot name orreryd. Each call fails with err, so the
+// hook denies it and names err.
+type unreachableCrons struct {
+	err error
+}
+
+// CronCall fails with the cause the client was built with.
+func (c unreachableCrons) CronCall(
+	context.Context, *connect.Request[v1.CronCallRequest],
+) (*connect.Response[v1.CronCallResponse], error) {
+	return nil, c.err
 }
 
 // orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, and

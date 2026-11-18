@@ -21,19 +21,23 @@ type CallerEvent struct {
 	At      int64
 }
 
+type CronJob struct {
+	JobID      string
+	Session    string
+	ToolUseID  string
+	Cron       string
+	Prompt     string
+	Recurring  int64
+	CreatedAt  int64
+	LastFireAt int64
+}
+
 type DueResume struct {
 	ID     string
 	Kind   string
 	Target string
 	Resets int64
 	State  string
-}
-
-type EngineHeld struct {
-	Seq       int64
-	SessionID string
-	PromptID  string
-	Text      string
 }
 
 type EnginePromptFailed struct {
@@ -636,6 +640,13 @@ type PlannerAction struct {
 	Park        int64
 	Requirement string
 	Item        string
+}
+
+type PromptState struct {
+	Seq       int64
+	SessionID string
+	WriteID   string
+	State     string
 }
 
 type PushedAlertNotice struct {

@@ -23,7 +23,7 @@ export interface EpicEvent {
 }
 
 // StepEvent is a step's end: the step's id, the agent that ran it (empty when the body names none), how it ended, the
-// epic that holds it (empty when none does), and its summary as the body gives it. A pending step_end has these fields
+// epic that holds it (empty when none does), its headline, and its full result. A pending step_end has these fields
 // too.
 export interface StepEvent {
   step: string;
@@ -32,7 +32,8 @@ export interface StepEvent {
   status: string;
   reason: string;
   epic: string;
-  summary: string;
+  headline: string;
+  result: string;
 }
 
 // blockPattern matches a block as enginehost.CallerEventBlock writes it: the opening tag, the body on lines of its own,
@@ -45,8 +46,10 @@ const stepLine = /^Step \S+ ended: end (.*?), status (.*?), reason (.*)\.$/;
 const agentLine = "Agent: ";
 const epicLine = "Epic: ";
 const summaryLine = "Summary: ";
-// stepHint is a step body's last line, which points to the full result. It is not part of the summary.
+// stepHint is a step body's last line, which points to the full result. It is not part of the result.
 const stepHint = "step_status gives the full result.";
+// headlineFields are the fields a JSON result's headline is read from, in the order they are tried.
+const headlineFields = ["answer", "summary", "verdict"] as const;
 const glyphs: Record<EventKind, string> = { question: "?", park: "‖", release: "↗", end: "■" };
 const labels: Record<EventKind, string> = { question: "question", park: "parked", release: "released", end: "ended" };
 
@@ -70,8 +73,8 @@ export function epicEventOf(text: string): EpicEvent | null {
 }
 
 // stepEventOf reads a prompt's text as a step's end: a block of kind step_end whose id is step:<id>, with its first line,
-// an Agent line and an Epic line when the body has them, and a Summary line. A body with no Agent line reads with no
-// agent. It is null for any other text.
+// an Agent line and an Epic line when the body has them, and a Summary line that holds the whole result. A body with no
+// Agent line reads with no agent. It is null for any other text.
 export function stepEventOf(text: string): StepEvent | null {
   const match = blockPattern.exec(text.trim());
   if (match === null) {
@@ -102,11 +105,62 @@ export function stepEventOf(text: string): StepEvent | null {
   if (!lineAt(at).startsWith(summaryLine)) {
     return null;
   }
-  const summary = [lineAt(at).slice(summaryLine.length), ...lines.slice(at + 1)];
-  if (summary.at(-1) === stepHint) {
-    summary.pop();
+  const result = [lineAt(at).slice(summaryLine.length), ...lines.slice(at + 1)];
+  if (result.at(-1) === stepHint) {
+    result.pop();
   }
-  return { step: id.slice(stepPrefix.length), agent, end, status, reason, epic, summary: summary.join("\n") };
+  const whole = result.join("\n");
+  return {
+    step: id.slice(stepPrefix.length),
+    agent,
+    end,
+    status,
+    reason,
+    epic,
+    headline: stepHeadline(whole),
+    result: whole,
+  };
+}
+
+// stepHeadline is a step's headline, as the store's stepHeadline computes it: when the result is a JSON object, the
+// string of the first of answer, summary and verdict that holds a string; otherwise the result's first line.
+function stepHeadline(result: string): string {
+  const fields = jsonObject(result);
+  if (fields !== null) {
+    for (const key of headlineFields) {
+      const text = fields[key];
+      if (typeof text === "string") {
+        return text;
+      }
+    }
+  }
+  const [firstLine] = result.split("\n");
+  return firstLine;
+}
+
+// jsonObject is the JSON object text parses to, or null when it parses to anything else or does not parse.
+function jsonObject(text: string): Record<string, unknown> | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+// returnBody is a return as the fold draws it: pretty-printed when the return parses as JSON, its raw text otherwise.
+function returnBody(result: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(result);
+  } catch {
+    return result;
+  }
+  return JSON.stringify(value, null, 2);
 }
 
 function isEventKind(kind: string): kind is EventKind {
@@ -145,9 +199,9 @@ function RingParts({ kind, sentence, epic }: { kind: EventKind; sentence: string
   );
 }
 
-// StepCard draws a step's end as a card: the agent when the event names one, the end, status and reason, and the first
-// line of the summary. A click opens the step's page through calls.openStep when the event names its epic and the reader
-// holds epic calls. Any other click expands the card in place to the whole summary, and it stays expanded.
+// StepCard draws a step's end as a card: the agent when the event names one, the end, status and reason on its head,
+// the headline on a line under it, and the full result in a fold under that, closed until it is opened. A click on the
+// head opens the step's page through calls.openStep when the event names its epic and the reader holds epic calls.
 // waiting, when set, dims the card and labels it, as a waiting card does.
 export function StepCard({
   event,
@@ -158,25 +212,26 @@ export function StepCard({
   calls?: EpicCalls;
   waiting?: string;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const opens = calls !== undefined && event.epic !== "";
   const onClick = () => {
     if (calls !== undefined && event.epic !== "") {
       calls.openStep(event.epic, event.step);
-      return;
     }
-    setExpanded(true);
   };
-  const [firstLine] = event.summary.split("\n");
   return (
     <div class={waiting === "" ? "step-card" : "step-card waiting"}>
-      <button type="button" class="step-head" aria-expanded={opens ? undefined : expanded} onClick={onClick}>
+      <button type="button" class="step-head" onClick={onClick}>
         {event.agent !== "" && <b class="step-agent">{event.agent}</b>}
         <span class="step-end">end {event.end}</span>
         <span class="step-status">status {event.status}</span>
         {event.reason !== "" && <span class="step-reason">reason {event.reason}</span>}
       </button>
-      {event.summary !== "" && <p class="step-summary">{expanded ? event.summary : firstLine}</p>}
+      {event.headline !== "" && <p class="step-summary">{event.headline}</p>}
+      {event.result !== "" && (
+        <details class="step-return">
+          <summary>return</summary>
+          <pre>{returnBody(event.result)}</pre>
+        </details>
+      )}
       {waiting !== "" && <small class="wait-label">{waiting}</small>}
     </div>
   );
@@ -188,7 +243,17 @@ export function StepCard({
 export function WaitingCard({ event, calls }: { event: PendingEvent; calls?: EpicCalls }): JSX.Element | null {
   const label = event.waits === "speak" ? "arrives when you next speak" : "arrives when the session is free";
   if (event.kind === stepKind) {
-    return <StepCard event={event} calls={calls} waiting={label} />;
+    const step: StepEvent = {
+      step: event.step,
+      agent: event.agent,
+      end: event.end,
+      status: event.status,
+      reason: event.reason,
+      epic: event.epic,
+      headline: event.summary,
+      result: event.result,
+    };
+    return <StepCard event={step} calls={calls} waiting={label} />;
   }
   const kind = event.kind;
   if (!isEventKind(kind)) {

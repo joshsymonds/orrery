@@ -9,8 +9,9 @@ import { type ComposerHandle, Composer } from "./composer";
 import { flashMillis } from "./flash";
 import {
   ConversationItemSchema,
-  HeldMessageSchema,
+  QueuedMessageSchema,
   WaitingMessageSchema,
+  type QueuedMessage,
   type WaitingMessage,
 } from "./gen/orrery/v1/orrery_pb";
 import type { SentText } from "./sending";
@@ -128,6 +129,11 @@ async function clickSend(container: HTMLElement): Promise<void> {
 
 function queuedMessage(text: string, canceled = false): WaitingMessage {
   return create(WaitingMessageSchema, { text, canceled });
+}
+
+// sessionMessage is a session's queued message under promptId, in the given state.
+function sessionMessage(promptId: string, text: string, state = "queued"): QueuedMessage {
+  return create(QueuedMessageSchema, { promptId, text, state });
 }
 
 // queuedRows reads each drawn queued message as its tag (empty when it has none), its text and whether it is marked
@@ -925,7 +931,7 @@ test("a held message draws one queued row, and the local entry the held set carr
       await press(box, "Enter");
       await settleSends();
       assert.equal(queuedRows(container).length, 1, "the sent message is queued");
-      await rerender({ held: [create(HeldMessageSchema, { promptId: "p1", text: "hello" })] });
+      await rerender({ sessionQueue: [sessionMessage("p1", "hello")] });
       assert.deepEqual(queuedRows(container), [{ tag: "", words: false, text: "hello", canceled: false }]);
     },
   );
@@ -959,9 +965,9 @@ test("a message sent to a working session leaves the queue once it leaves the he
       await type(box, "hello");
       await press(box, "Enter");
       await settleSends();
-      await rerender({ held: [create(HeldMessageSchema, { promptId: "p1", text: "hello" })] });
+      await rerender({ sessionQueue: [sessionMessage("p1", "hello")] });
       assert.equal(queuedRows(container).length, 1, "the held message draws one row");
-      await rerender({ held: [] });
+      await rerender({ sessionQueue: [] });
       assert.deepEqual(queuedRows(container), [], "a message that left the held set is not queued");
     },
   );

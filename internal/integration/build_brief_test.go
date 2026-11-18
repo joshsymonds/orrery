@@ -41,7 +41,7 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
 	waitUntil(t, func() bool {
-		return fileContains(t, stdin, "Change only these files:")
+		return fileContains(t, stdin, "Owned files (change only these):")
 	})
 
 	if !fileContains(t, filepath.Join(dir, "fakeclaude.args"), "--agent "+buildRigAgent) {
@@ -51,7 +51,7 @@ func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 		"Task: " + buildRigTitle,
 		"Deliverable: " + buildRigDeliverable,
 		// The brief's newlines are JSON escapes in the line the fake reads, so the file list is matched with them escaped.
-		`Change only these files:\n- ` + buildRigFile,
+		`Owned files (change only these):\n- ` + buildRigFile,
 		"Gate: " + buildRigGate + ". After you return done, orreryd runs",
 		"R1: " + buildRigRequirement,
 		"- " + buildRigExclusion,

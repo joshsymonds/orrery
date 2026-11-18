@@ -37,12 +37,14 @@ type call struct {
 	answer    string
 }
 
-// fakeCommands records every call and returns startID from Start and err from every method.
+// fakeCommands records every call and returns startID from Start, interruptTexts from OwnerInterrupt and err from every
+// method.
 type fakeCommands struct {
-	mu      sync.Mutex
-	calls   []call
-	startID string
-	err     error
+	mu             sync.Mutex
+	calls          []call
+	startID        string
+	interruptTexts []string
+	err            error
 }
 
 func (f *fakeCommands) record(c call) error {
@@ -81,8 +83,11 @@ func (f *fakeCommands) Answer(_ context.Context, id, requestID, answer string) e
 	return f.record(call{method: "Answer", id: id, requestID: requestID, answer: answer})
 }
 
-func (f *fakeCommands) OwnerInterrupt(_ context.Context, id string) error {
-	return f.record(call{method: "OwnerInterrupt", id: id})
+func (f *fakeCommands) OwnerInterrupt(_ context.Context, id string) ([]string, error) {
+	if err := f.record(call{method: "OwnerInterrupt", id: id}); err != nil {
+		return nil, err
+	}
+	return f.interruptTexts, nil
 }
 
 func (f *fakeCommands) Stop(_ context.Context, id string) error {
@@ -118,7 +123,7 @@ func startServerWithSteps(t *testing.T, commands Commands, steps StepCommands) (
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, commands, steps, nil, nil, nil, nil) }()
+	go func() { done <- Serve(ctx, ln, commands, steps, nil, nil, nil, nil, nil) }()
 	var once sync.Once
 	var serveErr error
 	stop := func() error {
@@ -249,6 +254,26 @@ func TestServeRoutesEachRPCToCommands(t *testing.T) {
 	}
 }
 
+// TestEscapeQueuedServiceInterruptReturnsTexts checks that the Engine service's Interrupt answers with the texts that
+// OwnerInterrupt returns, in their order.
+func TestEscapeQueuedServiceInterruptReturnsTexts(t *testing.T) {
+	t.Parallel()
+	fake := &fakeCommands{interruptTexts: []string{"first", "second"}}
+	path, stop := startServer(t, fake)
+	client := newClient(t, path)
+
+	resp, err := client.Interrupt(context.Background(), connect.NewRequest(&v1.InterruptRequest{Id: "s1"}))
+	if err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	if err = stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if got := resp.Msg.GetTexts(); !slices.Equal(got, []string{"first", "second"}) {
+		t.Fatalf("Interrupt texts = %q, want [first second]", got)
+	}
+}
+
 func TestServeStartForwardsModel(t *testing.T) {
 	t.Parallel()
 	fake := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
@@ -353,10 +378,10 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 			text: "resume session x: " + ErrNotResumable.Error() + ": its state is done, not interrupted",
 		},
 		{
-			name: "message not held",
-			err:  wrapf(ErrNotHeld, "withdraw"),
+			name: "no owner prompt has that id",
+			err:  wrapf(ErrUnknownPrompt, "withdraw"),
 			code: connect.CodeFailedPrecondition,
-			text: "withdraw: " + ErrNotHeld.Error(),
+			text: "withdraw: " + ErrUnknownPrompt.Error(),
 		},
 		{
 			name: "bad directory",

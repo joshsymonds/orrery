@@ -390,9 +390,12 @@ func (x *InterruptRequest) GetId() string {
 	return ""
 }
 
-// InterruptResponse acknowledges an interrupt. It has no fields.
+// InterruptResponse acknowledges an interrupt.
 type InterruptResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+	// event's text is never among them.
+	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -425,6 +428,13 @@ func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use InterruptResponse.ProtoReflect.Descriptor instead.
 func (*InterruptResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *InterruptResponse) GetTexts() []string {
+	if x != nil {
+		return x.Texts
+	}
+	return nil
 }
 
 // StopRequest asks for a session's process to end.
@@ -676,12 +686,12 @@ func (*ResumeResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_engine_v1_engine_proto_rawDescGZIP(), []int{13}
 }
 
-// WithdrawRequest takes back the held messages of a session.
+// WithdrawRequest asks Claude to cancel one queued owner message of a session.
 type WithdrawRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The session's id.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The prompt id of the held message to take back. Empty takes back every held message of the session.
+	// The prompt id of the queued owner message to cancel. Empty cancels nothing.
 	PromptId      string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -731,10 +741,11 @@ func (x *WithdrawRequest) GetPromptId() string {
 	return ""
 }
 
-// WithdrawResponse carries the texts of the held messages taken back.
+// WithdrawResponse carries the text of the queued owner message that Claude cancelled.
 type WithdrawResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The texts of the messages taken back, oldest first.
+	// That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+	// running, or when prompt_id is empty.
 	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -802,8 +813,9 @@ const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\x06answer\x18\x03 \x01(\tR\x06answer\"\x10\n" +
 	"\x0eAnswerResponse\"\"\n" +
 	"\x10InterruptRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
-	"\x11InterruptResponse\"\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\")\n" +
+	"\x11InterruptResponse\x12\x14\n" +
+	"\x05texts\x18\x01 \x03(\tR\x05texts\"\x1d\n" +
 	"\vStopRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x0e\n" +
 	"\fStopResponse\"\x1d\n" +

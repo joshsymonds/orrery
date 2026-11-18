@@ -61,25 +61,33 @@ export async function pullQueued(clients: Clients, row: Row): Promise<string> {
   return reply.text;
 }
 
-// withdraw takes back a row's queued messages and resolves their texts, oldest first. A session's are every held
-// message, by Control.Withdraw with an empty prompt id, so a session with nothing held resolves none. A pane's queued
-// input is one text by Panes.PullQueued, which resolves none when it is empty.
+// withdraw takes back a pane's queued input and resolves its text as one message, or none when the pull is empty. A
+// session resolves none and makes no call: its queued messages are taken back by interrupt, when Escape interrupts it.
 export async function withdraw(clients: Clients, row: Row): Promise<string[]> {
-  if (row.kind === "pane") {
-    const text = await pullQueued(clients, row);
-    return text === "" ? [] : [text];
+  if (row.kind === "session") {
+    return [];
   }
-  const reply = await clients.control.withdraw({ id: row.id, promptId: "" });
+  const text = await pullQueued(clients, row);
+  return text === "" ? [] : [text];
+}
+
+// withdrawQueued takes back one of a session's queued messages by its prompt id, through Control.Withdraw, and resolves
+// the text it took back, or none when Claude already took the message in.
+export async function withdrawQueued(clients: Clients, row: Row, promptId: string): Promise<string[]> {
+  const reply = await clients.control.withdraw({ id: row.id, promptId });
   return reply.texts;
 }
 
-// interrupt interrupts the row's running turn: Control.Interrupt for a session, and the Escape key sent to a pane.
-export async function interrupt(clients: Clients, row: Row): Promise<void> {
+// interrupt interrupts the row's running turn. For a session it is Control.Interrupt, and it resolves the texts of the
+// queued messages Claude cancelled at the interrupt, in send order. For a pane it sends the Escape key and resolves
+// none.
+export async function interrupt(clients: Clients, row: Row): Promise<string[]> {
   if (row.kind === "pane") {
     await clients.panes.sendKeys({ pane: row.id, keys: ["Escape"] });
-    return;
+    return [];
   }
-  await clients.control.interrupt({ id: row.id });
+  const reply = await clients.control.interrupt({ id: row.id });
+  return reply.texts;
 }
 
 // ask sends the words to Picker.Ask, exactly as typed, and resolves the rows that match them.

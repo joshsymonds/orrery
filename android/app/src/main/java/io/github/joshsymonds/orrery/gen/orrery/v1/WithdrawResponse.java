@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * WithdrawResponse carries the texts of the held messages taken back.
+ * WithdrawResponse carries the text of the queued owner message that Claude cancelled.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.WithdrawResponse}
@@ -25,7 +25,8 @@ public  final class WithdrawResponse extends
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> texts_;
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -37,7 +38,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -49,7 +51,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -62,7 +65,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -84,7 +88,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -99,7 +104,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -113,7 +119,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -127,7 +134,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -137,7 +145,8 @@ public  final class WithdrawResponse extends
   }
   /**
    * <pre>
-   * The texts of the messages taken back, oldest first.
+   * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+   * running, or when prompt_id is empty.
    * </pre>
    *
    * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -235,7 +244,7 @@ public  final class WithdrawResponse extends
 
   /**
    * <pre>
-   * WithdrawResponse carries the texts of the held messages taken back.
+   * WithdrawResponse carries the text of the queued owner message that Claude cancelled.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.WithdrawResponse}
@@ -253,7 +262,8 @@ public  final class WithdrawResponse extends
 
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -267,7 +277,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -279,7 +290,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -292,7 +304,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -306,7 +319,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -322,7 +336,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -337,7 +352,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -352,7 +368,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>
@@ -365,7 +382,8 @@ public  final class WithdrawResponse extends
     }
     /**
      * <pre>
-     * The texts of the messages taken back, oldest first.
+     * That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+     * running, or when prompt_id is empty.
      * </pre>
      *
      * <code>repeated string texts = 1 [json_name = "texts"];</code>

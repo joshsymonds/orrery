@@ -81,15 +81,22 @@ func TestTwoTurnsFixtureSequence(t *testing.T) {
 	for _, event := range got {
 		kinds = append(kinds, fmt.Sprintf("%T", event))
 	}
-	// Each turn opens with its own init line: Started, then its text delta, text block and turn end.
-	turn := []string{"session.Started", "session.TextDelta", "session.Block", "session.TurnEnded"}
-	wantKinds := append(append([]string{}, turn...), turn...)
+	// The two command_lifecycle lines before each turn's init line and the one after the first turn's end translate to
+	// Lifecycle events. Each turn opens with its own init line: Started, then its text delta, text block and turn end.
+	wantKinds := []string{
+		"session.Lifecycle", "session.Lifecycle",
+		"session.Started", "session.TextDelta", "session.Block", "session.TurnEnded",
+		"session.Lifecycle", "session.Lifecycle", "session.Lifecycle",
+		"session.Started", "session.TextDelta", "session.Block", "session.TurnEnded",
+		"session.Lifecycle",
+	}
 	if !reflect.DeepEqual(kinds, wantKinds) {
 		t.Fatalf("event kinds =\n%q\nwant\n%q", kinds, wantKinds)
 	}
+	turnStarts := []int{2, 9}
 	answeredByTurn := [][]string{{"uuid_1"}, {"uuid_15"}}
 	for number, messageID := range []string{"msg_1", "msg_2"} {
-		base := number * len(turn)
+		base := turnStarts[number]
 		started, ok := got[base].(Started)
 		if !ok || started.SessionID != "session_1" || started.PermissionMode != "default" {
 			t.Errorf("turn %d start = %#v, want Started for session_1 in default mode", number+1, got[base])
@@ -307,7 +314,7 @@ func TestControlEnvelopesAndNonInitSystemYieldNothing(t *testing.T) {
 		`{"type":"command_lifecycle","command_uuid":"uuid_1","state":"queued","session_id":"session_1"}`,
 		`{"type":"user","isReplay":true,"message":{"role":"user","content":"replayed words"},"parent_tool_use_id":null,"uuid":"uuid_2","session_id":"session_1"}`,
 	)
-	requireEvents(t, got, []Event{})
+	requireEvents(t, got, []Event{Lifecycle{CommandUUID: "uuid_1", State: LifecycleQueued}})
 }
 
 func TestTurnEndedCarriesStructuredOutput(t *testing.T) {

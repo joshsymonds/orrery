@@ -9,4 +9,49 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 public interface InterruptResponseOrBuilder extends
     // @@protoc_insertion_point(interface_extends:orrery.v1.InterruptResponse)
     com.google.protobuf.MessageLiteOrBuilder {
+
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @return A list containing the texts.
+   */
+  java.util.List<java.lang.String>
+      getTextsList();
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @return The count of texts.
+   */
+  int getTextsCount();
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param index The index of the element to return.
+   * @return The texts at the given index.
+   */
+  java.lang.String getTexts(int index);
+  /**
+   * <pre>
+   * The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+   * event's text is never among them.
+   * </pre>
+   *
+   * <code>repeated string texts = 1 [json_name = "texts"];</code>
+   * @param index The index of the element to return.
+   * @return The texts at the given index.
+   */
+  com.google.protobuf.ByteString
+      getTextsBytes(int index);
 }

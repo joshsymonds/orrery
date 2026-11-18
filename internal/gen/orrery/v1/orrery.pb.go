@@ -585,9 +585,9 @@ type SessionsWatchConversationResponse struct {
 	// The seq of the oldest item a reset carries, which Sessions.Older pages back from. It is 0 on a delta that is not a
 	// reset, and on a reset that carries no item.
 	Oldest int64 `protobuf:"varint,7,opt,name=oldest,proto3" json:"oldest,omitempty"`
-	// The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
-	// holds with it.
-	Held          []*HeldMessage `protobuf:"bytes,8,rep,name=held,proto3" json:"held,omitempty"`
+	// The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+	// client replaces the queued set it holds with it.
+	Queued        []*QueuedMessage `protobuf:"bytes,9,rep,name=queued,proto3" json:"queued,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -671,38 +671,40 @@ func (x *SessionsWatchConversationResponse) GetOldest() int64 {
 	return 0
 }
 
-func (x *SessionsWatchConversationResponse) GetHeld() []*HeldMessage {
+func (x *SessionsWatchConversationResponse) GetQueued() []*QueuedMessage {
 	if x != nil {
-		return x.Held
+		return x.Queued
 	}
 	return nil
 }
 
-// HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
-type HeldMessage struct {
+// QueuedMessage is one owner message a headless session has not started to Claude.
+type QueuedMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The prompt id the message is held under: the Say's own, or one orreryd assigned.
+	// The prompt id the message was sent under.
 	PromptId string `protobuf:"bytes,1,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
 	// The message text.
-	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// The message's lifecycle state: queued, canceled or discarded, as the store names them.
+	State         string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *HeldMessage) Reset() {
-	*x = HeldMessage{}
+func (x *QueuedMessage) Reset() {
+	*x = QueuedMessage{}
 	mi := &file_orrery_v1_orrery_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *HeldMessage) String() string {
+func (x *QueuedMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*HeldMessage) ProtoMessage() {}
+func (*QueuedMessage) ProtoMessage() {}
 
-func (x *HeldMessage) ProtoReflect() protoreflect.Message {
+func (x *QueuedMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_orrery_v1_orrery_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -714,21 +716,28 @@ func (x *HeldMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use HeldMessage.ProtoReflect.Descriptor instead.
-func (*HeldMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use QueuedMessage.ProtoReflect.Descriptor instead.
+func (*QueuedMessage) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *HeldMessage) GetPromptId() string {
+func (x *QueuedMessage) GetPromptId() string {
 	if x != nil {
 		return x.PromptId
 	}
 	return ""
 }
 
-func (x *HeldMessage) GetText() string {
+func (x *QueuedMessage) GetText() string {
 	if x != nil {
 		return x.Text
+	}
+	return ""
+}
+
+func (x *QueuedMessage) GetState() string {
+	if x != nil {
+		return x.State
 	}
 	return ""
 }
@@ -1871,9 +1880,12 @@ func (x *InterruptRequest) GetId() string {
 	return ""
 }
 
-// InterruptResponse is the reply to an Interrupt. It has no fields.
+// InterruptResponse is the reply to an Interrupt.
 type InterruptResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+	// event's text is never among them.
+	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1906,6 +1918,13 @@ func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use InterruptResponse.ProtoReflect.Descriptor instead.
 func (*InterruptResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *InterruptResponse) GetTexts() []string {
+	if x != nil {
+		return x.Texts
+	}
+	return nil
 }
 
 // StopRequest asks for a headless session to be stopped.
@@ -2157,12 +2176,12 @@ func (*ResumeResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{30}
 }
 
-// WithdrawRequest takes back the held messages of a headless session.
+// WithdrawRequest asks Claude to cancel one queued owner message of a headless session.
 type WithdrawRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The session's id.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The prompt id of the held message to take back. Empty takes back every held message of the session.
+	// The prompt id of the queued owner message to cancel. Empty cancels nothing.
 	PromptId      string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2212,10 +2231,11 @@ func (x *WithdrawRequest) GetPromptId() string {
 	return ""
 }
 
-// WithdrawResponse carries the texts of the held messages taken back.
+// WithdrawResponse carries the text of the queued owner message that Claude cancelled.
 type WithdrawResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The texts of the messages taken back, oldest first.
+	// That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+	// running, or when prompt_id is empty.
 	Texts         []string `protobuf:"bytes,1,rep,name=texts,proto3" json:"texts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4408,14 +4428,17 @@ type PendingEvent struct {
 	Status string `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
 	// The step's reason, for a step_end.
 	Reason string `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	// The first line of the step's result, for a step_end.
+	// The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+	// JSON object that has one, in that order, else the result's first line.
 	Summary string `protobuf:"bytes,8,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The epic that holds the step, for a step_end an epic holds, or the epic of an epic event.
 	Epic string `protobuf:"bytes,9,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The epic's title, for an epic event.
 	Title string `protobuf:"bytes,10,opt,name=title,proto3" json:"title,omitempty"`
 	// How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
-	Waits         string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
+	Waits string `protobuf:"bytes,11,opt,name=waits,proto3" json:"waits,omitempty"`
+	// The step's full result, for a step_end.
+	Result        string `protobuf:"bytes,12,opt,name=result,proto3" json:"result,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4523,6 +4546,13 @@ func (x *PendingEvent) GetTitle() string {
 func (x *PendingEvent) GetWaits() string {
 	if x != nil {
 		return x.Waits
+	}
+	return ""
+}
+
+func (x *PendingEvent) GetResult() string {
+	if x != nil {
+		return x.Result
 	}
 	return ""
 }
@@ -6464,7 +6494,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +
-	"\x05after\x18\x03 \x01(\x03R\x05after\"\xcd\x02\n" +
+	"\x05after\x18\x03 \x01(\x03R\x05after\"\xdf\x02\n" +
 	"!SessionsWatchConversationResponse\x12\x1e\n" +
 	"\n" +
 	"transcript\x18\x01 \x01(\tR\n" +
@@ -6476,11 +6506,12 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"unfinished\x18\x06 \x03(\v2\x15.orrery.v1.EngineTextR\n" +
 	"unfinished\x12\x16\n" +
-	"\x06oldest\x18\a \x01(\x03R\x06oldest\x12*\n" +
-	"\x04held\x18\b \x03(\v2\x16.orrery.v1.HeldMessageR\x04held\">\n" +
-	"\vHeldMessage\x12\x1b\n" +
+	"\x06oldest\x18\a \x01(\x03R\x06oldest\x120\n" +
+	"\x06queued\x18\t \x03(\v2\x18.orrery.v1.QueuedMessageR\x06queuedJ\x04\b\b\x10\tR\x04held\"V\n" +
+	"\rQueuedMessage\x12\x1b\n" +
 	"\tprompt_id\x18\x01 \x01(\tR\bpromptId\x12\x12\n" +
-	"\x04text\x18\x02 \x01(\tR\x04text\"T\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\"T\n" +
 	"\x14SessionsOlderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06before\x18\x02 \x01(\x03R\x06before\x12\x14\n" +
@@ -6569,8 +6600,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x06answer\x18\x03 \x01(\tR\x06answer\"\x10\n" +
 	"\x0eAnswerResponse\"\"\n" +
 	"\x10InterruptRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
-	"\x11InterruptResponse\"\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\")\n" +
+	"\x11InterruptResponse\x12\x14\n" +
+	"\x05texts\x18\x01 \x03(\tR\x05texts\"\x1d\n" +
 	"\vStopRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x0e\n" +
 	"\fStopResponse\"\x1d\n" +
@@ -6768,7 +6800,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"background\x18\n" +
 	" \x03(\v2\x19.orrery.v1.BackgroundTaskR\n" +
-	"background\"\xf8\x01\n" +
+	"background\"\x90\x02\n" +
 	"\fPendingEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
@@ -6781,7 +6813,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04epic\x18\t \x01(\tR\x04epic\x12\x14\n" +
 	"\x05title\x18\n" +
 	" \x01(\tR\x05title\x12\x14\n" +
-	"\x05waits\x18\v \x01(\tR\x05waits\"\xff\x01\n" +
+	"\x05waits\x18\v \x01(\tR\x05waits\x12\x16\n" +
+	"\x06result\x18\f \x01(\tR\x06result\"\xff\x01\n" +
 	"\x0eBackgroundTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\vtool_use_id\x18\x02 \x01(\tR\ttoolUseId\x12 \n" +
@@ -6962,7 +6995,7 @@ var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*HeadlessSession)(nil),                   // 5: orrery.v1.HeadlessSession
 	(*SessionsWatchConversationRequest)(nil),  // 6: orrery.v1.SessionsWatchConversationRequest
 	(*SessionsWatchConversationResponse)(nil), // 7: orrery.v1.SessionsWatchConversationResponse
-	(*HeldMessage)(nil),                       // 8: orrery.v1.HeldMessage
+	(*QueuedMessage)(nil),                     // 8: orrery.v1.QueuedMessage
 	(*SessionsOlderRequest)(nil),              // 9: orrery.v1.SessionsOlderRequest
 	(*SessionsOlderResponse)(nil),             // 10: orrery.v1.SessionsOlderResponse
 	(*OpenRequest)(nil),                       // 11: orrery.v1.OpenRequest
@@ -7054,7 +7087,7 @@ var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	50, // 2: orrery.v1.SessionsWatchConversationResponse.items:type_name -> orrery.v1.ConversationItem
 	57, // 3: orrery.v1.SessionsWatchConversationResponse.state:type_name -> orrery.v1.ConversationState
 	42, // 4: orrery.v1.SessionsWatchConversationResponse.unfinished:type_name -> orrery.v1.EngineText
-	8,  // 5: orrery.v1.SessionsWatchConversationResponse.held:type_name -> orrery.v1.HeldMessage
+	8,  // 5: orrery.v1.SessionsWatchConversationResponse.queued:type_name -> orrery.v1.QueuedMessage
 	50, // 6: orrery.v1.SessionsOlderResponse.items:type_name -> orrery.v1.ConversationItem
 	14, // 7: orrery.v1.WatchResponse.session_added:type_name -> orrery.v1.SessionAdded
 	15, // 8: orrery.v1.WatchResponse.session_changed:type_name -> orrery.v1.SessionChanged

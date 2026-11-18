@@ -6,13 +6,13 @@
 package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 @com.google.protobuf.Generated
-public interface HeldMessageOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:orrery.v1.HeldMessage)
+public interface QueuedMessageOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:orrery.v1.QueuedMessage)
     com.google.protobuf.MessageLiteOrBuilder {
 
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -21,7 +21,7 @@ public interface HeldMessageOrBuilder extends
   java.lang.String getPromptId();
   /**
    * <pre>
-   * The prompt id the message is held under: the Say's own, or one orreryd assigned.
+   * The prompt id the message was sent under.
    * </pre>
    *
    * <code>string prompt_id = 1 [json_name = "promptId"];</code>
@@ -49,4 +49,24 @@ public interface HeldMessageOrBuilder extends
    */
   com.google.protobuf.ByteString
       getTextBytes();
+
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   * @return The state.
+   */
+  java.lang.String getState();
+  /**
+   * <pre>
+   * The message's lifecycle state: queued, canceled or discarded, as the store names them.
+   * </pre>
+   *
+   * <code>string state = 3 [json_name = "state"];</code>
+   * @return The bytes for state.
+   */
+  com.google.protobuf.ByteString
+      getStateBytes();
 }

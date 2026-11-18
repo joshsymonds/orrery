@@ -48,9 +48,9 @@ service Control {
   // Resume resumes an interrupted headless session's turn by sending its resume prompt.
   rpc Resume(ResumeRequest) returns (ResumeResponse);
 
-  // Withdraw takes back the held messages of a headless session: the one with prompt_id, or every held message when
-  // prompt_id is empty. It returns their texts, oldest first. A message already written to the session cannot be taken
-  // back, so a prompt_id that is not held is refused.
+  // Withdraw asks Claude to cancel one queued owner message of a headless session by its prompt_id
+  // (cancel_async_message). Its texts hold that message's text when Claude cancelled it, and none when Claude had
+  // already taken it in, when the session is not running, or when prompt_id is empty.
   rpc Withdraw(WithdrawRequest) returns (WithdrawResponse);
 }
 
@@ -200,18 +200,24 @@ message SessionsWatchConversationResponse {
   // reset, and on a reset that carries no item.
   int64 oldest = 7;
 
-  // The session's whole held set, oldest first. It is sent with every message, so a client replaces the held set it
-  // holds with it.
-  repeated HeldMessage held = 8;
+  reserved 8;
+  reserved "held";
+
+  // The owner messages the session has not started, in the order they were sent. It is sent with every message, so a
+  // client replaces the queued set it holds with it.
+  repeated QueuedMessage queued = 9;
 }
 
-// HeldMessage is one message a headless session holds: said to it while its turn ran, and not yet written to it.
-message HeldMessage {
-  // The prompt id the message is held under: the Say's own, or one orreryd assigned.
+// QueuedMessage is one owner message a headless session has not started to Claude.
+message QueuedMessage {
+  // The prompt id the message was sent under.
   string prompt_id = 1;
 
   // The message text.
   string text = 2;
+
+  // The message's lifecycle state: queued, canceled or discarded, as the store names them.
+  string state = 3;
 }
 
 // SessionsOlderRequest asks for the items of one headless session older than a seq. limit follows
@@ -419,8 +425,12 @@ message InterruptRequest {
   string id = 1;
 }
 
-// InterruptResponse is the reply to an Interrupt. It has no fields.
-message InterruptResponse {}
+// InterruptResponse is the reply to an Interrupt.
+message InterruptResponse {
+  // The texts of the owner's messages that Claude cancelled from its queue at the interrupt, in send order. A caller
+  // event's text is never among them.
+  repeated string texts = 1;
+}
 
 // StopRequest asks for a headless session to be stopped.
 message StopRequest {
@@ -449,18 +459,19 @@ message ResumeRequest {
 // ResumeResponse is the reply to a Resume. It has no fields.
 message ResumeResponse {}
 
-// WithdrawRequest takes back the held messages of a headless session.
+// WithdrawRequest asks Claude to cancel one queued owner message of a headless session.
 message WithdrawRequest {
   // The session's id.
   string id = 1;
 
-  // The prompt id of the held message to take back. Empty takes back every held message of the session.
+  // The prompt id of the queued owner message to cancel. Empty cancels nothing.
   string prompt_id = 2;
 }
 
-// WithdrawResponse carries the texts of the held messages taken back.
+// WithdrawResponse carries the text of the queued owner message that Claude cancelled.
 message WithdrawResponse {
-  // The texts of the messages taken back, oldest first.
+  // That message's text when Claude cancelled it. None when Claude had already taken it in, when the session is not
+  // running, or when prompt_id is empty.
   repeated string texts = 1;
 }
 
@@ -1059,7 +1070,8 @@ message PendingEvent {
   // The step's reason, for a step_end.
   string reason = 7;
 
-  // The first line of the step's result, for a step_end.
+  // The headline of the step's result, for a step_end: its answer, summary or verdict string field when the result is a
+  // JSON object that has one, in that order, else the result's first line.
   string summary = 8;
 
   // The epic that holds the step, for a step_end an epic holds, or the epic of an epic event.
@@ -1070,6 +1082,9 @@ message PendingEvent {
 
   // How the event waits: speak when the owner's interrupt keeps the session quiet, and free otherwise.
   string waits = 11;
+
+  // The step's full result, for a step_end.
+  string result = 12;
 }
 
 // BackgroundTask is a background task that a headless session reported, with the times it started and ended.

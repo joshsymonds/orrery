@@ -72,6 +72,14 @@ test("TranscriptSearch: a prompt an event sent draws as an EVENT line and is not
   assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
 });
 
+test("TranscriptSearch: a prompt a cron job sent draws as a CRON row and is not searched, while an owner's prompt with the same text matches", () => {
+  const items = [
+    item({ kind: "prompt", sender: "cron", text: "build finished" }),
+    item({ kind: "prompt", sender: "owner", text: "build finished" }),
+  ];
+  assert.deepEqual(findMatches(items, "build"), [{ item: 1, start: 0 }]);
+});
+
 test("TranscriptSearch: an empty query matches nothing", () => {
   assert.deepEqual(findMatches([item({ kind: "reply", text: "anything" })], ""), []);
 });

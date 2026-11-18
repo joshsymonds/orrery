@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,7 +58,6 @@ func wantStepEndBlock(summary string) string {
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
 		"Agent: implementer\n" +
 		"Summary: " + summary + "\n" +
-		"step_status gives the full result.\n" +
 		"</orrery-event>"
 }
 
@@ -65,12 +65,18 @@ func wantStepEndBlock(summary string) string {
 // sends that pane, which is idle to take it. The pane takes the text as keys, so the test runs no headless session.
 func stepEndTextToPane(t *testing.T, s *store.Store, add store.StepAdd) string {
 	t.Helper()
+	return stepEndTextOfResultToPane(t, s, add, "all green")
+}
+
+// stepEndTextOfResultToPane is stepEndTextToPane for a step that ends with result.
+func stepEndTextOfResultToPane(t *testing.T, s *store.Store, add store.StepAdd, result string) string {
+	t.Helper()
 	const server, pane = "-S /tmp/tmux-1000/orrery", "%7"
 	if err := s.SyncPane(t.Context(), server, store.Pane{ID: "orrery-1", Pane: pane}, fixedClock()); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
 	add.Caller = store.EpicCaller{Server: server, Pane: pane}
-	endCallerStep(t, s, add, "all green")
+	endCallerStep(t, s, add, result)
 	var woken []string
 	sender := NewCallerSender(CallerSenderConfig{
 		Deliver: func(context.Context, DeliverRequest) error {
@@ -136,7 +142,7 @@ func (l *lostMark) MarkCallerEvent(ctx context.Context, event, session string, a
 	return l.Store.MarkCallerEvent(ctx, event, session, at)
 }
 
-func TestCallerEventStepDeliveredOnceAfterRunningTurn(t *testing.T) {
+func TestCallerEventStepDeliveredOnceWhileTurnRuns(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	s := storeOf(t, m)
@@ -152,29 +158,14 @@ func TestCallerEventStepDeliveredOnceAfterRunningTurn(t *testing.T) {
 
 	block := wantStepEndBlock("ASK which color is the banner?")
 	caller := store.CallerSession{ID: id, Kind: store.KindEngine}
-	if sent, err := newStepEndSender(t, m, s).Send(t.Context(), caller, callerStepEvent, block); sent || err != nil {
-		t.Fatalf("Send to a busy caller = %v, %v, want false, nil", sent, err)
+	if sent, err := newStepEndSender(t, m, s).Send(t.Context(), caller, callerStepEvent, block); !sent || err != nil {
+		t.Fatalf("Send to a caller whose turn runs = %v, %v, want true, nil", sent, err)
 	}
+	if !eventMarked(t, s, id) {
+		t.Fatalf("step end not marked after its delivery")
+	}
+	// A pass over the same store lists the step no more, so it sends nothing.
 	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(
-		got, []deliveredPrompt{{Text: "WAITOPEN"}},
-	) {
-		t.Fatalf("prompts while the turn runs = %+v, want only the start's prompt", got)
-	}
-	if eventMarked(t, s, id) {
-		t.Fatalf("step end marked while its caller's turn runs")
-	}
-
-	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
-		t.Fatalf("open the turn: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the turn ended and the session is done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
-	})
-	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
-	history := waitHistory(t, engineOf(m), path, id, "the caller's open question", func(h store.EngineHistory) bool {
-		return h.State == string(protocol.StateWaiting)
-	})
 	want := []deliveredPrompt{
 		{Text: "WAITOPEN"},
 		{
@@ -183,6 +174,16 @@ func TestCallerEventStepDeliveredOnceAfterRunningTurn(t *testing.T) {
 			Sender:   store.PromptSenderEvent,
 		},
 	}
+	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("prompts while the turn runs = %+v, want %+v", got, want)
+	}
+
+	if err = os.WriteFile(filepath.Join(dir, "fakeclaude.open"), nil, 0o600); err != nil {
+		t.Fatalf("open the turn: %v", err)
+	}
+	history := waitHistory(t, engineOf(m), path, id, "the caller's open question", func(h store.EngineHistory) bool {
+		return h.State == string(protocol.StateWaiting)
+	})
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
 		t.Fatalf("prompts = %+v, want %+v", got, want)
 	}
@@ -192,14 +193,11 @@ func TestCallerEventStepDeliveredOnceAfterRunningTurn(t *testing.T) {
 	if requestIDOf(t, history) == "" {
 		t.Fatalf("no request of the caller is open after the delivery")
 	}
-	if !eventMarked(t, s, id) {
-		t.Fatalf("step end not marked after its delivery")
-	}
 
-	// A new pass over the same store lists the step no more, so it sends nothing.
+	// A later pass over the same store sends the step end no second time.
 	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
 	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, want) {
-		t.Fatalf("prompts after a new pass = %+v, want %+v", got, want)
+		t.Fatalf("prompts after a later pass = %+v, want %+v", got, want)
 	}
 }
 
@@ -405,7 +403,6 @@ func TestStepEventCardNamesAgentWithoutEpicLine(t *testing.T) {
 		"Step step-1 ended: end done, status passed, reason gate green.\n" +
 		"Agent: reviewer\n" +
 		"Summary: all green\n" +
-		"step_status gives the full result.\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
@@ -423,9 +420,20 @@ func TestStepEventCardNamesEpicOfEpicHeldStep(t *testing.T) {
 		"Agent: implementer\n" +
 		"Epic: epic-1\n" +
 		"Summary: all green\n" +
-		"step_status gives the full result.\n" +
 		"</orrery-event>"
 	if got != want {
 		t.Fatalf("step end text = %q, want %q", got, want)
+	}
+}
+
+func TestStepEndTextCarriesWholeJSONReturn(t *testing.T) {
+	t.Parallel()
+	s, _ := openStore(t)
+	const jsonPrefix, jsonSuffix = `{"notes":"`, `"}`
+	result := jsonPrefix + strings.Repeat("x", 7000-len(jsonPrefix)-len(jsonSuffix)) + jsonSuffix
+	add := store.StepAdd{ID: callerStepID, Agent: "implementer", Prompt: "do it"}
+	got := stepEndTextOfResultToPane(t, s, add, result)
+	if want := wantStepEndBlock(result); got != want {
+		t.Fatalf("step end text = %q, want the whole result with no hint line: %q", got, want)
 	}
 }

@@ -402,7 +402,7 @@ test("a message the dock's target holds draws as one queued row, and no sending 
       seq: "6",
       items: [],
       state: { session: { state: "stopped" } },
-      held: [{ promptId, text: "held from the dock" }],
+      queued: [{ promptId, text: "held from the dock", state: "queued" }],
     });
     await rendered(t.signal, () => container.querySelector(".reader .sending-row") === null, "the sending row leaves");
     assert.deepEqual(

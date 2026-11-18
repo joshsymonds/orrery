@@ -58,7 +58,7 @@ func TestOwnerInterruptQuietsCallerEventsUntilHisSay(t *testing.T) {
 	})
 	want := []deliveredPrompt{
 		{Text: "HANG"},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 		{Text: block, PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
@@ -129,7 +129,7 @@ func TestOwnerInterruptQuietOutlivesIdleStop(t *testing.T) {
 	})
 	want := []deliveredPrompt{
 		{Text: "HANG"},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 		{Text: block, PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {
@@ -140,42 +140,44 @@ func TestOwnerInterruptQuietOutlivesIdleStop(t *testing.T) {
 	}
 }
 
-// TestOwnerPreemptLeavesCallerEventsOpen delivers a caller event whose turn runs until an interrupt (HANG). The owner's
-// Say during it preempts that turn, whose interrupt does not quiet the session: once the owner's turn ends, the step-end
-// pass delivers a pending event.
+// TestOwnerPreemptLeavesCallerEventsOpen delivers a caller event whose turn reads the next line from stdin while it runs
+// (MIDTURN), and has the owner Say during it. The Say is written at once, and the event's turn takes it in with its own
+// result, so the owner interrupts nothing: no interrupt is written, and the turn ends done. Once the owner's turn ends, the
+// step-end pass delivers a pending event.
 func TestOwnerPreemptLeavesCallerEventsOpen(t *testing.T) {
 	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	s := storeOf(t, m)
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "start"})
+	dir := t.TempDir()
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	waitHistory(t, engineOf(m), path, id, "the first turn's end", func(h store.EngineHistory) bool {
 		return turnEndCount(h) == 1 && h.State == string(protocol.StateDone)
 	})
-	if err = m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "HANG event", PromptID: "e1"}); err != nil {
+	if err = m.Deliver(t.Context(), DeliverRequest{ID: id, Text: "MIDTURN event", PromptID: "e1"}); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
-	waitHistory(t, engineOf(m), path, id, "the event's hanging turn", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake hanging 2")
-	})
 	if err = m.Say(t.Context(), SayRequest{ID: id, Text: "owner words", PromptID: "p-owner"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	waitHistory(t, engineOf(m), path, id, "the owner's turn's end", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 3") && turnEndCount(h) == 3 && h.State == string(protocol.StateDone)
+	waitHistory(t, engineOf(m), path, id, "the event's turn's end", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake midturn 2") && turnEndCount(h) == 2 && h.State == string(protocol.StateDone)
 	})
+	if n := interruptsWritten(t, dir); n != 0 {
+		t.Fatalf("interrupts written for the owner's Say = %d, want none", n)
+	}
 	addEndedCallerStep(t, s, store.EpicCaller{Session: id}, "the work is in")
 
 	stepEndPass(newStepEndSender(t, m, s), s).Pass(t.Context())
 	history := waitHistory(t, engineOf(m), path, id, "the pending event's turn end", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 4") && turnEndCount(h) == 4 && h.State == string(protocol.StateDone)
+		return hasBlock(t, h, "fake reply 3") && turnEndCount(h) == 3 && h.State == string(protocol.StateDone)
 	})
 	want := []deliveredPrompt{
 		{Text: "start"},
-		{Text: "HANG event", PromptID: "e1", Sender: store.PromptSenderEvent},
-		{Text: "owner words", PromptID: "p-owner"},
+		{Text: "MIDTURN event", PromptID: "e1", Sender: store.PromptSenderEvent},
+		{Text: "owner words", PromptID: "p-owner", Sender: store.PromptSenderOwner},
 		{Text: wantStepEndBlock("the work is in"), PromptID: callerStepEvent, Sender: store.PromptSenderEvent},
 	}
 	if got := enginePromptsOf(t, history); !reflect.DeepEqual(got, want) {

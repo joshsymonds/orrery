@@ -53,16 +53,15 @@ var ErrBadID = errors.New("session id must be 32 lowercase hex digits")
 // permission request. The request stays open.
 var ErrBadAnswer = errors.New("answer does not fit the open request")
 
-// ErrNotHeld reports a Withdraw of a prompt id the session holds no message for: the message was written already, or the
-// id is unknown. Withdraw removes nothing.
-var ErrNotHeld = errors.New("no held message has that prompt id")
+// ErrUnknownPrompt reports a Withdraw of a prompt id that no owner prompt of the session carries: the id is unknown, or
+// it names a prompt another sender sent. Withdraw sends nothing.
+var ErrUnknownPrompt = errors.New("no owner prompt of the session has that prompt id")
 
 // errSessionEnded reports a delivery to a session whose process ended after the Say found it live. Say resumes the session
 // and delivers once more.
 var errSessionEnded = errors.New("session ended before the message was delivered")
 
-// ErrSessionBusy reports a Deliver to a live session that has a turn running, a request open, a background task or a
-// hand-off. Deliver stores and sends nothing for it.
+// ErrSessionBusy reports a Deliver to a live session that has a request open. Deliver stores and sends nothing for it.
 var ErrSessionBusy = errors.New("session is busy")
 
 // ErrCallerStopped reports a Deliver to a session whose row is stopped, as the owner's Stop leaves it. Deliver resumes
@@ -72,6 +71,10 @@ var ErrCallerStopped = errors.New("session was stopped")
 // ErrCallerQuiet reports a Deliver to a live session that the owner interrupted and has said nothing to since (see
 // liveSession). Deliver stores and sends nothing for it.
 var ErrCallerQuiet = errors.New("session was interrupted by its owner")
+
+// ErrCallerFailed reports a DeliverCron to a session whose row is failed. The session waits for its owner's next
+// message, so DeliverCron resumes nothing and sends nothing to it.
+var ErrCallerFailed = errors.New("session failed and waits for its owner's next message")
 
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
@@ -112,8 +115,9 @@ type NoticeSink interface {
 
 // Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
 // rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written and how many prompts were written
-// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, and the messages a
-// session holds, which Say, the pump and Withdraw read. *store.Store satisfies it.
+// that no later turn end answers, the step rows Continue respawns from, the failure markers Say checks, the prompt
+// Withdraw names, by its prompt id, for its write id and text, and the prompts OwnerInterrupt reads for the texts of the
+// write ids Claude cancelled. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineTextSessions(ctx context.Context) (map[string]bool, error)
@@ -123,7 +127,9 @@ type Store interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
-	HeldPrompts(ctx context.Context, id string) ([]store.HeldPrompt, error)
+	PromptWrite(ctx context.Context, id, promptID string) (store.PromptWrite, bool, error)
+	PromptsOfWrites(ctx context.Context, id string, writeIDs []string) ([]store.WritePrompt, error)
+	DeleteSessionCronJobs(ctx context.Context, session string) (int, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -138,6 +144,10 @@ type Store interface {
 // step's agent resolves under, or empty to read none. HolderVersion is the holder wire version this manager's controller
 // speaks when it re-adopts a holder, or zero for holder.WireVersion. Metrics counts each holder lost in re-adoption, or
 // nil to count none.
+//
+// CronWake, when set, is called with a session id after the owner's Say to that session returns nil, and after a turn's
+// end that leaves a session which is not a step with no turn running is stored. It is called with "" whenever a session
+// slot frees. Each call runs on its own goroutine, off the manager's locks (see wakeCron).
 type Config struct {
 	Shell             string
 	Claude            string
@@ -155,6 +165,7 @@ type Config struct {
 	Store             Store
 	Logger            *slog.Logger
 	Metrics           *telemetry.Daemon
+	CronWake          func(session string)
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -164,12 +175,8 @@ type Config struct {
 // from the send of its prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by
 // Interrupt while a turn runs, until that turn's end, which then sends no notice. ownerInterrupt is set by
 // OwnerInterrupt while a turn runs, until that turn's end or the process's Exited, and marks that turn's end as caused
-// by the owner (see
-// noteTurnEndedLocked). starter is who started the turn running now, or the last one: the owner, through Start, Say or
-// a held message, a caller event through Deliver, or claude itself, as a background
-// task's end starts a turn (see turnStarter). A turn that a prompt follows keeps its starter, since the prompt that follows
-// it set the starter when it was sent. closing is set by Close before it stops the session. The manager's lock guards
-// turning, interrupting, ownerInterrupt, starter, closing, sending, requests, background, returned, idleSince and
+// by the owner (see noteTurnEndedLocked). closing is set by Close before it stops the session. The manager's lock guards
+// turning, interrupting, ownerInterrupt, closing, sending, requests, background, returned, idleSince and
 // idleStopped, and the pump sets exited under it too. requests holds the ids of the requests the host has open,
 // background is set while a background task runs, idleSince is when the session last became not busy (zero while it
 // is busy), and idleStopped is set when a check stops the session for being idle. step is set for a step session, which sends no notice and frees a
@@ -197,7 +204,6 @@ type liveSession struct {
 	turning        bool
 	interrupting   bool
 	ownerInterrupt bool
-	starter        turnStarter
 	closing        bool
 	draining       bool
 	retired        bool
@@ -208,21 +214,10 @@ type liveSession struct {
 	idleSince      time.Time
 	idleStopped    bool
 	// order is held by the pump while it records a line, by Answer from its send until it has queued the working state, so
-	// every op an answer causes is queued after that state, and by deliver and Withdraw while they decide or write held
-	// messages, so the pump's turn ends and those decisions never interleave.
+	// every op an answer causes is queued after that state, and by deliver while it decides and writes a message, so the
+	// pump's turn ends and those decisions never interleave.
 	order sync.Mutex
 }
-
-// turnStarter names who started a turn of a live session. The zero value is ownerTurn, so a turn the manager did not see
-// start, as the running turn of a re-adopted session, counts as the owner's.
-type turnStarter int
-
-// The starters of a turn: the owner's prompt, a caller event's prompt, or claude itself, with no prompt.
-const (
-	ownerTurn turnStarter = iota
-	eventTurn
-	claudeTurn
-)
 
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
@@ -257,6 +252,8 @@ type Manager struct {
 	store            Store
 	logger           *slog.Logger
 	metrics          *telemetry.Daemon
+	// cronWake is Config.CronWake, called on its own goroutine (see wakeCron).
+	cronWake func(session string)
 
 	pumps sync.WaitGroup
 	// calls counts the calls under way that can start or end work (see callsInFlight).
@@ -282,8 +279,8 @@ type Manager struct {
 	kept map[string]*liveSession
 	// quiet holds the ids of the sessions the owner's Interrupt left quiet, until the owner's next Say to each clears it.
 	// While an id is in it, no caller event starts a turn in that session or resumes it (see claimFree and admitEvent).
-	// An interrupt that a Say's preempt sends (see interruptFor) adds nothing. It is kept apart from the live session, so
-	// a session the idle check stops stays quiet when it is resumed, and in memory only, so a restart of orreryd clears it.
+	// It is kept apart from the live session, so a session the idle check stops stays quiet when it is resumed, and in
+	// memory only, so a restart of orreryd clears it.
 	quiet  map[string]struct{}
 	closed bool
 
@@ -317,6 +314,7 @@ func NewManager(cfg Config) *Manager {
 		store:             cfg.Store,
 		logger:            cfg.Logger,
 		metrics:           cfg.Metrics,
+		cronWake:          cfg.CronWake,
 		sessions:          map[string]*liveSession{},
 		stopping:          map[string]*liveSession{},
 		stepObservers:     map[string]StepObserver{},
@@ -481,7 +479,10 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 
 // Stop stops the live session id and records it stopped once its pump has stored its last ops. A drained step with no live
 // session is recorded stopped the same way, and its kept slot is freed (see stopDrained). It returns ErrNoSession when id
-// is neither. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup and the stop.
+// is neither. Unless id is a step, which keeps its own cron, Stop first deletes the cron jobs of id, so none fires into
+// the stopped session, whether id is live or idle-stopped. A deletion error is joined into the error Stop returns, and
+// the stop goes on. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup
+// and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	defer m.calls.enter()()
 	m.resumeMu.Lock()
@@ -490,18 +491,24 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	live := m.sessions[id]
 	drained := m.kept[id]
 	m.mu.Unlock()
+	var cronErr error
+	if drained == nil && (live == nil || !live.step) {
+		if _, err := m.store.DeleteSessionCronJobs(ctx, id); err != nil {
+			cronErr = fmt.Errorf("delete cron jobs of session %s: %w", id, err)
+		}
+	}
 	switch {
 	case live != nil:
 		stopErr := live.sess.Stop()
 		recordErr := m.recordStopped(ctx, live)
 		if stopErr == nil && recordErr == nil {
-			return nil
+			return cronErr
 		}
-		return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
+		return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr)))
 	case drained != nil:
 		return m.stopDrained(ctx, drained)
 	}
-	return fmt.Errorf("stop session %s: %w", id, ErrNoSession)
+	return errors.Join(cronErr, fmt.Errorf("stop session %s: %w", id, ErrNoSession))
 }
 
 // stopDrained records the drained step stopped once its pump has ended, then frees its kept slot. The caller holds
@@ -545,7 +552,7 @@ func (m *Manager) Seen(ctx context.Context, id string) error {
 }
 
 // SayRequest is what Say needs: the session ID, the text of the prompt, and the client-chosen PromptID. An empty
-// PromptID is not deduplicated.
+// PromptID is replaced by a minted one, so the message is stored under a prompt id like every other.
 type SayRequest struct {
 	ID       string
 	Text     string
@@ -553,25 +560,38 @@ type SayRequest struct {
 }
 
 // Say sends req.Text to the session req.ID as its next prompt. A session that is not live is resumed first, from its
-// engine row (see resumeSession). A message is written at once, as its prompt, when the session is idle and holds no
-// message; otherwise it is held (see deliver). It records the prompt and the working state before it sends, so the stored
-// conversation has the prompt ahead of its reply. A non-empty req.PromptID runs as one attempt per session and prompt
-// id: while an attempt for it runs, a Say with that id waits for the attempt and returns its result, and sends nothing.
-// Once begun, the attempt finishes even if ctx ends, and a Say whose ctx ends returns ctx's error. With no attempt
-// running, a req.PromptID that an engine_prompt event of the session already carries, or that the session holds, makes Say
-// return nil and do nothing else; otherwise the stored prompt carries req.PromptID. An attempt that fails after it stores the
-// prompt keeps its error, and a later Say with that prompt id returns the error and does nothing else. A send that fails is
-// recorded as the session's failed state; with a req.PromptID, the same write stores that prompt's failure marker, so a Say
-// with that prompt id returns the stored reason and does nothing else, even after a restart. It returns ErrEmptyPrompt for
-// empty text, an error wrapping ErrNoSession when no engine row has the id, and the errors of resumeSession when a live
-// session cannot be started.
+// engine row (see resumeSession). The message is written at once, whatever the session is doing: while a turn runs,
+// whoever started it, with a background task listed, or idle. Nothing is held and no turn is interrupted (see deliver).
+// The prompt it records has the owner as its sender. It records the prompt and the working state before it sends, so the
+// stored conversation has the prompt ahead of its reply. An empty req.PromptID is minted first (see newWriteID). The
+// attempt for a prompt id runs once per session: while an attempt for it runs, a Say with that id waits for the attempt
+// and returns its result, and sends nothing. Once begun, the attempt finishes even if ctx ends, and a Say whose ctx ends
+// returns ctx's error. With no attempt running, a req.PromptID that an engine_prompt event of the session already carries
+// makes Say return nil and do nothing else. An attempt that fails after it stores the prompt keeps its error, and a later
+// Say with that prompt id returns the error and does nothing else. A send that fails is recorded as the session's failed
+// state; the same write stores that prompt's failure marker, so a Say with that prompt id returns the stored reason and
+// does nothing else, even after a restart. It returns ErrEmptyPrompt for empty text, an error wrapping ErrNoSession when no
+// engine row has the id, and the errors of resumeSession when a live session cannot be started.
 func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 	defer m.calls.enter()()
+	if err := m.sayPrompt(ctx, req); err != nil {
+		return err
+	}
+	m.wakeCron(req.ID)
+	return nil
+}
+
+// sayPrompt sends req as Say does, without the call of the cron hook that Say makes once it returns nil.
+func (m *Manager) sayPrompt(ctx context.Context, req SayRequest) error {
 	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
 	if req.PromptID == "" {
-		return m.say(ctx, req)
+		promptID, err := newWriteID()
+		if err != nil {
+			return fmt.Errorf("prompt id of session %s: %w", req.ID, err)
+		}
+		req.PromptID = promptID
 	}
 	_, err := m.keyed(
 		ctx,
@@ -601,21 +621,13 @@ func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 	return err
 }
 
-// promptRecorded reports whether session id has the prompt promptID, sent or held: an engine_prompt event of the session
-// carries it, or the session holds its message.
+// promptRecorded reports whether session id has the prompt promptID sent: an engine_prompt event of the session carries it.
 func (m *Manager) promptRecorded(ctx context.Context, id, promptID string) (bool, error) {
 	sent, err := m.store.EnginePromptSent(ctx, id, promptID)
 	if err != nil {
 		return false, fmt.Errorf("check prompt %s of session %s: %w", promptID, id, err)
 	}
-	if sent {
-		return true, nil
-	}
-	held, err := m.store.HeldPrompts(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("check held prompts of session %s: %w", id, err)
-	}
-	return slices.ContainsFunc(held, func(message store.HeldPrompt) bool { return message.PromptID == promptID }), nil
+	return sent, nil
 }
 
 // say delivers the message of req as Say does, without the check of its prompt id. A session that is not live is resumed
@@ -640,7 +652,7 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	return nil
 }
 
-// deliver writes or holds the message of req for live (see decide), and sends it when the decision is to write it.
+// deliver writes the message of req to live (see decide) and sends it.
 func (m *Manager) deliver(ctx context.Context, live *liveSession, req SayRequest) error {
 	sendNow, err := m.decide(ctx, live, req)
 	if err != nil {
@@ -649,174 +661,32 @@ func (m *Manager) deliver(ctx context.Context, live *liveSession, req SayRequest
 	return sendNow()
 }
 
-// nothingToSend is the send of a message that decide holds or records for the pump, which needs no send of its own.
-func nothingToSend() error {
-	return nil
-}
-
-// decide makes the delivery decision for req on live under live's order lock, so it is made against the session's turn
-// and held messages as the pump leaves them. A request the session has open is declined first (see declineLocked). The
-// owner's message clears the quiet that his Interrupt set, so caller events are delivered again (see claimFree). A
-// step's message, and a message after such a decline, is written at once, since a decline leaves the turn running with
-// the message as its next prompt. A message is also written at once when the session is idle and holds no message. A
-// turn that a caller event or claude itself started does not hold the owner's message: that turn is interrupted, and
-// the message is written as the next turn at once when the session holds no message or a request was declined (see
-// preemptLocked), or held behind the held messages, whose oldest the interrupted turn's end writes. Otherwise it is
-// held behind the messages held before it, and when the session is idle the oldest of those is recorded as its next
-// turn here, so the held messages go in order. decide returns the send to make once the lock is released, since a send
-// waits on the holder and the pump needs the lock to record the turn end the send follows. When the message is held, or
-// is recorded for the pump, the send it returns is nothingToSend. It returns errSessionEnded when live is no longer the
-// session the manager runs.
+// decide makes the delivery decision for req on live under live's order lock, so it is made against the session's turn as
+// the pump leaves it. A request the session has open is declined first (see declineLocked). The owner's message clears the
+// quiet that his Interrupt set, so caller events are delivered again (see claimFree). Every message is then written at once
+// as the session's next prompt, whatever the session is doing: a turn running, whoever started it, a background task
+// listed, or the session idle. Nothing is held and no turn is interrupted. decide returns the send to make once the lock is
+// released, since a send waits on the holder and the pump needs the lock to record the turn end the send follows. It
+// returns errSessionEnded when live is no longer the session the manager runs.
 func (m *Manager) decide(ctx context.Context, live *liveSession, req SayRequest) (func() error, error) {
 	live.order.Lock()
 	defer live.order.Unlock()
 	if !m.isLive(live) {
 		return nil, errSessionEnded
 	}
-	message := store.EnginePrompt{ID: live.id, Text: req.Text, PromptID: req.PromptID}
-	declined, err := m.declineLocked(ctx, live)
-	if err != nil {
+	message := store.EnginePrompt{ID: live.id, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderOwner}
+	if err := m.declineLocked(ctx, live); err != nil {
 		return nil, err
 	}
 	if live.step {
 		m.markSending(live)
 		return func() error { return m.send(ctx, live, message) }, nil
 	}
-	held, err := m.store.HeldPrompts(ctx, live.id)
-	if err != nil {
-		return nil, fmt.Errorf("read held prompts of session %s: %w", live.id, err)
-	}
 	m.mu.Lock()
 	delete(m.quiet, live.id)
-	turning := live.turning
-	preempt := turning && live.starter != ownerTurn
 	m.mu.Unlock()
-	if preempt && (declined || len(held) == 0) {
-		return m.preemptLocked(ctx, live, message)
-	}
-	if declined || (!turning && len(held) == 0) {
-		m.markSending(live)
-		return func() error { return m.send(ctx, live, message) }, nil
-	}
-	return m.holdLocked(ctx, live, message, held, turning, preempt)
-}
-
-// holdLocked holds message for live behind held, the messages live holds, as decide decides it, and returns the send to make
-// once live's order lock is released. While a turn runs, preempt interrupts it, since a caller event or claude itself
-// started it, so its end writes the oldest held message. When no turn runs, the oldest held message is recorded as the next
-// turn here. The caller holds live's order lock.
-func (m *Manager) holdLocked(
-	ctx context.Context,
-	live *liveSession,
-	message store.EnginePrompt,
-	held []store.HeldPrompt,
-	turning, preempt bool,
-) (func() error, error) {
-	var err error
-	if message.PromptID == "" {
-		if message.PromptID, err = newWriteID(); err != nil {
-			return nil, fmt.Errorf("prompt id for session %s: %w", live.id, err)
-		}
-	}
-	hold := store.EngineHold{ID: live.id, PromptID: message.PromptID, Text: message.Text}
-	if err = m.writer.Commit(ctx, live.id, hold); err != nil {
-		return nil, fmt.Errorf("hold prompt of session %s: %w", live.id, err)
-	}
-	if turning {
-		if preempt {
-			m.interruptFor(ctx, live)
-		}
-		return nothingToSend, nil
-	}
-	// The session is idle with messages held before this one, so the oldest goes first. This message stays held behind it.
-	send := m.startHeldLocked(ctx, live, held)
-	return func() error {
-		send()
-		return nil
-	}, nil
-}
-
-// preemptLocked writes message as the next turn of live, whose running turn a caller event or claude itself started, and
-// interrupts that turn, so the owner's message is never held behind it. The message is recorded first, with the session
-// working, and counts as sent from before that write, so the interrupted turn's end is followed and leaves the session
-// working with no notice (see noteTurnEndedLocked). The turn is the owner's from then on, so a later message is held
-// behind this one. The interrupt goes before the message, so claude ends its turn and runs the message as the next. The
-// caller holds live's order lock, so the pump records no turn end between the record and the interrupt. It returns the
-// send of the message, which runs once the lock is released. A failed record leaves the turn running as it was and is
-// returned.
-func (m *Manager) preemptLocked(
-	ctx context.Context,
-	live *liveSession,
-	message store.EnginePrompt,
-) (func() error, error) {
-	m.mu.Lock()
-	live.sending++
-	m.mu.Unlock()
-	writeID, err := m.record(ctx, live, message)
-	if err != nil {
-		m.endSend(live)
-		return nil, err
-	}
-	m.mu.Lock()
-	live.starter = ownerTurn
-	m.mu.Unlock()
-	m.interruptFor(ctx, live)
-	return func() error {
-		defer m.endSend(live)
-		if sendErr := m.transmit(live, message.Text, writeID); sendErr != nil {
-			return m.failSend(ctx, live, message, sendErr)
-		}
-		return nil
-	}, nil
-}
-
-// interruptFor interrupts the running turn of live for the owner's message, as Interrupt does, unless an interrupt of it is
-// already pending, since a second could reach claude after that turn ended and interrupt the owner's. That turn's end
-// sends no notice. Unlike Interrupt, it leaves the session open to caller events, since the owner's message follows. A
-// failed interrupt is logged, and the owner's message then follows the turn once it ends.
-func (m *Manager) interruptFor(ctx context.Context, live *liveSession) {
-	m.mu.Lock()
-	pending := live.interrupting
-	live.interrupting = live.turning
-	m.mu.Unlock()
-	if pending {
-		return
-	}
-	if err := live.sess.Interrupt(); err != nil {
-		m.setInterrupting(live, false)
-		m.logger.WarnContext(ctx, "interrupt a turn for the owner's message", "session", live.id, "err", err)
-	}
-}
-
-// startHeldLocked records the oldest of held as the next turn of live, which must be idle, and returns the send of that turn.
-// The caller holds live's order lock, so the message is recorded as the pump leaves the held set, and a withdrawal cannot
-// take it between the decision and its write. The send runs once the lock is released. A failure to record it leaves every
-// message held and is logged, and the idle check writes the oldest one later (see writeHeldIdle). A failed send is logged
-// with the failure the session records.
-func (m *Manager) startHeldLocked(ctx context.Context, live *liveSession, held []store.HeldPrompt) func() {
-	head := held[0]
-	headPrompt := store.EnginePrompt{ID: live.id, Text: head.Text, PromptID: head.PromptID}
-	m.markSending(live)
-	writeID, err := m.record(ctx, live, headPrompt, store.EngineHeldRelease{ID: live.id, PromptID: head.PromptID})
-	if err != nil {
-		m.setTurning(live, false)
-		m.endSend(live)
-		m.logger.WarnContext(ctx, "write held prompt", "session", live.id, "err", err)
-		return func() {}
-	}
-	return func() {
-		defer m.endSend(live)
-		if sendErr := m.transmit(live, head.Text, writeID); sendErr != nil {
-			m.logger.WarnContext(
-				ctx,
-				"write held prompt",
-				"session",
-				live.id,
-				"err",
-				m.failSend(ctx, live, headPrompt, sendErr),
-			)
-		}
-	}
+	wasTurning := m.markSending(live)
+	return func() error { return m.sendSay(ctx, live, message, wasTurning) }, nil
 }
 
 // isLive reports whether live is the session the manager runs under its id, whose pump has not ended.
@@ -832,14 +702,13 @@ func (m *Manager) isLive(live *liveSession) bool {
 func (m *Manager) declineOpen(ctx context.Context, live *liveSession) error {
 	live.order.Lock()
 	defer live.order.Unlock()
-	_, err := m.declineLocked(ctx, live)
-	return err
+	return m.declineLocked(ctx, live)
 }
 
-// declineLocked denies every request live has open, as declineOpen does, and reports whether it denied any. A request the
-// session already answered or withdrew is skipped. When it denies any, it records the session working with no question. The
-// caller holds live's order lock.
-func (m *Manager) declineLocked(ctx context.Context, live *liveSession) (bool, error) {
+// declineLocked denies every request live has open, as declineOpen does. A request the session already answered or
+// withdrew is skipped. When it denies any, it records the session working with no question. The caller holds live's order
+// lock.
+func (m *Manager) declineLocked(ctx context.Context, live *liveSession) error {
 	m.mu.Lock()
 	open := slices.Collect(maps.Keys(live.requests))
 	m.mu.Unlock()
@@ -851,24 +720,24 @@ func (m *Manager) declineLocked(ctx context.Context, live *liveSession) (bool, e
 			continue
 		}
 		if err != nil {
-			return declined, fmt.Errorf("decline request %s: %w", requestID, err)
+			return fmt.Errorf("decline request %s: %w", requestID, err)
 		}
 		m.closeRequest(live, requestID)
 		declined = true
 	}
 	if !declined {
-		return false, nil
+		return nil
 	}
 	working := string(protocol.StateWorking)
 	question := ""
 	if err := m.writer.Put(ctx, live.id, store.EngineSet{ID: live.id,
 		Changes: store.EngineChanges{State: &working, Question: &question}}); err != nil {
-		return true, fmt.Errorf("record session %s working: %w", live.id, err)
+		return fmt.Errorf("record session %s working: %w", live.id, err)
 	}
 	if !live.step {
 		m.changed(ctx, live.id)
 	}
-	return true, nil
+	return nil
 }
 
 // Resume sends resumePrompt to the session id as its next prompt, through Say, so that its interrupted turn continues
@@ -900,24 +769,48 @@ type DeliverRequest struct {
 	PromptID string
 }
 
-// Deliver sends req.Text to the headless session req.ID as its next prompt, stored with the sender event and
-// req.PromptID. Unlike Say, it never answers, denies or declines a request the session has open. A live session that
-// is busy, with a turn running, a request open, a background task or a hand-off, returns ErrSessionBusy and stores and
-// sends nothing, so the caller delivers the text once the session is not busy. A live session that the owner
-// interrupted and has said nothing to since returns ErrCallerQuiet and stores and sends nothing, so the caller delivers
-// the text once the owner has spoken. A session that is not live is resumed from its row, as Say resumes one, unless its
-// row is stopped, which returns ErrCallerStopped, or the owner interrupted it and has said nothing to it since, as when
-// the idle check stopped it after his Interrupt, which returns ErrCallerQuiet and resumes nothing. A step session returns
-// an error naming it. A non-empty req.PromptID that an engine_prompt of the session already carries makes Deliver
-// return nil and do nothing else, also after a restart. It returns ErrEmptyPrompt for empty text. A non-empty
-// req.PromptID runs as one attempt per session and prompt id, as Say's does (see keyed).
+// Deliver sends req.Text to the headless session req.ID as its next prompt at once, stored with the sender event and
+// req.PromptID. Whatever the session is doing takes it: a turn running, whoever started it, a background task listed,
+// or an idle session. Unlike Say, it never answers, denies or declines a request the session has open. A live session
+// that has a request open returns ErrSessionBusy and stores and sends nothing, so the caller delivers the text once the
+// request is answered. A live session that the owner interrupted and has said nothing to since returns ErrCallerQuiet
+// and stores and sends nothing, so the caller delivers the text once the owner has spoken. A session that is not live is
+// resumed from its row, as Say resumes one, unless its row is stopped, which returns ErrCallerStopped, or the owner
+// interrupted it and has said nothing to it since, as when the idle check stopped it after his Interrupt, which returns
+// ErrCallerQuiet and resumes nothing. A step session returns an error naming it. A non-empty req.PromptID that an
+// engine_prompt of the session already carries makes Deliver return nil and do nothing else, also after a restart. It
+// returns ErrEmptyPrompt for empty text. A non-empty req.PromptID runs as one attempt per session and prompt id, as
+// Say's does (see keyed).
 func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 	defer m.calls.enter()()
+	return m.deliverKeyed(ctx, req, m.deliverEvent)
+}
+
+// DeliverCron sends req.Text to the headless session req.ID as its next prompt, stored with the sender cron and
+// req.PromptID, for a cron fire the session's jobs owe. It shares Deliver's handling of empty text, its keyed attempt
+// and its prompt-id check, and like Deliver it never answers, denies or declines a request the session has open. A live
+// session is claimed only when no turn runs, no request is open and it has no hand-off, so a running background task
+// does not hold it: a session that is busy returns ErrSessionBusy and stores and sends nothing. A live session that the
+// owner interrupted and has said nothing to since returns ErrCallerQuiet. A session that is not live is resumed from its
+// row, unless its row is stopped, which returns ErrCallerStopped, failed, which returns ErrCallerFailed, or the owner
+// interrupted it and has said nothing to it since, which returns ErrCallerQuiet; each of those starts no process. A full
+// cap returns the ErrCapReached of the resume. A step session returns an error naming it.
+func (m *Manager) DeliverCron(ctx context.Context, req DeliverRequest) error {
+	defer m.calls.enter()()
+	return m.deliverKeyed(ctx, req, m.deliverCron)
+}
+
+// deliverKeyed is the delivery that Deliver and DeliverCron share. It returns ErrEmptyPrompt for empty text. A
+// non-empty req.PromptID that an engine_prompt of the session already carries makes it return nil and do nothing else,
+// and any other non-empty req.PromptID runs as one attempt per session and prompt id (see keyed). deliver sends req.
+func (m *Manager) deliverKeyed(
+	ctx context.Context, req DeliverRequest, deliver func(context.Context, DeliverRequest) error,
+) error {
 	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
 	if req.PromptID == "" {
-		return m.deliverEvent(ctx, req)
+		return deliver(ctx, req)
 	}
 	_, err := m.keyed(
 		ctx,
@@ -930,7 +823,7 @@ func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 			if sent {
 				return "", nil
 			}
-			return "", m.deliverEvent(ctx, req)
+			return "", deliver(ctx, req)
 		},
 		func(ctx context.Context) bool {
 			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
@@ -940,32 +833,68 @@ func (m *Manager) Deliver(ctx context.Context, req DeliverRequest) error {
 	return err
 }
 
-// deliverEvent sends req as Deliver does, without the check of its prompt id. The session is claimed only when it is
-// not busy and not quiet, and a session that is not live is resumed from its row first, so a busy, stopped or quiet
-// session is left as it is.
+// deliverEvent sends req as Deliver does, without the check of its prompt id, as a caller event's prompt. The event is
+// claimed and written at once (see claimFree), so only a session with a request open or quiet from the owner's interrupt
+// is left as it is.
 func (m *Manager) deliverEvent(ctx context.Context, req DeliverRequest) error {
-	live, err := m.claimFree(req.ID)
+	return m.deliverTo(ctx, req, store.PromptSenderEvent, m.claimFree, m.admitEvent)
+}
+
+// deliverCron sends req as DeliverCron does, without the check of its prompt id, as a cron fire's prompt. The session
+// is claimed only when no turn runs, no request is open and it has no hand-off (see claimCron).
+func (m *Manager) deliverCron(ctx context.Context, req DeliverRequest) error {
+	return m.deliverTo(ctx, req, store.PromptSenderCron, m.claimCron, m.admitCron)
+}
+
+// deliverTo sends req as a prompt stored with sender, through the send that claim returns for the session. A session
+// that is not live is resumed from its row first, and admit sees that row before the process starts (see
+// resumeSession), so a stopped or quiet session is left as it is, and so is a session that claim refuses.
+func (m *Manager) deliverTo(
+	ctx context.Context,
+	req DeliverRequest,
+	sender string,
+	claim func(ctx context.Context, id string, message store.EnginePrompt) (func() error, error),
+	admit func(store.EngineRow) error,
+) error {
+	message := store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: sender}
+	send, err := claim(ctx, req.ID, message)
 	if errors.Is(err, ErrNoSession) {
-		if _, err = m.resumeSession(ctx, req.ID, m.admitEvent); err == nil {
-			live, err = m.claimFree(req.ID)
+		if _, err = m.resumeSession(ctx, req.ID, admit); err == nil {
+			send, err = claim(ctx, req.ID, message)
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("deliver to session %s: %w", req.ID, err)
 	}
-	return m.send(ctx, live, store.EnginePrompt{
-		ID: req.ID, Text: req.Text, PromptID: req.PromptID, Sender: store.PromptSenderEvent,
-	})
+	return send()
 }
 
-// admitEvent returns ErrCallerStopped for a row the owner's Stop recorded stopped, and ErrCallerQuiet for a session the
-// owner's Interrupt left quiet (see Manager.quiet), so a delivery resumes nothing for either. Any other row is admitted.
+// admitEvent returns ErrCallerStopped for a row the owner's Stop recorded stopped, and whatever admitQuiet returns
+// otherwise, so a delivery resumes nothing for either.
 func (m *Manager) admitEvent(row store.EngineRow) error {
 	if row.State == stateStopped {
 		return ErrCallerStopped
 	}
+	return m.admitQuiet(row.ID)
+}
+
+// admitCron returns ErrCallerStopped for a row the owner's Stop recorded stopped, ErrCallerFailed for a failed row, and
+// whatever admitQuiet returns otherwise, so a cron fire resumes nothing for any of them.
+func (m *Manager) admitCron(row store.EngineRow) error {
+	switch row.State {
+	case stateStopped:
+		return ErrCallerStopped
+	case stateFailed:
+		return ErrCallerFailed
+	}
+	return m.admitQuiet(row.ID)
+}
+
+// admitQuiet returns ErrCallerQuiet for a session the owner's Interrupt left quiet (see Manager.quiet), and nil for any
+// other session.
+func (m *Manager) admitQuiet(id string) error {
 	m.mu.Lock()
-	_, quiet := m.quiet[row.ID]
+	_, quiet := m.quiet[id]
 	m.mu.Unlock()
 	if quiet {
 		return ErrCallerQuiet
@@ -973,12 +902,57 @@ func (m *Manager) admitEvent(row store.EngineRow) error {
 	return nil
 }
 
-// claimFree returns the live session id with its turn marked running, started by a caller event, and a send begun, as
-// markSending does, but only while the session is not busy and not quiet. The check and the claim are one step under the
-// lock, so a delivery that claims the session leaves every other delivery to find it busy. It returns ErrNoSession when no
-// session with that id is live, or when it is closing or its exit is recorded, ErrSessionBusy when it is busy,
+// claimFree returns the send that writes message, a caller event, to the live session id at once as its next prompt. The
+// check is made under the session's order lock, as decide makes a Say's, so it is made against the turn as the pump leaves
+// it. A turn running, whoever started it, and a background task listed do not refuse. The send is begun by markSending
+// and ends in sendSay, which restores whether a turn ran when its record fails. It returns ErrNoSession when no session
+// with that id is live, or when it is closing or its exit is recorded, ErrSessionBusy when a request is open,
 // ErrCallerQuiet when the owner's Interrupt left it quiet, and an error naming it when it is a step.
-func (m *Manager) claimFree(id string) (*liveSession, error) {
+func (m *Manager) claimFree(ctx context.Context, id string, message store.EnginePrompt) (func() error, error) {
+	m.mu.Lock()
+	live, ok := m.sessions[id]
+	m.mu.Unlock()
+	if !ok {
+		return nil, ErrNoSession
+	}
+	live.order.Lock()
+	defer live.order.Unlock()
+	if err := m.eventRefusal(live); err != nil {
+		return nil, err
+	}
+	wasTurning := m.markSending(live)
+	return func() error { return m.sendSay(ctx, live, message, wasTurning) }, nil
+}
+
+// eventRefusal returns the error that refuses live a caller event, or nil when it takes one: ErrNoSession when live is no
+// longer the session the manager runs, or is closing or exited, an error naming it when it is a step, ErrSessionBusy when a
+// request is open, and ErrCallerQuiet when the owner's Interrupt left it quiet.
+func (m *Manager) eventRefusal(live *liveSession) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessions[live.id] != live || live.closing || live.exited {
+		return ErrNoSession
+	}
+	if live.step {
+		return fmt.Errorf("session %s is a step session, which takes no event", live.id)
+	}
+	if len(live.requests) > 0 {
+		return ErrSessionBusy
+	}
+	if _, quiet := m.quiet[live.id]; quiet {
+		return ErrCallerQuiet
+	}
+	return nil
+}
+
+// claimCron returns the send that writes message, a cron fire, to the live session id as its next prompt, with its turn
+// marked running and a send begun, as markSending does, but only while it holds no turn, request or hand-off, so a
+// running background task does not hold it (see busyForCron), and the owner's Interrupt has not left it quiet. The check
+// and the claim are one step under the lock, so a delivery that claims the session leaves every other cron fire to find
+// it busy. The send ends in send. It returns ErrNoSession when no session with that id is live, or when it is closing or
+// its exit is recorded, ErrSessionBusy when it holds a turn, request or hand-off, ErrCallerQuiet when the owner's
+// Interrupt left it quiet, and an error naming it when it is a step.
+func (m *Manager) claimCron(ctx context.Context, id string, message store.EnginePrompt) (func() error, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	live, ok := m.sessions[id]
@@ -986,19 +960,18 @@ func (m *Manager) claimFree(id string) (*liveSession, error) {
 		return nil, ErrNoSession
 	}
 	if live.step {
-		return nil, fmt.Errorf("session %s is a step session, which takes no event", id)
+		return nil, fmt.Errorf("session %s is a step session, which takes no cron fire", id)
 	}
-	if live.busy() {
+	if live.busyForCron() {
 		return nil, ErrSessionBusy
 	}
 	if _, quiet := m.quiet[id]; quiet {
 		return nil, ErrCallerQuiet
 	}
 	live.turning = true
-	live.starter = eventTurn
 	live.sending++
 	m.updateIdleLocked(live)
-	return live, nil
+	return func() error { return m.send(ctx, live, message) }, nil
 }
 
 // send records prompt as the next prompt of live, with the working state and the ops with it, in one write, and then sends
@@ -1023,10 +996,28 @@ func (m *Manager) send(
 	return nil
 }
 
+// sendSay writes message, an owner's message to the live session that is not a step, as its next prompt at once, then
+// sends its text (see record and transmit). wasTurning is whether a turn ran before the message, which a failed record
+// leaves as it was: a turn that runs still runs, and an idle session stays idle. The send ends when sendSay returns (see
+// endSend).
+func (m *Manager) sendSay(ctx context.Context, live *liveSession, message store.EnginePrompt, wasTurning bool) error {
+	defer m.endSend(live)
+	writeID, err := m.record(ctx, live, message)
+	if err != nil {
+		m.setTurning(live, wasTurning)
+		return err
+	}
+	if err = m.transmit(live, message.Text, writeID); err != nil {
+		return m.failSend(ctx, live, message, err)
+	}
+	return nil
+}
+
 // record stores prompt as the next prompt of live, with the working state and the ops with it, in one write, and returns the
-// write id the prompt is sent under. The prompt counts as sent from before the write (see session.Session.ExpectPrompt). A
-// write that fails stores nothing, and the caller settles the turn. A step sends no notice, and an engine session's owner is
-// told the session changed.
+// write id the prompt is sent under. The prompt counts as sent from before the write (see session.Session.ExpectPrompt). An
+// owner's prompt to a session that is not a step is stored queued too (see store.EnginePromptState), since claude has not
+// yet taken it in. A write that fails stores nothing, and the caller settles the turn. A step sends no notice, and an engine
+// session's owner is told the session changed.
 func (m *Manager) record(
 	ctx context.Context,
 	live *liveSession,
@@ -1041,9 +1032,11 @@ func (m *Manager) record(
 	}
 	prompt.WriteID = writeID
 	live.sess.ExpectPrompt(writeID)
-	ops := append(
-		[]store.EngineOp{prompt, store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}},
-		with...)
+	ops := []store.EngineOp{prompt, store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}}
+	if !live.step && prompt.Sender == store.PromptSenderOwner {
+		ops = append(ops, store.EnginePromptState{ID: id, WriteID: writeID, State: store.PromptQueued})
+	}
+	ops = append(ops, with...)
 	if err = m.writer.Commit(ctx, id, ops...); err != nil {
 		live.sess.DropPrompt(writeID)
 		return "", fmt.Errorf("record prompt of session %s: %w", id, err)
@@ -1087,9 +1080,9 @@ func (m *Manager) failSend(ctx context.Context, live *liveSession, prompt store.
 // Continue sends prompt to the step id as its next prompt, which ends the step's hand-off: the step is busy again until
 // this turn ends. A non-empty prompt.PromptID that an engine_prompt of the step already carries makes Continue return nil
 // and do nothing else, as Say does. A step that is not live, as after an idle stop or a drain at its hand-off, is
-// respawned first from its rows (see respawnStep). The prompt is recorded with its PromptID, sender and round, as Say
-// records one without the sender and round, and a failed send records the step failed without a notice. It returns an
-// error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for empty text.
+// respawned first from its rows (see respawnStep). The prompt is recorded with its PromptID, sender and round, and a failed
+// send records the step failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and
+// ErrEmptyPrompt for empty text.
 func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
 	defer m.calls.enter()()
 	if prompt.Text == "" {
@@ -1257,30 +1250,61 @@ func (m *Manager) Interrupt(ctx context.Context, id string) error {
 	m.mu.Lock()
 	m.quiet[id] = struct{}{}
 	m.mu.Unlock()
-	return m.interruptLive(ctx, live)
+	return m.interruptLive(ctx, live, live.sess.Interrupt)
 }
 
-// OwnerInterrupt is the owner's Interrupt of the live session id (see Interrupt), which also records it. The quiet is
-// set, and the interrupt is recorded as an engine_interrupt that says whether a turn runs (see recordOwnerInterrupt). A
-// turn that runs is then marked as the owner's, so its end is recorded as ownerInterrupted. When the interrupt fails, it
-// is recorded as not turning, and the quiet stays. It returns an error wrapping ErrNoSession when id is not live.
-func (m *Manager) OwnerInterrupt(ctx context.Context, id string) error {
+// OwnerInterrupt is the owner's Interrupt of the live session id (see Interrupt), which also records it, and cancels the
+// owner's messages Claude has queued. The quiet is set, and the interrupt is recorded as an engine_interrupt that says
+// whether a turn runs (see recordOwnerInterrupt). A turn that runs is then marked as the owner's, so its end is recorded as
+// ownerInterrupted. The interrupt asks Claude to cancel its queue as well (cancel_queued) and waits for Claude's reply,
+// which lists the write ids it cancelled. It returns the texts of the owner's prompts among them, in send order, so the
+// owner can take them back. A caller event's text is never among them. Nothing is stored for the cancellation: Claude's
+// cancelled lifecycle lines make each cancelled prompt answered (see the recorder). When the interrupt fails, it is
+// recorded as not turning, the quiet stays, and the error is returned. A failed read of the cancelled prompts returns its
+// error, though the interrupt was sent. It returns an error wrapping ErrNoSession when id is not live. The caller holds no
+// lock, since the reply reaches the wait through the session's reader.
+func (m *Manager) OwnerInterrupt(ctx context.Context, id string) ([]string, error) {
 	defer m.calls.enter()()
 	live, err := m.live(id)
 	if err != nil {
-		return fmt.Errorf("interrupt session %s: %w", id, err)
+		return nil, fmt.Errorf("interrupt session %s: %w", id, err)
 	}
 	m.mu.Lock()
 	m.quiet[id] = struct{}{}
 	m.mu.Unlock()
 	if err = m.recordOwnerInterrupt(ctx, live); err != nil {
-		return fmt.Errorf("interrupt session %s: %w", id, err)
+		return nil, fmt.Errorf("interrupt session %s: %w", id, err)
 	}
-	if err = m.interruptLive(ctx, live); err != nil {
+	var cancelled []string
+	err = m.interruptLive(ctx, live, func() error {
+		var sendErr error
+		cancelled, sendErr = live.sess.InterruptCancelQueued(ctx)
+		if sendErr != nil {
+			return fmt.Errorf("send interrupt: %w", sendErr)
+		}
+		return nil
+	})
+	if err != nil {
 		m.recordFailedInterrupt(ctx, live)
-		return err
+		return nil, err
 	}
-	return nil
+	return m.ownerTexts(ctx, id, cancelled)
+}
+
+// ownerTexts returns the texts of the owner's prompts of session id among the write ids cancelled, in the order they were
+// sent. A caller event's prompt is left out. It returns no texts when no write id is one of those prompts.
+func (m *Manager) ownerTexts(ctx context.Context, id string, cancelled []string) ([]string, error) {
+	prompts, err := m.store.PromptsOfWrites(ctx, id, cancelled)
+	if err != nil {
+		return nil, fmt.Errorf("read the cancelled prompts of session %s: %w", id, err)
+	}
+	var texts []string
+	for _, prompt := range prompts {
+		if prompt.Sender == store.PromptSenderOwner {
+			texts = append(texts, prompt.Text)
+		}
+	}
+	return texts, nil
 }
 
 // recordOwnerInterrupt stores the owner's interrupt of live as engine_interrupt, whose turning is whether a turn runs.
@@ -1318,9 +1342,10 @@ func (m *Manager) recordFailedInterrupt(ctx context.Context, live *liveSession) 
 	}
 }
 
-// interruptLive denies each request live has open, marks its running turn interrupted and sends the interrupt.
-// Interrupt and OwnerInterrupt both send through it. The caller holds no lock.
-func (m *Manager) interruptLive(ctx context.Context, live *liveSession) error {
+// interruptLive denies each request live has open, marks its running turn interrupted and sends the interrupt through send.
+// Interrupt sends a plain interrupt and OwnerInterrupt one that cancels the queue; both share this. The caller holds no
+// lock, since send may wait for Claude's reply.
+func (m *Manager) interruptLive(ctx context.Context, live *liveSession, send func() error) error {
 	if err := m.declineOpen(context.WithoutCancel(ctx), live); err != nil {
 		return fmt.Errorf("interrupt session %s: %w", live.id, err)
 	}
@@ -1328,52 +1353,52 @@ func (m *Manager) interruptLive(ctx context.Context, live *liveSession) error {
 	if m.interruptWritten != nil {
 		m.interruptWritten(live.id)
 	}
-	if err := live.sess.Interrupt(); err != nil {
+	if err := send(); err != nil {
 		m.setInterrupting(live, false)
 		return fmt.Errorf("interrupt session %s: %w", live.id, err)
 	}
 	return nil
 }
 
-// Withdraw removes the held messages of session id that carry prompt id promptID, or every held message of the session when
-// promptID is empty, in one store write, and returns their text in order. A promptID the session holds no message for returns
-// an error wrapping ErrNotHeld and removes nothing, so a message already written is never withdrawn. It returns an error
-// wrapping ErrNoSession when no engine row has id. It takes the session's delivery locks as Say does, so a message the pump is
-// about to write is either withdrawn or written, never both.
+// Withdraw takes back the owner prompt of session id that carries prompt id promptID from Claude's queue, and returns
+// its text. An empty promptID returns no texts and sends nothing. A promptID that no owner prompt of the session
+// carries returns an error wrapping ErrUnknownPrompt and sends nothing. It returns an error wrapping ErrNoSession when
+// no engine row has id, and no texts when the session is not live. A live session's Claude cancels the prompt only
+// while it is still queued, so the reply says whether it did: a cancelled prompt's text is returned, and a prompt
+// Claude already took in returns no texts and no error. Withdraw stores nothing. The cancelled state Claude reports for
+// the prompt is what makes the prompt answered, live and in a re-adopted session. It holds no lock while it waits for
+// the reply, which reaches it through the session's reader, since the pump takes the session's order lock.
 func (m *Manager) Withdraw(ctx context.Context, id, promptID string) ([]string, error) {
 	defer m.calls.enter()()
 	if _, err := m.engineRow(ctx, id); err != nil {
 		return nil, fmt.Errorf("withdraw from session %s: %w", id, err)
 	}
-	m.resumeMu.Lock()
-	defer m.resumeMu.Unlock()
-	if live, err := m.live(id); err == nil {
-		live.order.Lock()
-		defer live.order.Unlock()
+	if promptID == "" {
+		return nil, nil
 	}
-	held, err := m.store.HeldPrompts(ctx, id)
+	prompt, found, err := m.store.PromptWrite(ctx, id, promptID)
 	if err != nil {
 		return nil, fmt.Errorf("withdraw from session %s: %w", id, err)
 	}
-	var texts []string
-	var ops []store.EngineOp
-	for _, message := range held {
-		if promptID != "" && message.PromptID != promptID {
-			continue
-		}
-		texts = append(texts, message.Text)
-		ops = append(ops, store.EngineHeldRelease{ID: id, PromptID: message.PromptID})
+	if !found || prompt.Sender != store.PromptSenderOwner {
+		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, ErrUnknownPrompt)
 	}
-	if promptID != "" && len(ops) == 0 {
-		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, ErrNotHeld)
+	live, err := m.live(id)
+	if errors.Is(err, ErrNoSession) {
+		// A session that is not live has no queue to take the prompt back from.
+		return nil, nil
 	}
-	if len(ops) == 0 {
-		return texts, nil
+	if err != nil {
+		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, err)
 	}
-	if err = m.writer.Commit(ctx, id, ops...); err != nil {
-		return nil, fmt.Errorf("withdraw from session %s: %w", id, err)
+	cancelled, err := live.sess.CancelQueued(ctx, prompt.WriteID)
+	if err != nil {
+		return nil, fmt.Errorf("withdraw prompt %s from session %s: %w", promptID, id, err)
 	}
-	return texts, nil
+	if !cancelled {
+		return nil, nil
+	}
+	return []string{prompt.Text}, nil
 }
 
 // live returns the live session id, or an error wrapping ErrNoSession when no session with that id is live.
@@ -1543,8 +1568,7 @@ func (m *Manager) register(
 // or waiting, and its background flag is the row's. Each replayed line goes through noteEvent and the recorder with the ops
 // discarded, so the requests it leaves open, its unfinished text and its reply are those the replay gives. A waiting row
 // with no request open goes working with no question. Each prompt the holder has not written is sent in order, marking the
-// turn running. A session left idle that holds messages then writes its oldest one (see writeHeldIdle). It returns the reply
-// the pump starts from.
+// turn running. It returns the reply the pump starts from.
 func (m *Manager) prime(ctx context.Context, live *liveSession, rec *recorder, re *readoption) (string, error) {
 	row := re.row
 	m.mu.Lock()
@@ -1559,52 +1583,7 @@ func (m *Manager) prime(ctx context.Context, live *liveSession, rec *recorder, r
 	if err := m.sendUnwritten(ctx, live, re.written); err != nil {
 		return "", err
 	}
-	// live is not registered yet, so no pump or Say can reach it: the held write runs under its order lock without the
-	// registration check writeHeldIdle makes.
-	live.order.Lock()
-	send := m.idleHeldLocked(ctx, live)
-	live.order.Unlock()
-	if send != nil {
-		send()
-	}
 	return reply, nil
-}
-
-// idleHeldLocked returns the send of the oldest message held for live when live is idle, and nil when none is written. Idle
-// means no turn, request or send pending, and that live is neither a step, draining nor closing: a draining session writes
-// nothing new, since it stops once its turn ends, and its held messages wait for a later Say. The caller holds live's order
-// lock.
-func (m *Manager) idleHeldLocked(ctx context.Context, live *liveSession) func() {
-	m.mu.Lock()
-	idle := !live.turning && !live.draining && !live.closing && !live.step
-	m.mu.Unlock()
-	if !idle {
-		return nil
-	}
-	held, err := m.store.HeldPrompts(ctx, live.id)
-	if err != nil {
-		m.logger.WarnContext(ctx, "read held prompts", "session", live.id, "err", err)
-		return nil
-	}
-	if len(held) == 0 {
-		return nil
-	}
-	return m.startHeldLocked(ctx, live, held)
-}
-
-// writeHeldIdle writes the oldest message held for the registered session live as its next turn, when live is idle (see
-// idleHeldLocked). It takes live's order lock, as a Say does, and writes nothing once live is no longer the session the
-// manager runs. checkIdle makes it for each live session, so a message whose write failed is written at the next check.
-func (m *Manager) writeHeldIdle(ctx context.Context, live *liveSession) {
-	live.order.Lock()
-	var send func()
-	if m.isLive(live) {
-		send = m.idleHeldLocked(ctx, live)
-	}
-	live.order.Unlock()
-	if send != nil {
-		send()
-	}
 }
 
 // replay runs the replayed lines through noteEvent and rec, with rec's ops discarded, and returns the reply the lines
@@ -1613,7 +1592,7 @@ func (m *Manager) replay(live *liveSession, rec *recorder, lines []session.Line)
 	reply := ""
 	for _, line := range lines {
 		for _, event := range line.Events {
-			if !m.noteEvent(live, event, false, false).record {
+			if !m.noteEvent(live, event, false).record {
 				continue
 			}
 			rec.ops(event)
@@ -1753,22 +1732,15 @@ func (m *Manager) RunIdle(ctx context.Context) {
 	}
 }
 
-// checkIdle first writes the oldest held message of each live session that is idle (see writeHeldIdle), which is how a held
-// message whose write failed is written, then stops each live session that has been not busy for the idle timeout by the
-// clock, and waits for its pump, which frees its slot. A session is busy while a turn runs, a request is open, or a
-// background task runs. The stop records nothing, so the session's row and events stay as they were. The session is taken
-// out of the live set under the lock before it is stopped, and resumeMu is held through the stop, so a Say that finds no
-// live session waits, then resumes it from its row.
+// checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump, which
+// frees its slot. A session is busy while a turn runs, a request is open, or a background task runs. The stop records
+// nothing, so the session's row and events stay as they were. The session is taken out of the live set under the lock
+// before it is stopped, and resumeMu is held through the stop, so a Say that finds no live session waits, then resumes it
+// from its row.
 func (m *Manager) checkIdle(ctx context.Context) {
 	defer m.calls.enter()()
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
-	m.mu.Lock()
-	running := slices.Collect(maps.Values(m.sessions))
-	m.mu.Unlock()
-	for _, live := range running {
-		m.writeHeldIdle(ctx, live)
-	}
 	now := m.now()
 	m.mu.Lock()
 	var stopping []*liveSession
@@ -1795,6 +1767,13 @@ func (m *Manager) checkIdle(ctx context.Context) {
 // not yet answered. The caller holds the lock.
 func (live *liveSession) busy() bool {
 	return live.turning || live.background || live.returned || len(live.requests) > 0
+}
+
+// busyForCron reports whether live has a turn running, an open request or a hand-off the next prompt has not yet
+// answered. Unlike busy, a background task does not count, so a cron fire goes to a session that is only waiting on its
+// tasks. The caller holds the lock.
+func (live *liveSession) busyForCron() bool {
+	return live.turning || live.returned || len(live.requests) > 0
 }
 
 // updateIdleLocked clears the idle stamp of live while it is busy, and stamps the time it became not busy. The caller
@@ -1826,15 +1805,16 @@ func (m *Manager) claimStep(id string) (*liveSession, error) {
 	return live, nil
 }
 
-// markSending marks the turn of live running, started by the owner, and a send begun, for a session that resumeSession or
-// respawnStep has just started. The send ends in send.
-func (m *Manager) markSending(live *liveSession) {
+// markSending marks the turn of live running and a send begun, under one lock hold, and returns whether a turn ran before.
+// A send whose record fails restores that (see sendSay). The send ends in send or sendSay.
+func (m *Manager) markSending(live *liveSession) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	wasTurning := live.turning
 	live.turning = true
-	live.starter = ownerTurn
 	live.sending++
 	m.updateIdleLocked(live)
+	return wasTurning
 }
 
 // endSend ends the send that markSending or claimStep began for live, and retires live when the send leaves it
@@ -1946,11 +1926,12 @@ func (m *Manager) reserve() error {
 	return nil
 }
 
-// release frees a slot taken by reserve for a session that never started running.
+// release frees a slot taken by reserve for a session that never started running. It then calls the cron hook with "".
 func (m *Manager) release() {
 	m.mu.Lock()
 	m.reserved--
 	m.mu.Unlock()
+	m.wakeCron("")
 }
 
 // newSessionID returns 128 random bits in hex.
@@ -2025,10 +2006,12 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 }
 
 // spawnSettings returns the --settings JSON of a spawn in dir. The stamp is looked up under the HOME entry of the
-// manager's environment, which must be an absolute path. A session the owner talks to takes the stamp's whole env, and
-// "" when no stamp applies. A step always takes settings: the stamp's env when one applies, and claudeMdExcludes naming
-// the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from m.environ, and a step whose
-// path cannot be resolved fails here, before claude runs.
+// manager's environment, which must be an absolute path. A session the owner talks to, a resume included, always takes
+// stamp.HeadlessSettings: the stamp's env when one applies, and nothing otherwise, plus the PreToolUse hook that
+// carries its cron tools to orrery. The orrery that runs the hook is holder.Binary(""), and one that cannot be resolved
+// fails here, before claude runs. A step takes settings with no hook: the stamp's env when one applies, and
+// claudeMdExcludes naming the user CLAUDE.md, so a step does not load the owner's own rules. Its path is read from
+// m.environ, and a step whose path cannot be resolved fails here, before claude runs.
 func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
 	home, err := stampHome(m.environ)
 	if err != nil {
@@ -2039,10 +2022,11 @@ func (m *Manager) spawnSettings(dir string, step bool) (string, error) {
 		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
 	}
 	if !step {
-		if found.Folder == "" {
-			return "", nil
+		var orrery string
+		if orrery, err = holder.Binary(""); err != nil {
+			return "", fmt.Errorf("cron hook for %s: %w", dir, err)
 		}
-		return stamp.Settings(false, found.Env, nil), nil
+		return stamp.HeadlessSettings(found.Env, orrery), nil
 	}
 	memory, err := userMemoryOf(m.environ)
 	if err != nil {
@@ -2112,6 +2096,9 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 	m.mu.Unlock()
 	close(live.done)
 	live.cancel()
+	if !live.step {
+		m.wakeCron("")
+	}
 }
 
 // eventOps returns the store ops that record event, as rec gives them. A turn's end that another turn follows leaves
@@ -2129,7 +2116,7 @@ func eventOps(rec *recorder, event session.Event, followed, ownerInterrupted boo
 }
 
 // recordedEvent is an event of a line the pump has recorded, with what its owner notice and observer call need: the
-// reply as of that event, and the interrupted, handed, followed and opened results of noteEvent for it.
+// reply as of that event, and the interrupted, handed, followed, opened and idle results of noteEvent for it.
 type recordedEvent struct {
 	event       session.Event
 	reply       string
@@ -2137,48 +2124,45 @@ type recordedEvent struct {
 	handed      bool
 	followed    bool
 	opened      bool
-}
-
-// heldWrite is a held message that a turn's end writes as the next turn: the message, and the write id it is sent under.
-type heldWrite struct {
-	prompt  store.HeldPrompt
-	writeID string
+	idle        bool
 }
 
 // recordLine records one line of the running session in one write: the ops of all its events, then the line's consumed
 // offset, so a crash stores the line wholly or not at all. A line that holds a turn's end waits until the store has
-// it, and the session's replay-from is then set to the line's end. A turn's end that the session's oldest held message
-// follows is recorded as followed, and that message is written in the same write: its engine_prompt, and its removal from
-// the held set (see heldNext). Once the write succeeds, the message is sent. Once the write succeeds, the owner of each
-// recorded event is told, in order, each with the reply as of that event. A failed write is logged and tells no owner. The
+// it, and the session's replay-from is then set to the line's end. Once the write succeeds, the owner of each recorded
+// event is told, in order, each with the reply as of that event. A failed write is logged and tells no owner. The
 // observer is given every recorded event either way, as before. The line is recorded under the session's order lock, so
-// the held messages and the turn's state do not change under it. It returns the reply text of the main conversation so far.
+// the turn's state does not change under it. It returns the reply text of the main conversation so far. Once the write
+// succeeds, a turn's end that leaves a session which is not a step with no turn running calls the cron hook for it.
 func (m *Manager) recordLine(
 	ctx context.Context, live *liveSession, rec *recorder, line session.Line, reply string,
 ) string {
 	live.order.Lock()
-	ops, recorded, sent, reply := m.lineOps(ctx, live, rec, line, m.heldNext(ctx, live, line), reply)
-	written := m.storeLine(ctx, live, line, ops, sent)
+	ops, recorded, reply := m.lineOps(ctx, live, rec, line, reply)
+	written := m.storeLine(ctx, live, line, ops)
 	live.order.Unlock()
 	m.tellRecorded(ctx, live, recorded, written)
+	// A turn's end that leaves the session idle wakes the cron hook once the end is stored, so a refused cron
+	// fire is retried after the turn, not before it.
+	if written && slices.ContainsFunc(recorded, func(r recordedEvent) bool { return r.idle }) {
+		m.wakeCron(live.id)
+	}
 	return reply
 }
 
-// lineOps returns the store ops that record the events of line in order, the events the owner is told of, the held message
-// that the line's turn end writes as the next turn (see heldNext), or nil when none is, and the reply as of the line's end. next
-// is the held message the line may write, and it is taken by the first turn end that follows it.
+// lineOps returns the store ops that record the events of line in order, the events the owner is told of, and the reply as
+// of the line's end.
 func (m *Manager) lineOps(
-	ctx context.Context, live *liveSession, rec *recorder, line session.Line, next *heldWrite, reply string,
-) ([]store.EngineOp, []recordedEvent, *heldWrite, string) {
+	ctx context.Context, live *liveSession, rec *recorder, line session.Line, reply string,
+) ([]store.EngineOp, []recordedEvent, string) {
 	var ops []store.EngineOp
 	var recorded []recordedEvent
-	var sent *heldWrite
 	for _, event := range line.Events {
 		if request, ok := event.(session.Request); ok && live.step && !request.Refused && !request.Answered {
 			m.answerStepRequest(ctx, live, request)
 			continue
 		}
-		note := m.noteEvent(live, event, true, next != nil)
+		note := m.noteEvent(live, event, true)
 		if !note.record {
 			continue
 		}
@@ -2186,42 +2170,24 @@ func (m *Manager) lineOps(
 			ops = append(ops, rec.turnOpened()...)
 		}
 		ops = append(ops, eventOps(rec, event, note.followed, note.ownerInterrupted)...)
-		if note.held {
-			ops = append(ops, heldOps(live, next)...)
-			sent, next = next, nil
-		}
 		if text, ok := mainText(event); ok {
 			reply = text
 		}
 		recorded = append(recorded, recordedEvent{
 			event: event, reply: reply, interrupted: note.interrupted, handed: note.handed, followed: note.followed,
-			opened: note.opened,
+			opened: note.opened, idle: note.idle,
 		})
 		if _, ended := event.(session.TurnEnded); ended {
 			reply = ""
 		}
 	}
-	return ops, recorded, sent, reply
-}
-
-// heldOps returns the ops that write the held message next as the turn that a turn's end in the line follows: its removal from
-// the held set, and its engine_prompt, which carries the write id it is sent under. The write id is expected before the write,
-// as send expects it.
-func heldOps(live *liveSession, next *heldWrite) []store.EngineOp {
-	live.sess.ExpectPrompt(next.writeID)
-	return []store.EngineOp{
-		store.EngineHeldRelease{ID: live.id, PromptID: next.prompt.PromptID},
-		store.EnginePrompt{ID: live.id, Text: next.prompt.Text, PromptID: next.prompt.PromptID, WriteID: next.writeID},
-	}
+	return ops, recorded, reply
 }
 
 // storeLine stores the ops of one line of live in one write, with the line's consumed offset when it holds one, and reports
-// whether the write succeeded. A line that holds a turn's end, or writes a held message, waits until the store has the ops, and
-// the session's replay-from is then set to the line's end. A held message the line writes is sent once its write is stored,
-// and a failed write takes it back (see sendHeld).
-func (m *Manager) storeLine(
-	ctx context.Context, live *liveSession, line session.Line, ops []store.EngineOp, sent *heldWrite,
-) bool {
+// whether the write succeeded. A line that holds a turn's end waits until the store has the ops, and the session's
+// replay-from is then set to the line's end.
+func (m *Manager) storeLine(ctx context.Context, live *liveSession, line session.Line, ops []store.EngineOp) bool {
 	ended := false
 	if !holdsExit(line) {
 		var consumed store.EngineConsumed
@@ -2229,73 +2195,14 @@ func (m *Manager) storeLine(
 		ops = append(ops, consumed)
 	}
 	written := true
-	if err := m.writeLine(ctx, live, ops, ended || sent != nil); err != nil {
+	if err := m.writeLine(ctx, live, ops, ended); err != nil {
 		m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
 		written = false
 	}
 	if written && ended {
 		live.sess.SetReplayFrom(line.End)
 	}
-	if sent != nil {
-		m.sendHeld(ctx, live, *sent, written)
-	}
 	return written
-}
-
-// heldNext returns the oldest message held for live, with the write id it would be sent under, when line holds a turn's end
-// of a session that is not a step, and the session holds a message. Otherwise it returns nil. It reads the store under the
-// caller's order lock, so the message is the one a turn's end in line can write.
-func (m *Manager) heldNext(ctx context.Context, live *liveSession, line session.Line) *heldWrite {
-	if live.step || !slices.ContainsFunc(line.Events, isTurnEnd) {
-		return nil
-	}
-	held, err := m.store.HeldPrompts(ctx, live.id)
-	if err != nil {
-		m.logger.WarnContext(ctx, "read held prompts", "session", live.id, "err", err)
-		return nil
-	}
-	if len(held) == 0 {
-		return nil
-	}
-	writeID, err := newWriteID()
-	if err != nil {
-		m.logger.WarnContext(ctx, "write id of held prompt", "session", live.id, "err", err)
-		return nil
-	}
-	return &heldWrite{prompt: held[0], writeID: writeID}
-}
-
-// isTurnEnd reports whether event is a turn's end.
-func isTurnEnd(event session.Event) bool {
-	_, ok := event.(session.TurnEnded)
-	return ok
-}
-
-// sendHeld sends head, the held message a turn's end wrote as the next turn in the line recordLine stored, and ends the send
-// that recordLine began. When the line was not stored, the message is taken back: it stays held, and the turn is over, so
-// the session is idle. A failed send records the session failed, and a session being closed records nothing, as Close leaves
-// it. The caller holds live's order lock.
-func (m *Manager) sendHeld(ctx context.Context, live *liveSession, head heldWrite, written bool) {
-	defer m.endSend(live)
-	if !written {
-		live.sess.DropPrompt(head.writeID)
-		m.setTurning(live, false)
-		return
-	}
-	prompt := store.EnginePrompt{ID: live.id, Text: head.prompt.Text, PromptID: head.prompt.PromptID}
-	err := m.transmit(live, head.prompt.Text, head.writeID)
-	if err == nil {
-		return
-	}
-	m.mu.Lock()
-	closing := live.closing
-	m.mu.Unlock()
-	if closing {
-		m.setTurning(live, false)
-		m.logger.WarnContext(ctx, "send held prompt on close", "session", live.id, "err", err)
-		return
-	}
-	m.logger.WarnContext(ctx, "send held prompt", "session", live.id, "err", m.failSend(ctx, live, prompt, err))
 }
 
 // tellRecorded tells the owner of live of each recorded event when the line's write succeeded, and gives the observer
@@ -2407,10 +2314,11 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 
 // noted is what noteEvent reports of an event: whether the pump records it; for a turn's end, whether that turn was
 // interrupted through Interrupt, whether the owner's OwnerInterrupt caused it, whether it is handed to the step's
-// observer, whether another turn follows it, and whether that turn is the oldest held message, which is written as the
-// next turn (held implies followed); and whether the event opens a turn that claude started by itself.
+// observer, and whether another turn follows it; whether the event opens a turn that claude started by itself; and
+// whether a turn's end leaves a session that is not a step with no turn running, for which the cron hook is called once
+// the end is stored (see recordLine).
 type noted struct {
-	record, interrupted, ownerInterrupted, handed, followed, held, opened bool
+	record, interrupted, ownerInterrupted, handed, followed, opened, idle bool
 }
 
 // opensTurn reports whether event is one only a running turn gives: its init, its streamed or finished content, a tool
@@ -2445,19 +2353,17 @@ func opensTurn(event session.Event) bool {
 // follows nothing, and a send whose prompt the turn does not answer is still counted. A followed
 // turn end keeps the turn running, hands nothing to the observer and retires nothing. A pumped event that opens a turn
 // (see opensTurn) while no turn runs opens one claude started by itself, as a background task's end starts: the turn is
-// marked running, started by claude, and noteEvent reports it opened. A draining session whose turn ends
-// is retired in the same lock hold (see retireLocked). held is set when the oldest held message of the session can follow
-// a pumped turn's end, as recordLine reads it (see noteTurnEndedLocked). The exit of a session that Close or a retirement is
-// stopping is not recorded here: recordClosed records a closed session's state from its turn instead, and under a holder
-// scope records nothing, and a retired session records nothing.
-func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping, held bool) noted {
+// marked running, and noteEvent reports it opened. A draining session whose turn ends is retired in the same lock hold (see
+// retireLocked). The exit of a session that Close or a retirement is stopping is not recorded here: recordClosed records a
+// closed session's state from its turn instead, and under a holder scope records nothing, and a retired session records
+// nothing.
+func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping bool) noted {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	defer m.updateIdleLocked(live)
 	opened := false
 	if pumping && opensTurn(event) && !live.turning {
 		live.turning = true
-		live.starter = claudeTurn
 		opened = true
 	}
 	switch ev := event.(type) {
@@ -2472,7 +2378,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping, hel
 	case session.BackgroundTasks:
 		live.background = len(ev.Tasks) > 0
 	case session.TurnEnded:
-		return m.noteTurnEndedLocked(live, ev, pumping, held)
+		return m.noteTurnEndedLocked(live, ev, pumping)
 	case session.Exited:
 		live.turning = false
 		live.ownerInterrupt = false
@@ -2486,12 +2392,10 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event, pumping, hel
 	return noted{record: true, opened: opened}
 }
 
-// noteTurnEndedLocked tracks the end of a turn of live, as noteEvent gives it. A turn's end that no prompt follows is
-// followed by the oldest held message instead, when held is set and the session has a live process that is not draining
-// or closing: the turn stays running, and a send is pending until recordLine has written that message and sent it. Such
-// a session is the one the manager runs under its id, so its turn ends write the held messages, and a draining one does not.
-// A held message is the owner's, so the turn it starts is the owner's. The caller holds the lock.
-func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded, pumping, held bool) noted {
+// noteTurnEndedLocked tracks the end of a turn of live, as noteEvent gives it. A turn's end that a prompt the session counts
+// as sent still follows is followed: the turn stays running, since claude runs that prompt next. Any other turn's end ends
+// the turn, hands a step's turn to its observer and retires a draining session. The caller holds the lock.
+func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded, pumping bool) noted {
 	clear(live.requests)
 	interrupted := live.interrupting
 	live.interrupting = false
@@ -2500,14 +2404,6 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 	if pumping && (ended.Unanswered > 0 || live.sess.UnansweredPrompts() > 0) {
 		return noted{record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, followed: true}
 	}
-	if pumping && held && m.sessions[live.id] == live && !live.draining && !live.closing {
-		live.turning = true
-		live.starter = ownerTurn
-		live.sending++
-		return noted{
-			record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, followed: true, held: true,
-		}
-	}
 	live.turning = false
 	handed := false
 	if live.observer != nil && (!live.background || live.observer.Done(ended)) {
@@ -2515,7 +2411,9 @@ func (m *Manager) noteTurnEndedLocked(live *liveSession, ended session.TurnEnded
 		handed = true
 	}
 	m.retireLocked(live)
-	return noted{record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, handed: handed}
+	return noted{
+		record: true, interrupted: interrupted, ownerInterrupted: ownerInterrupted, handed: handed, idle: !live.step,
+	}
 }
 
 // retireLocked takes live out of the live set and stops its process, when live is draining and not busy: no turn runs, no
@@ -2598,6 +2496,15 @@ func (m *Manager) changed(ctx context.Context, id string) {
 	m.notifier.Changed(ctx, id)
 }
 
+// wakeCron calls the cron hook (see Config.CronWake) with session id, or with "" for a freed slot. It runs the hook on
+// its own goroutine, so the caller holds no lock while the hook runs and never waits on it. It does nothing without a
+// hook.
+func (m *Manager) wakeCron(id string) {
+	if m.cronWake != nil {
+		go m.cronWake(id)
+	}
+}
+
 // endsNotice reports whether a recorded event records a session working or stopped, which ends its pending notice as
 // a pane's transition does. A failed exit records failed, which notifies instead.
 func endsNotice(event session.Event) bool {
@@ -2621,10 +2528,10 @@ func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 	}
 }
 
-// recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed and
-// each background task still running recorded stopped, unless its exit already recorded them. A stopped session's turn
-// has ended, and a stopped process delivers no exit of its own. The stop tells the owner the session changed. It
-// returns the error of the wait or of the write.
+// recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed, each
+// background task still running recorded stopped, and each prompt claude had not started recorded discarded, unless its
+// exit already recorded them. A stopped session's turn has ended, and a stopped process delivers no exit of its own.
+// The stop tells the owner the session changed. It returns the error of the wait or of the write.
 func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2633,8 +2540,8 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 		return nil
 	}
 	stopped := stateStopped
-	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EngineSet{ID: live.id,
-		Changes: store.EngineChanges{State: &stopped}})
+	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EnginePromptsDiscard{ID: live.id},
+		store.EngineSet{ID: live.id, Changes: store.EngineChanges{State: &stopped}})
 	err := m.writer.Commit(ctx, live.id, ops...)
 	if err != nil {
 		return fmt.Errorf("record session %s stopped: %w", live.id, err)
@@ -2646,10 +2553,11 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 }
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
-// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed and
-// each background task still running is recorded stopped. An interruption notifies the owner. A session whose exit
-// already recorded its state is left alone. Under a holder scope Close only detaches the session, so nothing is
-// recorded for it. It returns the error of the wait or of the write.
+// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed,
+// each background task still running is recorded stopped, and each prompt claude had not started is recorded
+// discarded. An interruption notifies the owner. A session whose exit already recorded its state is left alone. Under
+// a holder scope Close only detaches the session, so nothing is recorded for it. It returns the error of the wait or of
+// the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2660,7 +2568,7 @@ func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	m.mu.Lock()
 	turning := live.turning
 	m.mu.Unlock()
-	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id})
+	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EnginePromptsDiscard{ID: live.id})
 	if turning {
 		interrupted := stateInterrupted
 		reason := interruptedReason

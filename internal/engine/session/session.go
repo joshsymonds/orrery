@@ -89,6 +89,8 @@ type Session struct {
 	pending  *openRequests
 	// unanswered counts the prompts the session sent that no turn has answered.
 	unanswered *unansweredPrompts
+	// waiters holds the control calls waiting for the reply to their request, by request id.
+	waiters *controlWaiters
 	// translator translates each stdout line in order. The replay and the reader share it, so each line is translated
 	// with the state the lines before it left.
 	translator *translator
@@ -128,6 +130,7 @@ func newSession(process Process, written []string) *Session {
 		finished:   make(chan struct{}),
 		pending:    newOpenRequests(),
 		unanswered: newUnansweredPrompts(),
+		waiters:    newControlWaiters(),
 		translator: newTranslator(),
 		written:    make(map[string]bool, len(written)),
 	}
@@ -441,11 +444,14 @@ func (s *Session) run(offset int64) {
 		events := s.translator.translate(raw)
 		s.observeLine(offset, events)
 		s.answerPrompts(events)
+		s.routeControlReply(raw)
 		if !s.send(Line{Start: offset, End: end, Events: events}) {
-			return
+			break
 		}
 		offset = end
 	}
+	// No reply arrives once the stream has ended, so every control call still waiting ends with the session.
+	s.waiters.end()
 	// Once Stop or Detach has begun, the process is theirs: it has been stopped or left running, so the
 	// reader must not stop it or wait on it.
 	if s.stopping() {
@@ -455,13 +461,19 @@ func (s *Session) run(offset int64) {
 }
 
 // answerPrompts records the user messages each turn end in events lists as answered, and gives each turn end the count
-// of prompts still unanswered after it (TurnEnded.Unanswered). Only run calls it: a replayed turn answers prompts the
-// previous holder was sent, never one this session sent.
+// of prompts still unanswered after it (TurnEnded.Unanswered). A prompt whose Lifecycle state is canceled or discarded
+// is answered by its line. Only run calls it: a replayed turn answers prompts the previous holder was sent, never one
+// this session sent.
 func (s *Session) answerPrompts(events []Event) {
 	for i, event := range events {
-		if ended, ok := event.(TurnEnded); ok {
-			ended.Unanswered = s.unanswered.answer(ended.Answered)
-			events[i] = ended
+		switch ev := event.(type) {
+		case Lifecycle:
+			if ev.State == LifecycleCancelled || ev.State == LifecycleDiscarded {
+				s.unanswered.answer([]string{ev.CommandUUID})
+			}
+		case TurnEnded:
+			ev.Unanswered = s.unanswered.answer(ev.Answered)
+			events[i] = ev
 		}
 	}
 }

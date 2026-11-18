@@ -208,7 +208,11 @@ func (f failingStore) EnginePromptFailure(context.Context, string, string) (stri
 	return "", false, f.err
 }
 
-func (f failingStore) HeldPrompts(context.Context, string) ([]store.HeldPrompt, error) {
+func (f failingStore) PromptWrite(context.Context, string, string) (store.PromptWrite, bool, error) {
+	return store.PromptWrite{}, false, f.err
+}
+
+func (f failingStore) PromptsOfWrites(context.Context, string, []string) ([]store.WritePrompt, error) {
 	return nil, f.err
 }
 
@@ -217,6 +221,10 @@ func (f failingStore) HolderPrompts(context.Context, string) ([]store.HolderProm
 }
 
 func (f failingStore) HolderPromptsUnanswered(context.Context, string) (int, error) {
+	return 0, f.err
+}
+
+func (f failingStore) DeleteSessionCronJobs(context.Context, string) (int, error) {
 	return 0, f.err
 }
 
