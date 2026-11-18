@@ -86,8 +86,8 @@ test("from 760px the page fills the window and the list, reader and epic page sc
   assert.match(declarationsFor(wide, "#app"), /height:\s*100%/);
   assert.match(declarationsFor(wide, ".app"), /height:\s*100%/);
   assert.match(declarationsFor(wide, ".panes"), /align-items:\s*stretch/);
-  // The list does not scroll itself: its rows sit between its header and its footer and scroll there.
-  assert.match(declarationsFor(wide, ".list"), /grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;/);
+  // The list does not scroll itself: its rows sit under its header and scroll there.
+  assert.match(declarationsFor(wide, ".list"), /grid-template-rows:\s*auto minmax\(0,\s*1fr\);/);
   assert.doesNotMatch(declarationsFor(wide, ".list"), /overflow/);
   // .read > .reader is the scroll box of both the conversation and the pinned conversation.
   for (const selector of [".list > .rows", ".read > .reader", "section.page"]) {
@@ -96,15 +96,56 @@ test("from 760px the page fills the window and the list, reader and epic page sc
   }
 });
 
-test("from 760px the tracks are 440px, fluid and 380px with no gap, and a pin splits the fluid track", () => {
+test("InboxFlyout: from 760px a docked or pinned inbox keeps the inbox track at 340px beside the fluid track and a third track, and a pin splits the fluid track", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   const panes = declarationsFor(wide, ".panes");
-  assert.match(panes, /grid-template-columns:\s*440px minmax\(0,\s*1fr\) 380px;/);
+  assert.match(panes, /grid-template-columns:\s*340px minmax\(0,\s*1fr\) 380px;/);
   assert.match(panes, /(?<![-\w])gap:\s*0;/);
   assert.match(
     declarationsFor(wide, ".panes.split"),
-    /grid-template-columns:\s*440px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+    /grid-template-columns:\s*340px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
+});
+
+test("InboxFlyout: a hidden inbox takes no place: its list is not drawn, and the page takes the one track across the full grid width", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  assert.match(declarationsFor(wide, '.panes[data-inbox="hidden"] > .list'), /display:\s*none;/);
+  assert.match(declarationsFor(wide, '.panes[data-inbox="hidden"]'), /grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  for (const selector of ['.panes[data-inbox="hidden"] > .read', '.panes[data-inbox="hidden"] > section.page']) {
+    assert.match(declarationsFor(wide, selector), /grid-column:\s*1;/, `${selector} takes the one track`);
+  }
+});
+
+test("InboxFlyout: a flyout lies over the page under the title row and above it, and the page keeps the one track at grid-column 1", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  const flyout = declarationsFor(wide, '.panes[data-inbox="flyout"] > .list');
+  assert.match(flyout, /position:\s*absolute;/);
+  assert.match(flyout, /(?<![-\w])top:\s*52px;/, "the flyout starts below the title row");
+  assert.match(flyout, /z-index:\s*5;/, "the flyout stacks above the page");
+  assert.doesNotMatch(flyout, /grid-column|grid-row/);
+  assert.match(
+    declarationsFor(wide, '.panes[data-inbox="flyout"]'),
+    /grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+    "the page keeps the one track while the flyout is out",
+  );
+  for (const selector of ['.panes[data-inbox="flyout"] > .read', '.panes[data-inbox="flyout"] > section.page']) {
+    assert.match(declarationsFor(wide, selector), /grid-column:\s*1;/, `${selector} takes the one track`);
+  }
+});
+
+test("InboxFlyout: the hidden and flyout rules sit in the 760px block, so under 760px the stacked layout always shows the inbox", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  assert.match(
+    wide,
+    /\.panes\[data-inbox="hidden"\] > \.list \{\s*display:\s*none;\s*\}/,
+    "the hidden list is drawn from 760px",
+  );
+  assert.match(
+    wide,
+    /\.panes\[data-inbox="flyout"\] > \.list \{[^}]*position:\s*absolute;/,
+    "the flyout is laid over from 760px",
+  );
+  assert.doesNotMatch(beforeWide(css), /data-inbox/, "no inbox state reaches a page under 760px");
 });
 
 test("from 760px each column keeps its own track in the one row, and the epic page takes the reader's track", () => {
@@ -321,31 +362,38 @@ test("under 760px the body is crust and unpadded, and the columns stack behind t
   assert.match(panes, /padding-right:\s*max\(16px, env\(safe-area-inset-right, 0px\)\);/);
 });
 
-test("from 760px to 1500px the list is 400px and the third track 340px", () => {
-  const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1500px) {");
-  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*400px minmax\(0,\s*1fr\) 340px;/);
+test("InboxFlyout: from 1251px to 1500px the inbox track is 340px, and the third track 340px", () => {
+  const block = mediaBlock(css, "@media (min-width: 1251px) and (max-width: 1500px) {");
+  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*340px minmax\(0,\s*1fr\) 340px;/);
   assert.match(
     declarationsFor(block, ".panes.split"),
-    /grid-template-columns:\s*400px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+    /grid-template-columns:\s*340px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
 });
 
-test("from 760px to 1100px the list is 380px in two tracks", () => {
+test("InboxFlyout: from 760px to 1250px the inbox track is 316px, the third track 340px, and the flyout 316px wide", () => {
+  const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1250px) {");
+  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*316px minmax\(0,\s*1fr\) 340px;/);
+  assert.match(
+    declarationsFor(block, ".panes.split"),
+    /grid-template-columns:\s*316px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+  );
+  assert.match(declarationsFor(block, '.panes[data-inbox="flyout"] > .list'), /width:\s*316px;/);
+});
+
+test("InboxFlyout: from 760px to 1100px the inbox track is 316px in two tracks", () => {
   const block = mediaBlock(css, "@media (min-width: 760px) and (max-width: 1100px) {");
-  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*380px minmax\(0,\s*1fr\);/);
+  assert.match(declarationsFor(block, ".panes"), /grid-template-columns:\s*316px minmax\(0,\s*1fr\);/);
   assert.match(
     declarationsFor(block, ".panes.split"),
-    /grid-template-columns:\s*380px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
+    /grid-template-columns:\s*316px minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/,
   );
 });
 
-test("the brand row sets a 22px mark and 11.5px counts, and new counts are lavender", () => {
+test("the brand row sets a 22px mark", () => {
   assert.match(declarationsFor(css, ".brand"), /display:\s*flex;/);
   assert.match(declarationsFor(css, ".brand .mark"), /width:\s*22px;/);
   assert.match(declarationsFor(css, ".brand .mark"), /height:\s*22px;/);
-  assert.match(declarationsFor(css, ".brand .counts"), /font:\s*400 11\.5px\/22px var\(--mono\);/);
-  assert.match(declarationsFor(css, ".brand .counts"), /margin-left:\s*auto;/);
-  assert.match(declarationsFor(css, ".st-new"), /color:\s*var\(--lavender\);/);
 });
 
 test("the wireframe's --rule token is defined", () => {
@@ -1104,50 +1152,6 @@ test("the evidence runs read the same inside the phase output as on the epic pag
 test("no rule selects the old epic column or the old view", () => {
   assert.doesNotMatch(css, /\.side(?![\w-])/);
   assert.doesNotMatch(css, /\.epic-(view|head)\b/);
-});
-
-test("the meters line is one footer line in the footer's type and colour, with no box of its own", () => {
-  const line = declarationsFor(css, ".lfoot button.meters");
-  assert.match(line, /(?<![-\w])font:\s*inherit;/);
-  assert.match(line, /(?<![-\w])color:\s*inherit;/);
-  assert.match(line, /(?<![-\w])background:\s*none;/);
-  assert.match(line, /(?<![-\w])border:\s*0;/);
-});
-
-test("the meters line does not wrap and is cut with an ellipsis when the footer is narrow", () => {
-  const line = declarationsFor(css, ".lfoot button.meters");
-  assert.match(line, /(?<![-\w])white-space:\s*nowrap;/);
-  assert.match(line, /(?<![-\w])overflow:\s*hidden;/);
-  assert.match(line, /(?<![-\w])text-overflow:\s*ellipsis;/);
-  assert.match(line, /(?<![-\w])min-width:\s*0;/);
-});
-
-test("the meters' m cap is the footer's ? cap: no rule restyles a kbd inside the meters", () => {
-  assert.doesNotMatch(css, /meters[^{]*\bkbd\b/);
-});
-
-test("the meters line spaces its host, stat and key cap apart", () => {
-  assert.match(declarationsFor(css, ".lfoot button.meters > * + *"), /margin-left:\s*6px;/);
-});
-
-test("a panel row sets its label and value apart, with its bar across the row below them", () => {
-  assert.match(declarationsFor(css, ".meter"), /grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/);
-  assert.match(declarationsFor(css, ".meter > .bar"), /grid-column:\s*1 \/ -1;/);
-});
-
-test("the meters panel is a mantle box with a surface1 ring", () => {
-  const panel = declarationsFor(css, ".meters-panel");
-  assert.match(panel, /(?<![-\w])background:\s*var\(--mantle\);/);
-  assert.match(panel, /box-shadow:\s*0 0 0 1px var\(--surface1\);/);
-});
-
-test("from 760px the meters panel lies over the rows' row, so it takes no track and the footer keeps the last row", () => {
-  const wide = mediaBlock(css, "@media (min-width: 760px) {");
-  const panel = declarationsFor(wide, ".list > .meters-panel");
-  assert.match(declarationsFor(wide, ".list"), /(?<![-\w])position:\s*relative;/, "the list holds the panel's grid area");
-  assert.match(panel, /(?<![-\w])position:\s*absolute;/);
-  assert.match(panel, /grid-row:\s*2;/);
-  assert.match(panel, /align-self:\s*end;/);
 });
 
 test("a meter bar is a 2px fill: lavender, peach at level-warn and red at level-crit, each by its token", () => {

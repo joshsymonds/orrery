@@ -12,7 +12,7 @@ import type { Row } from "./rows";
 import { type Blocker, blockerOf, controlsOf, stateOf } from "./status";
 import { type TalkTarget, talkTarget } from "./talk";
 import { listedTitle, TitleParts } from "./titleparts";
-import { TitleRow } from "./titlerow";
+import { type InboxMark, TitleRow } from "./titlerow";
 import { Workflow } from "./workflow";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
@@ -89,6 +89,8 @@ export function EpicPage(props: {
   actions?: ComponentChildren;
   handover?: ComponentChildren;
   landing?: Landing;
+  mark?: InboxMark;
+  strip?: ComponentChildren;
   rows?: Row[];
 }): JSX.Element {
   const {
@@ -105,6 +107,8 @@ export function EpicPage(props: {
     actions,
     handover,
     landing,
+    mark,
+    strip,
     rows = [],
   } = props;
   const { epic, contract, requirements, steps, nodes, releaseSteps, report, sessions } = detail;
@@ -130,10 +134,12 @@ export function EpicPage(props: {
   return (
     <div class="epic-page" ref={pageRef}>
       <TitleRow
-        crumbs={[{ label: "orrery", onGo: onBack }, { label: slug }]}
+        crumbs={[{ label: slug }]}
         onBack={onBack}
         state={stateLine(detail, now)}
         blocker={blockerLine(blocker, now)}
+        mark={mark}
+        strip={strip}
       >
         {actions}
         {controls.resume && (

@@ -298,14 +298,17 @@ func reviewLoopPlanTurn(t *testing.T, s *store.Store) []string {
 func reviewLoopDrive(t *testing.T, s *store.Store, runner *Runner, script []reviewLoopEnd) []string {
 	t.Helper()
 	var causes []string
+	// Nothing writes between one pass's last read of the flow and the next pass, so that read is the next one's before.
+	before := reviewLoopFlowOf(t, s)
 	for range reviewLoopPasses {
-		before := reviewLoopFlowOf(t, s)
 		runner.Pass(context.Background())
 		reviewLoopAnswer(t, s, script)
 		causes = append(causes, reviewLoopPlanTurn(t, s)...)
-		if reflect.DeepEqual(reviewLoopFlowOf(t, s), before) {
+		after := reviewLoopFlowOf(t, s)
+		if reflect.DeepEqual(after, before) {
 			return causes
 		}
+		before = after
 	}
 	t.Fatalf("the flow still changes after %d passes", reviewLoopPasses)
 	return nil

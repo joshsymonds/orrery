@@ -427,3 +427,112 @@ test("EscapeInterrupt: a failed withdraw shows an error line, and the interrupt 
     assert.equal(fake.callsTo(interruptPath).length, 1, "the interrupt went out after the failed withdraw");
     assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
   }));
+
+// clickRow clicks the list's row for key, as a pointer does: the row opens, and a docked inbox is hidden.
+async function clickRow(container: HTMLElement, key: string): Promise<void> {
+  const element = container.querySelector(`.b-row[data-key="${key}"]`);
+  assert.ok(element, `the list draws the row ${key}`);
+  await act(() => {
+    element.dispatchEvent(new Event("click", { bubbles: true }));
+  });
+}
+
+// hoverMark moves the pointer onto the mark, which pops a hidden inbox out over the page.
+async function hoverMark(container: HTMLElement): Promise<void> {
+  const mark = container.querySelector(".mark-crumb");
+  assert.ok(mark, "the page draws the mark");
+  await act(() => {
+    mark.dispatchEvent(new Event("mouseenter", { bubbles: true }));
+  });
+}
+
+// paneState is the inbox state the app draws on the panes: docked, pinned, hidden or flyout.
+function paneState(container: HTMLElement): string | null {
+  return container.querySelector(".panes")?.getAttribute("data-inbox") ?? null;
+}
+
+// leaveComposer focuses the cursor's reply box, as a row's opening does on origin, and presses Shift+Tab in it, which
+// takes the focus to the list's cursor row.
+async function leaveComposer(container: HTMLElement): Promise<void> {
+  const box = composer(container);
+  await act(() => {
+    box.focus();
+  });
+  await act(() => {
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+  });
+}
+
+test("EscapeInterrupt InboxPin: Escape on a working session with the inbox hidden by a click takes back its queued messages and interrupts", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await clickRow(container, "s1");
+    assert.equal(paneState(container), "hidden", "the click opened the row and hid the inbox");
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(fake.callsTo(withdrawPath).length, 1, "the queued messages were taken back");
+    assert.equal(composer(container).value, "first\n\nsecond");
+  }));
+
+test("EscapeInterrupt InboxPin: Escape after a hover on the mark popped the inbox out takes back the queued messages and interrupts, and leaves the inbox out", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await clickRow(container, "s1");
+    await hoverMark(container);
+    assert.equal(paneState(container), "flyout", "the hover popped the inbox out");
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.equal(fake.callsTo(withdrawPath).length, 1, "the queued messages were taken back");
+    assert.equal(composer(container).value, "first\n\nsecond");
+    assert.equal(paneState(container), "flyout", "Escape does not tuck a hover pop-out");
+  }));
+
+// resizeWindow sets the viewport of the window the test's DOM is in, the one installTestDom made, to width pixels wide.
+// It runs inside act, so the renders the resize causes are applied.
+async function resizeWindow(width: number): Promise<void> {
+  const view = (globalThis as unknown as { window: ReturnType<typeof installTestDom> }).window;
+  await act(() => {
+    view.happyDOM.setViewport({ width, height: 800 });
+  });
+}
+
+// narrowWindow narrows the window from the wide default to width. happy-dom's media query starts out not matching, so
+// it fires change for a narrowing only after a resize has shown it a match. The window is widened by a pixel first,
+// which is that resize. A browser's query fires change on every crossing, so it needs no such step.
+async function narrowWindow(width: number): Promise<void> {
+  await resizeWindow(1025);
+  await resizeWindow(width);
+}
+
+test("EscapeInterrupt InboxPin: at 700px, a list key after a row is opened leaves the inbox docked, and Escape on the working session still takes back its queued messages and interrupts", (t) =>
+  withApp(t.signal, { rows: [sessionRow] }, async (container, fake) => {
+    fake.replies.set(withdrawPath, [{ texts: ["first", "second"] }]);
+    await narrowWindow(700);
+    await clickRow(container, "s1");
+    await leaveComposer(container);
+    await press("j");
+    assert.equal(paneState(container), "docked", "the list key pops no inbox out");
+    await emitHeld(t.signal, container, fake, [
+      { promptId: "p1", text: "first" },
+      { promptId: "p2", text: "second" },
+    ]);
+    const before = fake.calls.length;
+    await press("Escape");
+    await until(t.signal, () => fake.callsTo(interruptPath).length === 1, "the interrupt");
+    assert.deepEqual(
+      fake.calls
+        .slice(before)
+        .map((call) => call.path)
+        .filter((path) => path.startsWith("/orrery.v1.Control/")),
+      [withdrawPath, interruptPath],
+      "after the list key, Escape at 700px sends the withdraw that takes back the messages, then the interrupt",
+    );
+  }));

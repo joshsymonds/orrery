@@ -1,4 +1,4 @@
-import type { JSX } from "preact";
+import type { ComponentChildren, JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import { AskFirst } from "./blocker";
@@ -7,7 +7,7 @@ import type { EpicTaskReview, EpicsGetResponse } from "./gen/orrery/v1/epics_pb"
 import { type Attempt, type CheckRound, type PhaseOutput, type PhaseRow, phaseOutputOf } from "./phaserows";
 import { durationText, type Phase } from "./phases";
 import { outcomeOf } from "./stepbox";
-import { type Crumb, TitleRow } from "./titlerow";
+import { type Crumb, type InboxMark, TitleRow } from "./titlerow";
 
 // PhaseOutputPage is one task's phase output: a title row with Hold and Stop… while a step runs, the task's title and
 // requirement ids, and its four phases as rows with the given phase open. The open row shows its output and Open the
@@ -21,22 +21,19 @@ export function PhaseOutputPage(props: {
   now: number;
   loadArtifact: LoadArtifact;
   onBack: () => void;
-  onGoList: () => void;
   onOpenPhase: (task: string, phase: Phase) => void;
   onOpenSession: (step: string) => void;
   hold: (step: string) => Promise<void>;
   stop: (step: string) => Promise<void>;
+  mark?: InboxMark;
+  strip?: ComponentChildren;
 }): JSX.Element {
-  const { detail, epic, task, phase, now, loadArtifact, onBack, onGoList, onOpenPhase, onOpenSession, hold, stop } =
+  const { detail, epic, task, phase, now, loadArtifact, onBack, onOpenPhase, onOpenSession, hold, stop, mark, strip } =
     props;
   const [notice, setNotice] = useState("");
   const output = phaseOutputOf(detail, task);
   const running = output?.running;
-  const crumbs: Crumb[] = [
-    { label: "orrery", onGo: onGoList },
-    { label: epic, onGo: onBack },
-    { label: `${task} · ${phase}` },
-  ];
+  const crumbs: Crumb[] = [{ label: epic, onGo: onBack }, { label: `${task} · ${phase}` }];
 
   async function holdStep(step: string): Promise<void> {
     setNotice("");
@@ -58,7 +55,7 @@ export function PhaseOutputPage(props: {
 
   return (
     <div class="phase-output">
-      <TitleRow crumbs={crumbs} onBack={onBack}>
+      <TitleRow crumbs={crumbs} onBack={onBack} mark={mark} strip={strip}>
         {running !== undefined && !running.held && (
           <button type="button" class="act" onClick={() => void holdStep(running.id)}>
             Hold

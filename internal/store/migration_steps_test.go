@@ -4,15 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // schemaLines returns the schema of db, one line for each table, index, view and trigger in name order: its kind, name,
 // table and the SQL that made it, with its spacing normalized, and for a table each of its columns with their type, NOT
-// NULL flag, default and key position. goose's version table and SQLite's own tables are left out.
+// NULL flag, default and key position. goose's version table and SQLite's own tables are left out. It reads the schema
+// in two queries, whatever the number of tables, since each query costs the walk of the migrations its time.
 func schemaLines(t *testing.T, db *sql.DB) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -22,24 +25,17 @@ func schemaLines(t *testing.T, db *sql.DB) []string {
 		t.Fatalf("read schema: %v", err)
 	}
 	var lines []string
-	var tables []string
 	for objects.Next() {
 		var kind, name, table, text string
 		if err = objects.Scan(&kind, &name, &table, &text); err != nil {
 			t.Fatalf("scan schema: %v", err)
 		}
 		lines = append(lines, kind+" "+name+" on "+table+": "+normalizedSQL(text))
-		if kind == "table" {
-			tables = append(tables, name)
-		}
 	}
 	if err = rowsDone(objects); err != nil {
 		t.Fatalf("read schema: %v", err)
 	}
-	for _, table := range tables {
-		lines = append(lines, columnLines(t, db, table)...)
-	}
-	return lines
+	return append(lines, columnLines(t, db)...)
 }
 
 // normalizedSQL returns text with its runs of white space made one space, and a space on each side of each parenthesis
@@ -57,43 +53,111 @@ func rowsDone(rows *sql.Rows) error {
 	return rows.Close()
 }
 
-// columnLines returns one line for each column of table in db, as schemaLines lists them.
-func columnLines(t *testing.T, db *sql.DB, table string) []string {
+// columnLines returns one line for each column of each table schemaLines lists, sorted, so a table's columns follow
+// one another in name order.
+func columnLines(t *testing.T, db *sql.DB) []string {
 	t.Helper()
 	rows, err := db.QueryContext(context.Background(),
-		`SELECT name, type, "notnull", COALESCE(dflt_value, ''), pk FROM pragma_table_info(?)`, table)
+		`SELECT m.name, p.name, p.type, p."notnull", COALESCE(p.dflt_value, ''), p.pk
+		FROM sqlite_master AS m JOIN pragma_table_info(m.name) AS p
+		WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND m.name != 'goose_db_version'`)
 	if err != nil {
-		t.Fatalf("read columns of %s: %v", table, err)
+		t.Fatalf("read columns: %v", err)
 	}
 	var lines []string
 	for rows.Next() {
-		var name, typ, dflt string
+		var table, name, typ, dflt string
 		var notNull, pk int
-		if err = rows.Scan(&name, &typ, &notNull, &dflt, &pk); err != nil {
-			t.Fatalf("scan columns of %s: %v", table, err)
+		if err = rows.Scan(&table, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan columns: %v", err)
 		}
 		lines = append(lines, fmt.Sprintf("column %s.%s %s notnull=%d default=%q pk=%d", table, name, typ, notNull,
 			dflt, pk))
 	}
 	if err = rowsDone(rows); err != nil {
-		t.Fatalf("read columns of %s: %v", table, err)
+		t.Fatalf("read columns: %v", err)
 	}
 	slices.Sort(lines)
 	return lines
 }
 
-// TestEachMigrationDownRestoresThePreviousSchema runs each migration's Down on the store at its version, as the walk of
-// the migrations from the first leaves it, and requires the schema of the version before; then its Up, and requires the
-// schema of its version again. So every Down undoes its Up, whatever the version a store is taken down from, and the
-// tests of one migration's Down start at that migration's version.
-func TestEachMigrationDownRestoresThePreviousSchema(t *testing.T) {
+// migrationCheck is what the walk of TestEachMigrationDownAndUp asserts of one migration beyond its schema. seed stores
+// rows at the migration's version before its Down; down checks what the Down left, at the version before; up checks
+// what the Up left, at the migration's version again. Each is optional.
+type migrationCheck struct {
+	seed func(t *testing.T, s *Store)
+	down func(t *testing.T, s *Store)
+	up   func(t *testing.T, s *Store)
+}
+
+// migrationChecks returns the walk's checks by migration version.
+func migrationChecks() map[int64]migrationCheck {
+	return map[int64]migrationCheck{
+		13: engineReadoptDownAndUp(),
+		20: evidenceDownAndUp(),
+		21: taskBuildDownAndUp(),
+		22: workflowDownAndUp(),
+		23: checkoutTailsDownAndUp(),
+		24: turnEndIndexDownAndUp(),
+		25: dueResumesDownAndUp(),
+		26: limitToldDownAndUp(),
+		35: reviewersDownAndUp(),
+		37: assertionsDownAndUp(),
+		38: releaseDownAndUp(),
+		39: questionsDownAndUp(),
+		40: guardsDownAndUp(),
+		48: epicCloseDownAndUp(),
+		49: plannerActionsDownAndUp(),
+		50: parkClassDownAndUp(),
+		51: parkBoundDownAndUp(),
+		52: evidenceAmendmentsDownAndUp(),
+	}
+}
+
+// migrationNames returns the file name of each embedded migration without its extension, by version.
+func migrationNames(t *testing.T) map[int64]string {
+	t.Helper()
+	entries, err := fs.ReadDir(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("list migrations: %v", err)
+	}
+	names := map[int64]string{}
+	for _, entry := range entries {
+		name := strings.TrimSuffix(entry.Name(), ".sql")
+		prefix, _, _ := strings.Cut(name, "_")
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			t.Fatalf("migration %s has no version: %v", entry.Name(), err)
+		}
+		names[version] = name
+	}
+	return names
+}
+
+// TestEachMigrationDownAndUp walks the migrations once. Each migration starts from a copy of the store at its version,
+// as the walk of the migrations from the first leaves it, and steps down and up once: its Down must leave the schema of
+// the version before, and its Up the schema of its version again, so every Down undoes its Up whatever the version a
+// store is taken down from. The migration's check (see migrationChecks) seeds its rows before the Down and asserts what
+// the Down removes and what the Up restores. A subtest is named for its migration's file, so a broken Down or Up names
+// the migration.
+func TestEachMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	images, err := storeImages.versions()
 	if err != nil {
 		t.Fatalf("make store version images: %v", err)
 	}
+	names := migrationNames(t)
+	if len(names) != len(images) {
+		t.Fatalf("%d migrations, %d store version images", len(names), len(images))
+	}
+	checks := migrationChecks()
+	for version := range checks {
+		if names[version] == "" {
+			t.Fatalf("a migration check is keyed to version %d, which no migration has", version)
+		}
+	}
 	for version := int64(1); version <= int64(len(images)); version++ {
-		t.Run(fmt.Sprintf("version %d", version), func(t *testing.T) {
+		t.Run(names[version], func(t *testing.T) {
 			t.Parallel()
 			var previous []string
 			if version > 1 {
@@ -104,20 +168,30 @@ func TestEachMigrationDownRestoresThePreviousSchema(t *testing.T) {
 			s, provider := storeAtVersion(t, version)
 			at := schemaLines(t, s.db.DB)
 			ctx := context.Background()
+			check := checks[version]
+			if check.seed != nil {
+				check.seed(t, s)
+			}
 
 			if _, err := provider.Down(ctx); err != nil {
-				t.Fatalf("Down of %d: %v", version, err)
+				t.Fatalf("Down of %s: %v", names[version], err)
 			}
 			if got := schemaLines(t, s.db.DB); !slices.Equal(got, previous) {
-				t.Fatalf("schema after the Down of %d differs from version %d:\n%s", version, version-1,
+				t.Fatalf("schema after the Down of %s differs from version %d:\n%s", names[version], version-1,
 					lineDiff(got, previous))
 			}
+			if check.down != nil {
+				check.down(t, s)
+			}
 			if _, err := provider.UpByOne(ctx); err != nil {
-				t.Fatalf("Up of %d: %v", version, err)
+				t.Fatalf("Up of %s: %v", names[version], err)
 			}
 			if got := schemaLines(t, s.db.DB); !slices.Equal(got, at) {
-				t.Fatalf("schema after the Down and Up of %d differs from version %d:\n%s", version, version,
+				t.Fatalf("schema after the Down and Up of %s differs from version %d:\n%s", names[version], version,
 					lineDiff(got, at))
+			}
+			if check.up != nil {
+				check.up(t, s)
 			}
 		})
 	}

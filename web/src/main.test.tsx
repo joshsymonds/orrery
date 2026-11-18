@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { act } from "preact/test-utils";
+
 import { createClients, createTransport } from "./client";
 import { start as startPage } from "./main";
 import { mockTimers } from "./testclock";
@@ -331,14 +333,14 @@ function ageOf(root: HTMLElement, name: string): string {
   return row?.querySelector(".age")?.textContent ?? "";
 }
 
-// meterHost is the host the footer's meters button names, or null when the footer draws no button.
+// meterHost is the host the strip's host part names, or null when no strip draws one.
 function meterHost(root: HTMLElement): string | null {
-  return root.querySelector(".lfoot > .meters .meters-host")?.textContent ?? null;
+  return root.querySelector(".pane-strip-host")?.textContent ?? null;
 }
 
-// meterButtonShown is whether the footer draws the meters button.
+// meterButtonShown is whether a strip draws its host part.
 function meterButtonShown(root: HTMLElement): boolean {
-  return root.querySelector(".lfoot > .meters") !== null;
+  return root.querySelector(".pane-strip-host") !== null;
 }
 
 // errorText is the page's error line, or "" when it shows none.
@@ -1065,19 +1067,24 @@ test("a failed Presence.Report leaves the page without an error line and keeps t
     }
   }));
 
-test("the start read shows the host in the footer's meters button, before any poll tick", (t) =>
+test("the start read shows the host in the strip's host part, before any poll tick", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api");
     // longPollMs means no tick runs, so only the read at start can show the button.
     const stop = start(root, clientsFor(server), longPollMs);
     try {
+      // The cursor starts on the pane, which is on another host. G moves it to the session, whose page names this host.
+      await until(t.signal, () => labels(root).includes("notes"), "the notes row", { step: () => act(turn) });
+      await act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
+      });
       await until(t.signal, () => meterHost(root) === "den", "the meters button for the host");
     } finally {
       stop();
     }
   }));
 
-test("a refused Host.Status shows no meters button and no error, while the rows, epics and stream load", (t) =>
+test("a refused Host.Status shows no strip host part and no error, while the rows, epics and stream load", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     server.hostFails = true;
@@ -1088,22 +1095,31 @@ test("a refused Host.Status shows no meters button and no error, while the rows,
         () => labels(root).includes("api") && labels(root).includes("alpha") && server.watches.length === 1,
         "the rows, the epics and the stream",
       );
+      // G moves the cursor to the session, whose page would name this host if a status had come.
+      await until(t.signal, () => labels(root).includes("notes"), "the notes row", { step: () => act(turn) });
+      await act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
+      });
       // A read starts only once the one before it is handled, so the second read after the stream opens means a refusal
       // from after it has landed. No reload runs with the stream open, so nothing clears the error line after that.
       const readsAtOpen = server.hostCalls;
       await until(t.signal, () => server.hostCalls >= readsAtOpen + 2, "two refused reads with the stream open");
-      assert.equal(meterButtonShown(root), false, "a refused Host.Status drew a meters button");
+      assert.equal(meterButtonShown(root), false, "a refused Host.Status drew a host part in the strip");
       assert.equal(errorText(root), "", "a refused Host.Status showed in the error line");
     } finally {
       stop();
     }
   }));
 
-test("a Host.Status that starts failing takes the meters button away", (t) =>
+test("a Host.Status that starts failing takes the strip's host part away", (t) =>
   withPage(t.signal, async (root, start) => {
     const server = fakeServer("api", true);
     const stop = start(root, clientsFor(server), intervalMs);
     try {
+      await until(t.signal, () => labels(root).includes("notes"), "the notes row", { step: () => act(turn) });
+      await act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
+      });
       await until(t.signal, () => meterHost(root) === "den", "the meters button");
       server.hostFails = true;
       await until(t.signal, () => !meterButtonShown(root), "the meters button gone after a refused read");
@@ -1138,6 +1154,11 @@ test("a tick during a slow Host.Status starts no second read", (t) =>
       const panesAtFirstRead = server.panesCalls;
       await until(t.signal, () => server.panesCalls >= panesAtFirstRead + 3, "ticks while the first read is in flight");
       assert.equal(server.hostCalls, 1, "a tick started a second read while the first was in flight");
+      // G moves the cursor to the session, whose page names the host once the read lands.
+      await until(t.signal, () => labels(root).includes("notes"), "the notes row", { step: () => act(turn) });
+      await act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
+      });
       release();
       await until(t.signal, () => meterHost(root) === "den", "the host after release");
     } finally {

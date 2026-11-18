@@ -83,19 +83,28 @@ test("the last crumb is the page: a span marked aria-current page, not a button"
     assert.equal(textOf(container, ".crumbs .here"), "contract");
     assert.equal(container.querySelector(".crumbs .here")?.tagName ?? null, "SPAN");
     assert.equal(container.querySelector(".crumbs .here")?.getAttribute("aria-current") ?? null, "page");
-    assert.equal(countOf(container, ".crumbs button"), 1);
+    assert.equal(countOf(container, ".crumbs button.crumb"), 1);
   });
 });
 
-test("the crumbs read as one line with › between them", async () => {
+test("a crumb with no handler is a plain label, and a crumb with one is a button", async () => {
+  const crumbs: Crumb[] = [{ label: "first › builder" }, { label: "rota-export", onGo: () => {} }, { label: "s1" }];
+  await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
+    assert.equal(textOf(container, ".crumbs span.crumb:not(.here)"), "first › builder");
+    assert.equal(countOf(container, ".crumbs button.crumb"), 1);
+    assert.equal(textOf(container, ".crumbs button.crumb"), "rota-export");
+  });
+});
+
+test("the crumbs read as one line, each after a › separator", async () => {
   const crumbs: Crumb[] = [
     { label: "orrery", onGo: () => {} },
     { label: "rota-export", onGo: () => {} },
     { label: "contract" },
   ];
   await withRow(<TitleRow crumbs={crumbs} onBack={() => {}} />, (container) => {
-    assert.equal(textOf(container, ".crumbs"), "orrery › rota-export › contract");
-    assert.equal(countOf(container, ".crumbs .sep"), 2);
+    assert.equal(textOf(container, ".crumbs")?.trim(), "› orrery › rota-export › contract");
+    assert.equal(countOf(container, ".crumbs .sep"), 3);
     assert.equal(textOf(container, ".crumbs .sep"), "›");
   });
 });

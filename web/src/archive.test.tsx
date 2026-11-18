@@ -445,15 +445,6 @@ test("ArchiveView: a failed archive leaves the row where it was and shows the er
     assert.deepEqual(rowKeys(container), ["s1"]);
   }));
 
-test("ArchiveView: the brand counts an archived row that needs you, as the list reads every loaded row", (t) =>
-  withArchive(
-    t.signal,
-    { rows: [headless({ key: "ha", id: "ha", label: "old docs", state: "waiting", archived: true })] },
-    (container) => {
-      assert.equal(container.querySelector(".brand .counts .st-waiting")?.textContent, "1 need you");
-    },
-  ));
-
 test("RowMenu: a session row and an epic line draw a ⋯ button and no Archive text", (t) =>
   withArchive(
     t.signal,

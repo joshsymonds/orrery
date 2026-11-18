@@ -258,180 +258,192 @@ func (w *integrateWorld) requireParked(reason string, pending int) {
 	}
 }
 
-// TestIntegrateBatchGreenAdvancesBranchAndStoredBase: two accepted tasks compose to two commits on the stored base. The
+// integrateBatchGreenAdvancesBranchAndStoredBase: two accepted tasks compose to two commits on the stored base. The
 // Done gate, then the capture of the Requirement, run at the candidate. Once both are green the epic's branch moves to
 // the candidate, the stored base follows it, and the planner's trigger is pending.
-func TestIntegrateBatchGreenAdvancesBranchAndStoredBase(t *testing.T) {
-	t.Parallel()
-	w := newIntegrateWorld(t)
-	candidate := w.toCaptured()
+func integrateBatchGreenAdvancesBranchAndStoredBase(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		w, candidate := images.integrateWorld(t, atCaptured)
 
-	wantChecks := []store.NodeCheck{{
-		ID: workID(t, w.s, integrateBatch, "done 1"), Epic: runEpic, Path: integrateBatch, Revision: candidate,
-		Argv: []string{"./bin/lint"}, Limit: 60, Needs: []store.EpicGateNeed{{Pool: "lint", Count: 2}},
-	}}
-	if !reflect.DeepEqual(w.fakes.checks.calls, wantChecks) {
-		t.Errorf("checks run = %+v, want %+v", w.fakes.checks.calls, wantChecks)
-	}
-	wantEvidence := []evidenceCall{{
-		id: workID(t, w.s, integrateBatch, "capture R1"), epic: runEpic, item: "R1", revision: candidate,
-		phase: evidence.PhaseGreen,
-	}}
-	if !reflect.DeepEqual(w.fakes.evidence.calls, wantEvidence) {
-		t.Errorf("evidence runs = %+v, want %+v", w.fakes.evidence.calls, wantEvidence)
-	}
+		wantChecks := []store.NodeCheck{{
+			ID: workID(t, w.s, integrateBatch, "done 1"), Epic: runEpic, Path: integrateBatch, Revision: candidate,
+			Argv: []string{"./bin/lint"}, Limit: 60, Needs: []store.EpicGateNeed{{Pool: "lint", Count: 2}},
+		}}
+		if !reflect.DeepEqual(w.fakes.checks.calls, wantChecks) {
+			t.Errorf("checks run = %+v, want %+v", w.fakes.checks.calls, wantChecks)
+		}
+		wantEvidence := []evidenceCall{{
+			id: workID(t, w.s, integrateBatch, "capture R1"), epic: runEpic, item: "R1", revision: candidate,
+			phase: evidence.PhaseGreen,
+		}}
+		if !reflect.DeepEqual(w.fakes.evidence.calls, wantEvidence) {
+			t.Errorf("evidence runs = %+v, want %+v", w.fakes.evidence.calls, wantEvidence)
+		}
 
-	pending := w.pending()
-	w.pass()
-	run := runAt(t, w.s, integrateBatch)
-	if run.State != store.NodeEnded || run.Outcome != "passed" {
-		t.Errorf("batch = %+v, want ended passed", run)
-	}
-	if epic := epicOf(t, w.s); epic.StoredBase != candidate || epic.Candidate != "" {
-		t.Errorf("stored base %q and candidate %q, want %q and none", epic.StoredBase, epic.Candidate, candidate)
-	}
-	if tip := w.git("rev-parse", integrateBranch); tip != candidate {
-		t.Errorf("branch = %s, want the candidate %s", tip, candidate)
-	}
-	if got := w.pending(); got != pending+1 {
-		t.Errorf("pending triggers = %d, want %d: green wakes the planner once", got, pending+1)
-	}
-	if got := w.git("rev-list", "--count", w.base+".."+candidate); got != "2" {
-		t.Errorf("commits on the stored base = %s, want 2", got)
-	}
-	if got := w.git("diff", "--name-only", w.base, candidate); got != "b.go\ninternal/a/x.go" {
-		t.Errorf("paths the candidate changes over the stored base = %q, want both tasks' paths", got)
-	}
-	pin := fmt.Sprintf("refs/orrery/epic-runner/candidate/%s-%d", run.ID, run.Attempt)
-	if got := w.git("rev-parse", "--verify", pin); got != candidate {
-		t.Errorf("pinned candidate = %s, want %s", got, candidate)
+		pending := w.pending()
+		w.pass()
+		run := runAt(t, w.s, integrateBatch)
+		if run.State != store.NodeEnded || run.Outcome != "passed" {
+			t.Errorf("batch = %+v, want ended passed", run)
+		}
+		if epic := epicOf(t, w.s); epic.StoredBase != candidate || epic.Candidate != "" {
+			t.Errorf("stored base %q and candidate %q, want %q and none", epic.StoredBase, epic.Candidate, candidate)
+		}
+		if tip := w.git("rev-parse", integrateBranch); tip != candidate {
+			t.Errorf("branch = %s, want the candidate %s", tip, candidate)
+		}
+		if got := w.pending(); got != pending+1 {
+			t.Errorf("pending triggers = %d, want %d: green wakes the planner once", got, pending+1)
+		}
+		if got := w.git("rev-list", "--count", w.base+".."+candidate); got != "2" {
+			t.Errorf("commits on the stored base = %s, want 2", got)
+		}
+		if got := w.git("diff", "--name-only", w.base, candidate); got != "b.go\ninternal/a/x.go" {
+			t.Errorf("paths the candidate changes over the stored base = %q, want both tasks' paths", got)
+		}
+		pin := fmt.Sprintf("refs/orrery/epic-runner/candidate/%s-%d", run.ID, run.Attempt)
+		if got := w.git("rev-parse", "--verify", pin); got != candidate {
+			t.Errorf("pinned candidate = %s, want %s", got, candidate)
+		}
 	}
 }
 
-// TestIntegrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate: a failed Done gate leaves the branch at the stored
+// integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate: a failed Done gate leaves the branch at the stored
 // base, stores the candidate as the epic's candidate and wakes the planner. The next batch composes on that candidate.
-func TestIntegrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate(t *testing.T) {
-	t.Parallel()
-	w := newIntegrateWorld(t)
-	candidate := w.toGate()
-	pending := w.pending()
-	w.endGate(integrateBatch, 1, "lint failed")
-	w.pass()
-
-	run := runAt(t, w.s, integrateBatch)
-	if run.State != store.NodeEnded || run.Outcome != "failed" || run.Output != "Done gate lint failed" {
-		t.Errorf("batch = %+v, want ended failed on the failed gate", run)
-	}
-	if epic := epicOf(t, w.s); epic.StoredBase != w.base || epic.Candidate != candidate {
-		t.Errorf("stored base %q and candidate %q, want %q and %q", epic.StoredBase, epic.Candidate, w.base, candidate)
-	}
-	if tip := w.git("rev-parse", integrateBranch); tip != w.base {
-		t.Errorf("branch = %s, want the stored base %s", tip, w.base)
-	}
-	if got := w.pending(); got != pending+1 {
-		t.Errorf("pending triggers = %d, want %d: red wakes the planner once", got, pending+1)
-	}
-	if got := len(w.fakes.evidence.calls); got != 0 {
-		t.Errorf("%d evidence runs after a failed gate, want none", got)
-	}
-
-	first := w.commit(candidate, "c.go", "three\n")
-	second := w.commit(candidate, "d.go", "four\n")
-	w.planTurn()
-	w.accept(3, candidate, first)
-	w.accept(4, candidate, second)
-	w.pass()
-	next := w.candidate(integrateNextBatch)
-	w.endGate(integrateNextBatch, 0, "")
-	w.pass()
-	w.endCapture(integrateNextBatch)
-	w.pass()
-
-	if epic := epicOf(t, w.s); epic.StoredBase != next || epic.Candidate != "" {
-		t.Errorf("stored base %q and candidate %q, want %q and none", epic.StoredBase, epic.Candidate, next)
-	}
-	if tip := w.git("rev-parse", integrateBranch); tip != next {
-		t.Errorf("branch = %s, want the second candidate %s", tip, next)
-	}
-	if got := w.git("rev-list", "--count", candidate+".."+next); got != "2" {
-		t.Errorf("commits of the second batch on the first candidate = %s, want 2", got)
-	}
-	if got := w.git("rev-parse", next+"~2"); got != candidate {
-		t.Errorf("second candidate builds on %s, want the first candidate %s", got, candidate)
-	}
-}
-
-// TestIntegrateMovedOrCheckedOutBranchParksBatch: a branch another commit moved, or one checked out in a worktree, parks
-// the batch and the epic with a tell, and the branch does not move. No other ref moves either.
-func TestIntegrateMovedOrCheckedOutBranchParksBatch(t *testing.T) {
-	t.Parallel()
-	t.Run("moved", func(t *testing.T) {
+func integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
 		t.Parallel()
-		w := newIntegrateWorld(t)
-		w.toCaptured()
-		moved := w.commit(w.base, "e.go", "moved\n")
-		w.git("update-ref", integrateBranch, moved)
-		refs := w.git("for-each-ref")
+		w, candidate := images.integrateWorld(t, atGate)
 		pending := w.pending()
+		w.endGate(integrateBatch, 1, "lint failed")
 		w.pass()
 
-		w.requireParked(fmt.Sprintf("epic/epic-runner moved: at %s, not the stored base %s", moved, w.base), pending)
-		if tip := w.git("rev-parse", integrateBranch); tip != moved {
-			t.Errorf("branch = %s, want it left at %s", tip, moved)
+		run := runAt(t, w.s, integrateBatch)
+		if run.State != store.NodeEnded || run.Outcome != "failed" || run.Output != "Done gate lint failed" {
+			t.Errorf("batch = %+v, want ended failed on the failed gate", run)
 		}
-		if got := w.git("for-each-ref"); got != refs {
-			t.Errorf("refs = %q, want them unchanged as %q", got, refs)
+		if epic := epicOf(t, w.s); epic.StoredBase != w.base || epic.Candidate != candidate {
+			t.Errorf(
+				"stored base %q and candidate %q, want %q and %q",
+				epic.StoredBase,
+				epic.Candidate,
+				w.base,
+				candidate,
+			)
 		}
-	})
-	t.Run("checked out in a worktree", func(t *testing.T) {
-		t.Parallel()
-		w := newIntegrateWorld(t)
-		w.toCaptured()
-		worktree := filepath.Join(t.TempDir(), "epic")
-		w.git("worktree", "add", "-q", worktree, nodeBranchName)
-		refs := w.git("for-each-ref")
-		pending := w.pending()
-		w.pass()
-
-		w.requireParked("epic/epic-runner is checked out in a worktree, so it was not moved", pending)
 		if tip := w.git("rev-parse", integrateBranch); tip != w.base {
-			t.Errorf("branch = %s, want it left at the stored base %s", tip, w.base)
+			t.Errorf("branch = %s, want the stored base %s", tip, w.base)
 		}
-		if got := w.git("for-each-ref"); got != refs {
-			t.Errorf("refs = %q, want them unchanged as %q", got, refs)
+		if got := w.pending(); got != pending+1 {
+			t.Errorf("pending triggers = %d, want %d: red wakes the planner once", got, pending+1)
 		}
-	})
+		if got := len(w.fakes.evidence.calls); got != 0 {
+			t.Errorf("%d evidence runs after a failed gate, want none", got)
+		}
+
+		first := w.commit(candidate, "c.go", "three\n")
+		second := w.commit(candidate, "d.go", "four\n")
+		w.planTurn()
+		w.accept(3, candidate, first)
+		w.accept(4, candidate, second)
+		w.pass()
+		next := w.candidate(integrateNextBatch)
+		w.endGate(integrateNextBatch, 0, "")
+		w.pass()
+		w.endCapture(integrateNextBatch)
+		w.pass()
+
+		if epic := epicOf(t, w.s); epic.StoredBase != next || epic.Candidate != "" {
+			t.Errorf("stored base %q and candidate %q, want %q and none", epic.StoredBase, epic.Candidate, next)
+		}
+		if tip := w.git("rev-parse", integrateBranch); tip != next {
+			t.Errorf("branch = %s, want the second candidate %s", tip, next)
+		}
+		if got := w.git("rev-list", "--count", candidate+".."+next); got != "2" {
+			t.Errorf("commits of the second batch on the first candidate = %s, want 2", got)
+		}
+		if got := w.git("rev-parse", next+"~2"); got != candidate {
+			t.Errorf("second candidate builds on %s, want the first candidate %s", got, candidate)
+		}
+	}
 }
 
-// TestIntegrateCutAdvanceEndsPassedOnce: a branch already at the candidate, as a restart leaves it when it cut the
-// advance, ends the batch passed once and moves nothing. A later pass changes nothing.
-func TestIntegrateCutAdvanceEndsPassedOnce(t *testing.T) {
-	t.Parallel()
-	w := newIntegrateWorld(t)
-	candidate := w.toCaptured()
-	w.git("update-ref", integrateBranch, candidate, w.base)
-	pending := w.pending()
-	w.pass()
+// integrateMovedOrCheckedOutBranchParksBatch: a branch another commit moved, or one checked out in a worktree, parks
+// the batch and the epic with a tell, and the branch does not move. No other ref moves either.
+func integrateMovedOrCheckedOutBranchParksBatch(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		t.Run("moved", func(t *testing.T) {
+			t.Parallel()
+			w, _ := images.integrateWorld(t, atCaptured)
+			moved := w.commit(w.base, "e.go", "moved\n")
+			w.git("update-ref", integrateBranch, moved)
+			refs := w.git("for-each-ref")
+			pending := w.pending()
+			w.pass()
 
-	if run := runAt(t, w.s, integrateBatch); run.State != store.NodeEnded || run.Outcome != "passed" {
-		t.Errorf("batch = %+v, want ended passed", run)
+			w.requireParked(
+				fmt.Sprintf("epic/epic-runner moved: at %s, not the stored base %s", moved, w.base),
+				pending,
+			)
+			if tip := w.git("rev-parse", integrateBranch); tip != moved {
+				t.Errorf("branch = %s, want it left at %s", tip, moved)
+			}
+			if got := w.git("for-each-ref"); got != refs {
+				t.Errorf("refs = %q, want them unchanged as %q", got, refs)
+			}
+		})
+		t.Run("checked out in a worktree", func(t *testing.T) {
+			t.Parallel()
+			w, _ := images.integrateWorld(t, atCaptured)
+			worktree := filepath.Join(t.TempDir(), "epic")
+			w.git("worktree", "add", "-q", worktree, nodeBranchName)
+			refs := w.git("for-each-ref")
+			pending := w.pending()
+			w.pass()
+
+			w.requireParked("epic/epic-runner is checked out in a worktree, so it was not moved", pending)
+			if tip := w.git("rev-parse", integrateBranch); tip != w.base {
+				t.Errorf("branch = %s, want it left at the stored base %s", tip, w.base)
+			}
+			if got := w.git("for-each-ref"); got != refs {
+				t.Errorf("refs = %q, want them unchanged as %q", got, refs)
+			}
+		})
 	}
-	if got := epicOf(t, w.s).StoredBase; got != candidate {
-		t.Errorf("stored base = %q, want the candidate %q", got, candidate)
-	}
-	if got := w.pending(); got != pending+1 {
-		t.Errorf("pending triggers = %d, want %d: the cut batch wakes the planner once", got, pending+1)
-	}
-	ended := runsOf(t, w.s)
-	w.pass()
-	if got := runsOf(t, w.s); !reflect.DeepEqual(got, ended) {
-		t.Errorf("node runs changed on a later pass: %+v, want %+v", got, ended)
-	}
-	if got := w.pending(); got != pending+1 {
-		t.Errorf("pending triggers = %d after a later pass, want %d", got, pending+1)
-	}
-	if tip := w.git("rev-parse", integrateBranch); tip != candidate {
-		t.Errorf("branch = %s, want it left at the candidate %s", tip, candidate)
+}
+
+// integrateCutAdvanceEndsPassedOnce: a branch already at the candidate, as a restart leaves it when it cut the
+// advance, ends the batch passed once and moves nothing. A later pass changes nothing.
+func integrateCutAdvanceEndsPassedOnce(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		w, candidate := images.integrateWorld(t, atCaptured)
+		w.git("update-ref", integrateBranch, candidate, w.base)
+		pending := w.pending()
+		w.pass()
+
+		if run := runAt(t, w.s, integrateBatch); run.State != store.NodeEnded || run.Outcome != "passed" {
+			t.Errorf("batch = %+v, want ended passed", run)
+		}
+		if got := epicOf(t, w.s).StoredBase; got != candidate {
+			t.Errorf("stored base = %q, want the candidate %q", got, candidate)
+		}
+		if got := w.pending(); got != pending+1 {
+			t.Errorf("pending triggers = %d, want %d: the cut batch wakes the planner once", got, pending+1)
+		}
+		ended := runsOf(t, w.s)
+		w.pass()
+		if got := runsOf(t, w.s); !reflect.DeepEqual(got, ended) {
+			t.Errorf("node runs changed on a later pass: %+v, want %+v", got, ended)
+		}
+		if got := w.pending(); got != pending+1 {
+			t.Errorf("pending triggers = %d after a later pass, want %d", got, pending+1)
+		}
+		if tip := w.git("rev-parse", integrateBranch); tip != candidate {
+			t.Errorf("branch = %s, want it left at the candidate %s", tip, candidate)
+		}
 	}
 }
 
@@ -557,34 +569,37 @@ func TestBuiltInEpicReachesBuiltThenWaitsAtReview(t *testing.T) {
 	}
 }
 
-// TestIntegrateBatchOnAnOlderBaseNeverMovesTheBranchBack: a batch composed on the base, whose branch a newer batch has
+// integrateBatchOnAnOlderBaseNeverMovesTheBranchBack: a batch composed on the base, whose branch a newer batch has
 // since advanced, with the stored base, to a commit the batch does not build on, parks instead of moving the branch
 // back. The branch keeps the newer batch's work. This is the batch of a late walk that a settle walk overtook.
-func TestIntegrateBatchOnAnOlderBaseNeverMovesTheBranchBack(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	w := newIntegrateWorld(t)
-	candidate := w.toCaptured()
-	newer := w.commit(w.base, "newer.go", "newer\n")
-	const overtaking = "plan/S7/integrate"
-	if err := w.s.StartNodes(ctx, runEpic, []store.NodeRun{{
-		Path: overtaking, ID: "overtaking", Node: "integrate", Kind: kindIntegrate, Attempt: 1,
-	}}, nil, runClock()); err != nil {
-		t.Fatalf("StartNodes: %v", err)
-	}
-	if err := w.s.PrepareNode(ctx, runEpic, overtaking, 1, newer, ""); err != nil {
-		t.Fatalf("PrepareNode: %v", err)
-	}
-	if err := w.s.EndBatch(ctx, runEpic, overtaking, 1, outcomePassed, "", nil, runClock()); err != nil {
-		t.Fatalf("EndBatch: %v", err)
-	}
-	w.git("update-ref", integrateBranch, newer)
-	pending := w.pending()
-	w.pass()
-	w.requireParked(fmt.Sprintf(
-		"epic/epic-runner is at %s, which the candidate %s does not build on, so it was not moved", newer, candidate,
-	), pending)
-	if tip := w.git("rev-parse", integrateBranch); tip != newer {
-		t.Errorf("branch = %s, want it left at the newer batch's %s", tip, newer)
+func integrateBatchOnAnOlderBaseNeverMovesTheBranchBack(images *worldImages) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		w, candidate := images.integrateWorld(t, atCaptured)
+		newer := w.commit(w.base, "newer.go", "newer\n")
+		const overtaking = "plan/S7/integrate"
+		if err := w.s.StartNodes(ctx, runEpic, []store.NodeRun{{
+			Path: overtaking, ID: "overtaking", Node: "integrate", Kind: kindIntegrate, Attempt: 1,
+		}}, nil, runClock()); err != nil {
+			t.Fatalf("StartNodes: %v", err)
+		}
+		if err := w.s.PrepareNode(ctx, runEpic, overtaking, 1, newer, ""); err != nil {
+			t.Fatalf("PrepareNode: %v", err)
+		}
+		if err := w.s.EndBatch(ctx, runEpic, overtaking, 1, outcomePassed, "", nil, runClock()); err != nil {
+			t.Fatalf("EndBatch: %v", err)
+		}
+		w.git("update-ref", integrateBranch, newer)
+		pending := w.pending()
+		w.pass()
+		w.requireParked(fmt.Sprintf(
+			"epic/epic-runner is at %s, which the candidate %s does not build on, so it was not moved",
+			newer,
+			candidate,
+		), pending)
+		if tip := w.git("rev-parse", integrateBranch); tip != newer {
+			t.Errorf("branch = %s, want it left at the newer batch's %s", tip, newer)
+		}
 	}
 }

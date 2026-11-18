@@ -14,7 +14,7 @@ import type { ParsedQuestion } from "./question";
 import type { Sending } from "./sending";
 import { MarkedText, ReplyText } from "./text";
 import { TitleParts } from "./titleparts";
-import { TitleRow } from "./titlerow";
+import { type InboxMark, TitleRow } from "./titlerow";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
@@ -343,29 +343,33 @@ export function ReaderHead({
   );
 }
 
-// ConversationHead heads a row's conversation with the shared title row: the back button, the crumbs orrery › the row's
-// title, which TitleParts draws from its directory and line, and the row's state in the state slot. The children, the
-// pill the app passes in, draw after the state.
+// ConversationHead heads a row's conversation with the shared title row: the back button, the mark, the row's title,
+// which TitleParts draws from its directory and line, as the page, and the row's state in the state slot. The children,
+// the pill the app passes in, draw after the state. The strip, when given, draws under the row.
 export function ConversationHead({
   dir,
   line,
   state,
   onBack,
-  onGoList,
+  mark,
+  strip,
   children,
 }: {
   dir: string;
   line: string;
   state: string;
   onBack: () => void;
-  onGoList: () => void;
+  mark?: InboxMark;
+  strip?: ComponentChildren;
   children?: ComponentChildren;
 }): JSX.Element {
   return (
     <TitleRow
-      crumbs={[{ label: "orrery", onGo: onGoList }, { label: <TitleParts dir={dir} line={line} /> }]}
+      crumbs={[{ label: <TitleParts dir={dir} line={line} /> }]}
       onBack={onBack}
       state={state}
+      mark={mark}
+      strip={strip}
     >
       {children}
     </TitleRow>

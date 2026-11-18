@@ -29,7 +29,6 @@ import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { Mark } from "./mark";
-import { MetersButton, MetersPanel } from "./meters";
 import { NeedEntry } from "./needentry";
 import { epicNeeds, rowNeed } from "./needs";
 import { NoticeBanner } from "./notices";
@@ -39,20 +38,29 @@ import type { Phase } from "./phases";
 import { PickerPalette } from "./picker";
 import { type Viewing, viewingOf } from "./presence";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { ConversationHead, Reader, ReaderHead, type ReaderHandle } from "./reader";
+import { ConversationHead, Reader, type ReaderHandle } from "./reader";
 import { byAttention, byProject, type Row, type Section, splitArchived } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { type SendKind, type Sending, type SentText, sendingEntry, unsentEntries, withoutTexts } from "./sending";
 import { StepBox } from "./stepbox";
+import { PaneStrip, type StripHost } from "./strip";
 import { Talk, type TalkTarget } from "./talk";
 import { TalkDock } from "./talkdock";
 import { ReplyText } from "./text";
 import { lastPathElement, TitleParts } from "./titleparts";
-import { TitleRow } from "./titlerow";
+import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project" | "archived";
+
+// The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
+// popped out over the hidden page while the pointer is on the mark or a key has popped it out.
+type InboxState = "docked" | "pinned" | "hidden" | "flyout";
+
+// How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
+// Escape.
+type Popout = "none" | "hover" | "key";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
@@ -184,6 +192,13 @@ const hoursPerDay = 24;
 // A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
 const stepSeenAt = Number.POSITIVE_INFINITY;
 
+// The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
+const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
+
+// The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
+// inbox: a narrower window always shows it docked, as the stacked layout does.
+const wideQuery = "(min-width: 760px)";
+
 const helpEntries: [string[], string][] = [
   [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
   [["gg"], "first row"],
@@ -206,7 +221,10 @@ const helpEntries: [string[], string][] = [
   [["1", "2", "3"], "answer the cursor's waiting question with that choice, or pick that option on an epic page"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
-  [["m"], "open or close the host's meters"],
+  [["b"], "pop the inbox out over the page, or tuck it back"],
+  [["B"], "pin or unpin the inbox beside the page"],
+  [["h", "←"], "back one crumb, or the inbox from the first crumb"],
+  [["m"], "hide or show the strips"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
@@ -239,7 +257,31 @@ export function App({
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
-  const [metersOpen, setMetersOpen] = useState(false);
+  // Whether the strips under the title rows are drawn. m hides and shows every one of them.
+  const [stripsShown, setStripsShown] = useState(true);
+  // Whether a row has been opened by a click or Enter, which hides the inbox. The mark's click or B pins the inbox
+  // beside the page. A hidden inbox is popped out over the page by the pointer on the mark, or by a key, and popout
+  // records which.
+  const [rowOpened, setRowOpened] = useState(false);
+  const [inboxPinned, setInboxPinned] = useState(false);
+  const [popout, setPopout] = useState<Popout>("none");
+  // Whether the window is wide, read at mount and followed on the query's change event. A window narrowed below 760px
+  // drops any pop-out, and keeps rowOpened and the pin, so widening it again shows the inbox as it was.
+  const [wide, setWide] = useState(() => window.matchMedia(wideQuery).matches);
+  useEffect(() => {
+    const query = window.matchMedia(wideQuery);
+    const follow = () => {
+      setWide(query.matches);
+      if (!query.matches) {
+        setPopout("none");
+      }
+    };
+    query.addEventListener("change", follow);
+    return () => {
+      query.removeEventListener("change", follow);
+    };
+  }, []);
+  const listRef = useRef<HTMLDivElement>(null);
   // Whether the picker palette is open.
   const [pickerOpen, setPickerOpen] = useState(false);
   // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
@@ -342,12 +384,6 @@ export function App({
     .split(/\s+/)
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(withRowMark(row, rowMarks), seenWritten));
-  // The brand's counts read every loaded row as the list reads it after seen writes, before the filter.
-  const waitingCount = shownRows.filter((row) => row.state === stateWaiting).length;
-  const workingCount = shownRows.filter((row) => row.state === stateWorking).length;
-  const newCount = shownRows.filter((row) => row.unseen).length;
-  // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
-  const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
   const { rows: defaultRows, archived: archivedRows } = splitArchived(matching);
   // The epics as the local archive marks leave them, which the views draw in place of the list's.
@@ -365,7 +401,27 @@ export function App({
   const detailEpics = [...epics.details.values()].flatMap((detail) =>
     detail.epic === undefined || archivedIds.has(detail.epic.id) ? [] : [detail.epic],
   );
-  const needs = view === "attention" ? epicNeeds(detailEpics, epics.details) : [];
+  // The live epics' needs, which the mark counts in every view. Only the attention view draws them in its section.
+  const liveNeeds = epicNeeds(detailEpics, epics.details);
+  const needs = view === "attention" ? liveNeeds : [];
+  // The mark's count: the loaded rows that need you and are not archived, and the live epics' needs. It reads the same
+  // in every view and under any filter, as the list reads every loaded row after seen writes.
+  const markNeeds =
+    splitArchived(shownRows).rows.filter((row) => row.state === stateWaiting).length + liveNeeds.length;
+  // Under 760px the inbox is docked, whatever the row, the pin and the pop-out hold.
+  const inboxState: InboxState = !wide
+    ? "docked"
+    : inboxPinned
+      ? "pinned"
+      : !rowOpened
+        ? "docked"
+        : popout !== "none"
+          ? "flyout"
+          : "hidden";
+  // The inbox is hidden once a row has been opened, unless it is pinned or popped out. A key pop-out is the flyout that
+  // Escape and b tuck back.
+  const inboxHidden = inboxState === "hidden";
+  const keyPopped = inboxState === "flyout" && popout === "key";
   const sections =
     view === "attention"
       ? withEpicsGroup(withNeedsSection(byAttention(defaultRows), needs.length > 0), kept)
@@ -830,7 +886,7 @@ export function App({
     }
   };
   const toggleOpen = () => setOpen((value) => !value);
-  const toggleMeters = () => setMetersOpen((value) => !value);
+  const toggleStrips = () => setStripsShown((value) => !value);
   // drill opens a page over the open one. The open page's scroll place is kept for the back that returns to it, and the
   // new page opens at its top.
   const drill = (next: PageView) => {
@@ -856,6 +912,15 @@ export function App({
   // back returns from the page on top to the page under it. toEpicPage returns to the epic page from any page over it.
   const back = () => leaveTo(epicPage.below.length - 1);
   const toEpicPage = () => leaveTo(0);
+  // backOneCrumb is h and the left arrow. On a contract, phase output or worker session page it does that page's back.
+  // On the epic page, a row's page or a step's page, which is at its first crumb, it pops a hidden inbox out by key.
+  const backOneCrumb = () => {
+    if (epicEntry !== null && epicPage.page.kind !== "epic") {
+      back();
+    } else if (inboxHidden) {
+      setPopout("key");
+    }
+  };
   // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
   const openPhase = (task: string, phase: Phase) => {
     if (epicPage.page.kind === "phase") {
@@ -992,8 +1057,53 @@ export function App({
     setPinStream(null);
   };
 
-  // focusCursorRow moves focus to the list's current row, the row the cursor rests on.
+  // togglePin pins the inbox beside the page, or unpins it: the mark's click and B both do this.
+  const togglePin = () => setInboxPinned((value) => !value);
+  // inboxMark is the mark every title row draws: its count, the hover that pops the inbox out, and the click that pins
+  // it. A pointer that leaves the mark for the inbox keeps the inbox out; any other leave tucks it away. A hover does
+  // not change a pop-out a key already made, and a narrow window takes no hover at all.
+  const inboxMark: InboxMark = {
+    needs: markNeeds,
+    enter: () => {
+      if (wide) {
+        setPopout((current) => (current === "none" ? "hover" : current));
+      }
+    },
+    leave: (to) => {
+      if (!(to instanceof Node) || listRef.current?.contains(to) !== true) {
+        setPopout("none");
+      }
+    },
+    pin: togglePin,
+  };
+
+  // pageStrip is the strip a page draws under its title row: the host part stripHost names for the row the page shows,
+  // and the context of a pane row's conversation, which the stream holds. A page with no row names the serving host.
+  // m hides every strip, and then a page draws none.
+  const pageStrip = (row: Row | null, conversation: Conversation | null) =>
+    stripsShown ? (
+      <PaneStrip
+        host={stripHost(row, host)}
+        context={row?.kind === "pane" ? conversation?.state?.context : undefined}
+      />
+    ) : undefined;
+
+  // focusCursorRow moves focus to the list's current row, the row the cursor rests on. A hidden inbox holds that row in
+  // the list the page hides, so it is popped out by key first, and the focus waits for the layout effect after the
+  // render that draws it, as a browser takes no focus on a row it does not display.
+  const focusPending = useRef(false);
+  useLayoutEffect(() => {
+    if (focusPending.current) {
+      focusPending.current = false;
+      document.querySelector<HTMLElement>(".b-row.cur")?.focus();
+    }
+  });
   const focusCursorRow = () => {
+    if (inboxHidden) {
+      focusPending.current = true;
+      setPopout("key");
+      return;
+    }
     document.querySelector<HTMLElement>(".b-row.cur")?.focus();
   };
 
@@ -1071,6 +1181,12 @@ export function App({
 
     const afterG = pendingG.current;
     pendingG.current = false;
+    // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
+    if (inboxHidden && inboxListKeys.has(event.key)) {
+      setPopout("key");
+      event.preventDefault();
+      return;
+    }
     switch (event.key) {
       case "g":
         if (afterG) {
@@ -1123,14 +1239,33 @@ export function App({
         setPickerOpen(true);
         break;
       case "x":
-      case "Enter":
         if (cursorRow !== null) {
           void writeSeen(cursorRow);
-          // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
-          if (event.key === "Enter") {
-            setBoxOpened({ column: "cursor", key: cursorRow.key });
-          }
         }
+        break;
+      case "Enter":
+        if (cursorRow !== null) {
+          setRowOpened(true);
+          setPopout("none");
+          void writeSeen(cursorRow);
+          // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
+          setBoxOpened({ column: "cursor", key: cursorRow.key });
+        }
+        break;
+      case "b":
+        // b pops a hidden inbox out by key, and tucks a key-popped one back.
+        if (keyPopped) {
+          setPopout("none");
+        } else if (inboxHidden) {
+          setPopout("key");
+        }
+        break;
+      case "B":
+        togglePin();
+        break;
+      case "h":
+      case "ArrowLeft":
+        backOneCrumb();
         break;
       case "e":
         if (cursorRow !== null) {
@@ -1174,14 +1309,18 @@ export function App({
         }
         break;
       case "m":
-        if (host !== null) {
-          toggleMeters();
-        }
+        toggleStrips();
         break;
       case "?":
         setHelpOpen((open) => !open);
         break;
       case "Escape":
+        // A key-popped inbox is tucked back, and nothing is interrupted; an open help panel closes too.
+        if (keyPopped) {
+          setPopout("none");
+          setHelpOpen(false);
+          return;
+        }
         if (!helpOpen && cursorRow !== null) {
           void escapeRow(
             { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) },
@@ -1215,12 +1354,10 @@ export function App({
       return (
         <div>
           <TitleRow
-            crumbs={[
-              { label: "orrery", onGo: closeEpicPage },
-              { label: detail.epic?.slug ?? "", onGo: toEpicPage },
-              { label: "contract" },
-            ]}
+            crumbs={[{ label: detail.epic?.slug ?? "", onGo: toEpicPage }, { label: "contract" }]}
             onBack={back}
+            mark={inboxMark}
+            strip={pageStrip(null, null)}
           />
           <ContractBody contract={detail.contract} requirements={detail.requirements} />
         </div>
@@ -1237,11 +1374,12 @@ export function App({
           now={now}
           loadArtifact={loadArtifact}
           onBack={back}
-          onGoList={closeEpicPage}
           onOpenPhase={openPhase}
           onOpenSession={(step) => drill({ kind: "session", task: page.task, phase: page.phase, step })}
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
+          mark={inboxMark}
+          strip={pageStrip(null, null)}
         />
       );
     }
@@ -1258,13 +1396,14 @@ export function App({
           epic={detail.epic?.slug ?? ""}
           task={page.task}
           phase={page.phase}
-          onGoList={closeEpicPage}
           onGoEpic={toEpicPage}
           onBack={back}
           onOlder={() => sessionOlder.current()}
           nudge={calls.nudge}
           hold={calls.hold}
           stop={calls.stop}
+          mark={inboxMark}
+          strip={pageStrip(null, null)}
         />
       );
     }
@@ -1283,6 +1422,8 @@ export function App({
         onOpenPhase={openPhase}
         onBack={closeEpicPage}
         handover={Handover({ detail })}
+        mark={inboxMark}
+        strip={pageStrip(null, null)}
         rows={rows}
         actions={
           <Talk
@@ -1301,18 +1442,13 @@ export function App({
 
   return (
     <main class="app">
-      <div class={pinned !== null ? "panes split" : "panes"}>
+      <div class={pinned !== null ? "panes split" : "panes"} data-inbox={inboxState}>
         {notices.length > 0 && <NoticeBanner notices={notices} onOpen={openNotice} onDismiss={markNoticeSeen} />}
-        <div class="list">
+        <div class="list" ref={listRef} onMouseLeave={() => setPopout("none")}>
           <header class="top">
             <div class="brand">
               <Mark />
               orrery
-              <span class="counts">
-                {waitingCount > 0 && <span class="st-waiting">{`${waitingCount} need you`}</span>}
-                {workingCount > 0 && <span class="st-working">{`${workingCount} working`}</span>}
-                {newCount > 0 && <span class="st-new">{`✱ ${newCount} new`}</span>}
-              </span>
               <button type="button" onClick={() => setPickerOpen(true)}>
                 + Ask
               </button>
@@ -1338,6 +1474,9 @@ export function App({
                 <kbd>v</kbd>Archived
               </span>
             </div>
+            <span class="keys-hint">
+              <kbd>?</kbd> keys
+            </span>
             {error !== "" && (
               <p class="error" role="alert">
                 {error}
@@ -1453,6 +1592,7 @@ export function App({
                     onClick={(event) => {
                       if (!isLinkClick(event)) {
                         selectItem(item);
+                        setRowOpened(true);
                         setBoxOpened({ column: "cursor", key: item.key });
                       }
                     }}
@@ -1498,18 +1638,6 @@ export function App({
               </div>
             ))}
           </div>
-          {host !== null && metersOpen && <MetersPanel stats={host.stats} />}
-          <footer class="lfoot">
-            {hosts.map((name) => (
-              <span key={name} class="host">
-                {name}
-              </span>
-            ))}
-            {host !== null && <MetersButton status={host} onToggle={toggleMeters} />}
-            <span class="keys-hint">
-              <kbd>?</kbd> keys
-            </span>
-          </footer>
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
@@ -1518,7 +1646,8 @@ export function App({
               line={cursorRow.label}
               state={headState(cursorRow, cursorConversation?.state?.pane)}
               onBack={focusCursorRow}
-              onGoList={focusCursorRow}
+              mark={inboxMark}
+              strip={pageStrip(cursorRow, cursorConversation)}
             >
               <Pill
                 model={rowPill(
@@ -1555,9 +1684,14 @@ export function App({
             />
           )}
           {cursorStep !== null && (
-            <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
+            <TitleRow
+              crumbs={[{ label: stepWhere(cursorStep) }, { label: cursorStep.label }]}
+              onBack={focusCursorRow}
+              mark={inboxMark}
+              strip={pageStrip(null, null)}
+            >
               <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
-            </ReaderHead>
+            </TitleRow>
           )}
           {cursorRow !== null && (
             <Reader
@@ -1650,7 +1784,8 @@ export function App({
               line={pinned.label}
               state={headState(pinned, pinnedConversation?.state?.pane)}
               onBack={closePin}
-              onGoList={focusCursorRow}
+              mark={inboxMark}
+              strip={pageStrip(pinned, pinnedConversation)}
             >
               <Pill
                 model={rowPill(
@@ -1981,6 +2116,18 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
   }
   const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
   return unchanged ? previous : kept;
+}
+
+// stripHost is the host a page's strip names. A pane row on another host names that host alone, with no stats. Any
+// other page names the serving host with its stats, and with no status there is no host part.
+function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost | null {
+  if (host === null) {
+    return null;
+  }
+  if (row !== null && row.kind === "pane" && row.host !== "" && row.host !== host.host) {
+    return { host: row.host, stats: [] };
+  }
+  return host;
 }
 
 // headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its

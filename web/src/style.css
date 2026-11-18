@@ -35,7 +35,7 @@ button, input, textarea, select { font-family: var(--mono); }
 .top { padding-bottom: 10px; }
 .brand { display: flex; align-items: center; gap: 9px; font: 700 14px/22px var(--mono); }
 .brand .mark { flex: none; width: 22px; height: 22px; }
-.brand .counts { display: flex; gap: 12px; margin-left: auto; font: 400 11.5px/22px var(--mono); white-space: nowrap; }
+.top > .keys-hint { display: flex; gap: 6px; justify-content: flex-end; align-items: center; margin-top: 8px; font: 11px/16px var(--mono); color: var(--overlay0); }
 .filter {
   display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 10px;
   background: var(--mantle); border-radius: 8px; box-shadow: 0 0 0 1px var(--surface0); color: var(--overlay0);
@@ -108,7 +108,7 @@ button, input, textarea, select { font-family: var(--mono); }
   .app { height: 100%; display: flex; flex-direction: column; }
   .panes {
     flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0;
-    grid-template-columns: 440px minmax(0, 1fr) 380px;
+    grid-template-columns: 340px minmax(0, 1fr) 380px;
   }
   /* Each column keeps its own track, and the epic page takes the reader's. Every column sits in the one row, so a column
      placed in an earlier track than the one before it never opens a second row. */
@@ -118,17 +118,29 @@ button, input, textarea, select { font-family: var(--mono); }
   /* With no pin the reader and the epic page take every track right of the list: no track is left empty. */
   .panes:not(.split) > .read, .panes > section.page { grid-column: 2 / -1; }
   .panes > .read.pinned { grid-column: 3; }
-  .panes.split { grid-template-columns: 440px minmax(0, 1fr) minmax(0, 1fr); }
+  .panes.split { grid-template-columns: 340px minmax(0, 1fr) minmax(0, 1fr); }
   /* With a pin the epic page keeps the reader's track, and the pinned reader the third. */
   .panes.split > section.page { grid-column: 2; }
+  /* The inbox hidden, or popped out over the page, takes no track: the reader and the epic page take the first track,
+     and a pin the second. The flyout lies over the page under the title row and above it, and is out of the grid. */
+  .panes[data-inbox="hidden"], .panes[data-inbox="flyout"] { grid-template-columns: minmax(0, 1fr); }
+  .panes[data-inbox="hidden"].split, .panes[data-inbox="flyout"].split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .panes[data-inbox="hidden"] > .list { display: none; }
+  .panes[data-inbox="hidden"] > .read, .panes[data-inbox="hidden"] > section.page,
+  .panes[data-inbox="flyout"] > .read, .panes[data-inbox="flyout"] > section.page { grid-column: 1; }
+  .panes[data-inbox="hidden"] > .read.pinned, .panes[data-inbox="flyout"] > .read.pinned { grid-column: 2; }
+  .panes[data-inbox="flyout"] > .list {
+    display: grid; position: absolute; top: 52px; bottom: 0; left: 0; width: 340px; z-index: 5;
+    box-shadow: 8px 0 24px color-mix(in srgb, var(--crust) 80%, transparent);
+  }
   .list, .read, section.page { min-height: 0; }
   .list {
-    position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--crust);
+    display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--crust);
     border-right: 1px solid var(--surface0);
   }
   .list > .rows { overflow-y: auto; min-height: 0; padding: 0 6px 10px; }
-  /* The open panel lies over the rows' track, at its foot, so it takes no track: the footer keeps the list's last row. */
-  .list > .meters-panel { position: absolute; left: 0; right: 0; grid-row: 2; align-self: end; max-height: 100%; overflow-y: auto; }
   .top { padding: 12px 14px 10px; }
   /* The reader is three rows: its head, its conversation, which is the one box that scrolls, and its foot. */
   .read { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; }
@@ -143,15 +155,22 @@ button, input, textarea, select { font-family: var(--mono); }
   .dock { min-height: 0; overflow-y: auto; border-left: 1px solid var(--rule); }
 }
 
-@media (min-width: 760px) and (max-width: 1500px) {
-  .panes { grid-template-columns: 400px minmax(0, 1fr) 340px; }
-  .panes.split { grid-template-columns: 400px minmax(0, 1fr) minmax(0, 1fr); }
+@media (min-width: 1251px) and (max-width: 1500px) {
+  .panes { grid-template-columns: 340px minmax(0, 1fr) 340px; }
+  .panes.split { grid-template-columns: 340px minmax(0, 1fr) minmax(0, 1fr); }
 }
 
-/* From 760px to 1100px the list narrows to 380px, and the epic page takes the reader's track beside it. */
+/* At 1250px and under the inbox track narrows to 316px, and its flyout with it. */
+@media (min-width: 760px) and (max-width: 1250px) {
+  .panes { grid-template-columns: 316px minmax(0, 1fr) 340px; }
+  .panes.split { grid-template-columns: 316px minmax(0, 1fr) minmax(0, 1fr); }
+  .panes[data-inbox="flyout"] > .list { width: 316px; }
+}
+
+/* From 760px to 1100px the inbox narrows to 316px, and the epic page takes the reader's track beside it. */
 @media (min-width: 760px) and (max-width: 1100px) {
-  .panes { grid-template-columns: 380px minmax(0, 1fr); }
-  .panes.split { grid-template-columns: 380px minmax(0, 1fr) minmax(0, 1fr); }
+  .panes { grid-template-columns: 316px minmax(0, 1fr); }
+  .panes.split { grid-template-columns: 316px minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 .rows { min-width: 0; }
@@ -183,9 +202,6 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row .g-done::after { content: "✓"; font-size: 8px; }
 .b-row .g-interrupted { box-shadow: inset 0 0 0 1.5px var(--maroon); color: var(--maroon); }
 .b-row .g-interrupted::after { content: "!"; }
-.st-working { color: var(--yellow); }
-.st-waiting { color: var(--peach); }
-.st-new { color: var(--lavender); }
 .b-row .main { min-width: 0; }
 .b-row .l1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
 .b-row .ty { flex: none; font: 700 9.5px/20px var(--mono); letter-spacing: .1em; color: var(--peach); }
@@ -305,27 +321,7 @@ button, input, textarea, select { font-family: var(--mono); }
 /* A Needs you item fades in over the layout move as it enters the list. */
 .need-entry { animation: move-fade var(--move-layout); }
 
-/* The list's footer: the hosts its rows come from at the left, and the keys hint at the right. A host that does not fit
-   is cut short, so the hint stays in view. */
-.lfoot {
-  display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--rule);
-  font: 11px/16px var(--mono); color: var(--overlay0); white-space: nowrap; overflow: hidden;
-}
-.lfoot .host { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.lfoot .keys-hint { flex: none; display: flex; gap: 6px; align-items: center; margin-left: auto; }
-
-/* The meters line is the footer's host side: one line in the footer's type, cut with an ellipsis when narrow. Its m cap is
-   the same kbd as the ? cap. The panel lists the host's stats, and a meter's bar is a 2px fill as the phone draws it. */
-.lfoot button.meters {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
-  appearance: none; -webkit-appearance: none;
-}
-.lfoot button.meters > * + * { margin-left: 6px; }
-.meters-panel { margin: 0 8px 8px; padding: 10px 14px; border-radius: 10px; background: var(--mantle); box-shadow: 0 0 0 1px var(--surface1); }
-.meter { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; padding: 3px 0; }
-.meter-label { color: var(--overlay1); }
-.meter > .bar { grid-column: 1 / -1; margin-top: 3px; }
+/* A stat's bar is a 2px fill: lavender, peach at level-warn and red at level-crit. */
 .bar { display: block; height: 2px; background: var(--lavender); }
 .bar.level-warn { background: var(--peach); }
 .bar.level-crit { background: var(--red); }
@@ -669,13 +665,35 @@ section.page.leave { animation: move-leave var(--move-leave); }
 .epic-page h3 .sub { margin-left: 6px; font-weight: 400; letter-spacing: 0; color: var(--overlay0); }
 .epic-page .sure { font: 12px/20px var(--mono); color: var(--peach); }
 /* The title row: back, the crumbs, the state and blocker, and the commands pushed to its right. */
-.title-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .title-row .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 12px/22px var(--mono); color: var(--overlay1); }
 .title-row .sep { color: var(--overlay0); }
 .title-row .crumb.here { font-weight: 700; color: var(--text); }
 .title-row .state { flex: none; font: 700 11.5px/22px var(--mono); color: var(--subtext0); transition: color var(--move-state); }
 .title-row .blocker { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 11.5px/22px var(--mono); color: var(--peach); transition: color var(--move-state); }
 .title-row .acts { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; }
+/* The mark is the title row's first crumb: the orrery drawing, with the count of what needs you beside it when any does. */
+.title-row .mark-crumb { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.title-row .mark-crumb .mark { flex: none; width: 18px; height: 18px; }
+.title-row .mark-crumb .needs { font: 700 11px/16px var(--mono); color: var(--peach); }
+/* The pane strip is the title row's own line under its controls: the host's name with each stat, and a pane
+   conversation's context. A stat is a fixed cell, its label and value on one line and its bar across the cell below, so
+   a bar at a percent is that share of the cell. */
+.title-row .pane-strip { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px 16px; min-width: 0; font: 11px/16px var(--mono); color: var(--overlay1); }
+.pane-strip-host { font-weight: 700; color: var(--subtext0); }
+.pane-strip-stat { display: grid; grid-template-columns: minmax(0, auto) minmax(0, auto); column-gap: 6px; align-items: baseline; width: 104px; min-width: 0; }
+.pane-strip-label { overflow: hidden; text-overflow: ellipsis; color: var(--overlay1); }
+.pane-strip-value { justify-self: end; overflow: hidden; text-overflow: ellipsis; color: var(--subtext1); }
+.pane-strip-stat > .bar { grid-column: 1 / -1; margin-top: 2px; }
+.pane-strip-context { display: inline-flex; align-items: center; gap: 6px; }
+.ctx-blocks { display: inline-flex; gap: 2px; }
+.ctx-blocks i { width: 7px; height: 7px; border-radius: 2px; background: var(--surface1); }
+.ctx-blocks i.on { background: currentColor; }
+.ctx-pct { font-weight: 700; }
+.pane-strip-context.band-green { color: var(--green); }
+.pane-strip-context.band-yellow { color: var(--yellow); }
+.pane-strip-context.band-peach { color: var(--peach); }
+.pane-strip-context.band-red { color: var(--red); }
 /* The buttons press in the press move: a pressed button shrinks a little and darkens to surface1. */
 button.act, .back, .crumb { transition: transform var(--move-press), background-color var(--move-press); }
 button.act {
