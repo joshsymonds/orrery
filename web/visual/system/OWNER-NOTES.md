@@ -25,3 +25,8 @@ In his words, lightly ordered. Look at the live page yourself: on Vermissian in 
 ## Everywhere
 - The machine meters at the top (net, CPU, RAM and so on) are confusing and undifferentiated.
 - Everything is too small, and what each control does is vaguely unclear.
+
+## Added later the same day
+- An epic created in a conversation becomes a card where the create call was, so it sits stuck in the middle of the page and scrolls away. Its view is not very helpful either. (Round 5 rejected putting the decision form in the card for this reason and proposed a small line to the epic in the title row's strip; check whether that was built.)
+- Pending step-end events draw as waiting cards whose summary is one line of raw JSON (6,500+ characters), so two enormous cards sat at the bottom of the conversation.
+- Background shell tasks (a server left running, a timer) draw as "live" rows indistinguishable from work in progress.
