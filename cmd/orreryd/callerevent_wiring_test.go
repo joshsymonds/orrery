@@ -108,14 +108,18 @@ func TestStepEndPushWiringNoTicker(t *testing.T) {
 }
 
 // TestEpicEventPushWiringNoTicker checks that a --sessions orreryd delivers a seeded epic event from its start pass, and
-// an epic event stored after the start only once the host's caller-event delivery is woken. The synthetic epic is ended
-// as done before the start, and released after it, under a creator of kind step, which receives nothing and is marked.
-// The pass-count seam shows that no pass runs between the start and the wake, and options has no tick seam.
+// that the store write which stores an epic event wakes the round that delivers it. The synthetic epic is ended as done
+// before the start, and paused so the planner takes no action for it. It is released after the start, under a creator
+// of kind step, which receives nothing and is marked. The pass-count seam shows that no pass runs between the start
+// round and the release write, which is the proof that no tick runs them, and options has no tick seam.
 func TestEpicEventPushWiringNoTicker(t *testing.T) {
 	st, getenv := openCallerWiringStore(t)
 	createAttentionEpic(t, st)
 	addStepSession(t, st, callerEventCreator)
 	recordCallerCreator(t, st, attentionWiringEpic)
+	if err := st.PauseEpic(t.Context(), attentionWiringEpic); err != nil {
+		t.Fatalf("pause epic %s: %v", attentionWiringEpic, err)
+	}
 	endAttentionEpic(t, st, "done")
 
 	passed := make(chan struct{}, 16)
@@ -125,16 +129,16 @@ func TestEpicEventPushWiringNoTicker(t *testing.T) {
 		t.Fatalf("seeded epic event not delivered by the start pass")
 	}
 
-	endAttentionEpic(t, st, "released")
-	requireNoCallerRound(t, passed)
-	released := store.EpicPhaseEvent(attentionWiringEpic, "released")
-	if markedIn(t, st, released, callerEventCreator) {
-		t.Fatalf("epic event stored after the start delivered before a wake")
+	select {
+	case <-passed:
+		t.Fatalf("a caller-event pass ran between the start round and the release write, want none")
+	default:
 	}
-
-	wakeCallerRound(host, passed)
+	endAttentionEpic(t, st, "released")
+	awaitCallerRound(passed)
+	released := store.EpicPhaseEvent(attentionWiringEpic, "released")
 	if !markedIn(t, st, released, callerEventCreator) {
-		t.Fatalf("epic event stored after the start not delivered by the wake")
+		t.Fatalf("epic event stored after the start not delivered by the round its store write woke")
 	}
 	requireNoCallerEventTicks(t)
 

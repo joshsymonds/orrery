@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -202,6 +203,12 @@ type options struct {
 	// callerEventPassed is a test seam: the function the caller-event delivery calls after each of its passes returns, so
 	// a test counts the passes. Production leaves it nil.
 	callerEventPassed func()
+	// callerEventTimer is a test seam: the timer the caller-event delivery arms for its retry in place of time.NewTimer.
+	// Production leaves it nil.
+	callerEventTimer func(time.Duration) (<-chan time.Time, func() bool)
+	// callerWakePane is a test seam: the function the caller-event delivery calls in place of cli.WakePane to send text
+	// to a pane caller. Production leaves it nil.
+	callerWakePane func(ctx context.Context, server, pane, text string) (bool, error)
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -579,6 +586,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	router := hub.router
 	pageNotices := enginehost.NewPageNotices(pages, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
+	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
+	// until then.
+	var callerWake atomic.Pointer[func()]
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
 	tidyStart := make(chan struct{})
 	serveDone := serveInBackground(ctx, ln, daemon.Config{
@@ -588,7 +598,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Sessions:      opts.sessions,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane}, seen)
-		}, hub.viewer)},
+		}, hub.viewer), callerWakeOnDone(&callerWake)},
 		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
 		Input:     desk.Input,
 		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
@@ -607,6 +617,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
 	}
+	publishCallerWake(&callerWake, sessions)
 	if startErr != nil {
 		stop()
 	} else {
@@ -904,11 +915,9 @@ func startSessions(
 		if err != nil {
 			return nil, err
 		}
-		host.writer = enginehost.NewWriter(enginehost.WriterConfig{
-			Applier: st, Tick: opts.writeTick, Logger: logger, Metrics: opts.metrics,
-		})
-		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
+		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
+		host.newCallerEvents(st, opts, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:             opts.sessionShell,
 			Claude:            opts.claude,
@@ -920,11 +929,12 @@ func startSessions(
 			Cap:               opts.sessionCap,
 			StepCap:           opts.stepCap,
 			Writer:            host.writer,
-			Notifier:          notifier,
+			Notifier:          enginehost.NewNotifier(enginehost.NotifierConfig{Route: router}),
 			Store:             st,
 			Logger:            logger,
 			Metrics:           opts.metrics,
 			CronWake:          host.cron.Wake,
+			EventWake:         host.callerEvents.Wake,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -944,6 +954,7 @@ func startSessions(
 			GateScopeMemory: opts.scopeMemory,
 			ReadoptCheck:    readoptCheck(st, resolve),
 			ReadoptGate:     readoptGate(st),
+			Stored:          host.callerEvents.Wake,
 		})
 		if err != nil {
 			host.stopBroker()
@@ -957,7 +968,7 @@ func startSessions(
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
-		host.startCallerEvents(ctx, st, opts, logger)
+		host.startCallerEvents(ctx)
 		host.startCron(ctx)
 		host.startEvidence(ctx, st, stateDir, opts, childEnviron, logger)
 		evidence = host.evidence
@@ -1359,15 +1370,23 @@ func (h *sessionHost) startLimits(
 	}()
 }
 
-// startCallerEvents runs the caller-event delivery over st until shutdown, on one goroutine: the step caller-event pass
-// and the epic caller-event pass, once at its start, on each wake of h.callerEvents, and once more after a failed round.
-// Both passes send through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane
-// caller gets it through cli.WakePane, and a step caller is only marked. Neither depends on a router, since a caller
-// event goes to its caller alone. When opts.callerEventPassed is not nil, it is called after each pass returns.
-func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, opts options, logger *slog.Logger) {
+// newCallerEvents builds the caller-event delivery over st as h.callerEvents. Its wake is the trigger of every caller
+// event: the manager's EventWake, the steps' Stored, the store's OnCallerEvent, and the pane observer. Both passes send
+// through one CallerSender: a headless caller gets its event as a prompt through the manager, a pane caller gets it
+// through cli.WakePane, and a step caller is only marked. Neither depends on a router, since a caller event goes to its
+// caller alone. The sender's Deliver reads h.manager when it sends, which is after startSessions has set it. When
+// opts.callerEventPassed is not nil, it is called after each pass returns, and opts.callerEventTimer and
+// opts.callerWakePane replace the retry timer and cli.WakePane.
+func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slog.Logger) {
+	wakePane := opts.callerWakePane
+	if wakePane == nil {
+		wakePane = cli.WakePane
+	}
 	sender := enginehost.NewCallerSender(enginehost.CallerSenderConfig{
-		Deliver:  h.manager.Deliver,
-		WakePane: cli.WakePane,
+		Deliver: func(ctx context.Context, req enginehost.DeliverRequest) error {
+			return h.manager.Deliver(ctx, req)
+		},
+		WakePane: wakePane,
 		Store:    st,
 		Now:      time.Now,
 		Logger:   logger,
@@ -1381,7 +1400,16 @@ func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, op
 			passes[i] = passedPass{pass: pass, passed: opts.callerEventPassed}
 		}
 	}
-	h.callerEvents = enginehost.NewCallerEvents(enginehost.CallerEventsConfig{Passes: passes, Logger: logger})
+	h.callerEvents = enginehost.NewCallerEvents(enginehost.CallerEventsConfig{
+		Passes: passes, NewTimer: opts.callerEventTimer, Logger: logger,
+	})
+	st.OnCallerEvent(h.callerEvents.Wake)
+}
+
+// startCallerEvents runs h.callerEvents until shutdown, on one goroutine. Its Run makes one round at its start, then
+// one on each wake and each retry of a failed round (see enginehost.CallerEvents). It is started after the reconcile,
+// so no round runs before the rows are reconciled.
+func (h *sessionHost) startCallerEvents(ctx context.Context) {
 	var eventsCtx context.Context
 	eventsCtx, h.stopCallerEvents = context.WithCancel(ctx)
 	h.callerEventsDone = make(chan struct{})
@@ -1389,6 +1417,30 @@ func (h *sessionHost) startCallerEvents(ctx context.Context, st *store.Store, op
 		defer close(h.callerEventsDone)
 		h.callerEvents.Run(eventsCtx)
 	}()
+}
+
+// callerWakeOnDone returns the daemon observer that calls the caller-event wake held in wake when a transition is to
+// done: a pane caller's applied state becoming done may let the event its pane held go. It does nothing while wake
+// holds no function. The wake does not block, so the observer returns at once.
+func callerWakeOnDone(wake *atomic.Pointer[func()]) daemon.Observer {
+	return func(transition daemon.Transition) {
+		if transition.To != protocol.StateDone {
+			return
+		}
+		if fn := wake.Load(); fn != nil {
+			(*fn)()
+		}
+	}
+}
+
+// publishCallerWake stores the caller-event wake of host in holder, which callerWakeOnDone calls. A nil host, or one
+// that runs no caller-event delivery, stores nothing.
+func publishCallerWake(holder *atomic.Pointer[func()], host *sessionHost) {
+	if host == nil || host.callerEvents == nil {
+		return
+	}
+	wake := host.callerEvents.Wake
+	holder.Store(&wake)
 }
 
 // passedPass is a caller-event pass that calls passed after each run of pass returns.
@@ -1405,6 +1457,13 @@ func (p passedPass) Pass(ctx context.Context) error {
 		return fmt.Errorf("caller event pass: %w", err)
 	}
 	return nil
+}
+
+// newWriter builds the host's writer over st, which stores the events of the sessions and steps, as h.writer.
+func (h *sessionHost) newWriter(opts options, st *store.Store, logger *slog.Logger) {
+	h.writer = enginehost.NewWriter(enginehost.WriterConfig{
+		Applier: st, Tick: opts.writeTick, Logger: logger, Metrics: opts.metrics,
+	})
 }
 
 // newCron builds the host's cron scheduler over st, and stores it as h.cron. Each due fire goes through the manager's
