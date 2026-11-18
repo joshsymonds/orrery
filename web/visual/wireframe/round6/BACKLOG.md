@@ -136,7 +136,7 @@ and the flyout; the project page. Uses S2's steering conversation; until it land
 ### F3. The conversation
 
 Blocks, lines, rules and the Ask (decisions 2, 6; revision 13, Not now and Decline from S5); the dock as state, queue
-and input, with the three interrupt wordings and the waits line (decisions 4, 5; revision 10, from S1); the band as the
+and input, with the three interrupt wordings and the waits line (decisions 4, 5; revision 10, from S1); Not now and Decline land here completely: the controls on the question, the count, the peach and the band skipping a put-off question on the web and on Android, and Android leaving archived rows out of what waits on you; the band as the
 goal and what asks (revision 11); the title row and meters. Scenarios: `convo-*`, `dock-*`, `ask-*`.
 
 ### F4. The right rail and its panels
