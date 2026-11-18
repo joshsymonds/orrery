@@ -6,10 +6,12 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import { listHolds } from "./listholds";
 import { type HeldEpic, loadEpics } from "./loadepics";
 import { loadRows } from "./load";
 import { watchNotices } from "./notices";
 import { type Viewing, watchPresence } from "./presence";
+import { type Address, type Entry, formatAddress, parseAddress } from "./router";
 import type { Row } from "./rows";
 import type { SeenClock } from "./seen";
 
@@ -37,6 +39,9 @@ interface Loaded {
   epics: EpicsView;
   epicsError: string;
 }
+
+// A loaded or popped address that names an entry, held until the list its entry is in has answered its first load.
+type Held = Address & { entry: Entry };
 
 // pause resolves after ms, or as soon as signal aborts, so stopping the page does not wait out a retry.
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -66,7 +71,9 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 // watchPresence sends each Presence.Report request, its input age and the view App shows, and a failed report is
 // dropped. The returned function stops reloading, aborts the stream, stops the presence watch, aborts the notices watch
 // and unmounts App. The page also watches the in-app notices its banner shows until each ends; a notices stream that
-// fails reopens after retryMs.
+// fails reopens after retryMs. The page's address is bound to the URL hash: a loaded hash is given to App once the list
+// its entry is in has answered, and falls back to its order when that list lacks the entry. App's reports are written
+// to the history, and a popstate applies the address Back or Forward lands on.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
@@ -89,6 +96,14 @@ export function start(
   let rerun = false;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let stream: AbortController | null = null;
+  // The address App is given, which is undefined until one applies, so App opens nothing before then. holding is the
+  // address with an entry that waits on its list's first answer. rowsAnswered and epicsAnswered are whether the rows,
+  // which a session or a pane is held by, and the epics, which a step or an epic is held by, have answered their first
+  // load.
+  let address: Address | undefined;
+  let holding: Held | null = null;
+  let rowsAnswered = false;
+  let epicsAnswered = false;
 
   const draw = () => {
     const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
@@ -102,9 +117,65 @@ export function start(
         notices={notices}
         host={host}
         onViewing={onViewing}
+        address={address}
+        onAddress={onAddress}
       />,
       root,
     );
+  };
+
+  // listAnswered reports whether the list an entry is in has answered its first load: the rows for a session or a pane,
+  // and the epics for a step or an epic.
+  const listAnswered = (entry: Entry): boolean =>
+    entry.kind === "session" || entry.kind === "pane" ? rowsAnswered : epicsAnswered;
+
+  // settleAddress decides the held address once the list its entry is in has answered. If that list holds the entry,
+  // the address stays as the prop and App opens it. If not, the prop becomes the address's order with no entry, and the
+  // URL is replaced with that form.
+  const settleAddress = () => {
+    if (holding === null || !listAnswered(holding.entry)) {
+      return;
+    }
+    const pending = holding;
+    holding = null;
+    if (listHolds(pending, loaded.rows, loaded.epics)) {
+      address = pending;
+      return;
+    }
+    address = { order: pending.order, entry: null };
+    window.history.replaceState(null, "", formatAddress(address));
+  };
+
+  // takeAddress makes next the address App is given: one with no entry at once, and one with an entry once it is held
+  // and settled.
+  const takeAddress = (next: Address) => {
+    if (next.entry === null) {
+      address = next;
+      return;
+    }
+    holding = { order: next.order, entry: next.entry };
+    settleAddress();
+  };
+
+  // onAddress writes App's reports to the history and nothing else. App reports from an effect and opens any prop whose
+  // form differs from the one it shows, so a report fed back as the prop could arrive stale and undo a later change.
+  const onAddress = (next: Address, mode: "push" | "replace") => {
+    const form = formatAddress(next);
+    if (mode === "push") {
+      window.history.pushState(null, "", form);
+    } else {
+      window.history.replaceState(null, "", form);
+    }
+  };
+
+  // onPopState applies the address Back or Forward lands on. The undefined draw opens nothing, and makes the next prop
+  // a change of form, so a step back to the form the prop held still opens it.
+  const onPopState = () => {
+    address = undefined;
+    holding = null;
+    draw();
+    takeAddress(parseAddress(window.location.hash));
+    draw();
   };
 
   // loadHostStatus reads Host.Status. A refused or failed read hands App null and reports nothing. A read that lands
@@ -140,6 +211,8 @@ export function start(
       }
       held = next.held;
       loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
+      epicsAnswered = true;
+      settleAddress();
       now = Math.floor(Date.now() / 1000);
       draw();
     } finally {
@@ -159,6 +232,8 @@ export function start(
         return;
       }
       loaded = { ...loaded, rows: next.rows, error: next.error };
+      rowsAnswered = true;
+      settleAddress();
       now = Math.floor(Date.now() / 1000);
       draw();
       // A seq of 0 is a failed Sessions.List or an empty store; a stream from 0 would replay every stored event, so
@@ -241,6 +316,13 @@ export function start(
     presence.viewChanged();
   };
 
+  // A page loaded with a hash is given that address, and an empty hash gives App none, so a bare load opens nothing and
+  // writes no history.
+  const loadedHash = window.location.hash;
+  if (loadedHash !== "") {
+    takeAddress(parseAddress(loadedHash));
+  }
+  window.addEventListener("popstate", onPopState);
   draw();
   void reload();
   void loadHostStatus();
@@ -271,6 +353,7 @@ export function start(
 
   return () => {
     stopped = true;
+    window.removeEventListener("popstate", onPopState);
     presence.stop();
     clearInterval(timer);
     clearTimeout(eventTimer);

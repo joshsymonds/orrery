@@ -30,22 +30,23 @@ const retryMs = 5;
 const longPollMs = 600_000;
 
 // Synthetic fixtures: one pane and one headless session, no real hosts or paths.
-function paneBody(dir: string) {
+// paneOf is one pane on the box host, as Panes.List answers it, under the synthetic directory dir.
+function paneOf(id: string, dir: string) {
   return {
-    panes: [
-      {
-        id: "%1",
-        host: "box",
-        session: "work",
-        cwd: `/work/${dir}`,
-        state: "waiting",
-        summary: "building",
-        question: "",
-        changed: "40",
-        seen: "10",
-      },
-    ],
+    id,
+    host: "box",
+    session: "work",
+    cwd: `/work/${dir}`,
+    state: "waiting",
+    summary: "building",
+    question: "",
+    changed: "40",
+    seen: "10",
   };
+}
+
+function paneBody(dir: string) {
+  return { panes: [paneOf("%1", dir)] };
 }
 
 const sessionBody = {
@@ -141,8 +142,12 @@ interface FakeServer {
   reports: { header: string | null; inputAgeMs: string }[];
   // While set, Presence.Report answers with a server error.
   presenceFails: boolean;
+  // The panes Panes.List answers after the pane paneBody gives, for a test that needs more rows.
+  extraPanes: ReturnType<typeof paneOf>[];
   // The epics Epics.List answers with. Epics.Get answers the one whose id it is asked for, and 404s any other.
   epics: ReturnType<typeof liveEpic>[];
+  // The contract each Epics.Get answers with, for a test whose epic page must show one.
+  contract: { title: string; approved: string; intent: string } | undefined;
   // While set, Epics.List waits for it before answering.
   epicsGate: Promise<void> | null;
   epicsListCalls: number;
@@ -227,7 +232,7 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
         if (epic === undefined) {
           return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
         }
-        return json(epicDetail(epic));
+        return json({ ...epicDetail(epic), contract: server.contract });
       }
       if (path === hostStatusPath) {
         server.hostCalls++;
@@ -255,7 +260,7 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
           // Longer than intervalMs, so a reload that ignored the in-flight one would overlap it.
           await new Promise((resolve) => setTimeout(resolve, intervalMs * 3));
         }
-        return json(paneBody(server.paneDir));
+        return json({ panes: [...paneBody(server.paneDir).panes, ...server.extraPanes] });
       } finally {
         server.panesInFlight--;
       }
@@ -270,7 +275,9 @@ function fakeServer(paneDir: string, streaming = false): FakeServer {
     watches: [],
     reports: [],
     presenceFails: false,
+    extraPanes: [],
     epics: [],
+    contract: undefined,
     epicsGate: null,
     epicsListCalls: 0,
     epicsGetCalls: 0,
@@ -353,7 +360,7 @@ function errorText(root: HTMLElement): string {
 // out first, so a page never runs on into the next test (see teardownOnce). A stop is the page's only once.
 async function withPage(
   signal: AbortSignal,
-  check: (root: HTMLElement, start: typeof startPage) => Promise<void>,
+  check: (root: HTMLElement, start: typeof startPage, view: ReturnType<typeof installTestDom>) => Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   const root = document.createElement("div");
@@ -377,7 +384,7 @@ async function withPage(
     await removeTestDom(window);
   });
   try {
-    await check(root, start);
+    await check(root, start, window);
   } finally {
     await teardown();
   }
@@ -1166,3 +1173,240 @@ test("a tick during a slow Host.Status starts no second read", (t) =>
       stop();
     }
   }));
+
+// narrowWidth is a window under the 760px the wide layout starts at. In the wide layout a row's click hides the inbox,
+// and the list's keys then pop it out rather than move the cursor, so the test that presses j runs narrow.
+const narrowWidth = 700;
+
+// settle is the wait between checks in a test whose timers are mocked: act applies the renders the page has queued, and
+// the turn after it lets the answers the fake server has queued reach the page. It waits on no timer.
+function settle(): Promise<void> {
+  return act(turn);
+}
+
+// cursorKey is the key of the row, line or step the cursor rests on, or null when none does.
+function cursorKey(root: HTMLElement): string | null {
+  return root.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+}
+
+// rowDrawn reports whether the list draws the line under key.
+function rowDrawn(root: HTMLElement, key: string): boolean {
+  return root.querySelector(`[data-key="${key}"]`) !== null;
+}
+
+// viewOn is the text of the view tab that is on, which names the order the page shows.
+function viewOn(root: HTMLElement): string {
+  return root.querySelector(".views .view.on")?.textContent ?? "";
+}
+
+// epicPageDrawn is whether the epic page section holds the epic page itself.
+function epicPageDrawn(root: HTMLElement): boolean {
+  return root.querySelector('section.page[aria-label="epic"] .epic-page') !== null;
+}
+
+// answeringServer is a fake server whose Panes.List answers at once. Without a gate, Panes.List waits on a timer, which a
+// test with mocked timers would wait on forever.
+function answeringServer(): FakeServer {
+  const server = fakeServer("api");
+  server.gate = Promise.resolve();
+  return server;
+}
+
+// holdLists holds the answers of Panes.List and Epics.List until the test releases them, so the page's first render
+// shows no rows and no epics. It returns the release.
+function holdLists(server: FakeServer): () => void {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  server.gate = gate;
+  server.epicsGate = gate;
+  return () => release();
+}
+
+// clickRow clicks the row under key, which moves the cursor to it, then blurs what the click focused: a click on a row
+// focuses its reply box, and the keys would type into it.
+async function clickRow(root: HTMLElement, key: string): Promise<void> {
+  const row = root.querySelector(`[data-key="${key}"]`);
+  assert.ok(row, `no row under ${key}`);
+  await act(() => {
+    row.dispatchEvent(new Event("click", { bubbles: true }));
+  });
+  await act(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+}
+
+// press sends one keydown to the document, as a key press does, and lets the page apply what it changed.
+async function press(key: string): Promise<void> {
+  await act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+  });
+}
+
+// openAfterArrival loads the page at hash over server, with its lists held, so the first render shows neither. It then
+// lets the lists answer, and waits until the cursor rests on key.
+async function openAfterArrival(
+  signal: AbortSignal,
+  root: HTMLElement,
+  start: typeof startPage,
+  server: FakeServer,
+  hash: string,
+  key: string,
+): Promise<void> {
+  window.history.replaceState(null, "", hash);
+  const release = holdLists(server);
+  start(root, clientsFor(server), longPollMs);
+  assert.equal(cursorKey(root), null, "the page opened an entry before its lists answered");
+  release();
+  await until(signal, () => cursorKey(root) === key, `the cursor on ${key}`, { step: settle });
+}
+
+test("HashRoute: a loaded session address opens its row once the rows arrive after the first render", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, (root, start) =>
+    openAfterArrival(t.signal, root, start, fakeServer("api"), "#/attention/session/s1", "session:s1"),
+  );
+});
+
+test("HashRoute: a loaded pane address whose id is %3 opens its row once the rows arrive after the first render", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, (root, start) => {
+    const server = fakeServer("api");
+    server.extraPanes = [paneOf("%3", "three")];
+    return openAfterArrival(t.signal, root, start, server, "#/attention/pane/box/%253", "pane:box:%3");
+  });
+});
+
+test("HashRoute: a loaded step address opens its step once the epics arrive after the first render", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, (root, start) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("first step")];
+    return openAfterArrival(t.signal, root, start, server, "#/attention/step/step-1", "step:step-1");
+  });
+});
+
+test("HashRoute: a loaded epic address whose id holds a slash opens its epic page once the epics arrive", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("first step")];
+    await openAfterArrival(t.signal, root, start, server, "#/attention/epic/repo-a%2Falpha", "epic:repo-a/alpha");
+    assert.equal(epicPageDrawn(root), true, "the epic page is not drawn");
+  });
+});
+
+test("HashRoute: a loaded contract address opens its epic's contract page once the epics arrive", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("first step")];
+    server.contract = { title: "Ship the widget", approved: "approved line", intent: "the intent" };
+    await openAfterArrival(
+      t.signal,
+      root,
+      start,
+      server,
+      "#/attention/epic/repo-a%2Falpha/contract",
+      "epic:repo-a/alpha",
+    );
+    await until(
+      t.signal,
+      () => root.querySelector('section.page[aria-label="epic"] article.contract') !== null,
+      "the contract page",
+      { step: settle },
+    );
+  });
+});
+
+test("HashRoute: a pane address the answered rows lack opens its order's inbox, and the hash becomes that order", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start) => {
+    const before = window.history.length;
+    window.history.replaceState(null, "", "#/project/pane/box/%259");
+    start(root, clientsFor(answeringServer()), longPollMs);
+    await until(t.signal, () => window.location.hash === "#/project", "the hash rewritten to its order", {
+      step: settle,
+    });
+    assert.equal(viewOn(root), "pBy project", "the page does not show the project order");
+    assert.equal(window.history.length, before, "the fallback added a history entry");
+  });
+});
+
+test("HashRoute: a malformed percent escape in the hash opens the attention inbox", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start) => {
+    window.history.replaceState(null, "", "#/archived/session/%E0%A4%A");
+    start(root, clientsFor(answeringServer()), longPollMs);
+    await until(t.signal, () => rowDrawn(root, "pane:box:%1"), "the rows", { step: settle });
+    assert.equal(viewOn(root), "aBy attention", "the page does not show the attention inbox");
+  });
+});
+
+test("HashRoute: a row click and three j keys leave two entries, and Back returns to the clicked row", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start, view) => {
+    view.happyDOM.setViewport({ width: narrowWidth, height: 800 });
+    const server = answeringServer();
+    server.extraPanes = [paneOf("%3", "three"), paneOf("%4", "four"), paneOf("%5", "five")];
+    start(root, clientsFor(server), longPollMs);
+    await until(t.signal, () => rowDrawn(root, "pane:box:%5") && rowDrawn(root, "session:s1"), "the rows", {
+      step: settle,
+    });
+    // The cursor rests on the first row, so the click is on another row, and each j then moves the cursor one row on.
+    const before = window.history.length;
+    await clickRow(root, "pane:box:%3");
+    await settle();
+    assert.equal(cursorKey(root), "pane:box:%3", "the click did not move the cursor to the clicked row");
+    assert.equal(window.history.length, before + 1, "the click did not add one entry");
+    for (const key of ["j", "j", "j"]) {
+      await press(key);
+    }
+    await settle();
+    assert.notEqual(cursorKey(root), "pane:box:%3", "the j keys did not move the cursor");
+    assert.equal(window.history.length, before + 2, "the click and the j keys did not leave two entries");
+    window.history.back();
+    await until(
+      t.signal,
+      () => window.location.hash === "#/attention/pane/box/%253" && cursorKey(root) === "pane:box:%3",
+      "Back to the clicked row",
+      { step: settle },
+    );
+  });
+});
+
+test("HashRoute: after a loaded session address opens and a click opens another row, Back reopens the loaded row", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start) => {
+    window.history.replaceState(null, "", "#/attention/session/s1");
+    start(root, clientsFor(answeringServer()), longPollMs);
+    await until(t.signal, () => cursorKey(root) === "session:s1", "the loaded session under the cursor", {
+      step: settle,
+    });
+    await clickRow(root, "pane:box:%1");
+    await until(t.signal, () => cursorKey(root) === "pane:box:%1", "the clicked row under the cursor", {
+      step: settle,
+    });
+    window.history.back();
+    await until(
+      t.signal,
+      () => window.location.hash === "#/attention/session/s1" && cursorKey(root) === "session:s1",
+      "Back to the loaded session",
+      { step: settle },
+    );
+  });
+});
+
+test("HashRoute: a page loaded with no hash writes no history", (t) => {
+  mockTimers(t, ["setTimeout", "setInterval"]);
+  return withPage(t.signal, async (root, start) => {
+    const before = window.history.length;
+    start(root, clientsFor(answeringServer()), longPollMs);
+    await until(t.signal, () => rowDrawn(root, "pane:box:%1"), "the rows", { step: settle });
+    assert.equal(window.location.hash, "", "the page wrote a hash");
+    assert.equal(window.history.length, before, "the bare load added a history entry");
+  });
+});
