@@ -169,7 +169,11 @@ func stepGitOwnedCheck(ctx context.Context, dir, start, commit string, owned []s
 	if len(outside) == 0 {
 		return stepCheck{Name: stepGitOwnedName, OK: true, Detail: "every changed path is owned"}
 	}
-	return stepCheck{Name: stepGitOwnedName, Detail: stepGitListPaths("changed paths outside owned: ", outside)}
+	detail := stepGitListPaths("changed paths outside owned: ", outside)
+	return stepCheck{
+		Name:   stepGitOwnedName,
+		Detail: detail + "; take those files out of the commit, and the work in the worktree is kept",
+	}
 }
 
 // underOwnedDir reports whether path lies below one of dirs, each an owned entry ending in "/".

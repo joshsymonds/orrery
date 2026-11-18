@@ -109,7 +109,8 @@ type reportLoop struct {
 // pass is done. The test's end stops it too.
 func startReportLoop(t *testing.T, st *store.Store, claude string) *reportLoop {
 	t.Helper()
-	loop := runReportLoop(t, st, NewHaiku(HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH")}}))
+	haiku := NewHaiku(HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + haikuHome}})
+	loop := runReportLoop(t, st, haiku)
 	t.Cleanup(loop.stop)
 	<-loop.passes
 	return loop

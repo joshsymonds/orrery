@@ -48,12 +48,20 @@ const (
 	exampleLabelSys = exampleRole + exampleForm + exampleLabel
 )
 
+// exampleHome is the HOME every rig runs under, and exampleMemory the user CLAUDE.md a run from it excludes: the
+// config directory is unset, so the file is .claude/CLAUDE.md under exampleHome.
+const (
+	exampleHome   = "/home/example"
+	exampleMemory = exampleHome + "/.claude/CLAUDE.md"
+)
+
 // hooksOnlySettings is the --settings document of a run with no env.
-const hooksOnlySettings = `{"disableAllHooks":true}`
+const hooksOnlySettings = `{"disableAllHooks":true,"claudeMdExcludes":["` + exampleMemory + `"]}`
 
 // baseURLSettings is the --settings document of a run whose env sets ANTHROPIC_BASE_URL to baseURL.
 func baseURLSettings(baseURL string) string {
-	return `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + baseURL + `"}}`
+	return `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + baseURL + `"},"claudeMdExcludes":["` +
+		exampleMemory + `"]}`
 }
 
 // argvFor is the exact record the fake writes for the argv after the binary for model, settings and system: one
@@ -289,7 +297,8 @@ func newRig(t *testing.T, models map[string]string, timeout time.Duration) rig {
 	return newRigWith(t, summary.Config{Models: models, Timeout: timeout})
 }
 
-// newRigWith wires a summarizer built from cfg to a fake claude and to a private tmux server holding one pane.
+// newRigWith wires a summarizer built from cfg to a fake claude and to a private tmux server holding one pane. The
+// summarizer's claude runs under exampleHome with no CLAUDE_CONFIG_DIR, so its user CLAUDE.md is exampleMemory.
 func newRigWith(t *testing.T, cfg summary.Config) rig {
 	t.Helper()
 	client := newServer(t)
@@ -297,6 +306,8 @@ func newRigWith(t *testing.T, cfg summary.Config) rig {
 	bin := installFake(t)
 	cfg.Claude = bin
 	cfg.Tmux = client
+	t.Setenv("HOME", exampleHome)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	s, err := summary.New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -516,7 +527,8 @@ func TestSummarizerStamp(t *testing.T) {
 	const stampURL = "http://127.0.0.1:9/ctx/example"
 	models := map[string]string{"example": "example-stamp-model", exampleContext: exampleModel}
 	stampBody := `{"env":{"ANTHROPIC_BASE_URL":"` + stampURL + `","EXAMPLE_SETTING":"example-value"}}`
-	stampSettings := `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + stampURL + `","EXAMPLE_SETTING":"example-value"}}`
+	stampSettings := `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + stampURL +
+		`","EXAMPLE_SETTING":"example-value"},"claudeMdExcludes":["` + exampleMemory + `"]}`
 	t.Setenv("ANTHROPIC_BASE_URL", "https://proxy.example.com/ctx/leftover")
 
 	t.Run("stamp above dir wins over base url", func(t *testing.T) {

@@ -120,3 +120,23 @@ func TestRoleNamesTestChangesAndNoTaskSkipsItsEvidence(t *testing.T) {
 		}
 	}
 }
+
+// TestRoleBriefCarriesTaskDecisionsInTheDeliverable asserts that the role text says the implementer reads only its task,
+// so every decision it must follow goes in the Deliverable.
+func TestRoleBriefCarriesTaskDecisionsInTheDeliverable(t *testing.T) {
+	t.Parallel()
+	t.Run(
+		"the planner role says every decision the implementer must follow goes in the Deliverable",
+		func(t *testing.T) {
+			t.Parallel()
+			for _, want := range []string{
+				"implementer reads only its task",
+				"every decision it must follow goes in the Deliverable",
+			} {
+				if !strings.Contains(role, want) {
+					t.Errorf("role text lacks %q", want)
+				}
+			}
+		},
+	)
+}

@@ -499,7 +499,9 @@ func TestStepDoneFallbackOwned(t *testing.T) {
 		t.Fatalf("end = %q, want checks_failed", row.End)
 	}
 	owned := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepGitOwnedName)
-	if want := "changed paths outside owned: other/outside.txt"; owned.OK || owned.Detail != want {
+	want := "changed paths outside owned: other/outside.txt; " +
+		"take those files out of the commit, and the work in the worktree is kept"
+	if owned.OK || owned.Detail != want {
 		t.Errorf("round 1 owned check = %+v, want failure %q", owned, want)
 	}
 }

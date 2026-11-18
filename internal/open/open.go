@@ -199,7 +199,7 @@ func stampedArgv(cfg Config, dir string, argv []string) ([]string, error) {
 	if found.Folder == "" {
 		return argv, nil
 	}
-	settings := tmuxctl.Literal(stamp.Settings(false, found.Env))
+	settings := tmuxctl.Literal(stamp.Settings(false, found.Env, nil))
 	return slices.Concat(argv[:1], []string{"--settings", settings}, argv[1:]), nil
 }
 

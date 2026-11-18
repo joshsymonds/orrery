@@ -11,12 +11,13 @@ import (
 // stepStampValid is the settings file of a stamped folder: a stamp whose env carries a second key beside its base URL.
 const stepStampValid = `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example","ORRERY_STAMP_MARK":"kept"}}`
 
-// stepStampSettings is the --settings value of a call from a folder under stepStampValid.
+// stepStampSettings is the --settings value of a call from a folder under stepStampValid. The monitor call is a Haiku
+// call, so its user CLAUDE.md is the one under the Haiku caller's HOME, haikuHome.
 const stepStampSettings = `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example",` +
-	`"ORRERY_STAMP_MARK":"kept"}}`
+	`"ORRERY_STAMP_MARK":"kept"},"claudeMdExcludes":["` + haikuMemory + `"]}`
 
 // stepStampPlain is the --settings value of a call from a folder no stamp applies to.
-const stepStampPlain = `{"disableAllHooks":true}`
+const stepStampPlain = haikuPlainSettings
 
 // stepStampTestHome returns a synthetic home under t.TempDir() that holds the repository home/stamped/repo. When body is
 // not empty it is written to home/stamped/.claude/settings.local.json, which stamps home/stamped. It returns home and the

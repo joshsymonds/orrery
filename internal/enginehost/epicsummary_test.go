@@ -99,8 +99,10 @@ func startSummaryLoop(t *testing.T, st *store.Store, claude string) *summaryLoop
 	ctx, cancel := context.WithCancel(t.Context())
 	loop := &summaryLoop{ticks: ticks, passes: passes, done: make(chan struct{}), cancel: cancel}
 	summaries := NewEpicSummaries(EpicSummariesConfig{
-		Store:  st,
-		Haiku:  NewHaiku(HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH")}}),
+		Store: st,
+		Haiku: NewHaiku(
+			HaikuConfig{Claude: claude, Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + haikuHome}},
+		),
 		Tick:   ticks,
 		Passed: func() { passes <- struct{}{} },
 	})
