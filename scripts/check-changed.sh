@@ -25,6 +25,7 @@
 #   - alert-check when observability/ changed.
 #   - android-test when android/ or proto/ changed.
 #   - gate-remote-test when scripts/gate-remote.sh or its test changed.
+#   - box-cache-test when scripts/box-cache.sh or its test changed.
 #   - test-deadline-test when scripts/test-deadline.sh or its test changed.
 #   - test-budget-test when scripts/test-budget.sh or its test changed.
 #   - pin-check always (it is fast).
@@ -155,6 +156,7 @@ if has '^proto/'; then within "proto checks" just proto-lint proto-breaking gen-
 if printf '%s\n' "$changed" | grep -E '^web/' | grep -vqE '^web/build/'; then within "web checks" just web-check web-page; fi
 if has '^observability/'; then within alert-check just alert-check; fi
 if has '^scripts/gate-remote(-test)?\.sh$'; then within gate-remote-test just gate-remote-test; fi
+if has '^scripts/box-cache(-test)?\.sh$'; then within box-cache-test just box-cache-test; fi
 if has '^scripts/test-deadline(-test)?\.sh$'; then within test-deadline-test just test-deadline-test; fi
 if has '^scripts/test-budget(-test)?\.sh$'; then within test-budget-test just test-budget-test; fi
 if has '^(android/|proto/)'; then
