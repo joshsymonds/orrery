@@ -1355,3 +1355,26 @@ SELECT park FROM planner_actions WHERE epic = ? AND turn = ? AND position = ?;
 -- name: LinkPlannerActionPark :exec
 UPDATE planner_actions SET park = sqlc.arg(park)
 WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(position) AND state = 'pending';
+
+-- name: InsertCronJob :execrows
+INSERT INTO cron_jobs (job_id, session, tool_use_id, cron, prompt, recurring, created_at, last_fire_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (session, tool_use_id) DO NOTHING;
+
+-- name: GetCronJobByToolUse :one
+SELECT * FROM cron_jobs WHERE session = ? AND tool_use_id = ?;
+
+-- name: DeleteCronJob :execrows
+DELETE FROM cron_jobs WHERE session = ? AND job_id = ?;
+
+-- name: ListSessionCronJobs :many
+SELECT * FROM cron_jobs WHERE session = ? ORDER BY created_at, rowid;
+
+-- name: ListCronJobs :many
+SELECT * FROM cron_jobs ORDER BY created_at, rowid;
+
+-- name: SetCronJobFired :exec
+UPDATE cron_jobs SET last_fire_at = ? WHERE job_id = ?;
+
+-- name: DeleteSessionCronJobs :execrows
+DELETE FROM cron_jobs WHERE session = ?;
