@@ -168,6 +168,7 @@ export function App({
   host = null,
   onViewing,
   address,
+  onAddress,
 }: {
   rows: Row[];
   error: string;
@@ -180,6 +181,7 @@ export function App({
   host?: HostStatusResponse | null;
   onViewing?: (viewing: Viewing) => void;
   address?: Address;
+  onAddress?: (address: Address, mode: "push" | "replace") => void;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -310,6 +312,60 @@ export function App({
   // The row or unseen ended epic the seen watch last rested on, which its write marks seen.
   const restedSeen = useRef<Row | EpicItem | null>(null);
 
+  // The address App reports. lastForm is the form it last reported or applied. cause is the mode the next address change
+  // takes: push for an open, a crumb return or the first cursor key after one, replace for a later cursor key. A cause
+  // is set together with a render of its own, and the report of that render consumes it, so a cause that changes no
+  // address is never carried to a later change. armed is whether the next cursor key pushes, and engaged whether any
+  // cause has come since mount, which a change with no cause waits for. applied is set when an address is applied, and
+  // the report after it takes the form App shows without reporting it. pendingOpen is the entry an address names until
+  // it is applied, and pageCursor is the cursor key the epic page was last reset for.
+  const lastForm = useRef<string | null>(null);
+  const cause = useRef<"push" | "replace" | null>(null);
+  const armed = useRef(false);
+  const engaged = useRef(false);
+  const applied = useRef(false);
+  const [, setAddressTick] = useState(0);
+  const addressMounted = useRef(false);
+  const pendingOpen = useRef<Entry | null>(null);
+  const pageCursor = useRef<string | null>(null);
+
+  // renderAddress guarantees a render after a cause or an applied address, whether or not the action changes any state.
+  // Without it, a cause whose action changes nothing, such as h at the inbox, would reach no render, and the next
+  // unrelated change would consume it.
+  const renderAddress = () => setAddressTick((tick) => tick + 1);
+  // arm arms the next cursor key to push, and engages the reports: a change with no cause is reported from then on.
+  const arm = () => {
+    armed.current = true;
+    engaged.current = true;
+  };
+  // navigated wraps an open or a crumb return: the address change it makes pushes, and it arms the next cursor key.
+  const navigated =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      cause.current = "push";
+      arm();
+      renderAddress();
+      action(...args);
+    };
+  // keyMoved wraps a cursor key's move: the first cursor key after an arm pushes and disarms, and the later ones
+  // replace.
+  const keyMoved =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      cause.current = armed.current ? "push" : "replace";
+      armed.current = false;
+      engaged.current = true;
+      renderAddress();
+      action(...args);
+    };
+  // adopt records an applied address. It reports nothing, and arms the next cursor key. Its render is the one whose
+  // report takes the applied form, so that form is never left waiting for a later change.
+  const adopt = () => {
+    applied.current = true;
+    arm();
+    renderAddress();
+  };
+
   const words = filter
     .toLowerCase()
     .split(/\s+/)
@@ -400,6 +456,12 @@ export function App({
   // failed answer leaves the page at its unavailable line.
   const askedId = epicEntry?.id ?? "";
   const polledDetail = askedId !== "" && epics.details.has(askedId);
+  // The address the page shows. The epic page's reset to the open page is a layout effect of the render that moves the
+  // cursor. So a render that moves the cursor reads the open page, and the page the cursor left is shown only once that
+  // reset has run.
+  const shownPage = pageCursor.current === cursorKey ? epicPage : openEpicPage;
+  const shownAddress: Address = { order: view, entry: shownEntry(cursorItem, shownPage) };
+  const shownForm = formatAddress(shownAddress);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
   useEffect(() => {
@@ -544,6 +606,7 @@ export function App({
 
   // A move of the cursor opens the epic page afresh, so a page a back closed or a contract opened does not outlast it.
   useLayoutEffect(() => {
+    pageCursor.current = cursorKey;
     setEpicPage(openEpicPage);
   }, [cursorKey]);
 
@@ -841,8 +904,8 @@ export function App({
     setEpicPage({ page: target.page, below: epicPage.below.slice(0, index), move: "leave", closed: false });
   };
   // back returns from the page on top to the page under it. toEpicPage returns to the epic page from any page over it.
-  const back = () => leaveTo(epicPage.below.length - 1);
-  const toEpicPage = () => leaveTo(0);
+  const back = navigated(() => leaveTo(epicPage.below.length - 1));
+  const toEpicPage = navigated(() => leaveTo(0));
   // backOneCrumb is h and the left arrow. On a contract, phase output or worker session page it does that page's back.
   // On the epic page, a row's page or a step's page, which is at its first crumb, it pops a hidden inbox out by key.
   const backOneCrumb = () => {
@@ -853,15 +916,15 @@ export function App({
     }
   };
   // openPhase opens a task's phase output over the epic page. On the phase output, a head opens its phase in place.
-  const openPhase = (task: string, phase: Phase) => {
+  const openPhase = navigated((task: string, phase: Phase) => {
     if (epicPage.page.kind === "phase") {
       setEpicPage((previous) => ({ ...previous, page: { kind: "phase", task, phase } }));
       return;
     }
     drill({ kind: "phase", task, phase });
-  };
-  const openContract = () => drill({ kind: "contract" });
-  const closeEpicPage = () => setEpicPage(closedEpicPage);
+  });
+  const openContract = navigated(() => drill({ kind: "contract" }));
+  const closeEpicPage = navigated(() => setEpicPage(closedEpicPage));
 
   // A notice's landing opens the epic page on the block it names. Effects run in declaration order, and this one is
   // declared after the cursor's reset above, so in the commit where a notice moves the cursor the landing is the page
@@ -902,6 +965,7 @@ export function App({
   // An opened address's epic sub-page lands the epic page on the page the address names, over the epic page for a
   // contract, phase output or worker session. It is declared after the cursor's reset above, so in the commit where the
   // address moves the cursor the sub-page is the page the reset leaves.
+  // Once the page is set, the effect clears opened, so the render after it is the one whose report settles the address.
   useLayoutEffect(() => {
     if (opened === null) {
       return;
@@ -912,6 +976,7 @@ export function App({
         ? openEpicPage
         : { page, below: [{ page: epicPageView, scroll: 0 }], move: "", closed: false },
     );
+    setOpened(null);
   }, [opened]);
 
   const moveTo = (target: number) => {
@@ -922,13 +987,38 @@ export function App({
     setCursor({ key: flat[next].key, index: next });
   };
 
-  // selectItem moves the cursor to an entry the list shows, as a click on that entry does.
-  const selectItem = (item: Item) => {
+  // selectItem moves the cursor to an entry the list shows, as a click on that entry does. It is an open.
+  const selectItem = navigated((item: Item) => {
     moveTo(flat.findIndex((candidate) => candidate.key === item.key));
-  };
+  });
+
+  // openView sets the order, as a view tab or the a, p and v keys do. It is an open.
+  const openView = navigated(setView);
+
+  // App reports its address after each render, once, when the form it shows differs from the one it last reported or
+  // applied. An address still pending, or an epic sub-page still landing, reports nothing and leaves its cause to the
+  // render that settles it. This effect comes before the effects that set a cause or apply an address, so a cause they
+  // set reaches the next render's report, and an address they apply does not reach this one.
+  useEffect(() => {
+    if (pendingOpen.current !== null || opened !== null) {
+      return;
+    }
+    const taken = cause.current;
+    cause.current = null;
+    const previous = lastForm.current;
+    lastForm.current = shownForm;
+    if (applied.current) {
+      applied.current = false;
+      return;
+    }
+    if (shownForm === previous || (taken === null && !engaged.current)) {
+      return;
+    }
+    onAddress?.(shownAddress, taken === "push" ? "push" : "replace");
+  });
 
   // The palette's answered row takes the cursor once the loaded rows hold it, so a row that arrives in a later render
-  // is reached too. A filter that hides the row is accepted: the cursor then stays where it is.
+  // is reached too. A filter that hides the row is accepted: the cursor then stays where it is. The answer is an open.
   useEffect(() => {
     if (pending === null) {
       return;
@@ -940,7 +1030,7 @@ export function App({
     setPending(null);
     const target = flat.findIndex((item) => item.key === found.key);
     if (target >= 0) {
-      moveTo(target);
+      navigated(moveTo)(target);
     }
   }, [pending, rows, flat]);
 
@@ -967,23 +1057,26 @@ export function App({
   // it, since the rows and epics can arrive after the mount. An address with no entry closes the epic page on a later
   // change only, since on mount the cursor's epic page is today's default.
   const addressForm = address === undefined ? "" : formatAddress(address);
-  const addressMounted = useRef(false);
-  const pendingOpen = useRef<Entry | null>(null);
   useEffect(() => {
     const first = !addressMounted.current;
     addressMounted.current = true;
     if (address === undefined) {
       return;
     }
-    const shown = formatAddress({ order: view, entry: shownEntry(cursorItem, epicPage) });
-    if (addressForm === shown) {
+    // A prop that already names the shown address applies nothing, so it arms nothing: an address App reported and the
+    // prop holds again leaves the cursor keys' modes as they were.
+    if (addressForm === shownForm) {
       pendingOpen.current = null;
+      lastForm.current = shownForm;
       return;
     }
     setView(address.order);
     pendingOpen.current = address.entry;
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
+    }
+    if (address.entry === null) {
+      adopt();
     }
   }, [addressForm]);
 
@@ -1011,6 +1104,7 @@ export function App({
       setRowOpened(true);
     }
     pendingOpen.current = null;
+    adopt();
   }, [addressForm, flat, marked]);
 
   // markNoticeSeen sends the notice's key as seen. A failed report is dropped; the notice stays until it ends.
@@ -1021,7 +1115,7 @@ export function App({
   // openNotice counts a notice seen, then lands on what it names. An epic moves the cursor to its entry, wherever the
   // list holds it, and lands its page on the block the notice names. A pane or a session moves the cursor to its row or
   // step, when the list shows it. A failed report is dropped; the notice stays in the banner until it ends.
-  const openNotice = (notice: InAppNotice) => {
+  const openNotice = navigated((notice: InAppNotice) => {
     markNoticeSeen(notice);
     const epic = notice.key?.epic ?? "";
     if (epic !== "") {
@@ -1035,7 +1129,7 @@ export function App({
     if (entry !== undefined) {
       selectItem(entry);
     }
-  };
+  });
 
   const nextUnseen = () => {
     for (let step = 1; step <= flat.length; step++) {
@@ -1136,14 +1230,14 @@ export function App({
     composerInputs,
     stepInputs,
     pendingG,
-    moveTo,
-    nextUnseen,
+    moveTo: keyMoved(moveTo),
+    nextUnseen: keyMoved(nextUnseen),
     writeSeen,
     setArchive,
     escapeRow,
     replyBoxTarget,
     focusCursorRow,
-    backOneCrumb,
+    backOneCrumb: navigated(backOneCrumb),
     answerCursor,
     toggleOpen,
     closePin,
@@ -1153,9 +1247,9 @@ export function App({
     setMenuKey,
     setFilter,
     setPopout,
-    setRowOpened,
+    setRowOpened: navigated(setRowOpened),
     setBoxOpened,
-    setView,
+    setView: openView,
     setPinned,
     setPinStream,
     setHelpOpen,
@@ -1170,7 +1264,7 @@ export function App({
 
   // The epic calls the readers of the cursor and the pin make: an epic a call created draws its card, which reads the
   // epic again on each poll tick and opens the epic through openEpic; a step card opens its step through openEpicStep.
-  const epicCalls = epicCallsOf(clients, openEpic, openEpicStep, now);
+  const epicCalls = epicCallsOf(clients, navigated(openEpic), navigated(openEpicStep), now);
 
   // pageNode draws the page the section holds over the epic's detail: the epic page, or the contract, the phase output
   // or the worker session the page has moved to.
@@ -1201,7 +1295,9 @@ export function App({
           loadArtifact={loadArtifact}
           onBack={back}
           onOpenPhase={openPhase}
-          onOpenSession={(step) => drill({ kind: "session", task: page.task, phase: page.phase, step })}
+          onOpenSession={navigated((step: string) =>
+            drill({ kind: "session", task: page.task, phase: page.phase, step }),
+          )}
           hold={(step) => stepCalls(clients, step).hold()}
           stop={(step) => stepCalls(clients, step).stop()}
           mark={inboxMark}
@@ -1290,13 +1386,13 @@ export function App({
               />
             </div>
             <div class="views">
-              <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
+              <span class={view === "attention" ? "view on" : "view"} onClick={() => openView("attention")}>
                 <kbd>a</kbd>By attention
               </span>
-              <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
+              <span class={view === "project" ? "view on" : "view"} onClick={() => openView("project")}>
                 <kbd>p</kbd>By project
               </span>
-              <span class={view === "archived" ? "view on" : "view"} onClick={() => setView("archived")}>
+              <span class={view === "archived" ? "view on" : "view"} onClick={() => openView("archived")}>
                 <kbd>v</kbd>Archived
               </span>
             </div>
@@ -1433,7 +1529,7 @@ export function App({
                       need={need}
                       slug={epics.details.get(need.epic)?.epic?.slug ?? ""}
                       commands={epicCommands(clients, need.epic, setCommandError)}
-                      onOpen={() => openEpic(need.epic)}
+                      onOpen={navigated(() => openEpic(need.epic))}
                     />
                   ))}
               </div>
@@ -1450,7 +1546,7 @@ export function App({
           interrupts={interrupts}
           mark={inboxMark}
           pageStrip={pageStrip}
-          onBack={focusCursorRow}
+          onBack={navigated(focusCursorRow)}
           finding={cursorFinding}
           matches={cursorMatches}
           current={cursorCurrent}
