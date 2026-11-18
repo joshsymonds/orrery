@@ -75,6 +75,8 @@ See [The remote gate box](#the-remote-gate-box).
 - `just engine-accept [ARGS]` reruns the Claude Code protocol probes live against the `claude` on `PATH`. The probes spend Haiku turns on your sign-in, so this target is not part of `just check`. Pass `-probe NAME` to run one probe, and `-keep DIR` to keep the raw output in `DIR`, outside the checkout. It writes no fixtures and exits 1 when a probe fails its checks. See [Fixtures](#fixtures).
 - `just measure-restart-cost` measures how soon a restart over a large store serves `sessions.sock`. It runs `TestMeasureRestartCost`, which has the `measure` build tag, so it is never part of `check`. Run it on an idle machine, because load inflates the store writes it times.
 - `just tui-shots` regenerates `docs/img/tree.png`. It builds `cmd/orrery`, starts the made-up fixture in `docs/tui/fixture.sh` on a private tmux server, and renders it with VHS under `devenv --profile tui-shots shell`. The image is replaced only when the rendered frame shows every project and pane label of the fixture. The `tui-shots` profile adds VHS, ttyd and ffmpeg, which the default shell does not carry.
+- `just catalog [HOST] [PORT]` serves the web story catalog at `127.0.0.1:8123` by default, and rebuilds it on each edit. See [Web stories and the catalog](#web-stories-and-the-catalog).
+- `just shoot NAME... [--width W]...` writes a PNG of each named story at each width, under the `visual` profile's Chromium. It has no default: with no name it exits 1. See [Web stories and the catalog](#web-stories-and-the-catalog).
 
 ## Lint and coverage
 
@@ -206,6 +208,72 @@ These conventions are enforced by the lint configuration, the recipes, or a test
 - Recorded and hand-written test data use invented values only: `/home/user/project` for paths, `example-*` for names, `example.test` for email addresses, `192.0.2.0/24` for IPv4 addresses, and the fixed UUID form `00000000-0000-4000-8000-00000000000N` for ids. `TestEngineHoldsNoPrivateDetail` (`internal/engine/leak_test.go`) scans every file under `internal/engine`, testdata included. It fails on any other home path, a tailnet host name, an IPv4 address outside 127.0.0.0/8 and 192.0.2.0/24, an email address outside `example.test`, a UUID outside the fixed form, an `sk-ant-` token, or a `msg_` id. It prints each finding with its file and line.
 - Golden files hold the expected output of some tests: `internal/cli/testdata/list.golden.json`, `internal/help/testdata/card.golden` and `page.golden`, `internal/tmuxconf/testdata/plugin.golden`, and the five frames in `internal/tui/testdata/`. No test has a flag or environment variable that rewrites a golden file. To change one, write the new output into the file yourself. `checkGolden` in `internal/tui/tui_test.go` expects the frame followed by one newline.
 - The help card is checked in two more places. `TestHelpPrintsCardWithServerPrefix` in `internal/integration` compares the output of `orrery help` with `card.golden`. `TestReadmeDailyUseMatchesCard` in `internal/help` requires the `Daily use` block of `README.md` to equal `help.Card`. Changing the card therefore means changing `README.md` too.
+
+## Web stories and the catalog
+
+A story draws one state of a web component. The story catalog shows every story, and `just shoot` writes screenshots of the stories it is named. The catalog is built from the `*.stories.tsx` files under `web/src`.
+
+### Where stories live and how they are named
+
+A component's stories go in `<file>.stories.tsx` beside its `.tsx`: the stories of `inboxrow.tsx` are in `inboxrow.stories.tsx`. The file exports one `Stories` record (the type in `web/src/catalog/story.ts`) per exported component, named exactly as the component's export, so `export const InboxRow: Stories` holds the states of `InboxRow`. Each key of the record is a state in kebab case, and each value is a function that returns the element for that state.
+
+A story's name is `component/state`. The component part is its export's name in kebab case, so the `waiting` state of `InboxRow` is `inbox-row/waiting`. `kebab` and `storyName` build the name, and `catalogStories` throws when an export is not a record of functions, when a state is not kebab case, or when two stories share a name.
+
+`app.stories.tsx` exports two records. `App` holds the routes, named `app/<route>`, and `Page` holds the scenarios, named `page/<scenario>`. Each of its stories is drawn by `PageStory` (`web/src/catalog/pagestory.tsx`) at the address the story gives, over the in-memory fixture transport. `PageStory` reads the rows, epics and host the way `main.tsx` does.
+
+### How to add one
+
+Build a story's props from the slices in `web/src/fixtures/`. `shippedSlices` in `slices.ts` holds one field for each answer the fixture transport gives, and a component's rows can be read from them with `rowsFrom`, as `inboxrow.stories.tsx` does.
+
+- Give any `now` prop as `Date.parse(liveEpoch) / 1000`, with `liveEpoch` from `web/src/fixtures/clock.ts`. Do not use `Date.now()`, so the times a story draws stay at the fixtures' instant.
+- Give clients as `createFixtureTransport().clients`. The fixture transport answers each read from the slices and absorbs each write. Every other call is refused and recorded, and the page then draws a `data-story-failure` element that names it. A story must make no call the fixture refuses.
+- Nothing needs registering. `scripts/gen-stories.sh` writes `web/src/catalog/registry.gen.ts`, which imports every `*.stories.tsx` under `web/src`. The file is git-ignored, and the recipes that read it regenerate it first, so there is no list to edit.
+
+A short stories file, trimmed from `card.stories.tsx`:
+
+```tsx
+import type { Stories } from "./catalog/story";
+import { EpicWidget as Card, epicCallsOf } from "./card";
+import { createFixtureTransport } from "./fixtures/transport";
+
+const clients = createFixtureTransport().clients;
+const calls = epicCallsOf(clients, () => {}, () => {}, 0);
+
+export const EpicWidget: Stories = {
+  // working is an epic that is building, with its steps running.
+  working: () => <Card epic="orrery/orrery-followups" calls={calls} />,
+  // unavailable is an epic the fixtures hold no detail for, so its read fails and the card says so.
+  unavailable: () => <Card epic="orrery/no-such-epic" calls={calls} />,
+};
+```
+
+### Checking stories
+
+`just web-check` runs `scripts/gen-stories.sh` before it typechecks, so the registry it checks is current. To see a story drawn, use `just catalog` or `just shoot`. A page story that calls something the fixtures do not serve draws its failure element, and `just shoot` fails that story.
+
+### `just catalog`
+
+`just catalog [HOST] [PORT]` builds the catalog into `web/build/catalog` and serves it at `127.0.0.1:8123` by default. It rebuilds on each edit. A new `*.stories.tsx` file needs a restart, because the registry is generated when the recipe starts.
+
+The index lists every story by name, each name a link to its hash. The hash selects a story, and the index frames it at 1600, 1000 and 412 wide. `?story=<name>` draws one story alone, which each frame loads, and a name the catalog does not hold draws a failure element.
+
+### `just shoot`
+
+`just shoot NAME... [--width W]...` builds the catalog as `just catalog` does, then writes a screenshot of each named story at each width into `web/build/shots/<component>/<state>-<width>.png`. It runs under the `visual` devenv profile, which supplies the Chromium that playwright-core drives. The driver is `web/src/shoot/shoot.ts`.
+
+- A `NAME` is `component/state`, naming one story, or a bare component, naming every state of that component. `inbox-row` names all five states of `InboxRow`.
+- `--width W` may repeat. Without it the width is 1600. A width must be a positive integer.
+- Motion is frozen at the fixtures' instant. The page's clock is paused at `liveEpoch`, and CSS animations and transitions are turned off.
+- The shots directory is cleared once the names resolve, before any screenshot is written.
+- It never shoots every story by default. Running it with no name exits 1.
+- A story that draws its failure element, raises a page error, or has not settled within 10 seconds fails the run with exit 1.
+- An unknown name, or a bad width, exits 1 with a message, and writes no screenshot.
+
+For example, this writes four screenshots: the `waiting` and `answered` states at 1600 and at 412 wide.
+
+```bash
+just shoot inbox-row/waiting inbox-row/answered --width 1600 --width 412
+```
 
 ## Fixtures
 
