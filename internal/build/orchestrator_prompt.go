@@ -361,9 +361,9 @@ func (r *Runner) historyLines(ctx context.Context, epic string, task store.EpicT
 }
 
 // historyOf returns the History section of task from rows, its steps in the order they started: each earlier
-// orchestrator step that ended, with its decision, its note or question and reason, and how the implementer's next run
-// ended, or that it reached no decision; then how many decisions are left before orreryd settles the request without
-// one.
+// orchestrator step that ended, with its decision, the fields its version changes or its question, and its reason, and
+// how the implementer's next run ended, or that it reached no decision; then how many decisions are left before orreryd
+// settles the request without one.
 func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 	var lines []string
 	for i, row := range rows {
@@ -378,7 +378,7 @@ func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 		lines = append(lines, "- "+decisionText(task.Seq, ret))
 		switch ret.Decision {
 		case decisionRerun, decisionGrant:
-			lines = append(lines, "  note: "+ret.Note)
+			lines = append(lines, "  version: "+changesText(ret.Version.Changed))
 		case decisionAsk:
 			lines = append(lines, "  question: "+ret.Question.Text)
 		}
@@ -386,6 +386,14 @@ func historyOf(rows []store.StepRow, task store.EpicTask) []string {
 	}
 	return append(lines, fmt.Sprintf("Decisions left before orreryd settles the request without one: %d",
 		max(decisionLimit-task.Build.Decisions, 0)))
+}
+
+// changesText returns the fields a version changes, comma-separated, or `changes nothing` when it changes none.
+func changesText(changed []string) string {
+	if len(changed) == 0 {
+		return "changes nothing"
+	}
+	return "changes " + strings.Join(changed, ", ")
 }
 
 // nextRun returns how the first implementer step among rows ended, or that none has run.

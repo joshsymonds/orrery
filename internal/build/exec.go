@@ -175,17 +175,14 @@ func (r *Runner) grant(ctx context.Context, epic store.EpicRow, view View, actio
 	return r.written(ctx, epic.ID, seq, "grant files", err)
 }
 
-// decide carries out an orchestrator's rerun or grant: in one write the task gets the files action names, its build
-// moves to action's, the orchestrator's version of the task is stored, and the decision is recorded
-// (store.Store.RerunTask). When an open task the build does not wait for owns one of the files, the store writes
-// nothing, and the request is settled as action's fallback, with the refusal added.
+// decide carries out an orchestrator's rerun or grant: in one write the task's version, action's Version, is stored
+// with the files it adds, its build moves to action's, and the decision is recorded (store.Store.RerunTask). When an
+// open task the build does not wait for owns one of the files, the store writes nothing, and the request is settled as
+// action's fallback, with the refusal added.
 func (r *Runner) decide(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq := view.Task.Seq
 	err := r.store.RerunTask(
-		ctx, epic.ID, seq, view.Task.Build, action.Next, store.TaskVersionInput{
-			Source: store.SourceOrchestrator, Step: view.Step.ID, Reason: action.Decision.Text,
-			Files: action.NeedsFiles,
-		}, action.Behind, *action.Decision, r.now(),
+		ctx, epic.ID, seq, view.Task.Build, action.Next, action.Version, action.Behind, *action.Decision, r.now(),
 	)
 	var owned store.FileOwnedError
 	if errors.As(err, &owned) && action.Fallback != nil {

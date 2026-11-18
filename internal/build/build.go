@@ -120,8 +120,10 @@ const (
 // run or step to start, Revision the revision it runs at, and Unit the step's unit. Review and Finding are what a
 // review or finding action stores, and Tells are the texts the owner is told. Decision is the epic decision that
 // records an orchestrator's decision, written with the action. Behind is the tasks a decided build waits for, whose
-// ownership of a granted file does not refuse it. Question is the owner question an ask opens, with Reason as the tell
-// that carries it. Fallback is what a decided grant does instead when the store refuses one of its files.
+// ownership of a granted file does not refuse it. Version is the task spec version a decided rerun or grant stores with
+// its decision: the files it adds to the task and the fields it changes. Question is the owner question an ask opens,
+// with Reason as the tell that carries it. Fallback is what a decided grant does instead when the store refuses one of
+// its files.
 type Action struct {
 	Kind       ActionKind
 	Next       store.TaskBuild
@@ -136,6 +138,7 @@ type Action struct {
 	Tells      []string
 	Decision   *store.TaskDecision
 	Behind     []int64
+	Version    store.TaskVersionInput
 	Question   *store.EpicQuestionInput
 	Fallback   *Action
 }

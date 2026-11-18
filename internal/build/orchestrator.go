@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -63,29 +64,59 @@ func isCatastrophe(class string) bool {
 	return false
 }
 
-// The keys of an orchestrator's return that its decoder reads apart, and the field the shape rules name most.
+// The keys of an orchestrator's return that its decoder reads apart: after_tasks and needs_files, and test_changes
+// inside version, which the version's JSON tags cannot name.
 const (
-	keyAfterTasks = "after_tasks"
-	keyNeedsFiles = "needs_files"
-	fieldFiles    = "files"
+	keyAfterTasks  = "after_tasks"
+	keyNeedsFiles  = "needs_files"
+	keyVersion     = "version"
+	keyTestChanges = "test_changes"
 )
 
 // OrchestratorSchema is the schema an orchestrator step's return must match: one flat object, every field required and
-// left empty when its decision does not use it.
+// left empty when its decision does not use it. A rerun or grant decision returns version, the task's new spec version,
+// which every agent on the task reads as standing spec: a version may change any field of the task's spec but never the
+// contract.
 const OrchestratorSchema = `{
   "title": "Implementer request decision",
+  "description": "A rerun or grant decision returns version, the task's new spec version, which every agent on the task reads, written as standing spec. A version may change any field of the task's spec (deliverable, files, test_changes, gate, evidence; an evidence change is red-checked at the task's base) but never the contract.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "evidence", "decision", "note", "files", "after_tasks", "failure", "needs_files", "question",
+  "required": ["status", "evidence", "decision", "version", "after_tasks", "failure", "needs_files", "question",
     "reason"],
   "properties": {
     "status": {"type": "string", "enum": ["done", "blocked"]},
     "evidence": {"type": "string",
       "description": "What the request comes down to, each fact as file:line or the exact command and its output."},
     "decision": {"type": "string", "enum": ["", "rerun", "grant", "fail", "ask"]},
-    "note": {"type": "string",
-      "description": "Read by the next implementer run after the words: From your previous try on this task:"},
-    "files": {"type": "array", "items": {"type": "string"}},
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changed", "deliverable", "files", "test_changes", "gate", "evidence"],
+      "properties": {
+        "changed": {"type": "array",
+          "items": {"type": "string", "enum": ["deliverable", "files", "test_changes", "gate", "evidence"]}},
+        "deliverable": {"type": "string"},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "test_changes": {"type": "array", "items": {"type": "string"}},
+        "gate": {"type": "string"},
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "capture": {"type": "array", "items": {"type": "string"}},
+            "limit": {"type": "integer"},
+            "artifacts": {"type": "array", "items": {"type": "string"}},
+            "supplied": {"type": "array", "items": {"type": "string"}},
+            "conclusion": {"type": "string"},
+            "judge": {"type": "string"},
+            "kind": {"type": "string"},
+            "tests": {"type": "array", "items": {"type": "string"}}
+          },
+          "required": ["capture", "limit", "artifacts", "supplied", "conclusion", "judge", "kind", "tests"],
+          "additionalProperties": false
+        }
+      }
+    },
     "after_tasks": {"type": "array", "items": {"type": "integer"}},
     "failure": {"type": "string",
       "description": "The task's failure as the planner reads it; cause in the first sentence."},
@@ -134,14 +165,39 @@ func (q orchestratorQuestion) empty() bool {
 		q.Confidence == "" && q.Catastrophe == ""
 }
 
+// orchestratorVersion is the version an orchestrator's rerun or grant returns: the fields it changes, and the value of
+// each. Changed names the fields, Files are the files the version adds to the task, and TestChanges is read apart from
+// its key, test_changes (decodeOrchestratorReturn).
+type orchestratorVersion struct {
+	Changed     []string      `json:"changed"`
+	Deliverable string        `json:"deliverable"`
+	Files       []string      `json:"files"`
+	TestChanges []string      `json:"-"`
+	Gate        string        `json:"gate"`
+	Evidence    evidence.Item `json:"evidence"`
+}
+
+// empty reports whether every field of the version is zero, as a fail or an ask leaves it. A list is zero when it has
+// no entries.
+func (v orchestratorVersion) empty() bool {
+	return len(v.Changed) == 0 && v.Deliverable == "" && len(v.Files) == 0 && len(v.TestChanges) == 0 &&
+		v.Gate == "" && itemEmpty(v.Evidence)
+}
+
+// itemEmpty reports whether every field of item is zero, as a version that does not change its evidence leaves it.
+func itemEmpty(item evidence.Item) bool {
+	return len(item.Capture) == 0 && item.Limit == 0 && len(item.Artifacts) == 0 && len(item.Supplied) == 0 &&
+		item.Conclusion == "" && item.Judge == "" && item.Kind == "" && len(item.Tests) == 0
+}
+
 // orchestratorReturn is an orchestrator step's return, as OrchestratorSchema gives it. AfterTasks and NeedsFiles are
-// read apart from their keys, after_tasks and needs_files (decodeOrchestratorReturn).
+// read apart from their keys, after_tasks and needs_files, and Version.TestChanges from its key
+// (decodeOrchestratorReturn).
 type orchestratorReturn struct {
 	Status     string               `json:"status"`
 	Evidence   string               `json:"evidence"`
 	Decision   string               `json:"decision"`
-	Note       string               `json:"note"`
-	Files      []string             `json:"files"`
+	Version    orchestratorVersion  `json:"version"`
 	AfterTasks []int64              `json:"-"`
 	Failure    string               `json:"failure"`
 	NeedsFiles []string             `json:"-"`
@@ -150,7 +206,8 @@ type orchestratorReturn struct {
 }
 
 // decodeOrchestratorReturn decodes an orchestrator's return from raw JSON, with after_tasks and needs_files read from
-// their keys when the return has them. A return that is not a JSON object of the schema's types is an error.
+// their keys when the return has them, and version's test_changes from its key. A return that is not a JSON object of
+// the schema's types is an error.
 func decodeOrchestratorReturn(raw []byte) (orchestratorReturn, error) {
 	var ret orchestratorReturn
 	if err := json.Unmarshal(raw, &ret); err != nil {
@@ -170,7 +227,26 @@ func decodeOrchestratorReturn(raw []byte) (orchestratorReturn, error) {
 			return orchestratorReturn{}, fmt.Errorf("orchestrator return: %s: %w", keyNeedsFiles, err)
 		}
 	}
+	if value, ok := fields[keyVersion]; ok {
+		if err := decodeVersionTestChanges(value, &ret.Version); err != nil {
+			return orchestratorReturn{}, err
+		}
+	}
 	return ret, nil
+}
+
+// decodeVersionTestChanges reads the test_changes key of raw, an orchestrator's version, into version.
+func decodeVersionTestChanges(raw json.RawMessage, version *orchestratorVersion) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return fmt.Errorf("orchestrator return: %s: %w", keyVersion, err)
+	}
+	if value, ok := keys[keyTestChanges]; ok {
+		if err := json.Unmarshal(value, &version.TestChanges); err != nil {
+			return fmt.Errorf("orchestrator return: %s.%s: %w", keyVersion, keyTestChanges, err)
+		}
+	}
+	return nil
 }
 
 // parseOrchestratorReturn decodes an orchestrator step's kept return, and reports false when it does not decode.
@@ -423,10 +499,10 @@ func OrchestratorCheck(task store.EpicTask, peers []Peer) func(json.RawMessage) 
 	}
 }
 
-// shapeRefusals returns one `field: reason` line for each rule of its decision's shape that ret breaks. A blocked return
-// names no decision and gives evidence. A done return names a decision and gives a reason. A rerun gives a note and no
-// files; a grant gives a note and files. Both leave failure, needs_files and question empty. A fail gives a failure and
-// leaves note, files, after_tasks and question empty. An ask gives every question field and leaves the rest empty.
+// shapeRefusals returns one `field: reason` line for each rule of its decision's shape that ret breaks. A blocked
+// return names no decision and gives evidence. A done return names a decision and gives a reason. A rerun or grant
+// gives a version under versionShape and leaves failure, needs_files and question empty. A fail gives a failure and
+// leaves version, after_tasks and question empty. An ask gives every question field and leaves the rest empty.
 func shapeRefusals(ret orchestratorReturn) []string {
 	if ret.Status == statusBlocked {
 		var refusals []string
@@ -448,15 +524,14 @@ func shapeRefusals(ret orchestratorReturn) []string {
 	case decisionFail:
 		refusals = append(refusals, nonEmpty("failure", ret.Failure)...)
 		refusals = append(refusals, emptyFields(ret.Decision,
-			field{"note", ret.Note != ""}, field{fieldFiles, len(ret.Files) > 0},
-			field{keyAfterTasks, len(ret.AfterTasks) > 0}, field{"question", !ret.Question.empty()},
+			field{keyVersion, !ret.Version.empty()}, field{keyAfterTasks, len(ret.AfterTasks) > 0},
+			field{"question", !ret.Question.empty()},
 		)...)
 	case decisionAsk:
 		refusals = append(refusals, askShape(ret.Question)...)
 		refusals = append(refusals, emptyFields(ret.Decision,
-			field{"note", ret.Note != ""}, field{fieldFiles, len(ret.Files) > 0},
-			field{keyAfterTasks, len(ret.AfterTasks) > 0}, field{"failure", ret.Failure != ""},
-			field{keyNeedsFiles, len(ret.NeedsFiles) > 0},
+			field{keyVersion, !ret.Version.empty()}, field{keyAfterTasks, len(ret.AfterTasks) > 0},
+			field{"failure", ret.Failure != ""}, field{keyNeedsFiles, len(ret.NeedsFiles) > 0},
 		)...)
 	default:
 		refusals = append(refusals, "decision: empty on a done return")
@@ -464,17 +539,71 @@ func shapeRefusals(ret orchestratorReturn) []string {
 	return refusals
 }
 
-// rerunShape returns the shape refusals of a rerun or grant: a note, files only for a grant, and no failure,
-// needs_files or question.
+// rerunShape returns the shape refusals of a rerun or grant: its version (versionShape), and no failure, needs_files or
+// question.
 func rerunShape(ret orchestratorReturn) []string {
-	refusals := nonEmpty("note", ret.Note)
-	if ret.Decision == decisionGrant && len(ret.Files) == 0 {
-		refusals = append(refusals, "files: empty on a grant")
-	}
-	return append(refusals, emptyFields(ret.Decision,
-		field{fieldFiles, ret.Decision == decisionRerun && len(ret.Files) > 0}, field{"failure", ret.Failure != ""},
-		field{keyNeedsFiles, len(ret.NeedsFiles) > 0}, field{"question", !ret.Question.empty()},
+	return append(versionShape(ret.Decision, ret.Version), emptyFields(ret.Decision,
+		field{"failure", ret.Failure != ""}, field{keyNeedsFiles, len(ret.NeedsFiles) > 0},
+		field{"question", !ret.Question.empty()},
 	)...)
+}
+
+// versionShape returns the shape refusals of the version of a rerun or grant. Each field changed names once. A field
+// changed does not name is empty. The fields a version names are checked by namedShape.
+func versionShape(decision string, version orchestratorVersion) []string {
+	var refusals []string
+	for i, name := range version.Changed {
+		if slices.Index(version.Changed, name) < i {
+			refusals = append(refusals, fmt.Sprintf("version.changed[%d]: %s is named twice", i, name))
+		}
+	}
+	for _, item := range []field{
+		{"deliverable", version.Deliverable != ""}, {"files", len(version.Files) > 0},
+		{"test_changes", len(version.TestChanges) > 0}, {"gate", version.Gate != ""},
+		{"evidence", !itemEmpty(version.Evidence)},
+	} {
+		if item.set && !slices.Contains(version.Changed, item.name) {
+			refusals = append(refusals, fmt.Sprintf("version.%s: not empty when changed does not name it", item.name))
+		}
+	}
+	return append(refusals, namedShape(decision, version)...)
+}
+
+// namedShape returns the refusals of the fields a version names: a blank deliverable or gate, a grant that names no
+// file or names none to add, a rerun that names files, and a named evidence item (evidenceShape).
+func namedShape(decision string, version orchestratorVersion) []string {
+	var refusals []string
+	if slices.Contains(version.Changed, "deliverable") {
+		refusals = append(refusals, nonEmpty("version.deliverable", version.Deliverable)...)
+	}
+	if slices.Contains(version.Changed, "gate") {
+		refusals = append(refusals, nonEmpty("version.gate", version.Gate)...)
+	}
+	if slices.Contains(version.Changed, "evidence") {
+		refusals = append(refusals, evidenceShape(version.Evidence)...)
+	}
+	switch {
+	case decision == decisionGrant && !slices.Contains(version.Changed, "files"):
+		refusals = append(refusals, "version.changed: files not named on a grant")
+	case decision == decisionGrant && len(version.Files) == 0:
+		refusals = append(refusals, "version.files: empty on a grant")
+	case decision == decisionRerun && slices.Contains(version.Changed, "files"):
+		refusals = append(refusals, "version.changed: files named on a rerun")
+	}
+	return refusals
+}
+
+// evidenceShape returns the refusals of an evidence item a version names: each line evidence.CheckTask gives it, under
+// version.evidence, and a closure kind, which only a task's own evidence in a correction round may have.
+func evidenceShape(item evidence.Item) []string {
+	var refusals []string
+	for _, line := range evidence.CheckTask(item) {
+		refusals = append(refusals, "version.evidence."+line)
+	}
+	if item.Kind == evidence.KindClosure {
+		refusals = append(refusals, "version.evidence.kind: closure is not a kind a version sets")
+	}
+	return refusals
 }
 
 // askShape returns the refusals of an ask's question: every field set, a catastrophe of the four, and the rules
@@ -520,11 +649,11 @@ func emptyFields(decision string, fields ...field) []string {
 
 // stateRefusals returns the refusals of a rerun or grant against the epic's tasks: an after_tasks entry that is this
 // task, no task of the epic, a task that is neither open nor accepted and pending, a task that waits on this one, or a
-// task named twice; and a granted file that planner.FileRefusal refuses, that is already the task's, that is named
-// twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task. Any
-// other decision has none. With integrated set, an after_tasks entry a batch has integrated since the step started is
-// not refused, since the wait for it is already over. An ask is refused as the task's last decision, since the
-// orchestrator that would read the answer could not run.
+// task named twice; a file of version.files that planner.FileRefusal refuses, that is already the task's, that is named
+// twice, or that an open task owns or an accepted pending task changed when after_tasks does not name that task; and a
+// test change that is none of the task's files after the version. Any other decision has none. With integrated set, an
+// after_tasks entry a batch has integrated since the step started is not refused, since the wait for it is already
+// over. An ask is refused as the task's last decision, since the orchestrator that would read the answer could not run.
 func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, integrated bool) []string {
 	if ret.Decision == decisionAsk && task.Build.Decisions+1 >= decisionLimit {
 		return []string{
@@ -540,9 +669,16 @@ func stateRefusals(ret orchestratorReturn, task store.EpicTask, peers []Peer, in
 			refusals = append(refusals, fmt.Sprintf("after_tasks[%d]: %s", i, reason))
 		}
 	}
-	for i, file := range ret.Files {
-		if reason := fileRefusal(file, task, peers, ret.AfterTasks, ret.Files[:i]); reason != "" {
-			refusals = append(refusals, fmt.Sprintf("files[%d]: %s", i, reason))
+	files := ret.Version.Files
+	for i, file := range files {
+		if reason := fileRefusal(file, task, peers, ret.AfterTasks, files[:i]); reason != "" {
+			refusals = append(refusals, fmt.Sprintf("version.files[%d]: %s", i, reason))
+		}
+	}
+	whole := slices.Concat(task.Files, files)
+	for i, file := range ret.Version.TestChanges {
+		if !slices.Contains(whole, file) {
+			refusals = append(refusals, fmt.Sprintf("version.test_changes[%d]: not one of the task's files", i))
 		}
 	}
 	return refusals
@@ -685,9 +821,9 @@ func decideOrchestrate(view View) Action {
 // carry returns the action that carries out ret, an orchestrator's done return, on the task of view. The state its
 // rerun or grant names is checked again against the peers now, and a refusal settles the request as fallback does, with
 // the refusal added to its reason. Every decision counts one more decision on the build and records an epic decision
-// (decisionText). A rerun or grant moves the build to implement at its next rerun, with no step and the note as its
-// failure, held waiting when it names tasks to wait for, and a grant adds its files. A fail fails the task with its
-// failure and needs_files. An ask holds the build until the owner answers its question.
+// (decisionText). A rerun or grant moves the build to implement at its next rerun, with no step and the failure
+// fallbackText gives, held waiting when it names tasks to wait for, and stores the version it returns (versionInput). A
+// fail fails the task with its failure and needs_files. An ask holds the build until the owner answers its question.
 func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	if refusals := stateRefusals(ret, view.Task, view.Peers, true); len(refusals) > 0 {
 		return refused(fallback, ret.Decision, refusals)
@@ -717,15 +853,46 @@ func carry(view View, ret orchestratorReturn, fallback Action) Action {
 	next.Rerun++
 	next.NoVerdict = 0
 	next.Step = ""
-	next.Failure = ret.Note
+	next.Failure = fallbackText(fallback)
 	if len(ret.AfterTasks) > 0 {
 		next.Held = HeldWaiting
 		next.After = afterText(ret.AfterTasks)
 	}
 	return Action{
-		Kind: ActDecide, Next: next, NeedsFiles: ret.Files, Behind: ret.AfterTasks, Decision: decision,
+		Kind: ActDecide, Next: next, Behind: ret.AfterTasks, Decision: decision, Version: versionInput(view, ret),
 		Fallback: &fallback,
 	}
+}
+
+// fallbackText returns the failure orreryd gives the implementer's step a decision answers: the failure fallback moves
+// the build to when it moves it, and the reason it fails the task with otherwise.
+func fallbackText(fallback Action) string {
+	if fallback.Kind == ActMove {
+		return fallback.Next.Failure
+	}
+	return fallback.Reason
+}
+
+// versionInput returns the version ret stores on the task of view: the step the orchestrator ran, ret's reason and
+// files, and each field ret's changed list names, set to its value.
+func versionInput(view View, ret orchestratorReturn) store.TaskVersionInput {
+	version := ret.Version
+	in := store.TaskVersionInput{
+		Source: store.SourceOrchestrator, Step: view.Step.ID, Reason: ret.Reason, Files: version.Files,
+	}
+	if slices.Contains(version.Changed, "deliverable") {
+		in.Deliverable = &version.Deliverable
+	}
+	if slices.Contains(version.Changed, "test_changes") {
+		in.TestChanges = &version.TestChanges
+	}
+	if slices.Contains(version.Changed, "gate") {
+		in.Gate = &version.Gate
+	}
+	if slices.Contains(version.Changed, "evidence") {
+		in.Evidence = &version.Evidence
+	}
+	return in
 }
 
 // refused returns fallback with the refusal of the orchestrator's decision added to what it records (withNote).
@@ -749,13 +916,13 @@ func withNote(fallback Action, text string) Action {
 	return fallback
 }
 
-// decisionText returns the epic decision that records ret on task seq: `T<seq> <decision>`, with the files of a grant,
-// the catastrophe of an ask and the tasks a rerun or grant waits for, then `: ` and the reason.
+// decisionText returns the epic decision that records ret on task seq: `T<seq> <decision>`, with the files a grant's
+// version adds, the catastrophe of an ask and the tasks a rerun or grant waits for, then `: ` and the reason.
 func decisionText(seq int64, ret orchestratorReturn) string {
 	head := taskLabel(seq) + " " + ret.Decision
 	switch ret.Decision {
 	case decisionGrant:
-		head += " " + strings.Join(ret.Files, ", ")
+		head += " " + strings.Join(ret.Version.Files, ", ")
 	case decisionAsk:
 		head += " (" + ret.Question.Catastrophe + ")"
 	}
