@@ -10,6 +10,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 // ImplementerSchema is the schema an implementer step's return must match: its status, a summary, the commit it made,
@@ -23,7 +24,8 @@ var ImplementerSchema string
 const redLogTailBytes = 8192
 
 // Brief renders the prompt of an implementer step for task T<seq> of epic: the task, the standing rules a commit is
-// rejected for, its Deliverable and files, with the rule for a file beyond them, its test changes and the guard's
+// rejected for, the lines naming its spec version when it is past version 1 (taskspec.Lines), its Deliverable and
+// files, with the rule for a file beyond them, its test changes and the guard's
 // rules, its gate with the command orreryd runs and what happens when it fails, its evidence with the line on how the
 // evidence judge reads it, the Requirements it covers, the epic's Must Not Ship entries, the rules the epic's task-stage
 // reviewers judge by, the red run's exit and verdict with the end of its stdout log and, when redStderr is not empty,
@@ -66,6 +68,7 @@ func Brief(
 			"Standing rules a commit is rejected for:",
 		},
 		bullets(rules),
+		taskspec.Lines(task),
 		[]string{
 			"Deliverable: " + task.Deliverable,
 			"Owned files (change only these):",
@@ -167,10 +170,11 @@ func shellWord(arg string) string {
 // plainShellChars are the characters a shell word may hold unquoted.
 const plainShellChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-"
 
-// ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, its files, its test
-// changes and Requirements, and the range the change under review spans from base to revision. The test_parsimony
-// reviewer's prompt ends with the Test cost section (reviewers.TestCost) of gate, the gate check the implementer's
-// commit passed, which is the zero check when the task has none.
+// ReviewPrompt renders the prompt of reviewer's review gate step for task T<seq> of epic: the task, the lines naming
+// its spec version when it is past version 1 (taskspec.Lines), its files, its test changes and Requirements, and the
+// range the change under review spans from base to revision. The test_parsimony reviewer's prompt ends with the Test
+// cost section (reviewers.TestCost) of gate, the gate check the implementer's commit passed, which is the zero check
+// when the task has none.
 func ReviewPrompt(
 	epic store.EpicRow, task store.EpicTask, reviewer, base, revision string, gate store.StepCheck,
 ) string {
@@ -180,6 +184,9 @@ func ReviewPrompt(
 	lines := slices.Concat(
 		[]string{
 			fmt.Sprintf("Task T%d of epic %s (%s): %s", task.Seq, epic.ID, epic.Title, task.Title),
+		},
+		taskspec.Lines(task),
+		[]string{
 			"Deliverable: " + task.Deliverable,
 			"Owned files:",
 		},

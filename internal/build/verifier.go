@@ -9,6 +9,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/taskspec"
 )
 
 // Subject is what a verifier step checks a finding of: the epic, its task at task stage and nil at epic stage, and the
@@ -89,15 +90,18 @@ const VerifierSchema = `{
   }
 }`
 
-// VerifierPrompt renders the prompt of a verifier step for one finding of task T<seq> of epic: the role, the task and
-// its Requirements, the range the change spans from base to revision, and the finding with its citation, location,
-// evidence and verify-by step.
+// VerifierPrompt renders the prompt of a verifier step for one finding of task T<seq> of epic: the role, the task, the
+// lines naming its spec version when it is past version 1 (taskspec.Lines), and its Requirements, the range the change
+// spans from base to revision, and the finding with its citation, location, evidence and verify-by step.
 func VerifierPrompt(
 	epic store.EpicRow, task store.EpicTask, base, revision string, finding store.TaskFinding,
 ) string {
 	body := slices.Concat(
 		[]string{
 			fmt.Sprintf("Task T%d of epic %s (%s): %s", task.Seq, epic.ID, epic.Title, task.Title),
+		},
+		taskspec.Lines(task),
+		[]string{
 			"Deliverable: " + task.Deliverable,
 			requirementsHeading,
 		},

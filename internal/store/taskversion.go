@@ -20,8 +20,8 @@ const (
 	SourceCarry        = "carry"
 )
 
-// versionApplied is the state of a version the task's spec takes. The planner's read overlays applied versions only.
-const versionApplied = "applied"
+// VersionApplied is the state of a version the task's spec takes. The planner's read overlays applied versions only.
+const VersionApplied = "applied"
 
 // TaskVersion is one stored version of a task's spec: the number the row stores, 2 or more, the source that wrote
 // it, the epic decision that did (Decision, empty for orreryd's rule grant), the step that did, and why. A field the

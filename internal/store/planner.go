@@ -334,7 +334,7 @@ func taskOf(
 // overlaid.
 func overlayVersions(task *EpicTask) {
 	for _, version := range task.Versions {
-		if version.State != versionApplied {
+		if version.State != VersionApplied {
 			continue
 		}
 		task.Version = version.Version
