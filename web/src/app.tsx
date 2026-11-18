@@ -30,6 +30,16 @@ import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Handover } from "./handover";
 import { HelpPanel } from "./helppanel";
 import { type Answer, InboxRow, isLinkClick, optionText, readerQuestion, stateWaiting } from "./inboxrow";
+import {
+  type BoxOpen,
+  type EscapeTarget,
+  handleKey,
+  isRow,
+  type Item,
+  type KeyContext,
+  type Popout,
+  type View,
+} from "./keymap";
 import { Mark } from "./mark";
 import { NeedEntry } from "./needentry";
 import { epicNeeds } from "./needs";
@@ -51,33 +61,14 @@ import { ReplyText } from "./text";
 import { type InboxMark, TitleRow } from "./titlerow";
 import { WorkerSessionPage } from "./workersession";
 
-type View = "attention" | "project" | "archived";
-
 // The inbox's state: pinned beside the page, docked beside it while no row has been opened, hidden once one has, or
 // popped out over the hidden page while the pointer is on the mark or a key has popped it out.
 type InboxState = "docked" | "pinned" | "hidden" | "flyout";
-
-// How a hidden inbox came out over the page: by the pointer on the mark, or by a key. Only a key pop-out is tucked by
-// Escape.
-type Popout = "none" | "hover" | "key";
 
 // The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
 interface Stream {
   key: string;
   conversation: Conversation;
-}
-
-// The row an Escape acts on: the row, the column whose composer holds the key, and the row's state at the press.
-interface EscapeTarget {
-  row: Row;
-  column: "cursor" | "pinned";
-  state: string;
-}
-
-// A reply box an opening focuses: the cursor's or the pinned column's box, by the key of the row it holds.
-interface BoxOpen {
-  column: "cursor" | "pinned";
-  key: string;
 }
 
 // The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
@@ -137,9 +128,6 @@ interface SteppedTo {
   step: string;
 }
 
-// An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
-type Item = Row | EpicItem | StepItem;
-
 // The row the palette answered: the pane Picker.Run answered, or the session Control.Start started, by its kind and id.
 interface PendingTarget {
   kind: Row["kind"];
@@ -164,9 +152,6 @@ const archivedTitle = "Archived";
 // The most entries one page of an epic's history asks for.
 const historyPageSize = 200;
 const heldMark = "‖";
-
-// The keys that act on the list. While the inbox is hidden, one of them pops it out by key and does nothing else.
-const inboxListKeys = new Set(["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "a", "p", "v"]);
 
 // The query of the wide layout, the same one style.css's wide block uses. Only that layout hides, pops out or pins the
 // inbox: a narrower window always shows it docked, as the stacked layout does.
@@ -1062,222 +1047,51 @@ export function App({
     return null;
   };
 
-  const handleKey = (event: KeyboardEvent) => {
-    // ⌘K and Ctrl+K open the palette anywhere, a text box included.
-    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      setPickerOpen(true);
-      return;
-    }
-    if (event.ctrlKey || event.metaKey || event.altKey) {
-      return;
-    }
-    // While the palette is open it owns the keys: Escape closes it, and every other key is left to the palette's own
-    // controls, so the list keeps its keys and a focused row or button keeps its native Enter.
-    if (pickerOpen) {
-      if (event.key === "Escape") {
-        setPickerOpen(false);
-        event.preventDefault();
-      }
-      return;
-    }
-    // While a drawn entry's ⋯ menu is open, Escape closes it and does nothing else: it takes back and interrupts nothing.
-    if (event.key === "Escape" && openMenu !== null) {
-      setMenuKey(null);
-      event.preventDefault();
-      return;
-    }
-    const input = inputRef.current;
-    if (input !== null && document.activeElement === input) {
-      if (event.key === "Enter") {
-        input.blur();
-      } else if (event.key === "Escape") {
-        setFilter("");
-        input.blur();
-      }
-      return;
-    }
-    // Keys typed in a text box are text: only Escape leaves it, and in the cursor's or the pinned row's reply box Shift+Tab
-    // also leaves it, for the list. That covers the reply boxes and the answer box. Escape in the cursor's or the pinned
-    // row's reply box takes its queued messages back, as Escape outside a box does; any other box is only left.
-    const focused = document.activeElement;
-    if (focused instanceof HTMLElement && (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")) {
-      if (event.key === "Escape") {
-        const target = replyBoxTarget(focused);
-        if (target === null) {
-          focused.blur();
-        } else {
-          void escapeRow(target, focused);
-        }
-      } else if (event.key === "Tab" && event.shiftKey && replyBoxTarget(focused) !== null) {
-        // Shift+Tab takes the focus to the list's cursor row. It takes nothing back and interrupts nothing.
-        event.preventDefault();
-        focused.blur();
-        focusCursorRow();
-      }
-      return;
-    }
-    // A focused button keeps its own Enter, so + Ask opens the palette and Enter writes no seen.
-    if (event.key === "Enter" && focused instanceof HTMLElement && focused.tagName === "BUTTON") {
-      return;
-    }
-
-    const afterG = pendingG.current;
-    pendingG.current = false;
-    // While the inbox is hidden, a list key pops it out by key and does nothing else, so the cursor never moves unseen.
-    if (inboxHidden && inboxListKeys.has(event.key)) {
-      setPopout("key");
-      event.preventDefault();
-      return;
-    }
-    switch (event.key) {
-      case "g":
-        if (afterG) {
-          moveTo(0);
-        } else {
-          pendingG.current = true;
-        }
-        break;
-      case "j":
-      case "ArrowDown":
-        if (index >= 0) {
-          moveTo(index + 1);
-        }
-        break;
-      case "k":
-      case "ArrowUp":
-        if (index >= 0) {
-          moveTo(index - 1);
-        }
-        break;
-      case "G":
-        moveTo(flat.length - 1);
-        break;
-      case "a":
-        setView("attention");
-        break;
-      case "p":
-        setView("project");
-        break;
-      case "v":
-        setView("archived");
-        break;
-      case "A":
-        // A pane with no orrery_id and a step have no archive kind, so the key does nothing on either.
-        if (cursorItem !== null && cursorItem.kind !== "step") {
-          setArchive(cursorItem, true);
-        }
-        break;
-      case "w": {
-        const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
-        if (waiting >= 0) {
-          moveTo(waiting);
-        }
-        break;
-      }
-      case "n":
-        nextUnseen();
-        break;
-      case "N":
-        setPickerOpen(true);
-        break;
-      case "x":
-        if (cursorRow !== null) {
-          void writeSeen(cursorRow);
-        }
-        break;
-      case "Enter":
-        if (cursorRow !== null) {
-          setRowOpened(true);
-          setPopout("none");
-          void writeSeen(cursorRow);
-          // Enter opens the row into its reply box, as a click on the row does; x only marks it seen.
-          setBoxOpened({ column: "cursor", key: cursorRow.key });
-        }
-        break;
-      case "b":
-        // b pops a hidden inbox out by key, and tucks a key-popped one back.
-        if (keyPopped) {
-          setPopout("none");
-        } else if (inboxHidden) {
-          setPopout("key");
-        }
-        break;
-      case "B":
-        togglePin();
-        break;
-      case "h":
-      case "ArrowLeft":
-        backOneCrumb();
-        break;
-      case "e":
-        if (cursorRow !== null) {
-          void writeSeen(cursorRow);
-          nextUnseen();
-        }
-        break;
-      case "/":
-        inputRef.current?.focus();
-        break;
-      case "i":
-        if (cursorStep !== null) {
-          stepInputs.current.get(cursorStepKey)?.focus();
-        } else {
-          composerInputs.current.get(cursorRowKey)?.focus();
-        }
-        break;
-      case "1":
-        answerCursor(1);
-        break;
-      case "2":
-        answerCursor(2);
-        break;
-      case "3":
-        answerCursor(3);
-        break;
-      case "o":
-        toggleOpen();
-        break;
-      case "|":
-        // An epic or step entry pins nothing and closes nothing: the pin is a row's.
-        if (cursorRow === null && cursorItem !== null) {
-          break;
-        }
-        if (pinned !== null) {
-          closePin();
-        } else if (cursorRow !== null) {
-          setPinned(cursorRow);
-          setPinStream(null);
-          setBoxOpened({ column: "pinned", key: cursorRow.key });
-        }
-        break;
-      case "m":
-        toggleStrips();
-        break;
-      case "?":
-        setHelpOpen((open) => !open);
-        break;
-      case "Escape":
-        // A key-popped inbox is tucked back, and nothing is interrupted; an open help panel closes too.
-        if (keyPopped) {
-          setPopout("none");
-          setHelpOpen(false);
-          return;
-        }
-        if (!helpOpen && cursorRow !== null) {
-          void escapeRow(
-            { row: cursorRow, column: "cursor", state: headState(cursorRow, cursorConversation?.state?.pane) },
-            null,
-          );
-        }
-        setHelpOpen(false);
-        return;
-      default:
-        return;
-    }
-    event.preventDefault();
+  // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
+  const keyContext: KeyContext = {
+    pickerOpen,
+    openMenu,
+    helpOpen,
+    inboxHidden,
+    keyPopped,
+    index,
+    flat,
+    cursorItem,
+    cursorRow,
+    cursorRowKey,
+    cursorStep,
+    cursorStepKey,
+    cursorPane: cursorConversation?.state?.pane,
+    pinned,
+    inputRef,
+    composerInputs,
+    stepInputs,
+    pendingG,
+    moveTo,
+    nextUnseen,
+    writeSeen,
+    setArchive,
+    escapeRow,
+    replyBoxTarget,
+    focusCursorRow,
+    backOneCrumb,
+    answerCursor,
+    toggleOpen,
+    closePin,
+    togglePin,
+    toggleStrips,
+    setPickerOpen,
+    setMenuKey,
+    setFilter,
+    setPopout,
+    setRowOpened,
+    setBoxOpened,
+    setView,
+    setPinned,
+    setPinStream,
+    setHelpOpen,
   };
-  handler.current = handleKey;
+  handler.current = (event: KeyboardEvent) => handleKey(event, keyContext);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => handler.current?.(event);
@@ -1878,11 +1692,6 @@ function resolveIndex(items: Item[], cursor: Cursor): number {
   }
   const found = items.findIndex((item) => item.key === cursor.key);
   return found >= 0 ? found : clamp(cursor.index, items.length);
-}
-
-// isRow tells a row from an epic or step entry by its kind.
-function isRow(item: Item): item is Row {
-  return item.kind === "pane" || item.kind === "session";
 }
 
 // noticeEntry finds the row or step a notice's key names among the entries the list shows: a pane row by pane id, or a
