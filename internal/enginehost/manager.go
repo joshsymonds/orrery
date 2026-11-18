@@ -2304,10 +2304,10 @@ func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 	}
 }
 
-// recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed and
-// each background task still running recorded stopped, unless its exit already recorded them. A stopped session's turn
-// has ended, and a stopped process delivers no exit of its own. The stop tells the owner the session changed. It
-// returns the error of the wait or of the write.
+// recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed, each
+// background task still running recorded stopped, and each prompt claude had not started recorded discarded, unless its
+// exit already recorded them. A stopped session's turn has ended, and a stopped process delivers no exit of its own.
+// The stop tells the owner the session changed. It returns the error of the wait or of the write.
 func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2316,8 +2316,8 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 		return nil
 	}
 	stopped := stateStopped
-	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EngineSet{ID: live.id,
-		Changes: store.EngineChanges{State: &stopped}})
+	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EnginePromptsDiscard{ID: live.id},
+		store.EngineSet{ID: live.id, Changes: store.EngineChanges{State: &stopped}})
 	err := m.writer.Commit(ctx, live.id, ops...)
 	if err != nil {
 		return fmt.Errorf("record session %s stopped: %w", live.id, err)
@@ -2329,10 +2329,11 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 }
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
-// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed and
-// each background task still running is recorded stopped. An interruption notifies the owner. A session whose exit
-// already recorded its state is left alone. Under a holder scope Close only detaches the session, so nothing is
-// recorded for it. It returns the error of the wait or of the write.
+// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed,
+// each background task still running is recorded stopped, and each prompt claude had not started is recorded
+// discarded. An interruption notifies the owner. A session whose exit already recorded its state is left alone. Under
+// a holder scope Close only detaches the session, so nothing is recorded for it. It returns the error of the wait or of
+// the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -2343,7 +2344,7 @@ func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	m.mu.Lock()
 	turning := live.turning
 	m.mu.Unlock()
-	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id})
+	ops := append(live.rec.stoppedTasks(), store.EngineTextClear{ID: live.id}, store.EnginePromptsDiscard{ID: live.id})
 	if turning {
 		interrupted := stateInterrupted
 		reason := interruptedReason

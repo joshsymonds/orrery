@@ -57,6 +57,8 @@
 # before {"cancelled":true}; for any other line it answers {"cancelled":false} and writes nothing. An interrupt with
 # cancel_queued cancels every queued line, answers with the list, ends the turn with its error result, then cancels the
 # opening line. A plain interrupt writes no lifecycle line.
+# DIEQUEUED streams a text block and reads the next line from stdin while its turn runs, which queues that line. It then
+# exits with status 0 without starting the line, so the process ends on its own with the line still queued (diequeued).
 #
 # Its init line lists the --agent it was given, or nothing when it was given none. A prompt that contains NOAGENT gets an
 # init line that lists nothing, as a claude that did not load the agent would.
@@ -618,6 +620,15 @@ gradle_build() {
 	turn_close
 }
 
+# diequeued streams a text block, then reads the next line from stdin while its turn runs. That line is queued, as
+# next_turn queues it, and is never started: the process exits with status 0 once it has read the line.
+diequeued() {
+	turn_open
+	text_block 0 "fake diequeued $n" "fake diequeued $n"
+	next_turn
+	exit 0
+}
+
 die() {
 	turn_open
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
@@ -722,6 +733,7 @@ while next; do
 				*TRICKLE*) mode=trickle ;;
 				*STALL*) mode=stall ;;
 				*TERMPROOF*) mode=termproof ;;
+				*DIEQUEUED*) mode=diequeued ;;
 				*DIE*) mode=die ;;
 				*BACKGROUND*) mode=background ;;
 				*BGEND*) mode=bgend ;;
@@ -760,6 +772,7 @@ while next; do
 				trickle) trickle ;;
 				stall) stall ;;
 				termproof) termproof ;;
+				diequeued) diequeued ;;
 				die) die ;;
 				background) background ;;
 				bgend) bgend ;;

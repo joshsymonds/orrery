@@ -441,6 +441,18 @@ func TestFakeClaudeQueueLifecyclePlainInterrupt(t *testing.T) {
 	}
 }
 
+// TestFakeClaudeQueueLifecycleEndsWithLineQueued checks that a DIEQUEUED prompt reads the line after it while its turn
+// runs, which queues that line and never starts it, and that the fake then exits on its own, so the trace ends with the
+// queued line and nothing after it.
+func TestFakeClaudeQueueLifecycleEndsWithLineQueued(t *testing.T) {
+	t.Parallel()
+	_, lines := fakeClaudeRun(t, queuedLine("queue-a", "DIEQUEUED one")+queuedLine("queue-b", "plain two"))
+	want := []string{"queued queue-a", "started queue-a", "queued queue-b"}
+	if got := queueTrace(t, lines); !reflect.DeepEqual(got, want) {
+		t.Fatalf("trace = %q, want %q", got, want)
+	}
+}
+
 // TestFakeClaudeSelfTurnTakesInQueuedLine checks that a BGSELFMID prompt plays the turn claude starts by itself once its
 // background task ends: the turn reads the next line from stdin during its Bash call, takes that line in with the call's
 // result, and its result lists that line's uuid alone, since no prompt opened the turn.
