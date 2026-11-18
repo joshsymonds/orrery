@@ -924,6 +924,18 @@ SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
 -- name: ListEpicTaskFindings :many
 SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position;
 
+-- name: InsertEpicTaskVersion :exec
+INSERT INTO epic_task_versions (
+    epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
+    state, created, settled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'applied', ?, ?);
+
+-- name: ListEpicTaskVersions :many
+SELECT * FROM epic_task_versions WHERE epic = ? ORDER BY task, version;
+
+-- name: MaxEpicTaskVersion :one
+SELECT CAST(COALESCE(MAX(version), 1) AS INTEGER) FROM epic_task_versions WHERE epic = ? AND task = ?;
+
 -- name: MaxEpicTellSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 

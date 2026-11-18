@@ -619,10 +619,11 @@ func (s crashStore) FailTask(
 }
 
 func (s crashStore) GrantTaskFiles(
-	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string,
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, grant store.TaskVersionInput,
+	at time.Time,
 ) error {
 	return s.w.act("GrantTaskFiles", func() error {
-		return wrapErr("grant files", s.Store.GrantTaskFiles(ctx, epic, seq, from, to, files))
+		return wrapErr("grant files", s.Store.GrantTaskFiles(ctx, epic, seq, from, to, grant, at))
 	})
 }
 
@@ -636,11 +637,11 @@ func (s crashStore) FailTaskDecided(
 }
 
 func (s crashStore) RerunTask(
-	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string, behind []int64,
-	decision store.TaskDecision, at time.Time,
+	ctx context.Context, epic string, seq int64, from, to store.TaskBuild, version store.TaskVersionInput,
+	behind []int64, decision store.TaskDecision, at time.Time,
 ) error {
 	return s.w.act("RerunTask", func() error {
-		return wrapErr("rerun task", s.Store.RerunTask(ctx, epic, seq, from, to, files, behind, decision, at))
+		return wrapErr("rerun task", s.Store.RerunTask(ctx, epic, seq, from, to, version, behind, decision, at))
 	})
 }
 

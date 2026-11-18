@@ -218,10 +218,13 @@ type Store interface {
 		ctx context.Context, epic string, seq int64, from store.TaskBuild, reason string, needsFiles []string,
 		decision store.TaskDecision, at time.Time,
 	) error
-	GrantTaskFiles(ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string) error
+	GrantTaskFiles(
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, grant store.TaskVersionInput,
+		at time.Time,
+	) error
 	RerunTask(
-		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, files []string, behind []int64,
-		decision store.TaskDecision, at time.Time,
+		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, version store.TaskVersionInput,
+		behind []int64, decision store.TaskDecision, at time.Time,
 	) error
 	AskTask(
 		ctx context.Context, epic string, seq int64, from, to store.TaskBuild, question store.EpicQuestionInput,
