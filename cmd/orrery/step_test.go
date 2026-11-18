@@ -23,9 +23,8 @@ import (
 )
 
 // stepsFake is an in-process Steps service for the step tests. Each request that reaches it takes the next answer of
-// script, then tail, and a cut answer drops the connection once the request is read. A ResumeStep, StepStatus or
-// WaitSteps the server answers is recorded as "Resume ID", "Status ID" or "Wait IDS timeout SECONDS", with IDS the ids
-// joined by commas. A WaitSteps is answered from waits, and rows holds the steps a StepStatus or WaitSteps names.
+// script, then tail, and a cut answer drops the connection once the request is read. A ResumeStep or StepStatus the
+// server answers is recorded as "Resume ID" or "Status ID". rows holds the steps a StepStatus names.
 type stepsFake struct {
 	enginev1connect.UnimplementedStepsHandler
 
@@ -35,7 +34,6 @@ type stepsFake struct {
 	attempts int      // requests that reached the server, cut or answered
 	calls    []string // calls the server answered
 	rows     map[string]*v1.Step
-	waits    []string // the step each WaitSteps ends, in order; "" ends none and times out
 }
 
 // arrive counts a request that reached the server and returns the answer it gets.
@@ -83,9 +81,9 @@ func (f *stepsFake) ResumeStep(
 // stepEndedAt is the unix second every step the fake ends is ended at.
 const stepEndedAt = 1700000100
 
-// stepRow returns the row of step id as the fake holds it: running, or ended at stepEndedAt.
-func stepRow(id string, ended bool) *v1.Step {
-	row := &v1.Step{Id: id, Agent: "claude", Workspace: "/work/" + id, Started: 1700000000}
+// stepRow returns the row of step s1 as the fake holds it: running, or ended at stepEndedAt.
+func stepRow(ended bool) *v1.Step {
+	row := &v1.Step{Id: "s1", Agent: "claude", Workspace: "/work/s1", Started: 1700000000}
 	if ended {
 		row.End = "done"
 		row.Status = "done"
@@ -130,55 +128,6 @@ func (f *stepsFake) StepStatus(
 		return nil, noStepError(id)
 	}
 	return connect.NewResponse(&v1.StepStatusResponse{Step: cloneStep(row)}), nil
-}
-
-// WaitSteps implements enginev1connect.StepsHandler. Each call takes the next entry of waits and ends that step, or ends
-// none for an entry of "". The answer names the first listed step that has ended, and every named step's row. Once waits
-// is used up, a call answers with the steps already ended, and fails when none has ended, so a test that expects an end
-// does not hang.
-func (f *stepsFake) WaitSteps(
-	ctx context.Context,
-	req *connect.Request[v1.WaitStepsRequest],
-) (*connect.Response[v1.WaitStepsResponse], error) {
-	ids := req.Msg.GetIds()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls = append(f.calls, fmt.Sprintf("Wait %s timeout %d", strings.Join(ids, ","), req.Msg.GetTimeoutSeconds()))
-	if err := answerError(ctx); err != nil {
-		return nil, err
-	}
-	for _, id := range ids {
-		if _, ok := f.rows[id]; !ok {
-			return nil, noStepError(id)
-		}
-	}
-	scripted := len(f.waits) > 0
-	if scripted {
-		end := f.waits[0]
-		f.waits = f.waits[1:]
-		if row, ok := f.rows[end]; ok && end != "" {
-			row.End = "done"
-			row.Status = "done"
-			row.Ended = stepEndedAt
-		}
-	}
-	var endedRow *v1.Step
-	steps := make([]*v1.Step, 0, len(ids))
-	for _, id := range ids {
-		row := f.rows[id]
-		if endedRow == nil && row.GetEnd() != "" {
-			endedRow = row
-		}
-		steps = append(steps, cloneStep(row))
-	}
-	if endedRow == nil && !scripted {
-		return nil, connectErr(connect.CodeInternal, "fake: no WaitSteps answer scripted")
-	}
-	resp := &v1.WaitStepsResponse{Steps: steps}
-	if endedRow != nil {
-		resp.Ended = cloneStep(endedRow)
-	}
-	return connect.NewResponse(resp), nil
 }
 
 // serveStepsFake serves fake as Steps on the session socket beside the daemon socket at daemon. The server is closed at

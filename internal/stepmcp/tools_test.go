@@ -360,7 +360,6 @@ func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
 		"step_start",
 		"step_status",
 		"step_stop",
-		"step_wait",
 	}
 	slices.Sort(names)
 	if !slices.Equal(names, want) {
@@ -709,104 +708,6 @@ func TestStepResumeResumesALimitedStepOnce(t *testing.T) {
 	}
 }
 
-func TestStepWaitListsALimitedStepWithItsReset(t *testing.T) {
-	fake := &fakeSteps{rows: []store.StepRow{limitedRow("s1"), runningRow("s2")}}
-	p := newPeer(t, startDaemon(t, fake), nil)
-
-	outcome := p.tool("step_wait", `{"ids":["s1","s2"],"timeoutSeconds":5}`)
-	if outcome.isError {
-		t.Fatalf("step_wait reported an error: %s", outcome.text)
-	}
-	steps, ok := decodeObject(t, outcome.text)["steps"].([]any)
-	if !ok || len(steps) != 2 {
-		t.Fatalf("step_wait steps = %s, want two steps", outcome.text)
-	}
-	limited, ok := steps[0].(map[string]any)
-	if !ok || limited["id"] != "s1" || limited["limited"] != true ||
-		limited["limitKind"] != "usage" || limited["limitResets"] != float64(1700003600) {
-		t.Fatalf("step_wait limited step = %v, want s1 limited by usage until 1700003600", steps[0])
-	}
-	running, ok := steps[1].(map[string]any)
-	if !ok || running["id"] != "s2" || running["limited"] != false {
-		t.Fatalf("step_wait running step = %v, want s2 not limited", steps[1])
-	}
-}
-
-func TestStepWaitReturnsEndedStepAtOnce(t *testing.T) {
-	ended := fullRow()
-	fake := &fakeSteps{ended: &ended, rows: []store.StepRow{ended, runningRow("s2")}}
-	p := newPeer(t, startDaemon(t, fake), nil)
-
-	outcome := p.tool("step_wait", `{"ids":["s1","s2"]}`)
-	if outcome.isError {
-		t.Fatalf("step_wait reported an error: %s", outcome.text)
-	}
-	got := decodeObject(t, outcome.text)
-	endedStep, ok := got["ended"].(map[string]any)
-	if !ok || endedStep["id"] != "s1" || endedStep["status"] != "pass" {
-		t.Fatalf("step_wait ended = %v, want step s1 with status pass", got["ended"])
-	}
-	if steps, ok := got["steps"].([]any); !ok || len(steps) != 2 {
-		t.Fatalf("step_wait steps = %v, want two steps", got["steps"])
-	}
-}
-
-func TestStepWaitTimeoutReturnsNullEndedAndEveryStatus(t *testing.T) {
-	fake := &fakeSteps{rows: []store.StepRow{runningRow("s1"), runningRow("s2")}}
-	p := newPeer(t, startDaemon(t, fake), nil)
-
-	outcome := p.tool("step_wait", `{"ids":["s1","s2"],"timeoutSeconds":5}`)
-	if outcome.isError {
-		t.Fatalf("step_wait reported an error: %s", outcome.text)
-	}
-	got := decodeObject(t, outcome.text)
-	if value, ok := got["ended"]; !ok || value != nil {
-		t.Fatalf("step_wait at timeout ended = %v (present %t), want null", value, ok)
-	}
-	steps, ok := got["steps"].([]any)
-	if !ok || len(steps) != 2 {
-		t.Fatalf("step_wait steps = %v, want two running steps", got["steps"])
-	}
-	for i, id := range []string{"s1", "s2"} {
-		step, ok := steps[i].(map[string]any)
-		if !ok || step["id"] != id || step["status"] != "" || step["ended"] != float64(0) {
-			t.Fatalf("step_wait step %d = %v, want running step %s", i, steps[i], id)
-		}
-	}
-	want := []waitCall{{ids: []string{"s1", "s2"}, timeout: 5 * time.Second}}
-	if got := fake.calls().waits; !reflect.DeepEqual(got, want) {
-		t.Fatalf("step_wait reached the daemon as %+v, want %+v", got, want)
-	}
-}
-
-func TestStepWaitClampsTimeoutToMaxWait(t *testing.T) {
-	const maxWait = 25 * time.Minute
-	cases := []struct {
-		name      string
-		arguments string
-		want      time.Duration
-	}{
-		{name: "omitted", arguments: `{"ids":["s1"]}`, want: maxWait},
-		{name: "above the maximum", arguments: `{"ids":["s1"],"timeoutSeconds":3600}`, want: maxWait},
-		{name: "above uint32", arguments: `{"ids":["s1"],"timeoutSeconds":4294967296}`, want: maxWait},
-		{name: "below the maximum", arguments: `{"ids":["s1"],"timeoutSeconds":90}`, want: 90 * time.Second},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fake := &fakeSteps{rows: []store.StepRow{runningRow("s1")}}
-			p := newPeer(t, startDaemon(t, fake), nil)
-
-			if outcome := p.tool("step_wait", tc.arguments); outcome.isError {
-				t.Fatalf("step_wait reported an error: %s", outcome.text)
-			}
-			want := []waitCall{{ids: []string{"s1"}, timeout: tc.want}}
-			if got := fake.calls().waits; !reflect.DeepEqual(got, want) {
-				t.Fatalf("step_wait reached the daemon as %+v, want %+v", got, want)
-			}
-		})
-	}
-}
-
 func TestDaemonErrorsReadAsCodeAndMessageToolErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -828,8 +729,8 @@ func TestDaemonErrorsReadAsCodeAndMessageToolErrors(t *testing.T) {
 			args: `{"id":"s1"}`, want: "failed_precondition: step is not limited",
 		},
 		{
-			name: "other failure", err: errors.New("disk on fire"), tool: "step_wait",
-			args: `{"ids":["s1"]}`, want: "internal: disk on fire",
+			name: "other failure", err: errors.New("disk on fire"), tool: "step_status",
+			args: `{"id":"s1"}`, want: "internal: disk on fire",
 		},
 	}
 	for _, tc := range cases {
@@ -923,27 +824,6 @@ func TestBadArgumentsAreToolErrorsAndServerKeepsServing(t *testing.T) {
 		{name: "stop id wrong type", tool: "step_stop", args: `{"id":7}`, want: "id"},
 		{name: "resume empty id", tool: "step_resume", args: `{"id":""}`, want: "id is required"},
 		{name: "resume missing id", tool: "step_resume", args: `{}`, want: "id is required"},
-		{name: "wait empty ids", tool: "step_wait", args: `{"ids":[]}`, want: "ids is required"},
-		{name: "wait missing ids", tool: "step_wait", args: `{"timeoutSeconds":5}`, want: "ids is required"},
-		{
-			name: "wait empty id in ids",
-			tool: "step_wait",
-			args: `{"ids":["s1",""]}`,
-			want: "must not contain an empty id",
-		},
-		{
-			name: "wait negative timeout",
-			tool: "step_wait",
-			args: `{"ids":["s1"],"timeoutSeconds":-1}`,
-			want: "timeoutSeconds",
-		},
-		{
-			name: "wait fractional timeout",
-			tool: "step_wait",
-			args: `{"ids":["s1"],"timeoutSeconds":1.5}`,
-			want: "timeoutSeconds",
-		},
-		{name: "wait ids not strings", tool: "step_wait", args: `{"ids":[1]}`, want: "ids"},
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
