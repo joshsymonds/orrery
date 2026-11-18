@@ -53,6 +53,12 @@ function inboxState(root: HTMLElement): string | null {
 const beaconPrompt = "The nightly backfill takes forty minutes. Find out why and fix it.";
 const lampFragment = "Full jitter is in";
 
+// The open decision of the rota-export epic, and the planning conversation the talk dock draws beside the epic page.
+// The Talk menu and the dock are drawn on the epic page only in the talk states, so the epic's own state checks neither.
+const rotaQuestion = "Bump the embedded tz database?";
+const rotaPrompt = "Why did csv-writer need a retry?";
+const talkDock = 'aside.dock[aria-label="talk"]';
+
 // listHome is Page/list-home: the attention rows, with the inbox docked beside the cursor's reader on pane %12.
 function listHome(root: HTMLElement): boolean {
   return listView(root) === "attention" && inboxState(root) === "docked";
@@ -66,6 +72,25 @@ function lampWorking(root: HTMLElement): boolean {
 // beaconQuestion is Page/session-beacon-question: the inbox hidden under the reader of pane %12.
 function beaconQuestion(root: HTMLElement): boolean {
   return inboxState(root) === "hidden" && (root.textContent ?? "").includes(beaconPrompt);
+}
+
+// rotaDecision is Page/epic-rota-decision: Q1 is drawn in the now block, with no Talk menu and no talk dock drawn.
+function rotaDecision(root: HTMLElement): boolean {
+  return (
+    root.querySelector(".now-block .answer .question")?.textContent.includes(rotaQuestion) === true &&
+    root.querySelector("ul.talk") === null &&
+    root.querySelector(talkDock) === null
+  );
+}
+
+// talkMenu is Page/talk-rota-menu: the Talk menu is drawn open, with no talk dock beside the epic page.
+function talkMenu(root: HTMLElement): boolean {
+  return root.querySelector("ul.talk") !== null && root.querySelector(talkDock) === null;
+}
+
+// talkDocked is Page/talk-rota-rotaplan-docked: the talk dock is drawn with the planning conversation in it.
+function talkDocked(root: HTMLElement): boolean {
+  return root.querySelector(talkDock)?.textContent.includes(rotaPrompt) === true;
 }
 
 // assertNoFailure fails unless the story drew no failure element, so no call it made was refused.
@@ -330,14 +355,13 @@ test("FixtureTransport: page/list-home, page/session-lamp-working and page/sessi
 
 test("FixtureTransport: page/epic-rota-decision draws the open decision on the epic page", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const decision = ".now-block .answer .question";
   return withStory(
     t,
     Page["epic-rota-decision"],
-    (root) => root.querySelector(decision)?.textContent.includes("Bump the embedded tz database?") === true,
+    rotaDecision,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector(decision)?.textContent.includes("Bump the embedded tz database?"), "Q1 is drawn");
+      assert.ok(rotaDecision(root), "Q1 is drawn, with no Talk menu or talk dock");
     },
   );
 });
@@ -409,15 +433,13 @@ test("FixtureTransport: page/worker-rota-export-cli-implementer draws the worker
 
 test("FixtureTransport: page/talk-rota-rotaplan-docked draws the planning conversation docked beside the epic page", (t) => {
   mockTimers(t, ["setTimeout"]);
-  const dock = 'aside.dock[aria-label="talk"]';
-  const prompt = "Why did csv-writer need a retry?";
   return withStory(
     t,
     Page["talk-rota-rotaplan-docked"],
-    (root) => root.querySelector(dock)?.textContent.includes(prompt) === true,
+    talkDocked,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector(dock)?.textContent.includes(prompt), "the planning conversation is docked");
+      assert.ok(talkDocked(root), "the planning conversation is docked");
     },
   );
 });
@@ -427,12 +449,29 @@ test("FixtureTransport: page/talk-rota-menu draws the Talk menu", (t) => {
   return withStory(
     t,
     Page["talk-rota-menu"],
-    (root) => root.querySelector("ul.talk") !== null,
+    talkMenu,
     (root) => {
       assertNoFailure(root);
-      assert.ok(root.querySelector("ul.talk") !== null, "the Talk menu is open");
+      assert.ok(talkMenu(root), "the Talk menu is open, with no talk dock");
     },
   );
+});
+
+test("FixtureTransport: page/epic-rota-decision, page/talk-rota-menu and page/talk-rota-rotaplan-docked each draw their own state, and fail the other two predicates", async (t) => {
+  mockTimers(t, ["setTimeout"]);
+  const predicates = [
+    ["epic-rota-decision", rotaDecision],
+    ["talk-rota-menu", talkMenu],
+    ["talk-rota-rotaplan-docked", talkDocked],
+  ] as const;
+  for (const [state, own] of predicates) {
+    await withStory(t, Page[state], own, (root) => {
+      assertNoFailure(root);
+      for (const [other, predicate] of predicates) {
+        assert.equal(predicate(root), other === state, `${state}: the ${other} predicate`);
+      }
+    });
+  }
 });
 
 test("FixtureTransport: page's keys are exactly the 11 catalog names of its scenario states", () => {
