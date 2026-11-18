@@ -621,7 +621,7 @@ func insertQuestions(
 				return fmt.Errorf("question %q: %w", question.Label, replaceErr)
 			}
 		}
-		return queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
+		return queries.InsertEpicQuestion(withEpicEvent(ctx), sqlcgen.InsertEpicQuestionParams{
 			Epic: epic, Seq: seq, Turn: turn, Text: question.Text, Label: question.Label, Choices: string(choices),
 			Recommended: question.Recommended, Why: question.Why, Confidence: question.Confidence, Replaces: replaces,
 		})

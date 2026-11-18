@@ -255,7 +255,7 @@ func insertParkQuestion(
 	if err != nil {
 		return 0, fmt.Errorf("choices of park question %d of epic %s: %w", seq, epic, err)
 	}
-	if err = queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
+	if err = queries.InsertEpicQuestion(withEpicEvent(ctx), sqlcgen.InsertEpicQuestionParams{
 		Epic: epic, Seq: seq, Turn: 0, Text: question.Text, Label: question.Label, Choices: string(choices),
 		Recommended: question.Recommended, Why: question.Why, Confidence: question.Confidence, Replaces: replaces,
 	}); err != nil {
